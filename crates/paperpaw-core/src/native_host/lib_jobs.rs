@@ -22,16 +22,27 @@
 //!   file, as a move's is: at `to` it arrived and is catalogued; at `from`
 //!   only, nothing happened and the entry is dropped.
 //!
+//! - **Only the file the entry names is removed.** The entry holds each file's
+//!   identity from before it was written; a replay, or a later book's step,
+//!   removes a file only while it is still that one. A different file at the
+//!   path (copied back, downloaded again) stays; what was kept for the deleted
+//!   book goes all the same.
+//! - **A transient card error keeps the entry** and the step is retried by the
+//!   pump (`Pump::Wait`) for as long as it lasts: every move, delete and import
+//!   answers `ERR_BUSY` meanwhile. The entry is never dropped for a card
+//!   error (a replay after a restart finishes it); a give-up would leave
+//!   deleted books' data behind or drop a half-done import.
+//!
 //! The journal holds one entry: while any job (this or a move) is open, every
 //! `begin` answers `ERR_BUSY`, and the move machine leaves a record of these
 //! kinds alone (`Opened::Other`).
 use super::{
     book_data_steps::{self, Progress},
-    lib_jobs_journal::{DELETE_MAX, JobRecord},
+    lib_jobs_journal::{Book, DELETE_MAX, JobRecord},
     lib_moves_journal::Journal,
     storage::status,
 };
-use alloc::{format, string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
@@ -166,11 +177,38 @@ fn is_folder(storage: &dyn Storage, path: &str) -> Result<bool, i32> {
 enum Removed {
     /// Gone (or never there).
     Gone,
-    /// The card refuses for good: left.
+    /// Left as it is: the card refuses it for good. Nothing is forgotten for
+    /// a book that is still there.
     Left,
+    /// **Not the file the entry was written for** (a copy put there since):
+    /// it is never removed, but the deleted book's data goes all the same
+    /// (the user deleted it with its data; the new file must not show the old
+    /// position and fields).
+    Replaced,
 }
 
-fn remove_file(storage: &dyn Storage, path: &str) -> Result<Removed, i32> {
+/// The storage's identity of what is at `path`: `Ok(Some(0))` nothing is
+/// there, `Ok(None)` something is, with no identity (never removed on a
+/// guess).
+fn found(storage: &dyn Storage, path: &str) -> Result<Option<u64>, i32> {
+    match storage.entry_identity(path) {
+        Ok(Some(id)) => Ok(Some(id)),
+        Ok(None) | Err(StorageError::NotFound) => {
+            Ok(if storage.exists(path) { None } else { Some(0) })
+        }
+        Err(error) => Err(status(error)),
+    }
+}
+
+/// Removes the file at `path` only while it is the one with identity `id`
+/// (0: none was there): a replay after a restart, or a later book's step, must
+/// not delete what was put at the path since.
+fn remove_file(storage: &dyn Storage, path: &str, id: u64) -> Result<Removed, i32> {
+    match found(storage, path)? {
+        Some(0) => return Ok(Removed::Gone),
+        Some(now) if now == id => {}
+        _ => return Ok(Removed::Replaced),
+    }
     match storage.remove(path) {
         Ok(()) | Err(StorageError::NotFound) => Ok(Removed::Gone),
         Err(error) if book_data_steps::permanent(error) => Ok(Removed::Left),
@@ -178,15 +216,23 @@ fn remove_file(storage: &dyn Storage, path: &str) -> Result<Removed, i32> {
     }
 }
 
-/// The book and its `.bak` sibling.
-fn remove_files(storage: &dyn Storage, path: &str) -> Result<Removed, i32> {
-    let bak = format!("{path}.bak");
-    let first = remove_file(storage, path)?;
-    let second = remove_file(storage, &bak)?;
-    Ok(match (first, second) {
-        (Removed::Gone, Removed::Gone) => Removed::Gone,
-        _ => Removed::Left,
-    })
+/// `<path>.bak`, with fallible allocation.
+fn bak_path(path: &str) -> Result<String, i32> {
+    let mut bak = String::new();
+    bak.try_reserve_exact(path.len() + 4)
+        .map_err(|_| ERR_NO_MEMORY)?;
+    bak.push_str(path);
+    bak.push_str(".bak");
+    Ok(bak)
+}
+
+/// The book and its `.bak` sibling. The answer is the book's; a `.bak` that
+/// is not the entry's or that the card refuses is left (it is no book).
+fn remove_files(storage: &dyn Storage, book: &Book) -> Result<Removed, i32> {
+    let first = remove_file(storage, &book.path, book.id)?;
+    let bak = bak_path(&book.path)?;
+    let _ = remove_file(storage, &bak, book.bak)?;
+    Ok(first)
 }
 
 impl Jobs {
@@ -198,11 +244,13 @@ impl Jobs {
 
     /// Whether `path` is a book of a delete that is not carried yet: its file
     /// is gone, its catalog row may not be.
-    pub(crate) fn pending_delete(&self, path: &str) -> bool {
+    /// `same` says whether a path of the job names `path` by the storage's own
+    /// rules (case, 8.3 aliases).
+    pub(crate) fn pending_delete(&self, same: &dyn Fn(&str) -> bool) -> bool {
         self.job.try_borrow().map_or(true, |job| {
             matches!(
                 job.as_ref().map(|job| &job.record),
-                Some(JobRecord::Delete { paths, .. }) if paths.iter().any(|p| p == path)
+                Some(JobRecord::Delete { books, .. }) if books.iter().any(|b| same(&b.path))
             )
         })
     }
@@ -231,33 +279,49 @@ impl Jobs {
         if slot.is_some() {
             return Err(ERR_BUSY);
         }
-        let mut owned: Vec<String> = Vec::new();
-        owned
+        // The identities of what is there now, read before anything is
+        // written; a book the storage cannot tell is refused (nothing could
+        // tell it from another after a cut), one that is gone is carried
+        // (only forgotten).
+        let mut answers = [0; DELETE_MAX];
+        let mut books: Vec<Book> = Vec::new();
+        books
             .try_reserve_exact(paths.len())
             .map_err(|_| ERR_NO_MEMORY)?;
-        for path in paths {
-            owned.push(own(path.trim_matches('/'))?);
+        let mut which = [0_usize; DELETE_MAX];
+        for (n, path) in paths.iter().enumerate() {
+            let path = own(path.trim_matches('/'))?;
+            let bak = bak_path(&path)?;
+            let (Some(id), Some(bak_id)) = (found(storage, &path)?, found(storage, &bak)?) else {
+                answers[n] = ERR_UNSUPPORTED;
+                continue;
+            };
+            which[books.len()] = n;
+            books.push(Book {
+                path,
+                id,
+                bak: bak_id,
+            });
         }
-        let record = JobRecord::Delete {
-            with_notes,
-            paths: owned,
-        };
+        if books.is_empty() {
+            return Ok(answers);
+        }
+        let record = JobRecord::Delete { with_notes, books };
         // Written, synced, before the first file goes; refused while any
         // entry is there.
         Journal(storage).write_job(&record)?;
-        let JobRecord::Delete { paths: owned, .. } = &record else {
+        let JobRecord::Delete { books, .. } = &record else {
             return Err(ERR_INVALID);
         };
-        let mut answers = [0; DELETE_MAX];
         let mut skipped = 0_u8;
-        for (n, path) in owned.iter().enumerate() {
-            match remove_files(storage, path) {
-                Ok(Removed::Gone) => {}
+        for (at, book) in books.iter().enumerate() {
+            match remove_files(storage, book) {
+                Ok(Removed::Gone | Removed::Replaced) => {}
                 Ok(Removed::Left) => {
-                    skipped |= 1 << n;
-                    answers[n] = ERR_IO;
+                    skipped |= 1 << at;
+                    answers[which[at]] = ERR_IO;
                 }
-                Err(error) => answers[n] = error,
+                Err(error) => answers[which[at]] = error,
             }
         }
         *slot = Some(Job {
@@ -343,8 +407,15 @@ impl Jobs {
                 match verdict {
                     Ok(true) => *slot = Some(job),
                     Ok(false) => {
-                        // Nothing moved: no entry, so no job.
-                        let _ = journal.clear_entry();
+                        // Nothing moved: no entry, so no job. An entry that
+                        // cannot be cleared now stays a job in `Decide`: the
+                        // next step clears it (no job would block the
+                        // journal until a restart).
+                        if journal.clear_entry().is_err() {
+                            let mut undecided = job;
+                            undecided.phase = Phase::Decide;
+                            *slot = Some(undecided);
+                        }
                     }
                     Err(_) => {
                         let mut undecided = job;
@@ -471,7 +542,7 @@ impl Jobs {
     }
 
     fn delete_step(job: &mut Job, host: &dyn JobHost) -> Result<(), i32> {
-        let JobRecord::Delete { with_notes, paths } = &job.record else {
+        let JobRecord::Delete { with_notes, books } = &job.record else {
             return Ok(());
         };
         if job.phase == Phase::Changed {
@@ -479,16 +550,17 @@ impl Jobs {
             job.phase = Phase::Done;
             return Ok(());
         }
-        let Some(path) = paths.get(job.at) else {
+        let Some(book) = books.get(job.at) else {
             job.phase = Phase::Done;
             return Ok(());
         };
+        let path = book.path.as_str();
         let left = job.skipped & (1 << job.at) != 0;
         job.phase = match job.phase {
             // A replay removes again; what is gone is done. A refusal for
             // good leaves the book and its data.
-            Phase::Files => match remove_files(host.storage(), path)? {
-                Removed::Gone if !left => Phase::Forget(RemovalPhase::Details),
+            Phase::Files => match remove_files(host.storage(), book)? {
+                Removed::Gone | Removed::Replaced if !left => Phase::Forget(RemovalPhase::Details),
                 _ => {
                     job.skipped |= 1 << job.at;
                     next_book(job)
@@ -546,7 +618,7 @@ impl Jobs {
 fn next_book(job: &mut Job) -> Phase {
     job.at += 1;
     let count = match &job.record {
-        JobRecord::Delete { paths, .. } => paths.len(),
+        JobRecord::Delete { books, .. } => books.len(),
         JobRecord::Import { .. } => 0,
     };
     if job.at < count {

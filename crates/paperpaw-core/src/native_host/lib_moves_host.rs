@@ -116,7 +116,7 @@ impl CardMoves {
     }
 
     /// Whether two spellings name one path on this card.
-    fn same_path(&self, a: &str, b: &str) -> bool {
+    pub(super) fn same_path(&self, a: &str, b: &str) -> bool {
         self.within(a, b) && self.within(b, a)
     }
 

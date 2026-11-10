@@ -178,8 +178,8 @@ fn a_delete_removes_the_files_at_once_and_the_rest_in_steps() {
     assert!(card.exists(JOURNAL));
     assert!(BOOKS.iter().all(|path| !card.exists(path)));
     assert!(!card.exists("books/a.epub.bak"));
-    assert!(jobs.active() && jobs.pending_delete("books/sub/b.txt"));
-    assert!(!jobs.pending_delete("books/other.txt"));
+    assert!(jobs.active() && jobs.pending_delete(&|p| p == "books/sub/b.txt"));
+    assert!(!jobs.pending_delete(&|p| p == "books/other.txt"));
     // One job at a time, of any kind.
     assert_eq!(jobs.begin_delete(&card, &BOOKS[..1], false), Err(ERR_BUSY));
     assert_eq!(
@@ -190,7 +190,7 @@ fn a_delete_removes_the_files_at_once_and_the_rest_in_steps() {
     host.pieces.set(2);
     run(&jobs, &host);
     assert!(!card.exists(JOURNAL) && !jobs.active());
-    assert!(!jobs.pending_delete("books/a.epub"));
+    assert!(!jobs.pending_delete(&|p| p == "books/a.epub"));
     let log = host.log.borrow().join("|");
     // Book by book: details, marks (with the notes flag), data, event; one
     // `library_changed` at the end.
@@ -245,6 +245,9 @@ fn a_book_that_is_gone_is_forgotten_and_one_the_card_refuses_is_left() {
                 return Err(StorageError::Unsupported);
             }
             self.0.remove(p)
+        }
+        fn entry_identity(&self, p: &str) -> Result<Option<u64>, StorageError> {
+            self.0.entry_identity(p)
         }
         fn rename(&self, f: &str, t: &str) -> Result<(), StorageError> {
             self.0.rename(f, t)
@@ -318,6 +321,111 @@ fn a_delete_cut_at_every_action_is_finished_or_never_started() {
         }
     }
     assert!(cuts_seen > 0, "the cut reached the steps");
+}
+
+/// M1: a replay (or a later book's step) never deletes a file that was put at
+/// the path after the entry was written: only the file the entry names, by the
+/// storage's identity, is removed.
+#[test]
+fn a_file_put_at_the_path_since_is_never_deleted() {
+    // A cut after the entry, before any file went: a new file is put there
+    // (copied back by a PC), then the start finishes the job.
+    let card = card();
+    let cut = Cut::after(&card, 3);
+    let jobs = Jobs::default();
+    let _ = jobs.begin_delete(&cut, &BOOKS, false);
+    assert!(card.exists(JOURNAL), "the entry is on the card");
+    card.remove(BOOKS[1]).ok();
+    card.write(BOOKS[1], b"copied back").unwrap();
+    card.remove("books/a.epub.bak").unwrap();
+    card.write("books/a.epub.bak", b"a newer bak").unwrap();
+    cut.heal();
+    let again = Jobs::default();
+    again.start(&cut).unwrap();
+    let host = Host::new(&cut);
+    run(&again, &host);
+    let mut buffer = [0_u8; 16];
+    let n = card.read_at(BOOKS[1], 0, &mut buffer).unwrap();
+    assert_eq!(&buffer[..n], b"copied back");
+    assert!(
+        card.exists("books/a.epub.bak"),
+        "a .bak that is not the entry's stays"
+    );
+    // The books that were not replaced went; the new file at the path stays,
+    // and what was kept for the deleted book goes all the same.
+    assert!(!card.exists(BOOKS[0]) && !card.exists(BOOKS[2]));
+    assert_eq!(host.saw(&std::format!("kept {}", BOOKS[1])), 1);
+    assert_eq!(host.saw(&std::format!("removed {}", BOOKS[0])), 1);
+    assert!(!card.exists(JOURNAL));
+}
+
+/// Without a restart: a book's own step finds a file there that the entry
+/// does not name.
+#[test]
+fn a_file_put_there_between_the_call_and_the_book_step_stays() {
+    let card = card();
+    let jobs = Jobs::default();
+    jobs.begin_delete(&card, &BOOKS, false).unwrap();
+    card.write(BOOKS[2], b"downloaded again").unwrap();
+    let host = Host::new(&card);
+    run(&jobs, &host);
+    assert!(card.exists(BOOKS[2]));
+    assert_eq!(host.saw(&std::format!("kept {}", BOOKS[2])), 1);
+    assert!(!card.exists(JOURNAL));
+}
+
+/// A book the storage cannot tell from another after a cut is refused; one
+/// that is gone is answered and carried.
+#[test]
+fn a_book_without_an_identity_is_refused_and_a_gone_one_is_carried() {
+    struct Blind<'a>(&'a MemoryStorage);
+    impl Storage for Blind<'_> {
+        fn read_at(&self, p: &str, a: u64, b: &mut [u8]) -> Result<usize, StorageError> {
+            self.0.read_at(p, a, b)
+        }
+        fn size(&self, p: &str) -> Result<u64, StorageError> {
+            self.0.size(p)
+        }
+        fn write(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+            self.0.write(p, d)
+        }
+        fn append(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+            self.0.append(p, d)
+        }
+        fn list(&self, d: &str, v: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            self.0.list(d, v)
+        }
+        fn remove(&self, p: &str) -> Result<(), StorageError> {
+            self.0.remove(p)
+        }
+        fn rename(&self, f: &str, t: &str) -> Result<(), StorageError> {
+            self.0.rename(f, t)
+        }
+        fn entry_identity(&self, p: &str) -> Result<Option<u64>, StorageError> {
+            if p.ends_with("c.fb2") {
+                return Ok(None);
+            }
+            self.0.entry_identity(p)
+        }
+    }
+    let card = card();
+    card.remove(BOOKS[0]).unwrap();
+    let blind = Blind(&card);
+    let jobs = Jobs::default();
+    let answers = jobs.begin_delete(&blind, &BOOKS, false).unwrap();
+    assert_eq!(answers[..3], [0, 0, ERR_UNSUPPORTED]);
+    assert!(card.exists(BOOKS[2]), "refused, untouched");
+    let host = Host::new(&blind);
+    run(&jobs, &host);
+    assert_eq!(host.saw("removed books/a.epub"), 1, "only forgotten");
+    assert_eq!(host.saw("removed books/c.fb2"), 0);
+    // Nothing accepted: no entry.
+    let alone = Jobs::default();
+    assert_eq!(
+        alone.begin_delete(&blind, &BOOKS[2..], false).unwrap()[0],
+        ERR_UNSUPPORTED
+    );
+    assert!(!card.exists(JOURNAL) && !alone.active());
 }
 
 #[test]
