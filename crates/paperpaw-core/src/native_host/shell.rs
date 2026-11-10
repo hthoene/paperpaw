@@ -432,7 +432,7 @@ impl<S: Services, M> Hosted<S, M> {
         let mut out = ptr::null();
         let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast();
         // SAFETY: the owner is pinned, owns services and module, and `out` is writable.
-        let status = unsafe { (self.make)(context.table, ctx, &mut out) };
+        let status = context.run_plugin(|| unsafe { (self.make)(context.table, ctx, &mut out) });
         (status, out)
     }
 
@@ -664,7 +664,7 @@ fn destroy_context<S>(context: Pin<&Context<S>>) {
     if let Some(instance) = context.instance.take() {
         // SAFETY: validated successful output has exactly one drop obligation;
         // its pinned context, table, services and module are all still alive.
-        unsafe { (instance.destroy)(instance.state) };
+        context.run_plugin(|| unsafe { (instance.destroy)(instance.state) });
     }
 }
 
@@ -848,9 +848,9 @@ fn invoke_registration<S>(
             // SAFETY: the admitted owner retains state, context and module. The
             // callback is present, the bytes live for this call and do not
             // alias host state.
-            Ok(status_only(unsafe {
+            Ok(status_only(context.run_plugin(|| unsafe {
                 callback(instance.state, token, borrowed(bytes), no_reply())
-            }))
+            })))
         }
         (Registration::Event { token, .. }, Invocation::Event(bytes)) => {
             let callback = instance
@@ -858,9 +858,9 @@ fn invoke_registration<S>(
                 .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
             // SAFETY: the same admitted owner lifetime; the payload is
             // borrowed for this call only and does not alias host state.
-            Ok(status_only(unsafe {
+            Ok(status_only(context.run_plugin(|| unsafe {
                 callback(instance.state, token, borrowed(bytes), no_reply())
-            }))
+            })))
         }
         (Registration::Draw { token }, Invocation::Draw(frame)) => {
             let callback = instance
@@ -868,9 +868,9 @@ fn invoke_registration<S>(
                 .ok_or(Error::Status(host_glue::ERR_UNSUPPORTED))?;
             // SAFETY: the same admitted owner lifetime; the frame is borrowed
             // for this call only and does not alias host state.
-            Ok(status_only(unsafe {
+            Ok(status_only(context.run_plugin(|| unsafe {
                 callback(instance.state, token, borrowed(frame))
-            }))
+            })))
         }
         _ => Err(Error::Status(host_glue::ERR_UNSUPPORTED)),
     }
@@ -977,6 +977,9 @@ pub fn dispatch_draw<S, M>(
 #[path = "shell_instance.rs"]
 pub mod instance;
 
+#[cfg(test)]
+#[path = "shell_frame_tests.rs"]
+mod frame_tests;
 #[cfg(test)]
 #[path = "shell_tests.rs"]
 pub(in crate::native_host) mod tests;
@@ -1382,9 +1385,12 @@ mod stage;
 )]
 pub(crate) use stage::dispatch_stage;
 
+#[path = "shell/heap_table.rs"]
+mod heap_table;
 #[path = "shell/native_commit.rs"]
 mod native_commit;
 #[path = "shell/shared_table.rs"]
 mod shared_table;
+pub use heap_table::{handed_heap, heap_table};
 use shared_table::SharedTable;
 pub use shared_table::{handed_table, same_table};

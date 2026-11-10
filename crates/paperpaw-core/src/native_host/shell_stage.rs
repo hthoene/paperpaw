@@ -37,7 +37,7 @@ pub(crate) fn dispatch_stage<S, M>(
                 let capacity = output.len();
                 // SAFETY: owner admission precedes all access to plugin state. Input
                 // and exclusive output live for this call and do not alias host state.
-                let result = unsafe {
+                let result = context.run_plugin(|| unsafe {
                     callback(
                         instance.state,
                         token,
@@ -47,7 +47,7 @@ pub(crate) fn dispatch_stage<S, M>(
                             cap: capacity,
                         },
                     )
-                };
+                });
                 if result >= 0 && result as usize > capacity {
                     ERR_INVALID
                 } else {
