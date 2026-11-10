@@ -65,6 +65,12 @@ mod native_layouts;
 #[global_allocator]
 static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 mod native_model;
+#[cfg(test)]
+mod native_model_layout_tests;
+#[cfg(test)]
+mod native_model_tests;
+#[cfg(test)]
+mod native_model_typing_tests;
 mod native_paint;
 pub mod native_plugin;
 #[allow(

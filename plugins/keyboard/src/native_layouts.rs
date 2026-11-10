@@ -265,6 +265,84 @@ mod tests {
         }
     }
 
+    /// The layouts the script packs bring (`tools/plugin-files/keyboards`,
+    /// written to the packs' `points/keyboard.layouts.txt`, lines of `id; code;
+    /// letter rows; held letters`) are read whole by the rules of the stage:
+    /// their rows and keys within its limits, ids not built in, letters of
+    /// their script, held letters that read. The packs still write the
+    /// interface-6 lines; their fields are what a subscriber's records carry.
+    #[test]
+    fn the_layouts_of_the_script_packs_are_taken_whole() {
+        let packs = [
+            (
+                include_str!("../../../tools/plugin-files/keyboards/arabic.txt"),
+                '\u{600}'..='\u{6ff}',
+                3,
+            ),
+            (
+                include_str!("../../../tools/plugin-files/keyboards/hebrew.txt"),
+                '\u{590}'..='\u{5ff}',
+                1,
+            ),
+            (
+                include_str!("../../../tools/plugin-files/keyboards/korean.txt"),
+                '\u{3130}'..='\u{318f}',
+                1,
+            ),
+        ];
+        let mut added = Vec::new();
+        for (text, script, count) in packs {
+            let lines: Vec<&str> = text.lines().filter(|l| !l.starts_with('#')).collect();
+            assert_eq!(lines.len(), count);
+            for line in lines {
+                let fields: Vec<&str> = line.split(';').map(str::trim).collect();
+                let held = fields.get(3).copied().unwrap_or("");
+                let layout = from_fields(fields[0], fields[1], fields[2], held)
+                    .unwrap()
+                    .unwrap_or_else(|| panic!("{line}"));
+                assert!(layout.id.starts_with("keyboard.layout."), "{}", layout.id);
+                // Not cut short by the limits.
+                let rows: Vec<&str> = layout.letters.split(' ').collect();
+                assert_eq!(rows.len(), fields[2].split_whitespace().count());
+                assert!(rows.len() <= MAX_ROWS);
+                for row in rows {
+                    assert!(row.chars().count() <= MAX_KEYS, "{}", layout.id);
+                    assert!(row.chars().all(|c| script.contains(&c)), "{row}");
+                }
+                // Every variant is a letter of the script too; Hebrew and
+                // Korean hold none.
+                assert!(
+                    !layout.variants.is_empty()
+                        || layout.id.ends_with(".he")
+                        || layout.id.ends_with(".ko")
+                );
+                for (base, variants) in &layout.variants {
+                    assert!(script.contains(base), "{base}");
+                    assert!(variants.chars().all(|c| script.contains(&c)), "{variants}");
+                }
+                // No letter twice in a layout.
+                let all: Vec<char> = layout.letters.chars().filter(|c| *c != ' ').collect();
+                let mut sorted = all.clone();
+                sorted.sort_unstable();
+                sorted.dedup();
+                assert_eq!(sorted.len(), all.len(), "{}", layout.id);
+                // Not a built-in id, nor one added before: the keyboard takes it.
+                let before = added.len();
+                accept(&mut added, layout).unwrap();
+                assert_eq!(added.len(), before + 1, "{line}");
+            }
+        }
+        // Their names are in the packs' translations (see script-pack.py).
+        let names = include_str!("../../../tools/script-pack.py");
+        for layout in &added {
+            assert!(
+                names.contains(&alloc::format!("\"{}\"", layout.id)),
+                "{}",
+                layout.id
+            );
+        }
+    }
+
     #[test]
     fn a_comma_is_left_out_of_an_id_so_the_stored_list_keeps_it_whole() {
         let id = |text: &str| from_fields(text, "X", "abc", "").unwrap().map(|l| l.id);

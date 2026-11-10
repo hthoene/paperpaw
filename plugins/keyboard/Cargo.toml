@@ -23,6 +23,7 @@ paperpaw-sdk.workspace = true
 
 [dev-dependencies]
 paperpaw-core.workspace = true
+paperpaw-i18n.workspace = true
 paperpaw-native.workspace = true
 proptest.workspace = true
 
