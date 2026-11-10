@@ -237,7 +237,7 @@ pub fn folder(
     raw: &str,
 ) -> Result<Vec<Line>, Fail> {
     let mut rows = store::read_index(storage, &store::index_file(account, raw)?)?;
-    rows.sort_unstable_by_key(|r| Reverse(r.uid));
+    paperpaw_sdk::sort::sort_by_key(&mut rows, |r| Reverse(r.uid));
     let mut lines = Vec::new();
     push(
         &mut lines,

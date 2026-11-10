@@ -183,7 +183,7 @@ fn newest(
             all.try_reserve(1).map_err(|_| Error::NoMemory)?;
             all.push((account, row));
         }
-        all.sort_unstable_by(|a, b| {
+        paperpaw_sdk::sort::sort_by(&mut all, |a, b| {
             b.1.date
                 .cmp(&a.1.date)
                 .then(b.1.uid.cmp(&a.1.uid))
