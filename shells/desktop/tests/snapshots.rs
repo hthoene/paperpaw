@@ -852,11 +852,28 @@ fn draw(case: &Case) -> (u32, u32, Vec<u8>, usize) {
 
 #[test]
 fn screens_look_as_before() {
+    screens_look_as_blessed(false);
+}
+
+/// The Word documents' pages: the format is the native plugin's only, and
+/// the emulator does not register native plugins yet.
+#[test]
+#[ignore = "needs native activation (format removal)"]
+fn word_documents_look_as_before() {
+    screens_look_as_blessed(true);
+}
+
+/// Draws the cases of Word documents (`docx`) or the others and compares
+/// each with its reference.
+fn screens_look_as_blessed(docx: bool) {
     let bless = std::env::var_os("PAPERPAW_BLESS").is_some();
     let references = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots");
     let failed_dir = root().join("target/snapshots");
     let mut failures = Vec::new();
-    for case in CASES {
+    for case in CASES
+        .iter()
+        .filter(|case| case.name.contains("docx") == docx)
+    {
         let (width, height, gray, colourful) = draw(case);
         if colourful < gray.len() * case.colour / 10_000 {
             failures.push(format!(
