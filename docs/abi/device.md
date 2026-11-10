@@ -98,7 +98,7 @@ agree (a host test).
 | --- | --- | --- |
 | 1125 | `service.dev_device` | `id: str 64`, `model: str 64`, `catalog: str 32`, `class: u32`, `caps: u64`, `controls: u32`, `tls_sessions: u32`, `start: u32`, `slept_ms: u64`, `flags: u32` |
 | 1126 | `service.dev_value` | `name: str 32`, `value: i32` |
-| 1127 | `service.dev_firmware` | `version: str 64`, `project: str 32`, `chip: u32`, `room: u64`, `undone: u32`, `state: u32`, `done: u64`, `total: u64`, `reason: u32`, `request: u32` |
+| 1127 | `service.dev_firmware` | `version: str 64`, `project: str 32`, `chip: u32`, `room: u64`, `undone: u32`, `state: u32`, `done: u64`, `total: u64`, `reason: u32`, `request: u32`, `flags: u32` |
 | 1128 | `service.dev_builtin` | `id: str 64`, `version: str 32` |
 | 1129 | `service.dev_native` | `abi_major: u32`, `abi_draft: u32`, `target: u32`, `code_file: str 32`, `safe_mode: u32`, `crashed: str 64`, `last_loaded: str 64`, `pending: u32`, `not_installed: u32`, `room_free: u64`, `room_largest: u64` |
 | 1130 | `service.dev_check` | `reason: u32`, `needs_draft: u32`, `bytes: u64`, `signer: str 64`, `key: bytes 32`, `id: str 64`, `version: str 64`, `flags: u32`, `sha256: bytes 32` (optional, ordinal 0; draft 20) |
@@ -131,7 +131,13 @@ agree (a host test).
 - [D] `dev_firmware` (interface 6 `env.firmware()`): `state` 0 idle, 1 waiting for the user, 2
   installing, 3 installed (restart to use), 4 failed; `reason` the outcome reason (5.5) of the last
   request, 0 while none ended; `request` the request it belongs to; `undone` 1 when the last start
-  undid a new image (5.4). No public keys are listed: verifying is the host's.
+  undid a new image (5.4); `flags` (draft 35; optional, ordinal 0, default 0) the dual-boot facts
+  of `docs/dual-boot.md` (interface 6's `.paperpaw/boot.txt` note and `paperpaw.ini` read): bit 0
+  `shared`, the setup is declared dual-boot (by the marker or by `paperpaw.ini`), so no firmware
+  is installed here (`install_firmware` ends with reason 19); bit 1 `ini_off`, `paperpaw.ini`
+  says `dual-boot = off`. A device that has no second app partition to share says 0. Other bits
+  are reserved (0), and a reader ignores bits it does not know. No public keys are listed:
+  verifying is the host's.
 - [D] `dev_native` (interface 6 `env.native()`): `abi_major` 7, `abi_draft` the interface draft,
   `target` the chip id (5 ESP32-C3), `code_file` (`code.ppn`), `safe_mode` 0 none, 1 the last starts
   with code plugins failed, 2 the user held the key at power-on (unknown values as 1);
@@ -172,7 +178,8 @@ agree (a host test).
 
 ## 3. Commands (slot 15, growth block)
 
-Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (1559, 1560).
+Tags 1564-1592 and 1595 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (1559,
+1560).
 
 | Tag | Record | Fields | Feature |
 | --- | --- | --- | --- |
@@ -196,6 +203,7 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
 | 1581 | `command.install_rotation` | `request: u32`, `to: bytes 32`, `signature: bytes 64` | `uses.install` |
 | 1582 | `command.trust_revoked` | `plugin: str 64`, `key: bytes 32`, `signature: bytes 64` | `uses.install` |
 | 1592 | `command.check_file` | `request: u32`, `root: u32`, `path: str 512`, `kind: u32` | `uses.install` (kind 0), `uses.firmware` (kind 1) |
+| 1595 | `command.firmware_dual_boot` | `request: u32`, `mode: u32` | `uses.firmware` |
 | 1583 | `command.bt_scan` | `lasting_ms: u32` | `uses.bluetooth` |
 | 1584 | `command.bt_stop_scan` | (none) | `uses.bluetooth` |
 | 1585 | `command.bt_pair` | `device: u32` | `uses.bluetooth` |
@@ -498,6 +506,36 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
   ends with reason 21 restart pending (`ERR_STATE`), a status of its own and not `ERR_BUSY`. The
   waiting image is kept with the plugin and request that installed it, so only that plugin may ask
   for the restart; a check may still run while it waits.
+- [D] **Dual boot** (draft 35; interface 6 update's *This is not a dual-boot setup* and *Detect
+  dual boot again*, `docs/dual-boot.md`): `firmware_dual_boot` with `mode` 1 `off` or 0 `auto`
+  (others `ERR_INVALID` at submit, nothing queued) is a firmware request: it waits in 5.2's queue,
+  behind a running install too, one at a time. Where nothing would change (mode 1 and
+  `paperpaw.ini` says `off` already; mode 0 and it does not say `off`) it ends at once with
+  reason 0, asking and writing nothing.
+  - **Mode 1 always asks** (5.0, whatever grant; focus on **No**; the asking plugin's name as 5.0
+    shows it, its display text cleaned). In the host's words: PaperPaw then treats this device as
+    its own, so its next update **erases the other firmware**, which the reader cannot bring back
+    (only the tool that set the two up can). Yes writes `dual-boot = off` and restarts, so the
+    start no longer reads the setup as declared; no, dismissed or 10 minutes end it with
+    `install_done` kind 1, reason 2 or 3, changing nothing.
+  - **Mode 0 does not ask and does not restart** (it is the safe direction, and a plugin must not
+    restart the device by it): it writes `dual-boot = auto` and ends with reason 0. It protects at
+    once (Senior R4): from the write on, the host treats the setup as declared until the next
+    start (`dev_firmware.flags` bit 0 set, `install_firmware` reason 19), and that start detects
+    again.
+  - **Order and failure:** the host reads `paperpaw.ini` whole, at most 16 KiB (16,384 bytes) of
+    UTF-8 (a file it cannot read whole, a longer one or one that is not UTF-8 ends with reason 16
+    and nothing is written), sets `dual-boot` in the last
+    `[firmware]` section (adding the section if there is none, the rest of the file as it was),
+    writes it whole and atomically as settings saves are, and only then removes
+    `.paperpaw/boot.txt` (mode 1): a power cut at any point leaves the setup declared, the safe
+    side. A failed write ends with reason 16 and no restart.
+  - While an installed image waits for its restart (`dev_firmware.state` 3) it ends with reason
+    21; a device without dual-boot handling (no second app partition to share) with reason 19.
+    Once an install found the setup declared, it stays declared until the next start whatever the
+    file says (`docs/dual-boot.md`).
+  - **Closed to plugins:** `paperpaw.ini` and `.paperpaw/` are not reachable through root 1
+    (`files.md` 1.1), so this command is the only way a plugin changes the `[firmware]` section.
 - [Q] (Firmware, owner device) the real time of one 64 KiB step and the card's read speed decide
   whether a progress redraw every 5 % stays smooth; a device-checklist item.
 

@@ -9,7 +9,10 @@
 use paperpaw_ui_kit::dialog::Dialog;
 
 use super::*;
-use crate::native_arrange::{self as arrange, CHOICES, Choice, Dir, Mode, Put};
+use crate::native_arrange::{self as arrange, Choice, Dir, Mode, Put, choices};
+
+/// The word of *Cancel* in the options: the plugin's own.
+const CANCEL: &str = "picture-home.edit.cancel";
 use crate::native_stage as stage;
 
 /// The options of the item of a cell: which button has the focus, and the
@@ -68,9 +71,14 @@ impl Dashboard {
         let mut messages = Messages::new()?;
         let mut words: Vec<String> = Vec::new();
         words
-            .try_reserve_exact(CHOICES.len())
+            .try_reserve_exact(choices(false).len())
             .map_err(|_| Error::NoMemory)?;
-        for (_, key) in CHOICES {
+        for (choice, key) in choices(false) {
+            let key = if *choice == Choice::Cancel {
+                CANCEL
+            } else {
+                key
+            };
             words.push(messages.copy(host, key)?);
         }
         let mut labels: Vec<&str> = Vec::new();
@@ -128,7 +136,7 @@ impl Dashboard {
             Input::Action {
                 action: "core.confirm",
                 ..
-            } => CHOICES.get(options.focus).map(|(choice, _)| *choice),
+            } => choices(false).get(options.focus).map(|(choice, _)| *choice),
             Input::Action { action, .. } => {
                 let to = options
                     .dialog
@@ -148,7 +156,7 @@ impl Dashboard {
                 .dialog
                 .as_ref()
                 .and_then(|dialog| dialog.hit(position))
-                .and_then(|button| CHOICES.get(button))
+                .and_then(|button| choices(false).get(button))
                 .map(|(choice, _)| *choice),
             // The dialog is modal: everything else is taken.
             _ => None,
@@ -167,6 +175,8 @@ impl Dashboard {
             Choice::Move => self.pick_up(host, cell, Mode::Move),
             Choice::Resize => self.pick_up(host, cell, Mode::Resize),
             Choice::Remove => self.remove(host, cell),
+            // Not offered here (no widget of its own settings).
+            Choice::Settings => redraw(host),
         }
     }
 
@@ -264,7 +274,7 @@ impl Dashboard {
 
     /// The widget of a cell placed at the rectangle it has now.
     fn place_again(host: &Host<'_>, ui: &Ui, cell: &Cell) -> Result<(), Error> {
-        let Some(widget) = cell.widget.filter(|w: &WidgetHandle| !w.is_own()) else {
+        let Some(MadeWidget::Widget(widget)) = cell.widget else {
             return Ok(());
         };
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
@@ -328,8 +338,8 @@ mod tests {
 
     #[test]
     fn the_options_are_offered_in_the_order_the_dialog_has_its_buttons() {
-        assert_eq!(CHOICES.len(), 4);
-        assert_eq!(CHOICES[0].0, Choice::Move);
-        assert_eq!(CHOICES[3].0, Choice::Cancel);
+        assert_eq!(choices(false).len(), 4);
+        assert_eq!(choices(false)[0].0, Choice::Move);
+        assert_eq!(choices(false)[3].0, Choice::Cancel);
     }
 }

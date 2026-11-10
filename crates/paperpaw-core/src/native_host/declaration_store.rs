@@ -79,7 +79,7 @@ impl DeclKey {
     }
 }
 
-const KIND_COUNT: usize = 33;
+const KIND_COUNT: usize = 34;
 /// The leading kinds with a per-kind record limit (`limits` in `charge`).
 const LIMITED_KINDS: usize = 6;
 
@@ -128,8 +128,10 @@ pub(crate) enum Kind {
     Format,
     /// `reader.spec` (category 32): a reading app the plugin offers.
     Reader,
+    /// `lookup.spec` (category 33): a lookup provider the plugin offers.
+    Lookup,
 }
-const _: () = assert!(Kind::Reader as usize + 1 == KIND_COUNT);
+const _: () = assert!(Kind::Lookup as usize + 1 == KIND_COUNT);
 
 impl Kind {
     fn category(self) -> u8 {
@@ -166,6 +168,7 @@ impl Kind {
             Self::HelpHint => 17,
             Self::Format => 31,
             Self::Reader => 32,
+            Self::Lookup => 33,
         }
     }
 
@@ -204,6 +207,7 @@ impl Kind {
             Record::HelpHint(_) => Self::HelpHint,
             Record::FormatSpec(_) => Self::Format,
             Record::ReaderSpec(_) => Self::Reader,
+            Record::LookupSpec(_) => Self::Lookup,
             _ => return None,
         })
     }
@@ -550,8 +554,9 @@ impl PendingDeclarations {
                 // So do `input.spec` and `help.hint`.
                 usize::MAX,
                 usize::MAX,
-                // And `format.spec` and `reader.spec` (their counts are
-                // checked at commit).
+                // And `format.spec`, `reader.spec` and `lookup.spec` (their
+                // counts are checked at commit).
+                usize::MAX,
                 usize::MAX,
                 usize::MAX,
             ];
@@ -677,6 +682,29 @@ impl DeclarationStore {
             .sum();
         if readers + pending.of_kind(Kind::Reader).len() > super::format_index::READERS_DEVICE {
             allocations.cap = Some(Cap::of(Cap::READERS, super::format_index::READERS_DEVICE));
+            return Err(paperpaw_native::host_glue::ERR_FULL);
+        }
+        // And 32 lookup providers on the device (`document.md` section 7).
+        let providers: usize = self
+            .owners
+            .iter()
+            .enumerate()
+            .filter(|(index, owner)| {
+                *index != at
+                    && owner
+                        .as_ref()
+                        .is_some_and(|owner| owner.source.generation() == owner.generation)
+            })
+            .filter_map(|(_, owner)| owner.as_ref())
+            .map(|owner| owner.of_kind(Kind::Lookup).len())
+            .sum();
+        if providers + pending.of_kind(Kind::Lookup).len()
+            > super::declaration_checks::LOOKUPS_DEVICE
+        {
+            allocations.cap = Some(Cap::of(
+                Cap::LOOKUPS,
+                super::declaration_checks::LOOKUPS_DEVICE,
+            ));
             return Err(paperpaw_native::host_glue::ERR_FULL);
         }
         pending.incarnation = self.incarnation.checked_add(1).ok_or(ERR_NO_SPACE)?;
