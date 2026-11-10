@@ -53,8 +53,14 @@ pub fn try_moved(storage: &dyn Storage, from: &str, to: &str) -> Result<(), Stor
         ),
         (cover_file, |path| old_cover_variant_file(path, "")),
     ] {
-        let moved = left.step(done(storage.rename(&file(from), &file(to))))? == Some(true)
-            || left.step(done(storage.rename(&old(from), &file(to))))? == Some(true);
+        // The old place is tried only where nothing is at the current one;
+        // after a permanent error there an older copy must not be moved
+        // over `to`.
+        let moved = match left.step(done(storage.rename(&file(from), &file(to))))? {
+            Some(true) => true,
+            Some(false) => left.step(done(storage.rename(&old(from), &file(to))))? == Some(true),
+            None => false,
+        };
         // What is left at the old place goes once the file is at `to`; where
         // nothing could be moved and nothing is at `to`, it is the only copy
         // and stays.
@@ -150,7 +156,8 @@ pub fn try_removed(storage: &dyn Storage, path: &str) -> Result<(), StorageError
 /// Whether no retry changes `error`: the card refuses the path or the
 /// call, or the data is damaged or too large. Everything else (a card
 /// error, a full card, no memory, an error this version does not know)
-/// may pass.
+/// may pass. A variant added to [`StorageError`] later is transient until
+/// it is listed here, so it must be classified here when it is added.
 const fn is_permanent(error: StorageError) -> bool {
     matches!(
         error,

@@ -17,8 +17,8 @@ struct Faulty {
     faults: RefCell<Vec<(usize, StorageError)>>,
     calls: Cell<usize>,
     writes: Cell<usize>,
-    /// Every read fails while set.
-    fail_reads: Cell<bool>,
+    /// Every read fails with this error while set.
+    fail_reads: Cell<Option<StorageError>>,
 }
 
 impl Faulty {
@@ -28,7 +28,7 @@ impl Faulty {
             faults: RefCell::new(Vec::new()),
             calls: Cell::new(0),
             writes: Cell::new(0),
-            fail_reads: Cell::new(false),
+            fail_reads: Cell::new(None),
         }
     }
     /// The `at`th changing call fails with `error`.
@@ -52,8 +52,8 @@ impl Faulty {
 
 impl Storage for Faulty {
     fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
-        if self.fail_reads.get() {
-            return Err(StorageError::Io);
+        if let Some(error) = self.fail_reads.get() {
+            return Err(error);
         }
         self.inner.read_at(path, offset, buf)
     }
@@ -227,13 +227,13 @@ fn a_failing_read_is_returned_and_a_repeat_finishes_the_move() {
     let want = moved_state(&clean);
     let storage = Faulty::new(card());
     storage.inner.rename("a.epub", "c.epub").unwrap();
-    storage.fail_reads.set(true);
+    storage.fail_reads.set(Some(StorageError::Io));
     assert_eq!(
         try_moved(&storage, "a.epub", "c.epub"),
         Err(StorageError::Io)
     );
     assert_eq!(try_removed(&storage, "b.epub"), Err(StorageError::Io));
-    storage.fail_reads.set(false);
+    storage.fail_reads.set(None);
     try_moved(&storage, "a.epub", "c.epub").unwrap();
     assert_eq!(moved_state(&storage), want);
 }
@@ -337,4 +337,48 @@ fn a_removal_goes_on_past_a_permanent_error() {
         assert_eq!(favourites(&storage), ["b.epub"], "step {at}");
         assert!(book(&storage, "a.epub").is_none(), "step {at}");
     }
+}
+
+#[test]
+fn an_older_copy_is_not_moved_over_details_that_cannot_move() {
+    let storage = Faulty::new(card().with(&old_book_file("a.epub"), "# old"));
+    // Step 0 is the details' rename from their current place.
+    storage.fail(0, StorageError::InvalidPath);
+    assert_eq!(
+        try_moved(&storage, "a.epub", "c.epub"),
+        Err(StorageError::InvalidPath)
+    );
+    assert!(storage.exists(&book_file("a.epub")));
+    assert!(storage.exists(&old_book_file("a.epub")));
+    assert!(!storage.exists(&book_file("c.epub")));
+}
+
+#[test]
+fn a_permanent_read_error_lets_the_renames_go_on() {
+    let storage = Faulty::new(card());
+    storage.inner.rename("a.epub", "c.epub").unwrap();
+    storage.fail_reads.set(Some(StorageError::InvalidPath));
+    assert_eq!(
+        try_moved(&storage, "a.epub", "c.epub"),
+        Err(StorageError::InvalidPath)
+    );
+    // The details' read and both lists' reads failed; the files moved.
+    assert!(storage.exists(&book_file("c.epub")));
+    assert!(storage.exists(&cover_file("c.epub")));
+    assert!(!storage.exists(&book_file("a.epub")));
+    storage.fail_reads.set(None);
+    try_moved(&storage, "a.epub", "c.epub").unwrap();
+    assert_eq!(favourites(&storage), ["b.epub", "c.epub"]);
+}
+
+#[test]
+fn damaged_data_on_a_read_is_left_out_without_an_error() {
+    // The data layer reads InvalidData as unreadable: left as it is, as a
+    // list of a newer version, and not an error of the carry.
+    let storage = Faulty::new(card());
+    storage.inner.rename("a.epub", "c.epub").unwrap();
+    storage.fail_reads.set(Some(StorageError::InvalidData));
+    try_moved(&storage, "a.epub", "c.epub").unwrap();
+    assert!(storage.exists(&book_file("c.epub")));
+    assert!(storage.exists(&cover_file("c.epub")));
 }
