@@ -9,7 +9,7 @@ fn an_id_is_listed_once_and_taken_off_when_the_host_forgets_it() {
     assert!(!has(&card, "dials"));
     assert!(add(&card, "dials") && add(&card, "dials") && add(&card, "clock"));
     assert!(has(&card, "dials") && has(&card, "clock") && !has(&card, "dial"));
-    assert_eq!(read(&card), ["dials", "clock"]);
+    assert_eq!(read(&card).unwrap(), ["dials", "clock"]);
     // A host that cannot: the list stays. One that can: it goes.
     assert_eq!(retry(&card, &mut |_| false), 2);
     assert_eq!(retry(&card, &mut |id| id == "dials"), 1);
@@ -26,7 +26,7 @@ fn the_list_is_bounded_and_a_ninth_id_is_not_recorded() {
     }
     assert!(!add(&card, "one-too-many"));
     assert!(!has(&card, "one-too-many"));
-    assert_eq!(read(&card).len(), MAX);
+    assert_eq!(read(&card).unwrap().len(), MAX);
 }
 
 #[test]
@@ -42,4 +42,59 @@ fn a_damaged_list_is_read_defensively() {
     assert!(!has(&card, &long));
     card.write(FILE, &[0xff, 0xfe, b'\n']).unwrap();
     assert!(!has(&card, "dials"));
+}
+
+/// A card whose reads of the list fail (a transient error).
+struct Unreadable(MemoryStorage, StorageError);
+
+impl Storage for Unreadable {
+    fn read_at(&self, p: &str, o: u64, b: &mut [u8]) -> Result<usize, StorageError> {
+        if p == FILE {
+            return Err(self.1);
+        }
+        self.0.read_at(p, o, b)
+    }
+    fn size(&self, p: &str) -> Result<u64, StorageError> {
+        self.0.size(p)
+    }
+    fn write(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.0.write(p, d)
+    }
+    fn append(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.0.append(p, d)
+    }
+    fn list(
+        &self,
+        d: &str,
+        v: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+    ) -> Result<(), StorageError> {
+        self.0.list(d, v)
+    }
+    fn remove(&self, p: &str) -> Result<(), StorageError> {
+        self.0.remove(p)
+    }
+}
+
+#[test]
+fn a_list_that_cannot_be_read_blocks_installs_and_is_never_rewritten() {
+    for why in [StorageError::Io, StorageError::Other(7), StorageError::CARD_GONE] {
+        let card = Unreadable(MemoryStorage::new(), why);
+        assert!(add(&card.0, "dials") && add(&card.0, "clock"));
+        let before = card.0.read(FILE).unwrap();
+        // Any id is "listed": the install is refused, not let through.
+        assert!(has(&card, "dials") && has(&card, "other"));
+        // Nothing is added, removed or retried; the file is untouched.
+        assert!(!add(&card, "third"));
+        assert!(!remove(&card, "dials"));
+        let mut tried = false;
+        assert_eq!(
+            retry(&card, &mut |_| {
+                tried = true;
+                true
+            }),
+            1
+        );
+        assert!(!tried, "nothing is forgotten from a list nobody can read");
+        assert_eq!(card.0.read(FILE).unwrap(), before);
+    }
 }

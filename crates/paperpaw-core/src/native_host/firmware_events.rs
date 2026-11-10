@@ -128,6 +128,21 @@ impl Kernel {
         })
     }
 
+    /// The retry of an id on the list of `plugin_unforgotten`: as
+    /// [`Self::forget_removed`], but a missing secrets host is **no** success
+    /// (the id was listed because a host failed; its secrets are still there).
+    pub(crate) fn forget_listed(&mut self, plugin: &str) -> bool {
+        let secrets = self
+            .shared
+            .native_instances
+            .hosts()
+            .and_then(|hosts| hosts.secrets())
+            .map(|secrets| alloc::rc::Rc::clone(&secrets.host));
+        self.forget_removed_by(plugin, || {
+            secrets.is_some_and(|host| super::secrets_service::forget_owner(&*host, plugin).is_ok())
+        })
+    }
+
     /// [`Self::forget_removed`] with the secrets' part given: the grants go
     /// whatever `forget_secrets` says (a grant left would let a later plugin of
     /// the id skip the install question).
@@ -212,7 +227,7 @@ impl Kernel {
             // Earlier removals whose secrets stayed: one try each at a start.
             _ => {
                 super::plugin_unforgotten::retry(storage.as_ref(), &mut |id| {
-                    self.forget_removed(id)
+                    self.forget_listed(id)
                 });
             }
         }

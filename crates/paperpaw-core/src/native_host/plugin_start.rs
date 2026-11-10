@@ -48,7 +48,11 @@ pub(crate) fn replay_at_start(storage: &dyn Storage, say: &mut dyn FnMut(String)
         }
     }
     // Secrets that stayed after a removal: the first pass tries again.
-    storage.size(super::plugin_unforgotten::FILE).is_ok()
+    // (a list that cannot be read counts as there: the pass fails closed).
+    !matches!(
+        storage.size(super::plugin_unforgotten::FILE),
+        Err(paperpaw_platform::StorageError::NotFound)
+    )
 }
 
 /// Sweeps the leftovers no journal owns. Nothing is swept while a journal is

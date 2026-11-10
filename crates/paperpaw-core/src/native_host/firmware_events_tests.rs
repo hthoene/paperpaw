@@ -162,6 +162,10 @@ fn removed_with_its_data_a_plugin_loses_its_grants_and_only_its_own() {
         "no secrets host wired: nothing to fail"
     );
     assert!(
+        !kernel.forget_listed("dials"),
+        "a listed id's secrets are not forgotten by a host that is not there"
+    );
+    assert!(
         !is_set(&kernel, ids[0]) && !is_set(&kernel, ids[1]),
         "the plugin's own grants went"
     );
