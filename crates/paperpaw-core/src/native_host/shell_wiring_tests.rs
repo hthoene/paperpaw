@@ -122,3 +122,92 @@ fn the_plugin_with_the_greater_id_wins_a_tag_without_regard_to_case() {
         .unwrap();
     assert!(tables.card().find("de").is_some());
 }
+
+struct Clock;
+impl WorkDevice for Clock {
+    fn now_ms(&self) -> u64 {
+        5
+    }
+    fn network_up(&self) -> bool {
+        true
+    }
+    fn radio_on(&self) -> bool {
+        true
+    }
+}
+
+fn no_names() -> core::iter::Empty<&'static str> {
+    core::iter::empty()
+}
+
+#[test]
+fn core_work_is_wired_once_and_its_view_is_made_of_the_shell_the_kernel_and_the_directory() {
+    use super::super::work_sched::Power;
+    let resources = HostResources::try_new().unwrap();
+    resources
+        .wire(HostWiring::new().work(WorkInputs::new(Rc::new(Clock), MemoryClass::Small)))
+        .unwrap();
+    let work = resources.hosts().work().unwrap();
+    let env = &*work.env;
+    // The shell's own answers.
+    assert_eq!(env.now_ms(), 5);
+    assert!(env.network_up());
+    // What the kernel tells before a pass.
+    assert_eq!(env.power().level, 0);
+    env.kernel_state(2, 4, true);
+    assert_eq!(
+        env.power(),
+        Power {
+            level: 2,
+            stretch: 4,
+            radio_on: true
+        }
+    );
+    assert!(env.screen_hold());
+    // A plugin the directory does not know, or a policy not filled yet: its
+    // network is off, never allowed by a guess.
+    assert!(!env.network_allowed(1));
+    resources
+        .hosts()
+        .owners()
+        .unwrap()
+        .admit(1, "news")
+        .unwrap();
+    assert!(!env.network_allowed(1));
+    let policy = resources.hosts().policy();
+    policy.update(1, false, false, no_names(), no_names());
+    assert!(env.network_allowed(1));
+    assert!(!env.saving_manual(1));
+    policy.update(2, false, false, no_names(), ["news"].into_iter());
+    assert!(env.network_allowed(1));
+    assert!(env.saving_manual(1));
+    policy.update(3, false, false, ["news"].into_iter(), no_names());
+    assert!(!env.network_allowed(1));
+    assert!(!env.subscribed(1, 103));
+    // Twice is refused, and the family named beside it is not wired either.
+    let again = resources.wire(
+        HostWiring::new()
+            .work(WorkInputs::new(Rc::new(Clock), MemoryClass::Large))
+            .device(Rc::new(Nothing)),
+    );
+    assert_eq!(again.err(), Some(ERR_STATE));
+    assert!(resources.hosts().device().is_none());
+}
+
+#[test]
+fn core_secrets_is_wired_once_and_the_shell_keeps_its_lifecycle_calls() {
+    let resources = HostResources::try_new().unwrap();
+    let wired = resources
+        .wire(HostWiring::new().secrets(SecretsInputs::new(storage(), Rc::new(Veiling))))
+        .unwrap();
+    assert!(resources.hosts().secrets().is_some());
+    // A device that does not seal has nothing to upgrade.
+    assert_eq!(wired.secrets().unwrap().upgrade(), Ok(false));
+    let again = resources.wire(
+        HostWiring::new()
+            .secrets(SecretsInputs::new(storage(), Rc::new(Veiling)))
+            .device(Rc::new(Nothing)),
+    );
+    assert_eq!(again.err(), Some(ERR_STATE));
+    assert!(resources.hosts().device().is_none());
+}

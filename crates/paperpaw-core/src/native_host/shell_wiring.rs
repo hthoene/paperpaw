@@ -16,15 +16,22 @@ use super::{
     device_service::DeviceHost,
     hyphen_card::CardTables,
     resources::HostResources,
+    secrets_service::SecretsServices,
     shared::Shared,
     storage_files::StorageFiles,
     ui_service::UiServices,
     ui_store::{Limits, UiStore},
+    work_service::WorkServices,
 };
+
 #[path = "shell_wiring/net.rs"]
 mod net;
+#[path = "shell_wiring/secrets.rs"]
+mod secrets;
 #[path = "shell_wiring/sockets.rs"]
 mod sockets;
+#[path = "shell_wiring/work.rs"]
+mod work;
 pub use super::sock_service::{Connect, PeerInfo, SockTls, SockTransport, TlsOpen, TlsPin};
 use alloc::{rc::Rc, vec::Vec};
 pub use net::{
@@ -33,7 +40,9 @@ pub use net::{
 };
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_platform::Storage;
+pub use secrets::{Rng, SEALED_MAX, Sealer, SecretsInputs, SecretsLifecycle, Veiling};
 pub use sockets::{SockFailure, SockInputs, SockLimits, SockReports, TlsFailure, UntrustedWhy};
+pub use work::{WorkDevice, WorkInputs};
 
 /// What a shell wires into the device's host views. Nothing is wired for a
 /// family the shell does not name.
@@ -47,6 +56,8 @@ pub struct HostWiring {
     sockets: Option<SockInputs>,
     /// `core.ui`: `Some(x4)`.
     ui: Option<bool>,
+    secrets: Option<SecretsInputs>,
+    work: Option<WorkInputs>,
 }
 
 impl core::fmt::Debug for HostWiring {
@@ -58,6 +69,8 @@ impl core::fmt::Debug for HostWiring {
             .field("net", &self.net.is_some())
             .field("sockets", &self.sockets.is_some())
             .field("ui", &self.ui.is_some())
+            .field("secrets", &self.secrets.is_some())
+            .field("work", &self.work.is_some())
             .finish()
     }
 }
@@ -143,6 +156,30 @@ impl HostWiring {
     #[must_use]
     pub fn ui(mut self, memory: paperpaw_platform::MemoryClass) -> Self {
         self.ui = Some(super::ui_store::is_x4(memory));
+        self
+    }
+
+    /// `core.secrets`: the plugins' secrets file on this storage, kept by the
+    /// shell's [`Sealer`] ([`SecretsInputs`]). The calls the shell makes
+    /// itself (upgrade at start, forgetting a deleted plugin's secrets) come
+    /// back through [`WiredHosts::secrets`].
+    #[must_use]
+    pub fn secrets(mut self, inputs: SecretsInputs) -> Self {
+        self.secrets = Some(inputs);
+        self
+    }
+
+    /// `core.work`: declared background work, over the device's clock and
+    /// radio ([`WorkInputs`]). Core owns the scheduler and composes the rest
+    /// (the user's power level, the plugins' network settings, who
+    /// subscribed); the kernel runs the passes.
+    ///
+    /// Wire before `Kernel::start`: the user's network policy is closed until
+    /// the kernel has filled it at its first pass, and a network work declared
+    /// before is refused as `network_off`.
+    #[must_use]
+    pub fn work(mut self, inputs: WorkInputs) -> Self {
+        self.work = Some(inputs);
         self
     }
 }
@@ -234,6 +271,7 @@ pub struct WiredHosts {
     hyphen: Option<HyphenTables>,
     net: Option<NetReports>,
     sockets: Option<SockReports>,
+    secrets: Option<SecretsLifecycle>,
     ui_skipped: bool,
 }
 
@@ -254,6 +292,13 @@ impl WiredHosts {
     #[must_use]
     pub fn sockets(&self) -> Option<&SockReports> {
         self.sockets.as_ref()
+    }
+
+    /// What the shell calls outside a plugin's call, if `core.secrets` was
+    /// wired.
+    #[must_use]
+    pub fn secrets(&self) -> Option<&SecretsLifecycle> {
+        self.secrets.as_ref()
     }
 
     /// Whether `core.ui` was asked for and not wired because its store could
@@ -288,6 +333,8 @@ impl HostResources {
             || (wiring.net.is_some() && hosts.net().is_some())
             || (wiring.sockets.is_some() && hosts.sockets().is_some())
             || (wiring.ui.is_some() && hosts.ui().is_some())
+            || (wiring.secrets.is_some() && hosts.secrets().is_some())
+            || (wiring.work.is_some() && hosts.work().is_some())
         {
             return Err(ERR_STATE);
         }
@@ -361,6 +408,17 @@ impl HostResources {
                 Ok(store) => hosts.wire_ui(UiServices::new(store, x4))?,
                 Err(_) => wired.ui_skipped = true,
             }
+        }
+        if let Some(inputs) = wiring.secrets {
+            let host = inputs.host();
+            hosts.wire_secrets(SecretsServices::new(host.clone()))?;
+            wired.secrets = Some(SecretsLifecycle::new(host));
+        }
+        if let Some(inputs) = wiring.work {
+            let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
+            let sched = work::scheduler(&inputs);
+            let env = Rc::new(inputs.env(owners, hosts.policy().clone()));
+            hosts.wire_work(WorkServices { sched, env })?;
         }
         Ok(wired)
     }
