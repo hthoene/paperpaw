@@ -1,6 +1,7 @@
 //! The production `core.library` host: the catalog reads over the card
 //! ([`CatalogReads`]) and the writes the catalog on the card backs: `provide`
-//! (op 24), the positions (op 14) and `set_field` (op 23). Every other write
+//! (op 24), the positions (op 14), `set_field` (op 23) and the delete
+//! preflight `can_delete` (op 9). Every other write
 //! op answers `ERR_UNSUPPORTED`, the trait's own default, so a plugin sees an
 //! honest "not here" rather than a half-done change (todo 307).
 //!
@@ -132,6 +133,11 @@ impl LibWrite for LibraryHost {
             .write_position_unless(book, position, from_sync, &|path| {
                 from_sync && self.in_use(path)
             })
+    }
+
+    /// Op 9's preflight: the card's, read-only (a book, gone, what is kept).
+    fn can_delete(&self, path: &str) -> (i32, u32) {
+        self.reads.can_delete(path)
     }
 
     fn field_kind(&self, field: &str) -> Result<FieldKind, i32> {

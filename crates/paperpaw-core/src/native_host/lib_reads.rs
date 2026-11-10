@@ -45,6 +45,7 @@ use paperpaw_sdk::library::{self, catalog};
 
 mod annotations;
 mod book;
+mod delete;
 mod field;
 mod position;
 mod provide;
@@ -71,6 +72,12 @@ pub trait CatalogEnv {
     /// `Some(false)` kept with the book only, `None` for none declared.
     fn book_field(&self, _id: &str) -> Option<bool> {
         None
+    }
+    /// Whether any plugin keeps data for the book at `path` (`book_data.spec`
+    /// folders and the interface 6 ones): `delete`'s fact bit 2. An error is
+    /// the card's or the memory's.
+    fn book_data_kept(&self, _path: &str) -> Result<bool, i32> {
+        Ok(false)
     }
 }
 
