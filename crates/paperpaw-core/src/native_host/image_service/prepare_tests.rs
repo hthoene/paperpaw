@@ -15,6 +15,7 @@ const ENV: Env = Env {
     max_side: 4096,
     png_row_max: usize::MAX,
     turn_band: 1 << 20,
+    turn_reads: usize::MAX,
 };
 const B: u64 = 2;
 
@@ -431,6 +432,7 @@ fn the_x4_clamps_the_side_and_refuses_a_wide_png_source_row() {
         max_side: 16,
         png_row_max: 8192,
         turn_band: 32 * 1024,
+        turn_reads: 16_384,
     };
     assert!(t.prepare_step(&storage, x4).unwrap());
     let ready = told(&t).unwrap();

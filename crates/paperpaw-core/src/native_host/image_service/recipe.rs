@@ -308,17 +308,20 @@ impl Appender<'_> {
 /// reads and writes a row at a time. A quarter turn (5 to 8) makes each output
 /// row from a column of the source, so it reads the source in tiles of whole
 /// columns, as many columns as `band` bytes hold (at least one), a read of a
-/// tile's piece of each source row: `height * ceil(width / columns)` reads.
+/// tile's piece of each source row: `height * ceil(width / columns)` reads;
+/// more than `reads` of them are `TooLarge`, and nothing is written (the turn
+/// is made in one main-loop turn, so its time is bounded).
 ///
 /// # Errors
 /// `ImageError::Invalid` for a file that is no picture, `Io` for the card,
+/// `TooLarge` for a turn over the read budget,
 /// `OutOfMemory` where a buffer is refused.
 pub(super) fn turn_file(
     storage: &dyn Storage,
     (from, to): (&str, &str),
     orientation: u8,
     channels: usize,
-    band: usize,
+    (band, reads): (usize, usize),
 ) -> Result<(), ImageError> {
     let Some(turn) = Turn::of(orientation) else {
         return Err(ImageError::Invalid("orientation"));
@@ -338,6 +341,9 @@ pub(super) fn turn_file(
     } else {
         (width, height)
     };
+    if turn.swap && quarter_reads((width, height, channels), band) > reads {
+        return Err(ImageError::TooLarge);
+    }
     let mut turned = header;
     turned[4..8].copy_from_slice(&(out_width as u32).to_le_bytes());
     turned[8..12].copy_from_slice(&(out_height as u32).to_le_bytes());
@@ -385,6 +391,14 @@ pub(super) fn turn_file(
         }
     }
     out.flush()
+}
+
+/// How many short reads a quarter turn of a `width` by `height` picture makes
+/// with tiles of `band` bytes: `height` for each tile of columns.
+fn quarter_reads((width, height, channels): (usize, usize, usize), band: usize) -> usize {
+    let column_bytes = height.saturating_mul(channels);
+    let columns = (band / column_bytes.max(1)).clamp(1, width.max(1));
+    height.saturating_mul(width.div_ceil(columns))
 }
 
 /// The quarter turns: output row `y` is source column `y` (or `width - 1 - y`

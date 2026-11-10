@@ -594,8 +594,11 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
     or half turn row by row, a quarter turn in tiles of whole columns, at most **32 KiB** of tile on
     the X4 and 1 MiB elsewhere, after the decoder has freed its state), and removes the first file;
     a file left by a power cut is not named like a prepared image and the boot sweep removes it. A
-    quarter turn reads the source `height × ceil(width / columns)` times in short pieces: its time on
-    the X4 is a measured gate. `event.image_ready` reports the size **after** the turn, `side`
+    quarter turn reads the source `height × ceil(width / columns)` times in short pieces and runs in
+    one main-loop turn, so on the X4 one that needs more than **16,384** reads (a 4:3 picture of about
+    1,000 pixels the long side; the screen's 800 pixels need about 9,000) is status 3 (too large)
+    and nothing is turned; ask for the screen's side (`side` 0) with `turn` on the X4. Its time
+    below the budget is a measured gate (#250). `event.image_ready` reports the size **after** the turn, `side`
     limits the longest side before and after alike. PNG and GIF are never turned.
   - **`tone: bytes 256`**, empty for none, else exactly 256 bytes (`ERR_INVALID` otherwise): a luma
     table the host applies while it decodes: every gray value `v` becomes `tone[v]`, and for
@@ -605,7 +608,9 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
     brightness, 0 to 255, of an 8 by 8 grid over the prepared picture, row by row (cells of equal
     size, a picture under 8 pixels a side takes the pixel at each cell; colour as luma), after the
     tone and the turn. The host reads the file once more, a row at a time, so the plugin finds the
-    brightness behind any rectangle without reading the picture.
+    brightness behind any rectangle without reading the picture. It is made for every picture that
+    is made, asked for or not: a second read of the file (one row at a time) a little over the
+    decode's own write, in the same main-loop turn.
 - [D] `image.info` writes one `doc_image` record (`width`, `height`, `flags` bit 0 colour, bit 1
   not decoded yet) into
   `out`. `canvas.draw_image` draws the image scaled into the rectangle (keeping its shape,
@@ -832,8 +837,8 @@ reply 4,096 bytes, stage payload 3,840.
   time as a decode or a draw. The brightness grid is 8 sums of 8 bytes and the grid's 64 bytes on
   the stack (about 130 bytes) and one source row (at most 4,800 bytes) on the heap. The turn's
   time is an X4 gate item: it reads `height × ceil(width / columns)` short pieces (a 1,600 × 1,200
-  picture in 27-column tiles: about 72,000; the screen's 800 × 600: about 9,000), to be measured on
-  the device.
+  picture in 27-column tiles: about 72,000, over the X4's budget of 16,384 reads, so refused with
+  status 3; the screen's 800 × 600: about 9,000), to be measured on the device (#250).
 - Drawing a picture (slot 37): at most 32 KiB transient per call on the X4 (section 5),
   fallible, freed before the call returns; never at the same time as a decode (both run on the
   main loop).

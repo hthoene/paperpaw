@@ -149,6 +149,7 @@ fn decode_env(device: &paperpaw_platform::DeviceInfo) -> DecodeEnv {
             max_side: super::image_service::MAX_SIDE,
             png_row_max: usize::MAX,
             turn_band: 1 << 20,
+            turn_reads: usize::MAX,
         }
     }
 }

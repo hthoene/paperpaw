@@ -158,6 +158,7 @@ fn an_admitted_prepare_is_queued_decoded_and_answered_and_a_release_ends_it() {
                 max_side: 4096,
                 png_row_max: usize::MAX,
                 turn_band: 1 << 20,
+                turn_reads: usize::MAX,
             },
         )
         .unwrap()

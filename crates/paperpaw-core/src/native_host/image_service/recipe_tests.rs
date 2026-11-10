@@ -22,6 +22,7 @@ const ENV: Env = Env {
     max_side: 4096,
     png_row_max: usize::MAX,
     turn_band: 1 << 20,
+    turn_reads: usize::MAX,
 };
 
 /// A decoded gray picture file of `width` by `height` whose pixel at `(x, y)`
@@ -324,7 +325,14 @@ fn every_turn_of_a_gray_picture_is_the_orientation_it_names_whatever_the_band() 
         for band in [1, 2 * h, 3 * h + 1, 1 << 20] {
             let storage = MemoryStorage::new();
             gray_file(&storage, "s.img", (w, h), pixel);
-            turn_file(&storage, ("s.img", "t.img"), orientation, 1, band).unwrap();
+            turn_file(
+                &storage,
+                ("s.img", "t.img"),
+                orientation,
+                1,
+                (band, usize::MAX),
+            )
+            .unwrap();
             let (_, _, src) = read_file(&storage, "s.img", 1);
             let want = oracle(&src, (w, h), 1, orientation);
             let got = read_file(&storage, "t.img", 1);
@@ -348,7 +356,14 @@ fn every_turn_of_a_colour_picture_keeps_its_pixels_whole() {
         for band in [1, 3 * h, 1 << 20] {
             let storage = MemoryStorage::new();
             storage.write("s.img", &bytes).unwrap();
-            turn_file(&storage, ("s.img", "t.img"), orientation, 3, band).unwrap();
+            turn_file(
+                &storage,
+                ("s.img", "t.img"),
+                orientation,
+                3,
+                (band, usize::MAX),
+            )
+            .unwrap();
             assert_eq!(
                 read_file(&storage, "t.img", 3),
                 oracle(&pixels, (w, h), 3, orientation),
@@ -364,7 +379,14 @@ fn a_turn_of_one_pixel_a_row_or_a_column_is_whole() {
         for orientation in 2..=8_u8 {
             let storage = MemoryStorage::new();
             gray_file(&storage, "s.img", (w, h), |x, y| (x * 7 + y * 13) as u8);
-            turn_file(&storage, ("s.img", "t.img"), orientation, 1, 1).unwrap();
+            turn_file(
+                &storage,
+                ("s.img", "t.img"),
+                orientation,
+                1,
+                (1, usize::MAX),
+            )
+            .unwrap();
             let (_, _, src) = read_file(&storage, "s.img", 1);
             assert_eq!(
                 read_file(&storage, "t.img", 1),
@@ -379,17 +401,17 @@ fn a_turn_of_one_pixel_a_row_or_a_column_is_whole() {
 fn a_turn_refuses_a_file_that_is_no_picture_or_has_no_orientation() {
     let storage = MemoryStorage::new();
     assert_eq!(
-        turn_file(&storage, ("none.img", "t.img"), 6, 1, 1024),
+        turn_file(&storage, ("none.img", "t.img"), 6, 1, (1024, usize::MAX)),
         Err(ImageError::Io)
     );
     storage.write("junk.img", b"PPGI\0\0\0\0\0\0\0\0").unwrap();
     assert!(matches!(
-        turn_file(&storage, ("junk.img", "t.img"), 6, 1, 1024),
+        turn_file(&storage, ("junk.img", "t.img"), 6, 1, (1024, usize::MAX)),
         Err(ImageError::Invalid(_))
     ));
     gray_file(&storage, "s.img", (2, 2), |_, _| 1);
     assert!(matches!(
-        turn_file(&storage, ("s.img", "t.img"), 1, 1, 1024),
+        turn_file(&storage, ("s.img", "t.img"), 1, 1, (1024, usize::MAX)),
         Err(ImageError::Invalid(_))
     ));
     // A source cut short fails as the card does, with no whole file made.
@@ -399,7 +421,7 @@ fn a_turn_refuses_a_file_that_is_no_picture_or_has_no_orientation() {
     assert!(read_all(&storage, "s.img", 0, &mut bytes));
     storage.write("cut.img", &bytes).unwrap();
     assert_eq!(
-        turn_file(&storage, ("cut.img", "t.img"), 6, 1, 1024),
+        turn_file(&storage, ("cut.img", "t.img"), 6, 1, (1024, usize::MAX)),
         Err(ImageError::Io)
     );
 }
@@ -412,7 +434,7 @@ fn a_large_picture_is_turned_within_the_x4_band_and_never_whole_in_memory() {
     let counted = Counting::new(MemoryStorage::new());
     gray_file(&counted, "s.img", (w, h), |x, y| (x ^ y) as u8);
     let band = 32 * 1024;
-    turn_file(&counted, ("s.img", "t.img"), 6, 1, band).unwrap();
+    turn_file(&counted, ("s.img", "t.img"), 6, 1, (band, usize::MAX)).unwrap();
     // What the turn did, before the check below reads the file whole.
     let (longest_read, longest_append, reads) = (
         counted.longest_read.get(),
@@ -669,4 +691,24 @@ fn a_recipe_is_copied_for_the_waiting_request_and_the_copy_is_its_own() {
     let copy = recipe.try_copy().unwrap();
     assert_eq!(copy, recipe);
     assert_eq!(Recipe::default().try_copy().unwrap(), Recipe::default());
+}
+
+#[test]
+fn a_quarter_turn_over_the_read_budget_is_too_large_and_writes_nothing() {
+    // The X4's budget (16,384 short reads, 32 KiB tiles): the screen's
+    // 800 by 600 gray is turned (about 9,000 reads), a 1,600 by 1,200 one
+    // (about 72,000) is refused before a byte is written; a half turn and a
+    // mirror are never counted.
+    let (band, reads) = (32 * 1024, 16_384);
+    let storage = MemoryStorage::new();
+    gray_file(&storage, "screen.img", (800, 600), |x, y| (x ^ y) as u8);
+    turn_file(&storage, ("screen.img", "a.img"), 6, 1, (band, reads)).unwrap();
+    assert_eq!(read_file(&storage, "a.img", 1).0, 600);
+    gray_file(&storage, "big.img", (1_600, 1_200), |x, y| (x ^ y) as u8);
+    assert_eq!(
+        turn_file(&storage, ("big.img", "b.img"), 6, 1, (band, reads)),
+        Err(ImageError::TooLarge)
+    );
+    assert!(storage.size("b.img").is_err());
+    turn_file(&storage, ("big.img", "c.img"), 3, 1, (band, reads)).unwrap();
 }

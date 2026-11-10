@@ -65,6 +65,10 @@ pub(crate) struct Env {
     /// The most bytes of one tile of a quarter turn (`turn`): 32 KiB on the
     /// X4 (the draw's own ceiling), 1 MiB elsewhere.
     pub(crate) turn_band: usize,
+    /// The most short reads a quarter turn makes (16,384 on the X4, where a
+    /// turn runs in one main-loop turn; `usize::MAX` elsewhere): a picture
+    /// that would need more is status 3 and is not turned.
+    pub(crate) turn_reads: usize,
 }
 
 /// Entries of the cache folder a sweep call looks at.
@@ -89,6 +93,7 @@ impl Env {
             max_side: 1_600,
             png_row_max: 8 * 1024,
             turn_band: 32 * 1024,
+            turn_reads: 16_384,
         }
     }
 }
@@ -445,7 +450,7 @@ impl ImageTable {
                 Some(inner.waiting.remove(0))
             };
             let number = inner.seq;
-            inner.seq = inner.seq.wrapping_add(1);
+            inner.seq = inner.seq.wrapping_add(1) & 0x7fff_ffff;
             (job, garbage, number)
         };
         if let Some((owner, seq)) = garbage {
@@ -787,7 +792,7 @@ fn make(
             (&first, path),
             orientation,
             if colour { 3 } else { 1 },
-            env.turn_band,
+            (env.turn_band, env.turn_reads),
         )
     });
     let _ = storage.remove(&first);
