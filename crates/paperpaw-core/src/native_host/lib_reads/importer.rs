@@ -14,7 +14,7 @@
 //! matches. The move carry also calls [`clear`] for the old path, so that a
 //! book moved away and back is not taken for the importer's again; a delete
 //! removes it with the rest of the book's marks.
-use super::{kept_file, storage_status};
+use super::{carry_status, kept_file, storage_status};
 use alloc::string::String;
 use core::fmt::Write as _;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_IO, ERR_NO_MEMORY};
@@ -50,7 +50,7 @@ pub(crate) fn set(storage: &dyn Storage, path: &str, importer: &str) -> Result<(
     let _ = writeln!(record, "{}", fingerprint.text());
     storage
         .write(&file(path)?, record.as_bytes())
-        .map_err(storage_status)
+        .map_err(carry_status)
 }
 
 /// Whether the book at `path` was imported by `importer`, was not moved since
@@ -86,7 +86,7 @@ pub(crate) fn is_by(storage: &dyn Storage, path: &str, importer: &str) -> Result
 /// Removes the record of the book at `path`, where there is one; the card's
 /// error is the answer (the caller repeats the step).
 pub(crate) fn remove(storage: &dyn Storage, path: &str) -> Result<(), i32> {
-    storage.remove(&file(path)?).map_err(storage_status)
+    storage.remove(&file(path)?).map_err(carry_status)
 }
 
 /// [`remove`] for the move carry, which has nothing to do with an error: a
