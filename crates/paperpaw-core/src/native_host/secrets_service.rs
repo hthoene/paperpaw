@@ -63,7 +63,7 @@ const RANDOM_MAX: usize = 256;
 /// while the radio or the bootloader's entropy source is on, so a shell
 /// reports `strong == false` (or fails) at other times; nothing that makes a
 /// key, a token or a nonce may rely on weak bytes.
-pub(crate) trait Rng {
+pub trait Rng {
     /// Fills `out` and says whether the source is fully random now (`strong`).
     /// A device without a source is not wired; there is no weaker stand-in.
     fn fill(&self, out: &mut [u8]) -> Result<bool, i32>;
@@ -109,7 +109,6 @@ impl SecretsServices {
     ///
     /// # Errors
     /// `ERR_IO` (nothing changed), `ERR_NO_MEMORY`.
-    #[allow(dead_code, reason = "the shell calls it at start; tests do today")]
     pub(crate) fn upgrade(&self) -> Result<bool, i32> {
         if !self.host.sealer().seals() {
             return Ok(false);
@@ -128,7 +127,6 @@ impl SecretsServices {
     ///
     /// # Errors
     /// `ERR_IO` (nothing changed), `ERR_NO_MEMORY`, `ERR_INVALID`.
-    #[allow(dead_code, reason = "the uninstall path calls it; tests do today")]
     pub(crate) fn forget_plugin(&self, plugin: &str) -> Result<(), i32> {
         check_owner(plugin)?;
         let mut file = File::new(&*self.host)?;

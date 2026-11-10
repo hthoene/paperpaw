@@ -26,7 +26,7 @@ pub(super) const LINE_MAX: usize = 2_560;
 /// Largest secret value, in bytes.
 pub(super) const VALUE_MAX: usize = 1_024;
 /// Largest sealed value (nonce, value, tag) the sealer is asked to open or make.
-pub(super) const SEALED_MAX: usize = 12 + VALUE_MAX + 16;
+pub const SEALED_MAX: usize = 12 + VALUE_MAX + 16;
 /// The file's size limit, in bytes.
 pub(super) const FILE_MAX: u64 = 64 * 1024;
 /// A name or an owner, in bytes.
@@ -160,7 +160,7 @@ fn veil(bytes: &mut [u8]) {
 /// entropy source is on; a sealer that cannot get such a nonce answers an
 /// error from `seal` (the `keep` then fails with nothing changed) and never
 /// falls back to a weak source.
-pub(crate) trait Sealer {
+pub trait Sealer {
     /// Whether new values are written sealed (`s1:`) and veiled ones found are
     /// rewritten sealed at the next save.
     fn seals(&self) -> bool;
@@ -175,7 +175,7 @@ pub(crate) trait Sealer {
 /// Keeps values veiled (the emulator, Android): interface 6's behaviour. The
 /// help says it is not encryption.
 #[derive(Debug, Default, Clone, Copy)]
-pub(crate) struct Veiling;
+pub struct Veiling;
 
 impl Sealer for Veiling {
     fn seals(&self) -> bool {
