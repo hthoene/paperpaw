@@ -130,8 +130,11 @@ pub fn paperpaw_platform::firmware::FirmwareHost::begin_check(&mut self, &str) -
 pub fn paperpaw_platform::firmware::FirmwareHost::begin_write(&mut self, &str, [u8; 32], core::option::Option<[u8; 32]>, bool) -> core::result::Result<(), paperpaw_platform::firmware::Reason>
 pub fn paperpaw_platform::firmware::FirmwareHost::check_step(&mut self, &dyn paperpaw_platform::storage::Storage, &mut dyn core::ops::function::FnMut(&str)) -> paperpaw_platform::firmware::Step<paperpaw_platform::firmware::CheckFacts>
 pub fn paperpaw_platform::firmware::FirmwareHost::commit(&mut self) -> core::result::Result<(), paperpaw_platform::firmware::Reason>
+pub fn paperpaw_platform::firmware::FirmwareHost::dual_boot_capable(&self) -> bool
+pub fn paperpaw_platform::firmware::FirmwareHost::dual_boot_declared(&self) -> bool
 pub fn paperpaw_platform::firmware::FirmwareHost::readback_step(&mut self) -> paperpaw_platform::firmware::Step<()>
 pub fn paperpaw_platform::firmware::FirmwareHost::restart(&mut self) -> core::result::Result<(), paperpaw_platform::firmware::Reason>
+pub fn paperpaw_platform::firmware::FirmwareHost::restart_running(&mut self) -> core::result::Result<(), paperpaw_platform::firmware::Reason>
 pub fn paperpaw_platform::firmware::FirmwareHost::running(&self) -> paperpaw_platform::firmware::Running<'_>
 pub fn paperpaw_platform::firmware::FirmwareHost::write_step(&mut self, &dyn paperpaw_platform::storage::Storage) -> paperpaw_platform::firmware::Step<()>
 pub mod paperpaw_platform::geometry
@@ -799,8 +802,11 @@ pub fn paperpaw_platform::FirmwareHost::begin_check(&mut self, &str) -> core::re
 pub fn paperpaw_platform::FirmwareHost::begin_write(&mut self, &str, [u8; 32], core::option::Option<[u8; 32]>, bool) -> core::result::Result<(), paperpaw_platform::firmware::Reason>
 pub fn paperpaw_platform::FirmwareHost::check_step(&mut self, &dyn paperpaw_platform::storage::Storage, &mut dyn core::ops::function::FnMut(&str)) -> paperpaw_platform::firmware::Step<paperpaw_platform::firmware::CheckFacts>
 pub fn paperpaw_platform::FirmwareHost::commit(&mut self) -> core::result::Result<(), paperpaw_platform::firmware::Reason>
+pub fn paperpaw_platform::FirmwareHost::dual_boot_capable(&self) -> bool
+pub fn paperpaw_platform::FirmwareHost::dual_boot_declared(&self) -> bool
 pub fn paperpaw_platform::FirmwareHost::readback_step(&mut self) -> paperpaw_platform::firmware::Step<()>
 pub fn paperpaw_platform::FirmwareHost::restart(&mut self) -> core::result::Result<(), paperpaw_platform::firmware::Reason>
+pub fn paperpaw_platform::FirmwareHost::restart_running(&mut self) -> core::result::Result<(), paperpaw_platform::firmware::Reason>
 pub fn paperpaw_platform::FirmwareHost::running(&self) -> paperpaw_platform::firmware::Running<'_>
 pub fn paperpaw_platform::FirmwareHost::write_step(&mut self, &dyn paperpaw_platform::storage::Storage) -> paperpaw_platform::firmware::Step<()>
 pub trait paperpaw_platform::Storage
