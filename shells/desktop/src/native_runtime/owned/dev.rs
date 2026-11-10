@@ -202,6 +202,103 @@ pub(super) fn copies_dir() -> std::io::Result<&'static Path> {
     copies()
 }
 
+/// A library's mapping together with its private copy: the copy goes when the
+/// library is unmapped.
+pub(crate) struct CopyModule {
+    library: Option<HeldLibrary>,
+    copy: std::path::PathBuf,
+}
+
+impl Drop for CopyModule {
+    fn drop(&mut self) {
+        // Unmapped first; a later load writes the copy anew.
+        drop(self.library.take());
+        let _ = std::fs::remove_file(&self.copy);
+    }
+}
+
+/// Checks the library `bytes` of the plugin `id` (known to the host, never
+/// the library's own) and hosts it: a private read-only copy, mapped, its
+/// entry and metadata checked before anything of it runs. `module` makes what
+/// keeps the mapping alive from the library and the copy's path. `make` has
+/// not run.
+fn host_library<M: 'static>(
+    id: &str,
+    bytes: &[u8],
+    resources: HostResources,
+    module: impl FnOnce(HeldLibrary, &Path) -> M,
+) -> Result<(std::path::PathBuf, shared_shell::Hosted<DesktopServices, M>), Refusal> {
+    if !is_id(id) {
+        return Err(Refusal::Id);
+    }
+    // From the bytes: the kind decides whether this loader is the one.
+    match classify(bytes) {
+        Kind::Interface7 => {}
+        other => return Err(Refusal::Kind(other)),
+    }
+    let digest = paperpaw_core::sdk::digest::sha256::digest(bytes);
+    // A read-only copy of its own (the build may change the file
+    // meanwhile): what is checked and loaded is this one file.
+    let copy = private_copy(id, bytes, &digest).map_err(|_| Refusal::File)?;
+    // SAFETY: the one who started the emulator authorized native code with
+    // the developer switch; the copy is read-only and private to this
+    // process, and the owner keeps it open until after unload.
+    let table = shared_shell::host_table::<DesktopServices>();
+    // SAFETY: authorized private immutable copy, as above.
+    let CheckedLibrary {
+        declared_services,
+        library,
+        make,
+        image,
+    } = unsafe {
+        checked_library(
+            &copy,
+            &digest,
+            &table,
+            crate::device_host::offered_services(),
+        )
+    }
+    .map_err(|why| {
+        // Nothing maps it: the copy goes with the refusal.
+        let _ = std::fs::remove_file(&copy);
+        Refusal::Runtime(why)
+    })?;
+    // SAFETY: the checked module owns the executable entry and read-only image.
+    let plugin = unsafe {
+        shared_shell::Hosted::new(
+            DesktopServices::new(),
+            module(library, &copy),
+            make,
+            id,
+            // SAFETY: this address belongs to the loaded read-only ELF
+            // mapping, retained by the module for the owner's lifetime.
+            (core::ptr::with_exposed_provenance(image.0), image.1),
+            report_shared,
+            resources,
+            declared_services,
+        )
+    }?;
+    Ok((copy, plugin))
+}
+
+/// The library `bytes` of plugin `id`, checked and hosted for the kernel to
+/// admit ([`paperpaw_core::NativeAdmission`]): nothing of it has run but
+/// `make`, and that is the kernel's to call.
+pub(crate) fn admission(
+    id: &str,
+    bytes: &[u8],
+    resources: HostResources,
+    depth: paperpaw_core::native_host::flat::FlatDepth,
+) -> Result<Box<dyn paperpaw_core::NativeAdmission>, Refusal> {
+    let (_, hosted) = host_library(id, bytes, resources, |library, copy| CopyModule {
+        library: Some(library),
+        copy: copy.to_path_buf(),
+    })?;
+    Ok(Box::new(super::super::admit::DesktopAdmission::new(
+        hosted, depth,
+    )))
+}
+
 /// One loaded plugin. Field order is the order of release: the batch (the
 /// borrow of the owner) goes first, in `Drop`, then the owner with its
 /// library.
@@ -239,52 +336,8 @@ impl Loaded {
         bytes: &[u8],
         resources: HostResources,
     ) -> Result<Self, Refusal> {
-        if !is_id(id) {
-            return Err(Refusal::Id);
-        }
-        // From the bytes: the kind decides whether this loader is the one.
-        match classify(bytes) {
-            Kind::Interface7 => {}
-            other => return Err(Refusal::Kind(other)),
-        }
-        let digest = paperpaw_core::sdk::digest::sha256::digest(bytes);
-        // A read-only copy of its own (the build may change the file
-        // meanwhile): what is checked and loaded is this one file.
-        let copy = private_copy(id, bytes, &digest).map_err(|_| Refusal::File)?;
-        // SAFETY: the one who started the emulator authorized native code with
-        // the developer switch; the copy is read-only and private to this
-        // process, and the owner keeps it open until after unload.
-        let table = shared_shell::host_table::<DesktopServices>();
-        // SAFETY: authorized private immutable copy, as above.
-        let CheckedLibrary {
-            declared_services,
-            library,
-            make,
-            image,
-        } = unsafe {
-            checked_library(
-                &copy,
-                &digest,
-                &table,
-                crate::device_host::offered_services(),
-            )
-        }
-        .map_err(Refusal::Runtime)?;
-        // SAFETY: the checked module owns the executable entry and read-only image.
-        let plugin = checked_box(unsafe {
-            SharedPlugin::new(
-                DesktopServices::new(),
-                library,
-                make,
-                id,
-                // SAFETY: this address belongs to the loaded read-only ELF
-                // mapping, retained by HeldLibrary for the owner's lifetime.
-                (core::ptr::with_exposed_provenance(image.0), image.1),
-                report_shared,
-                resources,
-                declared_services,
-            )
-        }?)?;
+        let (copy, plugin) = host_library(id, bytes, resources, |library, _| library)?;
+        let plugin = checked_box(plugin)?;
         let mut transaction = plugin.begin::<Registration>()?;
         // SAFETY: the slice borrows `plugin`, whose owner keeps the library
         // mapped until the batch is gone (the batch is released first, see
@@ -501,14 +554,6 @@ impl FlatInstance for Loaded {
 #[cfg(test)]
 pub(crate) fn load_flat(id: &str, bytes: &[u8]) -> Result<Box<dyn FlatInstance>, Refusal> {
     let resources = HostResources::try_new().map_err(|_| Refusal::Allocation)?;
-    load_flat_with_resources(id, bytes, resources)
-}
-
-pub(crate) fn load_flat_with_resources(
-    id: &str,
-    bytes: &[u8],
-    resources: HostResources,
-) -> Result<Box<dyn FlatInstance>, Refusal> {
     let loaded = Loaded::from_bytes_with_resources(id, bytes, resources)?;
     let declared = loaded.declared_records();
     if declared != 0 {

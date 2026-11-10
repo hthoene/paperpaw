@@ -6,7 +6,7 @@ use super::{
     linked_entry::{self, Refusal},
     shell,
 };
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED, PpEntry, Services};
+use paperpaw_native::host_glue::{ERR_DENIED, ERR_INVALID, ERR_UNSUPPORTED, PpEntry, Services};
 use paperpaw_native::{bundle, metadata};
 use paperpaw_sdk::Id;
 
@@ -23,6 +23,7 @@ impl crate::Kernel {
     /// id is refused.
     ///
     /// # Errors
+    /// `ERR_DENIED` for the host's reserved id `core`;
     /// `ERR_INVALID` for an entry that disagrees with its metadata or its
     /// versions, an id that is not a plugin id, or an id already registered;
     /// `ERR_UNSUPPORTED` for metadata the kernel refuses (another profile, a
@@ -49,9 +50,12 @@ impl crate::Kernel {
         teardown: shell::Report<S>,
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
-        // Before anything is built and long before `make`: an id that is not
-        // a plugin id (1 to 40 bytes of `[a-z0-9-]`, as for a loaded plugin),
-        // or one that is taken.
+        // Before anything is built and long before `make`: the host's own id
+        // (reserved, ui.md 4.3), an id that is not a plugin id (1 to 40 bytes
+        // of `[a-z0-9-]`, as for a loaded plugin), or one that is taken.
+        if id == crate::RESERVED_PLUGIN_ID {
+            return Err(shell::Error::Status(ERR_DENIED));
+        }
         if !bundle::is_plugin_id(id)
             || Id::try_parse(id).is_err()
             || self.shared.native_instances.find(id).is_some()
