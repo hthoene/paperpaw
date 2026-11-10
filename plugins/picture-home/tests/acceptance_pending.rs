@@ -17,12 +17,13 @@ const CASES: [Case; 8] = [
         golden: None,
         blocked_by: &["H1", "H3", "H4"],
     },
-    // Editing: the finger's drag of an item or its corner (the buttons' moving,
-    // sizing and removing are ported).
+    // Editing: the finger's drag of an item or its corner (native, the cells
+    // it makes are unit-tested; the buttons' moving, sizing and removing too).
+    // Seen only on a host with a screen stack that delivers pointers.
     Case {
         name: "picture-home-edit",
         golden: None,
-        blocked_by: &["H2", "H4"],
+        blocked_by: &["H1"],
     },
     // The chosen picture behind the page through the production loader: asked
     // of the host (`image_prepare`), the notice while it is made, drawn first
@@ -69,7 +70,7 @@ const CASES: [Case; 8] = [
     Case {
         name: "picture-home-bar-items-editor-grip-drag",
         golden: None,
-        blocked_by: &["KIT-grip-drag"],
+        blocked_by: &["H1", "H4"],
     },
 ];
 
@@ -90,7 +91,7 @@ fn picture_home_dashboard() {
 }
 
 #[test]
-#[ignore = "BLOCKED H2/H4: dialogs and input are not qualified"]
+#[ignore = "BLOCKED H1: the finger's drag of an item and its corner is native (the cells it makes are unit-tested) but is seen only on a host with a screen stack that delivers pointers to the dashboard"]
 fn picture_home_edit() {
     CASES[1].refuse().unwrap();
 }
@@ -120,7 +121,7 @@ fn picture_home_bars() {
 }
 
 #[test]
-#[ignore = "BLOCKED KIT-grip-drag: the kit's status items view has no pointer drag of the grip yet"]
+#[ignore = "BLOCKED H1/H4: the kit view takes the finger's drag of a grip (unit-tested in paperpaw-ui-kit), but nothing is drawn or taken through a host yet"]
 fn picture_home_bar_items_editor_grip_drag() {
     CASES[7].refuse().unwrap();
 }

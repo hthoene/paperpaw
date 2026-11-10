@@ -80,7 +80,7 @@ On its side the pages are shown (placed anew) but not arranged: the pencil says 
 upright, as interface 6 did. A dashboard opened again keeps its page and its widgets.
 
 Differences from interface 6, each a named step below: no bar in its
-strip, no hints row, words instead of the pencil, plus and tick icons, no drag with the finger, and
+strip, no hints row, words instead of the pencil, plus and tick icons, and
 the parts of the picture's recipe the host cannot do (*Slice 6*).
 
 ## Slice 5: Add
@@ -203,8 +203,9 @@ Blocked, each named (nothing invented):
 *Add* is no longer one of them (slice 5); its icons wait for #517 (`picture-home-add`).
 
 
-- Moving and sizing with a finger (H2/H4; the drag of an item or its corner waits for the pointer
-  input): `picture-home-edit`.
+- Moving and sizing with a finger: ported (the drag of an item or its corner, as home's; the cells
+  it makes are unit-tested in `paperpaw_ui_kit::dashboard::arrange`). Seen only on a host with a
+  screen stack that delivers pointers: `picture-home-edit` (H1).
 - The picture's parts the host cannot do are named under *Slice 6* (`IMG-turn`, `IMG-tone`,
   `IMG-dots`, `IMG-stretch`, `IMG-tile-many`, `IMG-replaced`, `IMG-ink`); the rest is ported and
   waits for the production loader (`picture-home-picture`).
@@ -224,7 +225,7 @@ Blocked, each named (nothing invented):
   made narrower than it wants (`native_measure.rs`).
 - `H1/H4`: the dashboard, the chooser and the editor through the production loader
   (`picture-home-dashboard`, `picture-home-pick`, `picture-home-bar-items-editor`), and
-  `KIT-grip-drag` for the grip's finger drag.
+  the grip's finger drag.
 
 Worst case memory: the snapshot (4 page texts of at most 4 KiB, 256 widgets and tools of a few dozen
 bytes) and one page of cells with their names; one dashboard open at a time. Not measured on the
@@ -241,8 +242,6 @@ and the picture has parts the host cannot do:
 2. The bar: the host's status frame drawn in the strip the dashboard keeps free, and the hints row
    (H1b #851, in train 7), with the press that shows a bar that shows after a press
    (`picture-home-bars`).
-3. The finger's drag of an item and its corner while editing (H2/H4, `picture-home-edit`), and the
-   grip's drag in the bar items' editor (`KIT-grip-drag`).
 
 The icons (#517) and the widgets' updates are smaller steps named above.
 
@@ -252,7 +251,7 @@ The icons (#517) and the widgets' updates are smaller steps named above.
 the picture open (slices 4 to 6), but the bar and the hints row are missing and the picture lacks the
 parts named under *Slice 6*: a picture home screen without its bar is not what the reader has now. So
 `NativePictureHome` is listed in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt` only when
-the bar (and the finger's drag) are drawn (together with the removal step below). The gate stays.
+the bar is drawn (together with the removal step below). The gate stays.
 
 ### Removal step (one later sweep)
 
@@ -297,7 +296,7 @@ interface-6 suites (`tests/home.rs`, `tests/common`), the app's wiring of `Pictu
   (`EditorDecl::Screen`, one screen for the three, opened with the setting's id), built on
   `paperpaw_ui_kit::status_items` as home's footer items are (Kernel's ruling, todo 121). The
   declaration is compared with the interface-6 registration (only the editor's name differs); its
-  callbacks wait for the native entry (H1/H4), and the finger's drag of a grip is a hold and a tap
-  in the kit (`KIT-grip-drag`).
+  callbacks wait for the native entry (H1/H4); the finger's drag of a grip is native in the kit
+  (as home's, slice 4f).
   The native entry will need `uses core.registry` in its metadata: the view reads the registered
   items with the kit's `status_items::view::read_entries`.

@@ -89,6 +89,8 @@ struct Laid {
     /// whether the screen is on its side.
     slot: usize,
     wide: bool,
+    /// How wide and high the corner of an item is that a finger sizes it by.
+    handle: u16,
 }
 
 /// What a press on a target leaves to do besides what it did itself.
@@ -124,6 +126,8 @@ pub struct Dashboard {
     options: Option<arrange::Options>,
     /// An item the buttons are moving or sizing.
     moving: Option<arrange::Moving>,
+    /// An item a finger has taken along.
+    drag: Option<arrange::Drag>,
     /// The picture behind the page.
     backdrop: Backdrop,
 }
@@ -175,6 +179,8 @@ impl Dashboard {
     pub fn shown(&mut self) {
         self.stale = true;
         self.reshow = true;
+        // A finger's drag does not outlive the screen's being covered.
+        self.drag = None;
     }
 
     /// Wants the picture the settings ask for: the host is asked to make it unless
@@ -268,6 +274,7 @@ impl Dashboard {
         // The cells are new: what pointed at the old ones is no more.
         self.options = None;
         self.moving = None;
+        self.drag = None;
         // The pages are arranged upright: on its side they are derived.
         self.editing &= !laid.wide;
         self.focus.clamp(laid.targets.len());
@@ -365,6 +372,7 @@ impl Dashboard {
             items,
             slot,
             wide,
+            handle: (metrics.row / 2).max(16),
         })
     }
 
@@ -636,6 +644,7 @@ impl Dashboard {
                     &mut below,
                     Paint::Focus(cell.rect, style.corner, line, style.ink),
                 )?;
+                self.corner_mark(&mut below, &style, cell.rect, laid.handle)?;
             }
             if matches!(cell.what, What::Tool(_)) {
                 name(&mut below, font, &style, cell.rect, &cell.name)?;
@@ -652,6 +661,7 @@ impl Dashboard {
                 self::dot(&mut below, &dot, &style)?;
             }
         }
+        self.drag_frame(&mut above, &style, laid)?;
         if self.focus.shown()
             && let Some(target) = laid.targets.get(self.focus.at())
         {
