@@ -123,6 +123,26 @@ fn the_plugin_with_the_greater_id_wins_a_tag_without_regard_to_case() {
     assert!(tables.card().find("de").is_some());
 }
 
+/// A sealer that seals nothing (the shells' test double; not a real cipher).
+struct Keyed;
+impl Sealer for Keyed {
+    fn seals(&self) -> bool {
+        true
+    }
+    fn seal(&self, _: &[u8], plain: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+        out.get_mut(..plain.len())
+            .ok_or(ERR_STATE)?
+            .copy_from_slice(plain);
+        Ok(plain.len())
+    }
+    fn open(&self, _: &[u8], sealed: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+        out.get_mut(..sealed.len())
+            .ok_or(ERR_STATE)?
+            .copy_from_slice(sealed);
+        Ok(sealed.len())
+    }
+}
+
 struct Clock;
 impl WorkDevice for Clock {
     fn now_ms(&self) -> u64 {
@@ -198,14 +218,14 @@ fn core_work_is_wired_once_and_its_view_is_made_of_the_shell_the_kernel_and_the_
 fn core_secrets_is_wired_once_and_the_shell_keeps_its_lifecycle_calls() {
     let resources = HostResources::try_new().unwrap();
     let wired = resources
-        .wire(HostWiring::new().secrets(SecretsInputs::new(storage(), Rc::new(Veiling))))
+        .wire(HostWiring::new().secrets(SecretsInputs::new(storage(), Rc::new(Keyed))))
         .unwrap();
     assert!(resources.hosts().secrets().is_some());
-    // A device that does not seal has nothing to upgrade.
+    // No file yet: nothing to upgrade.
     assert_eq!(wired.secrets().unwrap().upgrade(), Ok(false));
     let again = resources.wire(
         HostWiring::new()
-            .secrets(SecretsInputs::new(storage(), Rc::new(Veiling)))
+            .secrets(SecretsInputs::new(storage(), Rc::new(Keyed)))
             .device(Rc::new(Nothing)),
     );
     assert_eq!(again.err(), Some(ERR_STATE));
