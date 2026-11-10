@@ -463,7 +463,12 @@ fn a_sender_that_stops_leaves_a_confirmed_install_running_untold() {
     // Not aborted, no entry for its sender, still running.
     assert_eq!(seen.aborted.get(), None);
     assert!(!d.holds(1, 1));
+    // A stop does not step it (it may take long): the pump does.
     d.finish_stopped(&NoStorage, &Names);
+    assert_eq!(seen.steps.get(), 1);
+    for now in (300..2_000).step_by(100) {
+        d.pump(&NoStorage, &Names, now);
+    }
     assert_eq!(seen.steps.get(), 3);
     assert!(seen.dropped.get());
     // Nobody is told, nothing is kept for it, and the queue is free.
@@ -471,6 +476,48 @@ fn a_sender_that_stops_leaves_a_confirmed_install_running_untold() {
     assert_eq!(d.kept(1, KIND_INSTALL), None);
     assert!(!d.has_work(0));
     d.submit_plugin(job_of_kind(2, 1, KIND_INSTALL)).unwrap();
+}
+
+#[test]
+fn a_stop_after_the_sender_stopped_leaves_no_stale_mark_for_the_next_job() {
+    // The sender stops (the job runs on, untold); then everything stops and
+    // the job, which may be abandoned, goes: nothing is told for it, and the
+    // next job's end is told as any.
+    let mut d = driver(true);
+    let (job, seen) = install_job(1, 1, 9, false, true);
+    d.submit_plugin(job).unwrap();
+    d.pump(&NoStorage, &Names, 100);
+    d.pump(&NoStorage, &Names, 200);
+    d.sender_stopped(1);
+    d.abort_all();
+    assert_eq!(seen.aborted.get(), Some(20));
+    assert!(seen.dropped.get());
+    assert!(d.take_ready().is_none(), "nobody is told for the orphan");
+    assert_eq!(d.waiting(), 0);
+    let (next, _) = check_job(2, 1, 1);
+    d.submit_plugin(next).unwrap();
+    assert!(matches!(run(&mut d), Event::Ended(o) if o.owner == 2 && o.reason == 0));
+    assert_eq!(d.take_ready().map(|o| o.owner), Some(2));
+    assert_eq!(d.waiting(), 0);
+}
+
+#[test]
+fn a_stop_keeps_the_untold_mark_of_a_job_that_must_finish() {
+    // Its sender stopped (`Some(false)`), then a stop: the job must finish,
+    // and still nobody is told (the mark is not overwritten with "told").
+    let mut d = driver(true);
+    let (job, seen) = install_job(1, 1, 5, true, false);
+    d.submit_plugin(job).unwrap();
+    d.pump(&NoStorage, &Names, 100);
+    d.pump(&NoStorage, &Names, 200);
+    d.sender_stopped(1);
+    d.abort_all();
+    d.finish_stopped(&NoStorage, &Names);
+    assert_eq!(seen.steps.get(), 5);
+    assert!(seen.dropped.get());
+    assert!(d.take_ready().is_none());
+    assert_eq!(d.waiting(), 0);
+    assert!(!d.has_work(0));
 }
 
 #[test]
