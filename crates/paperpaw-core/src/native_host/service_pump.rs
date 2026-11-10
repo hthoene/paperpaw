@@ -63,11 +63,9 @@ pub(super) fn pump(
     let Ok(mut buffer) = instances.service_buffer().try_borrow_mut() else {
         return true;
     };
-    if buffer.len() < EVENT_SMALL {
-        if !grow(&mut buffer, EVENT_SMALL) {
-            instances.set_service_retry(Some(now.saturating_add(RETRY_MS)));
-            return false;
-        }
+    if buffer.len() < EVENT_SMALL && !grow(&mut buffer, EVENT_SMALL) {
+        instances.set_service_retry(Some(now.saturating_add(RETRY_MS)));
+        return false;
     }
     instances.set_service_retry(None);
     let delivery = Delivery {
