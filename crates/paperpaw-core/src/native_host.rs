@@ -226,6 +226,13 @@ mod storage_slots;
 mod widget_events;
 mod work_pump;
 
+/// Every `what` bit of `event.registry_changed` (`registry.md` section 5): a
+/// change of the plugin set may change anything the registry holds.
+pub(crate) const REGISTRY_ALL: u32 = 0xFF;
+/// Bit 31 (`dropped`) of `event.registry_changed`: a staged REG batch of the
+/// plugin's own was dropped when applied. It goes to that plugin only.
+pub(crate) const REGISTRY_DROPPED: u32 = 1 << 31;
+
 const REGISTRATIONS: usize = 8;
 
 /// Callback-scoped drawing for host-owned plugin contexts.

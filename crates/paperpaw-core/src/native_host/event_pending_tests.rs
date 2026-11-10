@@ -179,9 +179,15 @@ fn producer_reports_every_unrepresentable_edge_and_never_truncates_old() {
 #[test]
 fn pending_unsupported_events_do_not_enable_admission() {
     // 64 and the hints 70-74 have their delivery (`setting_events`), 86 its own
-    // (`widget_events`); the book events 65-67 register (nothing queues them:
+    // (`widget_events`), and 75 and 76 are the registry's hints (`registry_changed` keeps
+    // its bits, `hint` takes 70-74 and 76); the book events 65-67 register (nothing queues them:
     // they are no hints); 68 and 69 have no producer yet.
-    for tag in [64, 65, 66, 67].into_iter().chain(70..=74).chain(86..=86) {
+    for tag in [64, 65, 66, 67]
+        .into_iter()
+        .chain(70..=74)
+        .chain(75..=76)
+        .chain(86..=86)
+    {
         assert!(super::super::events::is_event_tag(tag));
     }
     for tag in 68..=69 {
@@ -189,7 +195,7 @@ fn pending_unsupported_events_do_not_enable_admission() {
     }
     let budget = EventBudget::try_new().unwrap();
     let mut queue = budget.pending().unwrap();
-    for tag in [64, 69, 75, u32::MAX] {
+    for tag in [64, 69, 75, 77, u32::MAX] {
         assert_eq!(queue.hint(tag), Err(ERR_INVALID));
     }
     assert!(queue.take().is_none());
@@ -323,4 +329,36 @@ fn registry_changed_bits_are_or_ed_until_delivered_and_keep_their_place() {
     assert!(queue.take().is_none());
     queue.registry(2);
     assert!(matches!(queue.take(), Some(Ready::Registry(2))));
+}
+
+#[test]
+fn the_preview_hint_is_one_pending_bit_that_keeps_the_order() {
+    let budget = EventBudget::try_new().unwrap();
+    let mut queue = budget.pending().unwrap();
+    queue.hint(wire::EVENT_PREVIEW_CHANGED_TAG).unwrap();
+    queue.hint(wire::EVENT_STATUS_CHANGED_TAG).unwrap();
+    queue.hint(wire::EVENT_PREVIEW_CHANGED_TAG).unwrap();
+    assert!(matches!(
+        queue.take(),
+        Some(Ready::Hint(wire::EVENT_STATUS_CHANGED_TAG))
+    ));
+    assert!(matches!(
+        queue.take(),
+        Some(Ready::Hint(wire::EVENT_PREVIEW_CHANGED_TAG))
+    ));
+    assert!(queue.take().is_none());
+    // Every bit and every edge fit the order together.
+    for at in 0..16 {
+        raise(&mut queue, at);
+    }
+    for tag in 70..=74 {
+        queue.hint(tag).unwrap();
+    }
+    queue.hint(wire::EVENT_PREVIEW_CHANGED_TAG).unwrap();
+    queue.registry(1);
+    let mut told = 0;
+    while queue.take().is_some() {
+        told += 1;
+    }
+    assert_eq!(told, 16 + 5 + 1 + 1);
 }
