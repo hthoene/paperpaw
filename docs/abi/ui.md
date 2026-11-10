@@ -812,7 +812,9 @@ or guard rule: only the maker drops its instances.
   over 1,000), else `ERR_INVALID` at admission; the same hint (`screen`, `input`, `text`) twice in a
   plugin's declarations is `ERR_INVALID` for the batch (#818), and a reader treats a `ui_hint` row
   that breaks it as malformed, never clamped); `text` a catalog key of the declaring plugin (`owner`
-  in op 3 says whose catalog). The help plugin reads them with op 3, subscribes to
+  in op 3 says whose catalog). Op 3's rows come in plugin slot order (admission order), then each
+  plugin's declaration order (batch, then record); a slot freed by a removal and reused by a later
+  plugin can move that plugin earlier. The help plugin reads them with op 3, subscribes to
   `event.screen_ready` (an edge, registrable) and to 81. A screen declared `waits_ready` sends
   `command.screen_ready` once its first page is drawn (own top instance, else `ERR_STATE`); for
   other screens the host raises 87 itself after the first `draw` of each instance. The help plugin
