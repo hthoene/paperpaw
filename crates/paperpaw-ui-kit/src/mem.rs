@@ -39,7 +39,7 @@ pub fn wipe_text(text: String) {
 const GROW_MOST: usize = 16;
 
 /// Appends `item` after reserving room for it. A full vector grows by its
-/// length up to [`GROW_MOST`] elements, not by doubling: a list of a few
+/// length up to 16 elements, not by doubling: a list of a few
 /// hundred never holds the half again that doubling leaves empty (and a
 /// reallocation of a long list is not asked for twice as large as it is); where
 /// that does not fit, it grows by one.
