@@ -247,7 +247,7 @@ fn a_card_that_stays_broken_is_tried_less_and_less_often() {
     w.refuse.set(true);
     let mut now = 10_000;
     let mut waits = Vec::new();
-    for _ in 0..8 {
+    for _ in 0..70 {
         w.kernel.now = Instant(now);
         while w.kernel.native_moves_pump() {}
         let at = w.kernel.shared.native_instances.moves_retry().unwrap();
@@ -255,8 +255,14 @@ fn a_card_that_stays_broken_is_tried_less_and_less_often() {
         now = at;
     }
     assert_eq!(
-        waits,
-        [2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 64_000, 64_000]
+        waits[..7],
+        [2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 64_000]
+    );
+    // However long the card stays broken, the wait never wraps to a short one.
+    assert!(
+        waits
+            .iter()
+            .all(|wait| (WAIT_MS..=WAIT_MAX_MS).contains(wait))
     );
     // A card that is back ends the job and the back-off starts again.
     w.refuse.set(false);

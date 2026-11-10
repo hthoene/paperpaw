@@ -70,9 +70,9 @@ impl crate::Kernel {
             }
             Pump::Wait => {
                 let failures = self.shared.native_instances.moves_failed();
-                let wait = WAIT_MS
-                    .checked_shl(u32::from(failures.saturating_sub(1)))
-                    .map_or(WAIT_MAX_MS, |wait| wait.min(WAIT_MAX_MS));
+                // 2 s doubled at most five times is exactly `WAIT_MAX_MS`; a
+                // longer shift would overflow and wrap to a short wait.
+                let wait = (WAIT_MS << failures.saturating_sub(1).min(5)).min(WAIT_MAX_MS);
                 self.shared
                     .native_instances
                     .set_moves_retry(Some(now.saturating_add(wait)));
