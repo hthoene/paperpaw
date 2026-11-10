@@ -215,14 +215,8 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
 /// the program rather than made on the heap at every start (see
 /// [`KernelBuilder::network_settings`]); one missing here only costs
 /// memory (the tests say so).
-pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::network_settings!(
-    "mail",
-    "news",
-    "store",
-    "transfer",
-    "vocabulary",
-    "wifi",
-);
+pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] =
+    paperpaw_core::network_settings!("mail", "news", "store", "transfer", "vocabulary", "wifi",);
 
 /// The indexes of the first-party plugins' translation catalogs, made
 /// when the program was built (see `build.rs`): their catalogs keep none
