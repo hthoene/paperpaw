@@ -341,6 +341,7 @@ fn text_is_typed_into_the_keyboard_shown() {
 /// The screen turned, by the configuration at start or chosen in the
 /// settings while running: the panel trades width and height.
 #[test]
+#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
 fn turning_the_screen_trades_the_panels_width_and_height() {
     let library = library("turned");
     let shot = library.join("shot.png");
@@ -599,6 +600,7 @@ fn settings_rows(size: Option<u32>) -> (u32, usize) {
 /// made the rows of 8 pt (73 px on the X4) taller than those of 9 pt (63),
 /// and the list show fewer rows with smaller text (#119).
 #[test]
+#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
 fn rows_do_not_grow_as_the_interface_text_gets_smaller() {
     let rows: Vec<(u32, (u32, usize))> = (7..=24).map(|n| (n, settings_rows(Some(n)))).collect();
     for pair in rows.windows(2) {
