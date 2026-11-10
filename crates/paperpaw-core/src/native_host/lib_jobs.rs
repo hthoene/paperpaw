@@ -183,11 +183,11 @@ fn is_folder(storage: &dyn Storage, path: &str) -> Result<bool, i32> {
 
 /// The status a catalog part (`RemovalCarry`, `ImportCarry`) answers for a
 /// card error: [`status`], except that a damaged entry (`InvalidData`), which
-/// `status` calls `ERR_IO` like any card fault, is `ERR_STATE`, so that
+/// `status` calls `ERR_IO` like any card fault, is `ERR_INVALID`, so that
 /// [`is_final`] can tell it from a fault that may pass.
 pub(crate) fn carry_status(error: StorageError) -> i32 {
     match error {
-        StorageError::InvalidData => ERR_STATE,
+        StorageError::InvalidData => ERR_INVALID,
         other => status(other),
     }
 }
@@ -197,10 +197,7 @@ pub(crate) fn carry_status(error: StorageError) -> i32 {
 /// it). Such a part is left as it is and never repeated; any other status
 /// repeats the step.
 pub(crate) const fn is_final(status: i32) -> bool {
-    matches!(
-        status,
-        ERR_INVALID | ERR_UNSUPPORTED | ERR_NO_SPACE | ERR_STATE
-    )
+    matches!(status, ERR_INVALID | ERR_UNSUPPORTED | ERR_NO_SPACE)
 }
 
 /// How removing a file went.
@@ -593,7 +590,10 @@ impl Jobs {
     }
 
     fn delete_step(job: &mut Job, host: &dyn JobHost) -> Result<(), i32> {
-        let JobRecord::Delete { with_notes, books } = &job.record else {
+        let JobRecord::Delete {
+            with_notes, books, ..
+        } = &job.record
+        else {
             return Ok(());
         };
         if job.phase == Phase::Changed {
@@ -607,7 +607,7 @@ impl Jobs {
         };
         let path = book.path.as_str();
         job.phase = match job.phase {
-            Phase::Files => return Self::files_phase(job, host),
+            Phase::Files => Self::files_phase(job, host)?,
             Phase::Forget(RemovalPhase::Done) => Phase::Kept,
             Phase::Forget(phase) => match host.forget(path, *with_notes, phase) {
                 Ok(next) => Phase::Forget(next),

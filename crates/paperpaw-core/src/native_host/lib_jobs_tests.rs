@@ -675,7 +675,7 @@ fn a_damaged_part_is_final_and_never_repeated() {
         let jobs = Jobs::default();
         jobs.begin_delete(&card, &BOOKS[..2], false).unwrap();
         let host = Host::new(&card);
-        host.forget_fails.set(Some((phase, ERR_STATE)));
+        host.forget_fails.set(Some((phase, ERR_INVALID)));
         run(&jobs, &host);
         // Asked once per book, no more; the other phase and the rest ran.
         assert_eq!(
@@ -730,7 +730,7 @@ fn a_damaged_importer_note_is_final() {
     )
     .unwrap();
     let host = Host::new(&card);
-    host.catalogue_fails.set(Some(ERR_STATE));
+    host.catalogue_fails.set(Some(ERR_INVALID));
     run(&jobs, &host);
     assert_eq!(host.saw("catalogue books/feeds/n.epub feed"), 1);
     assert_eq!(host.saw("changed"), 1);
@@ -757,5 +757,10 @@ fn the_catalog_statuses_agree_with_what_is_permanent() {
             "{error:?}"
         );
     }
-    assert!(!is_final(ERR_NO_MEMORY) && !is_final(ERR_BUSY) && !is_final(ERR_IO));
+    assert!(
+        !is_final(ERR_NO_MEMORY)
+            && !is_final(ERR_BUSY)
+            && !is_final(ERR_IO)
+            && !is_final(ERR_STATE)
+    );
 }
