@@ -224,26 +224,8 @@ impl View {
                 return Err(error);
             }
         };
-        let mut stored_ppm = 0;
-        let at = match native_open::opening(|k| found.get(k), |p: Place| p.section < sections) {
-            Start::At(place) => (place.section, place.offset),
-            Start::Saved => {
-                // The library's calls take 1,024 bytes of input.
-                let mut ask = buffer(1024)?;
-                let stored = library.map(|library| {
-                    native_place::saved(
-                        host,
-                        library,
-                        &found.path,
-                        (sections, conversion),
-                        (&mut ask, &mut out),
-                    )
-                });
-                stored_ppm = stored.map_or(0, |s| s.ppm);
-                stored.and_then(|s| s.at).unwrap_or((0, 0))
-            }
-            _ => (0, 0),
-        };
+        let (at, stored_ppm) =
+            Self::starting_place(host, library, &found, (sections, conversion), &mut out)?;
         let mut open = Open {
             id,
             sections,
@@ -268,6 +250,41 @@ impl View {
         Ok(Self {
             body: Body::Open(open),
         })
+    }
+
+    /// Where the book opens and the progress stored with its place: the place
+    /// the hand-over names, if the book has it; else the place saved last time;
+    /// else the start (a page number needs the page index: `PORTING-7.md`).
+    fn starting_place(
+        host: &Host<'_>,
+        library: Option<&Library>,
+        found: &Handover,
+        (sections, conversion): (u32, u64),
+        out: &mut [u8],
+    ) -> Result<((u32, u32), u32), Error> {
+        Ok(
+            match native_open::opening(|k| found.get(k), |p: Place| p.section < sections) {
+                Start::At(place) => ((place.section, place.offset), 0),
+                Start::Saved => {
+                    // The library's calls take 1,024 bytes of input.
+                    let mut ask = buffer(1024)?;
+                    let stored = library.map(|library| {
+                        native_place::saved(
+                            host,
+                            library,
+                            &found.path,
+                            (sections, conversion),
+                            (&mut ask, out),
+                        )
+                    });
+                    (
+                        stored.and_then(|s| s.at).unwrap_or((0, 0)),
+                        stored.map_or(0, |s| s.ppm),
+                    )
+                }
+                _ => ((0, 0), 0),
+            },
+        )
     }
 
     const fn message(key: &'static str) -> Self {
