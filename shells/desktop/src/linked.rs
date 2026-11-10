@@ -7,7 +7,7 @@
 //! drops it under the feature `native-linked`) must be here, or the app lacks
 //! the screens they gave. What a plugin needs of the host is checked at its
 //! admission: a plugin that asks for a service this shell does not wire is
-//! refused there (the list of what is offered is [`offered`]) and the refusal
+//! refused there (the list of what is offered is `offered`) and the refusal
 //! is said on stderr, so nothing is half there.
 //!
 //! One table of handles (with `core.ui` and `core.device` wired) and one
