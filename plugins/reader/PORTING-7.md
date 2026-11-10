@@ -359,8 +359,8 @@ relative to the data folder).
   (dots as long as thick with gaps as wide) or wavy (every second piece one thickness higher); a dotted or wavy
   line has at most 4,096 pieces. `Ink::fill` (a filled rectangle in the pen's colour, `canvas.fill_rect`) is the
   one new call. The page's `rules` (a table's borders) are filled the same way, at least a pixel thick.
-- Differences: lines of a run are drawn after its words, so a line may cover a descender by a pixel (as before).
-  A run's colour is the page's (no per-run ink). Mixed-direction runs: the line follows the run's visual span.
+- Differences: a run's colour is the page's (no per-run ink); lines of mixed direction are set in logical order
+  (the existing gap), so a line follows the run's place in that order.
 - **Not yet:** pictures (`Page::images` through `canvas.draw_image`) and table rows: the block assembler turns
   both into paragraphs (`native_block::start`), so a table's rules never occur yet; carrying them over needs the
   `doc_image` and `doc_columns` pieces of the document service (docs/abi/document.md section 5).
