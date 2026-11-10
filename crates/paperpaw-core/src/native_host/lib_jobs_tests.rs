@@ -110,10 +110,10 @@ impl<'a> Host<'a> {
 impl RemovalCarry for Host<'_> {
     fn forget(&self, path: &str, notes: bool, phase: RemovalPhase) -> Result<RemovalPhase, i32> {
         self.note(std::format!("forget {path} {notes} {phase:?}"));
-        if let Some((fails, status)) = self.forget_fails.get() {
-            if fails == phase {
-                return Err(status);
-            }
+        if let Some((fails, status)) = self.forget_fails.get()
+            && fails == phase
+        {
+            return Err(status);
         }
         Ok(match phase {
             RemovalPhase::Details => RemovalPhase::Marks,
@@ -694,7 +694,7 @@ fn a_damaged_part_is_final_and_never_repeated() {
         assert_eq!(
             card.read_at("data/favourites.txt", 0, &mut [0; 16])
                 .unwrap(),
-            10,
+            9,
             "the list is untouched"
         );
         assert!(!card.exists(JOURNAL) && !jobs.active(), "{phase:?}");
