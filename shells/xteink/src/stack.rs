@@ -296,6 +296,11 @@ mod s3 {
     static HIT: AtomicU32 = AtomicU32::new(0);
     /// Set once the interrupt's handler is bound.
     static BOUND: AtomicBool = AtomicBool::new(false);
+    /// Set around the start's delivery test: the handler then records that it
+    /// ran and returns, instead of panicking.
+    static SELF_TEST: AtomicBool = AtomicBool::new(false);
+    /// Set by the handler during the delivery test.
+    static DELIVERED: AtomicBool = AtomicBool::new(false);
 
     /// The registers of the first core's DRAM0 area 0.
     pub struct Regs(ASSIST_DEBUG<'static>);
@@ -400,6 +405,12 @@ mod s3 {
     #[esp_hal::handler(priority = esp_hal::interrupt::Priority::Priority3)]
     fn band_interrupt() {
         let mut regs = Regs::new();
+        if SELF_TEST.swap(false, Ordering::Relaxed) {
+            // The start's delivery test (`deliver`): the interrupt arrived.
+            regs.clear_raw();
+            DELIVERED.store(true, Ordering::Relaxed);
+            return;
+        }
         paperpaw_x4::s3_band::stop(&mut regs);
         HIT.store(regs.store_pc(), Ordering::Relaxed);
         panic!("the stack's band was reached");
@@ -411,6 +422,25 @@ mod s3 {
         if !BOUND.swap(true, Ordering::Relaxed) {
             bind_handler(Interrupt::ASSIST_DEBUG, band_interrupt);
         }
+    }
+
+    /// The delivery test (Senior S2 on #917): with the monitor armed and its
+    /// interrupt enabled, one more store into the band must run the handler,
+    /// which the arming self-test does not show (it reads the raw bit only).
+    /// The store is made outside any critical section, so that the interrupt
+    /// can be taken. Where it is not delivered in the time given, the monitor
+    /// is stopped and the band is not armed.
+    pub fn deliver(regs: &mut Regs, start: u32) -> bool {
+        DELIVERED.store(false, Ordering::Relaxed);
+        SELF_TEST.store(true, Ordering::Relaxed);
+        regs.probe_store(start);
+        let delivered =
+            (0..paperpaw_x4::s3_band::POLLS * 100).any(|_| DELIVERED.load(Ordering::Relaxed));
+        if !delivered {
+            paperpaw_x4::s3_band::stop(regs);
+        }
+        SELF_TEST.store(false, Ordering::Relaxed);
+        delivered
     }
 
     /// The program counter of the store that reached the band, if one did.
@@ -452,7 +482,12 @@ pub fn arm_band() {
     // Interrupts off: the self-test's store and the raw bit it reads must not
     // meet a task switch that arms or reads the monitor in between (nothing
     // else does, but the loop is short).
-    let armed = critical_section::with(|_| paperpaw_x4::s3_band::arm(&mut regs, start));
+    let mut armed = critical_section::with(|_| paperpaw_x4::s3_band::arm(&mut regs, start));
+    // The interrupt must arrive, not only the raw bit latch (the self-test in
+    // `arm` is inside a critical section: it cannot show that).
+    if armed.is_ok() && !s3::deliver(&mut regs, start) {
+        armed = Err(paperpaw_x4::s3_band::ArmError::NotDelivered);
+    }
     let was = band_armed();
     ARMED.store(armed.is_ok(), core::sync::atomic::Ordering::Relaxed);
     if let Err(why) = armed

@@ -152,6 +152,9 @@ pub enum ArmError {
     NoFire,
     /// The interrupt enable did not read back as set.
     InterruptNotSet,
+    /// A store into the band set the raw bit but its interrupt was not
+    /// delivered to the handler (the interrupt's mapping or level is wrong).
+    NotDelivered,
 }
 
 /// Stops the monitor: no interrupt, no write monitoring, the raw bit cleared.
