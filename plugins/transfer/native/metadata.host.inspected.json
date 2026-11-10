@@ -14,6 +14,11 @@
   ],
   "features": [
     {
+      "key": "uses.install",
+      "required": true,
+      "revision": 1
+    },
+    {
       "key": "uses.network",
       "required": true,
       "revision": 1
@@ -21,6 +26,11 @@
     {
       "key": "uses.storage",
       "required": true,
+      "revision": 1
+    },
+    {
+      "key": "uses.wifi",
+      "required": false,
       "revision": 1
     }
   ],
@@ -45,6 +55,12 @@
       "semantic_revision": 0
     },
     {
+      "key": "core.document",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    },
+    {
       "key": "core.files",
       "major": 1,
       "min_table_bytes": 0,
@@ -52,6 +68,12 @@
     },
     {
       "key": "core.net",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    },
+    {
+      "key": "core.registry",
       "major": 1,
       "min_table_bytes": 0,
       "semantic_revision": 0
@@ -67,8 +89,14 @@
       "major": 1,
       "min_table_bytes": 0,
       "semantic_revision": 0
+    },
+    {
+      "key": "core.work",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
     }
   ],
   "target": "linux-x86_64-sysv64-le",
-  "total_bytes": 226
+  "total_bytes": 334
 }

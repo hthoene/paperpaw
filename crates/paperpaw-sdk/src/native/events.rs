@@ -318,9 +318,16 @@ pub enum Event<'a> {
         instance: Option<super::ui::Instance>,
         last_input: Option<crate::keys::InputMode>,
     },
-    /// A registered action was invoked.
+    /// A registered action was invoked. `background`: not the reader's own
+    /// doing but a rule's or another plugin's run (interface 6
+    /// `!env.reader()`), which may wait for a good moment (declared work);
+    /// `false` (the reader pressed, chose or mapped it): act at once.
     #[non_exhaustive]
-    ActionRun { now_ms: u64, action: &'a str },
+    ActionRun {
+        now_ms: u64,
+        action: &'a str,
+        background: bool,
+    },
     /// Text typed from outside: a hardware keyboard's keys or a shell's remote
     /// control (`event.text_typed`, 109). Sent only to the instance on top when it
     /// is a screen offered on slot `core.keyboard`, through `dispatch_event`, and

@@ -1015,6 +1015,7 @@ fn build_kernel(
             .storage(crate::trace::Traced(storage))
             .clock(crate::host::micros)
             .random(crate::host::random)
+            .device_log(crate::host::device_log)
             .memory(budget::memory_use)
             .glyph_cache(profile.glyph_cache)
             .busy_mark(profile.busy_mark)
@@ -1083,7 +1084,19 @@ fn build_kernel(
         if let Some(config) = user_config {
             builder = builder.user_config(config);
         }
-        builder.build()
+        let kernel = builder.build()?;
+        // The first-party plugins that are interface-7 plugins (the app built
+        // without their interface-6 form), before the first start.
+        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        let kernel = {
+            let mut kernel = kernel;
+            match crate::linked::register(&mut kernel, profile) {
+                Ok(_) => {}
+                Err(why) => eprintln!("native plugins: none registered ({why:?})"),
+            }
+            kernel
+        };
+        Ok(kernel)
     })
 }
 

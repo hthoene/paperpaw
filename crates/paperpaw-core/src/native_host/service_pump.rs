@@ -178,8 +178,12 @@ impl crate::Kernel {
         let setting_more = self.native_setting_pump();
         // Widgets their owners said changed reach their makers (`widget_events`).
         let widget_more = self.native_widget_pump();
+        // A changed screen stack reaches the plugins that subscribed (`stack_events`).
+        let stack_more = self.native_stack_pump();
         // Questions open their dialogs and their answers come back.
         let dialog_more = self.native_dialog_pump();
+        // The outcomes of Wi-Fi requests reach their senders (`wifi_events`).
+        let wifi_more = self.native_wifi_pump();
         // A firmware install or check takes a step and tells its plugin
         // (`firmware_events`).
         let firmware_more = self.native_firmware_pump();
@@ -188,7 +192,9 @@ impl crate::Kernel {
                 || image_more
                 || setting_more
                 || widget_more
+                || stack_more
                 || dialog_more
+                || wifi_more
                 || firmware_more,
         );
     }
@@ -211,6 +217,7 @@ impl crate::Kernel {
             .chain(instances.service_retry())
             .chain(instances.image_pump.retry_at())
             .chain(self.native_demand_due().map(|at| at.millis()))
+            .chain(self.native_wifi_due())
             .chain(self.firmware_due())
             .min()
             .map(Instant)

@@ -137,6 +137,13 @@ impl PluginCheck {
         JobStep::Done(Finished::refused(reason))
     }
 
+    /// Ends with reason 10 for a file that needs a newer interface revision.
+    fn end_needing(&mut self, needs_draft: u32) -> JobStep {
+        self.release();
+        self.phase = Phase::Ended;
+        JobStep::Done(Finished::needs_newer(needs_draft))
+    }
+
     /// Drops what the job holds, so a finished or aborted job is small.
     fn release(&mut self) {
         self.buf = Vec::new();
@@ -272,6 +279,12 @@ impl PluginCheck {
         }
         let header = match Header5::read(&self.buf[..HEADER_LEN], size, &env.host.loader) {
             Ok(header) => header,
+            Err(Refusal::NeedsNewerMinor) => {
+                // The revision the file needs: `needs_minor`, at byte 10 of
+                // its header (the loader's refusal carries no number).
+                let needs = u16::from_le_bytes([self.buf[10], self.buf[11]]);
+                return self.end_needing(u32::from(needs));
+            }
             Err(why) => return self.end(header_reason(why)),
         };
         self.size = size;

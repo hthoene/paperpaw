@@ -47,6 +47,18 @@ pub(crate) trait NativeInstance: Dispatch {
     ) -> Result<i32, i32> {
         self.service_event(bytes, env)
     }
+    /// A widget's `input` callback at `token` with the one-record `bytes`
+    /// (`input.widget`), lent the command `stage`. An instance without a
+    /// stage path takes it without one.
+    fn input_staged(
+        &self,
+        token: u32,
+        bytes: &[u8],
+        env: &paperpaw_sdk::Env<'_>,
+        _stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.input(token, bytes, env)
+    }
     /// Revoke before owner cleanup; the registry supplies the original key.
     fn retire(&self, _owner: u64) -> Result<(), i32> {
         self.stop();
@@ -83,6 +95,16 @@ impl NativeLease {
         env: &paperpaw_sdk::Env<'_>,
     ) -> Result<i32, i32> {
         self.live()?.service_event(bytes, env)
+    }
+    /// A widget's `input` callback, with its command stage.
+    pub(crate) fn input_staged(
+        &self,
+        token: u32,
+        bytes: &[u8],
+        env: &paperpaw_sdk::Env<'_>,
+        stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.live()?.input_staged(token, bytes, env, stage)
     }
     /// As [`Self::service_event`], with the callback's command stage.
     pub(crate) fn service_event_staged(
@@ -264,6 +286,13 @@ impl NativeInstances {
     /// What the next native `on_reopen` reports of the hand-over just attached.
     pub(crate) fn set_open_info(&self, info: Option<super::ui_store::Info>) {
         self.callbacks.set_open_info(info);
+    }
+
+    /// Whether a native screen's `draw` callback returned `OK` since the last
+    /// call (a trap, a failure status, a frame the host cut short and a screen
+    /// that was not called at all give `false`); clears it.
+    pub(crate) fn take_drew(&self) -> bool {
+        self.callbacks.take_drew()
     }
 
     /// Whether a staged `open` is being applied (it names a hand-over or none).
@@ -742,6 +771,10 @@ impl NativeIdentity {
     }
     pub(crate) fn take_open_info(&self) -> Option<super::ui_store::Info> {
         self.callbacks.take_open_info()
+    }
+    /// A native screen's draw returned `OK` (read by `take_drew`).
+    pub(crate) fn mark_drew(&self) {
+        self.callbacks.mark_drew();
     }
     /// The device's `core.ui` service (widget handles), once a shell wired it.
     pub(crate) fn ui_services(&self) -> Option<&super::ui_service::UiServices> {

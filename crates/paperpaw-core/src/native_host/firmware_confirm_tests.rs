@@ -23,7 +23,7 @@ fn ask(foreign: bool, restart: bool, older: bool, signer: Signer) -> Ask {
 
 fn en() -> paperpaw_i18n::Translator {
     let mut translator = paperpaw_i18n::Translator::new();
-    translator.add(paperpaw_i18n::Catalog::parse(include_str!("../../i18n/en.ini")).unwrap());
+    translator.add(paperpaw_i18n::Catalog::parse(include_str!("../../i18n/host/en.ini")).unwrap());
     translator
 }
 
@@ -94,8 +94,8 @@ fn an_answer_event_is_read_only_with_its_nonce_and_a_known_word() {
 
 #[test]
 fn the_german_texts_cover_every_english_key() {
-    let en = include_str!("../../i18n/en.ini");
-    let de = include_str!("../../i18n/de.ini");
+    let en = include_str!("../../i18n/host/en.ini");
+    let de = include_str!("../../i18n/host/de.ini");
     for line in en.lines().filter(|l| l.starts_with("core.firmware.")) {
         let key = line.split(" = ").next().unwrap();
         assert!(

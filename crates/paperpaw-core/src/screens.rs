@@ -47,6 +47,12 @@ pub(crate) struct ActiveScreen {
     /// How it shows where the screen is wide ([`Screen::pane`]), as it
     /// said when it was made.
     pub(crate) pane: paperpaw_sdk::Pane,
+    /// `event.screen_ready` (87) was raised for this instance, or it will not
+    /// be (`screen_ready`): at most once an instance.
+    pub(crate) ready: bool,
+    /// A draw of this instance happened since it was opened and 87 is yet to
+    /// be raised for it (the pass after the draw raises it).
+    pub(crate) drawn: bool,
 }
 
 /// The policy bits `command.screen_policy` sets: `guards` (1), `secret` (4),
@@ -142,6 +148,10 @@ impl Kernel {
 
     /// Opens screen `id` with `params` on top, for `slot` if it was bound
     /// to one.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one line over the limit with the two ready flags; split it when it is next changed"
+    )]
     pub(crate) fn open(&mut self, id: Id, slot: Option<Id>, params: &Params) {
         if !self.screen_stack_has_room() || !self.require_screen_keys(1) {
             return;
@@ -235,6 +245,8 @@ impl Kernel {
             by_guard: self.guard().is_some() && self.from_guard_own,
             policy: None,
             pane,
+            ready: false,
+            drawn: false,
         };
         // Opened by another while a screen guards the device: it waits
         // below the guard, hidden.
