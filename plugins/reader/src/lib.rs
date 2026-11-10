@@ -47,6 +47,7 @@ pub mod declarations;
 pub mod native_aloud;
 pub mod native_block;
 pub mod native_document;
+pub mod native_draw;
 mod native_entry;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;

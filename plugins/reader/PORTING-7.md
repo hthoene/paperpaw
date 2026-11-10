@@ -179,3 +179,16 @@ relative to the data folder).
   silence. The document's metadata (title, authors, language, direction) is not read into the adapter
   yet (the facade has it): the layout does not need it. X4 measurement list: the two read buffers (4.3 KiB),
   a block of over 100 KB (see the assembler's caps) and the frame of `read_block`.
+
+## The page drawn (view slice R1d, `native_draw.rs`)
+
+- `draw_lines` sets the words of each laid-out line one after the other (the layout's gaps and the
+  line's word spacing), in the role of each run; `Ink` is the pen (`HostInk` draws with the host's
+  reading fonts on the frame's canvas in one colour). The tests lay real pages out with a fake document
+  and measure, and record what is drawn.
+- `draw_run` is the one place that decides how a run reaches the host: `Font::render_text` today; the
+  font weight, smooth text and text contrast (Beta 3's extra/tone) come in with Kernel's new `text.draw`
+  slot (todo 430), a one-line change there.
+- Gaps: lines of mixed direction are drawn in logical order; underline, overline, strike-through,
+  super/subscript shifts, small capitals, pictures, rules (tables), annotations and the lines between
+  inserted blocks are not drawn; no hanging punctuation.

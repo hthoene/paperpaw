@@ -95,7 +95,9 @@ impl<'h> HostFonts<'h> {
         })
     }
 
-    fn font(&self, role: Role) -> &Font<'h> {
+    /// The font of `role`.
+    #[must_use]
+    pub fn font_of(&self, role: Role) -> &Font<'h> {
         &self.fonts[role as usize]
     }
 
@@ -116,11 +118,11 @@ impl<'h> HostFonts<'h> {
 
 impl Measure for HostFonts<'_> {
     fn width(&self, role: Role, size: f32, text: &str) -> Result<f32, Error> {
-        self.font(role).measure_text(size, text)
+        self.font_of(role).measure_text(size, text)
     }
 
     fn metrics(&self, role: Role, size: f32) -> Result<(f32, f32), Error> {
-        let metrics = self.font(role).read_line_metrics(size)?;
+        let metrics = self.font_of(role).read_line_metrics(size)?;
         Ok((metrics.ascent, metrics.descent))
     }
 }
