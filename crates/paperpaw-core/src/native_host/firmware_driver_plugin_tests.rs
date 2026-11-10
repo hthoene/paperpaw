@@ -4,7 +4,8 @@
 use super::*;
 use crate::native_host::firmware_install::KIND_CHECK;
 use crate::native_host::plugin_job::{
-    Finished, KIND_INSTALL, KIND_REMOVAL, PluginFacts, reason as job_reason,
+    Answer, Finished, KIND_INSTALL, KIND_REMOVAL, PluginFacts, PluginQuestion, Relation,
+    USES_SHOWN, Uses, reason as job_reason,
 };
 use crate::native_host::plugin_jobs::PluginJobs;
 use paperpaw_native::{
@@ -71,6 +72,9 @@ pub(crate) struct Script {
     seen: Rc<Seen>,
     must_finish: bool,
     keep: bool,
+    /// Asks the user once and ends with the answer's reason.
+    asks: bool,
+    answered: Option<Answer>,
 }
 
 impl PluginJob for Script {
@@ -85,14 +89,21 @@ impl PluginJob for Script {
     }
     fn step(&mut self, _: &JobEnv<'_>) -> JobStep {
         self.seen.steps.set(self.seen.steps.get() + 1);
+        if self.asks {
+            return match self.answered {
+                None => JobStep::Ask(question(self.owner, self.request)),
+                Some(Answer::Yes) => JobStep::Done(Finished::refused(job_reason::OK)),
+                Some(_) => JobStep::Done(Finished::refused(3)),
+            };
+        }
         if self.seen.steps.get() >= self.steps {
-            JobStep::Done(Finished {
-                reason: self.done.reason,
-                facts: self.done.facts,
-            })
+            JobStep::Done(Finished::checked(self.done.reason, self.done.facts))
         } else {
             JobStep::More
         }
+    }
+    fn answer(&mut self, answer: Answer) {
+        self.answered = Some(answer);
     }
     fn abort(&mut self, reason: u8) {
         self.seen.aborted.set(Some(reason));
@@ -111,6 +122,26 @@ impl Drop for Script {
     }
 }
 
+fn question(owner: u64, request: u32) -> PluginQuestion {
+    PluginQuestion {
+        owner,
+        request,
+        kind: KIND_INSTALL,
+        id: Text::new("dials"),
+        name: Text::new("Dials"),
+        version: Text::new("1.0.0"),
+        signer: Text::new(""),
+        key: None,
+        sideload: false,
+        relation: Relation::Newer,
+        uses: Uses {
+            keys: [Text::new(""); USES_SHOWN],
+            count: 0,
+            more: false,
+        },
+    }
+}
+
 fn check_job(owner: u64, request: u32, steps: u32) -> (PluginJobs, Rc<Seen>) {
     let seen = Rc::new(Seen::default());
     let job = Script {
@@ -118,13 +149,12 @@ fn check_job(owner: u64, request: u32, steps: u32) -> (PluginJobs, Rc<Seen>) {
         request,
         kind: KIND_CHECK,
         steps,
-        done: Finished {
-            reason: 0,
-            facts: Some(facts("dials")),
-        },
+        done: Finished::checked(0, Some(facts("dials"))),
         seen: Rc::clone(&seen),
         must_finish: false,
         keep: false,
+        asks: false,
+        answered: None,
     };
     (PluginJobs::Script(job), seen)
 }
@@ -139,6 +169,8 @@ fn job_of_kind(owner: u64, request: u32, kind: u32) -> PluginJobs {
         seen: Rc::default(),
         must_finish: false,
         keep: false,
+        asks: false,
+        answered: None,
     })
 }
 
@@ -160,6 +192,8 @@ fn install_job(
         seen: Rc::clone(&seen),
         must_finish,
         keep,
+        asks: false,
+        answered: None,
     };
     (PluginJobs::Script(job), seen)
 }
@@ -295,6 +329,8 @@ fn a_refused_plugin_check_leaves_its_reason_and_no_facts() {
         seen: Rc::default(),
         must_finish: false,
         keep: false,
+        asks: false,
+        answered: None,
     }))
     .unwrap();
     assert!(matches!(run(&mut d), Event::Ended(o) if o.reason == job_reason::UNSIGNED));
@@ -447,4 +483,31 @@ fn a_sender_that_stops_takes_an_install_that_may_be_abandoned() {
     assert_eq!(seen.aborted.get(), Some(20));
     assert!(seen.dropped.get());
     assert!(!d.has_work(0));
+}
+
+#[test]
+fn a_question_the_host_cannot_ask_yet_is_a_dismissal_never_a_yes() {
+    // The confirmation of a plugin install is wired with the install
+    // (B2c-2b): until then the host answers "dismissed" at once.
+    let mut d = driver(true);
+    let seen = Rc::new(Seen::default());
+    d.submit_plugin(PluginJobs::Script(Script {
+        owner: 1,
+        request: 1,
+        kind: KIND_INSTALL,
+        steps: 1,
+        done: Finished::refused(job_reason::OK),
+        seen: Rc::clone(&seen),
+        must_finish: false,
+        keep: false,
+        asks: true,
+        answered: None,
+    }))
+    .unwrap();
+    let ended = run(&mut d);
+    assert!(
+        matches!(ended, Event::Ended(o) if (o.owner, o.kind, o.reason) == (1, KIND_INSTALL, 3))
+    );
+    assert_eq!(seen.steps.get(), 2, "asked, then ended with the answer");
+    assert!(seen.dropped.get());
 }

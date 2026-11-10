@@ -610,8 +610,18 @@ impl Driver {
                 storage,
                 host,
                 built_ins,
+                // Only the host-held `core.grant.install.<asker>` may say so,
+                // and nothing reads it yet (B2c-2b): never granted.
+                granted: false,
             }) {
-                JobStep::More => return Event::Quiet,
+                JobStep::More | JobStep::Wait => return Event::Quiet,
+                JobStep::Ask(_) => {
+                    // The host's confirmation for a plugin install is not
+                    // wired yet (B2c-2b): the question is not asked, which
+                    // is a dismissal (reason 3), never a yes.
+                    self.plugin_jobs[at].answer(super::plugin_job::Answer::Dismissed);
+                    return Event::Quiet;
+                }
                 JobStep::Done(finished) => finished,
             },
             // Not reachable (no job is accepted without a host): ends, told.
