@@ -3,8 +3,8 @@
 //! order against the module, and the refusals.
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 extern crate std;
+use super::frame_tests::in_frame;
 use super::*;
-use crate::native_host::frame_owner;
 use alloc::vec;
 use core::alloc::Layout;
 use core::cell::RefCell;
@@ -36,11 +36,6 @@ std::thread_local! {
     /// Fixture work (a card in memory) is not counted while this is set.
     pub(in crate::native_host) static HEAP_SHIELD: Cell<bool> = const { Cell::new(false) };
     /// An address to watch (0: none) and whether a block holding it was freed.
-    /// The kinds of entry (bit 1 make, 2 event, 4 draw, 8 destroy) that ran
-    /// the plugin as the frame owner, and that did not (no allocation here:
-    /// the failing-allocation tests count them).
-    pub(in crate::native_host) static FRAME_OURS: Cell<u32> = const { Cell::new(0) };
-    pub(in crate::native_host) static FRAME_NOT: Cell<u32> = const { Cell::new(0) };
     static WATCH: Cell<usize> = const { Cell::new(0) };
     static WATCH_FREED: Cell<bool> = const { Cell::new(false) };
     static ZERO_WATCH: Cell<Option<(usize, usize)>> = const { Cell::new(None) };
@@ -143,21 +138,8 @@ fn logged() -> Vec<&'static str> {
     LOG.with(|log| log.borrow().clone())
 }
 
-/// Notes whether the code of the plugin with context `ctx` runs as the frame owner.
-fn in_frame(kind: u32, ctx: *mut c_void) {
-    // SAFETY: the admitted fixture's own pinned context.
-    let context = unsafe { &*ctx.cast::<Context<Heap>>() };
-    let seen = if frame_owner::owner() == Some(context.owner_key()) {
-        &FRAME_OURS
-    } else {
-        &FRAME_NOT
-    };
-    seen.with(|bits| bits.set(bits.get() | kind));
-}
-
 pub(in crate::native_host) fn reset(mode: u8) {
-    FRAME_OURS.with(|bits| bits.set(0));
-    FRAME_NOT.with(|bits| bits.set(0));
+    super::frame_tests::clear();
     EXPECT_CORE.with(|expected| expected.set(false));
     LOG.with(|log| log.borrow_mut().clear());
     MODE.with(|m| m.set(mode));

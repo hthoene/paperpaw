@@ -4,12 +4,37 @@
 //! host table's.
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 extern crate std;
-use super::tests::{FRAME_NOT, FRAME_OURS, HEAP_LIVE, Heap, NORMAL, fake, finish, frame, reset};
+use super::tests::{HEAP_LIVE, Heap, NORMAL, fake, finish, frame, reset};
 use super::*;
 use crate::native_host::frame_owner;
 use paperpaw_native::host_glue::{
     ERR_INVALID, OK, read_heap_abort, read_heap_alloc, read_heap_dealloc, read_heap_realloc,
 };
+
+std::thread_local! {
+    /// The kinds of entry (bit 1 make, 2 event, 4 draw, 8 destroy) that ran
+    /// the plugin as the frame owner, and that did not (no allocation here:
+    /// the failing-allocation tests count them).
+    static FRAME_OURS: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
+    static FRAME_NOT: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
+}
+
+pub(super) fn clear() {
+    FRAME_OURS.with(|bits| bits.set(0));
+    FRAME_NOT.with(|bits| bits.set(0));
+}
+
+/// Notes whether the code of the plugin with context `ctx` runs as the frame owner.
+pub(super) fn in_frame(kind: u32, ctx: *mut c_void) {
+    // SAFETY: the admitted fixture's own pinned context.
+    let context = unsafe { &*ctx.cast::<Context<Heap>>() };
+    let seen = if frame_owner::owner() == Some(context.owner_key()) {
+        &FRAME_OURS
+    } else {
+        &FRAME_NOT
+    };
+    seen.with(|bits| bits.set(bits.get() | kind));
+}
 
 fn bits(seen: &'static std::thread::LocalKey<core::cell::Cell<u32>>) -> u32 {
     seen.with(core::cell::Cell::get)
