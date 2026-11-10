@@ -456,6 +456,15 @@ mod tests {
     }
 
     #[test]
+    fn only_the_grids_columns_and_rows_are_grid_settings() {
+        assert!(is_grid_setting("home.columns"));
+        assert!(is_grid_setting("home.rows"));
+        assert!(!is_grid_setting("home.status-bar"));
+        assert!(!is_grid_setting("home.page-1"));
+        assert!(!is_grid_setting(""));
+    }
+
+    #[test]
     fn a_widget_is_there_by_its_base_id() {
         let src = source();
         assert!(src.has_widget("home.clock"));

@@ -410,7 +410,9 @@ screen is now, as interface 6 did: what has no room goes to the next page, a pag
 there is none, the tools and spaces stay, nothing is lost) and stages the writes with the Add
 screen's `apply` (only the settings whose text changes; over the budget of a callback's commands
 nothing is staged, the old layout stays and the reader is told `home.grid.too-big`). Then a
-dashboard that is on top is drawn anew. Allocation refusals fail the callback, which stages nothing.
+dashboard that is on top is drawn anew. A refusal while staging (allocation or the host's) fails the
+callback on purpose, which drops everything staged: no page is written half (an item twice or
+none), and the dashboard shows the old layout until the next minute's tick draws it anew.
 
 Tests: `native_pages` (the writes per layout, none where it fits, refusal sweep over `refit`).
 There is no scripted-host test: the scripted host has no settings store to change and read back
