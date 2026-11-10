@@ -1169,7 +1169,12 @@ fn readers(host: &dyn DocHost, input: &[u8], rows: usize, out: &mut [u8]) -> Res
 fn format_for(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
     let path: wire::ServiceDocPath<'_> = codec::single(input)?;
     // Bit 0: sniff when no extension matches.
-    require(path.root <= 1 && path.flags & !1 == 0 && args::path_valid(path.path))?;
+    require(
+        path.root <= 1
+            && path.flags & !1 == 0
+            && args::path_valid(path.path)
+            && args::reachable(path.root, path.path),
+    )?;
     host.root_access(path.root)?;
     let mut written = Err(ERR_NOT_FOUND);
     host.format_for(path.root, path.path, path.flags & 1 != 0, &mut |record| {
