@@ -1,6 +1,6 @@
 //! The firmware commands of the DEV stage (`docs/abi/device.md` 3, 5.1, 5.3):
 //! `install_firmware` (1578), `firmware_restart` (1579) and `check_file`
-//! (1592) of kind 1.
+//! (1592) of kinds 0 (a plugin folder) and 1 (a firmware image).
 //!
 //! * **Checked whole, then accepted at submit.** A feature not admitted is
 //!   `ERR_DENIED`; without a firmware host every one is `ERR_UNSUPPORTED`;
@@ -15,11 +15,14 @@
 //! * **Applied after the callback.** An accepted request waits in the
 //!   queue; nothing runs inside a callback. If the batch never reaches the
 //!   drain (a callback error), [`FwRelease`] takes its requests back.
-//! * **Plugin installs** (`check_file` kind 0) are `ERR_UNSUPPORTED` until the
-//!   plugin check exists (`BLOCKED 5.2-install`); a kind beyond 1 is
-//!   `ERR_DENIED`.
+//! * **Plugin checks** (`check_file` kind 0, feature `uses.install`) are a job
+//!   of the same queue ([`Driver::submit_plugin`]); without a plugin host
+//!   they are `ERR_UNSUPPORTED`. A kind beyond 1 is `ERR_DENIED`. A plugin
+//!   install and removal are not commands here yet (`BLOCKED 5.2-install`).
 use super::{CommandStage, DevOp, WireCommand};
-use crate::native_host::{firmware_driver::Driver, owner_paths};
+use crate::native_host::{
+    firmware_driver::Driver, owner_paths, plugin_check::PluginCheck, plugin_jobs::PluginJobs,
+};
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::{
     cell::{Cell, RefCell},
@@ -85,6 +88,8 @@ pub(crate) enum FirmwareOp {
     },
     /// `check_file` of a firmware image.
     Check { request: u32, path: String },
+    /// `check_file` of a plugin folder: a plugin job of the queue.
+    PluginCheck { request: u32, path: String },
     /// `firmware_restart`: the host asks the user.
     Restart(FirmwareContext),
 }
@@ -192,7 +197,15 @@ impl CommandStage<'_> {
             } => {
                 let _ = self.firmware()?;
                 match kind {
-                    KIND_PLUGIN => Err(ERR_UNSUPPORTED),
+                    KIND_PLUGIN if request == 0 => Err(ERR_INVALID),
+                    KIND_PLUGIN => {
+                        let ctx = self.firmware()?;
+                        let driver = ctx.driver.try_borrow().map_err(|_| ERR_BUSY)?;
+                        if !driver.plugins_accepted() {
+                            return Err(ERR_UNSUPPORTED);
+                        }
+                        self.firmware_path(root, path).map(|joined| joined.len())
+                    }
                     KIND_FIRMWARE if request == 0 => Err(ERR_INVALID),
                     KIND_FIRMWARE => self.firmware_path(root, path).map(|joined| joined.len()),
                     _ => Err(ERR_DENIED),
@@ -227,6 +240,15 @@ impl CommandStage<'_> {
                 request,
                 root,
                 path,
+                kind,
+            } if kind == KIND_PLUGIN => Ok(DevOp::Firmware(FirmwareOp::PluginCheck {
+                request,
+                path: self.firmware_path(root, path)?,
+            })),
+            WireCommand::CheckFile {
+                request,
+                root,
+                path,
                 ..
             } => Ok(DevOp::Firmware(FirmwareOp::Check {
                 request,
@@ -252,7 +274,11 @@ impl CommandStage<'_> {
             .filter(|item| {
                 matches!(
                     item.op,
-                    DevOp::Firmware(FirmwareOp::Install { .. } | FirmwareOp::Check { .. })
+                    DevOp::Firmware(
+                        FirmwareOp::Install { .. }
+                            | FirmwareOp::Check { .. }
+                            | FirmwareOp::PluginCheck { .. }
+                    )
                 )
             })
             .count();
@@ -279,6 +305,12 @@ impl CommandStage<'_> {
                 DevOp::Firmware(FirmwareOp::Check { request, path }) => driver
                     .submit_check(ctx.owner, *request, path)
                     .map(|()| *request),
+                DevOp::Firmware(FirmwareOp::PluginCheck { request, path }) => {
+                    PluginCheck::new(ctx.owner, *request, path)
+                        .ok_or(ERR_NO_MEMORY)
+                        .and_then(|job| driver.submit_plugin(PluginJobs::Check(job)))
+                        .map(|()| *request)
+                }
                 _ => continue,
             };
             match accepted {
@@ -303,7 +335,9 @@ impl crate::Kernel {
     /// kept (the queue runs it), a restart asks the user.
     pub(super) fn apply_firmware(op: FirmwareOp, fw: &mut Option<FwRelease>) {
         match op {
-            FirmwareOp::Install { request, .. } | FirmwareOp::Check { request, .. } => {
+            FirmwareOp::Install { request, .. }
+            | FirmwareOp::Check { request, .. }
+            | FirmwareOp::PluginCheck { request, .. } => {
                 if let Some(release) = fw {
                     release.applied(request);
                 }

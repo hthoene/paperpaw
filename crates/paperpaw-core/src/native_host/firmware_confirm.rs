@@ -442,6 +442,7 @@ impl Kernel {
         if let Ok(mut driver) = driver.try_borrow_mut() {
             driver.abort_all();
         }
+        self.firmware_finish_stopped(&driver);
     }
 
     /// The plugin `key` stopped: its requests and its confirmation go.
@@ -456,6 +457,7 @@ impl Kernel {
         if let Some(nonce) = nonce {
             self.firmware_close_screen(nonce);
         }
+        self.firmware_finish_stopped(&driver);
     }
 
     /// Closes the confirmation opened with `nonce`. The host closes its own

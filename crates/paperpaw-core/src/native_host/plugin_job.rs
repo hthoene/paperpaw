@@ -143,6 +143,10 @@ pub(crate) struct Finished {
     /// The plugin list changed (event 70): a data plugin to load now, or one
     /// gone.
     pub(crate) changed: Option<Text<ID_MAX>>,
+    /// `dev_check.needs_draft` of a check that ended with reason 10: the
+    /// interface revision the file needs (the header's `needs_minor`), 0 for
+    /// every other end and where the file names no number (`device.md` 5.1).
+    pub(crate) needs_draft: u32,
 }
 
 impl Finished {
@@ -152,6 +156,15 @@ impl Finished {
             facts: None,
             flags: 0,
             changed: None,
+            needs_draft: 0,
+        }
+    }
+
+    /// A check that ends with reason 10 and says which revision it needs.
+    pub(crate) const fn needs_newer(needs_draft: u32) -> Self {
+        Self {
+            needs_draft,
+            ..Self::refused(reason::NEEDS_NEWER)
         }
     }
 
@@ -162,6 +175,7 @@ impl Finished {
             facts,
             flags: 0,
             changed: None,
+            needs_draft: 0,
         }
     }
 }
@@ -240,6 +254,20 @@ pub(crate) trait PluginJob {
     /// Stops the job with `reason` (20 for a suspend or a stop). Infallible
     /// and allocation-free; the next `step` ends with it.
     fn abort(&mut self, reason: u8);
+    /// Whether the job may not be abandoned where it stands (an install past
+    /// the point where the card holds half of a change: its journal is
+    /// written). The host then steps it on to its end, bounded, after
+    /// `abort`, and the job ends with its own reason; any other job just
+    /// ends with the reason `abort` was given. Default: it may be abandoned.
+    fn must_finish(&self) -> bool {
+        false
+    }
+    /// Whether the job runs on when the plugin that asked stops (an install
+    /// the user confirmed): nobody is told its end. Default: it stops with
+    /// its sender.
+    fn keep_without_sender(&self) -> bool {
+        false
+    }
 }
 
 /// The buffer a job reads through: 4 KiB, taken fallibly when the job's

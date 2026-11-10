@@ -21,6 +21,7 @@ pub(crate) mod event_tags;
 #[path = "native_host/owner_directory.rs"]
 pub(crate) mod owner_directory;
 
+pub(crate) mod device_log;
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
 pub(crate) mod registry_generation;
@@ -78,6 +79,8 @@ pub(crate) mod plugin_install;
     reason = "the queue's plugin seam wires it; see plugin_check"
 )]
 pub(crate) mod plugin_job;
+#[path = "native_host/plugin_jobs.rs"]
+pub(crate) mod plugin_jobs;
 #[path = "native_host/plugin_rules.rs"]
 #[allow(dead_code, reason = "the install job applies it; see plugin_check")]
 pub(crate) mod plugin_rules;
@@ -103,6 +106,9 @@ pub(crate) mod secrets_service;
 
 #[path = "native_host/host_slot.rs"]
 pub mod host_slot;
+
+#[path = "native_host/screen_ready.rs"]
+mod screen_ready;
 
 #[path = "native_host/ui_service.rs"]
 pub(crate) mod ui_service;
@@ -260,6 +266,7 @@ mod service_slots;
 pub(crate) mod setting_events;
 #[allow(dead_code, reason = "wired into the shell frame by the SOCK adapter")]
 pub(crate) mod sock_service;
+mod stack_events;
 #[allow(
     dead_code,
     reason = "the native stage.run host (#828) frames its replies with it"
@@ -279,6 +286,7 @@ mod storage_files;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
 mod widget_events;
+mod widget_inputs;
 mod wifi_events;
 mod work_pump;
 
@@ -495,6 +503,7 @@ pub struct FlatHost {
     pub(crate) meter: alloc::rc::Rc<crate::meter::Meter>,
     pub(crate) font_removals: alloc::rc::Rc<font_removals::FontRemovals>,
     pub(crate) registry_generation: alloc::rc::Rc<registry_generation::RegistryGeneration>,
+    pub(crate) log: device_log::DeviceLog,
 }
 
 impl FlatHost {
@@ -526,6 +535,7 @@ impl crate::Kernel {
             stack_rows: alloc::rc::Rc::clone(&self.shared.stack_rows),
             font_removals: alloc::rc::Rc::clone(&self.shared.font_removals),
             registry_generation: alloc::rc::Rc::clone(&self.shared.registry_generation),
+            log: self.shared.device_log,
         }
     }
 }
@@ -1077,6 +1087,13 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
     #[must_use]
     pub fn len(&self) -> usize {
         self.records.len()
+    }
+
+    /// The record published at `index`, read in place (no dispatch, no
+    /// copy); `None` past the last one.
+    #[must_use]
+    pub fn record(&self, index: usize) -> Option<&T> {
+        self.records.get(index)
     }
 
     /// Whether this batch contains no records.

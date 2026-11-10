@@ -259,9 +259,13 @@ impl HostServices {
     }
     #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
     /// Wire `core.lookup` once.
-    pub(crate) fn wire_lookup(&self, host: Rc<dyn LookupHost>) -> Result<(), i32> {
+    pub(crate) fn wire_lookup(
+        &self,
+        host: Rc<dyn LookupHost>,
+        log: super::device_log::DeviceLog,
+    ) -> Result<(), i32> {
         self.lookup
-            .set(LookupServices::new(host))
+            .set(LookupServices::new(host, log))
             .map_err(|_| ERR_STATE)
     }
 
@@ -294,6 +298,25 @@ impl HostServices {
 
     pub(crate) fn ui(&self) -> Option<&UiServices> {
         self.ui.get()
+    }
+
+    /// The file the hand-over of reader `instance` names, for `doc_open`
+    /// root 5 (see [`super::ui_store::UiStore::handed_file`]); the instance is
+    /// the caller's (`Frame::calling_instance`). `ERR_UNSUPPORTED` while no
+    /// `core.ui` store is wired.
+    #[allow(
+        dead_code,
+        reason = "Host's doc_open root 5 calls it (todo 410); tests do today"
+    )]
+    pub(crate) fn handed_file(
+        &self,
+        instance: u32,
+        visit: &mut dyn FnMut(super::ui_store::Handed<'_>),
+    ) -> Result<(), i32> {
+        self.ui()
+            .ok_or(paperpaw_native::host_glue::ERR_UNSUPPORTED)?
+            .store
+            .handed_file(instance, visit)
     }
 
     /// Wire `core.device` once.
@@ -551,7 +574,6 @@ impl HostServices {
         self.sockets.get()
     }
 
-    #[allow(dead_code, reason = "a shell wires its scheduler; tests do today")]
     /// Wire `core.work` once.
     pub(crate) fn wire_work(&self, work: WorkServices) -> Result<(), i32> {
         let owners = self.owners()?;
@@ -565,7 +587,6 @@ impl HostServices {
         self.work.get()
     }
 
-    #[allow(dead_code, reason = "a shell wires its secrets host; tests do today")]
     /// Wire `core.secrets` once.
     pub(crate) fn wire_secrets(&self, secrets: SecretsServices) -> Result<(), i32> {
         self.secrets.set(secrets).map_err(|_| ERR_STATE)
