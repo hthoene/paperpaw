@@ -1,107 +1,128 @@
-//! The native declarations name what the interface-6 registration names:
-//! screens (ids, titles) including the passwords and keys, the advanced
-//! switch, the slots it fills, and the action, menu entry and icon of the
-//! passwords and keys.
-#![allow(clippy::unwrap_used, reason = "test assertions")]
+//! The native declarations are what the image holds, name what the settings
+//! plugin has always named (screens and their titles including the passwords
+//! and keys, the advanced switch, the slots it fills, and the action, menu
+//! entry and icon of the passwords and keys), and the host takes them as far
+//! as it has wired them.
+#![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
+use paperpaw_core::native_host::{
+    declarations::{validate_batch, validate_record},
+    registrations::records_decode,
+};
+use paperpaw_native::host_glue::ERR_UNSUPPORTED;
+
 #[path = "../declarations.rs"]
 #[allow(
     dead_code,
     reason = "the build script also uses the event declarations"
 )]
 mod declarations;
-use paperpaw_plugin_settings::SettingsPlugin;
-use paperpaw_sdk::native::declare::Declarations;
-use paperpaw_sdk::{Contribution, Id, Plugin, Registrar};
 
-fn legacy() -> Vec<Contribution> {
-    let mut r = Registrar::new(Id::new_static("settings"));
-    SettingsPlugin.register(&mut r).unwrap();
-    r.into_contributions()
+mod image {
+    include!(concat!(env!("OUT_DIR"), "/settings_declarations.rs"));
 }
 
-fn batches(
-    declare: impl FnOnce(&mut Declarations<&mut dyn FnMut(&[u8]) -> Result<(), i32>>),
-) -> Vec<Vec<u8>> {
-    let mut out = Vec::new();
-    {
-        let mut sink = |b: &[u8]| -> Result<(), i32> {
-            out.push(b.to_vec());
-            Ok(())
-        };
-        let mut d = Declarations::new(&mut sink as &mut dyn FnMut(&[u8]) -> Result<(), i32>);
-        declare(&mut d);
-    }
-    out
+/// The batches `$declare` submits.
+macro_rules! batches {
+    ($declare:path) => {{
+        let mut out: Vec<Vec<u8>> = Vec::new();
+        {
+            let mut d = paperpaw_sdk::native::declare::Declarations::new(|batch: &[u8]| {
+                out.push(batch.to_vec());
+                Ok(())
+            });
+            $declare(&mut d).unwrap();
+        }
+        out
+    }};
+}
+
+/// Whether `text` is in a batch as its bytes.
+fn names(batches: &[Vec<u8>], text: &str) -> bool {
+    batches
+        .iter()
+        .any(|batch| batch.windows(text.len()).any(|w| w == text.as_bytes()))
 }
 
 #[test]
-fn screen_ids_and_titles_match_the_interface_6_registration() {
-    let mut expected = Vec::new();
-    for contribution in legacy() {
-        if let Contribution::FixedScreens(screens) = contribution {
-            for screen in screens {
-                let name = screen.id().as_str().strip_prefix("settings.").unwrap();
-                expected.push((name.to_string(), screen.title().to_string()));
-            }
+fn the_image_is_what_the_builder_makes() {
+    for (name, built, image) in [
+        ("screens", batches!(declarations::screens), image::SCREENS),
+        (
+            "settings",
+            batches!(declarations::settings),
+            image::SETTINGS,
+        ),
+        (
+            "navigation",
+            batches!(declarations::navigation),
+            image::NAVIGATION,
+        ),
+        ("events", batches!(declarations::events), image::EVENTS),
+    ] {
+        assert_eq!(built.len(), 1, "{name}: one batch");
+        assert_eq!(built.len(), image.len(), "{name}");
+        for (built, image) in built.iter().zip(image) {
+            assert_eq!(built.as_slice(), *image, "{name}");
         }
     }
-    // Declared in the order of the native screens' tokens.
-    let native = [
-        ("list", "settings.title", declarations::LIST),
-        ("group", "settings.title", declarations::GROUP),
-        ("themes", "settings.theme", declarations::THEMES),
-        ("choose", "settings.title", declarations::CHOOSE),
-        ("search", "settings.search", declarations::SEARCH),
-        ("secrets", "settings.secrets", declarations::SECRETS),
-        ("secret", "settings.secrets", declarations::SECRET),
-    ];
-    assert_eq!(expected.len(), native.len());
-    for (name, title, _) in native {
-        assert!(
-            expected.contains(&(name.to_string(), title.to_string())),
-            "{name}: {title}"
-        );
-    }
-    let actual = batches(|d| declarations::screens(d).unwrap());
-    assert_eq!(actual.len(), 1, "one batch");
 }
 
 #[test]
-fn the_advanced_switch_and_the_slots_match() {
-    let mut found = (false, Vec::new());
-    for contribution in legacy() {
-        match contribution {
-            Contribution::FixedSettings(settings) => {
-                for spec in settings {
-                    assert_eq!(spec.id.as_str(), "settings.advanced");
-                    assert_eq!(spec.title, "settings.advanced");
-                    assert_eq!(spec.group.as_str(), "core.group.system");
-                    assert_eq!(spec.description.as_deref(), Some("settings.advanced.help"));
-                    found.0 = true;
-                }
-            }
-            Contribution::SlotBinding { slot, screen, .. } => {
-                found.1.push((slot.to_string(), screen.to_string()));
-            }
-            _ => {}
-        }
+fn the_seven_screens_are_declared_with_their_titles() {
+    let screens = batches!(declarations::screens);
+    for (name, title) in [
+        ("list", "settings.title"),
+        ("group", "settings.title"),
+        ("themes", "settings.theme"),
+        ("choose", "settings.title"),
+        ("search", "settings.search"),
+        ("secrets", "settings.secrets"),
+        ("secret", "settings.secrets"),
+    ] {
+        assert!(names(&screens, name), "{name}");
+        assert!(names(&screens, title), "{name}: {title}");
     }
-    assert!(found.0, "the advanced switch is declared");
-    found.1.sort();
+}
+
+#[test]
+fn the_advanced_switch_and_the_slots_are_declared() {
+    let settings = batches!(declarations::settings);
+    for text in [
+        "advanced",
+        "core.group.system",
+        "settings.advanced",
+        "settings.advanced.help",
+    ] {
+        assert!(names(&settings, text), "{text}");
+    }
+    let navigation = batches!(declarations::navigation);
+    for text in [
+        "core.settings",
+        "settings.list",
+        "core.choose-value",
+        "settings.choose",
+    ] {
+        assert!(names(&navigation, text), "{text}");
+    }
+}
+
+#[test]
+fn the_action_the_menu_entry_and_the_icon_of_the_passwords_and_keys_are_declared() {
+    let navigation = batches!(declarations::navigation);
+    for text in [
+        "secrets.open",
+        "settings.secrets",
+        "core.settings-pages",
+        "settings.secrets.open",
+        "key",
+    ] {
+        assert!(names(&navigation, text), "{text}");
+    }
+    assert_eq!(declarations::SECRETS_ORDER, 95);
     assert_eq!(
-        found.1,
-        [
-            (
-                "core.choose-value".to_string(),
-                "settings.choose".to_string()
-            ),
-            ("core.settings".to_string(), "settings.list".to_string()),
-        ]
+        paperpaw_plugin_settings::native_secrets::OPEN,
+        "settings.secrets.open"
     );
-    // The native declarations encode without a refusal.
-    assert_eq!(batches(|d| declarations::settings(d).unwrap()).len(), 1);
-    assert_eq!(batches(|d| declarations::navigation(d).unwrap()).len(), 1);
-    assert_eq!(batches(|d| declarations::events(d).unwrap()).len(), 1);
 }
 
 #[test]
@@ -133,54 +154,24 @@ fn the_plugin_and_the_declarations_share_their_tokens() {
     );
 }
 
+/// The host takes the screens; the other families it refuses as unsupported
+/// until it wires them, so `make` is refused until then (pending #944).
 #[test]
-fn the_action_the_menu_entry_and_the_icon_of_the_passwords_and_keys_match() {
-    let (mut actions, mut entries, mut icons) = (Vec::new(), Vec::new(), Vec::new());
-    for contribution in legacy() {
-        match contribution {
-            Contribution::FixedActions(list) => {
-                for a in list.iter() {
-                    let a = paperpaw_sdk::Action::Fixed(a);
-                    actions.push((a.id().as_str().to_string(), a.title().to_string()));
-                }
+fn the_host_admits_the_screens_and_refuses_the_rest_as_unsupported() {
+    for batch in batches!(declarations::screens) {
+        let records = records_decode(&batch).unwrap();
+        validate_batch("settings", &records).unwrap();
+    }
+    for batch in batches!(declarations::settings)
+        .into_iter()
+        .chain(batches!(declarations::navigation))
+        .chain(batches!(declarations::events))
+    {
+        let records = records_decode(&batch).unwrap();
+        for record in records.iter() {
+            if let Err(status) = validate_record("settings", &record) {
+                assert_eq!(status, ERR_UNSUPPORTED, "{record:?}");
             }
-            Contribution::FixedMenuEntries(list) => {
-                for e in list.iter() {
-                    entries.push((
-                        e.menu.as_str().to_string(),
-                        e.item.as_str().to_string(),
-                        e.order,
-                    ));
-                }
-            }
-            Contribution::FixedIcons(list) => {
-                for (item, icon) in list.iter() {
-                    icons.push((item.as_str().to_string(), (*icon).to_string()));
-                }
-            }
-            _ => {}
         }
     }
-    assert_eq!(
-        actions,
-        [(
-            paperpaw_plugin_settings::native_secrets::OPEN.to_string(),
-            "settings.secrets".to_string()
-        )]
-    );
-    assert_eq!(
-        entries,
-        [(
-            "core.settings-pages".to_string(),
-            paperpaw_plugin_settings::native_secrets::OPEN.to_string(),
-            declarations::SECRETS_ORDER
-        )]
-    );
-    assert_eq!(
-        icons,
-        [(
-            paperpaw_plugin_settings::native_secrets::OPEN.to_string(),
-            "key".to_string()
-        )]
-    );
 }

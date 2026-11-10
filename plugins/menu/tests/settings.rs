@@ -14,7 +14,7 @@ use std::borrow::Cow;
 use paperpaw_core::Kernel;
 use paperpaw_platform::{ButtonState, InputEvent, Rotation};
 use paperpaw_plugin_menu::Menu;
-use paperpaw_plugin_settings::SettingsPlugin;
+use paperpaw_sdk::Priority;
 use paperpaw_sdk::builtin::{params, slots};
 use paperpaw_sdk::{
     Canvas, Choices, Cx, DeviceInfo, DisplayInfo, Env, Handled, Id, InputCaps, Instant, Manifest,
@@ -60,6 +60,35 @@ impl Screen for Blank {
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
+    }
+}
+
+/// Stands in for the settings plugin, which is native (interface 7) and
+/// not run by this kernel: it binds the slots the menus open to two
+/// screens, so a test sees which one opens.
+struct Settings;
+
+impl Plugin for Settings {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(
+            Id::new_static("settings"),
+            "Settings",
+            Version::new(0, 1, 0),
+        )
+        .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
+    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+        for id in [SETTINGS_SCREEN, CHOOSE_SCREEN] {
+            r.add_screen(ScreenSpec::new(
+                id,
+                "settings",
+                Box::new(|_, _| Box::new(Blank)),
+            ))?;
+        }
+        r.bind_slot(slots::SETTINGS, SETTINGS_SCREEN, Priority::DEFAULT)?;
+        r.bind_slot(slots::CHOOSE_VALUE, CHOOSE_SCREEN, Priority::DEFAULT)?;
+        Ok(())
     }
 }
 
@@ -125,7 +154,7 @@ impl Test {
             .plugin(Menu)
             .plugin(Probe);
         if with_settings {
-            builder = builder.plugin(SettingsPlugin);
+            builder = builder.plugin(Settings);
         }
         let mut kernel = builder.build().unwrap();
         kernel.start(Instant(0));

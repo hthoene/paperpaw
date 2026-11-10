@@ -7,14 +7,18 @@ in `src/native_model.rs` (visibility, groups, sections, stepping, units, search 
 `build.rs`, metadata in `native/` (regenerate with `python3 tools/abi-metadata.py --schema
 abi/abi.def --input native/metadata.json --bytes native/metadata.bin --json
 native/metadata.inspected.json`, likewise `metadata.host.*`). Drawing uses `paperpaw-ui-kit`.
-The interface-6 `SettingsPlugin` and its suites stay: `paperpaw-app` and other plugins' tests still
-link them until the host activates native plugins; then they go together (no shim).
+The interface-6 plugin is removed: `SettingsPlugin`, its pages, chooser, search, themes, secrets
+and tracking code, and the kernel suites that pinned it (`pages`, `groups`, `search`, `secrets`,
+`frames`, `font_slider`, `covered`, `resize`, the shared `tests/common`). The app no longer
+registers it (the settings pages run in the app only where the native plugin is linked,
+`native-linked`), and the tests of other crates that needed it stand in their own screens
+(no shim). `how/` stays: the store's page reads it.
 
 ## Ported
 
 - *Passwords and keys* (`src/native_secrets.rs`, screens `settings.secrets` and `settings.secret`, the
   action `settings.secrets.open`, its entry in `core.settings-pages` at order 95 and the icon `key`,
-  as in interface 6; parity in `tests/abi7_declarations.rs`). On `core.secrets` with the feature
+  as in interface 6; declarations in `tests/abi7_declarations.rs`). On `core.secrets` with the feature
   `uses.secrets` (not required: the device may not let the settings list; the list is then empty and
   the main page's row stays hidden): the list of every plugin's secrets by label (the owner's text for
   a label that is a catalogue key, else the label as it is, else the name), the value never shown, in
@@ -81,8 +85,8 @@ link them until the host activates native plugins; then they go together (no shi
 ## Tests
 
 `native_model`: group membership, offered/visible levels, main-page order, sections, stepping and
-ends, units, placements, search folding, theme in use. Declaration parity with the interface-6
-registration, linked entry, construction in the kernel's registered scope (refused as `Unsupported`
+ends, units, placements, search folding, theme in use. Declarations (the image holds what the builders make; names, titles, slots, the
+passwords-and-keys action, entry and icon; the host admits the screens), linked entry, construction in the kernel's registered scope (refused as `Unsupported`
 until the host admits every declaration family, #944). No desktop golden: pages need host input
 (H1/H4). `tests/acceptance_pending.rs`: refusals that never pass (pages, number preview, reset,
 search, secrets, restart).
