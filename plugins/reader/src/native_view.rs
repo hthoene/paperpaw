@@ -84,6 +84,9 @@ struct Open {
     conversion: u64,
     /// The sections' lengths, for progress; none where the book has too many.
     progress: Option<Progress>,
+    /// The progress stored with the place, written again where this screen
+    /// cannot tell it (a book of too many sections).
+    stored_ppm: u32,
     /// When the place was written last (the host's clock, microseconds).
     saved_at: Option<u64>,
     /// The page on show is not the place saved.
@@ -209,22 +212,23 @@ impl View {
                 return Err(error);
             }
         };
+        let mut stored_ppm = 0;
         let at = match native_open::opening(|k| found.get(k), |p: Place| p.section < sections) {
             Start::At(place) => (place.section, place.offset),
             Start::Saved => {
                 // The library's calls take 1,024 bytes of input.
                 let mut ask = buffer(1024)?;
-                library
-                    .and_then(|library| {
-                        native_place::saved(
-                            host,
-                            library,
-                            &found.path,
-                            (sections, conversion),
-                            (&mut ask, &mut out),
-                        )
-                    })
-                    .unwrap_or((0, 0))
+                let stored = library.map(|library| {
+                    native_place::saved(
+                        host,
+                        library,
+                        &found.path,
+                        (sections, conversion),
+                        (&mut ask, &mut out),
+                    )
+                });
+                stored_ppm = stored.map_or(0, |s| s.ppm);
+                stored.and_then(|s| s.at).unwrap_or((0, 0))
             }
             _ => (0, 0),
         };
@@ -239,6 +243,7 @@ impl View {
                 path: found.path,
                 conversion,
                 progress,
+                stored_ppm,
                 saved_at: None,
                 unsaved: false,
                 turned: false,
@@ -418,7 +423,7 @@ impl Open {
         let ppm = self
             .progress
             .as_ref()
-            .map_or(0, |p| p.ppm(self.at.0, self.at.1));
+            .map_or(self.stored_ppm, |p| p.ppm(self.at.0, self.at.1));
         let (Ok(mut input), Ok(mut out)) = (buffer(2048), buffer(256)) else {
             return;
         };

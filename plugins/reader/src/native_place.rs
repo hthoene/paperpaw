@@ -96,9 +96,21 @@ impl Progress {
     }
 }
 
-/// The place saved for the book at `path`, if it has one that fits the book:
-/// a section the book has, and a conversion that is the open document's (or
-/// none was stored).
+/// What the library keeps of a book's place: where it was, if that fits the
+/// book, and the progress stored with it (kept when this screen cannot tell
+/// the progress itself).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Stored {
+    /// A section and an offset the book has, in the document's conversion (or
+    /// one stored without).
+    pub at: Option<(u32, u32)>,
+    /// The progress stored, in millionths.
+    pub ppm: u32,
+}
+
+/// The place saved for the book at `path`. A read that fails other than as
+/// "no place" is tried once more, as Beta 3 did, before the book opens at its
+/// start.
 #[must_use]
 pub fn saved(
     host: &Host<'_>,
@@ -106,11 +118,22 @@ pub fn saved(
     path: &str,
     (sections, conversion): (u32, u64),
     (input, out): (&mut [u8], &mut [u8]),
-) -> Option<(u32, u32)> {
-    let book = BookRef::path(path).ok()?;
-    let position = library.position(host, book, input, out).ok()?;
+) -> Stored {
+    let Ok(book) = BookRef::path(path) else {
+        return Stored::default();
+    };
+    let mut read = library.position(host, book, input, out);
+    if matches!(&read, Err(e) if *e != Error::NotFound) {
+        read = library.position(host, book, input, out);
+    }
+    let Ok(position) = read else {
+        return Stored::default();
+    };
     let fits = position.section < sections && position.conversion.is_none_or(|c| c == conversion);
-    fits.then_some((position.section, position.offset))
+    Stored {
+        at: fits.then_some((position.section, position.offset)),
+        ppm: position.progress_ppm.min(1_000_000),
+    }
 }
 
 /// The wall time of the write in seconds since 1970, from the snapshot; 0 where

@@ -30,3 +30,14 @@ fn lengths_that_would_wrap_a_u32_sum_still_add_up() {
     assert_eq!(p.ppm(1, 0), 500_000);
     assert_eq!(p.ppm(2, 0), 1_000_000);
 }
+
+#[test]
+fn an_unknown_progress_keeps_the_stored_one() {
+    // The screen's own progress wins where it has one; else the stored.
+    let own: Option<Progress> = Some(progress(&[100, 100]));
+    let none: Option<Progress> = None;
+    let pick = |p: &Option<Progress>| p.as_ref().map_or(777_000, |p| p.ppm(1, 0));
+    assert_eq!(pick(&own), 500_000);
+    assert_eq!(pick(&none), 777_000);
+    assert_eq!(Stored::default(), Stored { at: None, ppm: 0 });
+}

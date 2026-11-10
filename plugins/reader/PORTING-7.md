@@ -271,8 +271,9 @@ relative to the data folder).
   the start, and the first turn overwrites it (Beta 3 retried the read and set the old file aside); a
   book of more than 4,096 sections writes progress 0; a book outside the catalog gets NOT_FOUND on
   read and write, so it is "not saved" (said once).
-- **Gates before the reader goes into `NATIVE_PLUGINS`** (Port Reviewer 2): retry the read of the stored
-  place once and never write over a place that could not be read (remark 2 above, the data-safety
-  one), and skip the progress field when it is unknown (remark 3). **X4 timing list:** the extra
+- **The gates before the reader goes into `NATIVE_PLUGINS`** (Port Reviewer 2) are done: a read of the
+  stored place that fails other than as "no place" is tried once more; a place is written only after a
+  turn (so an unreadable one is not overwritten before the reader reads on; Beta 3's setting aside of
+  the old file is not ported); the progress stored is written again where it is unknown. **X4 timing list:** the extra
   `work.declare` at every page turn. The quiet time is started again on a turn only (as Beta 3), and a
   host without work is asked once.
