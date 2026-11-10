@@ -392,7 +392,36 @@ relative to the data folder).
   only for `NotFound`, `Invalid` and `Denied` (a refused allocation stops the step and is not taken for the
   end of the book); the matches are an iterator (interface 6 collected them); the hit's place is the
   `native_open::Place` the document host counts with.
-- **Not yet: the screen.** It needs the document's block, progress and section ops (`core.document`, #2223),
+- **The screen is `native_search_view.rs` (R7, below).** (It needed the document's block, progress and section ops (`core.document`, #2223),
   the font measures (`Measure`), the timer (`core.work`) that drives `step` (interface 6 woke itself every
   2 ms), the list, and, to choose a hit, going back and to the place with the match marked (the successor of
-  `core.goto`, not declared yet). Choosing a hit is `Search::target`: where the match begins and ends.
+  `core.goto`, not declared yet). Choosing a hit is `Search::target`: where the match begins and ends.)
+
+## The search screen (`native_search_view.rs`, R7)
+
+- Flow: the action `reader.search` on the reading screen asks a text question (`core.ui` ask, `reader.search.prompt`;
+  the keyboard plugin answers it), the answer (cut to `MAX_NEEDLE` = 32 characters, so the screen searches what it
+  says) opens `reader.search-results` with the contents screen's hand-over plus a `query` param (one instance per
+  text), and `SearchView::open` takes the text the plugin kept. Choosing a hit goes to where the match begins
+  (`View::go_to`) and closes the screen, as the contents screen does.
+- The scan: `core.work` key `search`, token `SEARCH_WORK` (9, a token of the work itself: the reader hears
+  `event.work_due` with its single `WORK_DUE` subscription and tells the two works apart by the event's token, so there is
+  no new subscription and the declaration test is unchanged). A step reads 24 blocks of the **reading screen's**
+  document (`HostDocument::read_at`, new: the block with the host's refusal as it is), redraws when the header's
+  progress (tens of a percent) or the hits changed, and is declared again after 50 ms while the book is read. A failure
+  that repeats twice in a row ends the search with `reader.search.failed`; the hits so far stay.
+- Snippets are cut to the row with the UI font at the UI size (`Style`), the display's width less the margins and the
+  room for "100 %"; where the font cannot be asked, half the size is a letter's width and 300 px a row's room.
+- How far in a hit is: by the sections' lengths (`Progress`) where the book has few enough sections, else by the
+  section.
+- **Differences / gaps (named, not hidden):**
+  - *No match mark.* Choosing a hit goes to the place only: there is no successor of `core.goto` to mark the match; a
+    `go_to_match(place, end)` with a highlight is a follow-up in the page drawing (Port E).
+  - *Text filters are not applied* to the blocks the scan reads (interface 6 searched the text as the page shows it,
+    after the filters); `core.input-filter` is Port C's.
+  - A search needs the reading screen's document: from no reading screen it does nothing (interface 6 opened the book
+    itself); the X4 holds one open document per plugin.
+  - The hits are held twice, by the model (place, snippet) and by the list's rows (snippet, percent): about 20-80 KB
+    for 100 hits on the 256 KiB heap. **X4 gate** (with the model's 41 KB worst case): measure it; `ItemList` would need
+    a row source to hold them once.
+  - Each step builds a `HostDocument` (a 4 KiB reply buffer and a 256 B one) and acquires the UI font once.

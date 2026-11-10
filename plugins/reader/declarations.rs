@@ -26,6 +26,10 @@ pub const BOOK_MOVED: u32 = 4;
 pub const SUSPEND: u32 = 5;
 pub const STOPPING: u32 = 6;
 pub const WORK_DUE: u32 = 7;
+/// The token of the search's background scan (`core.work`, key `search`): a step
+/// of the book is read each time. Not a subscription: the work's own token comes
+/// back in `event.work_due`, which the reader hears as `WORK_DUE`.
+pub const SEARCH_WORK: u32 = 9;
 pub const FIRST_ACTION: u32 = 100;
 
 const BEHAVIOUR: &str = "core.group.reading-behaviour";
