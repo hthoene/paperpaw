@@ -10,7 +10,7 @@ fn progress_is_the_text_before_over_all_the_text() {
     assert_eq!(p.ppm(0, 0), 0);
     assert_eq!(p.ppm(0, 50), 50_000);
     assert_eq!(p.ppm(1, 0), 100_000);
-    assert_eq!(p.ppm(2, 300), 400_000);
+    assert_eq!(p.ppm(2, 300), 700_000);
     assert_eq!(p.ppm(2, 600), 1_000_000);
 }
 

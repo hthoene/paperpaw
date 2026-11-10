@@ -45,6 +45,10 @@ pub const BACK_LIMIT: usize = 4096;
 
 /// What the screen shows.
 #[derive(Debug)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "one body per open screen; boxing it would be an allocation that can fail"
+)]
 enum Body {
     /// Why there is no page (the key of the text).
     Message(&'static str),
