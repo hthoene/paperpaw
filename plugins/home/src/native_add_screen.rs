@@ -15,7 +15,6 @@ use paperpaw_sdk::{
         Error, Host,
         callbacks::{DrawFrame, Input},
         commands::{CommandSender, ResetTarget},
-        registry::{PageCursor, Registry, ValuesQuery},
         settings::SettingValue,
         ui::{HandoverId, Notify, Open, Param, Ui},
     },
@@ -267,25 +266,9 @@ impl AddScreen {
         let What::Widget(id) = &entry.what else {
             return entry.what.try_clone();
         };
-        let registry = Registry::open(host)?;
-        let found = (|| {
-            let mut input = buffer(OVERHEAD)?;
-            let mut out = buffer(SERVICE_BUFFER)?;
-            add::placement(src, id, |placed| {
-                let page = registry.values(
-                    host,
-                    ValuesQuery::Placement(placed),
-                    PageCursor::start(),
-                    &mut input,
-                    &mut out,
-                )?;
-                Ok(page.rows().next().is_some())
-            })
-        })();
-        let released = registry.release(host);
-        let placed = found?;
-        released?;
-        Ok(What::Widget(placed))
+        Ok(What::Widget(crate::native_item_settings::placement(
+            host, src, id,
+        )?))
     }
 
     fn open_kind(&self, host: &Host<'_>, ui: &Ui, kind: &str) -> Result<(), Error> {

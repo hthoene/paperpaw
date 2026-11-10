@@ -192,7 +192,7 @@ and leaves the old layout (see *Add*). The page is laid out anew from the settin
   as before. Resizing with the buttons keeps a widget at least as high as it can do with and one
   cell wide, as interface 6 did (it did not read the least width or the square hint there either).
 
-- Arranging while editing with a finger (drag an item, drag its corner) waits for the pointer input (H4); the options' *Settings* entry (the widget's settings, with a placement of its own) is not ported: `home-edit-arrange`.
+- Arranging while editing with a finger (drag an item, drag its corner) waits for the pointer input (H4): `home-edit-arrange`. The options' *Settings* entry is native (slice 4e, below).
 - *Add*'s gallery (widgets drawn as they would show, with a page of them at a time), the ready-made
   layouts and the rows' icons: `home-add` (#517). The things are listed by name.
 - The kind rows are named by the catalog key the registry gives; a kind without a translation shows
@@ -418,6 +418,23 @@ Tests: `native_pages` (the writes per layout, none where it fits, refusal sweep 
 There is no scripted-host test: the scripted host has no settings store to change and read back
 (the same limit as the other settings-driven cases). **On the device (gate, not measured):** the
 read of the device (`Shown::current`) plus two layouts' pages in one callback.
+## Slice 4e: the options' *Settings* entry
+
+A widget that has settings of its own (a settings group with its id that holds settings:
+`registry.settings` with the widget's id as the scope) offers *Settings* between *Change the size*
+and *Remove* (`native_arrange::choices(true)`, the core's `core.grid.settings`); tools and widgets
+without settings keep the four options. *Settings* gives the widget a placement of its own where it
+has none (`id@n`: the first number no page holds and no values are kept for, `add::placement`, also
+used by *Add*), keeps it on the page (the page is written, the old layout stays if the change is over
+a callback's budget) and opens the settings slot (`core.settings`) with the hand-over parameter
+`id` = the placement, as interface 6 did (`slots::SETTINGS` with `params::ID`). Whether a plugin's
+settings plugin shows a placement's page is the settings plugin's (`model::unplaced`).
+
+Tests: the options' words with and without *Settings* (`native_arrange`). The registry reads and the
+opening are host calls: the scripted host has no screen stack to open a slot on and no settings
+rows in a dashboard, so the whole path is an acceptance case on a real host (`home-edit-arrange`,
+H1/H4). **On the device (gate):** one registry read (4 KiB) when the options open, and the same
+plus a values read and the handover (3 x 4 KiB) when *Settings* is chosen.
 
 ## Blockers (checked 2026-11-09 against integration `2990429e3`, train 6 and the approved PRs of train 7)
 
@@ -437,6 +454,6 @@ Legend: (a) solved here, (b) solved by an approved or open PR, (c) open: the mis
 | reflow (`HOME-reflow-slice`) | the setting-change handler | (a) done (slice 4d: `native_reflow`; event 64 admitted by #763) |
 | help hints | `help.hint` declarations (`home.tips.*`) | (b) admitted by #818 (draft): home declares them after it lands |
 | gallery, layouts, rows' icons (`HOME-add-gallery`) | | (c) plugin work; #517 (icon admission) and #624 (glyph call) are merged, so the `517` blocker is gone |
-| options' *Settings* (`HOME-item-settings`) | | (c) plugin work |
+| options' *Settings* (`HOME-item-settings`) | | (a) done (slice 4e: `native_item_settings`) |
 | grip drag (`KIT-grip-drag`) | the kit's view takes a hold and a tap | (c) kit work, then H4a pointer input |
 | hosted construction | #944 | (a) the host admits all declarations and `make` constructs in the real registered scope (`tests/hosted_construction.rs`, hosted harness #788) |
