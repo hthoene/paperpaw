@@ -331,6 +331,17 @@ fn storage_status(error: StorageError) -> i32 {
     }
 }
 
+/// [`storage_status`] for the steps of a delete or an import that the journal
+/// repeats: data that cannot be read (`InvalidData`: a list of a newer version,
+/// damaged) is `ERR_INVALID`, a final code, as no retry changes it; every other
+/// error is the card's, for the step to repeat.
+pub(super) fn carry_status(error: StorageError) -> i32 {
+    match error {
+        StorageError::InvalidData => ERR_INVALID,
+        other => storage_status(other),
+    }
+}
+
 /// The catalog's file, reserved fallibly.
 fn catalog_file() -> Result<String, i32> {
     const NAME: &str = "catalog.txt";

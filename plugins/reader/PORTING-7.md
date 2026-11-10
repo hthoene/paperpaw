@@ -84,11 +84,10 @@ relative to the data folder).
   right payload: word, sentence, path, section, offset, language, title; a path over 512 bytes is refused and
   nothing runs; `tests/native_words_alloc.rs` refuses every allocation of the input); `run` does it with the
   host's stage and gives every refusal back for the caller to ignore.
-- Not wired yet: the native reader has no selection flow, and the interface-6 reader screen
-  (`screen/selecting.rs`) cannot run a stage, so it still emits `core.word-looked-up`. That emitter stays
-  until vocabulary (Port D) and readwise/joplin (Port E) subscribe to the stage; the native selection flow
-  calls `native_words::run` with the same seven values (`reader-word-looked-up-run` in
-  `tests/acceptance_pending.rs`, blocked on the stage host #828 and the flow).
+- Wired in R4: the native selection flow (`native_marking/act.rs`) runs the stage when words are looked
+  up. The interface-6 reader screen (`screen/selecting.rs`) cannot run a stage, so it still emits
+  `core.word-looked-up`; that emitter stays until vocabulary (Port D) and readwise/joplin (Port E)
+  subscribe to the stage and the native reader is default-on.
 
 ## The stage `reader.filter@1`
 
@@ -223,7 +222,7 @@ relative to the data folder).
   calls `services.query` added.
 - **Not yet (named gaps):** the place saved last time and `page` numbers (`LIB-position`, R2); progress,
   the page index and status lines (R2, op 5 sections in #973); the menus and the font/layout panel (R3);
-  selection, words, links, footnotes (R4); annotations (R5); TOC and skim (R6); search (R7); reflow on
+  annotations (R5); TOC and skim (R6); search (R7); reflow on
   a turned screen and on a changed setting (the page is laid out again only after a turn); a document
   that is still preparing is not read again when the host says it is ready (`document_changed`); the
   paragraph indent and spacing, widows and orphans, hyphenation and the book-style switches of the
@@ -294,6 +293,34 @@ relative to the data folder).
   read to the end, also when the reader pages back. **Named:** a book of more than 4,096 sections has no
   progress, so it never raises `book_finished`; a report of a screen that is not topmost is dropped by
   the host, so a `finished` set locally may never be raised (a one-page book too).
+
+## Selection, words, links and footnotes (R4, #243)
+
+- `native_wordbox.rs` measures the words of a laid-out page the way `draw_lines` sets them (same spaces,
+  same runs); `native_selection/` is the host-free movement of the chosen words; `native_marking.rs` (with
+  `bar.rs`, `act.rs`, `linking.rs`) is the controller: touch (long press chooses, tap extends or
+  presses a bar button) and keys (`reader.select-text`, `reader.links`), the bar (look up, copy,
+  *Extend* on buttons, *Cancel* on touch), the frames, the clipboard and the lookup (slot `core.lookup`,
+  then the stage). `native_links.rs` reads the links of a page, finds a target, keeps the trail for *Back*
+  and the text of a note; `native_footnote.rs` is the note over the page (an overlay screen, `core.footnote`);
+  *Go to the note* is carried by the plugin, which follows it in the reading screen when that is shown again.
+  `native_view.rs` asks the marking first about every input and draws its overlay last.
+- **Differences from Beta 3, named:** the bar has fixed items (look up, copy, extend/cancel): *Highlight*,
+  *Note*, *Read aloud* and *Translate* and the plugins' items need the annotations (R5), the aloud and the
+  selection-bar contract, which the stage does not replace. The book's language is not read (native metadata
+  has none), so the lookup is asked with an empty language. Words on a line set for mixed directions
+  (`LineBidi::REORDER`) are read in logical order, not where drawn. At most 2,048 words of a page are
+  chosen or hit. Taking the lookup of a word to a plugin other than `core.lookup` is not changed.
+- Footnote popup: share of the display and buttons as Beta 3; *Close* by tap anywhere outside the buttons.
+  The setting `core.footnotes` decides popup or jump as before. Width, text size and button rows follow the
+  ui-kit `Style`, so pixels differ from Beta 3 (measure on the X4 at activation).
+- Tests: movement and bar (`native_selection/moves_tests.rs`), word boxes with the allocation sweep,
+  links (`native_links/tests.rs`), the marking (`native_marking/tests.rs`). Not tested without the host: a
+  hosted touch flow over a real book (waits for the hosted harness, as the reading screen).
+- The marking never opens a `core.ui` handle: the plugin's held one is in `Ctx` (copy, lookup, links and
+  the note use it). Out-of-memory in the frames of a selection leaves the rest of the frames out. **X4 list:**
+  up to 2,048 words per page (~100 KB worst case), 16 KiB of copied text, two service buffers per open, and
+  `line_boxes` is quadratic in the words (measure at activation).
 
 ## Table of contents (native model, `native_toc.rs`)
 

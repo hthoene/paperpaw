@@ -6,11 +6,13 @@
 //! (`PORTING-7.md`). What the reader decides without a host is in the
 //! `native_*` models, tested without one.
 use crate::{
-    declarations::{SCREEN, SETTING_CHANGED, STOPPING, SUSPEND, TOC, WORK_DUE},
+    declarations::{FOOTNOTE, SCREEN, SETTING_CHANGED, STOPPING, SUSPEND, TOC, WORK_DUE},
+    native_footnote::{Footnote, Pressed},
     native_index, native_pages,
     native_toc_view::{Outcome, TocView},
     native_view::View,
 };
+use alloc::string::String;
 use paperpaw_sdk::{
     Handled,
     native::{
@@ -62,6 +64,11 @@ pub struct NativeReader {
     no_work: bool,
     screens: Screens<View>,
     tocs: Screens<TocView>,
+    /// The notes over the pages.
+    notes: Screens<Footnote>,
+    /// *Go to the note* pressed: the book and the link, followed when its
+    /// reading screen is shown again.
+    follow: Option<(String, String)>,
 }
 
 impl NativeReader {
@@ -89,6 +96,37 @@ impl NativeReader {
         self.screens.open(instance, view)?;
         self.start_count(host);
         Ok(())
+    }
+
+    /// A note opened over the page.
+    fn open_note(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
+    ) -> Result<(), Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        let note = Footnote::open(host, ui, handover)?;
+        self.notes.open(instance, note)
+    }
+
+    /// The reading screen is on show again: a note's *Go to the note* is followed
+    /// in it.
+    fn follow_note(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+    ) -> Result<(), Error> {
+        let Some((path, href)) = self.follow.take() else {
+            return Ok(());
+        };
+        let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) else {
+            return Ok(());
+        };
+        view.follow(host, docs, (&path, &href))
     }
 
     /// The table of contents opened: its book is opened with it.
@@ -285,6 +323,7 @@ impl Plugin for NativeReader {
             } => match token {
                 SCREEN => self.open(host, instance, handover),
                 TOC => self.open_toc(host, instance, handover),
+                FOOTNOTE => self.open_note(host, instance, handover),
                 _ => Ok(()),
             },
             Event::ScreenShown {
@@ -296,15 +335,17 @@ impl Plugin for NativeReader {
                     if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
                         view.shown(host, docs);
                     }
-                    Ok(())
+                    self.follow_note(host, instance)
                 }
                 TOC => self.tocs.shown(TOC, instance),
+                FOOTNOTE => self.notes.shown(FOOTNOTE, instance),
                 _ => Ok(()),
             },
             Event::ScreenClosed { instance, .. } => {
                 match token {
                     SCREEN => self.close(host, instance),
                     TOC => self.close_toc(host, instance),
+                    FOOTNOTE => self.notes.close(instance),
                     _ => {}
                 }
                 Ok(())
@@ -318,6 +359,10 @@ impl Plugin for NativeReader {
             let view = self.tocs.top(token).ok_or(Error::State)?;
             return view.draw(host, &mut frame);
         }
+        if token == FOOTNOTE {
+            let note = self.notes.top(token).ok_or(Error::State)?;
+            return note.draw(host, &mut frame);
+        }
         let (Some(view), Some(docs)) = (self.screens.top(token), &self.docs) else {
             return Err(Error::State);
         };
@@ -327,6 +372,16 @@ impl Plugin for NativeReader {
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
         if token == TOC {
             return self.toc_input(host, &input);
+        }
+        if token == FOOTNOTE {
+            let Some(note) = self.notes.top(token) else {
+                return Ok(Handled::No);
+            };
+            let (handled, pressed) = note.input(host, &input)?;
+            if let Pressed::Go { path, href } = pressed {
+                self.follow = Some((path, href));
+            }
+            return Ok(handled);
         }
         let (handled, turned) = match (self.screens.top(token), &self.docs, &self.ui) {
             (Some(view), Some(docs), Some(ui)) => {
