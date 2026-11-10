@@ -8,7 +8,7 @@ activates native plugins (then it goes together, no shim).
 
 ## Ported
 
-- `src/native_grid.rs`: the grid of cells the pages are laid out in. Items (a widget or a tool)
+- `native_grid` (now `paperpaw_ui_kit::dashboard::grid`, re-exported under this name; shared with picture-home): the grid of cells the pages are laid out in. Items (a widget or a tool)
   with the cells they take, the text they are kept as (`parse` / `write`, the SDK's format; a test
   pins that the SDK writes the same text), and putting them in a grid: `fit`, `refit` (a
   landscape home from the portrait one), `add`. The same rules as `paperpaw_sdk::widgets::grid`,
@@ -137,7 +137,7 @@ parts without the host:
   interface-6 `frame`, with the widget gap from `core.widgets.gap`), the footer's buttons (actions
   from the right, as many as leave the dots their middle), the dots, the page that shows and how
   pages turn.
-- `native_focus.rs`: the buttons' focus over the page's targets (tools, what each widget answers with
+- `native_focus` (now `paperpaw_ui_kit::dashboard::focus`, re-exported; also `native_arrange` as `dashboard::arrange`): the buttons' focus over the page's targets (tools, what each widget answers with
   `widget_targets`, the footer's actions): the first press only shows the focus, left/right and
   next/previous go round, up/down go to the nearest target (round where the arrows stay on the page:
   `core.arrows-stay-on-page`, read at every layout like `ui::list::stays_on_page`), confirm runs the
@@ -295,7 +295,7 @@ and each widget's title, category and group with the interface-6 registration.
 `src/native_widgets.rs` (`Widgets`, in `NativeHome`): the instances a screen made
 (`event.widget_made` / `widget_dropped`; a widget that is none of ours is none of our business), the
 `core.widget` stage (measure: the height; place; targets: none, a tap on these does nothing as on
-interface 6), the draw of an instance (`DrawPurpose::Widget`, the kit's `Cx` and `paint::replay_with`)
+interface 6), the draw of an instance (`DrawPurpose::Widget`, the kit's `Cx` and `paint::replay`)
 and the minute tick that tells the maker (`command.widget_changed`) what shows something new.
 `src/native_date.rs` and `src/native_clock.rs` are the two widgets, over the kit's look, text and
 layout (the same arithmetic as interface 6 `blocks.rs`: the date as large as set, smaller down to the

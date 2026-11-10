@@ -284,7 +284,7 @@ fn every_kind_only_the_host_sends_is_refused_and_every_other_decodes_as_before()
     }
     // Pinned: a new record kind must be placed on one side on purpose.
     assert_eq!(refused.len(), HOST_ONLY.len(), "{refused:?}");
-    assert_eq!(decoded.len(), 118, "{decoded:?}");
+    assert_eq!(decoded.len(), 119, "{decoded:?}");
 }
 
 #[test]

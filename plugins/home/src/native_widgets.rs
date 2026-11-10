@@ -12,7 +12,6 @@ use paperpaw_sdk::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose},
         commands::CommandSender,
-        fonts::{Font, FontRole},
         image::ImageStyle,
         reply::Reply,
         ui::{Instance, Open, Param, Ui, WidgetInputKind, WidgetTarget, stages::WidgetCall},
@@ -187,15 +186,7 @@ impl Mine {
             _ => native_clock::draw(&mut cx, &mut out, area)?,
         }
         self.waiting.set(pictures.busy);
-        let bold = if out
-            .iter()
-            .any(|op| matches!(op, paperpaw_ui_kit::Paint::Bold { .. }))
-        {
-            Some(Font::acquire_role(host, FontRole::UiBold)?)
-        } else {
-            None
-        };
-        paint::replay_all(frame, &cx.font, (bold.as_ref(), icons.as_ref()), &out)?;
+        paint::replay_icons(frame, &cx.font, icons.as_ref(), &out)?;
         // The covers go where nothing else is drawn. One the host no longer has
         // (it ended the id for room) or cannot draw is left out: the next draw asks
         // for it again.

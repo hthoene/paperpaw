@@ -34,7 +34,13 @@ fn entry_bytes(provider: &str, flags: u32, text: &str) -> Vec<u8> {
     out
 }
 impl LookupHost for Fake {
-    fn ask(&self, owner: u64, ask: &Ask<'_>, out: &mut [u8]) -> Result<usize, i32> {
+    fn ask(
+        &self,
+        _frame: &dyn Frame,
+        owner: u64,
+        ask: &Ask<'_>,
+        out: &mut [u8],
+    ) -> Result<usize, i32> {
         self.asked
             .borrow_mut()
             .push((owner, ask.cursor, ask.text.into(), ask.language.into()));
