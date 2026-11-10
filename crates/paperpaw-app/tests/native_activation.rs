@@ -8,6 +8,11 @@
     dead_code,
     reason = "shared by several test files; each uses part of it"
 )]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "fixture errors fail the test"
+)]
 
 use paperpaw_core::{Kernel, KernelBuilder};
 
