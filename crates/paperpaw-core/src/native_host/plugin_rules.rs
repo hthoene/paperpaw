@@ -80,6 +80,17 @@ impl Evidence {
     pub(crate) fn rotations(&self) -> &[Rotation] {
         &self.rotations[..usize::from(self.count)]
     }
+
+    /// Adds the next rotation statement; `false` past [`ROTATIONS_MAX`].
+    pub(crate) fn push_rotation(&mut self, step: Rotation) -> bool {
+        let at = usize::from(self.count);
+        let Some(slot) = self.rotations.get_mut(at) else {
+            return false;
+        };
+        *slot = step;
+        self.count += 1;
+        true
+    }
 }
 
 /// What the check of the staged copy found.

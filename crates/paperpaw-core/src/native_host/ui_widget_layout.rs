@@ -56,6 +56,8 @@ const INPUTS_MAX_X4: usize = 2;
 /// One tap or long press waiting for its owner's `input` callback.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PendingInput {
+    /// The plugin whose screen forwarded it (op 6's caller).
+    pub(crate) who: u64,
     pub(crate) owner: u64,
     /// The owner's widget token (the `input` callback's).
     pub(crate) token: u32,
@@ -87,7 +89,7 @@ impl WidgetInputs {
 
     /// Room for `input`, in order: `ERR_FULL` at the cap, `ERR_NO_MEMORY` when
     /// the heap refuses the (one) allocation; nothing is queued then.
-    fn push(&mut self, input: PendingInput) -> Result<(), i32> {
+    pub(crate) fn push(&mut self, input: PendingInput) -> Result<(), i32> {
         if self.queue.len() >= self.cap {
             return Err(ERR_FULL);
         }
@@ -121,6 +123,38 @@ impl UiServices {
         Ok(())
     }
 
+    /// The owner of the oldest tap whose instance is still made, if any
+    /// (entries of dropped instances are discarded here).
+    pub(crate) fn next_widget_input_owner(&self) -> Result<Option<u64>, i32> {
+        let handles = self.widgets.handles.try_borrow().map_err(|_| ERR_BUSY)?;
+        let mut inputs = self.widgets.inputs.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+        inputs
+            .queue
+            .retain(|input| handles.has_widget(input.instance));
+        Ok(inputs.queue.first().map(|input| input.owner))
+    }
+
+    /// Whether `input` may still be delivered: the guard rule of ui.md 4.3
+    /// as `locate` applies it to the forwarding screen's plugin, read again
+    /// at the time of delivery. A tap whose instance is gone or is no longer
+    /// the forwarder's to reach is not.
+    pub(crate) fn widget_input_allowed(
+        &self,
+        input: &PendingInput,
+        guard: &dyn GuardState,
+    ) -> bool {
+        let Ok(handles) = self.widgets.handles.try_borrow() else {
+            return false;
+        };
+        let Ok(found) = handles.widget_of(input.who, input.instance) else {
+            return false;
+        };
+        // The forwarding screen must still be on the stack, guard or none.
+        guard.on_stack(found.screen)
+            && !(guard.guard_plugin().is_some_and(|g| g != input.who)
+                && (found.private || guard.below_guard(found.screen)))
+    }
+
     /// The next tap for `owner` whose instance is still made, as the
     /// `input.widget` record for its token, in `out`: the length, with the
     /// entry to give back to [`Self::widget_input_delivered`]. `None` when
@@ -152,7 +186,7 @@ impl UiServices {
         Ok(Some((*input, length)))
     }
 
-    /// The first delivery attempt of `input` is over, whatever its outcome.
+    /// `input` leaves the queue: it is being delivered (once), or discarded.
     #[allow(dead_code, reason = "Core's dispatcher drains the taps")]
     pub(crate) fn widget_input_delivered(&self, input: &PendingInput) -> Result<(), i32> {
         let mut inputs = self.widgets.inputs.try_borrow_mut().map_err(|_| ERR_BUSY)?;
@@ -244,6 +278,7 @@ pub(super) fn widget_input(
         .try_borrow_mut()
         .map_err(|_| ERR_BUSY)?
         .push(PendingInput {
+            who: who.owner,
             owner: found.owner,
             token: found.token,
             instance: tap.instance,

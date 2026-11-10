@@ -217,8 +217,10 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
   request always has room for its outcome and is never dropped later. Outcomes are kept until
   delivered; an install, removal, firmware or check outcome is then readable with op 13 until the
   plugin's next request of the same kind or its stop. A radio outcome (`wifi_done`, 93) is not kept
-  after delivery: its room is released when it is delivered or its sender stops, and the current
-  radio state is op 8.
+  after delivery: the callback is called **at most once** per request, and the entry is released
+  after it was called, whatever it answered (only `ERR_BUSY` is retried; a failing callback does not
+  get the event again). A sender that stopped or did not subscribe is not called and its entry is
+  released. The current radio state is op 8.
 - [D] **Wi-Fi** (interface 6 `WifiCommand`, `NoNetwork`): `join` and `host` need a non-empty `ssid`;
   `host`'s password is 8-63 bytes, `join`'s 0-63; `join.flags` bit 0 remember the password (SEC's
   store, owned by the Wi-Fi plugin). A password is never logged nor shown in a record any other
@@ -360,7 +362,10 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
   (`status` OK once the check ran, `reason` its verdict), and op 6 reads the result by `request`
   (`ERR_NOT_FOUND` for an unknown one, `ERR_BUSY` while it runs) until the plugin's next check. It
   runs the loader's own checks without changing anything: `reason` 0 fits, else the reason of 5.5
-  that an install would end with (`needs_draft` for reason 10); `bytes`; `signer` the key's name
+  that an install would end with; `needs_draft` for reason 10 is the interface revision the file
+  needs (its header's `needs_minor`) when the refusal is a newer revision than the host's, and 0
+  when it is a newer format or interface major (the file names no number of this interface; the
+  name `needs_draft` is interface 6's), 0 for every other reason; `bytes`; `signer` the key's name
   (empty for a key the device does not know); `key` the signing key and `sha256` the code's (plugin)
   or the image's (firmware) digest, both empty when unsigned (`sha256` then absent); `id`,
   `version`; `flags` bit 0 data plugin (no code), bit 1 this id's author key is pinned here and is
@@ -446,6 +451,9 @@ Tags 1564-1592 follow UIX's approved commands (1547-1558, 1561-1563) and DOC's (
   flash, so neither starts while the other runs; a request waits its turn (`dev_install.state` 0
   waiting), it is not refused. `dev_install.state` (op 13): 0 waiting in the queue, 1 running
   (checking, asking, writing or reading back), 2 ended, with `status` and `reason` the outcome.
+  Only firmware jobs report progress (`dev_install.done` and `total`, `firmware_changed`);
+  install, removal and check jobs have no progress marks: their `done` and `total` stay 0 until
+  they end.
 
 ### 5.3 Firmware
 

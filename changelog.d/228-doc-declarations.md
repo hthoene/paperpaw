@@ -1,0 +1,3 @@
+### Added
+
+- **`format.spec` and `reader.spec` are admitted** (#228, `docs/abi/document.md` section 1). A native plugin may declare up to 8 formats (32 on the device) and up to 4 reading apps (16 on the device); the declarations stay in the declaration store with their plugin. Within a plugin each extension is claimed once (`ERR_INVALID`), a reader's `screen` is one of the plugin's own screens, and a ninth format of a plugin or a thirty-third on the device is `ERR_FULL`, a fifth reading app of a plugin `ERR_INVALID` and a seventeenth on the device `ERR_FULL`. The document service reads them from there once its host is wired.

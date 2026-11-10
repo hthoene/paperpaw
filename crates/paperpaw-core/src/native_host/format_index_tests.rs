@@ -15,9 +15,7 @@ fn spec<'a>(name: &'a str, extensions: &'a str, flags: u32, priority: i32) -> wi
     }
 }
 
-fn none(_: &str) -> Option<Box<str>> {
-    None
-}
+fn none(_: &str, _: &mut dyn FnMut(&str)) {}
 
 #[test]
 fn the_longest_extension_wins_then_the_users_choice_then_priority_then_load_order() {
@@ -43,7 +41,7 @@ fn the_longest_extension_wins_then_the_users_choice_then_priority_then_load_orde
     // Priority, then the first loaded.
     assert_eq!(index.select("n.txt", "", &none), Ok(Some(c)));
     // The user's choice (a claimant's id) wins over priority; a stranger's does not.
-    let choose = |wanted: &'static str| move |_: &str| Some(Box::<str>::from(wanted));
+    let choose = |wanted: &'static str| move |_: &str, visit: &mut dyn FnMut(&str)| visit(wanted);
     assert_eq!(index.select("n.txt", "", &choose("a.txt")), Ok(Some(a)));
     assert_eq!(index.select("n.txt", "", &choose("b.txt")), Ok(Some(b)));
     assert_eq!(
@@ -52,9 +50,8 @@ fn the_longest_extension_wins_then_the_users_choice_then_priority_then_load_orde
     );
     // The choice is asked for the matched extension only.
     let asked = core::cell::RefCell::new(Vec::new());
-    let record = |extension: &str| {
+    let record = |extension: &str, _: &mut dyn FnMut(&str)| {
         asked.borrow_mut().push(Box::<str>::from(extension));
-        None
     };
     index.select("n.fb2.zip", "", &record).unwrap();
     assert_eq!(&*asked.borrow(), &[Box::<str>::from("fb2.zip")]);

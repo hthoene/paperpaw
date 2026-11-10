@@ -10,16 +10,17 @@ use paperpaw_sdk::native::{
     callbacks::{DrawFrame, DrawPurpose, Input},
     commands::{CommandSender, RedrawMode},
     events::{AnswerOutcome, Answered, Event, Incoming, kinds},
+    formatting::Arg,
     registrations,
     reply::Reply,
     storage::DataStorage,
-    ui::{HandoverId, Instance, Notify, RequestId, Ui},
+    ui::{HandoverId, Instance, Notify, Question, RequestId, Ui},
 };
 use paperpaw_sdk::{Handled, Storage};
 use paperpaw_ui_kit::{
     Screens,
     mem::{SERVICE_BUFFER, buffer},
-    read_event,
+    read_event, text,
 };
 
 use crate::declarations::{
@@ -29,6 +30,7 @@ use crate::declarations::{
 };
 use crate::files::DataFolder;
 use crate::native_decks::{self, DecksView, Numbers};
+use crate::native_goto;
 use crate::native_list::{self, WordRows, WordsView};
 use crate::native_review::{self, due_now};
 use crate::native_review_screen::{HostTime, ReviewScreen, settings};
@@ -39,6 +41,15 @@ use crate::{cards, store, sync};
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/vocabulary_declarations.rs"));
+}
+
+/// What a question asked on the list of words is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Asked {
+    /// What to do with a word held: go to its book, or delete it.
+    Options,
+    /// Whether to delete the word.
+    Delete,
 }
 
 /// Vocabulary's interface-7 state: the screens open.
@@ -56,7 +67,7 @@ pub struct NativeVocabulary {
     pub(crate) sd_menus: Screens<crate::native_sd::MenuView>,
     pub(crate) sd_runs: Screens<crate::native_sd::Run>,
     /// The word a question about deleting is asked of, and the question.
-    asked: Option<(RequestId, Word)>,
+    asked: Option<(RequestId, Word, Asked)>,
 }
 
 impl Plugin for NativeVocabulary {
@@ -67,6 +78,7 @@ impl Plugin for NativeVocabulary {
             .chain(image::STAGES)
             .chain(image::WIDGETS)
             .chain(image::NAVIGATION)
+            .chain(image::HELP)
             .chain(image::UI)
         {
             registrations::submit(host, batch)?;
@@ -242,6 +254,7 @@ impl Plugin for NativeVocabulary {
                 let step = view.input(host, &input)?;
                 match step {
                     native_list::Step::Held(row) => self.held(host, row)?,
+                    native_list::Step::Export => self.export(host)?,
                     native_list::Step::Tapped => {
                         // Looking the word up waits for its panel.
                         let said = HostWords::new(host)?.copy("vocabulary.hold-to-delete")?;
@@ -297,36 +310,101 @@ impl NativeVocabulary {
             Err(Error::NotFound) => return self.recount(host),
             Err(error) => return Err(error),
         };
+        // The book is there: go to it, or delete the word. Looking the word up
+        // waits for the dictionary's panel (`PORTING-7.md`).
+        if native_goto::book_there(host, &word)? {
+            return self.ask_options(host, word);
+        }
+        self.ask_delete(host, word)
+    }
+
+    /// Asks what to do with a word whose book is on the card.
+    fn ask_options(&mut self, host: &Host<'_>, word: Word) -> Result<(), Error> {
+        let mut words = HostWords::new(host)?;
+        let choices = text::concat(&[
+            &words.copy("vocabulary.option.go-to")?,
+            "\n",
+            &words.copy("vocabulary.option.delete")?,
+        ])?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        let question = Question::choice(&word.word, "", &choices)?;
+        let request = ui.ask(host, question, &mut input, &mut out)?;
+        self.asked = Some((request, word, Asked::Options));
+        Ok(())
+    }
+
+    /// Asks whether to delete `word` (a word deleted cannot be had back).
+    fn ask_delete(&mut self, host: &Host<'_>, word: Word) -> Result<(), Error> {
+        self.ensure(host)?;
         let texts = native_list::delete_texts(&mut HostWords::new(host)?, &word.word)?;
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let ui = self.ui.as_ref().ok_or(Error::State)?;
         let request = ui.ask(host, texts.question()?, &mut input, &mut out)?;
-        self.asked = Some((request, word));
+        self.asked = Some((request, word, Asked::Delete));
         Ok(())
     }
 
-    /// The answer to the question about deleting: the word goes where it is
-    /// yes, and the list is counted again.
+    /// *Export* chosen: the words are written to `Notes/Vocabulary.tsv`, and the
+    /// reader is told where, or that they could not be.
+    fn export(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let mut words = HostWords::new(host)?;
+        let said = match crate::native_export::run(host) {
+            Ok(path) => words.format(
+                "vocabulary.exported",
+                &[Arg::Text {
+                    name: "path",
+                    value: &path,
+                }],
+            )?,
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => words.copy("vocabulary.export-failed")?,
+        };
+        // The words are written (or not) either way: a notice the host refuses
+        // is lost, not an error of the export.
+        let Ok(notify) = Notify::new(&said) else {
+            return Ok(());
+        };
+        match CommandSender::new(host, &mut [0; 1024]).notify(notify) {
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            _ => Ok(()),
+        }
+    }
+
+    /// The answer to a question about a word: the book opens, the question
+    /// about deleting is asked, or the word goes where it is yes; the list is
+    /// counted again then.
     fn answered(&mut self, host: &Host<'_>, answer: Answered) -> Result<(), Error> {
-        let Some((request, _)) = &self.asked else {
+        let Some((request, _, _)) = &self.asked else {
             return Ok(());
         };
         if *request != answer.request() || answer.outcome() == AnswerOutcome::Typing {
             return Ok(());
         }
-        let Some((_, word)) = self.asked.take() else {
+        let Some((_, word, asked)) = self.asked.take() else {
             return Ok(());
         };
-        if answer.outcome() != AnswerOutcome::Answered || answer.choice() != 1 {
+        if answer.outcome() != AnswerOutcome::Answered {
             return Ok(());
         }
-        let data = DataStorage::new(host);
-        let (deleted, count) = native_list::delete(&DataFolder(&data), &word);
-        if !deleted {
-            let said = HostWords::new(host)?.copy("vocabulary.delete-failed")?;
-            CommandSender::new(host, &mut [0; 256]).notify(Notify::new(&said)?)?;
+        match (asked, answer.choice()) {
+            (Asked::Options, 0) => {
+                self.ensure(host)?;
+                let ui = self.ui.as_ref().ok_or(Error::State)?;
+                native_goto::open_book(host, ui, &word)
+            }
+            (Asked::Options, 1) => self.ask_delete(host, word),
+            (Asked::Delete, 1) => {
+                let data = DataStorage::new(host);
+                let (deleted, count) = native_list::delete(&DataFolder(&data), &word);
+                if !deleted {
+                    let said = HostWords::new(host)?.copy("vocabulary.delete-failed")?;
+                    CommandSender::new(host, &mut [0; 256]).notify(Notify::new(&said)?)?;
+                }
+                self.recounted(host, count)
+            }
+            _ => Ok(()),
         }
-        self.recounted(host, count)
     }
 
     /// The words are counted again and the list drawn again.
