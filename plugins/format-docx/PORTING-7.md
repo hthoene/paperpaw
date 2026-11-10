@@ -83,8 +83,8 @@ left) and bad calls (unknown document, an id opened twice, too many documents, b
 Removed with the interface-6 form:
 
 1. `DocxFormat` and its `Plugin` impl (`FORMAT`, `PLUGIN`, the manifest, `add_book_cache`, `add_format`), and
-   `document::opener`. `HOW` and `CATALOGS` (en/de, from `how/` and `i18n/`) stay as the statics the host publishes
-   at admission, as in `browser`; the translations test stays.
+   `document::opener`. The `HOW` and `CATALOGS` statics are gone too: nothing in the native registry reads them
+   (the texts in `how/` and `i18n/` stay for the native how-to and the built catalogs).
 2. `DocxDocument::open` with its plugin-folder cache, `fingerprint` and the `VERSION` stamp (the native cache's
    stamp is the host's). The title fallback to the file name went with it (see Gaps).
 3. The app's store-offer line (`install_with`), the entry in `STORE_PLUGINS` and the `store-plugins` dependency (the
@@ -108,3 +108,7 @@ that reason (assertions kept).
   broker admits no formats yet).
 - **Title from the file name** belongs to the library (root 3 has no name).
 - **Resumable preparing** (`prepare` is one long call) needs a resumable archive reader.
+
+- **Beta 3 caches stay on cards.** The interface-6 plugin-folder caches (`.paperpaw/plugins/format-docx/<hash>/`) of
+  books opened with Beta 3 are no longer read or written after this removal; they stay on the card until a cleanup
+  (follow-up, not part of this PR: the host or the library removes them, or the owner deletes `.paperpaw/plugins`).

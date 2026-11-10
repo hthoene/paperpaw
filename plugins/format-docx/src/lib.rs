@@ -45,17 +45,6 @@ mod writer;
 
 pub use document::DocxDocument;
 
-/// Help text published by the host during atomic native admission.
-pub static HOW: [(&str, &str); 2] = [
-    ("en", include_str!("../how/en.txt")),
-    ("de", include_str!("../how/de.txt")),
-];
-/// Catalog sources published before native callbacks.
-pub static CATALOGS: [(&str, &str); 2] = [
-    ("en", include_str!("../i18n/en.ini")),
-    ("de", include_str!("../i18n/de.ini")),
-];
-
 /// The most the text of a document may be, unpacked, in bytes.
 pub(crate) const MAX_TEXT: u32 = 64 << 20;
 /// The most the text of the blocks may be, in bytes: more is left off.
