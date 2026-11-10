@@ -8,13 +8,20 @@ use super::{
 use core::fmt;
 use paperpaw_native::host_glue::PpBytes;
 
+mod bluetooth;
 mod device;
+mod evidence;
+mod image;
+mod item_state;
+mod lookup;
 #[cfg(test)]
 #[path = "commands/menu_alloc_tests.rs"]
-mod menu_alloc_tests;
+pub(crate) mod menu_alloc_tests;
 mod registry;
 mod uix;
-pub use device::PowerAction;
+pub use device::{CheckKind, FirmwareOptions, InstallRoot, PowerAction};
+pub use evidence::{Evidence, MAX_REVOCATIONS, MAX_ROTATIONS, Revocation, Rotation};
+pub use item_state::ItemState;
 pub use registry::{
     KeyBinding, PluginEnabled, PluginOutcome, PresetMode, PreviewSetting, ResetTarget,
 };

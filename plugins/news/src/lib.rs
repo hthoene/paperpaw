@@ -12,9 +12,33 @@
 #![no_std]
 
 extern crate alloc;
+#[cfg(test)]
+extern crate std;
 
 mod convert;
+#[path = "../declarations.rs"]
+pub mod declarations;
+pub mod native_book;
+pub mod native_books;
+pub mod native_convert;
+mod native_entry;
+pub mod native_fetch;
+pub mod native_news;
+pub mod native_plugin;
+mod native_screen;
+mod native_shelf;
+mod native_widgets;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
 mod widget;
+
+/// Test-only: refuses chosen allocations to prove the fallible paths.
+#[cfg(test)]
+#[path = "../../test-support/fail_alloc.rs"]
+mod fail_alloc;
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
@@ -945,3 +969,13 @@ mod tests {
 
 #[cfg(test)]
 mod feeds_tests;
+#[cfg(test)]
+mod native_book_tests;
+#[cfg(test)]
+mod native_convert_tests;
+#[cfg(test)]
+mod native_fetch_tests;
+#[cfg(test)]
+mod native_parity_tests;
+#[cfg(test)]
+mod test_volume;

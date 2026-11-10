@@ -1,8 +1,10 @@
 //! One retained instance registry and a deduplicated outer-callback start queue.
 //! Registrations retain leases from this registry, never a second plugin owner.
 use super::{
+    event_tags::EventTags,
     native_callbacks::{CallbackClock, CallbackRuntime, NativeCallbackEpoch},
     native_screen::Dispatch,
+    owner_directory::OwnerDirectory,
     resources::OwnerResourceView,
     shared::{self, Shared},
 };
@@ -14,6 +16,49 @@ use paperpaw_sdk::Id;
 pub(crate) trait NativeInstance: Dispatch {
     fn running(&self) -> bool;
     fn stop(&self);
+    fn callback_depth(&self) -> u8 {
+        0
+    }
+    /// Whether the instance subscribed to the event `tag` (at the start, read
+    /// from the committed registrations; no allocation).
+    fn subscribed(&self, _tag: u32) -> bool {
+        false
+    }
+    fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
+        visit(None);
+    }
+    /// Deliver the one-record event `bytes` of a host service (`core.net`,
+    /// `core.sockets`) to the callback the instance registered for its tag.
+    ///
+    /// # Errors
+    /// `ERR_UNSUPPORTED` when the instance registered none for the tag, the
+    /// callback's own status when it failed.
+    fn service_event(&self, _bytes: &[u8], _env: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
+    /// As [`Self::service_event`], the callback lent the command `stage` (every
+    /// callback but `draw` gets one). An instance without a stage path takes
+    /// the event without one.
+    fn service_event_staged(
+        &self,
+        bytes: &[u8],
+        env: &paperpaw_sdk::Env<'_>,
+        _stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.service_event(bytes, env)
+    }
+    /// A widget's `input` callback at `token` with the one-record `bytes`
+    /// (`input.widget`), lent the command `stage`. An instance without a
+    /// stage path takes it without one.
+    fn input_staged(
+        &self,
+        token: u32,
+        bytes: &[u8],
+        env: &paperpaw_sdk::Env<'_>,
+        _stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.input(token, bytes, env)
+    }
     /// Revoke before owner cleanup; the registry supplies the original key.
     fn retire(&self, _owner: u64) -> Result<(), i32> {
         self.stop();
@@ -43,9 +88,39 @@ impl NativeLease {
     pub(crate) fn stop(&self) {
         self.0.stop();
     }
+    /// A service's event for the callback registered for its tag.
+    pub(crate) fn service_event(
+        &self,
+        bytes: &[u8],
+        env: &paperpaw_sdk::Env<'_>,
+    ) -> Result<i32, i32> {
+        self.live()?.service_event(bytes, env)
+    }
+    /// A widget's `input` callback, with its command stage.
+    pub(crate) fn input_staged(
+        &self,
+        token: u32,
+        bytes: &[u8],
+        env: &paperpaw_sdk::Env<'_>,
+        stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.live()?.input_staged(token, bytes, env, stage)
+    }
+    /// As [`Self::service_event`], with the callback's command stage.
+    pub(crate) fn service_event_staged(
+        &self,
+        bytes: &[u8],
+        env: &paperpaw_sdk::Env<'_>,
+        stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.live()?.service_event_staged(bytes, env, stage)
+    }
 }
 
 impl Dispatch for NativeLease {
+    fn take_open_info(&self) -> Option<super::ui_store::Info> {
+        self.live().ok()?.take_open_info()
+    }
     fn event(&self, token: u32, bytes: &[u8], env: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
         self.live()?.event(token, bytes, env)
     }
@@ -116,6 +191,34 @@ pub(crate) struct NativeInstances {
     pool: Option<OwnerResourceView>,
     orphan_retry_at: Cell<u64>,
     orphan_failure_reported: Cell<bool>,
+    /// The event pump left events for another pass (see `service_pump`).
+    service_more: Cell<bool>,
+    /// The pump's event buffer, made once (see `service_pump`), and when it
+    /// may try again after a refusal.
+    service_buffer: core::cell::RefCell<Vec<u8>>,
+    service_retry: Cell<Option<u64>>,
+    /// When the library's move job may be pumped again after a step that
+    /// failed (`moves_pump`).
+    moves_retry: Cell<Option<u64>>,
+    /// How many steps in a row were refused (the back-off of `moves_pump`).
+    moves_failures: Cell<u8>,
+    /// The count of begun moves the pump last saw (`moves_pump`).
+    moves_begun: Cell<u32>,
+    /// Where the event pump goes on (the running plugin it starts at).
+    service_cursor: Cell<usize>,
+    /// What the work pump saw of the device at its last pass (see
+    /// `work_pump`): bit 0 seen at all, bit 1 network up, bit 2 charging.
+    work_seen: Cell<u8>,
+    /// What the image pump keeps between passes (see `image_pump`).
+    pub(super) image_pump: super::image_pump::ImagePump,
+    /// The queues of `event.setting_changed` (see `setting_events`).
+    pub(super) setting_events: super::setting_events::SettingEvents,
+    /// The commands a callback staged, till the kernel runs them (see
+    /// `event_call`).
+    pub(super) outbox: super::event_call::Outbox,
+    /// The hand-over the staged `open` being applied names: `Some(None)` an
+    /// open of none, `None` no staged open (see `Kernel::drain_native_opens`).
+    pending_handover: Cell<Option<Option<u32>>>,
     #[cfg(test)]
     fixture_pool: Option<super::HostResources>,
 }
@@ -141,7 +244,92 @@ impl Drop for CallbackEpoch<'_> {
     }
 }
 
+/// The event tags an instance subscribed to.
+fn subscriptions(lease: &NativeLease) -> EventTags {
+    lease.live().map_or_else(
+        |_| EventTags::default(),
+        |instance| EventTags::collect(|tag| instance.subscribed(tag)),
+    )
+}
+
 impl NativeInstances {
+    /// The owner directory of the device pool, once an owner was admitted.
+    fn directory(&self) -> Option<&Shared<OwnerDirectory>> {
+        self.pool.as_ref()?.owners().ok()
+    }
+
+    /// Hands the plugin id of the enabled owner `key` to `visit`; `false`
+    /// for an owner that is unknown or stopped, or while the directory is
+    /// busy. Nothing is copied.
+    pub(crate) fn with_id(&self, key: u64, visit: &mut dyn FnMut(&str)) -> bool {
+        self.directory()
+            .is_some_and(|directory| directory.with_id(key, visit).is_ok())
+    }
+
+    /// How many owner-directory updates were skipped since the last call.
+    pub(crate) fn take_directory_missed(&self) -> u32 {
+        self.directory()
+            .map_or(0, |directory| directory.take_missed())
+    }
+
+    /// Lets the device services see the kernel's screen stack.
+    pub(crate) fn attach_screens(&self, screens: &alloc::rc::Rc<super::stack_rows::StackRows>) {
+        if let Some(directory) = self.directory() {
+            directory.attach_screens(screens);
+        }
+    }
+
+    /// The staged `open` about to be applied names `handover` (or none).
+    pub(crate) fn set_pending_handover(&self, pending: Option<Option<u32>>) {
+        self.pending_handover.set(pending);
+    }
+
+    /// Takes the hand-over the applied `open` was given: the first screen it
+    /// reaches keeps it, no other.
+    pub(crate) fn take_pending_handover(&self) -> Option<Option<u32>> {
+        self.pending_handover.take()
+    }
+
+    /// What the next native `on_reopen` reports of the hand-over just attached.
+    pub(crate) fn set_open_info(&self, info: Option<super::ui_store::Info>) {
+        self.callbacks.set_open_info(info);
+    }
+
+    /// Whether a native screen's `draw` callback returned `OK` since the last
+    /// call (a trap, a failure status, a frame the host cut short and a screen
+    /// that was not called at all give `false`); clears it.
+    pub(crate) fn take_drew(&self) -> bool {
+        self.callbacks.take_drew()
+    }
+
+    /// Whether a staged `open` is being applied (it names a hand-over or none).
+    pub(crate) fn pending_handover(&self) -> Option<Option<u32>> {
+        self.pending_handover.get()
+    }
+
+    pub(crate) fn ui_store(&self) -> Option<&super::ui_store::UiStore> {
+        self.pool.as_ref()?.ui_store()
+    }
+
+    /// The `core.ui` service of the device pool (widget and status tables).
+    pub(crate) fn ui_services(&self) -> Option<&super::ui_service::UiServices> {
+        self.pool.as_ref()?.ui()
+    }
+
+    /// What the screens' callbacks stage for the kernel, once the pool is
+    /// adopted (a kernel with no native plugin has none).
+    pub(crate) fn screen_stage(&self) -> Option<&super::screen_stage::ScreenStage> {
+        Some(&self.pool.as_ref()?.hosts().screen_stage)
+    }
+
+    /// The host owner key of the running plugin `id`, if it has an instance.
+    pub(crate) fn key_of(&self, id: &str) -> Option<u64> {
+        self.entries
+            .iter()
+            .find(|entry| entry.enabled && entry.id.as_str() == id)
+            .map(|entry| entry.key)
+    }
+
     /// Retain the device pool before any fallible admission work, including
     /// the first failed factory. Its orphan cleanup must remain reachable.
     pub(crate) fn adopt_pool(&mut self, identity: OwnerResourceView) -> Result<(), i32> {
@@ -165,6 +353,7 @@ impl NativeInstances {
         enabled: bool,
     ) -> Result<u64, i32> {
         let key = identity.owner_id();
+        let directory = identity.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
         self.adopt_pool(identity)?;
         if self
             .entries
@@ -174,6 +363,12 @@ impl NativeInstances {
             return Err(ERR_INVALID);
         }
         self.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        if enabled {
+            directory.admit(key, id.as_str())?;
+            if let Some(lease) = &instance {
+                directory.subscribe(key, subscriptions(lease));
+            }
+        }
         self.entries.push(Entry {
             key,
             id,
@@ -192,6 +387,18 @@ impl NativeInstances {
         self.entry(key)
             .filter(|entry| entry.enabled)
             .map(|entry| &entry.id)
+    }
+
+    /// Whether the running instance of `key` subscribed to the event `tag`,
+    /// asked of the instance itself (the services read the owner directory,
+    /// which the install keeps; the work pump runs between callbacks and
+    /// asks the instance).
+    pub(crate) fn subscribed(&self, key: u64, tag: u32) -> bool {
+        self.entry(key)
+            .filter(|entry| entry.enabled)
+            .and_then(|entry| entry.instance.as_ref())
+            .and_then(|lease| lease.live().ok())
+            .is_some_and(|instance| instance.subscribed(tag))
     }
 
     pub(crate) fn find(&self, id: &str) -> Option<u64> {
@@ -218,6 +425,9 @@ impl NativeInstances {
     /// A frozen run may retain the returned lease after this entry stops.
     /// Revocation makes that old lease CANCELLED without invoking foreign code.
     pub(crate) fn stop(&mut self, key: u64) -> Result<(), i32> {
+        if let Some(directory) = self.directory() {
+            directory.withdraw(key);
+        }
         let entry = self.entry_mut(key).ok_or(ERR_STATE)?;
         entry.enabled = false;
         entry.start.set(false);
@@ -251,11 +461,15 @@ impl NativeInstances {
         if self.callbacks.depth() != 0 {
             return Err(ERR_STATE);
         }
+        let subscribed = subscriptions(&instance);
         let entry = self.entry_mut(key).ok_or(ERR_STATE)?;
         if !entry.enabled || entry.instance.is_some() {
             return Err(ERR_STATE);
         }
         entry.instance = Some(instance);
+        if let Some(directory) = self.directory() {
+            directory.subscribe(key, subscribed);
+        }
         Ok(())
     }
 
@@ -276,12 +490,18 @@ impl NativeInstances {
         Ok(NativeIdentity {
             owner,
             callbacks: self.callbacks.runtime()?,
+            // No allocation: a refused share just leaves the handles to the
+            // next grant or the plugin's stop (see `NativeCallbackEpoch`).
+            pool: self.pool.as_ref().and_then(OwnerResourceView::try_clone),
         })
     }
 
     /// Retire a published owner. Cleanup is retryable under the same key;
     /// callbacks and broker lookup are revoked even when cleanup is busy.
     pub(crate) fn retire(&mut self, key: u64) -> Result<Option<String>, i32> {
+        if let Some(directory) = self.directory() {
+            directory.withdraw(key);
+        }
         let entry = self.entry_mut(key).ok_or(ERR_STATE)?;
         entry.enabled = false;
         entry.retiring = true;
@@ -431,6 +651,12 @@ impl NativeInstances {
         )
     }
 
+    /// The host resources `test_insert` made, to wire services into.
+    #[cfg(test)]
+    pub(crate) fn test_resources(&self) -> Option<&super::HostResources> {
+        self.fixture_pool.as_ref()
+    }
+
     #[cfg(test)]
     pub(crate) fn retained_rows(&self) -> (usize, usize) {
         (self.entries.len(), self.entries.capacity())
@@ -439,18 +665,178 @@ impl NativeInstances {
     pub(crate) fn depth(&self) -> u8 {
         self.callbacks.depth()
     }
+
+    /// Whether the last event pass left events for another.
+    pub(crate) fn service_more(&self) -> bool {
+        self.service_more.get()
+    }
+
+    pub(crate) fn service_buffer(&self) -> &core::cell::RefCell<Vec<u8>> {
+        &self.service_buffer
+    }
+
+    pub(crate) fn service_retry(&self) -> Option<u64> {
+        self.service_retry.get()
+    }
+
+    pub(crate) fn set_service_retry(&self, at: Option<u64>) {
+        self.service_retry.set(at);
+    }
+
+    pub(crate) fn moves_retry(&self) -> Option<u64> {
+        self.moves_retry.get()
+    }
+
+    pub(crate) fn set_moves_retry(&self, at: Option<u64>) {
+        self.moves_retry.set(at);
+    }
+
+    /// Counts one more refused step and returns how many in a row.
+    pub(crate) fn moves_failed(&self) -> u8 {
+        let failures = self.moves_failures.get().saturating_add(1);
+        self.moves_failures.set(failures);
+        failures
+    }
+
+    /// The pump saw the count of begun moves: when it differs from the last
+    /// one, the back-off of earlier steps is dropped. It matters when no job
+    /// is open (a move is refused as busy while one is, and a refused step
+    /// keeps its job open): a journal that could not be read at the start, a
+    /// job ended by the failure.
+    pub(crate) fn moves_begun_seen(&self, begun: u32) {
+        if self.moves_begun.replace(begun) != begun {
+            self.moves_failures.set(0);
+            self.moves_retry.set(None);
+        }
+    }
+
+    /// A step was not refused: the back-off starts again.
+    pub(crate) fn moves_ok(&self) {
+        self.moves_failures.set(0);
+    }
+
+    pub(crate) fn work_seen(&self) -> u8 {
+        self.work_seen.get()
+    }
+
+    pub(crate) fn set_work_seen(&self, seen: u8) {
+        self.work_seen.set(seen);
+    }
+
+    /// The device's `core.work` host, once the shell wired it.
+    pub(crate) fn work_services(&self) -> Option<&super::work_service::WorkServices> {
+        self.pool.as_ref()?.hosts().work()
+    }
+
+    /// The device's wired host views (none before a pool is adopted).
+    pub(crate) fn hosts(&self) -> Option<&super::host_services::HostServices> {
+        self.pool.as_ref().map(|pool| pool.hosts())
+    }
+
+    pub(crate) fn service_cursor(&self) -> usize {
+        self.service_cursor.get()
+    }
+
+    pub(crate) fn set_service_cursor(&self, at: usize) {
+        self.service_cursor.set(at);
+    }
+
+    pub(crate) fn set_service_more(&self, more: bool) {
+        self.service_more.set(more);
+    }
+
+    /// The device's services that raise events (`core.net`, `core.sockets`,
+    /// `core.document`), those wired.
+    pub(crate) fn event_services(&self) -> [Option<&dyn super::service_events::ServiceEvents>; 3] {
+        self.pool
+            .as_ref()
+            .map_or([None, None, None], |pool| pool.hosts().event_services())
+    }
+
+    /// The device's network pool and the services' hosts, once a service
+    /// made it.
+    pub(crate) fn net_demand(
+        &self,
+    ) -> Option<(
+        &alloc::rc::Rc<super::net_pool::NetPool>,
+        &super::host_services::HostServices,
+    )> {
+        let hosts = self.pool.as_ref()?.hosts();
+        Some((hosts.pool_made()?, hosts))
+    }
+
+    /// The closes the work scheduler could not take are asked again.
+    pub(crate) fn retry_run_closes(&self, now_ms: u64) {
+        if let Some(pool) = self.pool.as_ref() {
+            pool.hosts().retry_run_closes(now_ms);
+        }
+    }
+
+    /// The device's network policy, once `core.net` or `core.sockets` is wired.
+    pub(crate) fn net_policy(&self) -> Option<alloc::rc::Rc<super::net_policy::NetPolicy>> {
+        let hosts = self.pool.as_ref()?.hosts();
+        (hosts.net().is_some() || hosts.sockets().is_some()).then(|| hosts.policy().clone())
+    }
+
+    /// A callback is on the stack, for the tests of what runs only between
+    /// callbacks.
+    #[cfg(test)]
+    pub(crate) fn test_enter_callback(&self) {
+        let _ = self.callbacks.enter_outer();
+    }
+
+    /// Ends the callback [`Self::test_enter_callback`] entered.
+    #[cfg(test)]
+    pub(crate) fn test_leave_callback(&self) {
+        self.callbacks.leave();
+    }
+
+    /// The `index`th running instance, in order of installation: its key and
+    /// its lease. `None` past the last.
+    pub(crate) fn running_nth(&self, index: usize) -> Option<(u64, &NativeLease)> {
+        self.entries
+            .iter()
+            .filter(|entry| entry.enabled && !entry.retiring)
+            .filter_map(|entry| Some((entry.key, entry.instance.as_ref()?)))
+            .filter(|(_, lease)| lease.live().is_ok())
+            .nth(index)
+    }
 }
 
 pub(crate) struct NativeIdentity {
     owner: u64,
     callbacks: CallbackRuntime,
+    /// The device pool, to end the callback's status handles with it.
+    pool: Option<OwnerResourceView>,
 }
 impl NativeIdentity {
     pub(crate) fn owner(&self) -> u64 {
         self.owner
     }
     pub(crate) fn callback(&self) -> Result<NativeCallbackEpoch, i32> {
-        self.callbacks.enter()
+        let epoch = self.callbacks.enter()?;
+        Ok(
+            match self.pool.as_ref().and_then(OwnerResourceView::try_clone) {
+                Some(pool) => epoch.ending_status_handles(pool, self.owner),
+                None => epoch,
+            },
+        )
+    }
+    pub(crate) fn take_open_info(&self) -> Option<super::ui_store::Info> {
+        self.callbacks.take_open_info()
+    }
+    /// A native screen's draw returned `OK` (read by `take_drew`).
+    pub(crate) fn mark_drew(&self) {
+        self.callbacks.mark_drew();
+    }
+    /// The device's `core.ui` service (widget handles), once a shell wired it.
+    pub(crate) fn ui_services(&self) -> Option<&super::ui_service::UiServices> {
+        self.pool.as_ref()?.ui()
+    }
+
+    /// What the screens' callbacks stage for the kernel (`screen_stage`).
+    pub(crate) fn screen_stage(&self) -> Option<&super::screen_stage::ScreenStage> {
+        Some(&self.pool.as_ref()?.hosts().screen_stage)
     }
 }
 
@@ -549,6 +935,93 @@ mod tests {
         assert!(matches!(registry.state(key), Ok(InstanceState::Stopped)));
         assert!(registry.retire(key).unwrap().is_none());
         assert_eq!(drops.get(), 1);
+    }
+
+    struct Subscribing(Cell<bool>);
+    impl NativeInstance for Subscribing {
+        fn running(&self) -> bool {
+            self.0.get()
+        }
+        fn stop(&self) {
+            self.0.set(false);
+        }
+        fn subscribed(&self, tag: u32) -> bool {
+            tag == 99
+        }
+    }
+    impl Dispatch for Subscribing {
+        fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+            Ok(0)
+        }
+        fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+            Ok(0)
+        }
+        fn draw(
+            &self,
+            _: u32,
+            _: &super::super::registrations::DrawFrame<'_>,
+            _: &Env<'_>,
+            _: &mut paperpaw_graphics::Canvas<'_>,
+        ) -> Result<i32, i32> {
+            Ok(0)
+        }
+        fn dropped(&self, _: u32, _: i32) {}
+    }
+
+    #[test]
+    fn the_directory_follows_admission_install_and_stop() {
+        let id_of = |dir: &OwnerDirectory, key: u64| {
+            let mut found = None;
+            dir.with_id(key, &mut |id| found = Some(alloc::string::String::from(id)))
+                .ok()
+                .and(found)
+        };
+        let mut registry = NativeInstances::default();
+        let lease = NativeLease::try_new(Subscribing(Cell::new(true))).unwrap();
+        let key = registry
+            .test_insert(Id::new_static("net.probe"), Some(lease), true)
+            .unwrap();
+        let lazy = registry
+            .test_insert(Id::new_static("net.lazy"), None, true)
+            .unwrap();
+        let off = registry
+            .test_insert(Id::new_static("net.off"), None, false)
+            .unwrap();
+        let dir = registry.directory().unwrap().try_clone().unwrap();
+        assert_eq!(id_of(&dir, key).as_deref(), Some("net.probe"));
+        assert_eq!(id_of(&dir, lazy).as_deref(), Some("net.lazy"));
+        assert_eq!(id_of(&dir, off), None, "a disabled owner has no row");
+        assert_eq!(id_of(&dir, key + 1000), None, "unknown owner");
+        assert!(dir.subscribed(key, 99));
+        assert!(!dir.subscribed(key, 101), "not that event");
+        assert!(!dir.subscribed(lazy, 99), "not started: no subscription");
+        let started = NativeLease::try_new(Subscribing(Cell::new(true))).unwrap();
+        registry.install(lazy, started).unwrap();
+        assert!(dir.subscribed(lazy, 99), "the install records it");
+        registry.stop(key).unwrap();
+        assert!(!dir.subscribed(key, 99), "a stopped owner has none");
+        assert_eq!(id_of(&dir, key), None, "nor an id");
+        registry.retire(lazy).unwrap();
+        assert_eq!(id_of(&dir, lazy), None, "a retired owner has no row");
+    }
+
+    #[test]
+    fn an_admission_the_directory_cannot_hold_is_refused_whole() {
+        let mut registry = NativeInstances::default();
+        let first = registry
+            .test_insert(Id::new_static("net.one"), None, true)
+            .unwrap();
+        crate::native_host::net_service::fail_nth(1);
+        let refused = registry.test_insert(Id::new_static("net.two"), None, true);
+        crate::native_host::net_service::fail_nth(0);
+        assert_eq!(refused, Err(ERR_NO_MEMORY));
+        assert_eq!(registry.retained_rows().0, 1, "no registry row either");
+        assert!(registry.find("net.two").is_none());
+        let dir = registry.directory().unwrap().try_clone().unwrap();
+        assert!(dir.with_id(first, &mut |_| {}).is_ok(), "the first stays");
+        registry
+            .test_insert(Id::new_static("net.two"), None, true)
+            .unwrap();
     }
 
     #[test]

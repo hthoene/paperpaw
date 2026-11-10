@@ -106,6 +106,9 @@ fn language(text: &str) -> Check {
     )
 }
 
+/// The longest `lookup.spec` name: what `lookup_entry.provider` holds.
+pub(crate) const LOOKUP_NAME_MAX_BYTES: usize = 64;
+
 /// The syntax of one `lookup.spec`.
 pub(crate) fn lookup_check(plugin_id: &str, spec: &LookupSpec<'_>) -> Check {
     let LookupSpec {
@@ -116,6 +119,8 @@ pub(crate) fn lookup_check(plugin_id: &str, spec: &LookupSpec<'_>) -> Check {
         token: _,
     } = spec;
     relative(plugin_id, name)?;
+    // `lookup_entry.provider` holds 64 bytes (`document.md` section 7).
+    ensure(name.len() <= LOOKUP_NAME_MAX_BYTES)?;
     ensure(!title.is_empty() && flags & !LOOKUP_FLAGS == 0)?;
     let mut count = 0;
     for text in lines(languages) {
@@ -143,11 +148,23 @@ pub(crate) fn book_badge_check(plugin_id: &str, spec: &BookBadgeSpec<'_>) -> Che
     ensure(*flags == 0)
 }
 
-/// The syntax of one `book_data.spec`.
-pub(crate) fn book_data_check(plugin_id: &str, spec: &BookDataSpec<'_>) -> Check {
+/// The longest `book_data.spec` name (one folder name).
+pub(crate) const BOOK_DATA_NAME_MAX_BYTES: usize = 96;
+
+/// The syntax of one `book_data.spec` (`library.md` section 1): the name is
+/// one folder name of 1 to 96 bytes of `a-z`, `0-9` and `-` (the folder is
+/// `books/<name>/<book key>/` in the plugin's Data, so no separator and no
+/// `.` can be in it). That a plugin names a folder once is the commit's
+/// (`declaration_index`).
+pub(crate) fn book_data_check(_plugin_id: &str, spec: &BookDataSpec<'_>) -> Check {
     let BookDataSpec { name, kind } = spec;
-    relative(plugin_id, name)?;
-    ensure(*kind <= DATA_KIND_MAX)
+    ensure(
+        (1..=BOOK_DATA_NAME_MAX_BYTES).contains(&name.len())
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            && *kind <= DATA_KIND_MAX,
+    )
 }
 
 #[cfg(test)]

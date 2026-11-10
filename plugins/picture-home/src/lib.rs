@@ -18,10 +18,46 @@
 #![no_std]
 
 extern crate alloc;
+#[cfg(test)]
+extern crate std;
 
+#[cfg(test)]
+#[path = "../../test-support/fail_alloc.rs"]
+mod fail_alloc;
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
+
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+mod declarations;
+mod native_entry;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
 mod add;
 mod bar;
 mod dashboard;
+pub mod native_add;
+pub mod native_add_screen;
+pub use paperpaw_ui_kit::dashboard::arrange as native_arrange;
+pub mod native_backdrop;
+pub mod native_backdrop_host;
+pub mod native_bar;
+pub mod native_dash;
+pub mod native_dashboard;
+pub use paperpaw_ui_kit::dashboard::focus as native_focus;
+pub use paperpaw_ui_kit::dashboard::grid as native_grid;
+pub mod native_measure;
+pub mod native_pages;
+pub mod native_pick;
+pub mod native_picture;
+pub mod native_plugin;
+pub mod native_shown;
+pub mod native_source;
+pub mod native_stage;
 mod orient;
 mod pages;
 mod pick;

@@ -1,15 +1,32 @@
 //! Host screen routing for one native declaration token.
 use super::registrations::{self as wire, Record};
+use crate::native_host::codec;
+use crate::native_host::ui_store::Info;
 #[cfg(test)]
 use alloc::rc::Rc;
+use alloc::vec::Vec;
 use paperpaw_graphics::Canvas;
-use paperpaw_native::host_glue::ERR_INVALID;
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY};
 use paperpaw_platform::{PointerEvent, PointerPhase, Rect, buttons};
-use paperpaw_sdk::{Cx, Env, Gesture, GestureKind, Handled, Id, Screen, ScreenKey, realtime};
+use paperpaw_sdk::{
+    Cx, Env, Gesture, GestureKind, Handled, Id, Screen, ScreenKey,
+    builtin::{events, slots},
+    event::EventData as _,
+    realtime,
+};
+
+/// The most text one `type_text` call hands to a screen (64 KiB: 64 events of
+/// 1,024 bytes); the contract fixes only the event's own 1,024.
+const TYPED_TOTAL_MAX: usize = 64 * 1024;
 
 /// The owner/runtime supplies admission and the callback-scoped host views.
 /// Implementations keep no input, frame, canvas or environment borrow.
 pub(crate) trait Dispatch {
+    /// What the `screen_opened` now sent says of the hand-over its open
+    /// named, if the kernel set it (none for an open without one).
+    fn take_open_info(&self) -> Option<Info> {
+        None
+    }
     fn event(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32>;
     fn input(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32>;
     fn draw(
@@ -60,6 +77,9 @@ pub(crate) trait Dispatch {
 
 #[cfg(test)]
 impl<T: Dispatch + ?Sized> Dispatch for Rc<T> {
+    fn take_open_info(&self) -> Option<Info> {
+        (**self).take_open_info()
+    }
     fn event(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
         (**self).event(token, bytes, env)
     }
@@ -104,6 +124,9 @@ impl<T: Dispatch + ?Sized> Dispatch for Rc<T> {
 }
 
 impl<T: Dispatch> Dispatch for super::shared::Shared<T> {
+    fn take_open_info(&self) -> Option<Info> {
+        (**self).take_open_info()
+    }
     fn event(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
         (**self).event(token, bytes, env)
     }
@@ -188,16 +211,22 @@ impl<D: Dispatch> NativeScreen<D> {
             width: u32::from(pane.width),
             height: u32::from(pane.height),
             instance: self.key.map(ScreenKey::serial),
+            last_input: match env.last_input() {
+                paperpaw_sdk::keys::InputMode::Buttons => 1,
+                paperpaw_sdk::keys::InputMode::Touch => 2,
+                paperpaw_sdk::keys::InputMode::Pen => 3,
+                _ => 0,
+            },
         });
         let mut bytes = [0; 192];
-        let result = wire::records_encode(&[record], &mut bytes).and_then(|len| {
+        let result = codec::encode_batch(&[record], &mut bytes).and_then(|len| {
             self.dispatch
                 .screen_callback(self.key, self.token, &bytes[..len], env, false)
         });
         self.status(result)
     }
 
-    fn opened(&self, again: bool, count: u32, env: &Env<'_>) {
+    fn opened(&self, again: bool, info: Info, env: &Env<'_>) {
         let Some(key) = self.key else {
             return;
         };
@@ -214,9 +243,9 @@ impl<D: Dispatch> NativeScreen<D> {
                 instance: key.serial(),
                 slot,
                 flags: u32::from(again),
-                handover: 0,
-                params: count,
-                text_bytes: 0,
+                handover: info.handover,
+                params: info.params,
+                text_bytes: info.text_bytes,
             }),
             env,
         );
@@ -224,11 +253,65 @@ impl<D: Dispatch> NativeScreen<D> {
 
     fn event(&self, record: Record<'_>, env: &Env<'_>) {
         let mut bytes = [0; 384];
-        let result = wire::records_encode(&[record], &mut bytes).and_then(|len| {
+        let result = codec::encode_batch(&[record], &mut bytes).and_then(|len| {
             self.dispatch
                 .screen_callback(self.key, self.token, &bytes[..len], env, false)
         });
         self.status(result);
+    }
+
+    /// Sends `text` as `event.text_typed` records of at most 1,024 bytes,
+    /// cut between characters, `done` only on the last; nothing for no text
+    /// without `done`. At most [`TYPED_TOTAL_MAX`] bytes per call are taken:
+    /// more is dropped whole (not cut, and never confirmed), so a long paste
+    /// cannot cause unbounded callbacks. The buffer is on the heap (the X4's
+    /// frames are short), as large as one chunk needs, fallibly reserved
+    /// (a refusal drops the screen's token) and wiped before it is freed (the
+    /// text may be a password).
+    fn typed(&self, text: &str, done: bool, env: &Env<'_>) {
+        const MAX: usize = wire::EVENT_TEXT_TYPED_TEXT_MAX_BYTES;
+        // Tag, length and fixed fields around the text.
+        const FRAME: usize = 64;
+        if text.len() > TYPED_TOTAL_MAX {
+            return;
+        }
+        let size = text.len().min(MAX) + FRAME;
+        let mut bytes = Vec::new();
+        if bytes.try_reserve_exact(size).is_err() {
+            self.dispatch.dropped(self.token, ERR_NO_MEMORY);
+            return;
+        }
+        bytes.resize(size, 0);
+        self.typed_chunks(text, done, env, &mut bytes);
+        crate::native_host::secret_bytes::wipe(&mut bytes);
+    }
+
+    fn typed_chunks(&self, text: &str, done: bool, env: &Env<'_>, bytes: &mut [u8]) {
+        const MAX: usize = wire::EVENT_TEXT_TYPED_TEXT_MAX_BYTES;
+        let mut rest = text;
+        loop {
+            let mut cut = rest.len().min(MAX);
+            while !rest.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            let (chunk, tail) = rest.split_at(cut);
+            if chunk.is_empty() && !done {
+                return;
+            }
+            let record = Record::EventTextTyped(wire::EventTextTyped {
+                now_ms: env.now().millis(),
+                text: chunk,
+                flags: u32::from(done && tail.is_empty()),
+            });
+            let result = codec::encode_batch(&[record], bytes).and_then(|len| {
+                self.dispatch
+                    .screen_callback(self.key, self.token, &bytes[..len], env, false)
+            });
+            if !self.status(result) || tail.is_empty() {
+                return;
+            }
+            rest = tail;
+        }
     }
 
     fn status(&self, result: Result<i32, i32>) -> bool {
@@ -248,7 +331,7 @@ impl<D: Dispatch> NativeScreen<D> {
 
     fn input(&self, record: Record<'_>, env: &Env<'_>) -> Handled {
         let mut bytes = [0; 192];
-        let result = wire::records_encode(&[record], &mut bytes).and_then(|len| {
+        let result = codec::encode_batch(&[record], &mut bytes).and_then(|len| {
             self.dispatch
                 .screen_callback(self.key, self.token, &bytes[..len], env, true)
         });
@@ -324,7 +407,11 @@ impl<D: Dispatch> Screen for NativeScreen<D> {
         self.key = cx.key();
         if !self.opened && self.key.is_some() {
             self.opened = true;
-            self.opened(false, self.params_count, cx.env());
+            let info = Info {
+                params: self.params_count,
+                ..Info::NONE
+            };
+            self.opened(false, info, cx.env());
         }
         self.shown(cx.env());
     }
@@ -340,11 +427,16 @@ impl<D: Dispatch> Screen for NativeScreen<D> {
             self.dispatch.dropped(self.token, ERR_INVALID);
             return;
         };
-        self.params_count = count;
+        // The open's hand-over, if it named one, comes from the kernel.
+        let info = self.dispatch.take_open_info().unwrap_or(Info {
+            params: count,
+            ..Info::NONE
+        });
+        self.params_count = info.params;
         let again = self.opened;
         self.key = cx.key();
         self.opened = self.key.is_some();
-        self.opened(again, count, cx.env());
+        self.opened(again, info, cx.env());
         if again && self.is_top(cx) {
             self.shown(cx.env());
         }
@@ -364,6 +456,23 @@ impl<D: Dispatch> Screen for NativeScreen<D> {
                 );
             }
         }
+    }
+
+    /// Text typed from outside (`core.type-text`, wire `event.text_typed`)
+    /// goes only to this screen on top when it is the one offered on slot
+    /// `core.keyboard`; no other event is passed on (`screens-input.md`
+    /// section 2).
+    fn on_event(&mut self, event: &Id, params: &paperpaw_sdk::Params, cx: &mut Cx<'_, '_>) {
+        if *event != events::TYPE_TEXT
+            || !self.is_top(cx)
+            || cx.env().slot_screen(slots::KEYBOARD.as_str()) != Some(&self.id)
+        {
+            return;
+        }
+        let Some(typed) = events::TypeText::from_params(params) else {
+            return;
+        };
+        self.typed(&typed.text, typed.done.unwrap_or(false), cx.env());
     }
 
     fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {

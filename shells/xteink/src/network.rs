@@ -84,6 +84,13 @@ pub struct Network {
     calls: Calls,
     servers: Servers,
     sockets: Sockets,
+    /// The sockets of interface 7 (`core.sockets`), shared with the loader
+    /// that wires core with them.
+    #[cfg(feature = "ppn5")]
+    host: Option<alloc::rc::Rc<crate::host_net::Bridge>>,
+    /// The device behind `core.device`, told of the networks a scan found.
+    #[cfg(feature = "ppn5")]
+    device: Option<alloc::rc::Rc<paperpaw_x4::device_host::X4Device>>,
     /// What the kernel asked for plugins' servers and sockets, for the
     /// next step.
     server_calls: Vec<ServerCall>,
@@ -107,6 +114,10 @@ impl Network {
             calls: Calls::default(),
             servers: Servers::default(),
             sockets: Sockets::default(),
+            #[cfg(feature = "ppn5")]
+            host: None,
+            #[cfg(feature = "ppn5")]
+            device: None,
             server_calls: Vec::new(),
             socket_calls: Vec::new(),
             #[cfg(feature = "remote")]
@@ -117,6 +128,18 @@ impl Network {
             #[cfg(feature = "bluetooth")]
             bluetooth: crate::bluetooth::Bluetooth::new(),
         }
+    }
+
+    /// Runs the interface-7 sockets of `host` from now on.
+    #[cfg(feature = "ppn5")]
+    pub fn attach(&mut self, host: alloc::rc::Rc<crate::host_net::Bridge>) {
+        self.host = Some(host);
+    }
+
+    /// Tells `device` of the networks a scan finds, from now on.
+    #[cfg(feature = "ppn5")]
+    pub fn attach_device(&mut self, device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>) {
+        self.device = Some(device);
     }
 
     /// A radio is on: its tasks need the processor (no light sleep).
@@ -163,17 +186,29 @@ impl Network {
         // served (the transfer, the setup with a phone) or a connection
         // is open (Calibre): asleep, it missed parts of what came in a
         // burst, and the connection stalled until the other side gave up.
-        let busy = self.moving() || kernel.serving() || kernel.sockets_open();
+        let busy = self.moving() || kernel.serving() || kernel.sockets_open() || self.host_open();
         // Beside Bluetooth the radio is shared: Wi-Fi never keeps it to
         // itself (its modem sleeps between beacons, Bluetooth's links run
         // meanwhile).
         #[cfg(feature = "bluetooth")]
         let busy = busy && !self.bluetooth.is_on();
         self.radio.save_power(!busy);
+        #[cfg(feature = "ppn5")]
+        let mut scanned = false;
         for event in self.radio.poll() {
             #[cfg(feature = "remote")]
             self.answer_asked(kernel, &event);
+            #[cfg(feature = "ppn5")]
+            {
+                scanned |= matches!(event, paperpaw_core::WifiEvent::Scanned(_));
+            }
             effects.push(kernel.wifi_event(now, event));
+        }
+        // The networks the scan found, as the kernel keeps them (sorted, each
+        // name once), before its effects are carried out.
+        #[cfg(feature = "ppn5")]
+        if let (true, Some(device)) = (scanned, &self.device) {
+            crate::device_host::sync_networks(device, kernel);
         }
         #[cfg(feature = "bluetooth")]
         self.bluetooth
@@ -187,6 +222,10 @@ impl Network {
         // had.
         let clock_ready = clock::unix_ms(now).is_some() || self.sync_failed;
         self.serve(kernel, now, clock_ready, &mut effects);
+        #[cfg(feature = "ppn5")]
+        if let Some(host) = &self.host {
+            effects.extend(host.run(&mut self.radio, kernel, now, clock_ready));
+        }
         self.sync_clock(now);
         if self.calls.busy() {
             for answer in self
@@ -248,7 +287,23 @@ impl Network {
     /// Whether data is moving for plugins' requests, servers or sockets:
     /// the main loop comes by again at once.
     pub fn moving(&self) -> bool {
-        self.calls.busy() || self.servers.moving() || self.sockets.moving()
+        self.calls.busy() || self.servers.moving() || self.sockets.moving() || self.host_moving()
+    }
+
+    /// Whether the interface-7 sockets have something to do now.
+    fn host_moving(&self) -> bool {
+        #[cfg(feature = "ppn5")]
+        return self.host.as_ref().is_some_and(|host| host.moving());
+        #[cfg(not(feature = "ppn5"))]
+        false
+    }
+
+    /// Whether an interface-7 socket is open (the radio does not doze).
+    fn host_open(&self) -> bool {
+        #[cfg(feature = "ppn5")]
+        return self.host.as_ref().is_some_and(|host| host.open());
+        #[cfg(not(feature = "ppn5"))]
+        false
     }
 
     /// Plugins' servers and sockets: what the kernel asked, then a step

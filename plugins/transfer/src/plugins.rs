@@ -240,7 +240,7 @@ pub(crate) fn why(refusal: Refusal) -> &'static str {
 
 /// 64 hexadecimal digits as 32 bytes.
 fn digest(hex: &str) -> Option<[u8; 32]> {
-    paperpaw_sdk::digest::hex::decode(hex)?.try_into().ok()
+    paperpaw_sdk::digest::hex::decode_array(hex)
 }
 
 /// The plugins installed, as JSON.

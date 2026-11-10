@@ -1518,6 +1518,62 @@
       "reentry": "deny",
       "result": "length",
       "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "font",
+          "type": "handle"
+        },
+        {
+          "name": "size",
+          "type": "f32"
+        },
+        {
+          "name": "x",
+          "type": "f32"
+        },
+        {
+          "name": "baseline",
+          "type": "i32"
+        },
+        {
+          "name": "color",
+          "type": "u32"
+        },
+        {
+          "name": "text",
+          "type": "bytes"
+        },
+        {
+          "name": "extra",
+          "type": "u32"
+        },
+        {
+          "name": "tone",
+          "type": "bytes"
+        },
+        {
+          "name": "flags",
+          "type": "u32"
+        },
+        {
+          "name": "out",
+          "type": "out_f32"
+        }
+      ],
+      "effect": "mutate",
+      "id": 41,
+      "max_bytes": 4096,
+      "name": "text.draw_inked",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
     }
   ],
   "i18n_limits": {
@@ -1672,6 +1728,15 @@
         "entry_bytes": 20,
         "entry_layout": 1,
         "name": "esp32c3-riscv32imc-ilp32-soft-le",
+        "pointer_bits": 32
+      },
+      {
+        "byte_order": "little",
+        "calling_convention": "xtensa-windowed-call8",
+        "entry_align": 4,
+        "entry_bytes": 20,
+        "entry_layout": 1,
+        "name": "esp32s3-xtensa-lx7-ilp32-windowed-le",
         "pointer_bits": 32
       }
     ],
@@ -2081,7 +2146,7 @@
           "default": null,
           "list": {
             "item_max_bytes": 96,
-            "max_items": 32,
+            "max_items": 64,
             "separator": "\n"
           },
           "max_bytes": 1024,
@@ -2500,6 +2565,15 @@
           "name": "insert",
           "optional": true,
           "ordinal": 2,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "chapter_left",
+          "optional": true,
+          "ordinal": 3,
           "since": 1,
           "type": "u32"
         }
@@ -2954,6 +3028,15 @@
           "ordinal": 0,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": 0,
+          "max_bytes": 0,
+          "name": "last_input",
+          "optional": true,
+          "ordinal": 1,
+          "since": 1,
+          "type": "u32"
         }
       ],
       "id": 38,
@@ -2979,6 +3062,15 @@
           "ordinal": null,
           "since": 1,
           "type": "str"
+        },
+        {
+          "default": 0,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": true,
+          "ordinal": 0,
+          "since": 1,
+          "type": "u32"
         }
       ],
       "id": 39,
@@ -3961,6 +4053,15 @@
           "ordinal": 2,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "chapter_left",
+          "optional": true,
+          "ordinal": 3,
+          "since": 1,
+          "type": "u32"
         }
       ],
       "id": 65,
@@ -4067,6 +4168,15 @@
           "ordinal": 2,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "chapter_left",
+          "optional": true,
+          "ordinal": 3,
+          "since": 1,
+          "type": "u32"
         }
       ],
       "id": 66,
@@ -4171,6 +4281,15 @@
           "name": "insert",
           "optional": true,
           "ordinal": 2,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "chapter_left",
+          "optional": true,
+          "ordinal": 3,
           "since": 1,
           "type": "u32"
         }
@@ -5699,6 +5818,24 @@
           "name": "title",
           "optional": false,
           "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": 0,
+          "max_bytes": 0,
+          "name": "cells",
+          "optional": true,
+          "ordinal": 0,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": "",
+          "max_bytes": 128,
+          "name": "previews",
+          "optional": true,
+          "ordinal": 1,
           "since": 1,
           "type": "str"
         }
@@ -11668,6 +11805,15 @@
           "ordinal": null,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": 0,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": true,
+          "ordinal": 0,
+          "since": 1,
+          "type": "u32"
         }
       ],
       "id": 1127,
@@ -12693,6 +12839,15 @@
           "default": null,
           "max_bytes": 32,
           "name": "recovery",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
+        },
+        {
+          "default": null,
+          "max_bytes": 32,
+          "name": "sha256",
           "optional": false,
           "ordinal": null,
           "since": 1,
@@ -14329,6 +14484,7 @@
           "name": "data",
           "optional": false,
           "ordinal": null,
+          "secret": true,
           "since": 1,
           "type": "bytes"
         }
@@ -15201,6 +15357,7 @@
           "name": "text",
           "optional": false,
           "ordinal": null,
+          "secret": true,
           "since": 1,
           "type": "str"
         },
@@ -15216,6 +15373,264 @@
       ],
       "id": 109,
       "name": "event.text_typed",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "provider",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 110,
+      "name": "event.lookup_ready",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 1024,
+          "name": "text",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 35,
+          "name": "language",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1593,
+      "name": "command.lookup_ready",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "action",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "kind",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 64,
+          "name": "label",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        }
+      ],
+      "id": 1594,
+      "name": "command.set_hint",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "document",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "state",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "progress_ppm",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 88,
+      "name": "event.document_changed",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "request",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "mode",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1595,
+      "name": "command.firmware_dual_boot",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "document",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "section",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "offset",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "insert",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "progress_ppm",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 256,
+          "name": "title",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 256,
+          "name": "chapter",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "page",
+          "optional": true,
+          "ordinal": 0,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "pages",
+          "optional": true,
+          "ordinal": 1,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "chapter_left",
+          "optional": true,
+          "ordinal": 2,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 1183,
+      "name": "service.doc_report",
       "since": 1
     }
   ],
@@ -15456,6 +15871,23 @@
             "service.end"
           ],
           "reply_rows": 32,
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 16,
+          "input": [
+            "service.reg_query"
+          ],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "leaves_out",
+          "reply": [
+            "service.dev_builtin",
+            "service.end"
+          ],
           "since": 0
         }
       ],
@@ -15817,6 +16249,20 @@
             "service.doc_reader",
             "service.end"
           ],
+          "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "mutate",
+          "feature": null,
+          "id": 22,
+          "input": [
+            "service.doc_report"
+          ],
+          "max_input": 1024,
+          "max_reply": 64,
+          "name": "report",
+          "reply": [],
           "since": 0
         }
       ],
@@ -16883,6 +17329,23 @@
             "service.end"
           ],
           "since": 0
+        },
+        {
+          "bound": "none",
+          "effect": "query",
+          "feature": null,
+          "id": 22,
+          "input": [
+            "service.reg_key"
+          ],
+          "max_input": 256,
+          "max_reply": 4096,
+          "name": "setup_step",
+          "reply": [
+            "service.reg_setup_step",
+            "service.reg_text"
+          ],
+          "since": 0
         }
       ],
       "page_rows": 32,
@@ -17608,8 +18071,12 @@
         "type": "u8"
       },
       {
+        "name": "utc_offset_minutes",
+        "type": "i16"
+      },
+      {
         "name": "reserved_tail",
-        "type": "bytes3"
+        "type": "bytes1"
       }
     ],
     "header": [
@@ -17680,12 +18147,99 @@
       {
         "bit": 4,
         "name": "unix"
+      },
+      {
+        "bit": 8,
+        "name": "utc_offset"
       }
     ],
     "since": 1,
     "version": 1
   },
   "stages": [
+    {
+      "input": [
+        "badge.ask"
+      ],
+      "key": "core.book-badge",
+      "major": 1,
+      "max_input": 3840,
+      "max_reply": 3840,
+      "max_subscribers": 32,
+      "records": [
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 96,
+              "name": "badge",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "list": {
+                "item_max_bytes": 16,
+                "max_items": 16,
+                "separator": "\n"
+              },
+              "max_bytes": 271,
+              "name": "keys",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            }
+          ],
+          "id": 1,
+          "name": "badge.ask",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 16,
+              "name": "key",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 16,
+              "name": "text",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 64,
+              "name": "icon",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            }
+          ],
+          "id": 2,
+          "name": "badge.value",
+          "since": 0
+        }
+      ],
+      "reply": [
+        "badge.value"
+      ],
+      "reply_rows": 16,
+      "revision": 0,
+      "since": 1,
+      "test_only": false
+    },
     {
       "input": [
         "fmt.call",

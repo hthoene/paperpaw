@@ -42,8 +42,15 @@ pub(crate) enum FontRole {
 }
 
 pub(crate) enum FontKey {
-    Named { id: Id, acquired: u64 },
+    Named {
+        id: Id,
+        acquired: u64,
+    },
     Role(FontRole),
+    /// A font file of the plugin's own data folder (`data:<path>`), opened
+    /// when acquired and owned by the handle (no registry); stale once the
+    /// file is changed or removed.
+    Data(alloc::boxed::Box<super::fonts_data::DataFont>),
 }
 
 impl Release for FontKey {
@@ -131,7 +138,11 @@ impl HostResources {
         // Room for this owner's retirement is reserved now (see the queue).
         self.0.hosts.admit_owner()?;
         self.0.next_owner.set(next);
-        Ok(OwnerResources { table, owner })
+        Ok(OwnerResources {
+            table,
+            owner,
+            caller: None,
+        })
     }
 }
 
@@ -141,6 +152,7 @@ impl HostResources {
 pub struct OwnerResources {
     table: Shared<Table>,
     owner: u64,
+    caller: Option<Id>,
 }
 
 /// Retained callback view. Dropping this releases only the table reference.
@@ -152,8 +164,34 @@ pub(crate) struct OwnerResourceView {
 }
 
 impl OwnerResourceView {
+    /// The `core.ui` service, once a shell wired it.
+    pub(crate) fn ui(&self) -> Option<&super::ui_service::UiServices> {
+        self.table.hosts.ui()
+    }
+
+    /// The device's wired host views.
+    pub(crate) fn hosts(&self) -> &super::host_services::HostServices {
+        &self.table.hosts
+    }
+
+    /// Another view of the same pool, without allocation.
+    pub(crate) fn try_clone(&self) -> Option<Self> {
+        self.table.try_clone().map(|table| Self {
+            table,
+            owner: self.owner,
+        })
+    }
+
+    pub(crate) fn ui_store(&self) -> Option<&super::ui_store::UiStore> {
+        self.table.hosts.ui().map(|ui| &*ui.store)
+    }
+
     pub(crate) fn owner_id(&self) -> u64 {
         self.owner
+    }
+    /// The device's owner directory (see [`super::owner_directory`]).
+    pub(crate) fn owners(&self) -> Result<&Shared<super::owner_directory::OwnerDirectory>, i32> {
+        self.table.hosts.owners()
     }
     pub(crate) fn retry_retirements(&self) -> Result<bool, i32> {
         self.table.hosts.retry_retirements()
@@ -167,6 +205,25 @@ impl OwnerResourceView {
 }
 
 impl OwnerResources {
+    /// Bind the host-admitted identity once, before plugin construction.
+    /// Preflight resource owners remain unbound and cannot call a service.
+    pub(crate) fn bind_caller(&mut self, id: &str) -> Result<(), i32> {
+        if self.caller.is_some() {
+            return Err(paperpaw_native::host_glue::ERR_STATE);
+        }
+        self.caller = Some(Id::try_parse(id).map_err(|error| match error {
+            paperpaw_sdk::IdError::NoMemory => ERR_NO_MEMORY,
+            _ => paperpaw_native::host_glue::ERR_INVALID,
+        })?);
+        Ok(())
+    }
+
+    pub(crate) fn bound_caller(&self) -> Result<&Id, i32> {
+        self.caller
+            .as_ref()
+            .ok_or(paperpaw_native::host_glue::ERR_DENIED)
+    }
+
     pub(crate) fn owner_id(&self) -> u64 {
         self.owner
     }
@@ -455,7 +512,11 @@ mod tests {
             resources.hosts().wire_library(lib.clone()).unwrap();
             let owner = resources.try_owner().unwrap();
             let id = owner.caller("opener", AdmittedFeatures::NONE).owner;
-            let document = fake.table().open(id, FORMAT, PREPARING, 0).unwrap();
+            let document = fake
+                .table()
+                .open(id, false, FORMAT, PREPARING, 0, &|_| false)
+                .unwrap()
+                .0;
             let transaction = lib.transactions.begin_for_test(id, 0);
             owner.insert_font(FontKey::Role(FontRole::Ui)).unwrap();
             let borrowed = resources.0.handles.borrow();

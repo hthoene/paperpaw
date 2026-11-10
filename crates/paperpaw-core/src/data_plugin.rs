@@ -485,7 +485,7 @@ fn point_files(storage: &dyn Storage, path: &str, budget: &mut Budget) -> Vec<St
             names.push(entry.name.to_string());
         }
     });
-    names.sort_unstable();
+    paperpaw_sort::sort(&mut names);
     names
         .into_iter()
         .take(MAX_POINTS)
@@ -601,7 +601,7 @@ pub(crate) fn folders(
             }
         }
     }
-    names.sort_unstable();
+    paperpaw_sort::sort(&mut names);
     names
         .into_iter()
         .map(|name| format!("{dir}/{name}"))
@@ -683,8 +683,8 @@ fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin
             compiled.push(format!("{catalogs}/{}", entry.name));
         }
     });
-    files.sort_unstable();
-    compiled.sort_unstable();
+    paperpaw_sort::sort(&mut files);
+    paperpaw_sort::sort(&mut compiled);
     if budget.formats < FORMATS_4 {
         if !compiled.is_empty() {
             budget.problems.push(format!(
@@ -789,7 +789,7 @@ fn font_files(storage: &dyn Storage, dir: &str, packs: bool) -> Vec<String> {
     for folder in &folders {
         list_fonts(storage, folder, packs, &mut files, None);
     }
-    files.sort_unstable();
+    paperpaw_sort::sort(&mut files);
     files
 }
 
@@ -1028,6 +1028,11 @@ fn parse_manifest(source: &str, folder: &str) -> Result<(Manifest, u32), String>
         .ok()
         .filter(|id| id.as_str() == id.namespace())
         .ok_or_else(|| format!("invalid id `{id}`"))?;
+    // Records name plugins in 64 bytes (installers keep their folder names to
+    // 40, a card folder may be longer); `core` is the host's (ui.md 4.3).
+    if id.as_str().len() > 64 || id.as_str() == crate::RESERVED_PLUGIN_ID {
+        return Err(format!("invalid id `{id}`: over 64 bytes or reserved"));
+    }
     let version = match version {
         Some(text) => {
             Version::try_parse(&text).map_err(|why| format!("invalid version `{text}`: {why}"))?
@@ -1402,6 +1407,14 @@ kind = Not An Id
         let later = parse_manifest(&ini("formats = 6\n"), "large").unwrap_err();
         assert!(later.contains("later PaperPaw"), "{later}");
         assert!(parse_manifest(&ini("formats = new\n"), "large").is_err());
+    }
+
+    #[test]
+    fn the_host_id_and_overlong_ids_are_refused() {
+        let ok = |id: &str| parse_manifest(&format!("[plugin]\nid = {id}\n"), "x").is_ok();
+        let long = "a".repeat(64);
+        assert!(ok("core-tools") && ok(&long) && !ok(&format!("{long}a")));
+        assert!(!ok("core") && !ok("core.evil") && parse_manifest("", "core").is_err());
     }
 
     /// `requires` names plugins as said, in formats 4 and later; else the

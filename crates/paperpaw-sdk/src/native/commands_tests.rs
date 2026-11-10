@@ -528,6 +528,54 @@ fn registry_defaults_and_empty_customization_remain_distinct() {
 }
 
 #[test]
+fn bluetooth_commands_are_one_record_each_and_name_the_plugin_to_give_to() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; wire::COMMAND_MAX_BYTES];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    sender.bt_scan(10_000).unwrap();
+    sender.bt_stop_scan().unwrap();
+    sender.bt_pair(3).unwrap();
+    sender.bt_connect(3).unwrap();
+    sender.bt_disconnect(3).unwrap();
+    sender.bt_forget(3).unwrap();
+    sender.bt_give(4, "weather").unwrap();
+    sender.bt_take_back(4).unwrap();
+    sender.bt_keys(5, true).unwrap();
+    sender.bt_keys(5, false).unwrap();
+    // A plugin id is named, and no longer than the contract's 64 bytes.
+    assert_eq!(sender.bt_give(4, ""), Err(Error::Invalid));
+    assert_eq!(sender.bt_give(4, "x".repeat(65)), Err(Error::Invalid));
+    assert!(sender.bt_give(4, "x".repeat(64)).is_ok());
+    let expected = [
+        wire::Command::BtScan { lasting_ms: 10_000 },
+        wire::Command::BtStopScan {},
+        wire::Command::BtPair { device: 3 },
+        wire::Command::BtConnect { device: 3 },
+        wire::Command::BtDisconnect { device: 3 },
+        wire::Command::BtForget { device: 3 },
+        wire::Command::BtGive {
+            device: 4,
+            plugin: "weather",
+        },
+        wire::Command::BtTakeBack { device: 4 },
+        wire::Command::BtKeys { device: 5, on: 1 },
+        wire::Command::BtKeys { device: 5, on: 0 },
+    ];
+    let batches = ctx.batches.borrow();
+    // The two refused gives submitted nothing; the last, 64 bytes, did.
+    assert_eq!(batches.len(), expected.len() + 1);
+    for (bytes, expected) in batches.iter().zip(expected) {
+        let decoded = wire::commands_decode(bytes).unwrap();
+        assert_eq!(decoded.iter().next(), Some(expected));
+    }
+}
+
+#[test]
 fn plugin_answer_is_submitted_and_host_denial_is_reported() {
     let table = table();
     let mut ctx = Context::default();
@@ -806,4 +854,474 @@ fn a_screen_and_a_power_command_travel_in_one_batch() {
     assert!(batches[0][0].contains("core.sleep"));
     assert_eq!(batches[0][1], "PowerOff");
     assert_eq!(batches[1][1], "Sleep");
+}
+
+#[test]
+fn lookup_ready_names_the_text_and_language_of_the_ask() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; wire::COMMAND_MAX_BYTES];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    sender.lookup_ready("serendipity", "en").unwrap();
+    // A language may be empty; the limits are the contract's 1,024 and 35.
+    sender.lookup_ready("x".repeat(1024), "").unwrap();
+    sender.lookup_ready("a", "l".repeat(35)).unwrap();
+    assert_eq!(
+        sender.lookup_ready("word", "l".repeat(36)),
+        Err(Error::Invalid)
+    );
+    assert_eq!(
+        sender.lookup_ready("x".repeat(1025), "en"),
+        Err(Error::Invalid)
+    );
+    let batches = ctx.batches.borrow();
+    assert_eq!(batches.len(), 3, "refused asks stage nothing");
+    let first = wire::commands_decode(&batches[0]).unwrap();
+    assert_eq!(
+        first.iter().next(),
+        Some(wire::Command::LookupReady {
+            text: "serendipity",
+            language: "en"
+        })
+    );
+}
+
+#[test]
+fn a_host_refusal_of_lookup_ready_comes_back() {
+    let table = table();
+    let mut ctx = Context::default();
+    ctx.result.set(abi::ERR_STATE);
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 128];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    assert_eq!(sender.lookup_ready("word", "en"), Err(Error::State));
+}
+
+#[test]
+fn install_and_remove_commands_encode_with_their_flags() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 256];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    sender
+        .install_plugin(3, InstallRoot::Data, "staging/fonts-x", true, false)
+        .unwrap();
+    sender
+        .install_plugin(4, InstallRoot::Files, "a.ppn", false, true)
+        .unwrap();
+    sender.remove_plugin(5, "fonts-x").unwrap();
+    let batches = decoded(&ctx);
+    assert_eq!(batches.len(), 3);
+    assert!(batches[0][0].contains("request: 3") && batches[0][0].contains("root: 0"));
+    assert!(batches[0][0].contains("flags: 1") && batches[0][0].contains("staging/fonts-x"));
+    assert!(batches[1][0].contains("root: 1") && batches[1][0].contains("flags: 2"));
+    assert!(batches[2][0].contains("request: 5") && batches[2][0].contains("fonts-x"));
+}
+
+#[test]
+fn install_and_remove_commands_refuse_bad_arguments_before_the_host() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 1024];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    assert_eq!(
+        sender.install_plugin(0, InstallRoot::Data, "a", false, false),
+        Err(Error::Invalid)
+    );
+    assert_eq!(
+        sender.install_plugin(1, InstallRoot::Data, "", false, false),
+        Err(Error::Invalid)
+    );
+    assert_eq!(sender.remove_plugin(0, "a"), Err(Error::Invalid));
+    assert_eq!(sender.remove_plugin(1, ""), Err(Error::Invalid));
+    let long = "x".repeat(600);
+    assert!(
+        sender
+            .install_plugin(1, InstallRoot::Data, &long, false, false)
+            .is_err()
+    );
+    assert!(sender.remove_plugin(1, &long).is_err());
+    assert!(ctx.batches.borrow().is_empty());
+}
+
+#[test]
+fn install_and_remove_commands_keep_the_wire_limits() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 1024];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let (path, id) = ("p".repeat(512), "i".repeat(64));
+    sender
+        .install_plugin(1, InstallRoot::Data, &path, false, false)
+        .unwrap();
+    sender.remove_plugin(2, &id).unwrap();
+    assert!(
+        sender
+            .install_plugin(3, InstallRoot::Data, &"p".repeat(513), false, false)
+            .is_err()
+    );
+    assert!(sender.remove_plugin(4, &"i".repeat(65)).is_err());
+    assert_eq!(ctx.batches.borrow().len(), 2);
+}
+
+#[test]
+fn firmware_commands_encode_with_their_options_and_key() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 1024];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let key = [7_u8; 32];
+    sender
+        .install_firmware(
+            1,
+            InstallRoot::Data,
+            "fw/paperpaw.bin",
+            FirmwareOptions::new(),
+        )
+        .unwrap();
+    sender
+        .install_firmware(
+            2,
+            InstallRoot::Files,
+            "other.bin",
+            FirmwareOptions::new().allow_older().foreign(),
+        )
+        .unwrap();
+    sender
+        .install_firmware(
+            3,
+            InstallRoot::Data,
+            "own.bin",
+            FirmwareOptions::new().key(&key),
+        )
+        .unwrap();
+    sender.firmware_restart().unwrap();
+    let mut seen = Vec::new();
+    for bytes in ctx.batches.borrow().iter() {
+        for command in wire::commands_decode(bytes).unwrap().iter() {
+            seen.push(match command {
+                wire::Command::InstallFirmware {
+                    request,
+                    root,
+                    path,
+                    key,
+                    flags,
+                } => (request, root, String::from(path), key.to_vec(), flags),
+                wire::Command::FirmwareRestart {} => (0, 0, String::new(), Vec::new(), 0),
+                other => panic!("{other:?}"),
+            });
+        }
+    }
+    assert_eq!(
+        seen,
+        [
+            (1, 0, String::from("fw/paperpaw.bin"), Vec::new(), 0),
+            (2, 1, String::from("other.bin"), Vec::new(), 0b11),
+            (3, 0, String::from("own.bin"), key.to_vec(), 0),
+            (0, 0, String::new(), Vec::new(), 0),
+        ]
+    );
+}
+
+#[test]
+fn firmware_install_refuses_bad_arguments_before_the_host() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 1024];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let new = FirmwareOptions::new;
+    assert_eq!(
+        sender.install_firmware(0, InstallRoot::Data, "a", new()),
+        Err(Error::Invalid)
+    );
+    assert_eq!(
+        sender.install_firmware(1, InstallRoot::Data, "", new()),
+        Err(Error::Invalid)
+    );
+    assert_eq!(
+        sender.install_firmware(1, InstallRoot::Data, &"p".repeat(513), new()),
+        Err(Error::NoSpace)
+    );
+    assert!(ctx.batches.borrow().is_empty());
+    // The longest path is the contract's 512 bytes.
+    sender
+        .install_firmware(1, InstallRoot::Data, &"p".repeat(512), new())
+        .unwrap();
+    assert_eq!(ctx.batches.borrow().len(), 1);
+}
+
+#[test]
+fn check_file_encodes_its_kind_and_refuses_bad_arguments_before_the_host() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 1024];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    assert_eq!(
+        sender.check_file(0, InstallRoot::Data, "a.bin", CheckKind::Firmware),
+        Err(Error::Invalid)
+    );
+    assert_eq!(
+        sender.check_file(1, InstallRoot::Data, "", CheckKind::Plugin),
+        Err(Error::Invalid)
+    );
+    assert_eq!(
+        sender.check_file(1, InstallRoot::Data, &"p".repeat(513), CheckKind::Plugin),
+        Err(Error::NoSpace)
+    );
+    assert!(ctx.batches.borrow().is_empty());
+    sender
+        .check_file(5, InstallRoot::Files, "fw.bin", CheckKind::Firmware)
+        .unwrap();
+    sender
+        .check_file(6, InstallRoot::Data, &"p".repeat(512), CheckKind::Plugin)
+        .unwrap();
+    let mut seen = Vec::new();
+    for bytes in ctx.batches.borrow().iter() {
+        for command in wire::commands_decode(bytes).unwrap().iter() {
+            let wire::Command::CheckFile {
+                request,
+                root,
+                path,
+                kind,
+            } = command
+            else {
+                panic!("{command:?}");
+            };
+            seen.push((request, root, path.len(), kind));
+        }
+    }
+    assert_eq!(seen, [(5, 1, 6, 1), (6, 0, 512, 0)]);
+}
+
+#[test]
+fn an_install_with_evidence_is_one_batch_in_the_contracts_order() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 1024];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let (author, recovery) = ([1_u8; 32], [2_u8; 32]);
+    let (to_a, to_b, sig_a, sig_b) = ([3_u8; 32], [4_u8; 32], [5_u8; 64], [6_u8; 64]);
+    let rotations = [Rotation::new(&to_a, &sig_a), Rotation::new(&to_b, &sig_b)];
+    let digest = [7_u8; 32];
+    let evidence = Evidence::new()
+        .author(&author)
+        .recovery(&recovery)
+        .sha256(&digest)
+        .rotations(&rotations);
+    sender
+        .install_plugin_with(9, InstallRoot::Data, "staging/x", true, false, &evidence)
+        .unwrap();
+    // Without evidence it is `install_plugin`'s batch; with rotations only, no author record.
+    sender
+        .install_plugin_with(
+            10,
+            InstallRoot::Files,
+            "a.ppn",
+            false,
+            true,
+            &Evidence::new(),
+        )
+        .unwrap();
+    sender
+        .install_plugin_with(
+            11,
+            InstallRoot::Data,
+            "b.ppn",
+            false,
+            false,
+            &Evidence::new().rotations(&rotations[..1]),
+        )
+        .unwrap();
+    let batches = decoded(&ctx);
+    assert_eq!(batches.len(), 3);
+    let first = &batches[0];
+    assert_eq!(first.len(), 4);
+    assert!(first[0].starts_with("InstallPlugin") && first[0].contains("request: 9"));
+    assert!(first[1].starts_with("InstallAuthor") && first[1].contains("request: 9"));
+    assert!(first[1].contains("[1, 1") && first[1].contains("[2, 2"));
+    assert!(first[1].contains("sha256: [7, 7"), "{}", first[1]);
+    assert!(first[2].starts_with("InstallRotation") && first[2].contains("[3, 3"));
+    assert!(first[3].starts_with("InstallRotation") && first[3].contains("[4, 4"));
+    assert_eq!(batches[1].len(), 1);
+    assert_eq!(batches[2].len(), 2);
+    assert!(batches[2][1].starts_with("InstallRotation"));
+}
+
+#[test]
+fn a_recovery_key_alone_sends_the_author_record_with_an_empty_author() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 256];
+    let recovery = [9_u8; 32];
+    CommandSender::new(&host, &mut scratch)
+        .install_plugin_with(
+            4,
+            InstallRoot::Data,
+            "a",
+            false,
+            false,
+            &Evidence::new().recovery(&recovery),
+        )
+        .unwrap();
+    let batches = decoded(&ctx);
+    assert_eq!(batches[0].len(), 2);
+    assert!(batches[0][1].starts_with("InstallAuthor"));
+    assert!(batches[0][1].contains("author: []") && batches[0][1].contains("[9, 9"));
+    assert!(batches[0][1].contains("sha256: []"));
+}
+
+#[test]
+fn a_digest_alone_sends_the_author_record_with_empty_keys() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 256];
+    let digest = [5_u8; 32];
+    CommandSender::new(&host, &mut scratch)
+        .install_plugin_with(
+            4,
+            InstallRoot::Data,
+            "a",
+            false,
+            false,
+            &Evidence::new().sha256(&digest),
+        )
+        .unwrap();
+    let batches = decoded(&ctx);
+    assert_eq!(batches[0].len(), 2);
+    assert!(batches[0][1].contains("author: []") && batches[0][1].contains("recovery: []"));
+    assert!(batches[0][1].contains("sha256: [5, 5"));
+}
+
+#[test]
+fn an_install_with_evidence_refuses_what_does_not_fit_before_the_host() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 1024];
+    let key = [1_u8; 32];
+    let signature = [2_u8; 64];
+    let seven = [Rotation::new(&key, &signature); 7];
+    let none = Evidence::new();
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let mut send = |request, path: &str, evidence: &Evidence<'_>| {
+        sender.install_plugin_with(request, InstallRoot::Data, path, false, false, evidence)
+    };
+    assert_eq!(send(0, "a", &none), Err(Error::Invalid));
+    assert_eq!(send(1, "", &none), Err(Error::Invalid));
+    assert_eq!(send(1, &"p".repeat(513), &none), Err(Error::NoSpace));
+    // More than MAX_ROTATIONS (6) is refused, with a key or without.
+    assert_eq!(
+        send(1, "a", &Evidence::new().rotations(&seven)),
+        Err(Error::Invalid)
+    );
+    assert_eq!(
+        send(1, "a", &Evidence::new().author(&key).rotations(&seven)),
+        Err(Error::Invalid)
+    );
+    assert!(ctx.batches.borrow().is_empty());
+    // 6 rotations fit with a key (install + author + 6 = 8) and without.
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    for (request, evidence) in [
+        (1, Evidence::new().rotations(&seven[..6])),
+        (2, Evidence::new().author(&key).rotations(&seven[..6])),
+    ] {
+        sender
+            .install_plugin_with(request, InstallRoot::Data, "a", false, false, &evidence)
+            .unwrap();
+    }
+    assert_eq!(ctx.batches.borrow().len(), 2);
+    // A scratch buffer too small for the batch leaves the sender untouched.
+    let mut small = [0_u8; 32];
+    let mut sender = CommandSender::new(&host, &mut small);
+    assert_eq!(
+        sender.install_plugin_with(
+            3,
+            InstallRoot::Data,
+            "a",
+            false,
+            false,
+            &Evidence::new().author(&key)
+        ),
+        Err(Error::NoSpace)
+    );
+    assert_eq!(ctx.batches.borrow().len(), 2);
+}
+
+#[test]
+fn revocations_go_in_batches_of_eight_and_keep_their_limits() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 2048];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let (key, signature) = ([7_u8; 32], [8_u8; 64]);
+    let id = "p".repeat(64);
+    let one = Revocation::new("store", &key, &signature);
+    sender.trust_revoked(&[one]).unwrap();
+    let many = [Revocation::new(&id, &key, &signature); MAX_REVOCATIONS];
+    sender.trust_revoked(&many).unwrap();
+    let batches = decoded(&ctx);
+    assert_eq!(batches.iter().map(Vec::len).collect::<Vec<_>>(), [1, 8, 8]);
+    assert!(batches[0][0].starts_with("TrustRevoked") && batches[0][0].contains("store"));
+    ctx.batches.borrow_mut().clear();
+    let too_many = [one; MAX_REVOCATIONS + 1];
+    let long = "p".repeat(65);
+    for refused in [
+        &[][..],
+        &too_many[..],
+        &[Revocation::new("", &key, &signature)][..],
+        &[Revocation::new(&long, &key, &signature)][..],
+    ] {
+        assert_eq!(sender.trust_revoked(refused), Err(Error::Invalid));
+    }
+    assert!(ctx.batches.borrow().is_empty());
 }

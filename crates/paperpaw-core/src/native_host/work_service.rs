@@ -16,8 +16,9 @@ use super::{
     work_sched::{Spec, WorkEnv, WorkSched},
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
+use crate::native_host::codec;
 use alloc::rc::Rc;
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED};
 
 /// `uses.network`: the feature a network work needs.
 const USES_NETWORK: &str = "uses.network";
@@ -39,9 +40,7 @@ pub(crate) fn backend(
     let work = who.hosts.work().ok_or(ERR_UNSUPPORTED)?;
     match op.id {
         1 => {
-            let Record::ServiceWorkSpec(spec) = wire::records_decode_single(input)? else {
-                return Err(ERR_INVALID);
-            };
+            let spec: wire::ServiceWorkSpec<'_> = codec::single(input)?;
             let spec = Spec {
                 token: spec.token,
                 needs: spec.needs,
@@ -54,6 +53,11 @@ pub(crate) fn backend(
                 key: spec.key,
             };
             WorkSched::check_form(&spec)?;
+            // Work whose `event.work_due` the plugin could not take is never
+            // declared (`work.md` section 3, as `core.net` asks for `http_done`).
+            if !work.env.subscribed(who.owner, wire::EVENT_WORK_DUE_TAG) {
+                return Err(ERR_STATE);
+            }
             if spec.needs & 1 != 0 {
                 who.features.feature(USES_NETWORK)?;
                 if !work.env.network_allowed(who.owner) {
@@ -64,9 +68,7 @@ pub(crate) fn backend(
             Ok(0)
         }
         2 => {
-            let Record::ServiceWorkKey(key) = wire::records_decode_single(input)? else {
-                return Err(ERR_INVALID);
-            };
+            let key: wire::ServiceWorkKey<'_> = codec::single(input)?;
             work.sched.cancel(who.owner, key.key)?;
             Ok(0)
         }
@@ -88,7 +90,7 @@ fn state(work: &WorkServices, owner: u64, out: &mut [u8]) -> Result<usize, i32> 
         next: 0,
         cursor: None,
     };
-    let reserved = wire::record_framed_len(&Record::ServiceEnd(end))?;
+    let reserved = codec::framed_len(&Record::ServiceEnd(end))?;
     let available = out.len().checked_sub(reserved).ok_or(ERR_NO_SPACE)?;
     let (mut used, mut total, mut failure) = (0_usize, 0_u32, None);
     work.sched.rows(owner, work.env.power(), &mut |row| {
@@ -99,7 +101,7 @@ fn state(work: &WorkServices, owner: u64, out: &mut [u8]) -> Result<usize, i32> 
             due_ms: row.due_ms,
             key: row.key.as_str(),
         });
-        match wire::record_encode_one(&record, &mut out[used..available]) {
+        match codec::encode_one(&record, &mut out[used..available]) {
             Ok(length) => {
                 used += length;
                 total += 1;
@@ -115,7 +117,7 @@ fn state(work: &WorkServices, owner: u64, out: &mut [u8]) -> Result<usize, i32> 
         return Err(error);
     }
     let end = wire::ServiceEnd { total, ..end };
-    let length = wire::record_encode_one(&Record::ServiceEnd(end), &mut out[used..])?;
+    let length = codec::encode_one(&Record::ServiceEnd(end), &mut out[used..])?;
     Ok(used + length)
 }
 

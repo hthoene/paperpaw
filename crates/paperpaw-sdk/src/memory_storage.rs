@@ -1,7 +1,7 @@
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 
 use paperpaw_platform::storage::is_valid_path;
 use paperpaw_platform::{DirEntry, Storage, StorageError};
@@ -10,7 +10,21 @@ use paperpaw_platform::{DirEntry, Storage, StorageError};
 /// demos without a file system.
 #[derive(Debug, Default)]
 pub struct MemoryStorage {
-    files: RefCell<BTreeMap<String, Vec<u8>>>,
+    /// Each file's identity (`Storage::entry_identity`: given when it is
+    /// made, kept by renames) and its bytes; the identity sits in the
+    /// file's own entry, so it costs no allocation of its own.
+    files: RefCell<BTreeMap<String, (u64, Vec<u8>)>>,
+    /// Folders' identities, given when one is first asked for (folders
+    /// exist through their files here). Empty until then, so that the
+    /// file operations allocate nothing more than they did without it.
+    dirs: RefCell<BTreeMap<String, u64>>,
+    /// The last identity given.
+    last: Cell<u64>,
+}
+
+/// Whether `key` lies below the folder `dir`, without making `dir/`.
+fn below(key: &str, dir: &str) -> bool {
+    key.len() > dir.len() && key.starts_with(dir) && key.as_bytes()[dir.len()] == b'/'
 }
 
 impl MemoryStorage {
@@ -20,15 +34,40 @@ impl MemoryStorage {
 
     /// Adds a file (builder style).
     pub fn with(self, path: &str, data: impl Into<Vec<u8>>) -> Self {
+        let id = self.next_id();
         self.files
             .borrow_mut()
-            .insert(String::from(path), data.into());
+            .insert(String::from(path), (id, data.into()));
         self
     }
 
     /// The content of a file, for assertions.
     pub fn get(&self, path: &str) -> Option<Vec<u8>> {
-        self.files.borrow().get(path).cloned()
+        self.files.borrow().get(path).map(|(_, data)| data.clone())
+    }
+
+    fn next_id(&self) -> u64 {
+        let id = self.last.get().wrapping_add(1);
+        self.last.set(id);
+        id
+    }
+
+    /// Drops the identities of the folders above `path` that no longer
+    /// hold a file.
+    fn forget_empty_above(&self, path: &str) {
+        let mut dirs = self.dirs.borrow_mut();
+        if dirs.is_empty() {
+            return;
+        }
+        let files = self.files.borrow();
+        let mut at = path;
+        while let Some((parent, _)) = at.rsplit_once('/') {
+            if files.keys().any(|k| below(k, parent)) {
+                break;
+            }
+            dirs.remove(parent);
+            at = parent;
+        }
     }
 
     fn check(path: &str) -> Result<(), StorageError> {
@@ -44,7 +83,7 @@ impl Storage for MemoryStorage {
     fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
         Self::check(path)?;
         let files = self.files.borrow();
-        let data = files.get(path).ok_or(StorageError::NotFound)?;
+        let (_, data) = files.get(path).ok_or(StorageError::NotFound)?;
         let start = usize::try_from(offset)
             .unwrap_or(usize::MAX)
             .min(data.len());
@@ -58,32 +97,40 @@ impl Storage for MemoryStorage {
         self.files
             .borrow()
             .get(path)
-            .map(|data| data.len() as u64)
+            .map(|(_, data)| data.len() as u64)
             .ok_or(StorageError::NotFound)
     }
 
     fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         Self::check(path)?;
-        self.files
-            .borrow_mut()
-            .insert(String::from(path), data.to_vec());
+        let mut files = self.files.borrow_mut();
+        match files.get_mut(path) {
+            Some((_, file)) => *file = data.to_vec(),
+            None => {
+                let id = self.next_id();
+                files.insert(String::from(path), (id, data.to_vec()));
+            }
+        }
         Ok(())
     }
 
     fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         Self::check(path)?;
-        self.files
-            .borrow_mut()
-            .entry(String::from(path))
-            .or_default()
-            .extend_from_slice(data);
+        let mut files = self.files.borrow_mut();
+        match files.get_mut(path) {
+            Some((_, file)) => file.extend_from_slice(data),
+            None => {
+                let id = self.next_id();
+                files.insert(String::from(path), (id, data.to_vec()));
+            }
+        }
         Ok(())
     }
 
     fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> Result<(), StorageError> {
         Self::check(path)?;
         let mut files = self.files.borrow_mut();
-        let file = files.get_mut(path).ok_or(StorageError::NotFound)?;
+        let (_, file) = files.get_mut(path).ok_or(StorageError::NotFound)?;
         let at = usize::try_from(offset).map_err(|_| StorageError::TooLarge)?;
         let end = at.checked_add(data.len()).ok_or(StorageError::TooLarge)?;
         if file.len() < end {
@@ -96,7 +143,7 @@ impl Storage for MemoryStorage {
     fn truncate(&self, path: &str, len: u64) -> Result<(), StorageError> {
         Self::check(path)?;
         let mut files = self.files.borrow_mut();
-        let file = files.get_mut(path).ok_or(StorageError::NotFound)?;
+        let (_, file) = files.get_mut(path).ok_or(StorageError::NotFound)?;
         let len = usize::try_from(len).map_err(|_| StorageError::TooLarge)?;
         file.resize(len, 0);
         Ok(())
@@ -114,7 +161,7 @@ impl Storage for MemoryStorage {
         let files = self.files.borrow();
         let mut dirs = BTreeSet::new();
         let mut found = dir.is_empty();
-        for (path, data) in files.iter() {
+        for (path, (_, data)) in files.iter() {
             let Some(rest) = path.strip_prefix(prefix.as_str()) else {
                 continue;
             };
@@ -139,6 +186,7 @@ impl Storage for MemoryStorage {
     fn remove(&self, path: &str) -> Result<(), StorageError> {
         Self::check(path)?;
         self.files.borrow_mut().remove(path);
+        self.forget_empty_above(path);
         Ok(())
     }
 
@@ -146,8 +194,10 @@ impl Storage for MemoryStorage {
         Self::check(from)?;
         Self::check(to)?;
         let mut files = self.files.borrow_mut();
-        if let Some(data) = files.remove(from) {
-            files.insert(String::from(to), data);
+        if let Some(file) = files.remove(from) {
+            files.insert(String::from(to), file);
+            drop(files);
+            self.forget_empty_above(from);
             return Ok(());
         }
         // A directory: everything below it.
@@ -161,10 +211,27 @@ impl Storage for MemoryStorage {
             return Err(StorageError::NotFound);
         }
         for key in moved {
-            if let Some(data) = files.remove(&key) {
-                files.insert(alloc::format!("{to}/{}", &key[prefix.len()..]), data);
+            if let Some(file) = files.remove(&key) {
+                files.insert(alloc::format!("{to}/{}", &key[prefix.len()..]), file);
             }
         }
+        drop(files);
+        // The folder's identity and those of the folders below it go along.
+        let mut dirs = self.dirs.borrow_mut();
+        if !dirs.is_empty() {
+            let named: Vec<String> = dirs
+                .keys()
+                .filter(|k| k.as_str() == from || below(k, from))
+                .cloned()
+                .collect();
+            for key in named {
+                if let Some(id) = dirs.remove(&key) {
+                    dirs.insert(alloc::format!("{to}{}", &key[from.len()..]), id);
+                }
+            }
+        }
+        drop(dirs);
+        self.forget_empty_above(from);
         Ok(())
     }
 
@@ -179,14 +246,42 @@ impl Storage for MemoryStorage {
         self.files
             .borrow_mut()
             .retain(|k, _| !k.starts_with(&prefix));
+        self.dirs
+            .borrow_mut()
+            .retain(|k, _| k.as_str() != path && !below(k, path));
+        self.forget_empty_above(path);
         Ok(())
+    }
+
+    /// A file's identity is given when it is made, a folder's when it is
+    /// first asked for; renames keep them. The root has none.
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        if path.is_empty() {
+            return Ok(None);
+        }
+        Self::check(path)?;
+        let files = self.files.borrow();
+        if let Some(&(id, _)) = files.get(path) {
+            return Ok(Some(id));
+        }
+        if !files.keys().any(|k| below(k, path)) {
+            return Err(StorageError::NotFound);
+        }
+        drop(files);
+        let mut dirs = self.dirs.borrow_mut();
+        if let Some(&id) = dirs.get(path) {
+            return Ok(Some(id));
+        }
+        let id = self.next_id();
+        dirs.insert(String::from(path), id);
+        Ok(Some(id))
     }
 }
 
 /// Reads a whole (small) file: [`StorageError::NotFound`] where there is
-/// none, [`StorageError::TooLarge`] for files larger than `limit` bytes
-/// or than the heap can give now, any other error where it could not be
-/// read. Before writing back a
+/// none, [`StorageError::TooLarge`] for files larger than `limit` bytes,
+/// [`StorageError::OutOfMemory`] where the heap cannot give the room now
+/// (try again), any other error where it could not be read. Before writing back a
 /// changed file, read it with
 /// [`files::load_for_update`](crate::files::load_for_update), which tells
 /// a missing file from one that could not be read.
@@ -200,7 +295,7 @@ pub fn read_file(storage: &dyn Storage, path: &str, limit: usize) -> Result<Vec<
     // not the end of the program.
     let mut data = Vec::new();
     data.try_reserve_exact(size)
-        .map_err(|_| StorageError::TooLarge)?;
+        .map_err(|_| StorageError::OutOfMemory)?;
     data.resize(size, 0);
     let mut filled = 0;
     while filled < size {
@@ -252,6 +347,52 @@ mod tests {
     use super::*;
     use alloc::vec;
 
+    /// Removes the tree at `root` by steps until done; the number of steps.
+    fn remove_by_steps(storage: &MemoryStorage, root: &str) -> usize {
+        let mut place = 0;
+        for steps in 1..200 {
+            let step = storage.remove_tree_step(root, false, place).unwrap();
+            if step.done {
+                return steps;
+            }
+            place = step.next;
+        }
+        panic!("never ends");
+    }
+
+    /// A folder here is its files: one whose last file was removed is gone,
+    /// and the walk must not take that for an error (or for the end).
+    #[test]
+    fn a_tree_whose_folders_vanish_with_their_last_file_is_removed_whole() {
+        let storage = MemoryStorage::new();
+        storage.write("a/pages/1", b"1").unwrap();
+        storage.write("a/.host/.complete", b"").unwrap();
+        storage.write("keep/x", b"x").unwrap();
+        remove_by_steps(&storage, "a");
+        assert!(storage.list("a", &mut |_| ()).is_err());
+        assert_eq!(storage.get("keep/x"), Some(vec![b'x']));
+    }
+
+    #[test]
+    fn a_large_tree_of_vanishing_folders_is_removed_in_steps_and_only_its_own() {
+        let storage = MemoryStorage::new();
+        for n in 0..150 {
+            storage
+                .write(&alloc::format!("a/d{}/f{n}", n % 3), b"x")
+                .unwrap();
+            storage
+                .write(&alloc::format!("a/.h{}/e/g{n}", n % 2), b"x")
+                .unwrap();
+        }
+        storage.write("a/top", b"x").unwrap();
+        storage.write("b/keep", b"x").unwrap();
+        storage.write("a2/keep", b"x").unwrap();
+        assert!(remove_by_steps(&storage, "a") > 2);
+        assert!(storage.list("a", &mut |_| ()).is_err());
+        assert_eq!(storage.get("b/keep"), Some(vec![b'x']));
+        assert_eq!(storage.get("a2/keep"), Some(vec![b'x']));
+    }
+
     #[test]
     fn writes_in_place_and_cuts() {
         let storage = MemoryStorage::new().with("save.bin", "abcdef");
@@ -264,6 +405,49 @@ mod tests {
             storage.write_at("none", 0, b"x"),
             Err(StorageError::NotFound)
         );
+    }
+
+    #[test]
+    fn identities_are_kept_by_renames_and_differ_between_entries() {
+        let storage = MemoryStorage::new()
+            .with("books/a.epub", b"a".as_slice())
+            .with("books/b.epub", b"b".as_slice());
+        let a = storage.entry_identity("books/a.epub").unwrap().unwrap();
+        let b = storage.entry_identity("books/b.epub").unwrap().unwrap();
+        let books = storage.entry_identity("books").unwrap().unwrap();
+        assert_ne!(a, b);
+        assert_ne!(a, books);
+        assert_ne!(b, books);
+        assert_eq!(storage.entry_identity(""), Ok(None));
+        assert_eq!(
+            storage.entry_identity("books/c.epub"),
+            Err(StorageError::NotFound)
+        );
+
+        // A file's rename, over another file too.
+        storage.rename("books/a.epub", "books/c.epub").unwrap();
+        assert_eq!(storage.entry_identity("books/c.epub"), Ok(Some(a)));
+        storage.rename("books/c.epub", "books/b.epub").unwrap();
+        assert_eq!(storage.entry_identity("books/b.epub"), Ok(Some(a)));
+        assert_eq!(
+            storage.entry_identity("books/a.epub"),
+            Err(StorageError::NotFound)
+        );
+
+        // A folder's rename takes its own and everything's below.
+        storage.rename("books", "shelf/books").unwrap();
+        assert_eq!(storage.entry_identity("shelf/books"), Ok(Some(books)));
+        assert_eq!(storage.entry_identity("shelf/books/b.epub"), Ok(Some(a)));
+        assert_eq!(storage.entry_identity("books"), Err(StorageError::NotFound));
+
+        // A removed entry's identity is not given to what comes after it.
+        storage.remove("shelf/books/b.epub").unwrap();
+        storage.write("shelf/books/b.epub", b"new").unwrap();
+        let new = storage.entry_identity("shelf/books/b.epub").unwrap();
+        assert_ne!(new, Some(a));
+        storage.remove_dir_all("shelf").unwrap();
+        storage.write("shelf/books/x", b"x").unwrap();
+        assert_ne!(storage.entry_identity("shelf/books").unwrap(), Some(books));
     }
 
     #[test]

@@ -1,0 +1,400 @@
+[package]
+name = "paperpaw-plugin-files7"
+description = "PaperPaw's own interface-7 plugins as native plugin files of format 5 (abi/ppn5.md): built, packed and checked here for every plugin that has a native entry"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# A workspace of its own, as tools/plugin-files is: the files must fit the
+# firmware built in shells/xteink, with the same compiler and SDK.
+[workspace]
+
+[[bin]]
+name = "about"
+path = "src/bin/about.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "battery"
+path = "src/bin/battery.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "browser"
+path = "src/bin/browser.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "calibre"
+path = "src/bin/calibre.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "diagnostics"
+path = "src/bin/diagnostics.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "end-of-book"
+path = "src/bin/end-of-book.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "files"
+path = "src/bin/files.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "format-mobi"
+path = "src/bin/format-mobi.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "format-txt"
+path = "src/bin/format-txt.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "format-images"
+path = "src/bin/format-images.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "format-xtc"
+path = "src/bin/format-xtc.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "help"
+path = "src/bin/help.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "keyboard"
+path = "src/bin/keyboard.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "joplin"
+path = "src/bin/joplin.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "keys"
+path = "src/bin/keys.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "kosync"
+path = "src/bin/kosync.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "menu"
+path = "src/bin/menu.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "menu-editor"
+path = "src/bin/menu-editor.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "news"
+path = "src/bin/news.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "notes-overview"
+path = "src/bin/notes-overview.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "opds"
+path = "src/bin/opds.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "plugin-manager"
+path = "src/bin/plugin-manager.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "power"
+path = "src/bin/power.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "profiles"
+path = "src/bin/profiles.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "reading-goal"
+path = "src/bin/reading-goal.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "read-later-cloud"
+path = "src/bin/read-later-cloud.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "readwise"
+path = "src/bin/readwise.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "rules"
+path = "src/bin/rules.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "settings"
+path = "src/bin/settings.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "stats"
+path = "src/bin/stats.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "vocabulary"
+path = "src/bin/vocabulary.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "wallabag"
+path = "src/bin/wallabag.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "weather"
+path = "src/bin/weather.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "widgets"
+path = "src/bin/widgets.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "bluetooth"
+path = "src/bin/bluetooth.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "dictionary"
+path = "src/bin/dictionary.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "file-manager"
+path = "src/bin/file-manager.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "koreader"
+path = "src/bin/koreader.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "lock"
+path = "src/bin/lock.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "picture-home"
+path = "src/bin/picture-home.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "setup"
+path = "src/bin/setup.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "wikipedia"
+path = "src/bin/wikipedia.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "format-docx"
+path = "src/bin/format-docx.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "fonts-browser"
+path = "src/bin/fonts-browser.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "update"
+path = "src/bin/update.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "transfer"
+path = "src/bin/transfer.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "sleep"
+path = "src/bin/sleep.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "translate"
+path = "src/bin/translate.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "aids"
+path = "src/bin/aids.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "home"
+path = "src/bin/home.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "mail"
+path = "src/bin/mail.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "notes-vault"
+path = "src/bin/notes-vault.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "store"
+path = "src/bin/store.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "wifi"
+path = "src/bin/wifi.rs"
+test = false
+bench = false
+
+[dependencies]
+paperpaw-plugin-about = { path = "../../plugins/about", features = ["native-entry"] }
+paperpaw-plugin-battery = { path = "../../plugins/battery", features = ["native-entry"] }
+paperpaw-plugin-browser = { path = "../../plugins/browser", features = ["native-entry"] }
+paperpaw-plugin-calibre = { path = "../../plugins/calibre", features = ["native-entry"] }
+paperpaw-plugin-diagnostics = { path = "../../plugins/diagnostics", features = ["native-entry"] }
+paperpaw-plugin-end-of-book = { path = "../../plugins/end-of-book", features = ["native-entry"] }
+paperpaw-plugin-files = { path = "../../plugins/files", features = ["native-entry"] }
+paperpaw-plugin-format-mobi = { path = "../../plugins/format-mobi", features = ["native-entry"] }
+paperpaw-plugin-format-txt = { path = "../../plugins/format-txt", features = ["native-entry"] }
+paperpaw-plugin-format-images = { path = "../../plugins/format-images", features = ["native-entry"] }
+paperpaw-plugin-format-xtc = { path = "../../plugins/format-xtc", features = ["native-entry"] }
+paperpaw-plugin-help = { path = "../../plugins/help", features = ["native-entry"] }
+paperpaw-plugin-keyboard = { path = "../../plugins/keyboard", features = ["native-entry"] }
+paperpaw-plugin-joplin = { path = "../../plugins/joplin", default-features = false, features = ["native-entry"] }
+paperpaw-plugin-keys = { path = "../../plugins/keys", features = ["native-entry"] }
+paperpaw-plugin-kosync = { path = "../../plugins/kosync", features = ["native-entry"] }
+paperpaw-plugin-menu = { path = "../../plugins/menu", features = ["native-entry"] }
+paperpaw-plugin-menu-editor = { path = "../../plugins/menu-editor", features = ["native-entry"] }
+paperpaw-plugin-news = { path = "../../plugins/news", features = ["native-entry"] }
+paperpaw-plugin-notes-overview = { path = "../../plugins/notes-overview", features = ["native-entry"] }
+paperpaw-plugin-opds = { path = "../../plugins/opds", features = ["native-entry"] }
+paperpaw-plugin-plugin-manager = { path = "../../plugins/plugin-manager", features = ["native-entry"] }
+paperpaw-plugin-power = { path = "../../plugins/power", features = ["native-entry"] }
+paperpaw-plugin-profiles = { path = "../../plugins/profiles", features = ["native-entry"] }
+paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal", features = ["native-entry"] }
+paperpaw-plugin-read-later-cloud = { path = "../../plugins/read-later-cloud", features = ["native-entry"] }
+paperpaw-plugin-readwise = { path = "../../plugins/readwise", default-features = false, features = ["native-entry"] }
+paperpaw-plugin-rules = { path = "../../plugins/rules", features = ["native-entry"] }
+paperpaw-plugin-settings = { path = "../../plugins/settings", features = ["native-entry"] }
+paperpaw-plugin-stats = { path = "../../plugins/stats", features = ["native-entry"] }
+paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false, features = ["native-entry"] }
+paperpaw-plugin-wallabag = { path = "../../plugins/wallabag", features = ["native-entry"] }
+paperpaw-plugin-weather = { path = "../../plugins/weather", default-features = false, features = ["native-entry"] }
+paperpaw-plugin-widgets = { path = "../../plugins/widgets", default-features = false, features = ["native-entry"] }
+paperpaw-plugin-bluetooth = { path = "../../plugins/bluetooth", features = ["native-entry"] }
+paperpaw-plugin-dictionary = { path = "../../plugins/dictionary", features = ["native-entry"] }
+paperpaw-plugin-file-manager = { path = "../../plugins/file-manager", features = ["native-entry"] }
+paperpaw-plugin-koreader = { path = "../../plugins/koreader", features = ["native-entry"] }
+paperpaw-plugin-lock = { path = "../../plugins/lock", features = ["native-entry"] }
+paperpaw-plugin-picture-home = { path = "../../plugins/picture-home", features = ["native-entry"] }
+paperpaw-plugin-setup = { path = "../../plugins/setup", features = ["native-entry"] }
+paperpaw-plugin-wikipedia = { path = "../../plugins/wikipedia", features = ["native-entry"] }
+paperpaw-plugin-format-docx = { path = "../../plugins/format-docx", features = ["native-entry"] }
+paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser", features = ["native-entry"] }
+paperpaw-plugin-update = { path = "../../plugins/update", features = ["native-entry"] }
+paperpaw-plugin-transfer = { path = "../../plugins/transfer", features = ["native-entry"] }
+paperpaw-plugin-sleep = { path = "../../plugins/sleep", features = ["native-entry"] }
+paperpaw-plugin-translate = { path = "../../plugins/translate", features = ["native-entry"] }
+paperpaw-plugin-aids = { path = "../../plugins/aids", features = ["native-entry"] }
+paperpaw-plugin-home = { path = "../../plugins/home", features = ["native-entry"] }
+paperpaw-plugin-mail = { path = "../../plugins/mail", features = ["native-entry"] }
+paperpaw-plugin-notes-vault = { path = "../../plugins/notes-vault", features = ["native-entry"] }
+paperpaw-plugin-store = { path = "../../plugins/store", features = ["native-entry"] }
+paperpaw-plugin-wifi = { path = "../../plugins/wifi", features = ["native-entry"] }
+
+# As the firmware is built: small code, one unit, no unwinding.
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+# Lines in the ELF, for naming the functions of a crash's calls.
+debug = "line-tables-only"

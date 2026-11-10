@@ -2,10 +2,42 @@
 use super::wire::services_wire::core_library_v1 as schema;
 use super::{
     Error, Host,
-    declare::records_wire::{self as wire, Record},
+    declare::records_wire::{self as wire, RawRecord, WireEncode, WireRecord},
     services::Service,
 };
 
+/// `set_status` bit 0 (`docs/abi/library.md` 2.2).
+const STATUS_FINISHED: u32 = 1;
+/// `set_status` bit 1.
+const STATUS_FAVOURITE: u32 = 1 << 1;
+
+mod cover;
+pub use cover::Cover;
+mod edits;
+pub use edits::{
+    AnnotationEdit, Committed, MAX_EDITS_PER_CALL, NOTE_MAX_BYTES, Receipt, ReceiptAction,
+    ReceiptCursor, ReceiptPage, Transaction,
+};
+mod facets;
+pub use facets::{Facet, FacetPage, FacetRow};
+mod anchors;
+pub use anchors::{Anchor, AnchorPage};
+mod annotations;
+pub use annotations::{
+    Annotation, AnnotationCursor, AnnotationKind, AnnotationPage, AnnotationPageEnd,
+};
+mod annotation_text;
+pub use annotation_text::{AnnotationTextKind, AnnotationTextPart, AnnotationTextQuery};
+mod book_text;
+pub use book_text::{BookTextPart, BookTextQuery};
+mod fields;
+pub use fields::{Field, FieldCursor, FieldPage, FieldPageEnd};
+mod files;
+pub use files::{DeleteReport, DeleteRow, Existing, Import, MAX_DELETE_PATHS};
+mod position;
+pub use position::{BookKey, Position, PositionWrite};
+mod provide;
+pub use provide::Provided;
 mod query;
 mod rows;
 pub use query::{CatalogCursor, Query, Show, Sort};
@@ -46,8 +78,8 @@ impl<'a> BookRef<'a> {
             key: Some(key),
         }))
     }
-    fn record(self) -> Record<'a> {
-        Record::ServiceLibRef(self.0)
+    fn record(&self) -> &dyn WireEncode {
+        &self.0
     }
 }
 
@@ -76,13 +108,13 @@ impl Library {
         &self,
         host: &Host<'_>,
         op: u32,
-        records: &[Record<'_>],
+        records: &[&dyn WireEncode],
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<usize, Error> {
         let operation = self.service.operation(op).ok_or(Error::Unsupported)?;
-        let len = wire::records_encode_counted(
-            records,
+        let len = wire::records_encode_counted_of(
+            records.iter().copied(),
             usize::from(operation.input_rows),
             operation.max_input,
             input,
@@ -114,7 +146,7 @@ impl Library {
         input: &mut [u8],
         out: &'a mut [u8],
     ) -> Result<LibraryPage<'a, Entry<'a>>, Error> {
-        let n = self.call(host, schema::OP_QUERY, &[query.record()], input, out)?;
+        let n = self.call(host, schema::OP_QUERY, &[&query.record()], input, out)?;
         rows::page(
             &out[..n],
             Some(query.cursor),
@@ -177,11 +209,11 @@ impl Library {
         out: &mut [u8],
     ) -> Result<(), Error> {
         super::ui::navigation::full_id(field)?;
-        let row = Record::ServiceLibFieldSet(wire::ServiceLibFieldSet { field, value });
+        let row = wire::ServiceLibFieldSet { field, value };
         self.mutate(
             host,
             schema::OP_SET_FIELD,
-            &[book.record(), row],
+            &[book.record(), &row],
             input,
             out,
         )
@@ -198,14 +230,41 @@ impl Library {
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<(), Error> {
-        let row = Record::ServiceLibStatus(wire::ServiceLibStatus {
-            set: u32::from(finished),
-            clear: u32::from(!finished),
-        });
+        self.set_status(host, book, STATUS_FINISHED, finished, input, out)
+    }
+    /// Mark a book a favourite or clear its favourite status without changing other status
+    /// bits (`set_status` bit 1). Idempotent: the same call twice changes nothing more.
+    ///
+    /// # Errors
+    /// Returns host authority/refusal errors (`Denied` without `uses.library`, `NotFound` for
+    /// an unknown book, `State` for a stale handle) or Invalid for a nonempty reply.
+    pub fn set_favourite(
+        &self,
+        host: &Host<'_>,
+        book: BookRef<'_>,
+        favourite: bool,
+        input: &mut [u8],
+        out: &mut [u8],
+    ) -> Result<(), Error> {
+        self.set_status(host, book, STATUS_FAVOURITE, favourite, input, out)
+    }
+    fn set_status(
+        &self,
+        host: &Host<'_>,
+        book: BookRef<'_>,
+        bit: u32,
+        on: bool,
+        input: &mut [u8],
+        out: &mut [u8],
+    ) -> Result<(), Error> {
+        let row = wire::ServiceLibStatus {
+            set: if on { bit } else { 0 },
+            clear: if on { 0 } else { bit },
+        };
         self.mutate(
             host,
             schema::OP_SET_STATUS,
-            &[book.record(), row],
+            &[book.record(), &row],
             input,
             out,
         )
@@ -214,7 +273,7 @@ impl Library {
         &self,
         host: &Host<'_>,
         op: u32,
-        records: &[Record<'_>],
+        records: &[&dyn WireEncode],
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<(), Error> {
@@ -224,8 +283,8 @@ impl Library {
         Ok(())
     }
 }
-fn one(bytes: &[u8]) -> Result<Record<'_>, Error> {
-    wire::record_decode_one(bytes).map_err(|_| Error::Invalid)
+fn one(bytes: &[u8]) -> Result<RawRecord<'_>, Error> {
+    RawRecord::one(bytes).map_err(|_| Error::Invalid)
 }
 
 #[cfg(test)]

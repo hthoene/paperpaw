@@ -116,6 +116,7 @@ pub fn draw_image_over(
 
 /// What kind of decoded file a picture is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum PictureKind {
     /// One byte a pixel (`PPGI`).
     Gray,
@@ -127,6 +128,7 @@ pub enum PictureKind {
 
 /// A decoded picture file the host has checked ([`probe_picture`]).
 #[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
 pub struct Picture<'a> {
     /// The decoded file in storage.
     pub path: &'a str,
@@ -140,6 +142,28 @@ pub struct Picture<'a> {
     /// device's (32 KiB on the X4, more where there is memory): a draw that
     /// needs more is `OutOfMemory` with nothing drawn.
     pub scratch_max: usize,
+}
+
+impl<'a> Picture<'a> {
+    /// A picture of `kind` at `path`, `width` × `height` pixels (as
+    /// [`probe_picture`] found them), whose draw may take `scratch_max`
+    /// bytes of heap for its one transient block.
+    #[must_use]
+    pub const fn new(
+        path: &'a str,
+        kind: PictureKind,
+        width: u32,
+        height: u32,
+        scratch_max: usize,
+    ) -> Self {
+        Self {
+            path,
+            kind,
+            width,
+            height,
+            scratch_max,
+        }
+    }
 }
 
 /// The kind and size of the decoded picture file at `path`, only if its size
@@ -213,6 +237,31 @@ pub fn try_draw_picture(
 ) -> Result<(), crate::image::ImageError> {
     draw_picture(canvas, storage, picture, area, opacity, false)
 }
+
+/// The columns (from, to) a picture is made over: a dithered one over all of
+/// its rectangle at `left`, `w` wide (up to `DIFFUSE_WIDTH_MAX`), also where
+/// the clip shows only the columns `shown`: the error runs along the row from
+/// its left end, so a part drawn alone must come out as it does in the whole.
+/// Only the shown columns are drawn. Where the device's `budget` does not
+/// hold the buffers of the full width (`wanted` says what a width takes),
+/// only the shown columns are made: that part may then dither a little
+/// differently from the same part of a whole draw.
+fn made_columns(
+    dithered: bool,
+    (left, w): (i32, usize),
+    shown: (i32, i32),
+    (budget, wanted): (usize, impl Fn(usize) -> usize),
+) -> (i32, i32) {
+    if dithered && w <= DIFFUSE_WIDTH_MAX && wanted(w) <= budget {
+        (left, left + w as i32)
+    } else {
+        shown
+    }
+}
+
+/// The widest rectangle a dithered picture is made over in full when the clip
+/// shows a part of it (the longest side of any picture is 1,600).
+const DIFFUSE_WIDTH_MAX: usize = 1_600;
 
 /// [`try_draw_picture`], where `retain` lets the frame keep the dithering
 /// error from band to band ([`Canvas::keep_diffusion`], freed with the
@@ -360,7 +409,6 @@ fn draw_source(
     if shown >= last || vx0 >= vx1 {
         return Ok(());
     }
-    let (skip, vw) = ((vx0 - left) as usize, (vx1 - vx0) as usize);
     // An axis made larger interpolates, one made smaller averages.
     let (wider, taller) = (w > sw, h > sh);
     let blended = opacity < 255 || source.kind == PictureKind::Alpha;
@@ -369,12 +417,15 @@ fn draw_source(
     // where the band above left it; a frame dithers in place where memory
     // for it is short.
     let levels = canvas.picture_levels().filter(|_| !blended);
+    let buffers = |vw| scratch_bytes(source, (sw, vw), (wider, taller), blended, levels.is_some());
+    let (mx0, mx1) = made_columns(levels.is_some(), (left, w), (vx0, vx1), (budget, buffers));
+    let (skip, vw) = ((mx0 - left) as usize, (mx1 - mx0) as usize);
     let key = levels.map_or(0, |levels| {
-        picture_key(source, canvas.origin(), area, (vx0, vw), levels)
+        picture_key(source, canvas.origin(), area, (mx0, vw), levels)
     });
     // Every buffer of this call, summed before any is taken: the call's one
     // transient block is at most the device's `scratch_max`.
-    let wanted = scratch_bytes(source, (sw, vw), (wider, taller), blended, levels.is_some());
+    let wanted = buffers(vw);
     // The device's limit (the plugins' `draw_image_over` has always taken what
     // a picture needs, wherever there is memory for it: no limit).
     if wanted > budget {
@@ -441,7 +492,8 @@ fn draw_source(
             Some((atkinson, levels)) => {
                 atkinson.row(&row, *levels, |x, gray| diffused[x] = gray);
                 if y >= shown {
-                    canvas.draw_gray_row(vx0, y, &diffused);
+                    let at = (vx0 - mx0) as usize;
+                    canvas.draw_gray_row(vx0, y, &diffused[at..at + (vx1 - vx0) as usize]);
                 }
             }
             None => draw_row(canvas, vx0, y, &row, blended, opacity),

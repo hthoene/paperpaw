@@ -8,13 +8,13 @@ mod finishing;
 mod reading;
 mod widget_settings;
 
+use crate::native_host::book_data_steps::{follow_move, follow_removal};
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use catalog_job::{CatalogJob, make_library_folder, waits};
 use clean_up::{ask_clean_up, register_clean_up};
-
 use paperpaw_sdk::builtin::{
     actions, events, fonts, group_sections, groups, keymap_presets, menus, params, screens,
     settings, settings_page, slots, status_items,
@@ -655,7 +655,7 @@ fn register_library(r: &mut Registrar) -> Result<(), RegisterError> {
         r.on(events::BOOK_MOVED, move |env, moved, out| {
             recorded.take();
             library::moved(env.storage(), &moved.from, &moved.path);
-            library::move_data(env.storage(), env.book_data(), &moved.from, &moved.path);
+            follow_move(env.storage(), env.book_data(), &moved.from, &moved.path);
             let _ = library::catalog::forget(env.storage(), &moved.from);
             catalog.fresh.borrow_mut().retain(|p| *p != moved.from);
             catalog.want_catch_up(Some(&moved.path), true, out);
@@ -667,7 +667,7 @@ fn register_library(r: &mut Registrar) -> Result<(), RegisterError> {
         r.on(events::BOOK_REMOVED, move |env, removed, out| {
             recorded.take();
             library::removed(env.storage(), &removed.path);
-            library::remove_data(env.storage(), env.book_data(), &removed.path);
+            follow_removal(env.storage(), env.book_data(), &removed.path);
             let _ = library::catalog::forget(env.storage(), &removed.path);
             catalog.fresh.borrow_mut().retain(|p| *p != removed.path);
             if library::catalog::log_is_long(env.storage()) {
@@ -807,7 +807,7 @@ fn register_screens(r: &mut Registrar) -> Result<(), RegisterError> {
     // question every plugin asks (`ask::choice`, `ask::confirm`), unless
     // another screen fills the slot; a folder for a setting: the folder
     // chooser's, whichever plugin fills its slot.
-    static SCREENS: [FixedScreen; 9] = [
+    static SCREENS: [FixedScreen; 10] = [
         FixedScreen::new(
             screens::STATUS_ITEMS,
             "core.status.choose",
@@ -846,6 +846,15 @@ fn register_screens(r: &mut Registrar) -> Result<(), RegisterError> {
             screens::FINISHING_UPDATE,
             "core.finishing-update.title",
             |_, params| Box::new(finishing::Finishing::new(params)),
+        ),
+        FixedScreen::new(
+            crate::native_host::firmware_confirm::SCREEN,
+            "core.firmware.title",
+            |env, params| {
+                Box::new(crate::native_host::firmware_confirm::HostConfirm::new(
+                    env, params,
+                ))
+            },
         ),
         FixedScreen::new(
             screens::FOLDER_EDITOR,
@@ -1741,11 +1750,7 @@ fn register_keymaps_and_setup(r: &mut Registrar) -> Result<(), RegisterError> {
                 .is_none_or(|c| c.utc_offset_minutes.is_none())
         })),
     )?;
-    r.add_translations(Cow::Borrowed(include_str!("../i18n/en.ini")))?;
-    r.add_translations(Cow::Borrowed(include_str!("../i18n/de.ini")))?;
-    // Keep source offsets below the 15-bit static catalog-index limit.
-    r.add_translations(Cow::Borrowed(include_str!("../i18n/host/en.ini")))?;
-    r.add_translations(Cow::Borrowed(include_str!("../i18n/host/de.ini")))?;
+    crate::core_texts::add(r)?;
     Ok(())
 }
 

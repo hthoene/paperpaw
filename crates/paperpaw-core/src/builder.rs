@@ -27,6 +27,10 @@ struct BuilderParts {
     /// of buttons come from their own settings at the end.
     caps: Capabilities,
     firmware: Option<Firmware>,
+    /// The device's firmware install and check steps (`device.md` 5.1, 5.3).
+    firmware_host: Option<Box<dyn paperpaw_platform::firmware::FirmwareHost>>,
+    /// What plugin checks, installs and removals compare a plugin with.
+    plugin_host: Option<crate::native_host::plugin_job::PluginHost>,
     code: Option<crate::code_plugin::CodePlugins>,
     /// What the firmware takes, told once an update on trial is kept
     /// ([`KernelBuilder::native_after_trial`]).
@@ -47,6 +51,7 @@ struct BuilderParts {
     font_dirs: Vec<String>,
     catalog_device: Option<&'static str>,
     random: paperpaw_sdk::random::Random,
+    device_log: Option<fn(&str)>,
     memory: paperpaw_sdk::memory::Memory,
     started: paperpaw_sdk::power::Start,
     slept_for: Option<core::time::Duration>,
@@ -81,6 +86,43 @@ impl KernelBuilder {
     pub fn plugin_off(mut self, plugin: impl Plugin + 'static) -> Self {
         self.0.off.push(String::from(plugin.manifest().id.as_str()));
         self.plugin(plugin)
+    }
+
+    /// The device's firmware: what installs and checks a firmware image
+    /// (`device.md` 5.1, 5.3). Without it every firmware command of a plugin
+    /// is `ERR_UNSUPPORTED`; with it a firmware request is accepted whole at
+    /// submit, queued and driven one bounded step at a time from the main
+    /// loop (`Kernel::native_firmware_pump`).
+    #[must_use]
+    pub fn firmware_host(
+        mut self,
+        host: Box<dyn paperpaw_platform::firmware::FirmwareHost>,
+    ) -> Self {
+        self.0.firmware_host = Some(host);
+        self
+    }
+
+    /// What the device tells plugin jobs about itself (`device.md` 5.1, 5.2):
+    /// what its loader reads (`loader`), what it offers a plugin's metadata
+    /// (`offered`) and the signing keys it knows by name (`signers`; every
+    /// other key is shown by its fingerprint). `signers` lists PaperPaw's own
+    /// keys only: a plugin check reports "signed by PaperPaw" (`dev_check`
+    /// flag bit 3) for any key that has a name here. Without it (and without
+    /// [`Self::firmware_host`], whose queue plugin jobs share) `check_file` of
+    /// kind 0 is `ERR_UNSUPPORTED`.
+    #[must_use]
+    pub fn plugin_host(
+        mut self,
+        loader: paperpaw_native::header5::Host,
+        offered: paperpaw_native::metadata::Host<'static>,
+        signers: &'static [(&'static str, [u8; 32])],
+    ) -> Self {
+        self.0.plugin_host = Some(crate::native_host::plugin_job::PluginHost {
+            loader,
+            offered,
+            signers,
+        });
+        self
     }
 
     /// Key bindings specific to the device (e.g. its physical buttons).
@@ -212,6 +254,16 @@ impl KernelBuilder {
     /// by browser).
     pub fn random(mut self, fill: fn(&mut [u8]) -> bool) -> Self {
         self.0.random = paperpaw_sdk::random::Random::new(fill);
+        self
+    }
+
+    /// Where the host's own diagnostics go: `sink` gets one line at a time
+    /// (at most 120 bytes, plugin ids and numbers only, never plugin text,
+    /// paths or secrets). Without one the lines are dropped: nothing is
+    /// formatted and nothing fails. A line may come at any time the kernel
+    /// runs, so `sink` must be quick and must not call the kernel.
+    pub fn device_log(mut self, sink: fn(&str)) -> Self {
+        self.0.device_log = Some(sink);
         self
     }
 
@@ -518,6 +570,21 @@ impl BuilderParts {
             self.staged
                 .extend(crate::code_plugin::fetched(storage.as_ref(), &code.native));
         }
+        // A plugin install or removal a cut left is finished (or set aside)
+        // before any plugin is found, so a plugin is the old or the new one.
+        let mut said: Vec<String> = Vec::new();
+        let to_finish = crate::native_host::plugin_start::replay_at_start(
+            kernel.shared.storage.as_ref(),
+            &mut |line| said.push(line),
+        );
+        // A removal waits for the host to forget its plugin's secrets and
+        // grants: the first pass of the kernel finishes it.
+        if to_finish && let Some(driver) = &kernel.firmware {
+            driver.borrow_mut().want_resume();
+        }
+        for line in said {
+            kernel.warn_runtime(line);
+        }
         kernel.install_staged(mem::take(&mut self.staged), &dirs, &built_in);
         kernel.add_plugins(
             mem::take(&mut self.plugins),
@@ -609,6 +676,10 @@ impl BuilderParts {
             shared: Shared {
                 native_events: None,
                 native_instances: crate::native_host::native_instances::NativeInstances::default(),
+                native_input: crate::native_host::ui_input::InputFilters::new(),
+                native_filters: None,
+                native_input_refused: false,
+                native_depth: None,
                 registry: Registry::default(),
                 meter,
                 device: self.device,
@@ -616,8 +687,13 @@ impl BuilderParts {
                 translator,
                 fonts: Fonts::new(self.glyph_cache)
                     .with_pack_limits(paperpaw_sdk::PackLimits::for_memory(self.device.memory)),
+                stack_rows: alloc::rc::Rc::new(Default::default()),
+                key_guard_warned: Default::default(),
                 font_removals: alloc::rc::Rc::new(
                     crate::native_host::font_removals::FontRemovals::new(),
+                ),
+                registry_generation: alloc::rc::Rc::new(
+                    crate::native_host::registry_generation::RegistryGeneration::new(),
                 ),
                 formats: Formats::new(),
                 hyphenation,
@@ -654,7 +730,7 @@ impl BuilderParts {
                 power: paperpaw_sdk::power::Power::default(),
                 work_states: paperpaw_sdk::work::WorkStates::default(),
                 reader: false,
-                clipboard: String::new(),
+                clipboard: alloc::rc::Rc::default(),
                 system_clipboard: false,
                 last_input: paperpaw_sdk::keys::InputMode::at_start(&self.device.input),
                 inputs: Vec::new(),
@@ -667,6 +743,7 @@ impl BuilderParts {
                 catalog_device: self.catalog_device,
                 secrets: Default::default(),
                 random: self.random,
+                device_log: crate::native_host::device_log::DeviceLog::new(self.device_log),
                 memory: self.memory,
                 started: self.started,
                 slept_for: self.slept_for,
@@ -762,10 +839,23 @@ impl BuilderParts {
             from_guard: false,
             from_guard_own: false,
             own_trusted: Vec::new(),
-            held_notice: None,
+            waiting_notices: crate::notices::Waiting::new(self.device.memory),
             last_activity: Instant(0),
+            native_tick_at: None,
             last_user_input: None,
             radio_requests: alloc::rc::Rc::default(),
+            firmware: self.firmware_host.take().map(|host| {
+                let mut driver = crate::native_host::firmware_driver::Driver::new(
+                    host,
+                    alloc::rc::Rc::new(core::cell::RefCell::new(
+                        crate::native_host::firmware_install::FirmwareInstall::new(),
+                    )),
+                );
+                if let Some(plugins) = self.plugin_host.take() {
+                    driver.set_plugin_host(plugins);
+                }
+                alloc::rc::Rc::new(core::cell::RefCell::new(driver))
+            }),
             shown_since: Instant(0),
             scope: None,
             screens_changed: false,
@@ -880,6 +970,9 @@ impl Kernel {
             plugin_dirs
         };
         let storage = self.shared.storage.clone();
+        // What no journal owns is swept once the stages the shell handed over
+        // were taken (`install_staged`).
+        crate::native_host::plugin_start::sweep(storage.as_ref());
         let mut with_code = Vec::new();
         for dir in &dirs {
             let mut problems = Vec::new();
@@ -919,7 +1012,7 @@ impl Kernel {
                     continue;
                 }
                 self.add_plugin(&plugin, &disabled);
-                if let Some(info) = self.shared.plugins.get_mut(plugin.manifest().id.as_str()) {
+                if let Some(info) = self.shared.plugin_mut(plugin.manifest().id.as_str()) {
                     info.kind = paperpaw_sdk::PluginKind::Data;
                 }
                 self.add_hyphenation_tables(&plugin);
@@ -953,171 +1046,25 @@ impl Kernel {
     /// a plugin speaks.
     pub(crate) fn offer_choices(&mut self) {
         self.add_plugin_choices();
-        let mut presets: Vec<Cow<'static, str>> =
-            alloc::vec![Cow::Borrowed(keymap_presets::STANDARD_NAME)];
-        presets.extend(
-            self.keys
-                .presets
-                .iter()
-                .map(|(id, _)| Cow::Owned(id.as_str().to_string())),
+        let presets = crate::font_refresh::choice_list(
+            &[keymap_presets::STANDARD_NAME],
+            self.keys.presets.iter().map(|(id, _)| id.as_str()),
         );
-        self.shared
-            .settings
-            .set_choices(core_settings::KEYMAP_PRESET.as_str(), presets);
-        let mut families: Vec<Cow<'static, str>> =
-            alloc::vec![Cow::Borrowed(core_settings::DEFAULT_FONT)];
-        families.extend(
-            self.shared
-                .fonts
-                .families()
-                .into_iter()
-                .map(|f| Cow::Owned(f.to_string())),
+        self.offer_list(core_settings::KEYMAP_PRESET.as_str(), presets);
+        self.offer_font_choices();
+        let frames = crate::font_refresh::choice_list(
+            &[core_settings::PAGE_FRAME_SINGLE],
+            self.shared.page_layers.frames().map(|id| id.as_str()),
         );
-        let mut status: Vec<Cow<'static, str>> = alloc::vec![
-            Cow::Borrowed(core_settings::STATUS_FONT_UI),
-            Cow::Borrowed(core_settings::STATUS_FONT_BOOK),
-        ];
-        status.extend(families.iter().skip(1).cloned());
-        self.shared
-            .settings
-            .set_choices(core_settings::READING_FONT.as_str(), families);
-        self.shared
-            .settings
-            .set_choices(core_settings::STATUS_FONT.as_str(), status);
-        let mut frames: Vec<Cow<'static, str>> =
-            alloc::vec![Cow::Borrowed(core_settings::PAGE_FRAME_SINGLE)];
-        frames.extend(
-            self.shared
-                .page_layers
-                .frames()
-                .map(|id| Cow::Owned(id.as_str().to_string())),
+        self.offer_list(core_settings::PAGE_FRAME.as_str(), frames);
+        let voices = crate::font_refresh::choice_list(
+            &[core_settings::VOICE_SYSTEM],
+            self.shared.voices.ids().map(|id| id.as_str()),
         );
-        self.shared
-            .settings
-            .set_choices(core_settings::PAGE_FRAME.as_str(), frames);
-        let mut voices: Vec<Cow<'static, str>> =
-            alloc::vec![Cow::Borrowed(core_settings::VOICE_SYSTEM)];
-        voices.extend(
-            self.shared
-                .voices
-                .ids()
-                .map(|id| Cow::Owned(id.as_str().to_string())),
-        );
-        self.shared
-            .settings
-            .set_choices(core_settings::VOICE.as_str(), voices);
+        self.offer_list(core_settings::VOICE.as_str(), voices);
         self.offer_reading_apps();
         self.shared.caps.speech = self.io.speech.system || !self.shared.voices.is_empty();
         self.shared.menus.set_capabilities(self.shared.caps);
-    }
-
-    /// The values plugins offer among other plugins' choices
-    /// ([`paperpaw_sdk::Registrar::add_choice`]), after the setting's own.
-    pub(crate) fn add_plugin_choices(&mut self) {
-        for (plugin, id, value) in mem::take(&mut self.plugin_choices) {
-            let refused = match self.shared.settings.spec(id.as_str()) {
-                None => Some("no such setting"),
-                Some(spec) if spec.guarded => Some("it keeps the device safe"),
-                Some(spec) => match &spec.kind {
-                    paperpaw_sdk::SettingKind::Choice(choices) if choices.contains(&value) => {
-                        Some("it has that choice already")
-                    }
-                    paperpaw_sdk::SettingKind::Choice(_)
-                        if Id::parse(&value).is_ok_and(|v| v.namespace() == plugin.as_str()) =>
-                    {
-                        None
-                    }
-                    paperpaw_sdk::SettingKind::Choice(_) => {
-                        Some("the value is not in the plugin's namespace")
-                    }
-                    _ => Some("it is no choice"),
-                },
-            };
-            if let Some(why) = refused {
-                self.warn(
-                    WarningSource::Plugin(plugin),
-                    None,
-                    format!("choice `{value}` for `{id}`: {why}; not added"),
-                );
-                continue;
-            }
-            let Some(paperpaw_sdk::SettingKind::Choice(choices)) =
-                self.shared.settings.spec(id.as_str()).map(|s| &s.kind)
-            else {
-                continue;
-            };
-            let mut values: Vec<Cow<'static, str>> =
-                choices.iter().map(|v| Cow::Owned(v.to_string())).collect();
-            values.push(value);
-            self.shared.settings.set_choices(id.as_str(), values);
-        }
-    }
-
-    /// The reading apps to choose: the default one, and one for each
-    /// format (a setting each, in the reading settings' part for them),
-    /// each offering the readers that read its books. Where only one
-    /// does, there is nothing to choose and the setting is not listed.
-    fn offer_reading_apps(&mut self) {
-        let readers: Vec<Cow<'static, str>> = self
-            .shared
-            .readers
-            .iter()
-            .map(|r| Cow::Owned(r.id.as_str().to_string()))
-            .collect();
-        let mut all = alloc::vec![Cow::Borrowed(core_settings::READING_APP_DEFAULT)];
-        if readers.len() > 1 {
-            all.extend(readers);
-        }
-        self.shared
-            .settings
-            .set_choices(core_settings::READING_APP.as_str(), all);
-        let formats: Vec<(Id, Cow<'static, str>)> = self
-            .shared
-            .formats
-            .iter()
-            .map(|f| (f.id.clone(), f.title.clone()))
-            .collect();
-        for (format, title) in formats {
-            let mut choices = alloc::vec![Cow::Borrowed(core_settings::READING_APP_DEFAULT)];
-            let reading: Vec<Cow<'static, str>> = self
-                .shared
-                .readers
-                .reading(Some(&format))
-                .map(|r| Cow::Owned(r.id.as_str().to_string()))
-                .collect();
-            let several = reading.len() > 1;
-            if several {
-                choices.extend(reading);
-            }
-            let id = paperpaw_sdk::readers::format_setting(&format);
-            if self.shared.settings.spec(&id).is_some() {
-                self.shared.settings.set_choices(&id, choices);
-                continue;
-            }
-            // Nothing to choose where one reader reads it: no setting
-            // (memory on small devices), until another comes.
-            if !several {
-                continue;
-            }
-            let Ok(setting) = Id::parse(&id) else {
-                continue;
-            };
-            /// The reading apps' part, keeping apps not installed now.
-            static READING_APPS: paperpaw_sdk::SettingExtra = paperpaw_sdk::SettingExtra::new()
-                .section("core.section.reading-apps")
-                .keeps_unknown();
-            let mut spec = paperpaw_sdk::SettingSpec::new(
-                setting,
-                "",
-                paperpaw_sdk::SettingKind::Choice(choices.into()),
-                paperpaw_sdk::SettingValue::Text(Cow::Borrowed(core_settings::READING_APP_DEFAULT)),
-                paperpaw_sdk::builtin::groups::READING_BEHAVIOUR,
-            )
-            .description("core.setting.reading-app.format.help")
-            .with_extra(&READING_APPS);
-            spec.title = paperpaw_sdk::Str::new(title);
-            let _ = self.shared.settings.define(spec);
-        }
     }
 
     /// The device's defaults, then the plugins' (e.g. themes), which win:
@@ -1207,6 +1154,8 @@ impl Kernel {
             glyph_cache: DEFAULT_GLYPH_CACHE,
             caps: Capabilities::default(),
             firmware: None,
+            firmware_host: None,
+            plugin_host: None,
             code: None,
             after_trial: None,
             safe_mode: None,
@@ -1224,6 +1173,7 @@ impl Kernel {
             font_dirs: Vec::new(),
             catalog_device: None,
             random: paperpaw_sdk::random::Random::NONE,
+            device_log: None,
             memory: paperpaw_sdk::memory::Memory::NONE,
             started: paperpaw_sdk::power::Start::Unknown,
             slept_for: None,

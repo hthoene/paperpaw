@@ -49,19 +49,24 @@ mod code_plugin;
 mod commands;
 mod config;
 mod core_plugin;
+mod core_texts;
 mod data_plugin;
 mod drawing;
 mod effects;
+mod font_refresh;
 mod free_count;
 mod gestures;
 mod hints;
 mod hyphen_feed;
 mod input;
+mod input_filters;
 mod io;
+mod key_guard;
 mod keymap;
 mod meter;
 pub mod native_host;
 mod network;
+mod notices;
 mod panes;
 mod plugins;
 mod realtime;
@@ -70,6 +75,7 @@ mod refresh;
 mod registry;
 mod room;
 mod screens;
+mod shared_env;
 use screens::ActiveScreen;
 #[cfg(test)]
 mod tests;
@@ -106,9 +112,10 @@ use paperpaw_sdk::{
 
 pub use crate::builder::KernelBuilder;
 pub use crate::card::CardTrouble;
-pub use crate::code_plugin::{CodeFile, CodeLoader, code_to_load};
+pub use crate::code_plugin::{CodeFile, CodeLoader, NativeAdmission, code_to_load};
 use crate::config::{mono_coverage, plugin_switches, read_config};
 use crate::core_plugin::{CORE, CorePlugin};
+pub use crate::data_plugin::hyphenation::{ManifestRefusal, hyphenation_tables};
 pub use crate::effects::{Effect, Effects};
 use crate::input::{Recognized, Recognizer, Thresholds};
 pub use crate::io::cable::PREFIX as CABLE_PREFIX;
@@ -273,12 +280,14 @@ pub struct Kernel {
     /// Of the commands asked for, those of a screen guarding the device or
     /// one it opened: what they open above it is its own.
     own_trusted: Vec<usize>,
-    /// A notice given while a screen guarded the device, shown once it
-    /// lets go.
-    held_notice: Option<String>,
+    /// Notices given while a screen guarded the device, shown in turn once it
+    /// lets go (`notices`).
+    waiting_notices: notices::Waiting,
     /// When the device was last used (input, a page turned), for sleeping
     /// by itself ([`settings::SLEEP_AFTER`](core_settings::SLEEP_AFTER)).
     last_activity: Instant,
+    /// When native plugins last got `event.tick` (see `native_host::native_tick`).
+    native_tick_at: Option<Instant>,
     /// When the user last pressed, touched or drew (`Kernel::handle`) and
     /// nothing else: not a page turned by itself, not an open asked from
     /// outside. The "no silent network change" window of the DEV commands
@@ -288,6 +297,8 @@ pub struct Kernel {
     /// Shared with the DEV command stages and their outputs, which give back
     /// reservations an unapplied batch leaves.
     radio_requests: alloc::rc::Rc<core::cell::RefCell<native_host::radio_requests::RadioRequests>>,
+    /// Firmware requests, queue and pump; none without a firmware host.
+    firmware: Option<alloc::rc::Rc<core::cell::RefCell<native_host::firmware_driver::Driver>>>,
     /// Since when the screen on top has been counted as shown.
     shown_since: Instant,
     /// The active settings scope: a book's own settings.
@@ -423,8 +434,7 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         self.now = now;
         self.last_activity = now;
-        // Replace anything the shell showed before startup, even where
-        // the home screen only draws an overlay.
+        // Replace what the shell showed before startup, also under a home overlay.
         self.invalidate(self.framebuffer.bounds());
         self.output.commands.push(Command::open_slot(slots::HOME));
         self.output.commands.push(events::STARTED.emit(()));
@@ -463,8 +473,7 @@ impl Kernel {
         self.now = now;
         self.last_activity = now;
         self.last_user_input = Some(now);
-        // Not counted while a screen guards the device: the count would
-        // tell how long a code typed into it is.
+        // Not counted while a screen guards the device: it would tell a typed code's length.
         if self.guard().is_none() {
             self.shared.usage.inputs = self.shared.usage.inputs.saturating_add(1);
         }
@@ -496,36 +505,11 @@ impl Kernel {
             InputEvent::Pointer(pointer) => self.note_corner(&pointer, now),
             _ => {}
         }
-        // Plugins' input filters come first; while a screen guards the
-        // device, or a PIN or a password is entered, only those of its
-        // plugin.
-        let (verdict, delivered) = {
-            let asking = self.secret_owner();
-            let env = self.shared.env(now);
-            self.shared
-                .input_filters
-                .filter_of(&env, &event, asking.as_deref())
-        };
-        let event = match verdict {
-            InputVerdict::Take => {
-                // Taken from the recognizers that follow the finger too.
-                if let InputEvent::Pointer(p) = delivered {
-                    self.recognizers_lose(&p);
-                }
-                return self.finish();
-            }
-            InputVerdict::Run(action) => {
-                self.dispatch(action);
-                self.run_commands();
-                return self.finish();
-            }
-            InputVerdict::Cancel => {
-                self.cancel_input(&delivered);
-                self.run_commands();
-                return self.finish();
-            }
-            InputVerdict::Replace(other) => other,
-            _ => event,
+        // The native input filters first, then the interface-6 ones (while a
+        // screen guards the device or a secret is typed, only its plugin's).
+        let event = match self.filtered(now, event) {
+            Ok(event) => event,
+            Err(effects) => return effects,
         };
         self.shared.last_input = match event {
             InputEvent::Button { .. } => paperpaw_sdk::keys::InputMode::Buttons,
@@ -550,7 +534,7 @@ impl Kernel {
                 let long = InputKey::LongButton(Cow::Borrowed(name));
                 let at_once = self.resolve(&long).is_none() && !self.takes_buttons();
                 if let Some(recognized) = self.input.recognizer.button(name, state, now, at_once) {
-                    self.recognized(recognized);
+                    self.recognized_filtered(recognized);
                 }
             }
             InputEvent::Pointer(pointer) => self.pointer(pointer),
@@ -681,7 +665,7 @@ impl Kernel {
     /// or the device guarded. Those who show the screen elsewhere (a
     /// remote control, tools) leave out what its parts say then.
     pub fn is_secret(&self) -> bool {
-        self.guard().is_some() || self.stack.iter().any(|s| s.screen.secret())
+        self.guard().is_some() || self.stack.iter().any(ActiveScreen::secret)
     }
 
     /// The plugin of the screen that guards the device, else of the one a
@@ -689,7 +673,7 @@ impl Kernel {
     fn secret_owner(&self) -> Option<alloc::string::String> {
         let guard = self.guard().map(|at| &self.stack[at]);
         guard
-            .or_else(|| self.stack.iter().rev().find(|s| s.screen.secret()))
+            .or_else(|| self.stack.iter().rev().find(|s| s.secret()))
             .map(|s| alloc::string::String::from(s.id.namespace()))
     }
 
@@ -698,8 +682,7 @@ impl Kernel {
     /// the focus before, if that is still spoken; not while a plugin
     /// reads aloud.
     fn speak_focus(&mut self) {
-        // Never while a PIN or a password is entered, or the device
-        // guarded: the keys pressed would be told.
+        // Never while a PIN or password is entered or the device guarded: keys would be told.
         let secret = self.is_secret();
         let listened = !secret
             && self
@@ -833,6 +816,9 @@ impl Kernel {
         self.hide_hints();
         self.escape(now);
         self.count_awake();
+        if let Some(ui) = self.shared.native_instances.ui_services() {
+            ui.minute_tick(now.millis()).ok(); // a refusal waits for the next tick
+        }
         if self.sleep_due().is_some_and(|at| at <= now) {
             // Busy: reading aloud, downloading, serving, the library being
             // walked. Else asleep.
@@ -857,7 +843,7 @@ impl Kernel {
         for recognized in self.input.recognizer.tick(now, &thresholds) {
             // A press held long enough: the reader's input too.
             self.shared.reader = true;
-            self.recognized(recognized);
+            self.recognized_filtered(recognized);
         }
         if self
             .input
@@ -880,6 +866,7 @@ impl Kernel {
         // Times and deadlines come due here; jobs step only here, never
         // while input waits.
         self.works.ticking();
+        self.native_tick();
         self.finish()
     }
 
@@ -1173,14 +1160,16 @@ impl Kernel {
     /// [`events::SUSPEND`].
     pub fn suspend(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
+        // Fingers and keys held under a native filter's capture are let go.
+        self.shared.native_input.clear();
         self.now = now;
         self.suspended_at = Some(now);
         self.shared.usage.sleeps = self.shared.usage.sleeps.saturating_add(1);
         self.output.commands.push(events::SUSPEND.emit(()));
         self.bluetooth_suspend();
+        self.firmware_suspend();
         let effects = self.finish();
-        // Asleep, no word is hyphenated: the tables open give their heap
-        // back (and the card may be another on waking).
+        // Asleep, no word is hyphenated: open tables give their heap back.
         self.shared.hyphenation.close_tables();
         self.keep_timing();
         // What plugins saved, and what storage kept back, written.
@@ -1208,6 +1197,7 @@ impl Kernel {
     /// asleep.
     pub fn resume(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
+        self.shared.native_input.clear();
         self.woke(now);
         self.finish()
     }
@@ -1220,10 +1210,10 @@ impl Kernel {
         }
         self.now = now;
         self.last_activity = now;
-        // The time asleep is no screen's.
-        self.shown_since = now;
+        self.shown_since = now; // the time asleep is no screen's
         self.close_shut_out();
         self.count_free_again(now);
+        self.native_work_woke();
         self.output.commands.push(events::RESUME.emit(()));
     }
 
@@ -1276,6 +1266,15 @@ struct Shared {
     /// The native runtime's producer endpoint; absent before runtime installation.
     native_events: Option<Box<dyn native_host::event_producers::EventSink>>,
     native_instances: native_host::native_instances::NativeInstances,
+    /// The captures of the native `core.input-filter` chain.
+    native_input: native_host::ui_input::InputFilters,
+    /// The native input filters read from the declarations, until they change.
+    native_filters: Option<native_host::input_chain::FilterCache>,
+    /// Whether the last input had a native filter refused (told once).
+    native_input_refused: bool,
+    /// The shells' device-wide callback depth, kept from the first native
+    /// plugin: the host's own stage runs enter it at depth 0.
+    native_depth: Option<native_host::flat::FlatDepth>,
     /// The screens and slots plugins added (in here so that a screen can
     /// make another to host it: [`Env::make_screen`]).
     registry: Registry,
@@ -1283,7 +1282,13 @@ struct Shared {
     settings: Settings,
     translator: Translator,
     fonts: Fonts,
+    stack_rows: alloc::rc::Rc<native_host::stack_rows::StackRows>,
+    /// The refused bindings told of while a screen guarded ([`key_guard`]).
+    key_guard_warned: key_guard::Warned,
     font_removals: alloc::rc::Rc<native_host::font_removals::FontRemovals>,
+    /// The generation of `core.registry`, bumped when a list it reads changes.
+    registry_generation: alloc::rc::Rc<native_host::registry_generation::RegistryGeneration>,
+    device_log: native_host::device_log::DeviceLog,
     formats: Formats,
     hyphenation: Hyphenation,
     hyphen_feed: hyphen_feed::HyphenFeed,
@@ -1345,7 +1350,7 @@ struct Shared {
     /// background work, whose notices become notes (see [`work`]).
     reader: bool,
     /// Text copied here.
-    clipboard: String,
+    clipboard: alloc::rc::Rc<native_host::ui_clipboard::ClipboardCell>,
     /// The system's clipboard has text (see
     /// [`Kernel::set_clipboard_available`]).
     system_clipboard: bool,
@@ -1400,74 +1405,6 @@ struct Shared {
     meter: alloc::rc::Rc<meter::Meter>,
 }
 
-impl Shared {
-    fn env(&self, now: Instant) -> Env<'_> {
-        self.env_parts(now).with_screen_maker(&self.registry)
-    }
-
-    fn env_parts(&self, now: Instant) -> Env<'_> {
-        Env::from(EnvParts {
-            device: &self.device,
-            now,
-            metrics: Metrics::new(self.device.display.dpi),
-            settings: &self.settings,
-            i18n: &self.translator,
-            fonts: &self.fonts,
-            formats: &self.formats,
-            hyphenation: &self.hyphenation,
-            menus: &self.menus,
-            actions: &self.actions,
-            plugins: &self.plugins,
-            status: &self.status,
-            usage: &self.usage,
-            plugin_usage: &self.meter.table,
-            status_items: &self.status_items,
-            widgets: &self.widgets,
-            setup: &self.setup,
-            services: &self.services,
-            text_filters: &self.text_filters,
-            decorators: &self.decorators,
-            page_layers: &self.page_layers,
-            lookup: &self.lookup,
-            readers: &self.readers,
-            stylesheets: &self.stylesheets,
-            book_data: &self.book_data,
-            book_fields: &self.book_fields,
-            book_badges: &self.book_badges,
-            caps: self.caps,
-            wifi: self.wifi.as_ref(),
-            bluetooth: self.bluetooth.as_ref(),
-            firmware: self.firmware.as_ref(),
-            native: self.native.as_ref(),
-            power: &self.power,
-            work: &self.work_states,
-            reader: self.reader,
-            clipboard: self.system_clipboard || !self.clipboard.is_empty(),
-            last_input: self.last_input,
-            inputs: &self.inputs,
-            content: self.content,
-            stack: &self.stack,
-            slots: &self.slots,
-            screens: self.registry.screens.list(),
-            font_dirs: &self.font_dirs,
-            catalog_device: self.catalog_device,
-            secrets: &self.secrets,
-            running: &*self.meter,
-            random: self.random,
-            memory: self.memory,
-            clock: self.meter.clock(),
-            started: self.started,
-            slept_for: self.slept_for,
-            panel: self.panel,
-            keys_held: &self.keys_held,
-            room: self.room,
-            storage: self.storage.as_ref(),
-            keys: &self.keymap,
-            look: self.look.0,
-        })
-    }
-}
-
 /// A pen above the screen (reserved): no screen hears it yet, and it is
 /// not the reader's doing.
 fn hovering(event: &InputEvent) -> bool {
@@ -1480,15 +1417,6 @@ fn hovering(event: &InputEvent) -> bool {
     )
 }
 
-/// `text` cut to what the clipboard holds, at a character boundary.
-fn clipped(text: &str) -> String {
-    let mut end = text.len().min(paperpaw_sdk::MAX_CLIPBOARD);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    String::from(&text[..end])
-}
-
 /// Whether this build renders OpenType/TrueType fonts.
 fn paperpaw_text_outlines() -> bool {
     paperpaw_sdk::text::OUTLINES
@@ -1496,3 +1424,10 @@ fn paperpaw_text_outlines() -> bool {
 
 #[cfg(all(test, target_arch = "x86_64", target_os = "linux"))]
 mod native_battery_pixel_tests;
+
+/// The host's own plugin id: no installed, linked or native plugin may take
+/// it, so no plugin's action passes for a host `core.*` one (`ui.md` 4.3).
+/// The same literal is refused by `paperpaw_native::bundle` (`Bundle::read`),
+/// `paperpaw_sdk::install::is_plugin_name` and the hyphenation-packs check;
+/// change them together.
+pub(crate) const RESERVED_PLUGIN_ID: &str = "core";

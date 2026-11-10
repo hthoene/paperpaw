@@ -38,9 +38,9 @@ Overlong, overflowing or truncated varints are malformed.
 | 34 | `event.suspend` | `now_ms: u64` |
 | 35 | `event.stopping` | `now_ms: u64` |
 | 36 | `event.battery_measured` | `now_ms: u64` |
-| 37 | `event.page_turned` | `now_ms: u64`, `section: u32`, `offset: u32`, `progress_ppm: u32`, `path: str 512`, `title: str 256`, `chapter: str 256`; optional (appended, bits 0 and 1, no default: `Option<u32>`): `page: u32`, `pages: u32` (absent until the reader counted the pages; pages count from 1, so a present 0, or a page past the count, is refused) |
+| 37 | `event.page_turned` | `now_ms: u64`, `section: u32`, `offset: u32`, `progress_ppm: u32`, `path: str 512`, `title: str 256`, `chapter: str 256`; optional (appended, bits 0 and 1, no default: `Option<u32>`): `page: u32`, `pages: u32` (absent until the reader counted the pages; pages count from 1, so a present 0, or a page past the count, is refused); optional `insert: u32` (bit 2) and `chapter_left: u32` (bit 3, draft 37: the pages after this one in the chapter, 0 on its last page; only with `page` and `pages`, at most `pages - page`) |
 | 64 | `event.setting_changed` | `now_ms: u64`, `key: str 128`, `old: bytes 512` (empty: no previous value) |
-| 65 | `event.book_opened` | `now_ms: u64`, `section: u32`, `offset: u32`, `progress_ppm: u32`, `path: str 512`, `title: str 256`, `chapter: str 256`, `reason: u32`; optional `page: u32`, `pages: u32`, `insert: u32` (the rules of tag 37) |
+| 65 | `event.book_opened` | `now_ms: u64`, `section: u32`, `offset: u32`, `progress_ppm: u32`, `path: str 512`, `title: str 256`, `chapter: str 256`, `reason: u32`; optional `page: u32`, `pages: u32`, `insert: u32`, `chapter_left: u32` (the rules of tag 37) |
 | 66 | `event.book_closed` | as 65 |
 | 67 | `event.book_finished` | as 65 |
 | 68 | `event.book_moved` | `now_ms: u64`, `from: str 512`, `path: str 512` |
@@ -135,6 +135,16 @@ admits callback registrations only.
 
 `EVENT_TICK_TAG` is emitted from the schema for host event dispatch.
 
+- [D] **Tick delivery (todo 255).** The host sends `event.tick` to every plugin that registered
+  it, whether or not one of its widgets or screens is live: plugins use the minute for more than
+  widgets (time read, goals, timers), and a filter would make them miss minutes silently. It sends
+  at most one a minute, only while the device is awake, at the wake the shell already makes for
+  the clock and battery (`Kernel::set_status`, about once a minute); it never schedules a wake of
+  its own for a tick. Asleep or suspended there is none and none is caught up afterwards; `now_ms`
+  tells the elapsed time. Registrations are fixed for the run: interface 7 has no unsubscribe,
+  and adding one is a contract change after 1.0. A plugin therefore keeps a tick with nothing to
+  show cheap: no storage write, no `command.widget_changed` unless a shown value changed.
+
 The byte limit is `REGISTRATION_MAX_BYTES = 4096`; registrations also have
 `REGISTRATION_MAX_RECORDS = 8`. Exceeding either limit returns `ERR_NO_SPACE`.
 Malformed input returns `ERR_INVALID`. An insufficient output buffer returns
@@ -169,6 +179,12 @@ even when the plugin ignores the builder's errors. Cross-record references
 (an extra's spec, a group's parent, `follows`) are checked at commit against the
 whole construction, independent of record order.
 
+A plugin whose construction declares or registers anything is admitted: one
+that only registers (events, stages, services, a tick) loads, as in interface 6.
+A construction with neither a declaration nor a registration is an invalid
+plugin (`ERR_INVALID`; the desktop lists it as damaged), never "needs a newer
+PaperPaw" (H1b ruling on #228).
+
 `native_host::declarations` checks each record without a registry and without
 allocating; `registrations::validate_records` decodes a whole batch, validates
 every record, and on any refusal poisons the construction like `submit` does.
@@ -186,8 +202,9 @@ It stages nothing; the loader stages the returned records. Rules:
   settings value (`abi/settings.md`), never absent: bool for kind 0, int for 1,
   text for 2 to 5. An int default lies within `min..=max` and `min <= max`;
   `min` and `max` are 0 for other kinds. `choices` is used only by kind 2, with
-  1 to 32 distinct values of 1 to 96 bytes joined by `\n` (refused as soon as a
-  33rd starts), and `default` is one
+  1 to 64 distinct values of 1 to 96 bytes joined by `\n`, at most 1,024 bytes
+  in all (refused as soon as a 65th starts; 64 since draft 29, for translate's
+  33 languages), and `default` is one
   of them; it is empty for other kinds. A language default is `[A-Za-z0-9-]`,
   at most 35 bytes (empty allowed).
 - `setting.extra`: `check` is 0. Flags: bit0 slider, bit1 section_of_plugin,

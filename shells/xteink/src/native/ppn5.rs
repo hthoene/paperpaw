@@ -6,9 +6,8 @@
 //!
 //! 1. the header is read and checked against this firmware (steps 1 to 7);
 //!    the file must be the one installed;
-//! 2. the room is found and the image placed (ESP32-C3 only: the X4 Pro and
-//!    the X4 Classic refuse every format-5 file at step 3, target 9 having
-//!    no profile yet);
+//! 2. the room is found and the image placed (flash on the ESP32-C3; PSRAM on
+//!    the ESP32-S3, target 9: the X4 Pro and the X4 Classic, decision 142);
 //! 3. the digest, every word to relocate, and the entry and metadata as they
 //!    will lie once placed (relocated in RAM) are checked on the file,
 //!    before a sector of the flash is erased (`Flash::put5`, steps 8 and 9):
@@ -53,9 +52,18 @@ use paperpaw_native::header5::{HEADER_LEN, Header5, Host, Refusal};
 use paperpaw_platform::Storage;
 use paperpaw_sdk::{Plugin, PluginProblem};
 
-/// What this firmware is, to compare a file with: the X4 at the interface
-/// minor the generated ABI says.
+/// What this firmware is, to compare a file with: the X4 (target 5) or the X4
+/// Pro and X4 Classic (target 9) at the interface minor the generated ABI says.
+#[cfg(feature = "esp32c3")]
 pub(super) const HOST: Host = Host::x4(paperpaw_native::host_glue::MINOR);
+#[cfg(feature = "esp32s3")]
+pub(super) const HOST: Host = Host::x4_pro(paperpaw_native::host_glue::MINOR);
+
+/// The metadata profile of this firmware's chip (`abi/entry.md`).
+#[cfg(feature = "esp32c3")]
+const PROFILE: paperpaw_native::metadata::Profile<'static> = paperpaw_native::header5::X4_PROFILE;
+#[cfg(feature = "esp32s3")]
+const PROFILE: paperpaw_native::metadata::Profile<'static> = paperpaw_native::header5::S3_PROFILE;
 
 /// The newest format a header may carry for [`is_format5`] to take the file
 /// as one of ours: the reader below says what it is.
@@ -90,12 +98,20 @@ fn refused(path: &str, head: &[u8], why: Refusal) -> PluginProblem {
 /// [module documentation](self)). `place` puts the image where it runs.
 pub fn load(
     place: &mut super::Place,
-    depth: &mut Option<FlatDepth>,
+    depth: &FlatDepth,
     resources: &mut Option<HostResources>,
+    device: &alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
     storage: &dyn Storage,
     code: &CodeFile<'_>,
 ) -> Result<Box<dyn Plugin>, PluginProblem> {
     let path = code.path;
+    #[cfg(feature = "esp32s3")]
+    if !scanned_table_is_handed() {
+        warn!(
+            "native: {path} not run: the host table the frame scan read is not the one handed to plugins"
+        );
+        return Err(PluginProblem::Unsupported);
+    }
     let started = crate::micros();
     let size = storage.size(path).map_err(|_| PluginProblem::Damaged)?;
     let mut head = [0u8; HEADER_LEN];
@@ -108,27 +124,22 @@ pub fn load(
         warn!("native: {path} is not the file installed");
         return Err(PluginProblem::Changed);
     }
-    #[cfg(feature = "esp32c3")]
-    {
-        let (placed, make, declared) = x4::verified(place, storage, code, &header, started)?;
-        x4::run(
-            place, code, &header, &placed, make, depth, resources, declared, started,
-        )
-    }
-    #[cfg(not(feature = "esp32c3"))]
-    {
-        // Unreachable in practice: the X4 Pro's files are target 9, refused
-        // by the header; any other chip is refused as another build.
-        let _ = (place, depth, resources, started);
-        Err(PluginProblem::OtherBuild)
-    }
+    let (placed, make, declared) = x4::verified(place, storage, code, &header, started)?;
+    x4::run(
+        place, code, &header, &placed, make, depth, resources, device, declared, started,
+    )
 }
 
-#[cfg(feature = "esp32c3")]
+#[cfg(all(feature = "static-native", feature = "esp32c3"))]
+pub(crate) use x4::register_linked_probe;
+#[cfg(feature = "esp32s3")]
+pub(super) use x4::scanned_table_is_handed;
 pub(super) use x4::{StorageSource, entry_check_failed};
 
-/// The ESP32-C3's part: the image is placed in flash and its entry read.
-#[cfg(feature = "esp32c3")]
+/// The loader both chips share (the module keeps its first name): the image is
+/// placed (flash on the ESP32-C3, PSRAM on the ESP32-S3), its entry read, and
+/// `make` run. What is the chip's is [`HOST`], [`PROFILE`] and
+/// `crate::native::Placed5`.
 mod x4 {
     use alloc::boxed::Box;
     use alloc::vec::Vec;
@@ -224,7 +235,7 @@ mod x4 {
         code: &CodeFile<'_>,
         header: &Header5,
         started: u64,
-    ) -> Result<(crate::native::flash::Placed5, u32, shell::DeclaredServices), PluginProblem> {
+    ) -> Result<(crate::native::Placed5, u32, shell::DeclaredServices), PluginProblem> {
         let path = code.path;
         // The metadata record as the file has it: at most 2 KiB, however large
         // the file.
@@ -248,8 +259,8 @@ mod x4 {
         let offered = metadata::Host {
             abi_major: HOST.abi_major,
             minor: HOST.minor,
-            profile: paperpaw_native::header5::X4_PROFILE,
-            services: shell::DATA_SERVICES,
+            profile: super::PROFILE,
+            services: &crate::device_host::OFFERED,
             // Nothing is advertised until a family is wired here and its
             // commands check `features().feature(key)`: a plugin that needs a
             // feature is refused, and one that merely asks for it keeps no bit.
@@ -289,7 +300,7 @@ mod x4 {
     fn check_placed(
         path: &str,
         header: &Header5,
-        placed: &crate::native::flash::Placed5,
+        placed: &crate::native::Placed5,
         facts: &RecordFacts,
         record: &[u8],
     ) -> Result<u32, PluginProblem> {
@@ -336,6 +347,32 @@ mod x4 {
     /// The X4's heap and clock for a plugin: the firmware's allocator, so a
     /// plugin's allocations count against the heap like everything else.
     pub(super) struct X4Services;
+
+    /// The host table of this firmware's services as a named, read-only
+    /// static, for `paperpaw-sign frames-s3`: the scan reads a table's function
+    /// pointers from the ELF by the symbol's name (the table the loader hands a
+    /// plugin is a promoted constant with no symbol of its own). Built by the
+    /// same `host_table::<X4Services>()` that makes that constant, so the
+    /// roots it gives are the ones a plugin reaches; it is never read at run
+    /// time (`#[used]` keeps it, about 150 bytes of flash on the S3 only).
+    #[cfg(feature = "esp32s3")]
+    #[used]
+    #[unsafe(no_mangle)]
+    pub static PAPERPAW_HOST_TABLE_ANCHOR: paperpaw_native::host_glue::PpHost =
+        shell::host_table::<X4Services>();
+
+    /// Whether the static the S3 scan reads ([`PAPERPAW_HOST_TABLE_ANCHOR`])
+    /// is the table the loader hands plugins (`handed_table`), slot by slot.
+    /// If they ever differed the scan would check the roots of another table
+    /// than the one a plugin calls through; checked before the first file is
+    /// placed, a few words compared.
+    #[cfg(feature = "esp32s3")]
+    pub(in crate::native) fn scanned_table_is_handed() -> bool {
+        shell::same_table(
+            &PAPERPAW_HOST_TABLE_ANCHOR,
+            shell::handed_table::<X4Services>(),
+        )
+    }
 
     impl Services for X4Services {
         fn alloc(&self, size: usize, align: usize) -> *mut u8 {
@@ -385,14 +422,74 @@ mod x4 {
     /// plugin that still runs).
     pub(super) struct FlashModule;
 
-    fn call_begin(id: &str) {
+    fn call_begin(id: &str) -> bool {
+        // The ESP32-S3's band needs the call to start at interrupt level 0
+        // on the first core (todo 185): otherwise it is refused, and the
+        // plugin is not run.
+        if !crate::stack::dispatch_allowed() {
+            return false;
+        }
         crate::safe_mode::calling(id);
+        true
     }
 
     fn call_end(_id: &str) {
         // A hit restarts the X4 by a panic with the id still set.
         crate::stack::check();
         crate::safe_mode::returned();
+    }
+
+    /// Registers the linked plugins through the kernel (`Kernel::register_linked`)
+    /// so the image carries the host's code that hosts them. MEASUREMENT ONLY
+    /// (`static-native`): the caller never takes this branch, because the stack
+    /// gate (`abi/heap-word.md` section 6) holds every interface-7 plugin back.
+    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+    #[inline(never)]
+    pub(crate) fn register_linked_probe(
+        kernel: &mut paperpaw_core::Kernel,
+        table: &crate::native::DeviceTable,
+    ) {
+        fn linked_report(_: &X4Services, tag: u32, status: i32) {
+            warn!("native: linked: call {tag} ended with {status}");
+        }
+        let offered = metadata::Host {
+            abi_major: HOST.abi_major,
+            minor: HOST.minor,
+            profile: super::PROFILE,
+            // The table the probe shares has `core.device` wired, but the probe
+            // offers the data services alone: a linked plugin is not given the
+            // device service.
+            services: shell::DATA_SERVICES,
+            features: X4_FEATURES,
+        };
+        // The loader's own table of handles and callback-depth counter (one of
+        // each for the device), not a second: the kernel refuses a plugin that
+        // brings another counter.
+        let (Some(depth), Some(resources)) = (table.depth(), table.share()) else {
+            return;
+        };
+        for (id, linked) in paperpaw_app::NATIVE_PLUGINS.iter() {
+            let Some(share) = resources.try_clone() else {
+                return;
+            };
+            // SAFETY: `linked` comes from `native_plugin!(..., linked = NAME)` of
+            // a crate linked into this firmware: its factory obeys the SDK's
+            // native factory contract and its code stays for the whole run.
+            let status = unsafe {
+                kernel.register_linked(
+                    linked.entry(),
+                    linked.metadata(),
+                    &offered,
+                    id,
+                    X4Services,
+                    share,
+                    &depth,
+                    report,
+                    linked_report,
+                )
+            };
+            warn!("native: linked {id}: {status:?}");
+        }
     }
 
     /// The owner's fallback report of a teardown step that failed (called
@@ -424,9 +521,10 @@ mod x4 {
     struct Prepare<'a> {
         id: &'a str,
         header: &'a Header5,
-        placed: &'a crate::native::flash::Placed5,
+        placed: &'a crate::native::Placed5,
         place: &'a mut crate::native::Place,
         resources: &'a mut Option<HostResources>,
+        device: &'a alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
         name: Option<alloc::string::String>,
         share: Option<HostResources>,
     }
@@ -441,13 +539,11 @@ mod x4 {
 
         fn table(&mut self) -> Result<(), PluginProblem> {
             if self.resources.is_none() {
-                *self.resources = Some(HostResources::try_new().map_err(|_| {
-                    warn!(
-                        "native: {}: no room for the host's table of handles",
-                        self.id
-                    );
-                    PluginProblem::NoRoom
-                })?);
+                let device: alloc::rc::Rc<
+                    dyn paperpaw_core::native_host::device_service::DeviceHost,
+                > = self.device.clone();
+                *self.resources =
+                    Some(crate::native::new_resources(Some(device)).ok_or(PluginProblem::NoRoom)?);
             }
             Ok(())
         }
@@ -509,14 +605,22 @@ mod x4 {
         place: &mut crate::native::Place,
         code: &CodeFile<'_>,
         header: &Header5,
-        placed: &crate::native::flash::Placed5,
+        placed: &crate::native::Placed5,
         make: u32,
-        depth: &mut Option<FlatDepth>,
+        depth: &FlatDepth,
         resources: &mut Option<HostResources>,
+        device: &alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
         declared_services: shell::DeclaredServices,
         started: u64,
     ) -> Result<Box<dyn Plugin>, PluginProblem> {
         let id = code.id.as_str();
+        // The device's one counter, a counted share of it, taken before anything
+        // is made: the core's `into_plugin` then never makes a counter of its own
+        // (the kernel refuses a plugin that brings another).
+        let Some(depth) = depth.try_clone() else {
+            return Err(PluginProblem::NoRoom);
+        };
+        let mut depth = Some(depth);
         // Plugin calls into the host's slots are told to the record of calls,
         // so the Power-hold escape never blames a plugin for waiting on the host.
         paperpaw_core::native_host::host_slot::set(
@@ -536,6 +640,7 @@ mod x4 {
             placed,
             place,
             resources,
+            device,
             name: None,
             share: None,
         };
@@ -604,7 +709,7 @@ mod x4 {
         // fallible, a full heap is `NoRoom`, never an abort. A refusal drops
         // the instance exactly once.
         let plugin = instance
-            .into_plugin(manifest, depth, code.host)
+            .into_plugin(manifest, &mut depth, code.host)
             .map_err(|why| {
                 warn!("native: {id}: format 5: {why:?}");
                 match why {

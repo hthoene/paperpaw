@@ -29,19 +29,24 @@ const CASES: [Case; 5] = [
         blocked_by: &["H2", "H4"],
     },
     // Text from a hardware keyboard or a remote control (interface 6
-    // `type-text`) has no interface-7 input yet (draft 22: event.text_typed).
+    // `type-text`, now `event.text_typed`, 109): the plugin adds it to its
+    // field like typed keys and `done` confirms; what needs the host is the
+    // dialog on top and the dispatch of the event to it.
     Case {
         name: "keyboard-type-text",
         golden: None,
-        blocked_by: &["H4"],
+        blocked_by: &["H1", "H4"],
     },
-    // Layouts other plugins add come by the stage `keyboard.layouts@1` (schema
-    // and codec still to write), and hiding layouts the fonts cannot draw needs
-    // the glyph query (Kernel draft 22).
+    // Layouts other plugins add come by the stage `keyboard.layouts@1` (schema,
+    // codec and the reading in `native_layouts`, compared with interface 6's
+    // rules); the host does not run stages yet (slot 32), so a subscriber's
+    // layout cannot be shown on the keyboard. Hiding layouts and variants the
+    // fonts cannot draw (`text.covers`, slot 39) is done and tested on what
+    // the query answers; the host's own answer needs a font to ask.
     Case {
         name: "keyboard-added-layouts",
         golden: None,
-        blocked_by: &["STAGE", "H1"],
+        blocked_by: &["stage-host-wiring"],
     },
 ];
 
@@ -74,13 +79,13 @@ fn keyboard_paste_phone() {
 }
 
 #[test]
-#[ignore = "BLOCKED H4: no interface-7 type-text input yet"]
+#[ignore = "BLOCKED H1/H4: the dialog on top and the dispatch of event 109 are not qualified"]
 fn keyboard_type_text() {
     CASES[3].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED STAGE: no keyboard.layouts@1 stage or glyph query yet"]
+#[ignore = "BLOCKED stage-host-wiring: the host does not run stages yet"]
 fn keyboard_added_layouts() {
     CASES[4].refuse().unwrap();
 }

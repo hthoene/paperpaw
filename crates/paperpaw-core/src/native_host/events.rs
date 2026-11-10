@@ -11,15 +11,44 @@
 //! only states, never enforces: see [`bypasses_queue`](crate::native_host::events::bypasses_queue).
 
 use super::registrations::{
-    EVENT_BATTERY_MEASURED_TAG, EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES,
-    EVENT_PAGE_TURNED_PATH_MAX_BYTES, EVENT_PAGE_TURNED_TAG, EVENT_PAGE_TURNED_TITLE_MAX_BYTES,
-    EVENT_RESUME_TAG, EVENT_STARTED_TAG, EVENT_STOPPING_TAG, EVENT_SUSPEND_TAG, EVENT_TICK_TAG,
-    EventBatteryMeasured, EventPageTurned, EventResume, EventStarted, EventStopping, EventSuspend,
-    Record, records_decode, records_encode,
+    EVENT_ACTION_RUN_TAG, EVENT_BATTERY_MEASURED_TAG, EVENT_BOOK_CLOSED_TAG,
+    EVENT_BOOK_FINISHED_TAG, EVENT_BOOK_OPENED_TAG, EVENT_BROADCAST_TAG, EVENT_CHARGE_CHANGED_TAG,
+    EVENT_DOCUMENT_CLOSED_TAG, EVENT_FIRMWARE_CHANGED_TAG, EVENT_HTTP_DONE_TAG,
+    EVENT_HTTP_PROGRESS_TAG, EVENT_IMAGE_READY_TAG, EVENT_INSTALL_DONE_TAG, EVENT_LOOKUP_READY_TAG,
+    EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES, EVENT_PAGE_TURNED_PATH_MAX_BYTES, EVENT_PAGE_TURNED_TAG,
+    EVENT_PAGE_TURNED_TITLE_MAX_BYTES, EVENT_PLUGINS_CHANGED_TAG, EVENT_POWER_CHANGED_TAG,
+    EVENT_PREVIEW_CHANGED_TAG, EVENT_REGISTRY_CHANGED_TAG, EVENT_RESUME_TAG,
+    EVENT_SCREEN_READY_TAG, EVENT_SCREEN_SHOWN_TAG, EVENT_SERVED_REQUEST_TAG, EVENT_SERVER_TAG,
+    EVENT_SETTING_CHANGED_TAG, EVENT_SOCKET_TAG, EVENT_STARTED_TAG, EVENT_STATUS_CHANGED_TAG,
+    EVENT_STOPPING_TAG, EVENT_SUSPEND_TAG, EVENT_TICK_TAG, EVENT_WIDGET_CHANGED_TAG,
+    EVENT_WIFI_CHANGED_TAG, EVENT_WIFI_DONE_TAG, EVENT_WORK_ALLOWED_TAG, EVENT_WORK_DUE_TAG,
+    EVENT_WORK_REFUSED_TAG, EventBatteryMeasured, EventPageTurned, EventResume, EventStarted,
+    EventStopping, EventSuspend, REGISTRATION_MAX_RECORDS, Record,
 };
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED};
+use super::registrations::{EVENT_BOOK_MOVED_TAG, EVENT_BOOK_REMOVED_TAG, EVENT_STACK_CHANGED_TAG};
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
 
-/// Whether `tag` names an event a plugin can register for: tick (3) and 32-37.
+/// Whether `tag` names an event a plugin can register for: tick (3), 32-37,
+/// `event.setting_changed` (64), the hints 70-74 and the registry's hints
+/// `event.registry_changed` (75) and `event.preview_changed` (76)
+/// (`setting_events`), `event.widget_changed` (86, `widget_events`), the
+/// firmware events 96 and 97 (`firmware_events`), the events of the services
+/// the kernel pumps: `core.net` 99-102 and `core.sockets` 106-107 and
+/// `core.document` 108 (`service_pump`), `event.image_ready` 90
+/// (`image_pump`) and `event.lookup_ready` 110 (`core.lookup`; both check the
+/// subscription before they deliver), and `event.book_opened`,
+/// `event.book_closed`, `event.book_finished`, `event.book_moved` and
+/// `event.book_removed` (65-69): registered now,
+/// delivered when the reader port produces them (`core-events.md` 3.3: the
+/// host never fails a registration for an event a device does not raise, and
+/// until the reading session reports, nothing raises these). The same holds
+/// for `event.stack_changed` (81, a hint, `ui.md` 5.1): a plugin that closes
+/// what a covering screen hides registers for it.
+///
+/// The answers of a plugin's own requests register as well: `event.wifi_done` (93,
+/// ended `join` and `host`; `wifi_events`) and the work events 103-105
+/// (`work_pump`).
+///
 /// Never 38 or 39: those go to the token of the screen or action declaration
 /// they name (`docs/abi/screens-input.md` section 2).
 #[must_use]
@@ -33,6 +62,37 @@ pub const fn is_event_tag(tag: u32) -> bool {
             | EVENT_STOPPING_TAG
             | EVENT_BATTERY_MEASURED_TAG
             | EVENT_PAGE_TURNED_TAG
+            | EVENT_HTTP_DONE_TAG
+            | EVENT_HTTP_PROGRESS_TAG
+            | EVENT_SERVER_TAG
+            | EVENT_SERVED_REQUEST_TAG
+            | EVENT_SOCKET_TAG
+            | EVENT_BROADCAST_TAG
+            | EVENT_BOOK_OPENED_TAG
+            | EVENT_DOCUMENT_CLOSED_TAG
+            | EVENT_IMAGE_READY_TAG
+            | EVENT_LOOKUP_READY_TAG
+            | EVENT_BOOK_CLOSED_TAG
+            | EVENT_BOOK_FINISHED_TAG
+            | EVENT_BOOK_MOVED_TAG
+            | EVENT_BOOK_REMOVED_TAG
+            | EVENT_STACK_CHANGED_TAG
+            | EVENT_SETTING_CHANGED_TAG
+            | EVENT_PLUGINS_CHANGED_TAG
+            | EVENT_WIFI_CHANGED_TAG
+            | EVENT_FIRMWARE_CHANGED_TAG
+            | EVENT_INSTALL_DONE_TAG
+            | EVENT_POWER_CHANGED_TAG
+            | EVENT_STATUS_CHANGED_TAG
+            | EVENT_CHARGE_CHANGED_TAG
+            | EVENT_WIDGET_CHANGED_TAG
+            | EVENT_REGISTRY_CHANGED_TAG
+            | EVENT_PREVIEW_CHANGED_TAG
+            | EVENT_SCREEN_READY_TAG
+            | EVENT_WIFI_DONE_TAG
+            | EVENT_WORK_DUE_TAG
+            | EVENT_WORK_REFUSED_TAG
+            | EVENT_WORK_ALLOWED_TAG
     )
 }
 
@@ -58,7 +118,7 @@ pub fn encode(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
         | Record::EventBatteryMeasured(_)
         | Record::EventPageTurned(_)
         | Record::EventScreenShown(_)
-        | Record::EventActionRun(_) => records_encode(&[*record], out),
+        | Record::EventActionRun(_) => super::codec::encode_batch(&[*record], out),
         _ => Err(ERR_INVALID),
     }
 }
@@ -150,16 +210,17 @@ fn sound(progress_ppm: u32, page: Option<u32>, pages: Option<u32>) -> bool {
         && !matches!((page, pages), (Some(page), Some(pages)) if page > pages)
 }
 
-/// Encode `event.page_turned`, cutting each string to its cap at a char boundary.
+/// The `event.page_turned` record for `turn`, each string cut to its cap at a
+/// char boundary. Nothing is encoded or allocated.
 ///
 /// # Errors
 /// `ERR_INVALID` for `progress_ppm` over 1,000,000, a `Some(0)` page or count, or a
-/// page past the count; `ERR_NO_SPACE` when `out` is too small.
-pub fn encode_page_turned(turn: &PageTurn<'_>, out: &mut [u8]) -> Result<usize, i32> {
+/// page past the count.
+pub(crate) fn page_turned_record<'a>(turn: &PageTurn<'a>) -> Result<EventPageTurned<'a>, i32> {
     if !sound(turn.progress_ppm, turn.page, turn.pages) {
         return Err(ERR_INVALID);
     }
-    let record = EventPageTurned {
+    Ok(EventPageTurned {
         now_ms: turn.now_ms,
         section: turn.section,
         offset: turn.offset,
@@ -171,9 +232,48 @@ pub fn encode_page_turned(turn: &PageTurn<'_>, out: &mut [u8]) -> Result<usize, 
         pages: turn.pages,
         // The kernel reader inserts no content: every page starts in text (N5).
         insert: None,
-    };
-    encode(&Record::EventPageTurned(record), out)
+        chapter_left: None,
+    })
 }
+
+/// Encode `event.page_turned`, cutting each string to its cap at a char boundary.
+///
+/// # Errors
+/// `ERR_INVALID` for `progress_ppm` over 1,000,000, a `Some(0)` page or count, or a
+/// page past the count; `ERR_NO_SPACE` when `out` is too small.
+pub fn encode_page_turned(turn: &PageTurn<'_>, out: &mut [u8]) -> Result<usize, i32> {
+    encode(&Record::EventPageTurned(page_turned_record(turn)?), out)
+}
+
+/// Whether the batch's leading count is a whole, canonical varint above
+/// `REGISTRATION_MAX_RECORDS`: `ERR_NO_SPACE`, before any record is read (as
+/// the counted batch decoder answered). A malformed count is left to the
+/// framing's own status.
+fn count_over_max(bytes: &[u8]) -> bool {
+    let mut count = 0_u32;
+    for (index, byte) in bytes.iter().take(5).enumerate() {
+        if index == 4 && *byte > 15 {
+            return false;
+        }
+        count |= u32::from(byte & 0x7f) << (7 * index as u32);
+        if byte & 0x80 == 0 {
+            return (index == 0 || *byte != 0) && count as usize > REGISTRATION_MAX_RECORDS;
+        }
+    }
+    false
+}
+
+/// The tags `decode` reads.
+const EVENT_TAGS: [u32; 8] = [
+    EVENT_STARTED_TAG,
+    EVENT_RESUME_TAG,
+    EVENT_SUSPEND_TAG,
+    EVENT_STOPPING_TAG,
+    EVENT_BATTERY_MEASURED_TAG,
+    EVENT_SCREEN_SHOWN_TAG,
+    EVENT_ACTION_RUN_TAG,
+    EVENT_PAGE_TURNED_TAG,
+];
 
 /// Decode bytes that hold exactly one event record (tags 32-39).
 ///
@@ -183,11 +283,16 @@ pub fn encode_page_turned(turn: &PageTurn<'_>, out: &mut [u8]) -> Result<usize, 
 /// turn that [`encode_page_turned`] refuses; `ERR_UNSUPPORTED` when that record
 /// is not an event.
 pub fn decode(bytes: &[u8]) -> Result<Record<'_>, i32> {
-    let batch = records_decode(bytes)?;
-    let mut records = batch.iter();
-    let (Some(record), None) = (records.next(), records.next()) else {
-        return Err(ERR_INVALID);
-    };
+    // Only the events are read; a record of any other tag, known or not, is
+    // `ERR_UNSUPPORTED` before its body is looked at.
+    if count_over_max(bytes) {
+        return Err(ERR_NO_SPACE);
+    }
+    let raw = super::registrations::RawRecord::single(bytes)?;
+    if !EVENT_TAGS.contains(&raw.tag()) {
+        return Err(ERR_UNSUPPORTED);
+    }
+    let record = super::codec::decode_single(bytes)?;
     match record {
         Record::EventStarted(_)
         | Record::EventResume(_)
@@ -201,5 +306,25 @@ pub fn decode(bytes: &[u8]) -> Result<Record<'_>, i32> {
         }
         Record::EventPageTurned(_) => Err(ERR_INVALID),
         _ => Err(ERR_UNSUPPORTED),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_count_above_the_batch_cap_is_no_space_and_other_counts_keep_their_status() {
+        // Count 9, then nothing: no record is read.
+        assert_eq!(decode(&[9]).unwrap_err(), ERR_NO_SPACE);
+        assert_eq!(decode(&[0x80, 0x01]).unwrap_err(), ERR_NO_SPACE);
+        // Counts 2..=8 are not one record: ERR_INVALID.
+        for count in 2..=8_u8 {
+            assert_eq!(decode(&[count]).unwrap_err(), ERR_INVALID);
+        }
+        // A non-canonical or truncated count is the framing's own status.
+        assert_eq!(decode(&[0x89, 0x00]).unwrap_err(), ERR_INVALID);
+        assert_eq!(decode(&[0x89]).unwrap_err(), ERR_INVALID);
+        assert_eq!(decode(&[]).unwrap_err(), ERR_INVALID);
     }
 }

@@ -1,6 +1,7 @@
 //! Input rules shared by the ops of `core.library` (`library.md` 2): a book
 //! is named by `lib_ref` as the first record, then the op's own records.
 use super::super::registrations::{self as wire, Record};
+use crate::native_host::codec;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_STATE};
 
 /// A book as the caller named it: by root-1 path, or by catalog handle with the
@@ -35,14 +36,13 @@ pub(super) fn book_ref<'a>(
     }
 }
 
-/// A first path segment root 1 never reaches: `plugins` (the install folders)
-/// and `.paperpaw` (the kernel's data and every plugin's), by identity: the
+/// A first path segment root 1 never reaches: `plugins` (the install folders),
+/// `.paperpaw` (the kernel's data and every plugin's) and `paperpaw.ini` (the
+/// kernel's settings: a plugin must not turn off the second firmware), by identity: the
 /// service compares the spelling (FAT ignores case), the host resolves what
 /// else names them (an 8.3 alias such as `PAPERP~1`).
 pub(super) fn excluded(host: &dyn super::LibHost, first: &str) -> bool {
-    first.eq_ignore_ascii_case("plugins")
-        || first.eq_ignore_ascii_case(".paperpaw")
-        || host.excluded(first)
+    super::super::owner_paths::protected_first(first) || host.excluded(first)
 }
 
 /// A path of the library: root 1's grammar, and not below an excluded folder
@@ -89,6 +89,6 @@ pub(super) fn with_ref<const N: usize>(input: &[u8]) -> Result<Parsed<'_, N>, i3
 }
 
 /// An input of exactly one record (ops that take no `lib_ref`).
-pub(super) fn single(input: &[u8]) -> Result<Record<'_>, i32> {
-    wire::records_decode_single(input)
+pub(super) fn single<'a, R: wire::WireRecord<'a>>(input: &'a [u8]) -> Result<R, i32> {
+    codec::single(input)
 }

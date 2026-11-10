@@ -32,15 +32,16 @@ use super::{
     },
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
+use crate::native_host::codec;
 use alloc::rc::Rc;
 use core::cell::Cell;
 use paperpaw_native::host_glue::{
-    ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED,
+    ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
+    ERR_UNSUPPORTED,
 };
 use paperpaw_platform::Storage;
 
-#[allow(unused_imports, reason = "the emulator and Android shells use Veiling")]
-pub(crate) use super::secrets_file::{Sealer, Veiling};
+pub(crate) use super::secrets_file::Sealer;
 
 /// `uses.secrets`: the feature that reaches another plugin's secrets.
 const USES_SECRETS: &str = "uses.secrets";
@@ -62,7 +63,7 @@ const RANDOM_MAX: usize = 256;
 /// while the radio or the bootloader's entropy source is on, so a shell
 /// reports `strong == false` (or fails) at other times; nothing that makes a
 /// key, a token or a nonce may rely on weak bytes.
-pub(crate) trait Rng {
+pub trait Rng {
     /// Fills `out` and says whether the source is fully random now (`strong`).
     /// A device without a source is not wired; there is no weaker stand-in.
     fn fill(&self, out: &mut [u8]) -> Result<bool, i32>;
@@ -108,7 +109,6 @@ impl SecretsServices {
     ///
     /// # Errors
     /// `ERR_IO` (nothing changed), `ERR_NO_MEMORY`.
-    #[allow(dead_code, reason = "the shell calls it at start; tests do today")]
     pub(crate) fn upgrade(&self) -> Result<bool, i32> {
         if !self.host.sealer().seals() {
             return Ok(false);
@@ -127,13 +127,24 @@ impl SecretsServices {
     ///
     /// # Errors
     /// `ERR_IO` (nothing changed), `ERR_NO_MEMORY`, `ERR_INVALID`.
-    #[allow(dead_code, reason = "the uninstall path calls it; tests do today")]
+    #[allow(
+        dead_code,
+        reason = "the removal job uses [`forget_owner`]; tests this"
+    )]
     pub(crate) fn forget_plugin(&self, plugin: &str) -> Result<(), i32> {
-        check_owner(plugin)?;
-        let mut file = File::new(&*self.host)?;
-        file.rewrite(&Change::DropOwner(plugin))
-            .map_err(|e| self.failed(e))
+        forget_owner(&*self.host, plugin).map_err(|e| self.failed(e))
     }
+}
+
+/// Removes every secret of `plugin` from the file `host` keeps (the removal of
+/// a plugin with its data, decision 124); safe to repeat.
+///
+/// # Errors
+/// `ERR_IO` (nothing changed), `ERR_NO_MEMORY`, `ERR_INVALID`.
+pub(crate) fn forget_owner(host: &dyn SecretsHost, plugin: &str) -> Result<(), i32> {
+    check_owner(plugin)?;
+    let mut file = File::new(host)?;
+    file.rewrite(&Change::DropOwner(plugin))
 }
 
 /// The `core.secrets` backend.
@@ -205,9 +216,7 @@ fn get(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let Record::ServiceSecName(name) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let name: wire::ServiceSecName<'_> = codec::single(input)?;
     // Values never leave their owner, also not for the settings editor, and
     // `plugin` must be "" (secrets.md 2.1): an explicit id, also the caller's
     // own, is `ERR_DENIED`.
@@ -251,7 +260,7 @@ fn get(
         label,
         value: file.opener.value(),
     });
-    wire::record_encode_one(&record, out)
+    codec::encode_one(&record, out)
 }
 
 fn list(
@@ -260,9 +269,7 @@ fn list(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let Record::ServiceSecList(ask) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let ask: wire::ServiceSecList = codec::single(input)?;
     if ask.flags & !ALL != 0 {
         return Err(ERR_UNSUPPORTED);
     }
@@ -277,7 +284,7 @@ fn list(
         next: 0,
         cursor: None,
     };
-    let reserved = wire::record_framed_len(&Record::ServiceEnd(end))?;
+    let reserved = codec::framed_len(&Record::ServiceEnd(end))?;
     let available = out.len().checked_sub(reserved).ok_or(ERR_NO_SPACE)?;
     let mut file = File::new(&*secrets.host)?;
     let File {
@@ -315,7 +322,7 @@ fn list(
         {
             None
         } else {
-            wire::record_encode_one(&record, room).ok()
+            codec::encode_one(&record, room).ok()
         };
         match written {
             Some(length) => {
@@ -343,14 +350,12 @@ fn list(
         next: ask.cursor.checked_add(rows).ok_or(ERR_INVALID)?,
         ..end
     };
-    let length = wire::record_encode_one(&Record::ServiceEnd(end), &mut out[used..])?;
+    let length = codec::encode_one(&Record::ServiceEnd(end), &mut out[used..])?;
     Ok(used + length)
 }
 
 fn keep(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(), i32> {
-    let Record::ServiceSecKeep(ask) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let ask: wire::ServiceSecKeep<'_> = codec::single(input)?;
     if ask.flags & !CHANGEABLE != 0 {
         return Err(ERR_UNSUPPORTED);
     }
@@ -359,6 +364,11 @@ fn keep(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(),
     }
     check_name(ask.name)?;
     check_label(ask.label)?;
+    // A device that does not seal writes nothing (decision 140): no file is
+    // opened, no temporary file is made.
+    if !secrets.host.sealer().seals() {
+        return Err(ERR_STATE);
+    }
     let (owner, own) = target(who, ask.plugin)?;
     let mut file = File::new(&*secrets.host)?;
     let probe = file.probe(owner, ask.name).map_err(|e| secrets.failed(e))?;
@@ -394,9 +404,7 @@ fn keep(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(),
 }
 
 fn remove(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(), i32> {
-    let Record::ServiceSecName(ask) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let ask: wire::ServiceSecName<'_> = codec::single(input)?;
     check_name(ask.name)?;
     let (owner, _) = target(who, ask.plugin)?;
     let mut file = File::new(&*secrets.host)?;
@@ -413,9 +421,7 @@ fn remove(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(
 }
 
 fn random(secrets: &SecretsServices, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let Record::ServiceSecRandom(ask) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let ask: wire::ServiceSecRandom = codec::single(input)?;
     let len = usize::try_from(ask.len).map_err(|_| ERR_INVALID)?;
     if len == 0 || len > RANDOM_MAX {
         return Err(ERR_INVALID);
@@ -428,7 +434,7 @@ fn random(secrets: &SecretsServices, input: &[u8], out: &mut [u8]) -> Result<usi
             flags: if strong { STRONG } else { 0 },
             data: &bytes[..len],
         });
-        wire::record_encode_one(&record, out)
+        codec::encode_one(&record, out)
     });
     file::wipe(&mut bytes);
     result

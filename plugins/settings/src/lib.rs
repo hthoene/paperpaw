@@ -49,6 +49,7 @@ mod group_list;
 mod native_data;
 mod native_entry;
 pub mod native_model;
+pub mod native_secrets;
 #[cfg(test)]
 #[global_allocator]
 static ALLOC: fail_alloc::Failing = fail_alloc::Failing;

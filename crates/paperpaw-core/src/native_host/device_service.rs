@@ -2,7 +2,9 @@
 //! READ side of family DEV, ops 1-5, 7-12, 14 and 15.
 //!
 //! The backend is the generic [`Backend`](super::resources) function and holds
-//! no state. Everything it needs comes from the frame's [`DeviceHost`]: the
+//! no state. Everything it needs comes from the shell's [`DeviceHost`], which
+//! the caller's `hosts` hold (`HostServices::wire_device`, reached by
+//! `Caller::hosts`; not through the frame): the
 //! device's facts as plain data, delivered through visitors so that nothing is
 //! allocated for a reply and nothing is sized by plugin input. The backend owns
 //! the contract: record order and field caps, the `end` record, paging like
@@ -26,11 +28,19 @@ use alloc::rc::Rc;
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::ERR_NOT_FOUND;
 
+mod kernel_models;
+#[cfg(test)]
+mod kernel_tests;
 mod ops;
 mod probe;
 #[cfg(test)]
 mod tests;
 
+#[allow(
+    unused_imports,
+    reason = "the kernel's firmware pump numbers built-ins with it (slice B2)"
+)]
+pub(crate) use ops::DeviceBuiltIns;
 pub(crate) use ops::backend;
 pub use probe::{PROBE_WINDOW_MS, ProbeCache};
 

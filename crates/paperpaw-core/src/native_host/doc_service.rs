@@ -22,16 +22,19 @@ use crate::abi7::{
     context::{Frame, RowsEnd},
     services_wire::ServiceOp,
 };
+use crate::native_host::codec;
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{
-    ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
+    ERR_CANCELLED, ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
 };
 
 mod args;
 mod check;
+mod report;
 mod table;
 #[allow(unused_imports, reason = "the shell builds the table with its limits")]
-pub(crate) use table::{Document, DocumentTable, FormatRef, Limits, PREPARING};
+pub(crate) use args::ROOT_HANDED;
+pub(crate) use table::{Document, DocumentTable, FormatRef, Limits, PREPARING, READY};
 
 /// Operations of `core.format` the host calls (`document.md` 3).
 pub(crate) mod fmt {
@@ -60,6 +63,11 @@ pub(crate) struct Options<'a> {
 }
 impl<'a> Options<'a> {
     pub(crate) const NONE: Options<'static> = Options { batch: &[0] };
+    /// The options of a counted batch of `doc_option` rows (tests).
+    #[cfg(test)]
+    pub(crate) const fn from_batch(batch: &'a [u8]) -> Self {
+        Options { batch }
+    }
     /// Each option in order, `key` a full setting id. The host forwards the
     /// ones of the format's own plugin whole; none is cut, none is dropped.
     pub(crate) fn each(&self, visit: impl FnMut(&wire::ServiceDocOption<'a>)) {
@@ -88,6 +96,10 @@ pub(crate) struct FormatCall<'a> {
     pub(crate) text: &'a str,
     /// Op 2 only.
     pub(crate) options: Options<'a>,
+    /// Op 2 only: the user's CSS file (`doc_open.css_root`, `css_path`;
+    /// `""` for none), which the format reads as root 4.
+    pub(crate) css_root: u32,
+    pub(crate) css_path: &'a str,
 }
 impl FormatCall<'_> {
     fn new(format: FormatRef, op: u32, document: u32) -> Self {
@@ -106,13 +118,31 @@ impl FormatCall<'_> {
             conversion: 0,
             text: "",
             options: Options::NONE,
+            css_root: 0,
+            css_path: "",
         }
     }
+}
+
+/// The file a hand-over names, resolved (`doc_open` root 5).
+pub(crate) struct HandedBook {
+    /// Its path on the card (the maker's data or install folder joined).
+    pub(crate) card_path: alloc::string::String,
+    /// The maker's owner key.
+    pub(crate) maker: u64,
 }
 
 /// Everything the document service needs from the host. The shell implements
 /// it over its declarations, storage and stage broker; tests over fakes.
 pub(crate) trait DocHost {
+    /// This host as a trait object (so [`serve`](Self::serve) can hand it on).
+    fn as_dyn(&self) -> &dyn DocHost;
+    /// Runs `run` with the host that serves one call of `who`, bound to its
+    /// `frame` (the settings, the declarations, a directed stage call). A host
+    /// that needs none of it serves as it is; the production host binds them.
+    fn serve(&self, _frame: &dyn Frame, _who: &Caller<'_>, run: &mut dyn FnMut(&dyn DocHost)) {
+        run(self.as_dyn());
+    }
     /// The calling plugin: a never-reused host owner id. The shell's host
     /// does not know it; the backend wraps it in the call's owner.
     fn owner(&self) -> u64 {
@@ -124,6 +154,26 @@ pub(crate) trait DocHost {
     /// Root 0 is the caller's Data; root 1 needs `uses.storage`
     /// (`ERR_DENIED` without).
     fn root_access(&self, root: u32) -> Result<(), i32>;
+    /// `doc_open` root 5: the card path of the file the caller's hand-over
+    /// names, if `path` is that file (`document.md` 1, draft 25). Read only,
+    /// in the maker's data or install folder.
+    ///
+    /// # Errors
+    /// `ERR_DENIED` (another path, no hand-over, no such instance),
+    /// `ERR_NOT_FOUND` (the maker is not installed, or no such file),
+    /// `ERR_STATE` (the store is busy), `ERR_UNSUPPORTED` until wired,
+    /// `ERR_NO_MEMORY`.
+    fn handed_open(&self, _path: &str) -> Result<HandedBook, i32> {
+        Err(ERR_UNSUPPORTED)
+    }
+    /// The document `document`, just opened, reads a file of `maker`'s
+    /// folders (root 5): the host remembers it, so the document ends when
+    /// the maker goes (`document_of_maker`).
+    fn handed_maker(&self, _document: u32, _maker: u64) {}
+    /// A document that reads a file of `maker`'s folders and is not ended yet.
+    fn document_of_maker(&self, _maker: u64) -> Option<u32> {
+        None
+    }
     /// Section 1: the format that reads `path` (the longest extension, the
     /// user's choice, priority). `requested` is a format id or empty.
     /// `ERR_NOT_FOUND` when none reads it.
@@ -150,11 +200,72 @@ pub(crate) trait DocHost {
     /// same document (ids are generation-checked); the second call does
     /// nothing.
     fn end_images(&self, document: &Document);
+    /// The image ids of documents the host ended out of reach of the image
+    /// table (`end_images` kept them) end now in `images`. A host that ends
+    /// them at once has none to flush.
+    fn flush_images(&self, _images: &super::image_service::ImageTable) {}
     /// The host closed a document on its own (three malformed answers, the
     /// format plugin stopped): the opener gets `event.document_closed`. Only
     /// the event; the service ends the image ids (`end_images`) first and
     /// never calls the format here.
     fn document_closed(&self, document: &Document, reason: u32);
+    /// The oldest `event.document_closed` of `owner` still to deliver,
+    /// encoded into `out` as a one-record batch: its length, or `None`. A
+    /// failure consumes nothing. A host without events has none.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the host's queue is borrowed; `ERR_NO_SPACE` when `out`
+    /// is too small.
+    fn next_event(&self, _owner: u64, _out: &mut [u8]) -> Result<Option<usize>, i32> {
+        Ok(None)
+    }
+    /// Whether an event was raised since the pump's last pass ([`Self::set_now`]
+    /// starts one): the kernel's pump looks again at once. Events left over
+    /// for an owner that does not run are not asked for again.
+    fn events_waiting(&self) -> bool {
+        false
+    }
+    /// The kernel's clock, milliseconds, as the pump last read it: the time
+    /// the events it delivers are stamped with.
+    fn set_now(&self, _now_ms: u64) {}
+    /// An `open` is about to read the card path `path` of root `root`
+    /// (document `document`): the host counts it so the file is not freed under
+    /// the reader. `Err` refuses the open: nothing is opened and the error is
+    /// the `open`'s. Called once per document, before the format.
+    ///
+    /// # Errors
+    /// What the host's in-use table says (`ERR_FULL`, `ERR_BUSY`).
+    fn reader_opened(&self, _document: u32, _root: u32, _path: &str) -> Result<(), i32> {
+        Ok(())
+    }
+    /// Document `document` ended, whichever way (`close`, its opener or format
+    /// stopped, the host closed it, its place was taken): called once per
+    /// document that `reader_opened` accepted.
+    fn reader_closed(&self, _document: u32) {}
+    /// Whether the plugin `owner` shows a screen now. A document of an opener
+    /// that shows none may be taken for a book to show (`document.md` 2.1).
+    fn shows_screen(&self, _owner: u64) -> bool {
+        false
+    }
+    /// The reading session (`document.md` 2.4): a checked report of
+    /// `document`'s reader. `ERR_UNSUPPORTED` where the host keeps none.
+    ///
+    /// # Errors
+    /// `ERR_NO_MEMORY`, `ERR_BUSY` (see `Reading::report`).
+    fn reading_report(
+        &self,
+        _document: &Document,
+        _report: &wire::ServiceDocReport<'_>,
+    ) -> Result<(), i32> {
+        Err(ERR_UNSUPPORTED)
+    }
+    /// The oldest event of the reading session for the kernel's pump.
+    fn take_reading_edge(&self) -> Option<super::doc_reading::Edge> {
+        None
+    }
+    /// The device goes to sleep or off: a book that is open is closed with
+    /// reason 1 (`core-events.md` 3.2).
+    fn reading_sleep(&self, _now_ms: u64) {}
     /// Turn a format's picture into the opener's image id (`document.md`
     /// 5): `Some(id)`, or `Some(0)` where all ids are out and none is drawn
     /// (`in_block` only; else `ERR_BUSY`), or `None` for a picture that fails
@@ -165,6 +276,9 @@ pub(crate) trait DocHost {
         image: &wire::ServiceDocImage,
         in_block: bool,
     ) -> Result<Option<u32>, i32>;
+    /// The format answered that the document is ready (the open, or the
+    /// last preparing call): what the host keeps for it is complete now.
+    fn document_ready(&self, _document: u32) {}
     /// The owner is a format plugin that stopped: it is removed from the
     /// format index and `visit` gets each format reference it had. Nothing
     /// is called on the plugin.
@@ -217,12 +331,56 @@ fn end(host: &dyn DocHost, document: &Document) {
     if !document.format_gone {
         host.close_format(document);
     }
+    // One that the host closed earlier released its reader then; one whose
+    // format retired with its opener (no event) still holds it here.
+    if document.reader_held {
+        host.reader_closed(document.id);
+        host.table().release_reader(document.id);
+    }
 }
 
-/// The host closes a document on its own: image ids end, the opener hears it.
+/// The host closes a document on its own: image ids end, the reader is
+/// released, the opener hears it.
 fn host_closed(host: &dyn DocHost, document: &Document, reason: u32) {
     host.end_images(document);
+    if document.reader_held {
+        host.reader_closed(document.id);
+        host.table().release_reader(document.id);
+    }
     host.document_closed(document, reason);
+}
+
+/// The host ends one document on its own: the card went (reason 2) or its book
+/// was moved or removed (reason 3), or reason 1. The opener hears
+/// `event.document_closed`, later calls but `close` are `ERR_CANCELLED`, and the
+/// book's reader is released. A document already ended is left alone.
+///
+/// # Errors
+/// `ERR_INVALID` for another reason, `ERR_NOT_FOUND`, `ERR_BUSY` (table
+/// borrowed; a retry ends it).
+///
+/// A caller that has the host services ends a document with
+/// `HostServices::end_document_by_host`, which also ends its image ids at
+/// once (this function alone defers them to the next call).
+pub(crate) fn end_by_host(host: &dyn DocHost, id: u32, reason: u32) -> Result<(), i32> {
+    if let Some(document) = host.table().end_by_host(id, reason)? {
+        host_closed(host, &document, reason);
+    }
+    Ok(())
+}
+
+/// A document taken for a book to show (`document.md` 2.1): closed as by
+/// `close` (image ids end, the format gets op 4, the reader is released) and
+/// its opener hears reason 4 `needed`.
+fn taken(host: &dyn DocHost, document: &Document) {
+    host.end_images(document);
+    if !document.format_gone {
+        host.close_format(document);
+    }
+    if document.reader_held {
+        host.reader_closed(document.id);
+    }
+    host.document_closed(document, table::NEEDED);
 }
 
 /// A format plugin stopped or was uninstalled: its documents are closed by the
@@ -260,6 +418,9 @@ struct Cx<'a> {
     owner: u64,
 }
 impl DocHost for Cx<'_> {
+    fn as_dyn(&self) -> &dyn DocHost {
+        self
+    }
     fn owner(&self) -> u64 {
         self.owner
     }
@@ -271,6 +432,15 @@ impl DocHost for Cx<'_> {
     }
     fn root_access(&self, root: u32) -> Result<(), i32> {
         self.host.root_access(root)
+    }
+    fn handed_open(&self, path: &str) -> Result<HandedBook, i32> {
+        self.host.handed_open(path)
+    }
+    fn handed_maker(&self, document: u32, maker: u64) {
+        self.host.handed_maker(document, maker);
+    }
+    fn document_of_maker(&self, maker: u64) -> Option<u32> {
+        self.host.document_of_maker(maker)
     }
     fn select_format(&self, root: u32, path: &str, requested: &str) -> Result<FormatRef, i32> {
         self.host.select_format(root, path, requested)
@@ -297,6 +467,31 @@ impl DocHost for Cx<'_> {
     }
     fn document_closed(&self, document: &Document, reason: u32) {
         self.host.document_closed(document, reason);
+    }
+    fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
+        self.host.reader_opened(document, root, path)
+    }
+    fn document_ready(&self, document: u32) {
+        self.host.document_ready(document);
+    }
+    fn reader_closed(&self, document: u32) {
+        self.host.reader_closed(document);
+    }
+    fn shows_screen(&self, owner: u64) -> bool {
+        self.host.shows_screen(owner)
+    }
+    fn reading_report(
+        &self,
+        document: &Document,
+        report: &wire::ServiceDocReport<'_>,
+    ) -> Result<(), i32> {
+        self.host.reading_report(document, report)
+    }
+    fn take_reading_edge(&self) -> Option<super::doc_reading::Edge> {
+        self.host.take_reading_edge()
+    }
+    fn reading_sleep(&self, now_ms: u64) {
+        self.host.reading_sleep(now_ms);
     }
     fn map_image(
         &self,
@@ -359,36 +554,42 @@ mod op {
     pub(super) const FORMATS: u32 = 19;
     pub(super) const FORMAT_FOR: u32 = 20;
     pub(super) const READERS: u32 = 21;
+    pub(super) const REPORT: u32 = 22;
 }
 
 /// The `core.document` backend.
 pub(crate) fn backend(
-    _frame: &dyn Frame,
+    frame: &dyn Frame,
     who: &Caller<'_>,
     op: &ServiceOp,
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
     let services = who.hosts.documents().ok_or(ERR_UNSUPPORTED)?;
-    let host = &Cx {
-        host: &*services.0,
-        owner: who.owner,
-    };
-    let host: &dyn DocHost = host;
-    match op.id {
-        op::OPEN => open(host, input, out),
-        op::STATE => state(host, input, out),
-        op::CLOSE => close(host, input),
-        op::FORMATS => formats(host, input, usize::from(op.reply_rows.max(64)), out),
-        op::READERS => readers(host, input, usize::from(op.reply_rows.max(64)), out),
-        op::FORMAT_FOR => format_for(host, input, out),
-        op::META..=op::PROGRESS => read(host, op, input, out),
-        _ => Err(ERR_UNSUPPORTED),
-    }
+    let mut result = Err(ERR_STATE);
+    services.0.serve(frame, who, &mut |bound| {
+        let host = &Cx {
+            host: bound,
+            owner: who.owner,
+        };
+        let host: &dyn DocHost = host;
+        result = match op.id {
+            op::OPEN => open(host, input, out),
+            op::STATE => state(host, input, out),
+            op::CLOSE => close(host, input),
+            op::FORMATS => formats(host, input, usize::from(op.reply_rows.max(64)), out),
+            op::READERS => readers(host, input, usize::from(op.reply_rows.max(64)), out),
+            op::FORMAT_FOR => format_for(host, input, out),
+            op::REPORT => report::report(host, input, out),
+            op::META..=op::PROGRESS => read(host, op, input, out),
+            _ => Err(ERR_UNSUPPORTED),
+        };
+    });
+    result
 }
 
 fn encode(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
-    wire::record_encode_one(record, out)
+    codec::encode_one(record, out)
 }
 
 /// `doc_state` of a document, from the table.
@@ -412,18 +613,19 @@ fn state_reply(host: &dyn DocHost, document: &Document, out: &mut [u8]) -> Resul
 }
 
 fn state(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let Record::ServiceDocRef(reference) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let reference: wire::ServiceDocRef = codec::single(input)?;
     let document = host.table().lease(host.owner(), reference.document)?;
     state_reply(host, &document, out)
 }
 
 fn close(host: &dyn DocHost, input: &[u8]) -> Result<usize, i32> {
-    let Record::ServiceDocRef(reference) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
+    let reference: wire::ServiceDocRef = codec::single(input)?;
+    let document = match host.table().close(host.owner(), reference.document) {
+        Ok(document) => document,
+        // Taken for a book to show: already ended, nothing left to do.
+        Err(ERR_CANCELLED) => return Ok(0),
+        Err(other) => return Err(other),
     };
-    let document = host.table().close(host.owner(), reference.document)?;
     end(host, &document);
     Ok(0)
 }
@@ -432,16 +634,29 @@ fn close(host: &dyn DocHost, input: &[u8]) -> Result<usize, i32> {
 /// id until closed, a callback that fails has none.
 fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
     let parsed = args::parse_open(input)?;
-    let request = parsed.open;
+    let mut request = parsed.open;
     let long_side = host.screen_long_side();
     args::check_open(&request, long_side)?;
-    host.root_access(request.root)?;
+    // Root 5 names a file of another plugin: the host resolves it to its card
+    // path (the format is chosen by it, the book is held under it).
+    let handed = if request.root == args::ROOT_HANDED {
+        Some(host.handed_open(request.path)?)
+    } else {
+        host.root_access(request.root)?;
+        None
+    };
     if !request.css_path.is_empty() {
         host.root_access(request.css_root)?;
     }
-    let format = host.select_format(request.root, request.path, request.format)?;
+    let format = match handed.as_ref().map(|book| book.card_path.as_str()) {
+        // Read as the card's own path: a sniff reads that file.
+        Some(card) => host.select_format(1, card, request.format)?,
+        None => host.select_format(request.root, request.path, request.format)?,
+    };
     let options = Options { batch: input };
-    let conversion = host.conversion_key(&request, format, options)?;
+    // The host resolves the sides, a format never asks the screen and never
+    // sees 0; before the conversion key, so an open with 0 and an explicit
+    // open of the same size share one cache (`document.md` 3).
     let image_side = match request.image_side {
         0 => args::IMAGE_FIT,
         side => side,
@@ -450,21 +665,46 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
         0 => args::default_cover_side(long_side).min(long_side),
         side => side,
     };
+    request.image_side = image_side;
+    request.cover_side = cover_side;
+    let conversion = host.conversion_key(&request, format, options)?;
 
     let table = host.table();
-    let id = table.open(host.owner(), format, PREPARING, request.flags)?;
-    table.set_sides(id, image_side, cover_side)?;
+    let caller_shows = host.shows_screen(host.owner());
+    let (id, took) = table.open(
+        host.owner(),
+        caller_shows,
+        format,
+        PREPARING,
+        request.flags,
+        &|owner| host.shows_screen(owner),
+    )?;
+    if let Some(victim) = took {
+        taken(host, &victim);
+    }
+    let held = handed
+        .as_ref()
+        .map_or(request.path, |book| book.card_path.as_str());
+    if let Err(error) = host.reader_opened(id, request.root, held) {
+        table.discard(id);
+        return Err(error);
+    }
+    if let Some(book) = &handed {
+        host.handed_maker(id, book.maker);
+    }
+    table.hold_reader(id);
     let answered = (|| {
+        table.set_sides(id, image_side, cover_side)?;
         let mut call = FormatCall::new(format, fmt::OPEN, id);
         call.flags = request.flags;
         call.image_side = image_side;
         call.cover_side = cover_side;
         call.conversion = conversion;
         call.options = options;
+        call.css_root = request.css_root;
+        call.css_path = request.css_path;
         let length = run(host, &call, out)?;
-        let Record::ServiceDocState(answer) = check::only(&out[..length])? else {
-            return Err(ERR_INVALID);
-        };
+        let answer: wire::ServiceDocState<'_> = check::only(&out[..length])?;
         check::state(&answer)?;
         table.set_state(
             id,
@@ -473,7 +713,11 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
             answer.status,
             answer.flags,
             conversion,
-        )
+        )?;
+        if answer.state == READY {
+            host.document_ready(id);
+        }
+        Ok(())
     })();
     if let Err(error) = answered {
         // The id never reached the opener; the format may hold state for it.
@@ -540,19 +784,50 @@ enum Check {
     Progress,
 }
 
-fn document_of(record: &Record<'_>) -> Option<u32> {
-    Some(match record {
-        Record::ServiceDocRef(r) => r.document,
-        Record::ServiceDocTextAt(r) => r.document,
-        Record::ServiceDocPage(r) => r.document,
-        Record::ServiceDocAt(r) => r.document,
-        Record::ServiceDocIndex(r) => r.document,
-        Record::ServiceDocXpointer(r) => r.document,
-        Record::ServiceDocSpan(r) => r.document,
-        Record::ServiceDocHref(r) => r.document,
-        Record::ServiceDocImageAsk(r) => r.document,
-        _ => return None,
-    })
+/// The request record of ops 3-17; another tag is `ERR_INVALID`.
+#[derive(Clone, Copy)]
+enum Ask<'a> {
+    Ref(wire::ServiceDocRef),
+    TextAt(wire::ServiceDocTextAt),
+    Page(wire::ServiceDocPage<'a>),
+    At(wire::ServiceDocAt),
+    Index(wire::ServiceDocIndex),
+    Xpointer(wire::ServiceDocXpointer<'a>),
+    Span(wire::ServiceDocSpan),
+    Href(wire::ServiceDocHref<'a>),
+    Question(wire::ServiceDocImageAsk),
+}
+
+impl<'a> Ask<'a> {
+    fn of(input: &'a [u8]) -> Result<Self, i32> {
+        let raw = wire::RawRecord::single(input)?;
+        Ok(match raw.tag() {
+            wire::SERVICE_DOC_REF_TAG => Self::Ref(raw.decode()?),
+            wire::SERVICE_DOC_TEXT_AT_TAG => Self::TextAt(raw.decode()?),
+            wire::SERVICE_DOC_PAGE_TAG => Self::Page(raw.decode()?),
+            wire::SERVICE_DOC_AT_TAG => Self::At(raw.decode()?),
+            wire::SERVICE_DOC_INDEX_TAG => Self::Index(raw.decode()?),
+            wire::SERVICE_DOC_XPOINTER_TAG => Self::Xpointer(raw.decode()?),
+            wire::SERVICE_DOC_SPAN_TAG => Self::Span(raw.decode()?),
+            wire::SERVICE_DOC_HREF_TAG => Self::Href(raw.decode()?),
+            wire::SERVICE_DOC_IMAGE_ASK_TAG => Self::Question(raw.decode()?),
+            _ => return Err(wire::unexpected(raw.tag())),
+        })
+    }
+
+    fn document(&self) -> u32 {
+        match self {
+            Self::Ref(r) => r.document,
+            Self::TextAt(r) => r.document,
+            Self::Page(r) => r.document,
+            Self::At(r) => r.document,
+            Self::Index(r) => r.document,
+            Self::Xpointer(r) => r.document,
+            Self::Span(r) => r.document,
+            Self::Href(r) => r.document,
+            Self::Question(r) => r.document,
+        }
+    }
 }
 
 /// A continuation the host did not begin (or that changed) is `ERR_STATE`.
@@ -565,8 +840,8 @@ fn require(ok: bool) -> Result<(), i32> {
 }
 
 /// A page of ops 5, 7, 14: `scope` is op 21's alone.
-fn page<'a>(record: &Record<'a>) -> Result<(u32, u32), i32> {
-    let Record::ServiceDocPage(page) = record else {
+fn page(record: &Ask<'_>) -> Result<(u32, u32), i32> {
+    let Ask::Page(page) = record else {
         return Err(ERR_INVALID);
     };
     require(page.scope.is_empty())?;
@@ -601,21 +876,22 @@ fn locating(id: u32) -> (u32, Check) {
 fn prepare<'a>(
     id: u32,
     document: &Document,
-    record: &Record<'a>,
+    record: &Ask<'a>,
 ) -> Result<(FormatCall<'a>, Check), i32> {
     let mut call = FormatCall::new(document.format, 0, document.id);
     call.conversion = document.conversion;
     let check = match (id, record) {
-        (op::META, Record::ServiceDocRef(_)) => {
+        (op::META, Ask::Ref(_)) => {
             call.op = fmt::META;
             Check::Meta
         }
-        (op::COVER, Record::ServiceDocRef(_)) => {
+        (op::COVER, Ask::Ref(_)) => {
             call.op = fmt::COVER;
             call.cover_side = document.cover_side;
+            call.image_side = document.image_side;
             Check::Image
         }
-        (op::META_TEXT, Record::ServiceDocTextAt(r)) => {
+        (op::META_TEXT, Ask::TextAt(r)) => {
             // 0 title, 1 author, 2 subject, 3 description, 4 series; only
             // authors and subjects are lists.
             require(r.kind <= 4)?;
@@ -640,8 +916,8 @@ fn prepare<'a>(
             call.op = format_op;
             check
         }
-        (op::BLOCK, Record::ServiceDocAt(r)) => block_ask(r, document, &mut call)?,
-        (op::PAGE_LABEL | op::XPOINTER | op::PROGRESS, Record::ServiceDocAt(r)) => {
+        (op::BLOCK, Ask::At(r)) => block_ask(r, document, &mut call)?,
+        (op::PAGE_LABEL | op::XPOINTER | op::PROGRESS, Ask::At(r)) => {
             position(r)?;
             call.section = r.section;
             call.offset = r.offset;
@@ -649,18 +925,18 @@ fn prepare<'a>(
             call.op = format_op;
             check
         }
-        (op::TOC_TARGET, Record::ServiceDocIndex(r)) => {
+        (op::TOC_TARGET, Ask::Index(r)) => {
             call.op = fmt::TOC_TARGET;
             call.index = r.index;
             Check::At
         }
-        (op::LOCATE, Record::ServiceDocXpointer(r)) => {
+        (op::LOCATE, Ask::Xpointer(r)) => {
             require(!r.text.is_empty())?;
             call.op = fmt::LOCATE;
             call.text = r.text;
             Check::At
         }
-        (op::LINKS, Record::ServiceDocSpan(r)) => {
+        (op::LINKS, Ask::Span(r)) => {
             require(r.from <= r.to)?;
             args::page_state(r.cursor, r.generation)?;
             call.op = fmt::LINKS;
@@ -674,22 +950,24 @@ fn prepare<'a>(
                 generation: r.generation,
             }
         }
-        (op::LINK_TARGET, Record::ServiceDocHref(r)) => {
+        (op::LINK_TARGET, Ask::Href(r)) => {
             require(!r.href.is_empty())?;
             call.op = fmt::LINK_TARGET;
             call.text = r.href;
             Check::At
         }
-        (op::IMAGE, Record::ServiceDocImageAsk(r)) => {
+        (op::IMAGE, Ask::Question(r)) => {
             if r.index == u32::MAX {
                 // The cover is index `u32::MAX` (`document.md` 5): its own
                 // size, larger when asked.
                 call.op = fmt::COVER;
                 call.cover_side = args::image_side(r.side, document.cover_side)?;
+                call.image_side = document.image_side;
             } else {
                 call.op = fmt::IMAGE;
                 call.index = r.index;
                 call.image_side = args::image_side(r.side, document.image_side)?;
+                call.cover_side = document.cover_side;
             }
             Check::Image
         }
@@ -700,8 +978,8 @@ fn prepare<'a>(
 
 /// Ops 3-17: ask the format, check its answer, pass it on.
 fn read(host: &dyn DocHost, op: &ServiceOp, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let record = wire::records_decode_single(input)?;
-    let id = document_of(&record).ok_or(ERR_INVALID)?;
+    let record = Ask::of(input)?;
+    let id = record.document();
     let document = host.table().ready(host.owner(), id)?;
     let (call, check) = prepare(op.id, &document, &record)?;
     let length = run(host, &call, out)?;
@@ -733,92 +1011,73 @@ fn verify(
     let bytes = &out[..length];
     match *check {
         Check::Meta => {
-            let Record::ServiceDocMeta(meta) = check::only(bytes)? else {
-                return Err(ERR_INVALID);
-            };
+            let meta: wire::ServiceDocMeta<'_> = check::only(bytes)?;
             check::meta(&meta)?;
+            host.table().set_sections(document.id, meta.sections);
         }
         Check::Text {
             kind,
             index,
             offset,
         } => {
-            let Record::ServiceDocText(text) = check::only(bytes)? else {
-                return Err(ERR_INVALID);
-            };
+            let text: wire::ServiceDocText<'_> = check::only(bytes)?;
             check::text(&text, kind, index, offset)?;
         }
         Check::Sections { cursor, generation } => {
             let mut forward = Forward(None, cursor);
-            let end = check::rows(bytes, PAGE_ROWS, |row| match row {
-                Record::ServiceDocSection(row) => {
-                    forward.row(row.index)?;
-                    check::section(row, cursor)
-                }
-                _ => Err(ERR_INVALID),
+            let end = check::rows(bytes, PAGE_ROWS, |row: &wire::ServiceDocSection| {
+                forward.row(row.index)?;
+                check::section(row, cursor)
             })?;
             check::page_end(&end, cursor, generation)?;
         }
         Check::Toc { cursor, generation } => {
             let mut forward = Forward(None, cursor);
-            let end = check::rows(bytes, PAGE_ROWS, |row| match row {
-                Record::ServiceDocToc(row) => {
-                    forward.row(row.index)?;
-                    check::toc(row, cursor)
-                }
-                _ => Err(ERR_INVALID),
+            let end = check::rows(bytes, PAGE_ROWS, |row: &wire::ServiceDocToc<'_>| {
+                forward.row(row.index)?;
+                check::toc(row, cursor)
             })?;
             check::page_end(&end, cursor, generation)?;
         }
         Check::Fonts { cursor, generation } => {
             let mut forward = Forward(None, cursor);
-            let end = check::rows(bytes, PAGE_ROWS, |row| match row {
-                Record::ServiceDocFont(row) => {
-                    forward.row(row.index)?;
-                    check::font(row)
-                }
-                _ => Err(ERR_INVALID),
+            let end = check::rows(bytes, PAGE_ROWS, |row: &wire::ServiceDocFont| {
+                forward.row(row.index)?;
+                check::font(row)
             })?;
             check::page_end(&end, cursor, generation)?;
         }
         Check::Links { cursor, generation } => {
-            let end = check::rows(bytes, PAGE_ROWS, |row| match row {
-                Record::ServiceDocLink(row) => check::link(row),
-                _ => Err(ERR_INVALID),
+            let end = check::rows(bytes, PAGE_ROWS, |row: &wire::ServiceDocLink<'_>| {
+                check::link(row)
             })?;
             check::page_end(&end, cursor, generation)?;
         }
         Check::Block(at) => return block_verify(host, document, at, out, length),
         Check::At => {
-            let Record::ServiceDocAt(at) = check::only(bytes)? else {
-                return Err(ERR_INVALID);
-            };
+            let at: wire::ServiceDocAt = check::only(bytes)?;
             check::at(&at, document.id)?;
         }
         Check::Label => {
-            let Record::ServiceDocLabel(_) = check::only(bytes)? else {
-                return Err(ERR_INVALID);
-            };
+            let _: wire::ServiceDocLabel<'_> = check::only(bytes)?;
         }
         Check::Xpointer => {
-            let Record::ServiceDocXpointer(pointer) = check::only(bytes)? else {
-                return Err(ERR_INVALID);
-            };
+            let pointer: wire::ServiceDocXpointer<'_> = check::only(bytes)?;
             require(pointer.document == document.id && !pointer.text.is_empty())?;
         }
         Check::Image => {
-            if !matches!(check::only(bytes)?, Record::ServiceDocImage(_)) {
-                return Err(ERR_INVALID);
-            }
+            let _: wire::ServiceDocImage = check::only(bytes)?;
             let kept = images(host, document, out, length, false)?;
-            // A picture that fails its check is not a picture at all.
-            require(kept != 0)?;
+            // A picture that fails its check is not a picture at all: none
+            // (`document.md` 1, op 15), and the format's file is at fault, not
+            // the caller's request, so the document is not struck for it.
+            if kept == 0 {
+                return Err(ERR_NOT_FOUND);
+            }
             return Ok(kept);
         }
         Check::Progress => {
-            let Record::ServiceDocProgress(progress) = check::only(bytes)? else {
-                return Err(ERR_INVALID);
-            };
+            let progress: wire::ServiceDocProgress = check::only(bytes)?;
             check::progress(&progress)?;
         }
     }
@@ -900,11 +1159,12 @@ fn images(
 ) -> Result<usize, i32> {
     let mut at = 0;
     while at < length {
-        let (record, used) = wire::record_decode_prefix(&out[at..length])?;
-        let Record::ServiceDocImage(image) = record else {
+        let (raw, used) = wire::RawRecord::prefix(&out[at..length])?;
+        if raw.tag() != wire::SERVICE_DOC_IMAGE_TAG {
             at += used;
             continue;
-        };
+        }
+        let image: wire::ServiceDocImage = raw.decode()?;
         match host.map_image(document, &image, in_block)? {
             Some(id) => {
                 // The same fixed-width record: it fits where the old one was.
@@ -939,7 +1199,7 @@ fn list(
         next: 0,
         cursor: None,
     };
-    let reserved = wire::record_framed_len(&Record::ServiceEnd(end))?;
+    let reserved = codec::framed_len(&Record::ServiceEnd(end))?;
     let available = out.len().checked_sub(reserved).ok_or(ERR_NO_SPACE)?;
     let mut used = 0;
     let mut rows = 0;
@@ -948,9 +1208,9 @@ fn list(
         if rows == rows_cap {
             return ControlFlow::Break(());
         }
-        match wire::record_framed_len(&record) {
+        match codec::framed_len(&record) {
             Ok(length) if length <= available - used => {
-                match wire::record_encode_one(&record, &mut out[used..available]) {
+                match codec::encode_one(&record, &mut out[used..available]) {
                     Ok(written) => {
                         used += written;
                         rows += 1;
@@ -983,13 +1243,11 @@ fn list(
         // A row that fits no page would loop its reader for ever.
         return Err(ERR_NO_SPACE);
     }
-    Ok(used + wire::record_encode_one(&Record::ServiceEnd(end), &mut out[used..])?)
+    Ok(used + codec::encode_one(&Record::ServiceEnd(end), &mut out[used..])?)
 }
 
 fn paged(input: &[u8], scope_allowed: bool) -> Result<wire::ServiceDocPage<'_>, i32> {
-    let Record::ServiceDocPage(page) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let page: wire::ServiceDocPage<'_> = codec::single(input)?;
     // No document here, and `scope` is op 21's format filter alone.
     require(page.document == 0 && (scope_allowed || page.scope.is_empty()))?;
     args::page_state(page.cursor, page.generation)?;
@@ -1012,11 +1270,14 @@ fn readers(host: &dyn DocHost, input: &[u8], rows: usize, out: &mut [u8]) -> Res
 }
 
 fn format_for(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let Record::ServiceDocPath(path) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let path: wire::ServiceDocPath<'_> = codec::single(input)?;
     // Bit 0: sniff when no extension matches.
-    require(path.root <= 1 && path.flags & !1 == 0 && args::path_valid(path.path))?;
+    require(
+        path.root <= 1
+            && path.flags & !1 == 0
+            && args::path_valid(path.path)
+            && args::reachable(path.root, path.path),
+    )?;
     host.root_access(path.root)?;
     let mut written = Err(ERR_NOT_FOUND);
     host.format_for(path.root, path.path, path.flags & 1 != 0, &mut |record| {

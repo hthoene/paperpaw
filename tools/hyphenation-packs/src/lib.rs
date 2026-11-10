@@ -42,3 +42,5 @@ pub const MAX_TAG: usize = 35;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod words_tests;

@@ -17,9 +17,36 @@
 extern crate alloc;
 
 mod catalog;
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+pub mod declarations;
 mod fetch;
 mod letters;
 mod list;
+mod native_entry;
+#[doc(hidden)]
+pub mod native_index;
+#[doc(hidden)]
+pub mod native_item;
+#[doc(hidden)]
+pub mod native_list;
+#[doc(hidden)]
+pub mod native_model;
+#[doc(hidden)]
+pub mod native_page;
+/// The interface-7 plugin store (slice 1; see `PORTING-7.md`).
+pub mod native_plugin;
+#[doc(hidden)]
+pub mod native_queue;
+#[doc(hidden)]
+pub mod native_refusal;
+#[doc(hidden)]
+pub mod native_request;
+#[doc(hidden)]
+pub mod native_sort;
 mod needs;
 mod origin;
 mod page;
@@ -35,6 +62,12 @@ mod source;
 mod styles;
 mod trust;
 mod view;
+
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
+
+#[cfg(test)]
+mod native_parity_tests;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;

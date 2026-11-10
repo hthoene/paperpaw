@@ -21,11 +21,25 @@
 extern crate alloc;
 
 mod cache;
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+mod declarations;
 mod document;
 mod header;
 mod images;
+mod mem;
+mod native_entry;
+/// The interface-7 plugin.
+pub mod native_plugin;
 mod palmdoc;
+pub mod provider;
 mod text;
+
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
@@ -49,7 +63,7 @@ static HOW: [(&str, &str); 2] = [
 ];
 
 /// Whether the first bytes of a file are a Mobipocket book's.
-fn is_mobi(head: &[u8]) -> bool {
+pub(crate) fn is_mobi(head: &[u8]) -> bool {
     head.get(60..68) == Some(b"BOOKMOBI")
 }
 

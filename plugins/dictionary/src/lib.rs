@@ -26,6 +26,31 @@
 
 extern crate alloc;
 
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+pub mod declarations;
+#[doc(hidden)]
+pub mod native_disk;
+mod native_entry;
+#[doc(hidden)]
+pub mod native_folders;
+#[doc(hidden)]
+pub mod native_model;
+#[doc(hidden)]
+pub mod native_panel;
+/// The interface-7 dictionary (slice 1; see `PORTING-7.md`).
+pub mod native_plugin;
+#[doc(hidden)]
+pub mod native_popup;
+#[doc(hidden)]
+pub mod native_source;
+
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
+
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::format;
@@ -170,7 +195,7 @@ fn find_dictionaries(storage: &dyn Storage, folder: &str) -> Result<Vec<String>,
         }
     }
     top?;
-    found.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut found);
     Ok(found)
 }
 

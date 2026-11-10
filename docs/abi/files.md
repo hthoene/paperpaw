@@ -1,13 +1,13 @@
-# Interface 7 family FS: folders, file information, moves and free space (draft)
+# Interface 7 family FS: folders, file information, moves and free space
 
-Contract draft for #228 (assignment #1088). Items marked [D] are proposed decisions, [Q] open
+Contract for #228 (assignment #1088). Items marked [D] are proposed decisions, [Q] open
 questions for Plugin, Core and Senior. Inputs: the storage slots 20-26 and their rules
 (`proposals/interface-7-events-storage-services.md` section 2, "the storage contract" below), owner
 decisions 124 and 125, `stages-services.md` (service schemas, D4), `registry.md` 2.1 (bare replies
 and paging), `screens-input.md` section 13 (features and statuses), the platform `Storage` trait
 (`crates/paperpaw-platform/src/storage.rs`) and an audit of the interface-6 storage calls of the
-17 first-party plugins that use files beyond their own data folder (section 6). Doc-only; records
-follow once approved. Tags are proposed and numbered without gaps at the records step.
+17 first-party plugins that use files beyond their own data folder (section 6).
+Records: `abi/services/core.files@1.def`.
 
 ## 0. Scope and principles
 
@@ -35,18 +35,25 @@ follow once approved. Tags are proposed and numbered without gaps at the records
 | Root | Name | What it is | Access |
 | --- | --- | --- | --- |
 | 0 | data | the plugin's data folder `.paperpaw/plugins/<id>/`, `<id>` stamped from the owner | read and write |
-| 1 | card | the user's files from the card's root, without `plugins/` and `.paperpaw/` | read and write, with `uses.storage` |
+| 1 | card | the user's files from the card's root, without `plugins/`, `.paperpaw/` and `paperpaw.ini` | read and write, with `uses.storage` |
 | 2 | bundle | the plugin's own install folder `plugins/<id>/` (files it ships, such as `data/`) | read only |
-| 3 and above | reserved | | `ERR_UNSUPPORTED` |
+| 3 | book | inside a `core.format` call of a `folder` or `siblings` document: its folder (`document.md` section 3) | `list` and `stat` only |
+| 4 and above | reserved (4 and 6 are `core.format`'s, through the storage slots) | | `ERR_UNSUPPORTED` |
 
+- [D] **Root 3** is a `core.format` root (`document.md` section 3, Roots). Outside a call for a
+  `folder` or `siblings` document, or for a single-file one, it is `ERR_UNSUPPORTED` on every
+  `core.files` op; inside such a call `list` and `stat` work and every op that changes something
+  is `ERR_DENIED`. A single-file book is read through the storage slots instead.
 - [D] **Root 1** keeps decision 125 unchanged: the gate is the signed `uses.storage` declaration
-  read at load, never a runtime argument; the first path segment may not resolve to `plugins` or
-  `.paperpaw`, compared by identity (case, 8.3 aliases), not by spelling; a plugin reaches its own
+  read at load, never a runtime argument; the first path segment may not resolve to `plugins`,
+  `.paperpaw` or `paperpaw.ini` (the kernel's settings file, whose `[firmware]` section guards a
+  dual-boot setup, `device.md` 5.3; draft 35, Senior M2 on #920), compared by identity (case, 8.3
+  aliases), not by spelling, for every op and both ends of a move or copy; a plugin reaches its own
   data through root 0 only; settings change through slot 15, never by files, so decision 126 does
-  not widen root 1. **One change:** without the declaration, a root-1 call answers `ERR_DENIED`
-  (the plugin lacks a feature the host offers, `screens-input.md` section 13), no longer
-  `ERR_UNSUPPORTED`, on slots 20-26 and every `core.files` op. A host that offers no root 1 (no
-  card files to give) does not offer `uses.storage` and answers `ERR_UNSUPPORTED`.
+  not widen root 1. **One change:** without the declaration, a root-1 call answers `ERR_DENIED` (the
+  plugin lacks a feature the host offers, `screens-input.md` section 13), no longer
+  `ERR_UNSUPPORTED`, on slots 20-26 and every `core.files` op. A host that offers no root 1 (no card
+  files to give) does not offer `uses.storage` and answers `ERR_UNSUPPORTED`.
 - [D] **Root 2 (new)** is read-only access to the plugin's own install folder, stamped like root 0:
   `storage.size`, `storage.read_at`, and `core.files` ops `list`, `stat`. Every changing call on
   root 2 is `ERR_DENIED`. Reason: plugins ship data files next to their code (vocabulary's
@@ -59,7 +66,8 @@ follow once approved. Tags are proposed and numbered without gaps at the records
   still arriving is `ERR_BUSY`, section 3); its own `make_dir`, writes and moves into `.received/`
   are `ERR_DENIED`.
 - [D] **Listings follow the root's rules.** On root 1, `list` of the card root leaves out
-  `plugins` and `.paperpaw`, and `stat` of them is `ERR_INVALID`, as every other root-1 call.
+  `plugins`, `.paperpaw` and `paperpaw.ini`, and `stat` of them is `ERR_INVALID`, as every other
+  root-1 call.
 
 ### 1.2 Features
 
@@ -279,11 +287,11 @@ above. A refused call changes nothing.
 | Re-entry into `core.files` from its own call | `ERR_BUSY` |
 
 - [D] **Paths in use.** The host keeps a small table of paths it holds open or writes (the reader's
-  book, DEV's staged copies, NET's save files and `.part` files, NET's request bodies while they
-  arrive). A change to such a path, to a folder holding one, or a move onto one answers `ERR_BUSY`
-  and changes nothing; the plugin tries again later. This holds for the `core.files` ops and for
-  the file slots alike: `storage.write`, `append`, `rename` and `remove` (slots 22-25) on a path
-  in use are `ERR_BUSY`, so no plugin frees clusters the host still reads or writes. Reading
+  book, DEV's staged copies, NET's save files and `.pp-staged` files, NET's request bodies while
+  they arrive). A change to such a path, to a folder holding one, or a move onto one answers
+  `ERR_BUSY` and changes nothing; the plugin tries again later. This holds for the `core.files` ops
+  and for the file slots alike: `storage.write`, `append`, `rename` and `remove` (slots 22-25) on a
+  path in use are `ERR_BUSY`, so no plugin frees clusters the host still reads or writes. Reading
   (`size`, `read_at`, `list`, `stat`) is never busy.
 
 - [D] **No card.** Every root-0, root-1 and root-2 call answers `ERR_IO` while the card is away

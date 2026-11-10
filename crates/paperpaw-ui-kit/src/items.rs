@@ -32,6 +32,8 @@ pub struct RowItem {
     pub zone: Option<u8>,
     /// A number: − and + buttons at the right (touch screens), each a tap target.
     pub stepper: bool,
+    /// Shown faint, passed by the focus and not chosen by a tap.
+    pub disabled: bool,
 }
 
 /// An entry of an [`ItemList`].
@@ -71,13 +73,14 @@ impl Item {
             note: text::copy(note)?,
             zone: None,
             stepper: false,
+            disabled: false,
         }))
     }
 
     /// Whether focus can rest on it.
     #[must_use]
     pub const fn selectable(&self) -> bool {
-        matches!(self, Self::Row(_))
+        matches!(self, Self::Row(row) if !row.disabled)
     }
 }
 
@@ -114,19 +117,34 @@ pub enum Footer<'a> {
         /// Said in small letters, wrapped.
         text: &'a str,
     },
+    /// A QR code centred in the room below the rows (on a list of one page),
+    /// with `caption` (an address to type, wrapped) under it. Drawn straight
+    /// to the canvas, in runs: no operation is kept per module.
+    Code {
+        /// The code to draw, black on white with its quiet zone.
+        code: &'a paperpaw_sdk::qr::QrCode,
+        /// What is said under it.
+        caption: &'a str,
+    },
 }
 
 /// A paged list of [`Item`]s. Only scalar geometry survives a draw.
 #[derive(Debug, Default)]
 pub struct ItemList {
-    items: Vec<Item>,
-    focus: usize,
+    pub(crate) items: Vec<Item>,
+    pub(crate) focus: usize,
     /// First item of each page, from the last frame.
-    starts: Vec<usize>,
-    hits: Vec<(Rect, usize)>,
+    pub(crate) starts: Vec<usize>,
+    pub(crate) hits: Vec<(Rect, usize)>,
     /// The − and + buttons of the stepper rows of the last frame.
-    steps: Vec<(Rect, Rect, usize)>,
-    header: Page,
+    pub(crate) steps: Vec<(Rect, Rect, usize)>,
+    pub(crate) header: Page,
+    /// The first this many items carry a grip (a finger takes the row along).
+    grips: usize,
+    /// The grips of the rows of the last frame.
+    pub(crate) grip_rects: Vec<(Rect, usize)>,
+    /// The row a finger has taken along and the row it would land on.
+    drag: Option<(usize, usize)>,
 }
 
 impl ItemList {
@@ -145,6 +163,22 @@ impl ItemList {
     pub fn replace(&mut self, items: Vec<Item>) {
         self.items = items;
         self.focus = self.nearest(self.focus);
+    }
+
+    /// Zeroes the text of every item and empties the list: for a list that
+    /// showed a secret (a password drawn for the user to read) and is closed.
+    pub fn wipe(&mut self) {
+        for item in core::mem::take(&mut self.items) {
+            match item {
+                Item::Heading(title) => crate::mem::wipe_text(title),
+                Item::Row(row) => {
+                    crate::mem::wipe_text(row.title);
+                    crate::mem::wipe_text(row.value);
+                    crate::mem::wipe_text(row.note);
+                }
+            }
+        }
+        self.focus = 0;
     }
 
     /// The items.
@@ -230,6 +264,45 @@ impl ItemList {
         }
     }
 
+    /// The first `movable` items carry a grip (≡) at their end, which a finger
+    /// can take along ([`Self::grip_at`], [`Self::drop_row`]); none by default.
+    pub fn set_grips(&mut self, movable: usize) {
+        self.grips = movable;
+    }
+
+    /// The row a finger has taken along and the row it would land on (framed,
+    /// and a bar where it lands), or `None`.
+    pub fn set_drag(&mut self, drag: Option<(usize, usize)>) {
+        self.drag = drag;
+    }
+
+    /// The item whose grip is at `position` in the last frame.
+    #[must_use]
+    pub fn grip_at(&self, position: Point) -> Option<usize> {
+        self.grip_rects
+            .iter()
+            .find(|(rect, _)| rect.contains(position))
+            .map(|(_, item)| *item)
+    }
+
+    /// The row an item dragged to height `y` would land on: the row of the
+    /// last frame under `y`, kept to the rows that carry a grip (above them,
+    /// the first; below them, the last). `None` without such a row.
+    #[must_use]
+    pub fn drop_row(&self, y: i32) -> Option<usize> {
+        let mut last = None;
+        for (rect, item) in &self.hits {
+            if *item >= self.grips {
+                continue;
+            }
+            last = Some(*item);
+            if y < i32::from(rect.y) + i32::from(rect.height) {
+                return last;
+            }
+        }
+        last
+    }
+
     /// Where item `index` was drawn in the last frame; `None` off the page.
     #[must_use]
     pub fn rect_of(&self, index: usize) -> Option<Rect> {
@@ -251,10 +324,12 @@ impl ItemList {
                 return ItemStep::Step(*item, 1);
             }
         }
-        self.hits
-            .iter()
-            .find(|(rect, _)| rect.contains(position))
-            .map_or(ItemStep::Ignored, |(_, item)| ItemStep::Chosen(*item))
+        match self.hits.iter().find(|(rect, _)| rect.contains(position)) {
+            // A faint row is taken, and does nothing.
+            Some((_, item)) if !self.items[*item].selectable() => ItemStep::Focus(self.focus),
+            Some((_, item)) => ItemStep::Chosen(*item),
+            None => ItemStep::Ignored,
+        }
     }
 
     /// Does what [`Self::decide`] says: moves the focus (with a redraw) or
@@ -332,22 +407,9 @@ impl ItemList {
         let mut area = Rect::new(0, top, width, height.saturating_sub(top));
         let mut note = None;
         if let Footer::Note(text) = footer {
-            let lines = text::wrap_with(
-                |line| font.measure_text(style.small, line),
-                text,
-                f32::from(width.saturating_sub(2 * style.margin)).max(1.0),
-                4,
-            )?;
-            let line = crate::geometry::line_height(&font, style.small)?;
-            let notes =
-                crate::geometry::px((line * lines.len() as f32).min(crate::geometry::MAX_PX))?;
-            let high = (style.row.saturating_mul(3) / 2)
-                .max(style.line.saturating_add(notes).saturating_add(1));
-            area.height = area.height.saturating_sub(high);
-            note = Some((
-                Rect::new(0, height.saturating_sub(high), width, high),
-                lines,
-            ));
+            let (rect, lines) = note_block(&font, &style, width, height, text)?;
+            area.height = area.height.saturating_sub(rect.height);
+            note = Some((rect, lines));
         }
         let mut heights = Vec::new();
         heights
@@ -386,6 +448,7 @@ impl ItemList {
         paint::push(&mut body, Paint::Fill(area, style.paper))?;
         let mut hits = Vec::new();
         let mut steps = Vec::new();
+        let mut grip_rects = Vec::new();
         let mut y = top;
         for (index, &high) in heights.iter().enumerate().take(end).skip(starts[page]) {
             let rect = Rect::new(0, y, width, high);
@@ -393,8 +456,9 @@ impl ItemList {
             match &self.items[index] {
                 Item::Heading(text) => heading(&mut body, &font, &style, rect, text)?,
                 Item::Row(row) => {
+                    let grip = (index < self.grips).then_some((&mut grip_rects, index));
                     if let Some((minus, plus)) =
-                        draw_row(&mut body, &font, &style, rect, row, focused)?
+                        draw_row_with_grip(&mut body, &font, &style, rect, row, focused, grip)?
                     {
                         steps.try_reserve(1).map_err(|_| Error::NoMemory)?;
                         steps.push((minus, plus, index));
@@ -405,6 +469,9 @@ impl ItemList {
             }
             y = y.saturating_add(high);
         }
+        if let Some((from, to)) = self.drag {
+            draw_drag(&mut body, &style, &hits, from, to)?;
+        }
         if let Some((rect, lines)) = &note {
             draw_note(&mut body, &font, &style, *rect, lines)?;
         }
@@ -414,15 +481,178 @@ impl ItemList {
             let area = Rect::new(0, y, width, height.saturating_sub(y));
             draw_empty(&mut body, &font, &style, area, title, text)?;
         }
+        let below = Rect::new(0, y, width, height.saturating_sub(y));
+        let code = code_footer(&mut body, &font, &style, footer, below, starts.len())?;
         paint::replay(frame, &font, header.paint.iter().chain(body.iter()))?;
+        if let Some((qr, room)) = code {
+            paint::draw_code(frame, qr, room)?;
+        }
         font.release()?;
         header.paint = Vec::new();
         self.header = header;
         self.starts = starts;
         self.hits = hits;
         self.steps = steps;
+        self.grip_rects = grip_rects;
         Ok(())
     }
+}
+
+/// Draws a row, with a grip at its end where `grip` (the list the grips are
+/// noted in and the row's index) is given; the steppers' buttons it has.
+fn draw_row_with_grip(
+    paint: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &Style,
+    rect: Rect,
+    row: &RowItem,
+    focused: bool,
+    grip: Option<(&mut Vec<(Rect, usize)>, usize)>,
+) -> Result<Option<(Rect, Rect)>, Error> {
+    let content = match grip {
+        Some((grips, index)) => grip_row(paint, style, rect, focused, grips, index)?,
+        None => rect,
+    };
+    draw_row(paint, font, style, content, row, focused)
+}
+
+/// The grip of a row in `rect`: as wide as the row is high, at its end (the left
+/// where the interface runs right to left).
+fn grip_strip(style: &Style, rect: Rect) -> Rect {
+    let side = rect.height.min(rect.width);
+    style.flip(
+        rect,
+        Rect::new(
+            rect.x.saturating_add(rect.width.saturating_sub(side)),
+            rect.y,
+            side,
+            rect.height,
+        ),
+    )
+}
+
+/// Draws the grip (three bars) of a row and notes it for [`ItemList::grip_at`];
+/// what is left of the row for its content.
+fn grip_row(
+    paint: &mut Vec<Paint>,
+    style: &Style,
+    rect: Rect,
+    focused: bool,
+    grips: &mut Vec<(Rect, usize)>,
+    index: usize,
+) -> Result<Rect, Error> {
+    let strip = grip_strip(style, rect);
+    // The focus fills the whole row, under its content.
+    backdrop(paint, style, rect, focused)?;
+    let bar = style.line.max(2);
+    let pitch = bar.saturating_mul(3);
+    let width = (strip.width / 2).max(bar);
+    let x = strip
+        .x
+        .saturating_add(strip.width.saturating_sub(width) / 2);
+    let top = strip.y.saturating_add(
+        strip
+            .height
+            .saturating_sub(bar.saturating_add(pitch.saturating_mul(2)))
+            / 2,
+    );
+    let ink = ink(style, focused);
+    for n in 0..3u16 {
+        let y = top.saturating_add(n.saturating_mul(pitch));
+        paint::push(paint, Paint::Fill(Rect::new(x, y, width, bar), ink))?;
+    }
+    grips.try_reserve(1).map_err(|_| Error::NoMemory)?;
+    grips.push((strip, index));
+    let side = strip.width.min(rect.width);
+    let x = if style.rtl {
+        rect.x.saturating_add(side)
+    } else {
+        rect.x
+    };
+    Ok(Rect::new(
+        x,
+        rect.y,
+        rect.width.saturating_sub(side),
+        rect.height,
+    ))
+}
+
+/// A frame round the row taken along and a bar where it would land: below the
+/// row it passes when moving down, above it when moving up.
+fn draw_drag(
+    paint: &mut Vec<Paint>,
+    style: &Style,
+    hits: &[(Rect, usize)],
+    from: usize,
+    to: usize,
+) -> Result<(), Error> {
+    let rect_of = |item: usize| hits.iter().find(|(_, i)| *i == item).map(|(r, _)| *r);
+    if let Some(r) = rect_of(from) {
+        let t = style.line.saturating_mul(2).max(2).min(r.height / 2);
+        for edge in [
+            Rect::new(r.x, r.y, r.width, t),
+            Rect::new(
+                r.x,
+                r.y.saturating_add(r.height.saturating_sub(t)),
+                r.width,
+                t,
+            ),
+            Rect::new(r.x, r.y, t, r.height),
+            Rect::new(
+                r.x.saturating_add(r.width.saturating_sub(t)),
+                r.y,
+                t,
+                r.height,
+            ),
+        ] {
+            paint::push(paint, Paint::Fill(edge, style.ink))?;
+        }
+    }
+    if to == from {
+        return Ok(());
+    }
+    // Not on this page (it was turned meanwhile): no bar.
+    let Some(r) = rect_of(to) else {
+        return Ok(());
+    };
+    let thick = style.line.saturating_mul(4).max(4);
+    let y = if to > from {
+        r.y.saturating_add(r.height).saturating_sub(thick / 2)
+    } else {
+        r.y.saturating_sub(thick / 2)
+    };
+    let margin = style.margin;
+    let bar = Rect::new(
+        r.x.saturating_add(margin),
+        y,
+        r.width.saturating_sub(margin.saturating_mul(2)),
+        thick,
+    );
+    paint::push(paint, Paint::Fill(bar, style.ink))
+}
+
+/// The wrapped lines of a footer note and the strip they take at the bottom.
+fn note_block(
+    font: &Font<'_>,
+    style: &Style,
+    width: u16,
+    height: u16,
+    text: &str,
+) -> Result<(Rect, Vec<String>), Error> {
+    let lines = text::wrap_with(
+        |line| font.measure_text(style.small, line),
+        text,
+        f32::from(width.saturating_sub(2 * style.margin)).max(1.0),
+        4,
+    )?;
+    let line = crate::geometry::line_height(font, style.small)?;
+    let notes = crate::geometry::px((line * lines.len() as f32).min(crate::geometry::MAX_PX))?;
+    let high =
+        (style.row.saturating_mul(3) / 2).max(style.line.saturating_add(notes).saturating_add(1));
+    Ok((
+        Rect::new(0, height.saturating_sub(high), width, high),
+        lines,
+    ))
 }
 
 fn draw_note(
@@ -452,9 +682,11 @@ fn draw_note(
     let mut y = rect.y.saturating_add(style.line);
     for text in lines {
         let area = Rect::new(rect.x, y, rect.width, line);
-        text::label(
+        text::label_in(
             paint,
             font,
+            style.rtl,
+            rect,
             text,
             style.small,
             f32::from(style.margin),
@@ -468,6 +700,66 @@ fn draw_note(
 }
 
 /// A title and a few lines, centred in `area`.
+/// The caption of a code, centred at the bottom of `area` in small letters;
+/// what is left above it for the code.
+/// The caption of a [`Footer::Code`] on a list of one page, and the room left
+/// for the code above it.
+fn code_footer<'a>(
+    paint: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &Style,
+    footer: Footer<'a>,
+    area: Rect,
+    pages: usize,
+) -> Result<Option<(&'a paperpaw_sdk::qr::QrCode, Rect)>, Error> {
+    match footer {
+        Footer::Code { code, caption } if pages == 1 => Ok(Some((
+            code,
+            draw_caption(paint, font, style, area, caption)?,
+        ))),
+        _ => Ok(None),
+    }
+}
+
+fn draw_caption(
+    paint: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &Style,
+    area: Rect,
+    caption: &str,
+) -> Result<Rect, Error> {
+    let room = f32::from(area.width.saturating_sub(2 * style.margin)).max(1.0);
+    let lines = text::wrap_with(
+        |line| font.measure_text(style.small, line),
+        caption,
+        room,
+        3,
+    )?;
+    let line = crate::geometry::line_px(font, style.small)?;
+    let high = crate::geometry::clamp_u16(i64::from(line) * lines.len() as i64);
+    let mut y = area.y.saturating_add(area.height.saturating_sub(high));
+    for text in &lines {
+        let x = (f32::from(area.width) - font.measure_text(style.small, text)?).max(0.0) / 2.0;
+        text::label(
+            paint,
+            font,
+            text,
+            style.small,
+            x,
+            Rect::new(0, y, area.width, line),
+            style.ink,
+            None,
+        )?;
+        y = y.saturating_add(line);
+    }
+    Ok(Rect::new(
+        area.x,
+        area.y,
+        area.width,
+        area.height.saturating_sub(high.saturating_add(style.gap)),
+    ))
+}
+
 fn draw_empty(
     paint: &mut Vec<Paint>,
     font: &Font<'_>,
@@ -546,7 +838,12 @@ pub fn paginate(items: &[Item], heights: &[u16], room: u16) -> Result<Vec<usize>
     Ok(starts)
 }
 
-fn item_height(font: &Font<'_>, style: &Style, width: u16, item: &Item) -> Result<u16, Error> {
+pub(crate) fn item_height(
+    font: &Font<'_>,
+    style: &Style,
+    width: u16,
+    item: &Item,
+) -> Result<u16, Error> {
     match item {
         Item::Heading(_) => Ok(style.heading),
         Item::Row(row) if row.note.is_empty() => Ok(style.row),
@@ -587,7 +884,7 @@ fn note_lines(
     )
 }
 
-fn heading(
+pub(crate) fn heading(
     paint: &mut Vec<Paint>,
     font: &Font<'_>,
     style: &Style,
@@ -604,9 +901,11 @@ fn heading(
         rect.width.saturating_sub(style.margin),
         line,
     );
-    text::label(
+    text::label_in(
         paint,
         font,
+        style.rtl,
+        rect,
         title,
         style.small,
         f32::from(style.margin),
@@ -616,7 +915,7 @@ fn heading(
     )
 }
 
-fn draw_row(
+pub(crate) fn draw_row(
     paint: &mut Vec<Paint>,
     font: &Font<'_>,
     style: &Style,
@@ -625,7 +924,11 @@ fn draw_row(
     focused: bool,
 ) -> Result<Option<(Rect, Rect)>, Error> {
     backdrop(paint, style, rect, focused)?;
-    let ink = ink(style, focused);
+    let ink = if row.disabled {
+        style.disabled
+    } else {
+        ink(style, focused)
+    };
     let mut band = Rect::new(rect.x, rect.y, rect.width, style.row.min(rect.height));
     let mut note_at = rect;
     if let Some(zone) = row.zone {
@@ -644,7 +947,13 @@ fn draw_row(
             rect.height,
         );
     }
+    // Laid out left to right; where the interface runs right to left the
+    // parts are where their mirror images are.
+    band = style.flip(rect, band);
+    note_at = style.flip(rect, note_at);
     let mut buttons = None;
+    // Where the title and the value go: the row less the stepper's buttons.
+    let mut cols = band;
     if row.stepper {
         // Square buttons at the right end of the row's first line; the value
         // sits to their left.
@@ -655,16 +964,21 @@ fn draw_row(
             .saturating_sub(style.margin / 2);
         let plus = Rect::new(right.saturating_sub(side), band.y, side, band.height);
         let minus = Rect::new(plus.x.saturating_sub(side), band.y, side, band.height);
+        let room = band;
+        // Mirrored as a whole where the interface runs right to left: the
+        // buttons at the left end and the value to their right.
+        let free = Rect::new(band.x, band.y, minus.x.saturating_sub(band.x), band.height);
+        cols = style.flip(room, free);
+        let (minus, plus) = (style.flip(room, minus), style.flip(room, plus));
         for (rect, glyph) in [(minus, "\u{2212}"), (plus, "+")] {
             let size = style.text;
             let x =
                 f32::from(rect.x) + (f32::from(rect.width) - font.measure_text(size, glyph)?) / 2.0;
             text::label(paint, font, glyph, size, x, rect, ink, Some(rect))?;
         }
-        band.width = minus.x.saturating_sub(band.x);
         buttons = Some((minus, plus));
     }
-    columns(paint, font, style, band, &row.title, &row.value, ink)?;
+    columns(paint, font, style, cols, &row.title, &row.value, ink)?;
     if row.note.is_empty() {
         return Ok(buttons);
     }
@@ -678,9 +992,11 @@ fn draw_row(
     let mut y = band.y.saturating_add(band.height);
     for text in &lines {
         let area = Rect::new(note_at.x, y, note_at.width, line);
-        text::label(
+        text::label_in(
             paint,
             font,
+            style.rtl,
+            note_at,
             text,
             style.small,
             f32::from(note_at.x) + f32::from(style.margin),
@@ -709,7 +1025,10 @@ fn zone_picture(
     for i in 0..9u16 {
         let (cx, cy) = (x + (i % 3) * cell, y + (i / 3) * cell);
         if i == u16::from(zone) {
-            paint::push(paint, Paint::Fill(Rect::new(cx, cy, cell, cell), ink))?;
+            paint::push(
+                paint,
+                Paint::Fill(style.flip(rect, Rect::new(cx, cy, cell, cell)), ink),
+            )?;
         } else {
             let edges = [
                 Rect::new(cx, cy, cell, 1),
@@ -718,7 +1037,7 @@ fn zone_picture(
                 Rect::new(cx + cell - 1, cy, 1, cell),
             ];
             for edge in edges {
-                paint::push(paint, Paint::Fill(edge, ink))?;
+                paint::push(paint, Paint::Fill(style.flip(rect, edge), ink))?;
             }
         }
     }
@@ -751,6 +1070,15 @@ mod tests {
     }
 
     #[test]
+    fn a_wiped_list_is_empty_and_its_focus_is_back_at_the_start() {
+        let mut list = ItemList::new(items("hrrr"));
+        list.set_focus(3);
+        list.wipe();
+        assert!(list.items().is_empty());
+        assert_eq!(list.focus(), 0);
+    }
+
+    #[test]
     fn the_focus_starts_on_the_first_row_and_skips_headings() {
         let list = ItemList::new(items("hrrhr"));
         assert_eq!(list.focus(), 1);
@@ -761,6 +1089,31 @@ mod tests {
         assert_eq!(list.decide(&action("core.up")), ItemStep::Focus(1));
         list.set_focus(4);
         assert_eq!(list.decide(&action("core.down")), ItemStep::Focus(4));
+    }
+
+    #[test]
+    fn faint_rows_are_passed_by_the_focus_and_do_nothing_when_tapped() {
+        let mut spec = items("rrr");
+        if let Item::Row(row) = &mut spec[1] {
+            row.disabled = true;
+        }
+        let mut list = ItemList::new(spec);
+        assert_eq!(list.decide(&action("core.down")), ItemStep::Focus(2));
+        list.set_focus(2);
+        assert_eq!(list.decide(&action("core.up")), ItemStep::Focus(0));
+        // The focus never rests on one.
+        list.set_focus(1);
+        assert_eq!(list.focus(), 0);
+        list.hits = Vec::from([(Rect::new(0, 0, 10, 10), 1)]);
+        list.focus = 2;
+        assert_eq!(
+            list.decide(&Input::Gesture {
+                now_ms: 0,
+                position: Point::new(1, 1),
+                kind: InputGestureKind::Tap,
+            }),
+            ItemStep::Focus(2)
+        );
     }
 
     #[test]

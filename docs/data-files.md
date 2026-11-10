@@ -68,7 +68,7 @@ differently; a plugin must keep that mapping.
 | `.paperpaw/plugins/store/author.txt` | store | the key the plugin library names for the author of the code plugin being downloaded, until it is installed | |
 | `.paperpaw/plugins/<id>/install.txt` | SDK `install` | a download of a plugin not yet complete, in the folder of the plugin that installs (the store, the fonts browser) | |
 | `.paperpaw/plugins/calibre/host.txt` | calibre | the address of the computer the reader chose to trust | version 1 |
-| `.paperpaw/plugins/opds/catalogs.txt` | opds | a catalog per line: name, address, user, (password, empty), folder, `sync`, `webdav` | version 1 |
+| `.paperpaw/plugins/opds/catalogs.txt` | opds | a catalog per line: name, address, user, (password, empty: a password an older version kept here moves to the passwords and keys), folder (below the library folder), `sync`, `webdav` | version 1 |
 | `.paperpaw/plugins/opds/synced/<md5 of the address>.txt` | opds | the books a catalog's sync fetched, by their ids in the catalog, so that one deleted is not fetched again | |
 | `.paperpaw/plugins/news/feeds.txt` | news | a feed per line: address, name | version 1 |
 | `.paperpaw/plugins/browser/bookmarks.txt`, `history.txt` | browser | a page per line: title, address | version 1 |
@@ -92,6 +92,7 @@ differently; a plugin must keep that mapping.
 | `.paperpaw/plugins/help/seen.txt` | help | a screen per line whose hints were shown | |
 | `.paperpaw/plugins/update/installing.txt`, `offered.txt` | update | a path and a version, a line each (`offered.txt`: `online` and the version for an update the server named) | version 1 |
 | `.paperpaw/plugins/update/waiting.txt` | update | an update that waits for plugins: its version, `since <unix seconds or ->`, `checked <unix seconds or ->`, `asked`, `seen` and `told` lines where set, then what it waits for, `plugin <id> <version>` and `crate <name>` lines | version 1 |
+| `.paperpaw/plugins/update/last-check.txt`, `first-check.txt`, `looked.txt` | update | the date (`YYYY-MM-DD`, UTC) of the last check and of the first, by which the question counts devices without knowing them; the time (unix seconds) of the last weekly look | |
 | `.paperpaw/plugin-authors.txt`, `plugin-code.txt` | SDK `native` | a code plugin per line: its id, a tab, its author's key remembered at the first install; its id, a tab, the SHA-256 of its file's header as installed (only such a file is loaded) | |
 | `.paperpaw/plugin-origin.txt` | SDK `install` | the versions a store installed, a line each: a plugin's id, a tab, its version (the last four); a plugin counts as the store's, and gets its updates, only while its version is one of them | |
 | `plugins/<id>/.install-marks` | SDK `install` | what an installer keeps for a plugin once it is in place (its code named as installed, its author, where it came from), handed over in the folder and kept by the kernel right after the install, or at the next start where that was cut short | |
@@ -106,8 +107,8 @@ differently; a plugin must keep that mapping.
 | `.paperpaw/plugins/widgets/seen.bits`, `newest.txt` | widgets | the books *Next up* saw, by the hashes of their paths, as a set of bits; the books that came since, a few | |
 | `.paperpaw/plugins/widgets/reading.ini` | widgets | ini: the book read last, its page and pages, the seconds read and the pages turned for the speed; `chapter` and `chapter-left` (the pages left in it) added later | version 1 |
 | `.paperpaw/plugins/koreader/<hash>.txt` | koreader | what both sides had at the last exchange of annotations, a line each: `b` or `h`, start and end as section and offset, and a hash of the note, separated by spaces | |
-| `.paperpaw/device-check.txt` | diagnostics | the device check's report in English, a line per step (`<step>: <outcome>`); also where an unfinished check goes on from | |
-| `.paperpaw/device-check-light.txt` | diagnostics | the reader's own front light while the check tries other levels; set again from there, then removed | |
+| `.paperpaw/plugins/diagnostics/device-check.txt` | diagnostics | the device check's report in English, a line per step (`<step>: <outcome>`); also where an unfinished check goes on from | |
+| `.paperpaw/plugins/diagnostics/device-check-light.txt` | diagnostics | the reader's own front light while the check tries other levels; set again from there, then removed | |
 
 ## Caches
 
@@ -130,18 +131,19 @@ differently; a plugin must keep that mapping.
 | `.paperpaw/plugins/stats/days.bin` | stats | the bytes of `pages.bin` it covers |
 | `.paperpaw/plugins/dictionary/<hash>/` | dictionary | the dictionary's `.ifo` |
 | `.paperpaw/plugins/news/headlines.txt`, `wallabag/entries.json`, `wallabag/entry.json`, `read-later-cloud/list.json`, `read-later-cloud/doc.json`, `fonts-browser/catalog.json` | their plugins | fetched again |
-| `.paperpaw/plugins/opds/tmp/<n>.<ext>` | opds | an answer to a request each, removed once it is handled; what is left goes at the next start, with the files of earlier versions |
-| `.paperpaw/plugins/opds/covers/<md5 of the address>.gray` | opds | a catalog's cover decoded, by its address |
+| `.paperpaw/plugins/opds/feed.tmp`, `description.tmp`, `book.tmp`, `cover.tmp`, `sync-feed.tmp`, `sync-book.tmp` | opds | the answer to the request of each kind, removed once it is handled (a book moves into the library); what is left goes at the next start. The files of earlier versions (`tmp/<n>.<ext>`) are not removed any more |
+| `.paperpaw/plugins/opds/covers/<md5 of the address>.img`, `covers.txt` | opds | a catalog's cover as the catalog sent it, by its address (the host decodes it for the list), and the names of the 48 newest, oldest first: the oldest go past that. The `.gray` files of earlier versions are not used |
 | `.paperpaw/plugins/store/index.txt`, `index.head`, `index.bin`, `search.bin`, `plugin-<id>.part`, `shot.gray` | store | the plugin library's list for this device, fetched again; a plugin's page and a screenshot as they are shown |
 | `.paperpaw/plugins/store/list.part`, `sort.bin`, `shot-<n>.part` | store | the list and a screenshot while they are downloaded, the list's sort while it is sorted |
 | `.paperpaw/plugins/joplin/info.json`, `locks.txt`, `found.md`, `note.md` | joplin | fetched or written again with each sending, removed after it |
-| `.paperpaw/plugins/readwise/body.json`, `answer.json` | readwise | a request's body and Readwise's answer, written again with each request |
-| `.paperpaw/plugins/update/offer.txt`; `updates/.download` and `updates/<firmware>-<version>.bin` at the top of the card | update | the update server's last answer, a download until it is whole, and the update downloaded; fetched again, and let go once the version is no longer newer |
-| `.paperpaw/plugins/update/fetch.txt`, `fetch-current.txt`, `fetch-failed.txt`, `fetch-native.txt`, `plugins/.<id>.next/` | update | the code plugins left to fetch for a downloaded update, the one being fetched, those that could not be, the fingerprint and compiler the update's need; the folders fetched, installed by the updated firmware |
+| `.paperpaw/plugins/readwise/body.json` | readwise | a request's body, written again with each request (Readwise's answer is not kept) |
+| `.paperpaw/plugins/update/offer.txt`; `updates/<firmware>-<version>.bin` at the top of the card | update | the update server's last answer, and the update downloaded (the host writes it whole or not at all); fetched again, and let go once the version is no longer newer |
+| `.paperpaw/plugins/update/question.json`, `staging/<id>/` | update | the question for the update server while it is asked (removed when answered), and the files of a code plugin's build while it is fetched (removed after the host's install) |
+| `.paperpaw/plugins/update/fetch.txt`, `fetch-current.txt`, `fetch-failed.txt`, `fetch-retry.txt`, `fetch-native.txt`, `updates/.download` | update (interface 6) | not written or read any more (the plugin is interface 7 only: a download is saved by the host, a code plugin's build is fetched into `staging/<id>/` and installed by the host at once; nothing is left to fetch after a restart); what earlier versions left stays on the card until the reader removes it |
 | `.paperpaw/plugins/about/licences.md`, `about/plugins.md`, `about/logo.png`, `plugin-manager/how.txt`, `store/how.txt` | about, plugin-manager, store | written when they are opened to read |
 | `.paperpaw/tmp/request-<n>` | kernel | the body of a request to a page a plugin serves, until the plugin has it; those left from before go with the next request |
 | `.paperpaw/code-room.txt` | SDK `native` | the room code plugins have, as the shell found it at this start |
-| `.paperpaw/device-check.bin` | diagnostics | 128 KiB the check writes and reads back, removed after |
+| `.paperpaw/plugins/diagnostics/device-check.bin` | diagnostics | 128 KiB the check writes and reads back, removed after |
 | `.paperpaw/plugins/browser/pages/<hash>.html` | browser | a page shown, by the hash of its address, its address as `<base href>` on its first line |
 | `.paperpaw/plugins/fonts-browser/samples/` | fonts-browser | samples of the fonts offered; those no longer offered are removed |
 | `.paperpaw/plugins/files/index.bin` | files | the library's index while a book covers its view, read back when the view shows again |

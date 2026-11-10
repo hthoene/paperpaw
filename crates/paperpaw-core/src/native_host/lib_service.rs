@@ -14,6 +14,7 @@ use super::{
     registrations::{self as wire, Record},
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
+use crate::native_host::codec;
 use alloc::rc::Rc;
 use paperpaw_native::host_glue::ERR_UNSUPPORTED;
 
@@ -22,16 +23,17 @@ mod args;
     dead_code,
     reason = "the card and catalog implementation of MoveHost wires it (move-following PR)"
 )]
-mod moves;
+pub(super) mod moves;
 mod query;
 mod write;
 #[allow(unused_imports, reason = "the query and write halves name it")]
 pub(crate) use args::BookRef;
+#[allow(unused_imports, reason = "the catalog reads implement it")]
+pub(crate) use query::{LibQuery, One, Rows};
 #[cfg(test)]
-pub(crate) use {
-    query::{LibQuery, One},
-    write::{LibWrite, Transactions},
-};
+pub(crate) use write::Transactions;
+#[allow(unused_imports, reason = "the catalog's write half implements it")]
+pub(crate) use write::{FieldKind, LibWrite, StoredPosition};
 
 /// The calling plugin: its host owner id and its plugin id.
 #[derive(Clone, Copy, Debug)]
@@ -95,7 +97,7 @@ pub(crate) fn backend(
 }
 
 fn encode(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
-    wire::record_encode_one(record, out)
+    codec::encode_one(record, out)
 }
 
 #[cfg(test)]

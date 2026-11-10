@@ -34,7 +34,31 @@
 
 extern crate alloc;
 
+#[cfg(test)]
+extern crate std;
+/// Test-only: refuses chosen allocations to prove the fallible paths.
+#[cfg(test)]
+#[path = "../../test-support/fail_alloc.rs"]
+mod fail_alloc;
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
+
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+mod declarations;
+mod native_entry;
+/// The interface-7 plugin.
+pub mod native_plugin;
+mod native_screen;
+pub mod native_sleep;
+mod native_stack;
 pub mod overlay;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
@@ -359,7 +383,7 @@ pub(crate) fn next_from_folder(env: &Env<'_>) -> Option<String> {
     if pictures.is_empty() {
         return None;
     }
-    pictures.sort_unstable();
+    paperpaw_sdk::sort::sort(&mut pictures);
     // One after the other, from where the last sleep left off.
     let next = next_picture(env.storage());
     let name = &pictures[next % pictures.len()];

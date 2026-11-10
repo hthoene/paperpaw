@@ -10,6 +10,8 @@ use paperpaw_sdk::Pane;
 
 /// A screen on the navigation stack.
 pub(crate) struct ActiveScreen {
+    /// Set only by the host when authorizing a guard question dialog.
+    pub(crate) guard_dialog: bool,
     pub(crate) id: Id,
     /// Tells this opening of the screen from every other, also once it was
     /// made anew (see `Kernel::remake_screens`): e.g. the owner of a
@@ -37,9 +39,52 @@ pub(crate) struct ActiveScreen {
     /// it opened): its keyboard. Others above it (a sleep screen) get no
     /// input and are closed as the device wakes.
     pub(crate) by_guard: bool,
+    /// The policy bits a native plugin set at run time
+    /// (`command.screen_policy`, `docs/abi/ui.md` 1.2): bit 1 guards, bit 4
+    /// secret, bit 5 holds edges. It replaces the screen's own answers for
+    /// those three and stays when the screen is made anew.
+    pub(crate) policy: Option<u32>,
     /// How it shows where the screen is wide ([`Screen::pane`]), as it
     /// said when it was made.
     pub(crate) pane: paperpaw_sdk::Pane,
+    /// `event.screen_ready` (87) was raised for this instance, or it will not
+    /// be (`screen_ready`): at most once an instance.
+    pub(crate) ready: bool,
+    /// A draw of this instance happened since it was opened and 87 is yet to
+    /// be raised for it (the pass after the draw raises it).
+    pub(crate) drawn: bool,
+}
+
+/// The policy bits `command.screen_policy` sets: `guards` (1), `secret` (4),
+/// `holds_edges` (5).
+pub(crate) const POLICY_GUARDS: u32 = 1 << 1;
+pub(crate) const POLICY_SECRET: u32 = 1 << 4;
+pub(crate) const POLICY_EDGES: u32 = 1 << 5;
+pub(crate) const POLICY_BITS: u32 = POLICY_GUARDS | POLICY_SECRET | POLICY_EDGES;
+
+impl ActiveScreen {
+    /// Whether it guards the device: what a native plugin set at run time,
+    /// else the screen's own answer.
+    pub(crate) fn guards(&self) -> bool {
+        self.policy
+            .map_or_else(|| self.screen.guards(), |bits| bits & POLICY_GUARDS != 0)
+    }
+
+    /// Whether what it shows is secret (a guard always is).
+    pub(crate) fn secret(&self) -> bool {
+        self.policy.map_or_else(
+            || self.screen.secret(),
+            |bits| bits & (POLICY_GUARDS | POLICY_SECRET) != 0,
+        )
+    }
+
+    /// Whether it holds the edge swipes.
+    pub(crate) fn holds_edges(&self) -> bool {
+        self.policy.map_or_else(
+            || self.screen.holds_edges(),
+            |bits| bits & POLICY_EDGES != 0,
+        )
+    }
 }
 
 /// The revision of `Screen` that brought `Screen::times_under_overlays`
@@ -54,6 +99,13 @@ const SCREEN_KEYS_EXHAUSTED: &str = "screen key space exhausted";
 fn next_screen_serial(next: u32, native: bool) -> Option<(u32, u32)> {
     let serial = if native { next.max(1) } else { next };
     serial.checked_add(1).map(|following| (serial, following))
+}
+
+/// Whether a failed native open is told to the user: not after a lack of
+/// memory, which the notice screen would meet as well (`notify` allocates
+/// without a check); the log diagnostic says it then.
+fn tells_the_user(status: i32) -> bool {
+    status != paperpaw_native::host_glue::ERR_NO_MEMORY
 }
 
 impl Kernel {
@@ -89,19 +141,50 @@ impl Kernel {
         });
     }
 
+    /// Tells the user that a screen could not be opened (the diagnostic above
+    /// is for the log); the words never name the screen or its params. Not
+    /// called after a lack of memory (see [`tells_the_user`]).
+    fn notify_native_open_failed(&mut self) {
+        let words = self.shared.translator.tr("core.screen.open-failed");
+        let mut text = String::new();
+        if text.try_reserve_exact(words.len()).is_err() {
+            return;
+        }
+        text.push_str(words);
+        self.notify(text);
+    }
+
+    fn screen_stack_has_room(&mut self) -> bool {
+        if self.shared.stack_rows.cleanup_pending() {
+            self.warn_runtime("UI instance cleanup is still pending");
+            return false;
+        }
+        if self.stack.len() >= native_host::stack_rows::STACK_MAX {
+            self.warn_runtime("screen stack is full");
+            return false;
+        }
+        true
+    }
+
     /// Opens screen `id` with `params` on top, for `slot` if it was bound
     /// to one.
     pub(crate) fn open(&mut self, id: Id, slot: Option<Id>, params: &Params) {
-        if !self.require_screen_keys(1) {
+        if !self.screen_stack_has_room() || !self.require_screen_keys(1) {
             return;
         }
         let Some(spec) = self.shared.registry.screens.get(&id) else {
             return self.warn_runtime(format!("unknown screen `{id}`"));
         };
         // Native allocation finishes before changing the serial, layout or screen.
-        let Ok(native_screen) = spec.prepare_native(params) else {
-            self.warn_native_open_failed();
-            return;
+        let native_screen = match spec.prepare_native(params) {
+            Ok(screen) => screen,
+            Err(status) => {
+                self.warn_native_open_failed();
+                if tells_the_user(status) {
+                    self.notify_native_open_failed();
+                }
+                return;
+            }
         };
         let on_open = spec.refresh_on_open();
         let Some((serial, next_serial)) = next_screen_serial(self.next_serial, spec.is_native())
@@ -171,6 +254,7 @@ impl Kernel {
             }
         }
         let active = ActiveScreen {
+            guard_dialog: false,
             id,
             serial,
             slot,
@@ -181,8 +265,23 @@ impl Kernel {
             timer: None,
             key_layer: None,
             by_guard: self.guard().is_some() && self.from_guard_own,
+            policy: None,
             pane,
+            ready: false,
+            drawn: false,
         };
+        self.push_opened(active, params, beside.is_some(), on_open);
+    }
+
+    /// Puts the screen just made on the stack (below a guard, or on top) and
+    /// tells it and the display; `beside` when it is shown beside the list.
+    fn push_opened(
+        &mut self,
+        active: ActiveScreen,
+        params: &Params,
+        beside: bool,
+        on_open: Option<paperpaw_sdk::RefreshMode>,
+    ) {
         // Opened by another while a screen guards the device: it waits
         // below the guard, hidden.
         if let Some(guard) = self.guard().filter(|_| !self.from_guard) {
@@ -192,7 +291,7 @@ impl Kernel {
             return;
         }
         // The list a detail shows beside stays shown.
-        if active.screen.region(&self.shared.env(self.now)).is_none() && beside.is_none() {
+        if active.screen.region(&self.shared.env(self.now)).is_none() && !beside {
             self.hide_from(self.shown_base());
         }
         self.screens_changed = true;
@@ -217,18 +316,10 @@ impl Kernel {
     }
 
     fn native_screen_opened(&mut self, index: usize, params: &Params) {
-        let native = self
-            .stack
-            .get(index)
-            .and_then(|active| self.shared.registry.screens.get(&active.id))
-            .is_some_and(|maker| maker.is_native());
-        if native {
+        if self.is_native_at(index) {
             // The private wrapper uses this hook to announce an instance before
             // it is shown, including instances hidden below a guarding screen.
-            self.with_screen(index, |screen, cx| {
-                screen.on_reopen(params, cx);
-                Handled::Yes
-            });
+            self.on_reopen_with_handover(index, params);
         }
     }
 
@@ -256,7 +347,7 @@ impl Kernel {
             _ => self
                 .stack
                 .iter()
-                .rposition(|active| active.id == id && active.params == *params),
+                .rposition(|active| active.id == id && self.same_params(active, params)),
         };
         let Some(index) = open else {
             return self.open(id, slot, params);
@@ -272,16 +363,98 @@ impl Kernel {
             }
             self.close_above(index);
         }
+        self.reopen(index, params);
+    }
+
+    /// Gives the open instance `index` the params of a new open
+    /// ([`Screen::on_reopen`]), and the hand-over that open names.
+    pub(crate) fn reopen(&mut self, index: usize, params: &Params) {
         self.stack[index].params = params.clone();
+        self.on_reopen_with_handover(index, params);
+    }
+
+    /// Whether the screen at `index` is a native one.
+    pub(crate) fn is_native_at(&self, index: usize) -> bool {
+        self.stack
+            .get(index)
+            .and_then(|active| self.shared.registry.screens.get(&active.id))
+            .is_some_and(|maker| maker.is_native())
+    }
+
+    /// `Screen::on_reopen` of instance `index`, after the hand-over the
+    /// applied `open` names went to it (docs/abi/ui.md 1.1 step 5; an open of
+    /// none clears its params and text). A screen that is not native keeps
+    /// what it has and leaves the hand-over to the drain.
+    fn on_reopen_with_handover(&mut self, index: usize, params: &Params) {
+        let info = self.attach_pending_handover(index);
+        self.shared.native_instances.set_open_info(info);
         self.with_screen(index, |screen, cx| {
             screen.on_reopen(params, cx);
             Handled::Yes
         });
+        // Whatever `on_reopen` left: never for another screen's.
+        self.shared.native_instances.set_open_info(None);
+    }
+
+    /// The hand-over the applied `open` names goes to native instance
+    /// `index`: what its `screen_opened` says of it comes back (none for no
+    /// staged open).
+    fn attach_pending_handover(
+        &mut self,
+        index: usize,
+    ) -> Option<crate::native_host::ui_store::Info> {
+        if !self.is_native_at(index) {
+            return None;
+        }
+        let serial = self.stack.get(index)?.serial;
+        let pending = self.shared.native_instances.take_pending_handover()?;
+        let store = self.shared.native_instances.ui_store()?;
+        let attached = store.attach(pending, serial);
+        let info = attached.is_ok().then(|| store.info(serial)).flatten();
+        if attached.is_err() {
+            if let Some(id) = pending {
+                let _ = store.release(id);
+            }
+            self.warn_runtime("a screen's hand-over could not be attached; it opens without");
+        }
+        Some(info.unwrap_or(crate::native_host::ui_store::Info::NONE))
+    }
+
+    /// Whether `active` has the params an open brings: where a staged open
+    /// names a hand-over (or none), its encoded params are compared, as its
+    /// text is not.
+    fn same_params(&self, active: &ActiveScreen, params: &Params) -> bool {
+        let same = active.params == *params;
+        match (
+            self.shared.native_instances.pending_handover(),
+            self.shared.native_instances.ui_store(),
+        ) {
+            (Some(pending), Some(store)) => same && store.same_params(pending, active.serial),
+            _ => same,
+        }
+    }
+
+    /// Whether the screen open for a slot at `index` already has the params an
+    /// open brings (docs/abi/ui.md 1.1: modes 1 and 3 compare them): where a
+    /// staged open names a hand-over (or none), its params are compared, as
+    /// its text is not.
+    pub(crate) fn slot_open_same(&self, index: usize, params: &Params) -> bool {
+        match (
+            self.shared.native_instances.pending_handover(),
+            self.shared.native_instances.ui_store(),
+        ) {
+            // A screen that is not native owns no hand-over: it keeps the
+            // rule of params it has.
+            (Some(pending), Some(store)) if self.is_native_at(index) => {
+                store.same_params(pending, self.stack[index].serial)
+            }
+            _ => params.is_empty() || self.stack[index].params == *params,
+        }
     }
 
     /// The topmost screen that guards the device ([`Screen::guards`]).
     pub(crate) fn guard(&self) -> Option<usize> {
-        self.stack.iter().rposition(|active| active.screen.guards())
+        self.stack.iter().rposition(ActiveScreen::guards)
     }
 
     /// Whether a screen guards the device and the command being carried
@@ -290,13 +463,14 @@ impl Kernel {
         !self.from_guard && self.guard().is_some()
     }
 
-    /// Shows the notice held while a screen guarded the device, once none
-    /// does.
+    /// Shows the waiting notices in turn: the oldest once no screen guards
+    /// the device and no notice shows, the next when that one is over.
     pub(crate) fn release_held_notice(&mut self) {
-        if self.guard().is_none()
-            && let Some(text) = self.held_notice.take()
-        {
-            self.notify(text);
+        while self.guard().is_none() && self.notice.is_none() {
+            let Some(text) = self.waiting_notices.pop() else {
+                return;
+            };
+            self.show_notice(text);
         }
     }
 
@@ -317,12 +491,20 @@ impl Kernel {
     }
 
     /// Shows `text` with the screen bound to the notice slot until the
-    /// notice time is over.
+    /// notice time is over, in place of the one that shows. It waits (at most
+    /// 4 waiting, 2 on the X4, the oldest dropped) while a screen guards the
+    /// device and its command is not the guard's own, and behind notices that
+    /// wait: those held while a screen guarded show one after the other.
     pub(crate) fn notify(&mut self, text: String) {
-        if self.held_by_guard() {
-            self.held_notice = Some(text);
+        if self.held_by_guard() || !self.waiting_notices.is_empty() {
+            self.waiting_notices.push(text);
             return;
         }
+        self.show_notice(text);
+    }
+
+    /// Puts `text` on the screen of the notice slot now.
+    fn show_notice(&mut self, text: String) {
         let Some(id) = self
             .shared
             .registry
@@ -356,6 +538,7 @@ impl Kernel {
 
     /// Binds an input for the user (see [`Command::Bind`]).
     pub(crate) fn bind(&mut self, layer: &str, input: &str, action: Option<Id>) {
+        self.shared.registry_generation.bump();
         let valid_layer = layer == GLOBAL_KEYMAP_LAYER || Id::parse(layer).is_ok();
         if !valid_layer || !keymap::is_input(input) {
             return self.warn_runtime(format!("cannot bind `{input}` in `{layer}`"));
@@ -400,6 +583,7 @@ impl Kernel {
                 screen.on_close(cx);
                 Handled::Yes
             });
+            self.cleanup_ui_instance(self.stack[i].serial);
             self.stack.truncate(i);
             self.screens_changed = true;
         }
@@ -418,9 +602,47 @@ impl Kernel {
                 let overlay = active.screen.region(&env).is_some();
                 let key = paperpaw_sdk::ScreenKey::new(active.serial);
                 paperpaw_sdk::StackEntry::new(active.id.clone(), active.slot.clone(), overlay, key)
-                    .guarding(active.screen.guards())
+                    .guarding(active.guards())
             })
             .collect();
+        debug_assert_eq!(self.shared.native_instances.depth(), 0);
+        let guard_before = native_host::ui_guard::guard_instance(&*self.shared.stack_rows);
+        self.shared
+            .stack_rows
+            .update(self.stack.iter().zip(&entries).map(|(active, entry)| {
+                use native_host::stack_rows::{
+                    GUARD_DIALOG, GUARDS, HOST, OVERLAY, SECRET, StackRow,
+                };
+                let host = active.id.namespace() == "core";
+                let owner = if host {
+                    0
+                } else {
+                    self.shared
+                        .native_instances
+                        .find(active.id.namespace())
+                        .unwrap_or(0)
+                };
+                StackRow {
+                    instance: active.serial,
+                    owner,
+                    flags: (u8::from(entry.overlay) * OVERLAY)
+                        | (u8::from(entry.guards) * GUARDS)
+                        | (u8::from(active.secret()) * SECRET)
+                        | (u8::from(host) * HOST)
+                        | (u8::from(active.guard_dialog) * GUARD_DIALOG),
+                }
+            }));
+        // A guard that is new (or another one) drops the private status values
+        // cached before it; a refusal is harmless, private items are hidden
+        // under a guard before the cache is read.
+        let guard_after = native_host::ui_guard::guard_instance(&*self.shared.stack_rows);
+        if guard_after.is_some()
+            && guard_after != guard_before
+            && let Some(ui) = self.shared.native_instances.ui_services()
+            && ui.guard_started().is_err()
+        {
+            self.warn_runtime("status cache not cleared at guard start");
+        }
         self.shared.stack.clear();
         self.shared.stack.extend(entries);
         self.sync_chromes();
@@ -452,6 +674,7 @@ impl Kernel {
             screen.on_close(cx);
             Handled::Yes
         });
+        self.cleanup_ui_instance(self.stack[index].serial);
         self.stack.remove(index);
         self.screens_changed = true;
         self.sync_stack();
@@ -467,6 +690,90 @@ impl Kernel {
         }
     }
 
+    fn cleanup_ui_instance(&mut self, instance: u32) {
+        if let Err(status) = self.native_instance_closed(instance) {
+            if status == paperpaw_native::host_glue::ERR_BUSY {
+                if let Err(error) = self.shared.stack_rows.retry_cleanup(instance) {
+                    self.shared.stack_rows.note_close_error(error);
+                }
+            } else {
+                self.warn_runtime("UI instance cleanup failed");
+            }
+        }
+    }
+
+    pub(crate) fn drain_deferred_ui_closes(&mut self) {
+        debug_assert_eq!(self.shared.native_instances.depth(), 0);
+        if self.shared.stack_rows.take_close_error() != 0 {
+            self.warn_runtime("deferred UI cleanup queue is full");
+        }
+        // Snapshot the work first. Busy entries are retried next main-loop pass.
+        for action in self.shared.stack_rows.take_pending() {
+            let instance = action.instance;
+            if instance == 0 {
+                continue;
+            }
+            if action.close {
+                if let Some(index) = self
+                    .stack
+                    .iter()
+                    .position(|screen| screen.serial == instance)
+                {
+                    self.with_screen(index, |screen, cx| {
+                        screen.on_close(cx);
+                        Handled::Yes
+                    });
+                    self.cleanup_ui_instance(instance);
+                    self.stack.remove(index);
+                    self.screens_changed = true;
+                    self.sync_stack();
+                    self.stop_for_closed_screens();
+                    self.screen_changed(self.content(), false);
+                } else {
+                    self.cleanup_ui_instance(instance);
+                }
+            }
+        }
+        self.sweep_closed_ui_instances();
+    }
+
+    /// Recover closed instances not kept in the fixed cleanup queue. UiStore
+    /// is authoritative for retained resources; the real stack protects live ones.
+    fn sweep_closed_ui_instances(&mut self) {
+        if !self.shared.stack_rows.take_cleanup_sweep() {
+            return;
+        }
+        let result: Result<(), i32> = (|| {
+            let Some(store) = self.shared.native_instances.ui_store() else {
+                return Ok(());
+            };
+            let mut after = 0;
+            while let Some(instance) = store.next_retained_instance(after)? {
+                after = instance;
+                if !self.stack.iter().any(|screen| screen.serial == instance) {
+                    self.native_instance_closed(instance)?;
+                }
+            }
+            // Widget instances of closed screens the store no longer holds.
+            let mut after = 0;
+            while let Some(ui) = self.shared.native_instances.ui_services()
+                && let Some(instance) = ui.next_widget_screen(after)?
+            {
+                after = instance;
+                if !self.stack.iter().any(|screen| screen.serial == instance) {
+                    self.native_instance_closed(instance)?;
+                }
+            }
+            Ok(())
+        })();
+        if let Err(status) = result {
+            self.shared.stack_rows.request_cleanup_sweep();
+            if status != paperpaw_native::host_glue::ERR_BUSY {
+                self.warn_runtime("UI instance cleanup sweep failed; retry pending");
+            }
+        }
+    }
+
     /// A retired owner cannot veto removal, including its root or guard.
     pub(crate) fn remove_retired_native_screens(&mut self, owner: &Id) {
         let mut removed = false;
@@ -474,7 +781,7 @@ impl Kernel {
             if self.stack[index].id.namespace() == owner.as_str() {
                 // The owner is revoked already. Dropping its private wrapper
                 // releases the lease without calling retired plugin code.
-                self.native_instance_closed(self.stack[index].serial);
+                self.cleanup_ui_instance(self.stack[index].serial);
                 self.stack.remove(index);
                 removed = true;
             }
@@ -809,7 +1116,11 @@ impl Kernel {
         let trusted = self.guard().is_some_and(|guard| {
             index == guard || (index > guard && self.stack.get(index).is_some_and(|s| s.by_guard))
         });
+        // What the screen's callbacks need for their command stage (a native
+        // screen's), asked of the kernel before it is borrowed.
+        let armed = self.arm_screen_stage(index);
         let Some(active) = self.stack.get_mut(index) else {
+            self.disarm_screen_stage(armed);
             self.output.redraw = earlier;
             return Handled::No;
         };
@@ -825,6 +1136,9 @@ impl Kernel {
             .with_params(&self.action_params);
         let handled = f(active.screen.as_mut(), &mut cx);
         drop(running);
+        if let (Some(before), Some(stage)) = (armed, self.shared.native_instances.screen_stage()) {
+            stage.restore(before);
+        }
         // A part it asked to draw again is in its own coordinates.
         let own = mem::replace(&mut self.output.redraw_area, asked_area);
         if let Some(own) = own.map(|own| chrome::on_screen(own, area)) {
@@ -857,6 +1171,25 @@ impl Kernel {
             self.output.commands.remove(at);
             if asked == key {
                 self.set_key_layer(key, layer);
+            }
+        }
+        // The firmware confirmation's answer comes from that screen alone:
+        // taken here, out of its own commands, so no event another sends
+        // (with the nonce guessed or not) is ever taken for it.
+        if self.stack[index].id == crate::native_host::firmware_confirm::SCREEN {
+            let mut at = given;
+            while at < self.output.commands.len() {
+                let Command::Emit(event, params) = &self.output.commands[at] else {
+                    at += 1;
+                    continue;
+                };
+                if *event != crate::native_host::firmware_confirm::ANSWERED {
+                    at += 1;
+                    continue;
+                }
+                let params = params.clone();
+                self.output.commands.remove(at);
+                self.firmware_answer(&params);
             }
         }
         // The commands of a guarding screen, or of one above it, open
@@ -1058,12 +1391,25 @@ pub(crate) fn uncovered(area: Rect, cover: Rect) -> Option<Rect> {
 
 /// What a screen's place holds between the old screen dropped and the new
 /// one made ([`Kernel::remake_screen`]): never drawn nor asked anything.
-struct Gone;
+pub(crate) struct Gone;
 
 impl Screen for Gone {
     fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
+    }
+}
+
+#[cfg(test)]
+mod open_notice_tests {
+    use super::tells_the_user;
+    use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_UNSUPPORTED};
+
+    #[test]
+    fn a_failed_open_is_told_except_after_a_lack_of_memory() {
+        assert!(!tells_the_user(ERR_NO_MEMORY));
+        assert!(tells_the_user(ERR_UNSUPPORTED));
+        assert!(tells_the_user(-1));
     }
 }

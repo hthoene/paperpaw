@@ -1,0 +1,159 @@
+//! What Stats declares to the host. The settings are pinned byte for byte
+//! (`testdata/declarations.bin.v1`, as the build script checks them); the icon,
+//! the events and the stage are checked by what they say. The interface-6
+//! plugin registered the same group (`stats.group`, order 25), three settings
+//! with the same ranges and defaults, and the chart icon.
+#![allow(clippy::unwrap_used, reason = "test assertions")]
+#[path = "../declarations.rs"]
+#[allow(dead_code, reason = "the build script also uses the builders")]
+mod declarations;
+use paperpaw_core::native_host::registrations::{Record, records_decode};
+
+type Build = fn(
+    &mut dyn FnMut(&[u8]) -> Result<(), i32>,
+) -> Result<(), paperpaw_sdk::native::declare::DeclareError>;
+
+fn batches(build: Build) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    build(&mut |batch: &[u8]| {
+        out.push(batch.to_vec());
+        Ok(())
+    })
+    .unwrap();
+    out
+}
+
+#[test]
+fn the_settings_are_the_golden() {
+    let mut framed = Vec::new();
+    for batch in batches(|sink| declarations::settings(sink)) {
+        framed.extend_from_slice(&u32::try_from(batch.len()).unwrap().to_le_bytes());
+        framed.extend_from_slice(&batch);
+    }
+    assert!(
+        framed == include_bytes!("../testdata/declarations.bin.v1"),
+        "the settings changed: read the difference and bless the golden on purpose"
+    );
+}
+
+#[test]
+fn the_settings_keep_their_keys_ranges_defaults_and_units() {
+    let mut seen = Vec::new();
+    for batch in batches(|sink| declarations::settings(sink)) {
+        for record in records_decode(&batch).unwrap().iter() {
+            match record {
+                Record::SettingGroup(group) => {
+                    assert_eq!(
+                        (group.name, group.title, group.order),
+                        ("group", "stats.group", 25)
+                    );
+                }
+                Record::SettingSpec(spec) => seen.push(format!("{spec:?}")),
+                Record::SettingExtra(extra) => seen.push(format!("{extra:?}")),
+                _ => {}
+            }
+        }
+    }
+    let all = seen.join("\n");
+    for needle in [
+        "enabled",
+        "stats.setting.enabled.help",
+        "min-seconds",
+        "stats.setting.min",
+        "max-seconds",
+        "stats.setting.max",
+        "stats.unit.seconds",
+    ] {
+        assert!(all.contains(needle), "{needle} is declared");
+    }
+}
+
+#[test]
+fn the_group_has_the_chart_icon() {
+    let mut all = String::new();
+    for batch in batches(|sink| declarations::ui(sink)) {
+        for record in records_decode(&batch).unwrap().iter() {
+            all.push_str(&format!("{record:?}\n"));
+        }
+    }
+    assert!(
+        all.contains("stats.group") && all.contains("chart-bar"),
+        "{all}"
+    );
+}
+
+#[test]
+fn the_events_are_the_ones_reading_is_recorded_from() {
+    let mut count = 0;
+    for batch in batches(|sink| declarations::events(sink)) {
+        count += records_decode(&batch).unwrap().len();
+    }
+    // Started, resume, suspend, stopping, page turned, book opened, closed,
+    // finished and moved, the status (the clock becoming known) and the
+    // minute tick (the widgets' new day), a changed setting (the goal), the
+    // end of a request (the sync with the WebDAV folder) and the status stage
+    // (the time left).
+    assert_eq!(count, 14);
+}
+
+#[test]
+fn the_statistics_answer_the_stage_of_reading_goal() {
+    let mut all = String::new();
+    for batch in batches(|sink| declarations::stages(sink)) {
+        for record in records_decode(&batch).unwrap().iter() {
+            all.push_str(&format!("{record:?}\n"));
+        }
+    }
+    assert!(all.contains("reading-goal.read-today"), "{all}");
+}
+
+/// Every record is well formed for the host, and the host admits every one of
+/// them: none is refused as unsupported.
+#[test]
+fn every_record_is_valid_for_the_host_and_admitted() {
+    use paperpaw_core::native_host::declarations::validate_record;
+    use paperpaw_native::host_glue::ERR_UNSUPPORTED;
+    let builders: [(&str, Build); 5] = [
+        ("settings", |sink| declarations::settings(sink)),
+        ("widgets", |sink| declarations::widgets(sink)),
+        ("ui", |sink| declarations::ui(sink)),
+        ("events", |sink| declarations::events(sink)),
+        ("stages", |sink| declarations::stages(sink)),
+    ];
+    let mut waiting = Vec::new();
+    for (name, build) in builders {
+        for batch in batches(build) {
+            for record in records_decode(&batch).unwrap().iter() {
+                match validate_record("stats", &record) {
+                    Ok(()) => {}
+                    Err(ERR_UNSUPPORTED) => {
+                        let text = format!("{record:?}");
+                        waiting.push(format!("{name}: {}", text.split('(').next().unwrap()));
+                    }
+                    Err(error) => panic!("{name}: {record:?}: {error}"),
+                }
+            }
+        }
+    }
+    assert!(
+        waiting.is_empty(),
+        "the host admits every record now: {waiting:?}"
+    );
+}
+
+/// A widget that `previews` a settings group is made for that group's settings
+/// page and never offered in the Add picker (`registry.md`, op 19). Beta 3's
+/// statistics widgets declared none, so each stays pickable.
+#[test]
+fn no_widget_previews_a_settings_group() {
+    let mut seen = 0;
+    for batch in batches(|sink| declarations::widgets(sink)) {
+        for record in records_decode(&batch).unwrap().iter() {
+            if let Record::WidgetSpec(spec) = record {
+                assert_eq!(spec.previews, "", "{}", spec.name);
+                seen += 1;
+            }
+        }
+    }
+    assert_eq!(seen, declarations::WIDGETS.len());
+}

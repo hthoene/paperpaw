@@ -380,6 +380,7 @@ impl Kernel {
             self.stack.last().map(|top| top.serial)
         };
         self.output.commands.push(events::PREVIEW_CHANGED.emit(()));
+        self.native_hint(crate::native_host::registrations::EVENT_PREVIEW_CHANGED_TAG);
     }
 
     /// Ends the values shown without being kept when the screen that
@@ -451,10 +452,11 @@ impl Kernel {
             return;
         }
         self.save_config("plugins", id.as_str(), if enabled { "on" } else { "off" });
-        if let Some(info) = self.shared.plugins.get_mut(id.as_str()) {
+        if let Some(info) = self.shared.plugin_mut(id.as_str()) {
             info.enabled = enabled;
         }
         self.native_hint(crate::native_host::registrations::EVENT_PLUGINS_CHANGED_TAG);
+        self.native_registry_changed(crate::native_host::REGISTRY_ALL);
     }
 
     pub(crate) fn setting_changed(&mut self, id: &Id) {
@@ -472,7 +474,10 @@ impl Kernel {
             self.framebuffer
                 .set_mono_coverage(mono_coverage(&self.shared.settings));
         }
-        if *id == core_settings::KEYMAP_PRESET || self.keys.when.iter().any(|(s, _)| s == id) {
+        if *id == core_settings::KEYMAP_PRESET
+            || self.keys.when.iter().any(|(s, _)| s == id)
+            || self.native_key_when(id.as_str())
+        {
             self.rebuild_keymap();
         }
         if *id == core_settings::STATUS_FONT {
@@ -564,6 +569,7 @@ impl Kernel {
                         .filter(|a| !a.is_empty())
                         .map(Id::parse)
                         .collect();
+                    self.shared.registry_generation.bump();
                     let known = entry.section == crate::plugins::KNOWN;
                     match (Id::parse(entry.key), actions) {
                         (Ok(menu), Ok(actions)) if known => {
@@ -574,7 +580,10 @@ impl Kernel {
                     }
                 }
                 "slots" => match (Id::parse(entry.key), Id::parse(&value)) {
-                    (Ok(slot), Ok(screen)) => self.shared.registry.bind_user(slot, screen),
+                    (Ok(slot), Ok(screen)) => {
+                        self.shared.registry_generation.bump();
+                        self.shared.registry.bind_user(slot, screen);
+                    }
                     _ => self.warn(
                         WarningSource::UserConfig,
                         line,
@@ -680,7 +689,7 @@ impl Kernel {
                     && !self.shared.menus.is_section(id.as_str())
             })
             .collect();
-        unknown.sort_unstable();
+        paperpaw_sort::sort(&mut unknown);
         unknown.dedup();
         for action in unknown {
             messages.push(format!("unknown action `{action}` in a key map or menu"));

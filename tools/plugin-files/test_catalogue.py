@@ -27,10 +27,19 @@ KEY = bytes(range(32))
 def signed(fingerprint):
     """A plugin file as catalogue.py reads it: the header with its
     fingerprint, and a signature's trailer with the author's key."""
-    header = b"PPNP" + bytes(4) + struct.pack("<Q", fingerprint)
+    header = b"PPNP" + struct.pack("<HH", 4, 5) + struct.pack("<Q", fingerprint)
     header += bytes(80 - len(header))
     trailer = b"PPNS" + bytes(8) + KEY
     return header + trailer + bytes(catalogue.SIGNATURE_LEN - len(trailer))
+
+
+def signed5(target=5, major=7, minor=0, body=b""):
+    """A format-5 file as catalogue.py reads it (abi/ppn5.md): a 96-byte header
+    with the target, `abi_major` and `needs_minor`, and no fingerprint."""
+    header = b"PPNP" + struct.pack("<HHHH", 5, target, major, minor)
+    header += bytes(96 - len(header))
+    trailer = b"PPNS" + bytes(8) + KEY
+    return header + body + trailer + bytes(catalogue.SIGNATURE_LEN - len(trailer))
 
 
 def built(dist):
@@ -91,7 +100,6 @@ class HowItWorks(unittest.TestCase):
             with unittest.mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
                 catalogue.main()
             for plugin, files in [
-                ("reading-goal", {f"pictures/{mood}.png" for mood in ["sad", "meh", "content", "happy"]}),
                 ("widgets", {"data/quotes.en.txt", "data/quotes.de.txt"}),
                 ("vocabulary", {"data/phone.txt"}),
             ]:
@@ -106,13 +114,13 @@ class HowItWorks(unittest.TestCase):
             argv = ["catalogue.py", str(dist), "0.4.0", "https://example.invalid/r", "--date", "2026-10-23"]
             with unittest.mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
                 catalogue.main()
-            folder = f"battery-{catalogue.plugin_version('battery')}.zip"
+            folder = f"aids-{catalogue.plugin_version('aids')}.zip"
             first = dist.joinpath(folder).read_bytes()
             with zipfile.ZipFile(dist / folder) as z:
                 names = z.namelist()
                 english = z.read("how/en.txt").decode("utf-8")
             self.assertEqual(names, ["plugin.ini", "how/de.txt", "how/en.txt"])
-            self.assertEqual(english, catalogue.ROOT.joinpath("plugins/battery/how/en.txt").read_text(encoding="utf-8"))
+            self.assertEqual(english, catalogue.ROOT.joinpath("plugins/aids/how/en.txt").read_text(encoding="utf-8"))
             # The same bytes again: the release's checksums hold.
             with unittest.mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
                 catalogue.main()
@@ -214,6 +222,94 @@ class DataPlugins(unittest.TestCase):
                 catalogue.main()
 
 
+class Format5(unittest.TestCase):
+    """Interface 7's files carry `7.<needs_minor>` where interface 6's carry the
+    fingerprint (Kernel's ruling on #228, todo 169)."""
+
+    def run_catalogue(self, dist, *extra):
+        argv = ["catalogue.py", str(dist), "0.6.0", "https://example.invalid/r", "--date", "2026-11-08",
+                "--only", "vocabulary", *extra]
+        with unittest.mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
+            catalogue.main()
+
+    def test_the_abi_of_a_format_5_file_is_its_major_and_minor_in_decimal(self):
+        with tempfile.NamedTemporaryFile() as f:
+            path = pathlib.Path(f.name)
+            for minor in (0, 3, 12, 65535):
+                path.write_bytes(signed5(minor=minor))
+                abi, key, file_format, target = catalogue.ppn(path)
+                self.assertEqual((abi, key, file_format, target), (f"7.{minor}", KEY.hex(), 5, 5))
+            # A format-4 file is still its fingerprint.
+            path.write_bytes(signed(0x85073A61323717FF))
+            self.assertEqual(catalogue.ppn(path)[0], "85073a61323717ff")
+            self.assertEqual(catalogue.ppn(path)[2], 4)
+
+    def test_other_formats_and_majors_are_refused(self):
+        with tempfile.NamedTemporaryFile() as f:
+            path = pathlib.Path(f.name)
+            for bad in (signed5(major=6), signed5(major=8), signed(1)[:4] + struct.pack("<H", 3) + signed(1)[6:],
+                        signed(1)[:4] + struct.pack("<H", 6) + signed(1)[6:]):
+                path.write_bytes(bad)
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    catalogue.ppn(path)
+            # Unsigned.
+            path.write_bytes(signed5()[: -catalogue.SIGNATURE_LEN])
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                catalogue.ppn(path)
+
+    def test_a_file_cut_short_is_refused_cleanly_not_with_a_struct_error(self):
+        # 12 to 15 bytes of a format-4 file have the format but not the
+        # fingerprint (bytes 8..16); every length below a header is refused.
+        with tempfile.NamedTemporaryFile() as f:
+            path = pathlib.Path(f.name)
+            for full in (signed(0x85073A61323717FF), signed5()):
+                for length in range(0, 96):
+                    path.write_bytes(full[:length])
+                    err = io.StringIO()
+                    with contextlib.redirect_stderr(err), self.assertRaises(SystemExit):
+                        catalogue.ppn(path)
+                    self.assertIn("catalogue.py:", err.getvalue(), length)
+
+    def test_the_entry_of_a_format_5_build_says_its_abi_and_where_it_is_built(self):
+        with tempfile.TemporaryDirectory() as dist:
+            dist = pathlib.Path(dist)
+            own = catalogue.plugin_version("vocabulary")
+            dist.joinpath(f"vocabulary-{own}-x4.ppn").write_bytes(signed5(5, minor=2))
+            dist.joinpath(f"vocabulary-{own}-x4-pro.ppn").write_bytes(signed5(9, minor=2))
+            self.run_catalogue(dist)
+            entry = dist.joinpath("catalogue", "vocabulary.toml").read_text(encoding="utf-8")
+            self.assertIn('abi = "7.2"', entry)
+            self.assertNotIn("abi = \"00", entry)
+            self.assertIn('path = "tools/plugin-files7"', entry)
+
+    def test_a_format_4_entry_keeps_its_source_and_fingerprint(self):
+        with tempfile.TemporaryDirectory() as dist:
+            dist = pathlib.Path(dist)
+            own = catalogue.plugin_version("vocabulary")
+            dist.joinpath(f"vocabulary-{own}-x4.ppn").write_bytes(signed(0x85073A61323717FF))
+            self.run_catalogue(dist)
+            entry = dist.joinpath("catalogue", "vocabulary.toml").read_text(encoding="utf-8")
+            self.assertIn('abi = "85073a61323717ff"', entry)
+            self.assertIn('path = "tools/plugin-files"', entry)
+
+    def test_a_file_for_another_chip_than_its_device_is_refused(self):
+        with tempfile.TemporaryDirectory() as dist:
+            dist = pathlib.Path(dist)
+            own = catalogue.plugin_version("vocabulary")
+            dist.joinpath(f"vocabulary-{own}-x4-classic.ppn").write_bytes(signed5(5))
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                self.run_catalogue(dist)
+
+    def test_one_entry_never_mixes_formats(self):
+        with tempfile.TemporaryDirectory() as dist:
+            dist = pathlib.Path(dist)
+            own = catalogue.plugin_version("vocabulary")
+            dist.joinpath(f"vocabulary-{own}-x4.ppn").write_bytes(signed5(5))
+            dist.joinpath(f"vocabulary-{own}-x4-pro.ppn").write_bytes(signed(0x85073A61323717FF))
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                self.run_catalogue(dist)
+
+
 class Versions(unittest.TestCase):
     def test_a_release_s_plugins_carry_their_own_versions(self):
         with tempfile.TemporaryDirectory() as dist:
@@ -222,15 +318,15 @@ class Versions(unittest.TestCase):
             argv = ["catalogue.py", str(dist), "0.5.0-beta.2", "https://example.invalid/r", "--date", "2026-10-24"]
             with unittest.mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
                 catalogue.main()
-            own = catalogue.plugin_version("battery")
-            entry = dist.joinpath("catalogue", "battery.toml").read_text(encoding="utf-8")
+            own = catalogue.plugin_version("aids")
+            entry = dist.joinpath("catalogue", "aids.toml").read_text(encoding="utf-8")
             # Its crate's version, not PaperPaw's; the SDK and the source
             # the release's.
             self.assertIn(f'version = "{own}"', entry)
             self.assertNotIn('version = "0.5.0-beta.2"', entry)
             self.assertIn('sdk = "0.5"', entry)
             self.assertIn('revision = "v0.5.0-beta.2"', entry)
-            with zipfile.ZipFile(dist / f"battery-{own}.zip") as z:
+            with zipfile.ZipFile(dist / f"aids-{own}.zip") as z:
                 self.assertIn(f"version = {own}" + chr(10), z.read("plugin.ini").decode("utf-8"))
 
     def test_one_plugin_alone_between_releases(self):
@@ -249,7 +345,7 @@ class Versions(unittest.TestCase):
             self.assertIn('sdk = "0.5"', entry)
             self.assertIn(f'revision = "vocabulary-v{own}"', entry)
             sums = dist.joinpath("SHA256SUMS").read_text(encoding="utf-8")
-            self.assertNotIn("battery", sums)
+            self.assertNotIn("aids", sums)
 
     def test_a_file_published_before_keeps_the_address_of_its_release(self):
         with tempfile.TemporaryDirectory() as dist:

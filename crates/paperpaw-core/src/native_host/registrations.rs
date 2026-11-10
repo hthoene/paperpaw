@@ -5,14 +5,20 @@
 //! bytes are retained as fallible host copies; submitted addresses are metadata.
 //! A refused submission poisons construction even if the plugin ignores it.
 
+#[path = "registrations/subset.rs"]
+mod subset;
 #[path = "../abi7/records_wire.rs"]
 #[allow(
     clippy::all,
     clippy::pedantic,
     missing_docs,
-    reason = "schema-generated bounded wire codec"
+    dead_code,
+    reason = "schema-generated bounded wire codec; the host does not use the plugins' typed codec"
 )]
 mod wire;
+#[cfg(test)]
+pub(super) use subset::decode_any;
+pub(super) use subset::{as_wire, decode_record, unexpected};
 
 pub use wire::{
     EVENT_TICK_TAG, REGISTRATION_MAX_BYTES, REGISTRATION_MAX_RECORDS, Registration,
@@ -59,18 +65,19 @@ pub use wire::{
 // `docs/abi/screens-input.md`.
 pub use wire::{
     ACTION_SPEC_TAG, ActionSpec, DRAW_FRAME_PAYLOAD_MAX_BYTES, DRAW_FRAME_TAG, DrawFrame,
-    EVENT_ACTION_RUN_TAG, EVENT_SCREEN_SHOWN_TAG, EventActionRun, EventScreenShown,
-    I18N_ARG_INT_TAG, I18N_ARG_STR_TAG, I18N_COUNT_TAG, I18nArgInt, I18nArgStr, I18nCount,
-    INPUT_ACTION_TAG, INPUT_GESTURE_TAG, INPUT_KEY_TAG, INPUT_POINTER_TAG, InputAction,
-    InputGesture, InputKey, InputPointer, SCREEN_SPEC_TAG, ScreenSpec,
+    EVENT_ACTION_RUN_TAG, EVENT_SCREEN_SHOWN_TAG, EVENT_TEXT_TYPED_TEXT_MAX_BYTES, EventActionRun,
+    EventScreenShown, EventTextTyped, I18N_ARG_INT_TAG, I18N_ARG_STR_TAG, I18N_COUNT_TAG,
+    I18nArgInt, I18nArgStr, I18nCount, INPUT_ACTION_TAG, INPUT_GESTURE_TAG, INPUT_KEY_TAG,
+    INPUT_POINTER_TAG, InputAction, InputGesture, InputKey, InputPointer, SCREEN_SPEC_TAG,
+    ScreenSpec,
 };
 // Stages (19, 20, 512, 513) and the test-only service record 1024
 // (`docs/abi/stages-services.md`).
 pub(crate) use wire::EVENT_SETTING_CHANGED_OLD_MAX_BYTES;
 pub use wire::{
     REGISTRATION_STAGE_TAG, RegistrationStage, SERVICE_ECHO_TAG, STAGE_CALL_PAYLOAD_MAX_BYTES,
-    STAGE_CALL_TAG, STAGE_REPLY_PAYLOAD_MAX_BYTES, STAGE_REPLY_TAG, STAGE_SPEC_TAG, ServiceEcho,
-    StageCall, StageReply, StageSpec,
+    STAGE_CALL_TAG, STAGE_REPLY_PAYLOAD_MAX_BYTES, STAGE_REPLY_SUBSCRIBER_MAX_BYTES,
+    STAGE_REPLY_TAG, STAGE_SPEC_TAG, ServiceEcho, StageCall, StageReply, StageSpec,
 };
 // Core events of family 1b (64-74, `docs/abi/core-events.md`); hosts admit
 // their registrations once a producer is wired.
@@ -116,10 +123,12 @@ pub use wire::{
     SERVICE_UI_HINT_TAG, SERVICE_UI_INSTANCE_TAG, SERVICE_UI_PARAM_TAG,
     SERVICE_UI_QUESTION_CHOICES_ITEM_MAX_BYTES, SERVICE_UI_QUESTION_CHOICES_MAX_ITEMS,
     SERVICE_UI_QUESTION_CHOICES_SEPARATOR, SERVICE_UI_QUESTION_TAG, SERVICE_UI_REQUEST_TAG,
-    SERVICE_UI_SCREEN_TAG, SERVICE_UI_SIZE_TAG, SERVICE_UI_STATUS_ASK_ITEMS_ITEM_MAX_BYTES,
-    SERVICE_UI_STATUS_ASK_ITEMS_MAX_ITEMS, SERVICE_UI_STATUS_ASK_ITEMS_SEPARATOR,
-    SERVICE_UI_STATUS_ASK_TAG, SERVICE_UI_STATUS_VALUE_ITEM_MAX_BYTES, SERVICE_UI_STATUS_VALUE_TAG,
-    SERVICE_UI_TARGET_TAG, SERVICE_UI_TEXT_AT_TAG, SERVICE_UI_TEXT_TAG, SERVICE_UI_WIDGET_AREA_TAG,
+    SERVICE_UI_SCREEN_OWNER_MAX_BYTES, SERVICE_UI_SCREEN_SCREEN_MAX_BYTES,
+    SERVICE_UI_SCREEN_SLOT_MAX_BYTES, SERVICE_UI_SCREEN_TAG, SERVICE_UI_SIZE_TAG,
+    SERVICE_UI_STATUS_ASK_ITEMS_ITEM_MAX_BYTES, SERVICE_UI_STATUS_ASK_ITEMS_MAX_ITEMS,
+    SERVICE_UI_STATUS_ASK_ITEMS_SEPARATOR, SERVICE_UI_STATUS_ASK_TAG,
+    SERVICE_UI_STATUS_VALUE_ITEM_MAX_BYTES, SERVICE_UI_STATUS_VALUE_TAG, SERVICE_UI_TARGET_TAG,
+    SERVICE_UI_TEXT_AT_TAG, SERVICE_UI_TEXT_TAG, SERVICE_UI_WIDGET_AREA_TAG,
     SERVICE_UI_WIDGET_INPUT_TAG, SERVICE_UI_WIDGET_REF_TAG, STATUS_ITEM_TAG, STATUS_LINE_TAG,
     STATUS_PLACE_TAG, ServiceUiAnswer, ServiceUiAsk, ServiceUiHandle, ServiceUiHint,
     ServiceUiInstance, ServiceUiParam, ServiceUiQuestion, ServiceUiRequest, ServiceUiScreen,
@@ -134,10 +143,10 @@ pub use wire::{
 // `core.library` rows 1060-1124; the host admits and answers them once wired.
 pub use wire::{
     BOOK_BADGE_SPEC_TAG, BOOK_DATA_SPEC_TAG, BOOK_FIELD_SPEC_TAG, BookBadgeSpec, BookDataSpec,
-    BookFieldSpec, EVENT_IMAGE_READY_TAG, EVENT_LIBRARY_CHANGED_TAG, EventImageReady,
-    EventLibraryChanged, FORMAT_SPEC_EXTENSIONS_ITEM_MAX_BYTES, FORMAT_SPEC_EXTENSIONS_MAX_ITEMS,
-    FORMAT_SPEC_EXTENSIONS_SEPARATOR, FORMAT_SPEC_TAG, FormatSpec,
-    LOOKUP_SPEC_LANGUAGES_ITEM_MAX_BYTES, LOOKUP_SPEC_LANGUAGES_MAX_ITEMS,
+    BookFieldSpec, EVENT_IMAGE_READY_TAG, EVENT_LIBRARY_CHANGED_TAG, EVENT_LOOKUP_READY_TAG,
+    EventImageReady, EventLibraryChanged, EventLookupReady, FORMAT_SPEC_EXTENSIONS_ITEM_MAX_BYTES,
+    FORMAT_SPEC_EXTENSIONS_MAX_ITEMS, FORMAT_SPEC_EXTENSIONS_SEPARATOR, FORMAT_SPEC_TAG,
+    FormatSpec, LOOKUP_SPEC_LANGUAGES_ITEM_MAX_BYTES, LOOKUP_SPEC_LANGUAGES_MAX_ITEMS,
     LOOKUP_SPEC_LANGUAGES_SEPARATOR, LOOKUP_SPEC_TAG, LookupSpec,
     READER_SPEC_FORMATS_ITEM_MAX_BYTES, READER_SPEC_FORMATS_MAX_ITEMS,
     READER_SPEC_FORMATS_SEPARATOR, READER_SPEC_TAG, ReaderSpec, SERVICE_DOC_AT_TAG,
@@ -149,36 +158,36 @@ pub use wire::{
     SERVICE_DOC_META_TAG, SERVICE_DOC_OPEN_TAG, SERVICE_DOC_OPTION_TAG, SERVICE_DOC_PAGE_TAG,
     SERVICE_DOC_PATH_TAG, SERVICE_DOC_PROGRESS_TAG, SERVICE_DOC_READER_FORMATS_ITEM_MAX_BYTES,
     SERVICE_DOC_READER_FORMATS_MAX_ITEMS, SERVICE_DOC_READER_FORMATS_SEPARATOR,
-    SERVICE_DOC_READER_TAG, SERVICE_DOC_REF_TAG, SERVICE_DOC_RUBY_TAG, SERVICE_DOC_RUN_TAG,
-    SERVICE_DOC_SECTION_TAG, SERVICE_DOC_SPAN_TAG, SERVICE_DOC_STATE_TAG, SERVICE_DOC_TEXT_AT_TAG,
-    SERVICE_DOC_TEXT_PART_TAG, SERVICE_DOC_TEXT_TAG, SERVICE_DOC_TOC_TAG, SERVICE_DOC_XPOINTER_TAG,
-    SERVICE_LIB_ANCHOR_TAG, SERVICE_LIB_ANNOTATION_TAG, SERVICE_LIB_BOOK_TAG,
-    SERVICE_LIB_COMMITTED_TAG, SERVICE_LIB_COVER_TAG, SERVICE_LIB_EDIT_HEAD_TAG,
-    SERVICE_LIB_EDIT_TAG, SERVICE_LIB_EDIT_TEXT_TAG, SERVICE_LIB_ENTRY_BADGES_ITEM_MAX_BYTES,
-    SERVICE_LIB_ENTRY_BADGES_MAX_ITEMS, SERVICE_LIB_ENTRY_BADGES_SEPARATOR, SERVICE_LIB_ENTRY_TAG,
-    SERVICE_LIB_FACET_TAG, SERVICE_LIB_FIELD_SET_TAG, SERVICE_LIB_FIELD_TAG,
-    SERVICE_LIB_IMPORT_TAG, SERVICE_LIB_KEY_TAG, SERVICE_LIB_MOVE_TAG, SERVICE_LIB_PAGE_TAG,
-    SERVICE_LIB_PATHS_PATHS_ITEM_MAX_BYTES, SERVICE_LIB_PATHS_PATHS_MAX_ITEMS,
-    SERVICE_LIB_PATHS_PATHS_SEPARATOR, SERVICE_LIB_PATHS_TAG, SERVICE_LIB_POSITION_SET_TAG,
-    SERVICE_LIB_POSITION_TAG, SERVICE_LIB_PROVIDED_TAG, SERVICE_LIB_PROVIDED_TAGS_ITEM_MAX_BYTES,
-    SERVICE_LIB_PROVIDED_TAGS_MAX_ITEMS, SERVICE_LIB_PROVIDED_TAGS_SEPARATOR,
-    SERVICE_LIB_QUERY_TAG, SERVICE_LIB_RECEIPT_ASK_TAG, SERVICE_LIB_RECEIPT_TAG,
-    SERVICE_LIB_REF_TAG, SERVICE_LIB_RESULT_TAG, SERVICE_LIB_STATE_TAG, SERVICE_LIB_STATUS_TAG,
-    SERVICE_LIB_TEXT_AT_TAG, SERVICE_LIB_TEXT_TAG, SERVICE_LIB_TRANSACTION_REF_TAG,
-    SERVICE_LIB_TRANSACTION_TAG, SERVICE_LOOKUP_ASK_TAG, SERVICE_LOOKUP_ENTRY_TAG, ServiceDocAt,
-    ServiceDocBlock, ServiceDocCell, ServiceDocColumns, ServiceDocFont, ServiceDocFormat,
-    ServiceDocHref, ServiceDocImage, ServiceDocImageAsk, ServiceDocIndex, ServiceDocInlineLang,
-    ServiceDocLabel, ServiceDocLink, ServiceDocMap, ServiceDocMeta, ServiceDocOpen,
-    ServiceDocOption, ServiceDocPage, ServiceDocPath, ServiceDocProgress, ServiceDocReader,
-    ServiceDocRef, ServiceDocRuby, ServiceDocRun, ServiceDocSection, ServiceDocSpan,
-    ServiceDocState, ServiceDocText, ServiceDocTextAt, ServiceDocTextPart, ServiceDocToc,
-    ServiceDocXpointer, ServiceLibAnchor, ServiceLibAnnotation, ServiceLibBook,
-    ServiceLibCommitted, ServiceLibCover, ServiceLibEdit, ServiceLibEditHead, ServiceLibEditText,
-    ServiceLibEntry, ServiceLibFacet, ServiceLibField, ServiceLibFieldPage, ServiceLibFieldSet,
-    ServiceLibImport, ServiceLibKey, ServiceLibMove, ServiceLibPage, ServiceLibPaths,
-    ServiceLibPosition, ServiceLibPositionSet, ServiceLibProvided, ServiceLibQuery,
-    ServiceLibReceipt, ServiceLibReceiptAsk, ServiceLibRef, ServiceLibResult, ServiceLibState,
-    ServiceLibStatus, ServiceLibText, ServiceLibTextAt, ServiceLibTransaction,
+    SERVICE_DOC_READER_TAG, SERVICE_DOC_REF_TAG, SERVICE_DOC_REPORT_TAG, SERVICE_DOC_RUBY_TAG,
+    SERVICE_DOC_RUN_TAG, SERVICE_DOC_SECTION_TAG, SERVICE_DOC_SPAN_TAG, SERVICE_DOC_STATE_TAG,
+    SERVICE_DOC_TEXT_AT_TAG, SERVICE_DOC_TEXT_PART_TAG, SERVICE_DOC_TEXT_TAG, SERVICE_DOC_TOC_TAG,
+    SERVICE_DOC_XPOINTER_TAG, SERVICE_LIB_ANCHOR_TAG, SERVICE_LIB_ANNOTATION_TAG,
+    SERVICE_LIB_BOOK_TAG, SERVICE_LIB_COMMITTED_TAG, SERVICE_LIB_COVER_TAG,
+    SERVICE_LIB_EDIT_HEAD_TAG, SERVICE_LIB_EDIT_TAG, SERVICE_LIB_EDIT_TEXT_TAG,
+    SERVICE_LIB_ENTRY_BADGES_ITEM_MAX_BYTES, SERVICE_LIB_ENTRY_BADGES_MAX_ITEMS,
+    SERVICE_LIB_ENTRY_BADGES_SEPARATOR, SERVICE_LIB_ENTRY_TAG, SERVICE_LIB_FACET_TAG,
+    SERVICE_LIB_FIELD_SET_TAG, SERVICE_LIB_FIELD_TAG, SERVICE_LIB_IMPORT_TAG, SERVICE_LIB_KEY_TAG,
+    SERVICE_LIB_MOVE_TAG, SERVICE_LIB_PAGE_TAG, SERVICE_LIB_PATHS_PATHS_ITEM_MAX_BYTES,
+    SERVICE_LIB_PATHS_PATHS_MAX_ITEMS, SERVICE_LIB_PATHS_PATHS_SEPARATOR, SERVICE_LIB_PATHS_TAG,
+    SERVICE_LIB_POSITION_SET_TAG, SERVICE_LIB_POSITION_TAG, SERVICE_LIB_PROVIDED_TAG,
+    SERVICE_LIB_PROVIDED_TAGS_ITEM_MAX_BYTES, SERVICE_LIB_PROVIDED_TAGS_MAX_ITEMS,
+    SERVICE_LIB_PROVIDED_TAGS_SEPARATOR, SERVICE_LIB_QUERY_TAG, SERVICE_LIB_RECEIPT_ASK_TAG,
+    SERVICE_LIB_RECEIPT_TAG, SERVICE_LIB_REF_TAG, SERVICE_LIB_RESULT_TAG, SERVICE_LIB_STATE_TAG,
+    SERVICE_LIB_STATUS_TAG, SERVICE_LIB_TEXT_AT_TAG, SERVICE_LIB_TEXT_TAG,
+    SERVICE_LIB_TRANSACTION_REF_TAG, SERVICE_LIB_TRANSACTION_TAG, SERVICE_LOOKUP_ASK_TAG,
+    SERVICE_LOOKUP_ENTRY_TAG, ServiceDocAt, ServiceDocBlock, ServiceDocCell, ServiceDocColumns,
+    ServiceDocFont, ServiceDocFormat, ServiceDocHref, ServiceDocImage, ServiceDocImageAsk,
+    ServiceDocIndex, ServiceDocInlineLang, ServiceDocLabel, ServiceDocLink, ServiceDocMap,
+    ServiceDocMeta, ServiceDocOpen, ServiceDocOption, ServiceDocPage, ServiceDocPath,
+    ServiceDocProgress, ServiceDocReader, ServiceDocRef, ServiceDocReport, ServiceDocRuby,
+    ServiceDocRun, ServiceDocSection, ServiceDocSpan, ServiceDocState, ServiceDocText,
+    ServiceDocTextAt, ServiceDocTextPart, ServiceDocToc, ServiceDocXpointer, ServiceLibAnchor,
+    ServiceLibAnnotation, ServiceLibBook, ServiceLibCommitted, ServiceLibCover, ServiceLibEdit,
+    ServiceLibEditHead, ServiceLibEditText, ServiceLibEntry, ServiceLibFacet, ServiceLibField,
+    ServiceLibFieldPage, ServiceLibFieldSet, ServiceLibImport, ServiceLibKey, ServiceLibMove,
+    ServiceLibPage, ServiceLibPaths, ServiceLibPosition, ServiceLibPositionSet, ServiceLibProvided,
+    ServiceLibQuery, ServiceLibReceipt, ServiceLibReceiptAsk, ServiceLibRef, ServiceLibResult,
+    ServiceLibState, ServiceLibStatus, ServiceLibText, ServiceLibTextAt, ServiceLibTransaction,
     ServiceLibTransactionRef, ServiceLookupAsk, ServiceLookupEntry,
 };
 // The device (DEV, `docs/abi/device.md`): events 92-98 and the `core.device` rows
@@ -202,14 +211,16 @@ pub use wire::{
 pub use wire::{
     SERVICE_DEV_BONDED_GIVEN_MAX_BYTES, SERVICE_DEV_BONDED_NAME_MAX_BYTES,
     SERVICE_DEV_BUILTIN_ID_MAX_BYTES, SERVICE_DEV_BUILTIN_VERSION_MAX_BYTES,
-    SERVICE_DEV_DEVICE_CATALOG_MAX_BYTES, SERVICE_DEV_DEVICE_ID_MAX_BYTES,
-    SERVICE_DEV_DEVICE_MODEL_MAX_BYTES, SERVICE_DEV_FIRMWARE_PROJECT_MAX_BYTES,
-    SERVICE_DEV_FIRMWARE_VERSION_MAX_BYTES, SERVICE_DEV_KEY_NAME_MAX_BYTES,
-    SERVICE_DEV_NATIVE_CODE_FILE_MAX_BYTES, SERVICE_DEV_NATIVE_CRASHED_MAX_BYTES,
-    SERVICE_DEV_NATIVE_LAST_LOADED_MAX_BYTES, SERVICE_DEV_NETWORK_SSID_MAX_BYTES,
-    SERVICE_DEV_NOT_INSTALLED_PLUGIN_MAX_BYTES, SERVICE_DEV_POWER_MODE_MAX_BYTES,
-    SERVICE_DEV_VALUE_NAME_MAX_BYTES, SERVICE_DEV_WIFI_ADDRESS_MAX_BYTES,
-    SERVICE_DEV_WIFI_HOST_NAME_MAX_BYTES, SERVICE_DEV_WIFI_SSID_MAX_BYTES,
+    SERVICE_DEV_CHECK_ID_MAX_BYTES, SERVICE_DEV_CHECK_SIGNER_MAX_BYTES,
+    SERVICE_DEV_CHECK_VERSION_MAX_BYTES, SERVICE_DEV_DEVICE_CATALOG_MAX_BYTES,
+    SERVICE_DEV_DEVICE_ID_MAX_BYTES, SERVICE_DEV_DEVICE_MODEL_MAX_BYTES,
+    SERVICE_DEV_FIRMWARE_PROJECT_MAX_BYTES, SERVICE_DEV_FIRMWARE_VERSION_MAX_BYTES,
+    SERVICE_DEV_KEY_NAME_MAX_BYTES, SERVICE_DEV_NATIVE_CODE_FILE_MAX_BYTES,
+    SERVICE_DEV_NATIVE_CRASHED_MAX_BYTES, SERVICE_DEV_NATIVE_LAST_LOADED_MAX_BYTES,
+    SERVICE_DEV_NETWORK_SSID_MAX_BYTES, SERVICE_DEV_NOT_INSTALLED_PLUGIN_MAX_BYTES,
+    SERVICE_DEV_POWER_MODE_MAX_BYTES, SERVICE_DEV_VALUE_NAME_MAX_BYTES,
+    SERVICE_DEV_WIFI_ADDRESS_MAX_BYTES, SERVICE_DEV_WIFI_HOST_NAME_MAX_BYTES,
+    SERVICE_DEV_WIFI_SSID_MAX_BYTES,
 };
 // Folders and files (FS, `docs/abi/files.md`): the `core.files` rows 1142-1147;
 // the host answers them once wired.
@@ -272,6 +283,12 @@ pub use wire::{RECORD_CARRY_MAX_BYTES, RecordStream, record_decode_prefix, recor
 pub use wire::{
     host_arguments_decode_into, host_decode_one, host_decode_prefix, host_records_decode_into,
     host_records_visit,
+};
+// The typed codec (#364): decode and encode one record type, linking no other
+// record's code. The host reads and writes records through `codec` (todo 129).
+pub use wire::{
+    RawRecord, WireEncode, WireRecord, record_encode_of, record_framed_len_of,
+    records_encode_counted_of, records_encode_of,
 };
 // Counted service inputs above the registration limit (`ServiceOp::input_rows`).
 pub use wire::{records_encode_counted, records_encode_counted_iter};

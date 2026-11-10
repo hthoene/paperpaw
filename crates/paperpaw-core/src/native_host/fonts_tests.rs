@@ -45,10 +45,17 @@ fn scoped(kernel: &crate::Kernel, call: impl FnOnce(&EnvironmentScope)) {
         instance: None,
         env: &env,
         meter: &kernel.shared.meter,
+        depth: None,
+        directory: None,
+        stack_generation: kernel.shared.stack_rows.generation(),
+        stack_rows: &kernel.shared.stack_rows,
         font_removals: &kernel.shared.font_removals,
+        registry_generation: &kernel.shared.registry_generation,
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,
+        log: Default::default(),
+        ui: None,
     };
     let scope = pin!(EnvironmentScope::new());
     scope.as_ref().scope_core(&frame, || call(&scope)).unwrap();
@@ -364,4 +371,291 @@ fn icon_glyph_writes_the_utf8_of_a_named_icon_of_the_bound_font() {
     scoped(&without, |scope| {
         assert_eq!(glyph(scope, b"star", 8).0, ERR_NOT_FOUND);
     });
+}
+
+#[test]
+fn covers_answers_the_length_of_the_drawn_start_and_refuses_what_is_no_text() {
+    let kernel = kernel();
+    let resources = HostResources::try_new().unwrap();
+    let owner = resources.try_owner().unwrap();
+    scoped(&kernel, |scope| {
+        let handle = get(scope, &owner, "pack.face");
+        let ask = |text: &[u8]| {
+            // SAFETY: live readable text for the call.
+            unsafe { covers(scope, &owner, handle, bytes(text)) }
+        };
+        // The font draws only `a`: the length is where the first other
+        // character starts, in bytes, and case is not folded.
+        assert_eq!(ask(b""), 0);
+        assert_eq!(ask(b"a"), 1);
+        assert_eq!(ask(b"aab"), 2);
+        assert_eq!(ask(b"b"), 0);
+        assert_eq!(ask(b"aA"), 1);
+        assert_eq!(ask("aaéa".as_bytes()), 2);
+        assert_eq!(ask("éa".as_bytes()), 0);
+        // The bound: 1,024 bytes are read, one more is invalid; no text is
+        // ERR_UTF8 (also a cut character).
+        let all = [b'a'; 1024];
+        assert_eq!(ask(&all), 1024);
+        assert_eq!(ask(&[b'a'; 1025]), ERR_INVALID);
+        assert_eq!(ask(&[0xff]), ERR_UTF8);
+        assert_eq!(ask(&"é".as_bytes()[..1]), ERR_UTF8);
+        // Null with a length is no pair.
+        // SAFETY: the pair is refused before any read.
+        assert_eq!(
+            unsafe {
+                covers(
+                    scope,
+                    &owner,
+                    handle,
+                    PpBytes {
+                        ptr: core::ptr::null(),
+                        len: 3,
+                    },
+                )
+            },
+            ERR_INVALID
+        );
+        // An icon role with no icon font bound draws nothing.
+        let icons = get(scope, &owner, "role:icons");
+        // SAFETY: live readable text for the call.
+        assert_eq!(unsafe { covers(scope, &owner, icons, bytes(b"a")) }, 0);
+        // A stale or never given handle is ERR_STATE (the bad text still wins).
+        assert_eq!(release(&owner, handle), OK);
+        assert_eq!(ask(b"a"), ERR_STATE);
+        assert_eq!(ask(&[0xff]), ERR_UTF8);
+    });
+}
+
+#[test]
+fn covers_outside_an_environment_callback_fails_closed() {
+    let resources = HostResources::try_new().unwrap();
+    let owner = resources.try_owner().unwrap();
+    let scope = EnvironmentScope::new();
+    // SAFETY: live readable text for the call.
+    assert_eq!(unsafe { covers(&scope, &owner, 1, bytes(b"a")) }, ERR_STATE);
+}
+
+mod data_fonts {
+    use super::*;
+    use alloc::{rc::Rc, vec::Vec};
+    use paperpaw_native::host_glue::{ERR_DENIED, ERR_INVALID, ERR_UNSUPPORTED};
+    use paperpaw_platform::Storage;
+    use paperpaw_sdk::MemoryStorage;
+
+    const FOLDER: &str = ".paperpaw/plugins/fonts-browser/";
+
+    fn pack(advance: f32) -> Vec<u8> {
+        let mut pack = paperpaw_text::PackBuilder::new();
+        pack.add_strike(
+            10.0,
+            paperpaw_text::LineMetrics::new(8.0, 2.0, 12.0),
+            alloc::vec![('a', paperpaw_text::Glyph::empty(advance))],
+        );
+        pack.build()
+    }
+
+    fn pack_with_two_glyphs() -> Vec<u8> {
+        let mut pack = paperpaw_text::PackBuilder::new();
+        pack.add_strike(
+            10.0,
+            paperpaw_text::LineMetrics::new(8.0, 2.0, 12.0),
+            alloc::vec![
+                ('a', paperpaw_text::Glyph::empty(6.0)),
+                ('b', paperpaw_text::Glyph::empty(7.0)),
+            ],
+        );
+        pack.build()
+    }
+
+    /// A card with a font pack, a file that is no font, and another plugin's
+    /// pack; hosts wired with it; the owner is the plugin `fonts-browser`.
+    fn world() -> (HostResources, OwnerResources, Rc<dyn Storage>) {
+        let card: Rc<dyn Storage> = Rc::new(
+            MemoryStorage::new()
+                .with(&alloc::format!("{FOLDER}fonts/a.ppfp"), pack(6.0))
+                .with(
+                    &alloc::format!("{FOLDER}fonts/bad.ppfp"),
+                    alloc::vec![7_u8; 64],
+                )
+                .with(
+                    &alloc::format!("{FOLDER}fonts/bad.ttf"),
+                    alloc::vec![7_u8; 64],
+                )
+                .with(".paperpaw/plugins/other/fonts/b.ppfp", pack(9.0))
+                .with("fonts/top.ppfp", pack(9.0)),
+        );
+        let resources = HostResources::try_new().unwrap();
+        resources.hosts().wire_font_card(card.clone()).unwrap();
+        let mut owner = resources.try_owner().unwrap();
+        owner.bind_caller("fonts-browser").unwrap();
+        (resources, owner, card)
+    }
+
+    fn data(scope: &EnvironmentScope, owner: &OwnerResources, path: &str) -> Result<u32, i32> {
+        let key = alloc::format!("data:{path}");
+        let mut out = 91;
+        // SAFETY: live readable key and exclusive scalar output.
+        let status = unsafe { acquire(scope, owner, bytes(key.as_bytes()), &mut out) };
+        if status == OK {
+            Ok(out)
+        } else {
+            assert_eq!(out, 91, "a refusal leaves the output");
+            Err(status)
+        }
+    }
+
+    #[test]
+    fn a_pack_of_the_data_folder_is_acquired_measured_and_released() {
+        let kernel = kernel();
+        let (_resources, owner, _card) = world();
+        scoped(&kernel, |scope| {
+            let handle = data(scope, &owner, "fonts/a.ppfp").unwrap();
+            let mut width = 0.0;
+            // SAFETY: live text, exclusive scalar output.
+            assert_eq!(
+                unsafe { measure(scope, &owner, handle, 10.0, bytes(b"a"), &mut width) },
+                OK
+            );
+            assert!((width - 6.0).abs() < 0.01, "{width}");
+            assert_eq!(release(&owner, handle), OK);
+            assert_eq!(release(&owner, handle), ERR_STATE);
+        });
+    }
+
+    #[test]
+    fn paths_outside_the_data_folder_are_refused_before_the_card_is_asked() {
+        let kernel = kernel();
+        let (_resources, owner, _card) = world();
+        scoped(&kernel, |scope| {
+            for path in [
+                "",
+                "../other/fonts/b.ppfp",
+                "fonts/../../other/fonts/b.ppfp",
+                "/fonts/a.ppfp",
+                "fonts//a.ppfp",
+                "C:/fonts/a.ppfp",
+                "fonts\\a.ppfp",
+                "fonts/./a.ppfp",
+            ] {
+                assert_eq!(data(scope, &owner, path), Err(ERR_INVALID), "{path:?}");
+            }
+            // A key over 128 bytes is refused as every key is.
+            let long = "a/".repeat(60);
+            assert_eq!(data(scope, &owner, &long), Err(ERR_INVALID));
+            let longest = alloc::format!("{}.ppfp", "a".repeat(118));
+            assert_eq!(data(scope, &owner, &longest), Err(ERR_NOT_FOUND));
+            // The card's top and another plugin's folder are not the folder.
+            assert_eq!(data(scope, &owner, "fonts/top.ppfp"), Err(ERR_NOT_FOUND));
+            assert_eq!(
+                data(scope, &owner, "other/fonts/b.ppfp"),
+                Err(ERR_NOT_FOUND)
+            );
+        });
+    }
+
+    #[test]
+    fn a_file_changed_or_removed_after_the_acquire_makes_the_handle_stale() {
+        let kernel = kernel();
+        let (_resources, owner, card) = world();
+        let path = alloc::format!("{FOLDER}fonts/a.ppfp");
+        scoped(&kernel, |scope| {
+            let handle = data(scope, &owner, "fonts/a.ppfp").unwrap();
+            let mut width = 0.0;
+            let mut measure_now = || {
+                // SAFETY: live text, exclusive scalar output.
+                unsafe { measure(scope, &owner, handle, 10.0, bytes(b"a"), &mut width) }
+            };
+            assert_eq!(measure_now(), OK);
+            // Changed (another size): stale, also for a repeated call.
+            card.write(&path, &pack_with_two_glyphs()).unwrap();
+            assert_eq!(measure_now(), ERR_STATE);
+            assert_eq!(measure_now(), ERR_STATE);
+            // Acquired again: the new file.
+            let again = data(scope, &owner, "fonts/a.ppfp").unwrap();
+            assert_ne!(again, handle);
+            // Removed: stale; a new acquire is not found.
+            card.remove(&path).unwrap();
+            let mut at = 0.0;
+            // SAFETY: live text, exclusive scalar output.
+            assert_eq!(
+                unsafe { measure(scope, &owner, again, 10.0, bytes(b"a"), &mut at) },
+                ERR_STATE
+            );
+            assert_eq!(data(scope, &owner, "fonts/a.ppfp"), Err(ERR_NOT_FOUND));
+            // Released handles of either kind are released as usual.
+            assert_eq!(release(&owner, handle), OK);
+            assert_eq!(release(&owner, again), OK);
+        });
+    }
+
+    #[test]
+    fn the_glyph_cache_of_a_data_font_is_small_on_the_x4_and_bigger_elsewhere() {
+        use crate::native_host::fonts_data::{CACHE_LARGE, CACHE_SMALL, cache_for};
+        use paperpaw_sdk::PackLimits;
+        assert_eq!((CACHE_SMALL, CACHE_LARGE), (4 * 1024, 16 * 1024));
+        assert_eq!(cache_for(PackLimits::SMALL), CACHE_SMALL);
+        assert_eq!(cache_for(PackLimits::LARGE), CACHE_LARGE);
+    }
+
+    #[test]
+    fn a_missing_file_is_not_found_and_a_bad_one_invalid() {
+        let kernel = kernel();
+        let (_resources, owner, _card) = world();
+        scoped(&kernel, |scope| {
+            assert_eq!(data(scope, &owner, "fonts/none.ppfp"), Err(ERR_NOT_FOUND));
+            assert_eq!(data(scope, &owner, "fonts/none.ttf"), Err(ERR_NOT_FOUND));
+            assert_eq!(data(scope, &owner, "fonts/bad.ppfp"), Err(ERR_INVALID));
+            assert_eq!(data(scope, &owner, "fonts/bad.ttf"), Err(ERR_INVALID));
+            // Nothing was kept for the refusals: all eight handles are free.
+            for _ in 0..8 {
+                data(scope, &owner, "fonts/a.ppfp").unwrap();
+            }
+        });
+    }
+
+    #[test]
+    fn data_fonts_share_the_eight_font_cap() {
+        let kernel = kernel();
+        let (_resources, owner, _card) = world();
+        scoped(&kernel, |scope| {
+            let mut handles = Vec::new();
+            for _ in 0..7 {
+                handles.push(data(scope, &owner, "fonts/a.ppfp").unwrap());
+            }
+            // The eighth is a role: roles and data fonts count together.
+            get(scope, &owner, "role:ui");
+            assert_eq!(data(scope, &owner, "fonts/a.ppfp"), Err(ERR_FULL));
+            assert_eq!(release(&owner, handles.pop().unwrap()), OK);
+            data(scope, &owner, "fonts/a.ppfp").unwrap();
+        });
+    }
+
+    #[test]
+    fn a_host_without_the_card_or_a_caller_refuses() {
+        let kernel = kernel();
+        let resources = HostResources::try_new().unwrap();
+        let mut owner = resources.try_owner().unwrap();
+        scoped(&kernel, |scope| {
+            // No plugin bound to the owner.
+            assert_eq!(data(scope, &owner, "fonts/a.ppfp"), Err(ERR_DENIED));
+        });
+        owner.bind_caller("fonts-browser").unwrap();
+        scoped(&kernel, |scope| {
+            // No card wired.
+            assert_eq!(data(scope, &owner, "fonts/a.ppfp"), Err(ERR_UNSUPPORTED));
+        });
+    }
+
+    #[test]
+    fn another_plugins_handle_cannot_reach_the_first_ones_file() {
+        let kernel = kernel();
+        let (resources, _first, _card) = world();
+        let mut other = resources.try_owner().unwrap();
+        other.bind_caller("other").unwrap();
+        scoped(&kernel, |scope| {
+            assert_eq!(data(scope, &other, "fonts/a.ppfp"), Err(ERR_NOT_FOUND));
+            data(scope, &other, "fonts/b.ppfp").unwrap();
+        });
+    }
 }

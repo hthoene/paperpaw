@@ -11,7 +11,7 @@ use core::{fmt, pin::Pin};
 use paperpaw_sdk::{Env, Id, Manifest, Params, Plugin, RegisterError, Registrar, Version};
 
 #[path = "flat/page.rs"]
-mod page;
+pub(super) mod page;
 
 /// Why one registered event could not be delivered. The shell logs the failure.
 #[non_exhaustive]
@@ -116,6 +116,12 @@ impl FlatDepth {
         &self.0
     }
 
+    /// Whether `other` is this very counter (one device has one).
+    #[must_use]
+    pub(crate) fn is_same_counter(&self, other: &Self) -> bool {
+        core::ptr::eq(self.as_depth(), other.as_depth())
+    }
+
     /// Retain the budget without allocating; None means count overflow.
     #[must_use]
     pub fn try_clone(&self) -> Option<Self> {
@@ -199,7 +205,11 @@ impl FlatPlugin {
             depth,
             host: FlatHost {
                 meter: Rc::clone(&host.meter),
+                directory: host.try_directory().map_err(|_| FlatError::Allocation)?,
+                stack_rows: Rc::clone(&host.stack_rows),
                 font_removals: Rc::clone(&host.font_removals),
+                registry_generation: Rc::clone(&host.registry_generation),
+                log: host.log,
             },
         })
     }
@@ -247,9 +257,22 @@ impl Plugin for FlatPlugin {
                 });
                 return;
             };
+            let directory = match self.host.try_directory() {
+                Ok(directory) => directory,
+                Err(_) => {
+                    result = Err(RegisterError::Invalid {
+                        message: "flat directory reference limit".into(),
+                    });
+                    return;
+                }
+            };
             let host = FlatHost {
                 meter: Rc::clone(&self.host.meter),
+                directory,
+                stack_rows: Rc::clone(&self.host.stack_rows),
                 font_removals: Rc::clone(&self.host.font_removals),
+                registry_generation: Rc::clone(&self.host.registry_generation),
+                log: self.host.log,
             };
             let handler: Option<paperpaw_sdk::EventHandler> = shared::try_box(
                 move |env: &Env<'_>, params: &Params, _: &mut paperpaw_sdk::Commands| {
@@ -287,6 +310,7 @@ fn event_id(tag: u32) -> Option<Id> {
         EVENT_STOPPING_TAG => builtin::STOPPING.id().clone(),
         EVENT_BATTERY_MEASURED_TAG => builtin::BATTERY_MEASURED.id().clone(),
         EVENT_PAGE_TURNED_TAG => builtin::PAGE_TURNED.id().clone(),
+        EVENT_TICK_TAG => super::native_tick::TICK.id().clone(),
         _ => return None,
     })
 }
@@ -323,6 +347,7 @@ fn encode_scalar(tag: u32, now: u64, bytes: &mut [u8]) -> Result<usize, i32> {
         EVENT_SUSPEND_TAG => events::encode_suspend(now, bytes),
         EVENT_STOPPING_TAG => events::encode_stopping(now, bytes),
         EVENT_BATTERY_MEASURED_TAG => events::encode_battery_measured(now, bytes),
+        EVENT_TICK_TAG => tick_encode(now, bytes),
         _ => Err(paperpaw_native::host_glue::ERR_UNSUPPORTED),
     }
 }
@@ -342,15 +367,23 @@ fn invoke(
     env: &Env<'_>,
     bytes: &[u8],
 ) -> Result<(), DropReason> {
+    let directory = host.upgrade_directory().map_err(DropReason::Plugin)?;
     let frame = crate::abi7::core_frame::CoreFrame {
         callback: None,
         instance: None,
         env,
         meter: &host.meter,
+        depth: None,
+        directory: directory.as_deref(),
+        stack_generation: host.stack_rows.generation(),
+        stack_rows: &host.stack_rows,
         font_removals: &host.font_removals,
+        registry_generation: &host.registry_generation,
+        log: host.log,
         usage: env.usage(),
         plugins: env.plugins(),
         work: env.work(),
+        ui: None,
     };
     let status = instance
         .environment()

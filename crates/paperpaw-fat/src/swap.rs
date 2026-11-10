@@ -270,8 +270,27 @@ impl Storage for Swappable {
         self.with(IO, |s| s.remove_dir_all(path))
     }
 
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+        self.with(Err(StorageError::Io), |s| {
+            s.remove_tree_step(root, keep_root, place)
+        })
+    }
+
     fn ignores_case(&self) -> bool {
         self.with(true, |s| s.ignores_case())
+    }
+
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        self.with(None, |s| s.same_entry(a, b))
+    }
+
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        self.with(Err(StorageError::Io), |s| s.entry_identity(path))
     }
 
     fn free_space(&self) -> Option<u64> {
@@ -294,6 +313,19 @@ impl Storage for Swappable {
     ) -> Result<Option<u64>, StorageError> {
         self.with(Err(StorageError::Io), |s| s.list_from(dir, from, visit))
     }
+
+    fn list_bounded(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        self.with(Err(StorageError::Io), |s| s.list_bounded(dir, from, visit))
+    }
+
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        self.with(IO, |s| s.remove_listed(dir, place))
+    }
 }
 
 /// The storage of a card lost for this run: everything fails with
@@ -303,6 +335,10 @@ struct Gone;
 const GONE: Result<(), StorageError> = Err(StorageError::CARD_GONE);
 
 impl Storage for Gone {
+    fn entry_identity(&self, _: &str) -> Result<Option<u64>, StorageError> {
+        Err(StorageError::CARD_GONE)
+    }
+
     fn read_at(&self, _: &str, _: u64, _: &mut [u8]) -> Result<usize, StorageError> {
         Err(StorageError::CARD_GONE)
     }

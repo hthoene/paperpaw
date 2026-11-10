@@ -9,16 +9,23 @@ use paperpaw_sdk::document::{
 };
 use paperpaw_sdk::image::Fit;
 use paperpaw_sdk::zip::ZipArchive;
-use paperpaw_sdk::{Env, Storage, StorageError};
+use paperpaw_sdk::{Storage, StorageError};
 
 use crate::PLUGIN;
 use crate::cached;
 use crate::convert::{self, CachePaths, INDEX};
+use crate::fallible;
 use crate::obfuscation;
 use crate::package::{self, Chapter};
 
 /// Largest embedded font read.
 const MAX_FONT: u64 = 16 * 1024 * 1024;
+
+/// The key of [`Document::extended`] that copies an embedded face to a file:
+/// its parameters are the face's index (u32, little-endian) and the
+/// destination path; the answer is a status byte (0 written, 1 not to be
+/// streamed, 2 no room, 3 unreadable) and the size written (u32).
+pub(crate) const FONT_COPY: &str = "format-epub.font-copy";
 
 /// Marks a chapter whose converted length is not known yet.
 const UNKNOWN: u32 = u32::MAX;
@@ -110,14 +117,21 @@ struct Styled {
 }
 
 impl Styled {
-    fn new(storage: &dyn Storage, cache: &str, styles: bool, user_css: String) -> Self {
-        let chapters = chapters_cache(cache, styles, &user_css);
-        if chapters.contains("/css-") && !storage.exists(&paths(&chapters, 0).end) {
+    fn new(
+        storage: &dyn Storage,
+        cache: &str,
+        styles: bool,
+        user_css: String,
+    ) -> Result<Self, DocumentError> {
+        let chapters = chapters_cache(cache, styles, &user_css)?;
+        if chapters.contains("/css-")
+            && paths(&chapters, 0).is_ok_and(|paths| !storage.exists(&paths.end))
+        {
             // Stylesheets of one's own changed: the chapters converted
             // with those before go.
             remove_other_css(storage, cache, &chapters);
         }
-        Styled { chapters, user_css }
+        Ok(Styled { chapters, user_css })
     }
 }
 
@@ -144,8 +158,8 @@ struct SectionPages {
 /// Printed pages resolved in a section at most.
 const MAX_SECTION_PAGES: usize = 2048;
 
-fn paths(cache: &str, section: u32) -> CachePaths {
-    CachePaths::new(cache, &alloc::format!("{section}"))
+fn paths(cache: &str, section: u32) -> Result<CachePaths, DocumentError> {
+    CachePaths::new(cache, &crate::fallible::try_format!("{section}")?)
 }
 
 /// What an XPointer points at: the section, the element path below
@@ -162,9 +176,9 @@ impl XPointer {
     fn node(&self) -> Option<(String, u32)> {
         let (index, char) = self.text?;
         let node = if self.element.is_empty() {
-            alloc::format!("text()[{index}]")
+            fallible::try_format!("text()[{index}]").ok()?
         } else {
-            alloc::format!("{}/text()[{index}]", self.element)
+            fallible::try_format!("{}/text()[{index}]", self.element).ok()?
         };
         Some((node, char))
     }
@@ -202,14 +216,23 @@ fn parse_xpointer(xpointer: &str) -> Option<XPointer> {
         // A position inside an element (`p[3].5`) counts as the element.
         let segment = segment.split('.').next().unwrap_or(segment);
         if segment.contains('[') {
-            segments.push(String::from(segment));
+            fallible::push(&mut segments, fallible::string(segment).ok()?).ok()?;
         } else {
-            segments.push(alloc::format!("{segment}[1]"));
+            fallible::push(&mut segments, fallible::try_format!("{segment}[1]").ok()?).ok()?;
         }
     }
     Some(XPointer {
         section: index.checked_sub(1)?,
-        element: segments.join("/"),
+        element: {
+            let mut element = String::new();
+            for (i, segment) in segments.iter().enumerate() {
+                if i > 0 {
+                    fallible::push_char(&mut element, '/').ok()?;
+                }
+                fallible::push_str(&mut element, segment).ok()?;
+            }
+            element
+        },
         text,
     })
 }
@@ -245,30 +268,35 @@ fn left_in(storage: &dyn Storage, dir: &str) -> bool {
 }
 
 /// The cache of a book.
-fn book_cache(path: &str) -> String {
-    paperpaw_sdk::library::kept_path(&Env::plugin_dir(PLUGIN.as_str()), "", path)
+fn book_cache(path: &str) -> Result<String, DocumentError> {
+    fallible::kept_path(&fallible::plugin_dir(PLUGIN.as_str())?, "", path)
 }
 
 /// The cache of a book's chapters converted with its styles or not, and
 /// one's own stylesheets: chapters converted with them go into a cache of
 /// their own, so a changed stylesheet applies at once.
-fn chapters_cache(cache: &str, styles: bool, user_css: &str) -> String {
+fn chapters_cache(cache: &str, styles: bool, user_css: &str) -> Result<String, DocumentError> {
     if !styles {
         plain_cache(cache)
     } else if user_css.is_empty() {
-        String::from(cache)
+        fallible::string(cache)
     } else {
-        alloc::format!("{cache}/css-{:016x}", fnv1a64(user_css))
+        fallible::try_format!("{cache}/css-{:016x}", fnv1a64(user_css))
     }
 }
 
 /// One's own stylesheets for the book at `path` (see [`user_css`]), none
 /// without the book's `styles`.
-fn styles_css(storage: &dyn Storage, path: &str, styles: bool, plugin_css: &str) -> String {
+fn styles_css(
+    storage: &dyn Storage,
+    path: &str,
+    styles: bool,
+    plugin_css: &str,
+) -> Result<String, DocumentError> {
     if styles {
         user_css(storage, path, plugin_css)
     } else {
-        String::new()
+        Ok(String::new())
     }
 }
 
@@ -312,11 +340,82 @@ fn remove_other_css(storage: &dyn Storage, cache: &str, keep: &str) {
 }
 
 /// Where chapters converted without the book's styles are kept.
-fn plain_cache(cache: &str) -> String {
-    alloc::format!("{cache}/plain")
+fn plain_cache(cache: &str) -> Result<String, DocumentError> {
+    fallible::try_format!("{cache}/plain")
 }
 
 impl EpubDocument {
+    /// Copies the face named by `params` (see [`FONT_COPY`]) to its file in
+    /// chunks as it is inflated, through a temporary name that is renamed at
+    /// the end and removed on any error: no more than a chunk is held. `None`
+    /// for a face that is not a plain font file (a WOFF is converted whole).
+    fn copy_font(
+        &self,
+        storage: &dyn Storage,
+        params: &[u8],
+    ) -> Result<Option<u32>, DocumentError> {
+        let bad = || DocumentError::Malformed(Cow::Borrowed("font copy"));
+        let index = params
+            .get(..4)
+            .and_then(|b| b.try_into().ok())
+            .map(u32::from_le_bytes)
+            .ok_or_else(bad)? as usize;
+        let dest = core::str::from_utf8(params.get(4..).ok_or_else(bad)?).map_err(|_| bad())?;
+        self.built(storage)?;
+        let (identifier, fonts) = package::fonts(storage, &self.cache)?;
+        let font = fonts
+            .get(index)
+            .ok_or(DocumentError::Malformed(Cow::Borrowed("no such font")))?;
+        let entry = self
+            .archive
+            .entry(storage, &font.path)
+            .map_err(package::error)?
+            .ok_or(DocumentError::Malformed(Cow::Borrowed("font file missing")))?;
+        // A file too large is the book's fault, not a short heap.
+        if u64::from(entry.size) > MAX_FONT {
+            return Err(bad());
+        }
+        let temp = crate::fallible::try_format!("{dest}.tmp")?;
+        storage.write(&temp, &[])?;
+        let mut written = 0usize;
+        let mut woff = false;
+        let mut failure: Option<DocumentError> = None;
+        let streamed = self.archive.stream(storage, &entry, &mut |chunk| {
+            // The chunk is the zip reader's own window: revealed in a small
+            // buffer, a part at a time.
+            let mut part = [0u8; 512];
+            for piece in chunk.chunks(part.len()) {
+                let buf = &mut part[..piece.len()];
+                buf.copy_from_slice(piece);
+                obfuscation::reveal_at(buf, written, font.method, &identifier);
+                if written == 0 && buf.starts_with(crate::woff::SIGNATURE) {
+                    woff = true;
+                    return false;
+                }
+                if let Err(e) = storage.append(&temp, buf) {
+                    failure = Some(e.into());
+                    return false;
+                }
+                written += buf.len();
+            }
+            true
+        });
+        let outcome = match (streamed, failure) {
+            (_, Some(error)) => Err(error),
+            (Err(error), None) => Err(package::error(error)),
+            (Ok(()), None) if woff => Ok(None),
+            (Ok(()), None) if written == 0 => Err(bad()),
+            (Ok(()), None) => storage
+                .rename(&temp, dest)
+                .map(|()| u32::try_from(written).ok())
+                .map_err(Into::into),
+        };
+        if !matches!(outcome, Ok(Some(_))) {
+            let _ = storage.remove(&temp);
+        }
+        outcome
+    }
+
     pub fn open(storage: &dyn Storage, path: &str) -> Result<Self, DocumentError> {
         Self::open_with(storage, path, true)
     }
@@ -385,17 +484,32 @@ impl EpubDocument {
         options: &paperpaw_sdk::OpenOptions,
         kept: &PreparedCss,
     ) -> bool {
+        // No room to tell finds the book not prepared (it opens as any).
+        Self::try_prepared_keeping(storage, path, options, kept).unwrap_or(false)
+    }
+
+    fn try_prepared_keeping(
+        storage: &dyn Storage,
+        path: &str,
+        options: &paperpaw_sdk::OpenOptions,
+        kept: &PreparedCss,
+    ) -> Result<bool, DocumentError> {
         let styles = options.publisher_styles;
-        let user_css = styles_css(storage, path, styles, &options.css);
-        let chapters = chapters_cache(&book_cache(path), styles, &user_css);
-        let prepared = storage.exists(&paths(&chapters, 0).end);
-        *kept.0.borrow_mut() = prepared.then(|| KeptCss {
-            path: String::from(path),
-            styles,
-            plugin_css: options.css.clone(),
-            user_css,
-        });
-        prepared
+        let user_css = styles_css(storage, path, styles, &options.css)?;
+        let chapters = chapters_cache(&book_cache(path)?, styles, &user_css)?;
+        let prepared = paths(&chapters, 0).is_ok_and(|paths| storage.exists(&paths.end));
+        let keep = if prepared {
+            Some(KeptCss {
+                path: fallible::string(path)?,
+                styles,
+                plugin_css: fallible::string(&options.css)?,
+                user_css,
+            })
+        } else {
+            None
+        };
+        *kept.0.borrow_mut() = keep;
+        Ok(prepared)
     }
 
     /// Opens a book with its `styles` or not, the stylesheets to apply
@@ -408,8 +522,8 @@ impl EpubDocument {
         (image_fit, cover_fit): (Fit, Fit),
     ) -> Result<Self, DocumentError> {
         let archive = ZipArchive::open(storage, path).map_err(package::error)?;
-        let cache = book_cache(path);
-        let book = crate::fingerprint(storage, path)?;
+        let cache = book_cache(path)?;
+        let book = fallible::fingerprint(storage, path)?;
         let (package, state) = match package::load(storage, &cache, &book)? {
             Some(package) => (package, Held::Package),
             // A cover made for the library before the book was read stays
@@ -436,12 +550,14 @@ impl EpubDocument {
         };
         let styled = OnceCell::new();
         if let Some(user_css) = user_css {
-            let _ = styled.set(Styled::new(storage, &cache, styles, user_css));
+            let _ = styled.set(Styled::new(storage, &cache, styles, user_css)?);
         }
         let mut metadata = package.metadata;
         if metadata.title.is_none() {
             let name = path.rsplit('/').next().unwrap_or(path);
-            metadata.title = Some(String::from(name.rsplit_once('.').map_or(name, |(s, _)| s)));
+            metadata.title = Some(fallible::string(
+                name.rsplit_once('.').map_or(name, |(s, _)| s),
+            )?);
         }
         let mut lengths = Vec::new();
         lengths
@@ -459,8 +575,8 @@ impl EpubDocument {
             book,
             state: Cell::new(state),
             broken: Cell::new(false),
-            path: String::from(path),
-            plugin_css: String::from(plugin_css),
+            path: fallible::string(path)?,
+            plugin_css: fallible::string(plugin_css)?,
             styled,
             styles,
             color,
@@ -516,15 +632,17 @@ impl EpubDocument {
 
     /// Where its chapters are converted to and one's own stylesheets:
     /// looked for the first time they are needed.
-    fn styled(&self, storage: &dyn Storage) -> &Styled {
-        self.styled.get_or_init(|| {
-            let user_css = styles_css(storage, &self.path, self.styles, &self.plugin_css);
-            Styled::new(storage, &self.cache, self.styles, user_css)
-        })
+    fn styled(&self, storage: &dyn Storage) -> Result<&Styled, DocumentError> {
+        if let Some(styled) = self.styled.get() {
+            return Ok(styled);
+        }
+        let user_css = styles_css(storage, &self.path, self.styles, &self.plugin_css)?;
+        let styled = Styled::new(storage, &self.cache, self.styles, user_css)?;
+        Ok(self.styled.get_or_init(|| styled))
     }
 
-    fn paths(&self, storage: &dyn Storage, section: u32) -> CachePaths {
-        paths(&self.styled(storage).chapters, section)
+    fn paths(&self, storage: &dyn Storage, section: u32) -> Result<CachePaths, DocumentError> {
+        paths(&self.styled(storage)?.chapters, section)
     }
 
     fn length(&self, section: u32) -> Option<u32> {
@@ -546,9 +664,17 @@ impl EpubDocument {
             return Err(DocumentError::Malformed(Cow::Borrowed("no such chapter")));
         };
         self.built(storage)?;
-        let paths = self.paths(storage, section);
+        let paths = self.paths(storage, section)?;
         let length = match cached::converted_length(storage, &paths) {
             Some(length) => length,
+            // Converted by this very book, but not marked complete (a
+            // picture found no room to be decoded): not again each time.
+            None if slot.get() != UNKNOWN
+                && slot.get() != FAILED
+                && storage.size(&paths.text).ok() == Some(u64::from(slot.get())) =>
+            {
+                slot.get()
+            }
             None if slot.get() == FAILED => {
                 return Err(DocumentError::Malformed(Cow::Borrowed(
                     "chapter cannot be read",
@@ -556,6 +682,9 @@ impl EpubDocument {
             }
             None => {
                 self.anchors.reset();
+                // What this book once converted is not matched against the
+                // files of a conversion begun now (and refused midway).
+                slot.set(UNKNOWN);
                 let entry = self
                     .archive
                     .entry_by_record(storage, chapter.record)
@@ -566,7 +695,7 @@ impl EpubDocument {
                     Default::default()
                 };
                 // One's own after the book's: they win.
-                let own = &self.styled(storage).user_css;
+                let own = &self.styled(storage)?.user_css;
                 if !own.is_empty() {
                     rules.add_own(own);
                 }
@@ -612,22 +741,29 @@ const MAX_USER_CSS: usize = 64 * 1024;
 /// (e.g. a theme's), then one's own: `styles.css` in its folder (for all
 /// books there), then the one named like the book (`Alice.css` for
 /// `Alice.epub`). The later win.
-pub(crate) fn user_css(storage: &dyn Storage, path: &str, plugins: &str) -> String {
+pub(crate) fn user_css(
+    storage: &dyn Storage,
+    path: &str,
+    plugins: &str,
+) -> Result<String, DocumentError> {
     let folder = paperpaw_sdk::files::parent(path);
     let name = paperpaw_sdk::files::name(path);
     let stem = name.rsplit_once('.').map_or(name, |(s, _)| s);
-    let mut css = String::from(plugins);
+    let mut css = fallible::string(plugins)?;
     if !css.is_empty() {
-        css.push('\n');
+        fallible::push_char(&mut css, '\n')?;
     }
-    for file in [String::from("styles.css"), alloc::format!("{stem}.css")] {
-        let file = paperpaw_sdk::files::join(folder, &file);
+    for file in [
+        fallible::string("styles.css")?,
+        fallible::try_format!("{stem}.css")?,
+    ] {
+        let file = fallible::join(folder, &file)?;
         if let Ok(data) = paperpaw_sdk::read_file(storage, &file, MAX_USER_CSS) {
-            css.push_str(&String::from_utf8_lossy(&data));
-            css.push('\n');
+            fallible::push_str(&mut css, &fallible::lossy(&data)?)?;
+            fallible::push_char(&mut css, '\n')?;
         }
     }
-    css
+    Ok(css)
 }
 
 impl EpubDocument {
@@ -643,7 +779,8 @@ impl EpubDocument {
             return pages;
         };
         let mut at = 0;
-        cached::lines_from(storage, &path, 0, |line, next| {
+        // No room for a line leaves the pages found so far.
+        let _ = cached::lines_from(storage, &path, 0, |line, next| {
             let line_at = core::mem::replace(&mut at, next);
             let mut fields = line.splitn(3, '\t');
             let (Some(Ok(s)), Some(fragment)) =
@@ -661,7 +798,7 @@ impl EpubDocument {
             }
             true
         });
-        pages.here.sort_by_cached_key(|(offset, _)| *offset);
+        paperpaw_sdk::sort::sort_by_cached_key(&mut pages.here, |(offset, _)| *offset);
         pages
     }
 
@@ -669,7 +806,7 @@ impl EpubDocument {
     /// they cannot be.
     fn pages_path(&self, storage: &dyn Storage) -> Option<String> {
         self.built(storage).ok()?;
-        Some(alloc::format!("{}/pages.txt", self.cache))
+        fallible::try_format!("{}/pages.txt", self.cache).ok()
     }
 }
 
@@ -696,8 +833,12 @@ impl Document for EpubDocument {
             .map(|(_, line)| *line)
             .or(pages.before)?;
         let mut label = None;
-        cached::lines_from(storage, &self.pages_path(storage)?, line, |line, _| {
-            label = line.splitn(3, '\t').nth(2).map(String::from);
+        // No room for the line or its copy finds no label.
+        let _ = cached::lines_from(storage, &self.pages_path(storage)?, line, |line, _| {
+            label = line
+                .splitn(3, '\t')
+                .nth(2)
+                .and_then(|text| crate::fallible::string(text).ok());
             false
         });
         label
@@ -760,14 +901,14 @@ impl Document for EpubDocument {
         };
         // Named by its size: decoded anew for a screen that shows it larger.
         // What is in the cache is this book's (see `open_styled`).
-        let base = alloc::format!("{}/cover-{}", self.cache, self.cover_fit.long);
+        let base = fallible::try_format!("{}/cover-{}", self.cache, self.cover_fit.long)?;
         if let Held::Uncleared(e) = self.state.get() {
             return Err(DocumentError::Storage(e));
         }
         if crate::pictures::failed(storage, &base) {
             return Ok(None);
         }
-        if !crate::pictures::has(storage, &base, self.color) {
+        if !crate::pictures::has(storage, &base, self.color)? {
             self.stamped(storage)?;
             convert::decode_image(
                 storage,
@@ -799,7 +940,8 @@ impl Document for EpubDocument {
         let (paths, ..) = self.chapter(storage, at.section).ok()?;
         // The block: the last listed at or before `at`.
         let (mut block, mut path) = (0, String::new());
-        cached::lines(storage, &paths.positions, |line| {
+        let mut no_room = false;
+        let _ = cached::lines(storage, &paths.positions, |line| {
             let Some((offset, element)) = position(line) else {
                 return true;
             };
@@ -808,36 +950,42 @@ impl Document for EpubDocument {
             }
             block = offset;
             path.clear();
-            path.push_str(element);
-            true
+            no_room = fallible::push_str(&mut path, element).is_err();
+            !no_room
         });
-        let fragment = alloc::format!("/body/DocFragment[{}]/body", at.section + 1);
+        let fragment = fallible::try_format!("/body/DocFragment[{}]/body", at.section + 1).ok()?;
         // The text node the block's text at `at` comes from.
         let mut found: Option<(u32, String, u32)> = None;
-        cached::lines(storage, &paths.xpointers, |line| {
+        let _ = cached::lines(storage, &paths.xpointers, |line| {
             let Some((offset, node, char)) = origin(line) else {
                 return true;
             };
             if offset > at.offset {
                 return false;
             }
-            found = Some((offset, String::from(node), char));
-            true
+            match fallible::string(node) {
+                Ok(node) => found = Some((offset, node, char)),
+                Err(_) => no_room = true,
+            }
+            !no_room
         });
+        if no_room {
+            return None;
+        }
         if let Some((offset, node, char)) =
             found.filter(|(offset, ..)| *offset >= block && at.offset - *offset <= MAX_SPAN)
         {
-            let mut text = alloc::vec![0u8; (at.offset - offset) as usize];
+            let mut text = fallible::zeroed((at.offset - offset) as usize).ok()?;
             let n = storage
                 .read_at(&paths.text, u64::from(offset), &mut text)
                 .ok()?;
-            let chars = String::from_utf8_lossy(&text[..n]).chars().count() as u32;
-            return Some(alloc::format!("{fragment}/{node}.{}", char + chars));
+            let chars = fallible::lossy(&text[..n]).ok()?.chars().count() as u32;
+            return fallible::try_format!("{fragment}/{node}.{}", char + chars).ok();
         }
         if path.is_empty() {
             Some(fragment)
         } else {
-            Some(alloc::format!("{fragment}/{path}"))
+            fallible::try_format!("{fragment}/{path}").ok()
         }
     }
 
@@ -848,7 +996,7 @@ impl Document for EpubDocument {
         // Exactly, where it points into text PaperPaw shows.
         if let Some((node, char)) = pointer.node() {
             let mut found: Option<(u32, u32)> = None;
-            cached::lines(storage, &paths.xpointers, |line| {
+            let _ = cached::lines(storage, &paths.xpointers, |line| {
                 if let Some((offset, at, from)) = origin(line)
                     && at == node
                     && from <= char
@@ -858,7 +1006,8 @@ impl Document for EpubDocument {
                 true
             });
             if let Some((offset, chars)) = found {
-                let mut text = alloc::vec![0u8; (chars as usize * 4).min(MAX_SPAN as usize)];
+                let mut text =
+                    fallible::zeroed((chars as usize * 4).min(MAX_SPAN as usize)).ok()?;
                 let n = storage
                     .read_at(&paths.text, u64::from(offset), &mut text)
                     .ok()?;
@@ -873,7 +1022,7 @@ impl Document for EpubDocument {
         };
         // The element's first block, else the last block it is part of.
         let (mut first, mut within) = (None, None);
-        cached::lines(storage, &paths.positions, |line| {
+        let _ = cached::lines(storage, &paths.positions, |line| {
             let Some((offset, path)) = position(line) else {
                 return true;
             };
@@ -893,20 +1042,25 @@ impl Document for EpubDocument {
         if !self.styles || self.built(storage).is_err() {
             return Vec::new();
         }
-        package::fonts(storage, &self.cache)
-            .1
-            .into_iter()
-            .map(|f| EmbeddedFont {
-                family: f.family,
-                bold: f.bold,
-                italic: f.italic,
-            })
-            .collect()
+        // None where the heap has no room for the list.
+        let Ok((_, fonts)) = package::fonts(storage, &self.cache) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        if out.try_reserve_exact(fonts.len()).is_err() {
+            return Vec::new();
+        }
+        out.extend(fonts.into_iter().map(|f| EmbeddedFont {
+            family: f.family,
+            bold: f.bold,
+            italic: f.italic,
+        }));
+        out
     }
 
     fn font_data(&self, storage: &dyn Storage, index: usize) -> Result<Vec<u8>, DocumentError> {
         self.built(storage)?;
-        let (identifier, fonts) = package::fonts(storage, &self.cache);
+        let (identifier, fonts) = package::fonts(storage, &self.cache)?;
         let font = fonts
             .get(index)
             .ok_or(DocumentError::Malformed(Cow::Borrowed("no such font")))?;
@@ -933,6 +1087,24 @@ impl Document for EpubDocument {
                 .ok_or(DocumentError::Malformed(Cow::Borrowed("WOFF font")));
         }
         Ok(data)
+    }
+
+    /// `FONT_COPY`: copies the face of the book to a file in bounded chunks.
+    fn extended(&self, storage: &dyn Storage, key: &str, params: &[u8]) -> Option<Vec<u8>> {
+        if key != FONT_COPY {
+            return None;
+        }
+        let mut answer = Vec::new();
+        answer.try_reserve_exact(5).ok()?;
+        let (code, size) = match self.copy_font(storage, params) {
+            Ok(Some(size)) => (0, size),
+            Ok(None) => (1, 0),
+            Err(DocumentError::OutOfMemory) => (2, 0),
+            Err(_) => (3, 0),
+        };
+        answer.push(code);
+        answer.extend_from_slice(&size.to_le_bytes());
+        Some(answer)
     }
 
     fn progress(&self, at: Locator) -> f32 {

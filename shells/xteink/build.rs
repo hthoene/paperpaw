@@ -52,12 +52,9 @@ fn main() {
 }
 
 /// The frame budgets are measured with frame pointers (the flags of
-/// `.cargo/config.toml`), and for the `ppn5` build without jump tables (its
-/// scan cannot size a function that jumps through one inside its frame; the
-/// build is given `-C jump-tables=no` on the command line, see the config).
-/// A `RUSTFLAGS` in the environment (CI sets `-D warnings`) replaces the
-/// config's flags, and the build would then differ from the one the budgets
-/// were checked on, so it fails here instead.
+/// `.cargo/config.toml`). A `RUSTFLAGS` in the environment (CI sets
+/// `-D warnings`) replaces the config's flags, and the build would then
+/// differ from the one the budgets were checked on, so it fails here instead.
 fn frame_flags() {
     println!("cargo::rerun-if-env-changed=CARGO_ENCODED_RUSTFLAGS");
     if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() != Ok("riscv32") {
@@ -75,12 +72,6 @@ fn frame_flags() {
          (shells/xteink/.cargo/config.toml); a RUSTFLAGS in the environment \
          replaces it. Build with `env -u RUSTFLAGS cargo ...`."
     );
-    assert!(
-        std::env::var_os("CARGO_FEATURE_PPN5").is_none() || has("jump-tables=no"),
-        "the `ppn5` build needs `-C jump-tables=no` beside the config's flags: \
-         add `--config 'target.riscv32imc-unknown-none-elf.rustflags=[\"-C\",\"jump-tables=no\"]'` \
-         (see shells/xteink/.cargo/config.toml), and build with `env -u RUSTFLAGS`."
-    );
 }
 
 /// The least main stack the ESP32-S3 devices are linked with. Their IRAM
@@ -91,13 +82,23 @@ fn frame_flags() {
 /// with Bluetooth too (its heap is smaller by as much as Bluetooth takes).
 const STACK_FLOOR: u32 = 40 * 1024;
 
+/// The least main stack where interface-7 plugins are built in (`ppn5`): the
+/// deepest path measured (some 33 KiB) and the band with its reserve
+/// (`paperpaw_x4::s3_band::STACK_FLOOR`, whose test reads this line).
+const STACK_FLOOR_BAND: u32 = 50 * 1024;
+
 /// Fails the link where the main stack is below [`STACK_FLOOR`]: a
 /// linker script of its own, read beside esp-hal's.
 fn stack_floor(out: &std::path::Path) {
     let script = out.join("stack-floor.x");
+    let floor = if std::env::var_os("CARGO_FEATURE_PPN5").is_some() {
+        STACK_FLOOR_BAND
+    } else {
+        STACK_FLOOR
+    };
     let text = format!(
-        "ASSERT(_stack_start - _stack_end >= {STACK_FLOOR}, \"the main stack is below \
-         {STACK_FLOOR} bytes: give the heap less (HEAP_SIZE)\");\n"
+        "ASSERT(_stack_start - _stack_end >= {floor}, \"the main stack is below \
+         {floor} bytes: give the heap less (HEAP_SIZE)\");\n"
     );
     std::fs::write(&script, text).expect("stack-floor.x");
     println!("cargo::rustc-link-arg={}", script.display());

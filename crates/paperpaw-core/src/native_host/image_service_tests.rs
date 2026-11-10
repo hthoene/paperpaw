@@ -470,7 +470,7 @@ fn a_format_picture_becomes_an_image_id_after_the_cache_check() {
     let storage = MemoryStorage::new();
     gray_file(&storage, ".paperpaw/cache/k/f/c/a.gray", 8, 4, 40);
     let map = |path: &str, image: &wire::ServiceDocImage, in_block| {
-        t.map_document(&storage, A, 7, CACHE, path, image, in_block)
+        t.map_document(&storage, A, 7, CACHE, path, image, in_block, true)
     };
     let id = map("a.gray", &fmt_image(3, 8, 4), true).unwrap().unwrap();
     assert_ne!(id, 0);
@@ -533,6 +533,7 @@ fn the_ninth_unseen_picture_is_busy_or_a_zero_id_in_a_block() {
             &std::format!("{n}.gray"),
             &fmt_image(n, 8, 4),
             false,
+            true,
         );
         assert!(matches!(r, Ok(Some(id)) if id != 0));
     }
@@ -545,13 +546,14 @@ fn the_ninth_unseen_picture_is_busy_or_a_zero_id_in_a_block() {
             "8.gray",
             &fmt_image(8, 8, 4),
             in_block,
+            true,
         )
     };
     assert_eq!(ninth(true), Ok(Some(0)), "in a block: image 0, no id yet");
     assert_eq!(ninth(false), Err(ERR_BUSY), "op 16/17/18: busy");
     // Another plugin has its own eight.
     assert!(matches!(
-        t.map_document(&storage, B, 9, CACHE, "8.gray", &fmt_image(8, 8, 4), false),
+        t.map_document(&storage, B, 9, CACHE, "8.gray", &fmt_image(8, 8, 4), false, true),
         Ok(Some(id)) if id != 0
     ));
 }
@@ -564,15 +566,52 @@ fn a_fmt_image_record_becomes_the_openers_doc_image() {
     gray_file(&storage, ".paperpaw/cache/k/f/c/a.gray", 8, 4, 40);
     let fmt = FmtImage::new("a.gray", 6, 8, 4, 0);
     let doc = t
-        .map_fmt_image(&storage, A, 7, CACHE, &fmt, true)
+        .map_fmt_image(&storage, A, 7, CACHE, &fmt, true, true)
         .unwrap()
         .unwrap();
     assert_ne!(doc.image, 0);
     assert_eq!((doc.index, doc.width, doc.height), (6, 8, 4));
+    assert_eq!(doc.flags, 0, "decoded: no flag");
+    // `fmt.image` bit 0 (not decoded yet) is `doc_image` bit 1; bit 0 there is
+    // colour, which a format's record does not set; other bits are dropped.
+    let pending = FmtImage::new("a.gray", 6, 8, 4, 0b101);
+    let doc = t
+        .map_fmt_image(&storage, A, 7, CACHE, &pending, true, true)
+        .unwrap()
+        .unwrap();
+    assert_eq!(doc.flags, 0b10);
+    let other = FmtImage::new("a.gray", 6, 8, 4, 0b110);
+    let doc = t
+        .map_fmt_image(&storage, A, 7, CACHE, &other, true, true)
+        .unwrap()
+        .unwrap();
+    assert_eq!(doc.flags, 0);
+    // A colour cache file: bit 0 where the screen keeps colour (as
+    // `image.info` says), never on a gray screen.
+    let mut writer = paperpaw_sdk::image::ColorWriter::new(&storage, ".paperpaw/cache/k/f/c/c.rgb");
+    writer.start(8, 4).unwrap();
+    for _ in 0..4 {
+        writer.row_rgb(&[9; 8 * 3]).unwrap();
+    }
+    writer.finish().unwrap();
+    let colour = FmtImage::new("c.rgb", 7, 8, 4, 1);
+    let shown = t
+        .map_fmt_image(&storage, A, 7, CACHE, &colour, true, true)
+        .unwrap()
+        .unwrap();
+    assert_eq!(shown.flags, 0b11, "colour, not decoded yet");
+    assert_eq!(t.info(A, shown.image).unwrap().flags, 1);
+    let t = ImageTable::new();
+    let gray_screen = t
+        .map_fmt_image(&storage, A, 7, CACHE, &colour, true, false)
+        .unwrap()
+        .unwrap();
+    assert_eq!(gray_screen.flags, 0b10, "no colour on a gray screen");
+    assert_eq!(t.info(A, gray_screen.image).unwrap().flags, 0);
     // A picture the card does not vouch for is no doc_image.
     let lying = FmtImage::new("a.gray", 6, 9, 4, 0);
     assert_eq!(
-        t.map_fmt_image(&storage, A, 7, CACHE, &lying, true),
+        t.map_fmt_image(&storage, A, 7, CACHE, &lying, true, true),
         Ok(None)
     );
 }
@@ -808,7 +847,7 @@ fn every_allocation_of_a_fmt_image_mapping_may_fail_and_keeps_no_id() {
     for nth in 1..=20 {
         let t = ImageTable::new();
         FAIL_NTH.with(|n| n.set(nth));
-        let r = t.map_fmt_image(&storage, A, 7, CACHE, &fmt, true);
+        let r = t.map_fmt_image(&storage, A, 7, CACHE, &fmt, true, true);
         FAIL_NTH.with(|n| n.set(0));
         match r {
             Ok(Some(doc)) => assert_ne!(doc.image, 0, "nth {nth}"),
@@ -827,19 +866,29 @@ fn every_allocation_of_a_fmt_image_mapping_may_fail_and_keeps_no_id() {
 fn the_draw_scratch_is_the_devices_32_kib_on_the_x4_and_more_elsewhere() {
     use paperpaw_sdk::image::ColorWriter;
     let storage = MemoryStorage::new();
-    // A prepared 4,096 px colour picture, drawn taller and see-through: it
-    // needs about 36 KiB of scratch (the X4 never prepares one that wide).
+    // A prepared 1,600 px colour picture (the widest there is), drawn taller
+    // and see-through: it needs about 14 KiB of scratch.
     let path = prepare::file_name(A, 1).unwrap();
     let mut writer = ColorWriter::new(&storage, &path);
-    writer.start(4096, 2).unwrap();
+    writer.start(1600, 2).unwrap();
     for _ in 0..2 {
-        writer.row_rgb(&std::vec![0_u8; 4096 * 3]).unwrap();
+        writer.row_rgb(&std::vec![0_u8; 1600 * 3]).unwrap();
     }
     writer.finish().unwrap();
     let flags = FILL | (55 << TRANSPARENCY_SHIFT);
     let t = ImageTable::new();
-    let id = t.add_prepared(A, 1, 4096, 2, true).unwrap();
-    // The X4's cap (the default): refused before anything is drawn.
+    let id = t.add_prepared(A, 1, 1600, 2, true).unwrap();
+    // The X4's cap (the default) holds the widest picture.
+    assert_eq!(t.scratch_max.get(), SCRATCH_X4);
+    let mut fb = screen();
+    let mut canvas = fb.canvas();
+    assert_eq!(
+        t.draw(A, id, &mut canvas, &storage, 0, 0, 40, 30, flags),
+        Ok(())
+    );
+    assert!(gray(&canvas, 20, 15) < 255);
+    // A device whose cap is lower is refused before anything is drawn.
+    t.set_scratch_max(8 * 1024);
     let mut fb = screen();
     let mut canvas = fb.canvas();
     assert_eq!(

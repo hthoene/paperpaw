@@ -1,0 +1,621 @@
+//! The interface-7 Stats plugin: what the host tells it about reading goes to
+//! the `Recorder`, over the plugin's data folder and the user's files.
+use paperpaw_sdk::native::callbacks::{DrawFrame, DrawPurpose, Input};
+use paperpaw_sdk::native::{
+    Error, Host, Plugin,
+    commands::CommandSender,
+    events::{Event, Incoming, ReadingView, kinds},
+    formatting::copy_message,
+    registrations,
+    reply::Reply,
+    settings::{self, SettingValue},
+    snapshot::{Snapshot, capture_snapshot},
+    storage::{self as host_storage, DataStorage, Root},
+    ui::{Notify, Open, Ui},
+};
+use paperpaw_sdk::{DirEntry, Handled, Storage, StorageError};
+use paperpaw_ui_kit::Screens;
+
+use crate::files::DataFolder;
+use crate::native_calendar::CalendarView;
+use crate::native_left::Left;
+use crate::native_overview::OverviewView;
+use crate::native_screens::{self, BookView, BooksView};
+use crate::native_sync_screen::SyncView;
+use crate::native_sync_shell::SyncShell;
+use crate::native_widgets::{Tap, Widgets};
+use crate::recorder::{Limits, Reading, Recorder, Surroundings, Told};
+
+/// The same as `paperpaw_ui_kit::read_event!`; this plugin does not use the UI kit.
+macro_rules! read_event {
+    ($incoming:expr; $($kind:ty),+ $(,)?) => {{
+        let incoming = &$incoming;
+        let mut found = ::core::option::Option::None;
+        $(
+            if found.is_none() {
+                found = incoming.decode_as::<$kind>()?;
+            }
+        )+
+        found
+    }};
+}
+
+mod image {
+    include!(concat!(env!("OUT_DIR"), "/stats_declarations.rs"));
+}
+
+/// The plugin's callback tokens (see `declarations.rs`).
+const EVENTS: u32 = crate::declarations::EVENTS_TOKEN;
+/// The stage that tells today's reading.
+const READ_TODAY: &str = crate::declarations::READ_TODAY;
+
+/// An open screen's view.
+#[allow(
+    clippy::large_enum_variant,
+    reason = "one view per open screen, in a list that grows fallibly; a box would allocate infallibly"
+)]
+enum View {
+    Overview(OverviewView),
+    Books(BooksView),
+    Book(BookView),
+    Calendar(CalendarView),
+    Sync(SyncView),
+}
+
+/// Stats' interface-7 entry state.
+#[derive(Default)]
+pub struct NativeStats {
+    recorder: Recorder,
+    /// `core.ui`, opened by the first callback (opening needs a live frame).
+    ui: Option<Ui>,
+    screens: Screens<View>,
+    /// The widgets screens show.
+    widgets: Widgets,
+    /// The sync with the WebDAV folder.
+    sync: SyncShell,
+    /// The reading speed for the status items "time left".
+    left: Left,
+}
+
+impl core::fmt::Debug for NativeStats {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("NativeStats").finish_non_exhaustive()
+    }
+}
+
+impl Plugin for NativeStats {
+    fn make(host: &Host<'_>) -> Result<Self, Error> {
+        for batch in image::SETTINGS
+            .iter()
+            .chain(image::WIDGETS)
+            .chain(image::UI)
+            .chain(image::EVENTS)
+        {
+            registrations::submit(host, batch)?;
+        }
+        // A host that does not admit stages yet leaves the plugin without
+        // the stage; the rest works.
+        for batch in image::STAGES {
+            match registrations::submit(host, batch) {
+                Ok(()) | Err(Error::Unsupported) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(Self::default())
+    }
+
+    fn event(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        incoming: Incoming<'_>,
+        reply: &mut Reply<'_>,
+    ) -> Result<(), Error> {
+        let Some(event) = read_event!(incoming; kinds::SettingChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::Tick, kinds::StageCall, kinds::Started, kinds::Resume, kinds::Suspend, kinds::Stopping, kinds::PageTurned, kinds::BookOpened, kinds::BookClosed, kinds::BookFinished, kinds::BookMoved, kinds::StatusChanged, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::HttpDone, kinds::Answered)
+        else {
+            return Ok(());
+        };
+        if let Some(done) = self.widget_event(host, token, &event, reply) {
+            return done;
+        }
+        if let Event::StageCall {
+            stage: READ_TODAY,
+            payload,
+            ..
+        } = event
+        {
+            return self.tell_today(host, payload, reply);
+        }
+        match event {
+            Event::HttpDone(_) if token == crate::declarations::HTTP_TOKEN => {
+                return self.sync_event(host, &event);
+            }
+            Event::Answered { .. } => return self.sync_event(host, &event),
+            Event::ActionRun {
+                action: "stats.open",
+                ..
+            } if token == crate::declarations::OPEN_TOKEN => return self.open_overview(host),
+            Event::ScreenOpened {
+                screen,
+                instance,
+                handover,
+                ..
+            } => return self.opened(host, screen, instance, handover),
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } => return self.screens.shown(token, instance),
+            Event::ScreenClosed { instance, .. } => {
+                self.screens.close(instance);
+                return Ok(());
+            }
+            _ => {}
+        }
+        if token != EVENTS {
+            return Ok(());
+        }
+        let told = match event {
+            Event::Started { now_ms, .. } => {
+                self.sync.started(host);
+                with_cx(host, now_ms, |cx| self.recorder.started(cx))
+            }
+            Event::Resume { now_ms, .. } => {
+                with_cx(host, now_ms, |cx| self.recorder.resumed(cx));
+                return Ok(());
+            }
+            Event::Suspend { now_ms, .. } | Event::Stopping { now_ms, .. } => {
+                with_cx(host, now_ms, |cx| self.recorder.suspended(cx));
+                return Ok(());
+            }
+            Event::PageTurned(view) => {
+                // The speed first, as interface 6 registered it ahead of the
+                // recording.
+                self.left.page_turned(host);
+                with_cx(host, view.now_ms(), |cx| {
+                    self.recorder.page_turned(cx, &reading(&view))
+                })
+            }
+            Event::Book {
+                kind: paperpaw_sdk::native::events::BookKind::Opened,
+                reading: view,
+                ..
+            } => {
+                self.left.book_opened(host, view.path());
+                with_cx(host, view.now_ms(), |cx| {
+                    self.recorder.book_opened(cx, &reading(&view))
+                })
+            }
+            Event::Book {
+                kind: paperpaw_sdk::native::events::BookKind::Closed,
+                reading: view,
+                ..
+            } => with_cx(host, view.now_ms(), |cx| {
+                self.recorder.book_closed(cx, view.path())
+            }),
+            Event::Book {
+                kind: paperpaw_sdk::native::events::BookKind::Finished,
+                reading: view,
+                ..
+            } => {
+                with_cx(host, view.now_ms(), |cx| {
+                    self.recorder.book_finished(cx, view.path());
+                });
+                return Ok(());
+            }
+            Event::BookMoved {
+                now_ms, from, path, ..
+            } => with_cx(host, now_ms, |cx| self.recorder.book_moved(cx, from, path)),
+            Event::StatusChanged { now_ms, .. } => {
+                with_cx(host, now_ms, |cx| self.recorder.clock_changed(cx))
+            }
+            _ => return Ok(()),
+        };
+        tell(host, told)
+    }
+
+    fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        if frame.purpose == DrawPurpose::Widget {
+            return self.widgets.draw(host, frame);
+        }
+        match self.screens.top(token).ok_or(Error::State)? {
+            View::Overview(view) => view.draw(host, &mut frame),
+            View::Books(view) => view.draw(host, &mut frame),
+            View::Book(view) => view.draw(host, &mut frame),
+            View::Calendar(view) => view.draw(host, &mut frame),
+            View::Sync(view) => view.draw(host, &mut frame),
+        }
+    }
+
+    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        // A tap on a widget opens the statistics (the year's, the books).
+        match self.widgets.tapped(host, &input)? {
+            Some(Tap::Statistics) => {
+                self.open_overview(host)?;
+                return Ok(Handled::Yes);
+            }
+            Some(Tap::Goal) => {
+                native_screens::open_settings(host, self.ui(host)?)?;
+                return Ok(Handled::Yes);
+            }
+            Some(Tap::Books) => {
+                let mut scratch = [0u8; 256];
+                CommandSender::new(host, &mut scratch).open(Open::screen("stats.books")?)?;
+                return Ok(Handled::Yes);
+            }
+            None => {}
+        }
+        self.ui(host)?;
+        let Some(view) = self.screens.top(token) else {
+            return Ok(Handled::No);
+        };
+        match view {
+            View::Overview(view) => {
+                let ui = self.ui.as_ref().ok_or(Error::State)?;
+                view.input(host, ui, &input)
+            }
+            View::Books(view) => {
+                let ui = self.ui.as_ref().ok_or(Error::State)?;
+                view.input(host, ui, &input)
+            }
+            View::Book(view) => view.input(host, &input),
+            View::Calendar(view) => view.input(host, &input),
+            View::Sync(view) => {
+                let (handled, row) = view.input(host, &input)?;
+                if let Some(row) = row {
+                    let ui = self.ui.as_ref().ok_or(Error::State)?;
+                    self.sync.activate(host, ui, view, row)?;
+                }
+                Ok(handled)
+            }
+        }
+    }
+}
+
+impl NativeStats {
+    /// What the widgets and the status items make of an event: `None` where it
+    /// is none of theirs.
+    fn widget_event(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        event: &Event<'_>,
+        reply: &mut Reply<'_>,
+    ) -> Option<Result<(), Error>> {
+        Some(match *event {
+            Event::WidgetMade {
+                widget, instance, ..
+            } => self.widgets.made(widget, instance),
+            Event::WidgetDropped { instance, .. } => {
+                self.widgets.dropped(instance);
+                Ok(())
+            }
+            Event::StageCall {
+                stage: "core.widget",
+                payload,
+                ..
+            } => self.widgets.stage(host, payload, reply),
+            // The reader asks for the time left (the status items).
+            Event::StageCall {
+                stage: "core.status",
+                payload,
+                ..
+            } if token == crate::declarations::STATUS_TOKEN => {
+                self.left.status(host, payload, reply)
+            }
+            Event::Tick { .. } => {
+                if token == crate::declarations::TICK_TOKEN {
+                    self.widgets.tick(host);
+                }
+                Ok(())
+            }
+            Event::SettingChanged { key, .. } => {
+                if key == "stats.goal" && token == EVENTS {
+                    crate::native_widgets::offer_today(host)
+                } else {
+                    Ok(())
+                }
+            }
+            _ => return None,
+        })
+    }
+}
+
+impl NativeStats {
+    /// The answer of the stage `reading-goal.read-today`: the day and the
+    /// seconds read on it. Asked with nothing or today's day; another day is
+    /// not known here.
+    fn tell_today(
+        &mut self,
+        host: &Host<'_>,
+        payload: &[u8],
+        reply: &mut Reply<'_>,
+    ) -> Result<(), Error> {
+        let asked = match payload {
+            [] => None,
+            [a, b, c, d] => Some(i32::from_le_bytes([*a, *b, *c, *d])),
+            _ => return Err(Error::Invalid),
+        };
+        let today = with_cx(host, 0, |cx| self.recorder.read_today(cx));
+        if let Some((day, seconds)) = today {
+            if asked.is_some_and(|asked| asked != day) {
+                return Err(Error::NotFound);
+            }
+            let mut bytes = [0u8; 8];
+            bytes[..4].copy_from_slice(&day.to_le_bytes());
+            bytes[4..].copy_from_slice(&seconds.to_le_bytes());
+            reply.write(&bytes)?;
+        }
+        Ok(())
+    }
+
+    /// Hands a net or answer event to the WebDAV sync with its screen.
+    fn sync_event(&mut self, host: &Host<'_>, event: &Event<'_>) -> Result<(), Error> {
+        self.ui(host)?;
+        let view = match self.screens.top(crate::declarations::SYNC_TOKEN) {
+            Some(View::Sync(view)) => Some(view),
+            _ => None,
+        };
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        match event {
+            Event::HttpDone(done) => self.sync.http_done(host, ui, view, done),
+            Event::Answered { answer, .. } => self.sync.answered(host, ui, view, answer),
+            _ => Ok(()),
+        }
+    }
+
+    fn ui(&mut self, host: &Host<'_>) -> Result<&Ui, Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        self.ui.as_ref().ok_or(Error::State)
+    }
+
+    /// Opens the overview, on the book being read where there is one (the page
+    /// being read is recorded first, so that the figures include it).
+    fn open_overview(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let current = with_cx(host, 0, |cx| {
+            self.recorder.settle(cx);
+            self.recorder.current_book()
+        });
+        match current {
+            Some(book) => {
+                native_screens::open_with_book(host, self.ui(host)?, "stats.overview", book)
+            }
+            None => {
+                let mut scratch = [0u8; 256];
+                CommandSender::new(host, &mut scratch).open(Open::screen("stats.overview")?)
+            }
+        }
+    }
+
+    /// Builds the view of an opened screen over the data folder. One function
+    /// for each screen, none inlined: the views are big, and a frame that held
+    /// them all would go over what the X4 allows (2,048 bytes).
+    fn opened(
+        &mut self,
+        host: &Host<'_>,
+        screen: &str,
+        instance: paperpaw_sdk::native::ui::Instance,
+        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
+    ) -> Result<(), Error> {
+        match screen {
+            "stats.overview" => self.opened_overview(host, instance, handover),
+            "stats.calendar" => self.opened_calendar(host, instance),
+            "stats.books" => self.opened_books(host, instance),
+            "stats.sync" => self.opened_sync(host, instance),
+            "stats.book" => self.opened_book(host, instance, handover),
+            _ => Ok(()),
+        }
+    }
+
+    #[inline(never)]
+    fn opened_overview(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
+    ) -> Result<(), Error> {
+        let storage = DataStorage::new(host);
+        let data = DataFolder(&storage);
+        let current = match handover {
+            Some(handover) => native_screens::book_of(host, self.ui(host)?, handover)?,
+            None => None,
+        };
+        let today = today_of(host)?;
+        let view = OverviewView::new(host, &data, today, current)?;
+        self.screens.open(instance, View::Overview(view))
+    }
+
+    #[inline(never)]
+    fn opened_calendar(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+    ) -> Result<(), Error> {
+        let storage = DataStorage::new(host);
+        let view = CalendarView::new(host, &DataFolder(&storage), today_of(host)?)?;
+        self.screens.open(instance, View::Calendar(view))
+    }
+
+    #[inline(never)]
+    fn opened_books(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+    ) -> Result<(), Error> {
+        let storage = DataStorage::new(host);
+        let view = BooksView::new(host, &DataFolder(&storage))?;
+        self.screens.open(instance, View::Books(view))
+    }
+
+    #[inline(never)]
+    fn opened_sync(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+    ) -> Result<(), Error> {
+        let view = self.sync.view(host)?;
+        self.screens.open(instance, View::Sync(view))
+    }
+
+    #[inline(never)]
+    fn opened_book(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
+    ) -> Result<(), Error> {
+        let storage = DataStorage::new(host);
+        let id = match handover {
+            Some(handover) => native_screens::book_of(host, self.ui(host)?, handover)?,
+            None => None,
+        };
+        let view = BookView::new(host, &DataFolder(&storage), id)?;
+        self.screens.open(instance, View::Book(view))
+    }
+}
+
+/// The local day (UTC until draft 25), none until the device knows the time.
+fn today_of(host: &Host<'_>) -> Result<Option<i32>, Error> {
+    Ok(capture_snapshot(host)?
+        .unix_seconds()
+        .and_then(|unix| u32::try_from(unix).ok())
+        .map(native_screens::utc_day))
+}
+
+/// What the recorder has to say: the card could not be written to, once.
+/// (Today's reading is asked for through the stage, not sent.) The notice is
+/// best effort: a refusal to show it is not the event's error (the recording
+/// has been done, and the recorder does not say it twice).
+fn tell(host: &Host<'_>, told: Told) -> Result<(), Error> {
+    if told.not_saved {
+        notice(host).ok();
+    }
+    Ok(())
+}
+
+fn notice(host: &Host<'_>) -> Result<(), Error> {
+    let mut text = [0u8; 128];
+    let message = copy_message(host, "stats.not-saved", &mut text)?;
+    let mut scratch = [0u8; 256];
+    CommandSender::new(host, &mut scratch).notify(Notify::new(message)?.announce())
+}
+
+fn reading<'a>(view: &ReadingView<'a>) -> Reading<'a> {
+    Reading {
+        path: view.path(),
+        title: view.title(),
+        progress_ppm: view.progress_ppm(),
+        page: view.page(),
+        pages: view.pages(),
+        at: (view.section(), view.offset(), view.insert()),
+    }
+}
+
+/// The host as the recorder's surroundings: the data folder, the user's files
+/// read only, the moment of the event and the clock as one snapshot says it.
+struct HostCx<'h, 'cb> {
+    host: &'h Host<'cb>,
+    data: DataFolder<'h>,
+    files: FilesRead<'h, 'cb>,
+    now_ms: u64,
+    snapshot: Option<Snapshot>,
+}
+
+/// Runs `then` with the surroundings of an event at `now_ms` (0: a call
+/// without an event time, made now).
+fn with_cx<R>(host: &Host<'_>, now_ms: u64, then: impl FnOnce(&HostCx<'_, '_>) -> R) -> R {
+    let storage = DataStorage::new(host);
+    let snapshot = capture_snapshot(host).ok();
+    let cx = HostCx {
+        host,
+        data: DataFolder(&storage),
+        files: FilesRead { host },
+        now_ms: if now_ms == 0 {
+            snapshot.map_or(0, |s| s.instant().millis())
+        } else {
+            now_ms
+        },
+        snapshot,
+    };
+    then(&cx)
+}
+
+impl HostCx<'_, '_> {
+    fn flag(&self, key: &str, default: bool) -> bool {
+        let mut scratch = [0u8; 32];
+        match settings::read_setting(self.host, key, &mut scratch) {
+            Ok(SettingValue::Bool(value)) => value,
+            _ => default,
+        }
+    }
+
+    fn number(&self, key: &str, default: i64) -> i64 {
+        let mut scratch = [0u8; 32];
+        match settings::read_setting(self.host, key, &mut scratch) {
+            Ok(SettingValue::Int(value)) => value,
+            _ => default,
+        }
+    }
+}
+
+impl Surroundings for HostCx<'_, '_> {
+    fn data(&self) -> &dyn Storage {
+        &self.data
+    }
+    fn files(&self) -> &dyn Storage {
+        &self.files
+    }
+    fn now_ms(&self) -> u64 {
+        self.now_ms
+    }
+    fn unix_at(&self, at_ms: u64) -> Option<i64> {
+        let snapshot = self.snapshot?;
+        crate::recorder::unix_at(snapshot.unix_seconds()?, snapshot.instant().millis(), at_ms)
+    }
+    /// UTC days until the system time zone comes with the snapshot (draft 25).
+    fn day_of(&self, unix: u32) -> i32 {
+        (unix / 86_400) as i32
+    }
+    fn limits(&self) -> Limits {
+        Limits {
+            enabled: self.flag("stats.enabled", true),
+            min: self.number("stats.min-seconds", 5),
+            max: self.number("stats.max-seconds", 120),
+        }
+    }
+}
+
+/// The user's files (wire root 1), read only: the books.
+struct FilesRead<'h, 'cb> {
+    host: &'h Host<'cb>,
+}
+
+fn refused(error: Error) -> StorageError {
+    match error {
+        Error::NotFound => StorageError::NotFound,
+        Error::Invalid => StorageError::InvalidPath,
+        _ => StorageError::Io,
+    }
+}
+
+impl Storage for FilesRead<'_, '_> {
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        host_storage::read_at(self.host, Root::Files, path, offset, buf).map_err(refused)
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        host_storage::size(self.host, Root::Files, path).map_err(refused)
+    }
+    fn write(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+        Err(StorageError::Unsupported)
+    }
+    fn append(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+        Err(StorageError::Unsupported)
+    }
+    fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        Err(StorageError::Unsupported)
+    }
+    fn remove(&self, _: &str) -> Result<(), StorageError> {
+        Err(StorageError::Unsupported)
+    }
+}

@@ -43,6 +43,16 @@ pub(crate) struct KeySources {
     pub(crate) shell: String,
 }
 
+impl Shared {
+    /// A plugin's entry for the kernel to change; counts as a change of the
+    /// registry's lists (`core.registry` generation), whether or not the
+    /// caller then changes anything.
+    pub(crate) fn plugin_mut(&mut self, id: &str) -> Option<&mut PluginInfo> {
+        self.registry_generation.bump();
+        self.plugins.get_mut(id)
+    }
+}
+
 impl Kernel {
     /// Registers `plugin`, or only lists it if the user switched it off.
     pub(crate) fn add_plugin(&mut self, plugin: &dyn Plugin, disabled: &[String]) {
@@ -125,6 +135,7 @@ impl Kernel {
         state: PluginState,
         enabled: bool,
     ) {
+        self.shared.registry_generation.bump();
         self.shared.plugins.push(PluginInfo::new(
             manifest,
             state,
@@ -221,6 +232,10 @@ impl Kernel {
             });
         }
         staging.merge_into(&mut self.shared.registry, &mut self.shared.actions)?;
+        // After the last change, however this goes on.
+        let _bump = crate::native_host::registry_generation::BumpOnExit::new(
+            &self.shared.registry_generation,
+        );
         // A sealed action that came after handlers in its place: they go.
         for action in self.shared.actions.drop_sealed_overrides() {
             self.warn_runtime(format!("`{action}` is sealed; not overridden"));
@@ -496,6 +511,10 @@ impl Kernel {
             keymap.load(source, Origin::Plugin, true);
         }
         keymap.load(&self.keys.device, Origin::Device, true);
+        // Native plugins' `key.bind` rows: against the preset, plugin and
+        // device sources (a binding of the device's outranks them, as before),
+        // before the user's. The main-menu rule reads that baseline.
+        self.native_keys_into(&mut keymap);
         for source in [&self.keys.user, &self.keys.shell] {
             keymap.load(source, Origin::User, false);
         }
@@ -513,6 +532,9 @@ impl Kernel {
     /// with the entries plugins contribute to it now that the user left
     /// out: those added later show in the user's list too (`[menus-known]`).
     pub(crate) fn set_menu(&mut self, menu: Id, entries: Option<Vec<Id>>) {
+        let _bump = crate::native_host::registry_generation::BumpOnExit::new(
+            &self.shared.registry_generation,
+        );
         let join = |ids: &[Id]| ids.iter().map(Id::as_str).collect::<Vec<_>>().join(", ");
         let value = entries.as_deref().map(join);
         let listed = entries.as_deref().unwrap_or_default();
@@ -545,6 +567,7 @@ impl Kernel {
         self.output
             .commands
             .push(events::MENU_CHANGED.emit(events::MenuChanged::new(menu.clone())));
+        self.native_registry_changed(crate::native_host::REGISTRY_MENUS);
     }
 
     /// Adds a font file of `plugin`, described by its header.
@@ -604,82 +627,6 @@ impl Kernel {
         }
         if let Err(error) = self.shared.fonts.add_face(face) {
             self.warn(source, None, format!("{error}"));
-        }
-    }
-
-    /// Chooses the reading font family from `core.reading-font` and loads
-    /// its files.
-    pub(crate) fn apply_reading_font(&mut self) {
-        let chosen = self
-            .shared
-            .settings
-            .text(core_settings::READING_FONT.as_str())
-            .to_string();
-        let family = (chosen != core_settings::DEFAULT_FONT
-            && self.shared.fonts.families().contains(&chosen.as_str()))
-        .then_some(chosen.as_str());
-        self.shared.fonts.set_family(family);
-        for path in self.shared.fonts.load(&self.shared.storage) {
-            self.warn_runtime(format!("{path}: font could not be loaded"));
-        }
-        self.fit_font_size();
-    }
-
-    /// The sizes of book text offered as far as the reading font has them:
-    /// a font pack's largest (built into the firmware, kept small) bounds
-    /// them, a scalable font has every size. A size chosen past it gives
-    /// way to the largest.
-    pub(crate) fn fit_font_size(&mut self) {
-        let (min, max) = FONT_SIZES;
-        let dpi = f32::from(self.shared.device.display.dpi.max(1));
-        let largest = self
-            .shared
-            .fonts
-            .role(paperpaw_sdk::builtin::fonts::READING.as_str())
-            .and_then(|font| font.largest_size());
-        // No `round` without std.
-        let most = largest.map_or(max, |px| ((px * 72.0 / dpi + 0.5) as i64).clamp(min, max));
-        let id = core_settings::FONT_SIZE;
-        self.shared.settings.set_range(id.as_str(), min, most);
-        self.font_size_changed();
-    }
-
-    /// A font size past the largest the reading font has (set before, or
-    /// a book's own) gives way to the largest; at the largest of a font
-    /// pack, the help says where larger ones are found.
-    pub(crate) fn font_size_changed(&mut self) {
-        let id = core_settings::FONT_SIZE.static_str();
-        let settings = &mut self.shared.settings;
-        let most = match settings.spec(id).map(|spec| &spec.kind) {
-            Some(paperpaw_sdk::SettingKind::Int { max, .. }) => *max,
-            _ => return,
-        };
-        let size = settings.int(id);
-        let largest = most < FONT_SIZES.1 && size >= most;
-        let key = if largest {
-            "core.setting.font-size.largest"
-        } else {
-            "core.setting.font-size.help"
-        };
-        settings.set_description(id, key);
-        if size > most {
-            let value = paperpaw_sdk::SettingValue::Int(most);
-            let id = core_settings::FONT_SIZE.id().clone();
-            self.output.commands.push(Command::SetSetting(id, value));
-        }
-    }
-
-    /// Chooses what the status lines are in from `core.status-font` and
-    /// loads its files.
-    pub(crate) fn apply_status_font(&mut self) {
-        let chosen = self
-            .shared
-            .settings
-            .text(core_settings::STATUS_FONT.as_str())
-            .to_string();
-        self.shared.fonts.set_status(&chosen);
-        for path in self.shared.fonts.load(&self.shared.storage) {
-            self.warn_runtime(format!("{path}: font could not be loaded"));
         }
     }
 
@@ -797,7 +744,7 @@ impl Kernel {
         } else {
             self.register_plugin(&plugin, manifest);
             self.add_hyphenation_tables(&plugin);
-            if let Some(info) = self.shared.plugins.get_mut(id.as_str()) {
+            if let Some(info) = self.shared.plugin_mut(id.as_str()) {
                 info.kind = paperpaw_sdk::PluginKind::Data;
             }
         }
@@ -827,17 +774,12 @@ impl Kernel {
             plugin.folder(),
             tables.iter().map(|t| (t.tag.as_str(), t.path.as_str())),
         );
-        let fed = self.shared.hyphen_feed.add(
-            id.as_str(),
-            plugin.folder(),
-            tables.iter().map(|t| (t.tag.as_str(), t.path.as_str())),
-        );
-        if added.is_err() || fed.is_err() {
+        if added.is_err() {
             self.shared.hyphenation.remove_tables(id.as_str());
-            self.shared.hyphen_feed.remove(id.as_str());
             let problem = "hyphenation tables left out, no memory for them".into();
             return self.warn(WarningSource::Plugin(id), None, problem);
         }
+        self.feed_hyphenation(Some(&id));
         let told: Vec<String> = self
             .shared
             .hyphenation
@@ -853,6 +795,21 @@ impl Kernel {
         for problem in told {
             self.warn_runtime(problem);
         }
+    }
+
+    /// Forgets the declaration cap `plugin` was refused at: it is tried again
+    /// or gone.
+    pub(crate) fn forget_refusal(&self, plugin: &Id) {
+        if let Some(declared) = self.shared.registry.native_declarations.as_ref() {
+            declared.clear_refusal(plugin.as_str());
+        }
+    }
+
+    /// As [`Self::forget_refusal`], giving `plugin` back for the caller's
+    /// own use.
+    pub(crate) fn begin_try(&self, plugin: &Id) -> Id {
+        self.forget_refusal(plugin);
+        plugin.clone()
     }
 
     /// Removes a data plugin while running (see
@@ -883,7 +840,13 @@ impl Kernel {
     /// until [`plugins_changed`](Self::plugins_changed) finds it no longer
     /// offered.
     pub(crate) fn unload_plugin(&mut self, id: &Id) -> bool {
+        // A removed plugin leaves no refusal behind to take a place of the
+        // few the host keeps.
+        self.forget_refusal(id);
         let native_key = self.shared.native_instances.find(id.as_str());
+        let _bump = crate::native_host::registry_generation::BumpOnExit::new(
+            &self.shared.registry_generation,
+        );
         let replacement = native_key.and_then(|key| self.begin_native_unload(key, id));
         // Its background work's sockets close.
         self.works.runs.end_plugin(id.as_str());
@@ -891,7 +854,7 @@ impl Kernel {
         self.shared.data_folders.retain(|(p, _)| p != id);
         self.remove_plugin_fonts(id);
         self.shared.hyphenation.remove_tables(id.as_str());
-        self.shared.hyphen_feed.remove(id.as_str());
+        self.feed_hyphenation(Some(id));
         // Its key maps and stylesheets; the key map is built anew once the
         // plugins changed (`plugins_changed`).
         self.keys.plugins.retain(|(p, _)| p != id);
@@ -909,7 +872,7 @@ impl Kernel {
             .remove_plugin(id.as_str());
         // A code plugin's code runs until the restart: it stays listed as
         // stopping then.
-        match self.shared.plugins.get_mut(id.as_str()) {
+        match self.shared.plugin_mut(id.as_str()) {
             Some(info)
                 if info.kind == paperpaw_sdk::PluginKind::Code
                     && info.state == PluginState::Running
@@ -979,7 +942,7 @@ impl Kernel {
         // A code plugin's code runs until the restart: the new version
         // takes over then.
         if self.shared.native_instances.find(id.as_str()).is_none()
-            && let Some(info) = self.shared.plugins.get_mut(id.as_str())
+            && let Some(info) = self.shared.plugin_mut(id.as_str())
             && info.kind == paperpaw_sdk::PluginKind::Code
             && info.state == PluginState::Running
         {
@@ -1133,7 +1096,7 @@ impl Kernel {
     /// After a plugin was loaded or removed while running: the choices of
     /// fonts and key map presets (a font chosen that is no longer offered
     /// giving way), menu labels, fonts and keys anew.
-    fn plugins_changed(&mut self) {
+    pub(crate) fn plugins_changed(&mut self) {
         self.offer_choices();
         self.keep_offered_choices();
         self.apply_reading_font();
@@ -1142,6 +1105,8 @@ impl Kernel {
         self.rebuild_keymap();
         self.output.commands.push(events::PLUGINS_CHANGED.emit(()));
         self.native_hint(crate::native_host::registrations::EVENT_PLUGINS_CHANGED_TAG);
+        // What menus, bindings, slots, screens and the rest hold follows the set.
+        self.native_registry_changed(crate::native_host::REGISTRY_ALL);
     }
 
     /// Releases memory reserved while plugins registered: on small devices

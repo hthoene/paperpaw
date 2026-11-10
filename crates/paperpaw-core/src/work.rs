@@ -13,6 +13,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::mem;
 
+mod native_network;
+pub(crate) use native_network::USES_NETWORK;
 mod runs;
 
 use paperpaw_platform::Instant;
@@ -215,12 +217,21 @@ pub(crate) struct Queue {
     ticking: bool,
     /// Notices of background work, as notes, not yet kept.
     notes: Vec<(String, paperpaw_sdk::work::Note)>,
+    /// Native plugins with `uses.network` (admitted with their network
+    /// settings, `native_network.rs`).
+    natives: Vec<String>,
+    /// The network settings kept in the program (see
+    /// [`Kernel::define_network_settings`]), for the native plugins too.
+    fixed: &'static [NetworkSettings],
     /// Plugins whose network the reader switched off.
     off: Vec<String>,
     /// Plugins whose work does not follow the mode.
     exempt: Vec<(String, Exempt)>,
     /// What the reader set per plugin changed: read again.
     stale: bool,
+    /// How many times it was read again (the network policy of the native
+    /// services is made again when it changes).
+    policy_version: u32,
     /// The screen the reader chose *Go online* on while Offline: the
     /// network for it until it closes ([`Command::GoOnline`]).
     online_for: Option<Id>,
@@ -539,9 +550,13 @@ impl Kernel {
                 self.close_ended_runs();
             }
             Command::CancelHttp(reply) => self.io.http.cancel(&reply, &mut self.output.commands),
-            Command::Wear(wear) => self.wear(wear),
+            Command::Wear(wear) => {
+                self.wear(wear);
+                self.sync_net_policy();
+            }
             Command::GoOnline => {
                 self.works.online_for = self.stack.last().map(|top| top.id.clone());
+                self.sync_net_policy();
                 // What waited may go on this connection.
                 self.output.commands.push(events::WORK_ALLOWED.emit(()));
             }
@@ -551,6 +566,7 @@ impl Kernel {
                 let how_long = how_long.min(paperpaw_sdk::power::MAX_ONLINE_FOR);
                 let millis = u64::try_from(how_long.as_millis()).unwrap_or(u64::MAX);
                 self.works.online_until = Some(self.now.add_millis(millis));
+                self.sync_net_policy();
                 self.output.commands.push(events::WORK_ALLOWED.emit(()));
             }
             _ => {}
@@ -747,7 +763,8 @@ impl Kernel {
             .plugins
             .iter()
             .filter(|p| p.manifest.uses.contains(Uses::NETWORK))
-            .map(|p| String::from(p.manifest.id.as_str()));
+            .map(|p| String::from(p.manifest.id.as_str()))
+            .chain(self.works.natives.iter().cloned());
         let (mut off, mut exempt) = (Vec::new(), Vec::new());
         for plugin in networked {
             let network = settings.get(&network_setting(&plugin));
@@ -765,6 +782,43 @@ impl Kernel {
         }
         self.works.off = off;
         self.works.exempt = exempt;
+        self.works.policy_version = self.works.policy_version.wrapping_add(1);
+    }
+
+    /// Gives the native services the network policy as it is now. Called
+    /// wherever what it follows changes (a setting, the power mode, going
+    /// online) and at the end of every call, so that the next callback of a
+    /// plugin, in this call or the next, is answered by what the user has
+    /// just decided, never by what he had decided before.
+    pub(crate) fn sync_net_policy(&mut self) {
+        if let Some(policy) = self.shared.native_instances.net_policy() {
+            self.refresh_net_policy(&policy);
+        }
+    }
+
+    /// Gives the network policy of the native services (`core.net`,
+    /// `core.sockets`) what the user decided: the mode and each plugin's own
+    /// setting, as interface 6 applies them to a plugin's network use. Cheap
+    /// when nothing changed.
+    pub(crate) fn refresh_net_policy(
+        &mut self,
+        policy: &crate::native_host::net_policy::NetPolicy,
+    ) {
+        self.read_policy();
+        let mode_offline = self.shared.power.level == PowerLevel::Offline;
+        let offline = mode_offline && !self.went_online();
+        let version = self.works.policy_version;
+        if !policy.needs(version, offline, mode_offline) {
+            return;
+        }
+        let off = self.works.off.iter().map(String::as_str);
+        let held = self
+            .works
+            .exempt
+            .iter()
+            .filter(|(_, e)| *e == Exempt::Manual)
+            .map(|(p, _)| p.as_str());
+        policy.update(version, offline, mode_offline, off, held);
     }
 
     /// Runs the work that is due, as background work: its events emitted
@@ -970,24 +1024,9 @@ impl Kernel {
             })
             .map(|p| String::from(p.manifest.id.as_str()))
             .collect();
+        self.works.fixed = fixed;
         for plugin in networked {
-            let defined = match fixed.iter().find(|(p, _)| *p == plugin) {
-                Some((_, specs)) => {
-                    (0..specs.len()).try_for_each(|at| self.shared.settings.define_fixed(specs, at))
-                }
-                None => {
-                    let (Ok(network), Ok(saving)) = (
-                        Id::parse(&network_setting(&plugin)),
-                        Id::parse(&saving_setting(&plugin)),
-                    ) else {
-                        continue;
-                    };
-                    network_specs(network, saving)
-                        .into_iter()
-                        .try_for_each(|spec| self.shared.settings.define(spec))
-                }
-            };
-            if let Err(e) = defined {
+            if let Err(e) = self.define_network_pair(&plugin, false) {
                 self.warn_runtime(alloc::format!("{plugin}: {e:?}"));
             }
         }

@@ -1,6 +1,10 @@
 //! Inactive callback staging, exercised through kernel-backed dispatch fixtures.
 use super::{Batch, Context, DispatchDepth, Error, Registration};
-use crate::{Kernel, abi7::core_frame::CoreFrame, native_host::commands::CommandStage};
+use crate::{
+    Kernel,
+    abi7::core_frame::CoreFrame,
+    native_host::screen_stage::{StageParts, build_stage, staged_of},
+};
 use core::pin::Pin;
 use paperpaw_native::host_glue::ERR_INVALID;
 use paperpaw_platform::Instant;
@@ -19,11 +23,35 @@ pub(crate) struct CommandTarget {
     pub(crate) result: CommandResult,
 }
 
+impl crate::Shared {
+    /// The frame a command-staging callback runs with: no callback, instance,
+    /// directory, depth or screen of its own.
+    fn command_frame<'a>(&'a self, env: &'a crate::Env<'a>) -> CoreFrame<'a> {
+        CoreFrame {
+            callback: None,
+            instance: None,
+            env,
+            meter: &self.meter,
+            depth: None,
+            directory: None,
+            stack_generation: self.stack_rows.generation(),
+            stack_rows: &self.stack_rows,
+            font_removals: &self.font_removals,
+            registry_generation: &self.registry_generation,
+            usage: &self.usage,
+            plugins: &self.plugins,
+            work: &self.work_states,
+            log: self.device_log,
+            ui: None,
+        }
+    }
+}
+
 impl Kernel {
     /// Admission, settings authority and command limits are shared by event and
     /// input callbacks. The invocation ends its environment scope before returning.
     /// Draw is render-only and must never use this helper. No second queue is kept.
-    pub(crate) fn with_native_commands<S, M>(
+    pub(crate) fn with_native_commands<S: 'static, M>(
         &mut self,
         batch: &Batch<'_, S, M, Registration>,
         depth: &DispatchDepth,
@@ -31,49 +59,48 @@ impl Kernel {
         now: Instant,
         invoke: impl FnOnce(Pin<&Context<S>>, &CoreFrame<'_>) -> Result<i32, Error>,
     ) -> Result<i32, Error> {
-        let (status, owner, (commands, redraw, _hop)) = {
+        let (status, owner, staged) = {
             let env = self.shared.env(now);
-            let frame = CoreFrame {
-                callback: None,
-                instance: None,
-                env: &env,
-                meter: &self.shared.meter,
-                font_removals: &self.shared.font_removals,
-                usage: &self.shared.usage,
-                plugins: &self.shared.plugins,
-                work: &self.shared.work_states,
-            };
+            let frame = self.shared.command_frame(&env);
             batch.dispatch_owner(depth, |context| {
                 let owner = Id::try_parse(&context.id).map_err(|error| match error {
                     IdError::NoMemory => Error::Allocation,
                     _ => Error::Status(ERR_INVALID),
                 })?;
-                let mut stage = CommandStage::new(
-                    &owner,
-                    env.settings(),
-                    Some(self.command_settings_authority(&owner)),
-                    8,
-                    4096,
-                )
-                .with_ui(
-                    &env,
-                    target.screen,
-                    target.hop,
-                    self.screen_keys_remaining(),
-                );
+                let owner_key = context.owner_key();
+                let inputs = self.stage_inputs(owner.as_str(), owner_key);
+                let mut stage = build_stage(StageParts {
+                    owner: &owner,
+                    owner_key,
+                    env: &env,
+                    screen: target.screen,
+                    hop: target.hop,
+                    inputs,
+                    stack_rows: &self.shared.stack_rows,
+                    ui: self.shared.native_instances.ui_services(),
+                    directory: self.shared.registry.native_declarations.as_ref(),
+                })
+                .with_images({
+                    // Requests held outside the table count against the room.
+                    let mut admit = context.image_admit();
+                    admit.room = admit.room.saturating_sub(inputs.images_held);
+                    admit
+                });
                 // SAFETY: the admitted owner structurally pins the command scope.
                 let scope = unsafe { context.map_unchecked(|value| &value.commands) };
+                // A failed callback applies nothing: the stage's room guard
+                // gives its room and slot back when the stage drops.
                 let status = scope.scope(&mut stage, || invoke(context, &frame))??;
                 let valid =
                     status == 0 || (matches!(target.result, CommandResult::Input) && status == 1);
                 if !valid {
                     return Err(Error::Status(if status < 0 { status } else { ERR_INVALID }));
                 }
-                let output = stage.into_ui_output();
-                Ok::<_, Error>((status, owner, output))
+                let staged = staged_of(stage, owner_key);
+                Ok::<_, Error>((status, owner, staged))
             })??
         };
-        self.drain_native_ui(&owner, commands, redraw);
+        self.apply_staged(&owner, staged)?;
         Ok(status)
     }
 }

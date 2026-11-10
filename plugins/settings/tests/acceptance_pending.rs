@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 6] = [
+const CASES: [Case; 9] = [
     // The main page, a group's page and choosing a value draw as before.
     Case {
         name: "settings-pages",
@@ -33,18 +33,46 @@ const CASES: [Case; 6] = [
         golden: None,
         blocked_by: &["H1", "H2", "H4"],
     },
-    // Passwords and keys: the list, typing one anew, removing one. Needs the
-    // core.secrets SDK facade (SEC) and the host service.
+    // Passwords and keys: the list, typing one anew, removing one. The
+    // screens are `native_secrets` and `native_plugin`; `tests/scripted_secrets.rs`
+    // runs what they read from a scripted `core.secrets`, the questions asked
+    // and the answers (typed again, removed, kept) with the scripted
+    // `i18n` and `core.ui`. What stays is drawing the rows and moving the
+    // focus and going back, which are screen commands.
     Case {
         name: "settings-secrets",
         golden: None,
-        blocked_by: &["SEC", "H1", "H2", "H4"],
+        blocked_by: &["H1"],
     },
-    // Restart PaperPaw once asked. Needs the DEV restart command facade.
+    // Restart PaperPaw once asked (`CommandSender::restart`, `uses.power`). Needs
+    // the host's dialogs.
     Case {
         name: "settings-restart",
         golden: None,
-        blocked_by: &["DEV", "H2"],
+        blocked_by: &["H2", "H4"],
+    },
+    // A widget placement's page (`widgets.clock@2`): its widget's settings with
+    // the values that placement has (the widget's own where it sets none),
+    // changed and reset on the placement alone.
+    Case {
+        name: "settings-placement-page",
+        golden: None,
+        blocked_by: &["H1", "H4"],
+    },
+    // The widget look row on the appearance page and its chooser: the looks
+    // there are, *None*, the one in use marked, choosing one.
+    Case {
+        name: "settings-widget-look",
+        golden: None,
+        blocked_by: &["H1", "H4"],
+    },
+    // A widget drawn above a group's settings that it previews, redrawn as the
+    // settings change. The host does not say which widget previews a group:
+    // `reg_widget` has no `previews` field.
+    Case {
+        name: "settings-group-preview",
+        golden: None,
+        blocked_by: &["reg_widget.previews", "H3"],
     },
 ];
 
@@ -83,13 +111,31 @@ fn settings_search() {
 }
 
 #[test]
-#[ignore = "BLOCKED SEC: no core.secrets SDK facade or host service yet"]
+#[ignore = "BLOCKED H1: screen commands (focus redraw, back) and drawing are not qualified; the keep/remove answers run in scripted_secrets.rs"]
 fn settings_secrets() {
     CASES[4].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED DEV: no restart command facade yet (H10)"]
+#[ignore = "BLOCKED H2/H4: dialogs and input are not qualified"]
 fn settings_restart() {
     CASES[5].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H4: screen commands, drawing and input are not qualified; the id rules run in native_model tests"]
+fn settings_placement_page() {
+    CASES[6].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED H1/H4: screen commands, drawing and input are not qualified; the covered settings run in native_model tests"]
+fn settings_widget_look() {
+    CASES[7].refuse().unwrap();
+}
+
+#[test]
+#[ignore = "BLOCKED reg_widget.previews, H3: the registry does not say which widget previews a group (asked of Kernel); composing needs the host's slot 35"]
+fn settings_group_preview() {
+    CASES[8].refuse().unwrap();
 }

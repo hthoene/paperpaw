@@ -101,14 +101,17 @@ fn a_small_plugin_packs_to_a_file_the_loader_reads() {
 }
 
 #[test]
-fn the_x4_pro_is_refused_until_an_xtensa_profile_exists() {
+fn a_c3_record_in_an_xtensa_plugin_is_refused_and_other_machines_and_objects_too() {
+    // The record of the C3's profile in a plugin built for Xtensa.
     let error = refused(&plugin(EM_XTENSA));
-    assert!(error.contains("target 9"), "{error}");
-    assert!(error.contains("Xtensa profile"), "{error}");
+    assert!(
+        error.contains("not built for the profile `esp32s3-xtensa-lx7-ilp32-windowed-le`"),
+        "{error}"
+    );
     let object = pack5(&Builder::new(EM_RISCV, ET_REL).build()).unwrap_err();
     assert!(object.contains("an object"), "{object}");
     let other = pack5(&Builder::new(3, ET_EXEC).build()).unwrap_err();
-    assert!(other.contains("not RISC-V"), "{other}");
+    assert!(other.contains("neither RISC-V nor Xtensa"), "{other}");
 }
 
 #[test]
@@ -124,7 +127,10 @@ fn the_entry_and_the_record_must_be_where_and_what_the_loader_reads() {
     wrong.symbol(ENTRY_SYMBOL, LINK_BASE, 32, ro as u16, false);
     wrong.symbol(METADATA_SYMBOL, LINK_BASE + 24, 88, ro as u16, false);
     let error = pack5(&wrong.build()).unwrap_err();
-    assert!(error.contains("not the 20 of the X4's entry"), "{error}");
+    assert!(
+        error.contains("not the 20 of the target's entry"),
+        "{error}"
+    );
     // No metadata symbol, an entry at an odd place, a record that is none.
     let missing = Builder::new(EM_RISCV, ET_EXEC);
     assert!(pack5(&missing.build()).is_err());
@@ -184,6 +190,29 @@ fn an_exported_symbol_besides_the_two_is_refused() {
     p.b.symbol("ROM_FN", 0x4000_1234, 0, SHN_ABS, false);
     p.b.symbol("local_fn", TEXT + 4, 4, p.text as u16, true);
     assert!(pack5(&p.b.build()).is_ok());
+}
+
+#[test]
+fn a_hidden_global_is_no_export_and_a_default_one_still_is() {
+    // The Xtensa linker leaves `compiler_builtins`'s functions global but
+    // hidden: nothing can bind to them, so they are no export.
+    for machine in [EM_XTENSA, EM_RISCV] {
+        let mut p = plugin(machine);
+        p.b.symbol("memcpy", TEXT + 4, 4, p.text as u16, false);
+        p.b.hide_last_symbol();
+        p.b.symbol("make_it", TEXT + 8, 4, p.text as u16, false);
+        let error = refused(&p);
+        assert!(error.contains("`make_it`"), "{error}");
+        assert!(!error.contains("memcpy"), "{error}");
+        let mut p = plugin(machine);
+        p.b.symbol("memcpy", TEXT + 4, 4, p.text as u16, false);
+        p.b.hide_last_symbol();
+        match pack5(&p.b.build()) {
+            Ok(_) => {}
+            // This sample is no valid Xtensa code: whatever else it fails, not on exports.
+            Err(error) => assert!(!error.contains("exports"), "{machine}: {error}"),
+        }
+    }
 }
 
 #[test]
@@ -277,11 +306,11 @@ fn the_real_sample_packs_to_the_committed_file() {
 }
 
 #[test]
-fn the_real_sample_is_refused_for_the_x4_pro_and_as_an_object() {
+fn the_real_sample_is_refused_as_xtensa_and_as_an_object() {
     let mut elf = SAMPLE_ELF.to_vec();
     elf[18..20].copy_from_slice(&EM_XTENSA.to_le_bytes());
     let error = pack5(&elf).unwrap_err();
-    assert!(error.contains("target 9"), "{error}");
+    assert!(error.contains("not built for the profile"), "{error}");
     let mut elf = SAMPLE_ELF.to_vec();
     elf[16..18].copy_from_slice(&ET_REL.to_le_bytes());
     assert!(pack5(&elf).unwrap_err().contains("an object"));
@@ -395,4 +424,147 @@ fn a_heap_word_that_is_not_one_zero_read_only_aligned_word_is_refused() {
         p.b.symbol("META2", LINK_BASE + 24, 0, p.rodata as u16, true);
     p.b.rela(p.rodata, LINK_BASE + 20, meta, 1);
     assert!(pack5(&p.b.build()).is_err());
+}
+
+// ---- Target 9: a plugin built for the X4 Pro and the X4 Classic ----
+
+const S3_TARGET: &str = "esp32s3-xtensa-lx7-ilp32-windowed-le";
+
+/// The C3's record with the S3's profile named: the bytes after the name move
+/// by the difference of the two names' lengths and the record's total is
+/// updated, which is all the packer reads (the generated reader runs in the
+/// shell, `abi/fixtures/entry` has the C3's alone until draft 29 lands).
+fn s3_record() -> Vec<u8> {
+    let c3 = record();
+    let old = u16::from_le_bytes([c3[24], c3[25]]) as usize;
+    let mut out = c3[..32].to_vec();
+    out.extend_from_slice(S3_TARGET.as_bytes());
+    out.extend_from_slice(&c3[32 + old..]);
+    out[24..26].copy_from_slice(&(S3_TARGET.len() as u16).to_le_bytes());
+    let total = out.len() as u32;
+    out[8..12].copy_from_slice(&total.to_le_bytes());
+    out
+}
+
+/// `entry a1, frame`, then `nop`s, then `retw.n`.
+fn xtensa_function(imm12: u32, nops: usize) -> Vec<u8> {
+    let mut code = (0x36u32 | 1 << 8 | imm12 << 12).to_le_bytes()[..3].to_vec();
+    for _ in 0..nops {
+        code.extend_from_slice(&[0xf0, 0x20, 0x00]);
+    }
+    code.extend_from_slice(&[0x1d, 0xf0]);
+    code
+}
+
+/// A small Xtensa plugin: the entry at 0 (20 bytes, `make` at 16, the metadata
+/// at 8), the S3 record at 24, then `code` as the function `make`.
+fn s3_plugin(code: &[u8]) -> Plugin {
+    s3_plugin_for(EM_XTENSA, code)
+}
+
+fn s3_plugin_for(machine: u16, code: &[u8]) -> Plugin {
+    let record = s3_record();
+    let rodata_len = (24 + record.len()).next_multiple_of(16);
+    let text = LINK_BASE + CODE_OFFSET + rodata_len as u32;
+    let mut rodata = vec![0u8; rodata_len];
+    for (at, value) in [
+        (0, 20u32),
+        (4, 7 | 1 << 16),
+        (8, LINK_BASE + 24),
+        (12, record.len() as u32),
+        (16, text),
+    ] {
+        rodata[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    rodata[24..24 + record.len()].copy_from_slice(&record);
+    let mut b = Builder::new(machine, ET_EXEC);
+    let ro = b.section(".rodata", SHF_ALLOC, LINK_BASE, &rodata, 16);
+    let tx = b.section(".text", SHF_ALLOC | 4, text, code, 4);
+    b.symbol(ENTRY_SYMBOL, LINK_BASE, 20, ro as u16, false);
+    b.symbol(
+        METADATA_SYMBOL,
+        LINK_BASE + 24,
+        record.len() as u32,
+        ro as u16,
+        false,
+    );
+    let make = b.function("make", text, code.len() as u32, tx as u16, true);
+    let end = text + code.len() as u32;
+    b.symbol("PAPERPAW_HOT", end, 0, tx as u16, false);
+    b.symbol("PAPERPAW_HOT_END", end, 0, tx as u16, false);
+    let meta = b.symbol("META", LINK_BASE + 24, 0, ro as u16, true);
+    b.rela(ro, LINK_BASE + 8, meta, 1);
+    b.rela(ro, LINK_BASE + 16, make, 1);
+    Plugin {
+        b,
+        rodata: ro,
+        text: tx,
+        make,
+    }
+}
+
+#[test]
+fn an_xtensa_plugin_packs_to_a_target_9_file_with_no_hot_code_and_no_patches() {
+    let code = xtensa_function(4, 8);
+    let packed = pack5(&s3_plugin(&code).b.build()).unwrap();
+    let h = packed.header;
+    assert_eq!(h.target, Chip::Esp32S3);
+    assert_eq!((h.abi_major, h.needs_minor), (7, 1));
+    assert_eq!((h.hot_at, h.hot_len, h.patches), (0, 0, 0));
+    assert_eq!(h.relocs, 2);
+    assert_eq!(&packed.file[6..8], 9u16.to_le_bytes());
+    // The file reads back whole, as the S3's loader reads it, at either base.
+    let (back, signature) = check_file5(&packed.file).unwrap();
+    assert_eq!((back, signature.is_none()), (h, true));
+    // The C3's loader refuses it at the chip, the S3's takes it.
+    assert!(Header5::read(&packed.file, packed.file.len() as u64, &Host::x4(MINOR)).is_err());
+    assert!(Header5::read(&packed.file, packed.file.len() as u64, &Host::x4_pro(MINOR)).is_ok());
+    // Deterministic.
+    assert_eq!(
+        pack5(&s3_plugin(&code).b.build()).unwrap().file,
+        packed.file
+    );
+}
+
+#[test]
+fn the_record_must_be_the_profile_of_the_machine() {
+    let code = xtensa_function(4, 8);
+    // An S3 record in a RISC-V plugin (its code is not scanned before the
+    // record is compared).
+    let error = pack5(&s3_plugin_for(EM_RISCV, &code).b.build()).unwrap_err();
+    assert!(
+        error.contains("not built for the profile `esp32c3-riscv32imc-ilp32-soft-le`"),
+        "{error}"
+    );
+}
+
+#[test]
+fn an_xtensa_plugin_with_a_frame_of_2048_bytes_or_a_changed_sp_or_call0_is_refused() {
+    // imm12 253 = 2,024 + 16 = 2,040 is let through; 254 is 2,048.
+    assert!(pack5(&s3_plugin(&xtensa_function(253, 2)).b.build()).is_ok());
+    let error = pack5(&s3_plugin(&xtensa_function(254, 2)).b.build()).unwrap_err();
+    assert!(error.contains("a frame of 2048 bytes"), "{error}");
+    assert!(error.contains("`make`"), "{error}");
+    // `addi a1, a1, 8` after the entry.
+    let mut code = xtensa_function(4, 2);
+    code.splice(3..3, [0x12, 0xc1, 0x08]);
+    let error = pack5(&s3_plugin(&code).b.build()).unwrap_err();
+    assert!(error.contains("changes the stack pointer"), "{error}");
+    // `call0` (an ABI=1 object's call).
+    let mut code = xtensa_function(4, 2);
+    code.splice(3..3, [0x05, 0x00, 0x00]);
+    let error = pack5(&s3_plugin(&code).b.build()).unwrap_err();
+    assert!(error.contains("call0"), "{error}");
+}
+
+#[test]
+fn a_call0_object_says_so_in_xtensa_info() {
+    let code = xtensa_function(4, 2);
+    let mut p = s3_plugin(&code);
+    p.b.section(".xtensa.info", 0, 0, b"ABI=1\0rest", 4);
+    let error = pack5(&p.b.build()).unwrap_err();
+    assert!(error.contains("ABI=1"), "{error}");
+    let mut p = s3_plugin(&code);
+    p.b.section(".xtensa.info", 0, 0, b"ABI=0\0rest", 4);
+    assert!(pack5(&p.b.build()).is_ok());
 }

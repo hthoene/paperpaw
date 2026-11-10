@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-widgets"
 description = "PaperPaw widget pack: clocks, calendars, quotes, books, notes and more for the home screen"
-version = "1.0.8"
+version = "1.0.9"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -13,9 +13,11 @@ categories = ["no-std"]
 [package.metadata.paperpaw]
 # What the plugin reads from its folder on the card: the store's package
 # holds these files (tools/plugin-files/catalogue.py).
-card-files = ["data/quotes.*.txt"]
+card-files = ["data/quotes.*.txt", "pictures/*.png"]
 
 [features]
+linked = []
+native-entry = []
 # PaperPaw's quotes carried in the code (the plugin as part of an app); a
 # plugin file for a reader is built without them and reads them from its
 # folder.
@@ -24,8 +26,14 @@ embedded-quotes = []
 
 [dependencies]
 paperpaw-sdk.workspace = true
+paperpaw-ui-kit.workspace = true
+
+[build-dependencies]
+paperpaw-sdk.workspace = true
+paperpaw-ui-kit.workspace = true
 
 [dev-dependencies]
+paperpaw-native.workspace = true
 paperpaw-i18n.workspace = true
 paperpaw-core.workspace = true
 paperpaw-graphics.workspace = true

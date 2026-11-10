@@ -10,6 +10,9 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+mod native_activation;
+use native_activation::BuildNative as _;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -170,14 +173,11 @@ impl App {
             .with(".paperpaw/plugins/setup/done", "");
         let builder = Kernel::builder(DEVICE)
             .storage(storage)
-            .user_config(format!(
-                "[help]\nshow = false\n[core]\nlanguage = en\n{config}"
-            ));
+            .user_config(format!("[core]\nlanguage = en\n{config}"));
         let seen = Rc::new(RefCell::new(Seen::default()));
         let mut kernel = paperpaw_app::install(builder, fonts())
             .plugin(Margin(seen.clone(), side))
-            .build()
-            .unwrap();
+            .build_native();
         let effects = kernel.start(Instant(0));
         let mut app = Self {
             kernel,

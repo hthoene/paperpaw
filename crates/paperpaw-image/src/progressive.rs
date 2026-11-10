@@ -15,7 +15,7 @@
 use alloc::vec::Vec;
 
 use crate::jpeg::{
-    Bits, Component, Huffman, ZIGZAG, idct_scaled, read_huffman, read_quant, ycbcr_to_rgb,
+    Bits, Component, Huffman, Tables, ZIGZAG, idct_scaled, read_huffman, read_quant, ycbcr_to_rgb,
 };
 use crate::{Downscaler, Fit, ImageError, ImageSink, Reader, block_side, zeroed};
 
@@ -33,9 +33,7 @@ pub(crate) struct Frame {
     pub width: u32,
     pub height: u32,
     pub components: Vec<Component>,
-    pub quant: [[u16; 64]; 4],
-    pub dc_tables: [Option<Huffman>; 4],
-    pub ac_tables: [Option<Huffman>; 4],
+    pub tables: Tables,
     pub restart_interval: u32,
 }
 
@@ -60,9 +58,9 @@ impl Coefficients {
         let kept = n * n;
         let bytes = blocks
             .checked_mul(kept * 2 + if n > 1 { 8 } else { 0 })
-            .ok_or(ImageError::OutOfMemory)?;
+            .ok_or(ImageError::TooLarge)?;
         if bytes > MAX_COEFFICIENT_BYTES {
-            return Err(ImageError::OutOfMemory);
+            return Err(ImageError::TooLarge);
         }
         let mut slot = [None; 64];
         for (z, &pos) in ZIGZAG.iter().enumerate() {
@@ -189,20 +187,26 @@ pub(crate) fn decode(
     );
     let color = sink.wants_color() && frame.components.len() == 3;
     let mut coefficients = None;
+    // Why the last, smallest, try failed: over the cap even at one value a
+    // block in gray is `TooLarge` for good; a refused allocation may pass later.
+    let mut last = ImageError::OutOfMemory;
     for kept in if color { [3, 1] } else { [1, 1] } {
         let mut n = largest;
         coefficients = loop {
             match keep(&frame.components[..kept], &layout, n) {
                 Ok(c) => break Some(c),
                 Err(_) if n > 1 => n /= 2,
-                Err(_) => break None,
+                Err(error) => {
+                    last = error;
+                    break None;
+                }
             }
         };
         if coefficients.is_some() {
             break;
         }
     }
-    let mut coefficients = coefficients.ok_or(ImageError::OutOfMemory)?;
+    let mut coefficients = coefficients.ok_or(last)?;
     // The first scan's header is next (its length already read).
     let mut marker = 0xda;
     let mut first = true;
@@ -226,8 +230,8 @@ pub(crate) fn decode(
                     .checked_sub(2)
                     .ok_or(ImageError::Invalid("bad segment length"))?;
                 match marker {
-                    0xc4 => read_huffman(reader, len, &mut frame.dc_tables, &mut frame.ac_tables)?,
-                    0xdb => read_quant(reader, len, &mut frame.quant)?,
+                    0xc4 => read_huffman(reader, len, &mut frame.tables.dc, &mut frame.tables.ac)?,
+                    0xdb => read_quant(reader, len, &mut frame.tables.quant)?,
                     0xdd => {
                         frame.restart_interval = u32::from(reader.u16_be()?);
                         reader.skip(len.saturating_sub(2))?;
@@ -299,7 +303,10 @@ fn scan(
     if count == 0 || count > 4 {
         return Err(ImageError::Invalid("bad scan"));
     }
-    let mut members: Vec<usize> = Vec::with_capacity(count);
+    let mut members: Vec<usize> = Vec::new();
+    members
+        .try_reserve_exact(count)
+        .map_err(|_| ImageError::OutOfMemory)?;
     for _ in 0..count {
         let id = reader.byte()?;
         let tables = reader.byte()?;
@@ -336,8 +343,8 @@ fn scan(
     for &c in &members {
         let component = frame.components[c];
         let missing = match kind {
-            Kind::DcFirst => frame.dc_tables[component.dc].is_none(),
-            Kind::AcFirst | Kind::AcRefine => frame.ac_tables[component.ac].is_none(),
+            Kind::DcFirst => frame.tables.dc[component.dc].is_none(),
+            Kind::AcFirst | Kind::AcRefine => frame.tables.ac[component.ac].is_none(),
             Kind::DcRefine => false,
         };
         if missing {
@@ -402,8 +409,8 @@ fn scan(
                     Go::End => return Ok(END),
                 }
                 let block = by * layout.stride(&component) + bx;
-                let dc = frame.dc_tables[component.dc].as_ref();
-                let ac = frame.ac_tables[component.ac].as_ref();
+                let dc = frame.tables.dc[component.dc].as_ref();
+                let ac = frame.tables.ac[component.ac].as_ref();
                 decode_block(
                     &mut bits,
                     kind,
@@ -437,7 +444,7 @@ fn scan(
                             let block = (my * component.v + by) * layout.stride(&component)
                                 + mx * component.h
                                 + bx;
-                            let dc = frame.dc_tables[component.dc].as_ref();
+                            let dc = frame.tables.dc[component.dc].as_ref();
                             decode_block(
                                 &mut bits,
                                 kind,
@@ -628,7 +635,7 @@ fn output(
     for my in 0..layout.mcus_y {
         for ((component, kept), plane) in frame.components.iter().zip(coefficients).zip(&mut planes)
         {
-            let quant = &frame.quant[component.quant];
+            let quant = &frame.tables.quant[component.quant];
             let (sx, sy) = (layout.h_max / component.h, layout.v_max / component.v);
             // The zig-zag index of each kept coefficient.
             let mut zigzag_of = [0usize; 64];

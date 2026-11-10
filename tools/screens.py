@@ -30,10 +30,8 @@ SCREENS = [
     ("home", "", []),
     ("menu", "run:core.menu", []),
     ("tools", "run:core.tools", []),
-    ("library", "run:core.library", []),
     ("settings", "run:core.settings", []),
     ("settings-reading", "run:core.settings,run:core.next,run:core.confirm", []),
-    ("keyboard", "run:files.search", []),
     ("reader", "@book", []),
     ("reader-menu", "@book,run:core.menu", []),
     ("quick-panel", "run:core.quick-panel", []),
@@ -44,16 +42,12 @@ SCREENS = [
     ("catalogs", "run:opds.open", []),
     ("fonts", "run:fonts-browser.open,wait:6000", FONTS),
     ("font", "run:fonts-browser.open,wait:6000,run:core.confirm,wait:3000", FONTS),
-    ("files", "run:file-manager.open", []),
     ("news", "run:news.open", []),
     ("battery", "run:battery.open", []),
     ("vocabulary", "run:vocabulary.open", []),
     ("browser", "run:browser.open", []),
     ("rules", "run:rules.open", []),
-    ("buttons", "run:keys.open", []),
     ("plugins", "run:plugin-manager.open", []),
-    ("menu-editor", "run:menu-editor.open", []),
-    ("profiles", "run:profiles.open", []),
     ("setup", "run:setup.open", []),
 ]
 
@@ -108,8 +102,7 @@ def main():
             dir = library(book, name in ONLINE)
             shot = out / f"{profile}-{name}.png"
             command = [str(EMULATOR), "--profile", profile, "--headless",
-                       "--library", str(dir), "--screenshot", str(shot),
-                       "--set", "help.show=false"]
+                       "--library", str(dir), "--screenshot", str(shot)]
             if not book:
                 command += ["--set", "reader.open-last=false"]
             if lang:

@@ -381,7 +381,7 @@ fn read_changes(storage: &dyn Storage) -> Result<Changes, StorageError> {
     changes
         .entries
         .try_reserve_exact(count)
-        .map_err(|_| StorageError::TooLarge)?;
+        .map_err(|_| StorageError::OutOfMemory)?;
     lines(storage, &log_path(), &mut |_, line| {
         if let Some((hash, change)) = parse_change(line) {
             changes.note(hash, change);
@@ -575,7 +575,8 @@ fn first_path() -> String {
 /// Whether the catalog's books are those found so far: a walk that began
 /// without one is under way, or one that goes on from it. A walk over a
 /// whole catalog (each start) is not.
-pub(crate) fn is_growing(storage: &dyn Storage) -> bool {
+#[must_use]
+pub fn is_growing(storage: &dyn Storage) -> bool {
     storage.exists(&building_path()) && storage.exists(&first_path())
 }
 
@@ -786,6 +787,11 @@ impl Query {
 
     /// Whether `record` is found.
     pub fn finds(&self, record: &Record) -> bool {
+        self.fits(record) && (self.words.is_empty() || record.matches(&self.words))
+    }
+
+    /// [`Query::finds`] but for the words: every other condition.
+    fn fits(&self, record: &Record) -> bool {
         let shown = match self.show {
             // A choice of a later build: everything.
             Show::All | Show::Other(_) => true,
@@ -811,7 +817,6 @@ impl Query {
             && self
                 .added_since
                 .is_none_or(|d| record.added.is_some_and(|a| a >= d))
-            && (self.words.is_empty() || record.matches(&self.words))
     }
 
     /// Where `record` goes in this query's order.
@@ -962,6 +967,19 @@ pub fn write(storage: &dyn Storage, records: &[Record]) -> Result<(), crate::dat
         Err(e) => Err(e.into()),
     }
 }
+
+mod fallible;
+pub(crate) use fallible::each_head;
+pub use fallible::{try_changes, try_count, try_path_at};
+mod casing;
+mod scan;
+pub use scan::{TryBooks, try_each_at, try_query, try_query_in};
+mod view;
+pub use view::{
+    BookTexts, Filled, LINE_MAX, Text, TextColumn, VIEW_NUMBER, VIEW_PATH, View, try_book_at_with,
+    try_generation, try_offset_of, try_offset_of_with, try_state, try_text_at, try_text_at_with,
+    try_view_at, try_view_at_with,
+};
 
 #[cfg(any(test, feature = "kernel"))]
 mod making;

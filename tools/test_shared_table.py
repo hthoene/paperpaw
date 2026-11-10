@@ -88,8 +88,14 @@ class BodyHashes(unittest.TestCase):
         # `layout` is defined three times, but once in the caller's file.
         self.assertEqual(shared.reach(functions, a, "{ self.layout() }"),
                          {"{ inner() }", "{ 1 }"})
-        # From another file, a name defined more than twice is not followed.
-        self.assertEqual(shared.reach(functions, pathlib.Path("c.rs"), "{ common() }"), set())
+        # From another file, a name defined more than twice is not followed
+        # where it is listed as skipped, and refused where it is not (#732).
+        met = set()
+        self.assertEqual(shared.reach(functions, pathlib.Path("c.rs"), "{ common() }",
+                                      skipped=(frozenset({"common"}), met)), set())
+        self.assertEqual(met, {"common"})
+        with self.assertRaises(SystemExit):
+            shared.reach(functions, pathlib.Path("c.rs"), "{ common() }")
 
     def test_generated_codec_copies_are_no_callees(self):
         with tempfile.TemporaryDirectory() as root:
@@ -156,6 +162,21 @@ class BodyHashes(unittest.TestCase):
                          set())
         with self.assertRaisesRegex(SystemExit, "stage_run.*generated or native source"):
             shared.reach({}, caller, "{ stage_run() }", {"stage_run": [native]})
+
+    def test_an_unhashed_crate_method_the_native_facade_also_names_is_that_method(self):
+        caller = pathlib.Path("crate/src/ui/header.rs")
+        native = pathlib.Path("crate/src/native/declare/format.rs")
+        self.assertEqual(shared.reach({}, caller, '{ i18n.format("k", &[]) }',
+                                      {"format": [native]}), set())
+        wire = pathlib.Path("crate/src/wire.rs")
+        with self.assertRaisesRegex(SystemExit, "format.*generated or native source"):
+            shared.reach({}, caller, '{ i18n.format("k", &[]) }', {"format": [wire]})
+
+    def test_the_text_inks_tone_is_that_method_beside_the_facades_ink(self):
+        caller = pathlib.Path("crate/src/fonts.rs")
+        native = pathlib.Path("crate/src/native/fonts.rs")
+        self.assertEqual(shared.reach({}, caller, "{ let t = self.ink.tone(); }",
+                                      {"tone": [native]}), set())
 
 if __name__ == "__main__":
     unittest.main()

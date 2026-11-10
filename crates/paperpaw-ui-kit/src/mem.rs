@@ -18,6 +18,23 @@ pub fn buffer(len: usize) -> Result<Vec<u8>, Error> {
     Ok(bytes)
 }
 
+/// Fills `bytes` with zeros in a way the compiler cannot drop as a dead store
+/// before the memory is freed: for a password, a key or a typed secret.
+pub fn wipe(bytes: &mut [u8]) {
+    for byte in bytes.iter_mut() {
+        // SAFETY: each byte is live and exclusively borrowed; the volatile
+        // store keeps the wipe when the allocation is freed right after.
+        unsafe { core::ptr::write_volatile(byte, 0) };
+    }
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+}
+
+/// Zeroes `text` and frees it.
+pub fn wipe_text(text: String) {
+    let mut bytes = text.into_bytes();
+    wipe(&mut bytes);
+}
+
 /// Appends `item` after reserving room for it.
 ///
 /// # Errors
@@ -124,14 +141,53 @@ pub fn replace_char(text: &str, from: char, to: char) -> Result<String, Error> {
     Ok(result)
 }
 
-/// Sorts `items` stably in place: an insertion sort
-/// by binary search, so it needs no scratch allocation. Order is that of
-/// `sort_by` with the same comparison.
-pub fn stable_sort_by<T>(items: &mut [T], mut compare: impl FnMut(&T, &T) -> core::cmp::Ordering) {
-    for at in 1..items.len() {
-        let place = items[..at].partition_point(|item| compare(item, &items[at]).is_le());
-        items[place..=at].rotate_right(1);
+/// Sorts `items` stably, in the shared sorter ([`paperpaw_sdk::sort`]):
+/// order is that of `sort_by` with the same comparison. Up to 12 items it
+/// allocates nothing; beyond, it asks for at most `4 * items.len()` bytes and
+/// sorts in place when the heap refuses them. Where `compare` is no total
+/// order the order is not said, but no item is lost or repeated and nothing
+/// panics.
+pub fn stable_sort_by<T>(items: &mut [T], compare: impl FnMut(&T, &T) -> core::cmp::Ordering) {
+    paperpaw_sdk::sort::sort_by(items, compare);
+}
+
+/// A vector holding `item` alone, with fallible allocation.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn one<T>(item: T) -> Result<Vec<T>, Error> {
+    let mut found = Vec::new();
+    found.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
+    found.push(item);
+    Ok(found)
+}
+
+/// The text of each of `items`, with fallible allocation.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn strs(items: &[String]) -> Result<Vec<&str>, Error> {
+    let mut found = Vec::new();
+    found
+        .try_reserve_exact(items.len())
+        .map_err(|_| Error::NoMemory)?;
+    for item in items {
+        found.push(item.as_str());
     }
+    Ok(found)
+}
+
+/// A copy of `items`, with fallible allocation.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn copy_strs<'a>(items: &[&'a str]) -> Result<Vec<&'a str>, Error> {
+    let mut found = Vec::new();
+    found
+        .try_reserve_exact(items.len())
+        .map_err(|_| Error::NoMemory)?;
+    found.extend_from_slice(items);
+    Ok(found)
 }
 
 #[cfg(test)]
@@ -154,11 +210,38 @@ mod tests {
     }
 
     #[test]
+    fn longer_lists_are_sorted_stably_like_the_standard_sort() {
+        let mut seed = 5_u32;
+        for len in [13_usize, 40, 257, 1_000] {
+            let mut items: alloc::vec::Vec<(u8, u32)> = (0..len as u32)
+                .map(|at| {
+                    seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    // Few distinct keys: stability decides the order.
+                    ((seed >> 28) as u8 % 5, at)
+                })
+                .collect();
+            let mut expected = items.clone();
+            expected.sort_by_key(|a| a.0);
+            stable_sort_by(&mut items, |a, b| a.0.cmp(&b.0));
+            assert_eq!(items, expected, "{len} items");
+        }
+    }
+
+    #[test]
     fn join_and_replace_build_what_the_standard_ones_do() {
         let items = [String::from("a"), String::from("b")];
         assert_eq!(join(&items, ",").unwrap(), "a,b");
         assert_eq!(join(&[], ",").unwrap(), "");
         assert_eq!(replace_char("a-b-c", '-', ' ').unwrap(), "a b c");
+    }
+
+    #[test]
+    fn wipe_zeroes_what_it_is_given() {
+        let mut bytes = *b"hunter2";
+        wipe(&mut bytes);
+        assert_eq!(bytes, [0; 7]);
+        wipe(&mut []);
+        wipe_text(String::from("hunter2"));
     }
 
     #[test]

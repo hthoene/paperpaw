@@ -39,7 +39,7 @@ pub const MAX_VARIANTS: usize = 16;
 
 /// Whether `c` shows nothing or turns text around (controls, marks of
 /// direction, joiners): never a key.
-fn invisible(c: char) -> bool {
+pub(crate) fn invisible(c: char) -> bool {
     c.is_control()
         || matches!(c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{206F}' | '\u{FEFF}')
 }
@@ -83,7 +83,7 @@ pub(crate) fn added(env: &Env<'_>) -> Vec<Added> {
 }
 
 /// A line of [`POINT`].
-fn parse(line: &str) -> Option<Added> {
+pub(crate) fn parse(line: &str) -> Option<Added> {
     let mut fields = line.split(';').map(str::trim);
     let id = fields.next().filter(|id| !id.is_empty())?;
     let code: String = fields
@@ -121,7 +121,7 @@ fn parse(line: &str) -> Option<Added> {
 
 /// Letters typed by holding another: pairs of a letter, `=` and them,
 /// separated by spaces (`e=éèë i=ïí`).
-fn held(pairs: &str) -> Vec<(char, String)> {
+pub(crate) fn held(pairs: &str) -> Vec<(char, String)> {
     pairs
         .split_whitespace()
         .filter_map(|pair| {
@@ -329,12 +329,76 @@ fn automatic(env: &Env<'_>, keys: bool) -> Chosen {
 /// as [`chosen`], from the language (`core.language`) and the translation's
 /// own rows (`keyboard.letters`, empty for none) instead of an environment,
 /// with fallible allocation. Layouts other plugins add come by the stage
-/// `keyboard.layouts` (see `PORTING-7.md`).
+/// `keyboard.layouts` (see [`chosen_with`]).
+#[cfg(test)]
 pub(crate) fn chosen_for(
     language: &str,
     letters: &str,
     value: &str,
     keys: bool,
+) -> Result<Vec<Chosen>, paperpaw_sdk::native::Error> {
+    chosen_with(language, letters, value, keys, &[])
+}
+
+/// [`chosen_for`] with the layouts other plugins added (see
+/// `native_layouts`): an id in `value` that is none of the built-in ones
+/// takes the one added with it. Every layout is offered.
+#[cfg(test)]
+pub(crate) fn chosen_with(
+    language: &str,
+    letters: &str,
+    value: &str,
+    keys: bool,
+    added: &[Added],
+) -> Result<Vec<Chosen>, paperpaw_sdk::native::Error> {
+    chosen_drawn(language, letters, value, keys, added, &|_| true)
+}
+
+/// Answers whether the fonts draw every character of a text (`text.covers`).
+pub(crate) type Drawn<'a> = &'a dyn Fn(&str) -> bool;
+
+/// Whether the fonts draw every letter of `letters` and their capitals
+/// (spaces apart): a layout in a script they lack (e.g. Cyrillic on the X4's
+/// packs) is not offered, rather than shown as question marks. Asks in
+/// pieces of 256 bytes and allocates nothing.
+pub(crate) fn all_drawn(drawn: Drawn<'_>, letters: &str) -> bool {
+    let mut piece = [0_u8; 256];
+    let mut used = 0;
+    let wanted = letters
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .flat_map(|c| core::iter::once(c).chain(c.to_uppercase()));
+    for c in wanted {
+        let size = c.len_utf8();
+        if used + size > piece.len() {
+            let Ok(text) = core::str::from_utf8(&piece[..used]) else {
+                return true;
+            };
+            if !drawn(text) {
+                return false;
+            }
+            used = 0;
+        }
+        c.encode_utf8(&mut piece[used..]);
+        used += size;
+    }
+    match core::str::from_utf8(&piece[..used]) {
+        Ok(text) => used == 0 || drawn(text),
+        Err(_) => true,
+    }
+}
+
+/// [`chosen_with`] where `drawn` says what the fonts draw: a layout whose
+/// letters they cannot draw is left out (the layouts of the setting that
+/// remain, or the automatic one), and so are the variants of an added
+/// layout they cannot draw.
+pub(crate) fn chosen_drawn(
+    language: &str,
+    letters: &str,
+    value: &str,
+    keys: bool,
+    added: &[Added],
+    drawn: Drawn<'_>,
 ) -> Result<Vec<Chosen>, paperpaw_sdk::native::Error> {
     let mut layouts: Vec<Chosen> = Vec::new();
     for id in value.split(',').map(str::trim).filter(|id| !id.is_empty()) {
@@ -342,8 +406,25 @@ pub(crate) fn chosen_for(
             Some(automatic_for(language, letters, keys)?)
         } else {
             match LAYOUTS.iter().find(|l| l.id == id) {
-                Some(l) => Some(builtin_for(l, copy(l.code)?, keys)?),
-                None => None,
+                Some(l) if all_drawn(drawn, l.rows(keys)) => {
+                    Some(builtin_for(l, copy(l.code)?, keys)?)
+                }
+                Some(_) => None,
+                None => match added.iter().find(|l| l.id == id) {
+                    Some(l) if all_drawn(drawn, &l.letters) => {
+                        let mut one = crate::native_layouts::chosen_of(l)?;
+                        for (_, variants) in &mut one.2 {
+                            // The whole string first; a letter at a time only
+                            // where some are not drawn.
+                            if !all_drawn(drawn, variants) {
+                                variants.retain(|c| all_drawn(drawn, c.encode_utf8(&mut [0; 4])));
+                            }
+                        }
+                        one.2.retain(|(_, variants)| !variants.is_empty());
+                        Some(one)
+                    }
+                    _ => None,
+                },
             }
         };
         if let Some(one) = one {
@@ -555,5 +636,104 @@ mod tests {
         for id in &ids {
             assert!(names.contains(&alloc::format!("\"{id}\"")), "{id}");
         }
+    }
+
+    /// What a font without Cyrillic and Greek draws.
+    fn latin_only(text: &str) -> bool {
+        text.chars().all(|c| !matches!(c, '\u{370}'..='\u{4FF}'))
+    }
+
+    #[test]
+    fn layouts_the_fonts_cannot_draw_are_left_out() {
+        let all = "keyboard.layout.en, keyboard.layout.el, keyboard.layout.de";
+        let kept = chosen_drawn("en", "", all, false, &[], &latin_only).unwrap();
+        let codes: Vec<&str> = kept.iter().map(|l| l.0.as_str()).collect();
+        assert_eq!(codes, ["EN", "DE"]);
+        // Nothing left: the automatic layout.
+        let none = chosen_drawn("de", "", "keyboard.layout.el", false, &[], &latin_only).unwrap();
+        assert_eq!(none.len(), 1);
+        assert_eq!(none[0].0, "DE");
+        // A font that draws everything keeps them all.
+        let every = chosen_drawn("en", "", all, false, &[], &|_| true).unwrap();
+        assert_eq!(every.len(), 3);
+    }
+
+    #[test]
+    fn variants_of_an_added_layout_the_fonts_cannot_draw_are_left_out() {
+        let added = Added {
+            id: String::from("mixed.layout"),
+            code: String::from("MX"),
+            letters: String::from("abc def"),
+            variants: alloc::vec![('a', String::from("áαà")), ('d', String::from("δ"))],
+        };
+        let kept = chosen_drawn("en", "", "mixed.layout", false, &[added], &latin_only).unwrap();
+        // `a` keeps its Latin variants, `d` has none left.
+        assert_eq!(kept[0].2, [('a', String::from("áà"))]);
+    }
+
+    #[test]
+    fn variants_all_drawn_are_asked_as_one_string() {
+        use core::cell::Cell;
+        let calls = Cell::new(0);
+        let count = |_: &str| {
+            calls.set(calls.get() + 1);
+            true
+        };
+        let added = Added {
+            id: String::from("many.layout"),
+            code: String::from("MY"),
+            letters: String::from("abc"),
+            variants: alloc::vec![
+                ('a', String::from("áàâäãå")),
+                ('e', String::from("éèêë")),
+                ('i', String::from("íìîï")),
+            ],
+        };
+        let kept = chosen_drawn("en", "", "many.layout", false, &[added], &count).unwrap();
+        assert_eq!(kept[0].2.len(), 3);
+        // One question for the letters and one for each letter's variants.
+        assert_eq!(calls.get(), 4);
+    }
+
+    #[test]
+    fn an_added_layout_with_letters_the_fonts_lack_is_left_out() {
+        let added = Added {
+            id: String::from("greek.layout"),
+            code: String::from("GR"),
+            letters: String::from("αβγ δεζ"),
+            variants: Vec::new(),
+        };
+        let kept = chosen_drawn("de", "", "greek.layout", false, &[added], &latin_only).unwrap();
+        assert_eq!(kept[0].0, "DE");
+    }
+
+    #[test]
+    fn letters_are_asked_in_pieces_with_their_capitals_and_without_spaces() {
+        use core::cell::RefCell;
+        let asked = RefCell::new(Vec::<String>::new());
+        let record = |text: &str| {
+            asked.borrow_mut().push(String::from(text));
+            true
+        };
+        assert!(all_drawn(&record, "ab c"));
+        assert_eq!(asked.borrow().as_slice(), ["aAbBcC"]);
+        asked.borrow_mut().clear();
+        // Past one piece (256 bytes) the rest follows; nothing is cut inside a
+        // character.
+        let long = "ж".repeat(100);
+        assert!(all_drawn(&record, &long));
+        let pieces = asked.borrow();
+        assert!(pieces.len() >= 2);
+        assert!(pieces.iter().all(|p| p.len() <= 256));
+        assert_eq!(pieces.concat().chars().count(), 200);
+        // The first refusal ends the asking.
+        let calls = RefCell::new(0);
+        let refuse = |_: &str| {
+            *calls.borrow_mut() += 1;
+            false
+        };
+        assert!(!all_drawn(&refuse, &long));
+        assert_eq!(*calls.borrow(), 1);
+        assert!(all_drawn(&refuse, "  "));
     }
 }

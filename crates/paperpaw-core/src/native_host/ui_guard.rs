@@ -22,10 +22,10 @@ pub(crate) const MAX_REQUESTS_X4: u8 = 1;
 /// One screen instance, as the rules need it.
 #[allow(dead_code, reason = "consumers are H1's applier and the core.ui ops")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Row<'a> {
+pub(crate) struct Row {
     pub(crate) instance: u32,
-    /// The plugin that owns the screen (host-stamped).
-    pub(crate) owner: &'a str,
+    /// The full host owner id; 0 is reserved for host screens.
+    pub(crate) owner: u64,
     pub(crate) overlay: bool,
     /// Guards the device now (declared or set at run time).
     pub(crate) guards: bool,
@@ -41,51 +41,75 @@ pub(crate) struct Row<'a> {
 #[allow(dead_code, reason = "consumers are H1's applier and the core.ui ops")]
 pub(crate) trait UiStackView {
     fn len(&self) -> usize;
-    fn row(&self, index: usize) -> Option<Row<'_>>;
+    fn row(&self, index: usize) -> Option<Row>;
 }
 
 /// A stack kept as a slice of rows (bottom to top).
 #[allow(dead_code, reason = "consumers are H1's applier and the core.ui ops")]
-pub(crate) struct Rows<'a>(pub(crate) &'a [Row<'a>]);
+pub(crate) struct Rows<'a>(pub(crate) &'a [Row]);
 
 impl UiStackView for Rows<'_> {
     fn len(&self) -> usize {
         self.0.len()
     }
-    fn row(&self, index: usize) -> Option<Row<'_>> {
+    fn row(&self, index: usize) -> Option<Row> {
         self.0.get(index).copied()
     }
+}
+
+fn invalid(row: Row) -> bool {
+    (row.owner == 0) != row.host
+}
+
+fn invalid_view(view: &dyn UiStackView) -> bool {
+    (0..view.len()).any(|index| view.row(index).is_none_or(invalid))
 }
 
 /// Index of the topmost guarding instance.
 pub(crate) fn topmost_guard(view: &dyn UiStackView) -> Option<usize> {
     (0..view.len())
         .rev()
-        .find(|&i| view.row(i).is_some_and(|r| r.guards))
+        .find(|&i| view.row(i).is_none_or(|r| r.guards || invalid(r)))
+}
+
+/// The topmost guarding instance, if any.
+#[allow(
+    dead_code,
+    reason = "the kernel's stack sync uses it; test crates that include this file by path do not"
+)]
+pub(crate) fn guard_instance(view: &dyn UiStackView) -> Option<u32> {
+    topmost_guard(view)
+        .and_then(|i| view.row(i))
+        .map(|r| r.instance)
 }
 
 /// The guard's plugin, if any instance guards.
-pub(crate) fn guard_owner(view: &dyn UiStackView) -> Option<&str> {
+pub(crate) fn guard_owner(view: &dyn UiStackView) -> Option<u64> {
     topmost_guard(view)
         .and_then(|i| view.row(i))
-        .map(|r| r.owner)
+        .map(|r| if invalid(r) { 0 } else { r.owner })
 }
 
 /// Index of the instance that gets keys and pointers. Without a guard that is
 /// the top; with one it is the topmost instance that is not the host's own
 /// screen for a device state: the sleep screen shows above the guard but "gets
-/// no input while the guard is up" (section 4.3).
+/// no input while the guard is up" (section 4.3). A host screen that guards
+/// itself (the firmware confirmation, `device.md` 5.0) is the input target:
+/// no plugin filter, binding or raised input reaches it.
 pub(crate) fn input_index(view: &dyn UiStackView) -> Option<usize> {
+    if invalid_view(view) {
+        return None;
+    }
     let last = view.len().checked_sub(1)?;
     if topmost_guard(view).is_none() {
         return Some(last);
     }
     (0..=last)
         .rev()
-        .find(|&i| view.row(i).is_some_and(|r| !r.host))
+        .find(|&i| view.row(i).is_some_and(|r| !r.host || r.guards))
 }
 
-fn top<'a>(view: &'a dyn UiStackView) -> Option<Row<'a>> {
+fn top(view: &dyn UiStackView) -> Option<Row> {
     input_index(view).and_then(|i| view.row(i))
 }
 
@@ -93,9 +117,12 @@ fn top<'a>(view: &'a dyn UiStackView) -> Option<Row<'a>> {
 /// lies above a guarding instance (section 1.2).
 pub(crate) fn is_secret(view: &dyn UiStackView, index: usize) -> bool {
     let Some(row) = view.row(index) else {
-        return false;
+        return true;
     };
-    row.secret || row.guards || (0..index).any(|i| view.row(i).is_some_and(|r| r.guards))
+    invalid_view(view)
+        || row.secret
+        || row.guards
+        || (0..index).any(|i| view.row(i).is_none_or(|r| r.guards || invalid(r)))
 }
 
 /// Whether the instance on top is secret (its input goes to few filters and
@@ -126,12 +153,16 @@ pub(crate) fn may_receive_input(view: &dyn UiStackView, instance: u32) -> bool {
 /// state go on top.
 pub(crate) fn open_index(
     view: &dyn UiStackView,
-    opener: &str,
+    opener: u64,
     authorized_dialog: bool,
     host_screen: bool,
 ) -> usize {
     match topmost_guard(view) {
-        Some(guard) if !(authorized_dialog || host_screen || guard_owner(view) == Some(opener)) => {
+        Some(guard)
+            if !(authorized_dialog
+                || host_screen
+                || (opener != 0 && guard_owner(view) == Some(opener))) =>
+        {
             guard
         }
         _ => view.len(),
@@ -143,6 +174,9 @@ pub(crate) fn open_index(
 /// but its one nested question, so any ordinary open from it is `ERR_DENIED`
 /// at the caller (section 4.3). Where the new instance goes is [`open_index`].
 pub(crate) fn open_allowed(view: &dyn UiStackView, from: Option<u32>) -> Result<(), i32> {
+    if invalid_view(view) {
+        return Err(ERR_STATE);
+    }
     let dialog = from
         .and_then(|instance| find(view, instance))
         .and_then(|i| view.row(i))
@@ -151,23 +185,34 @@ pub(crate) fn open_allowed(view: &dyn UiStackView, from: Option<u32>) -> Result<
 }
 
 /// Whether the `core.input-filter` subscriber `filter_plugin` is called for
-/// the next input. While the top instance is secret, only the filters of its
-/// own plugin and of the topmost guard's plugin run (sections 1.2 and 4.3: with
-/// a guard up that is the guard's plugin, beside the top guard dialog's plugin).
-/// Others are skipped, not called.
-pub(crate) fn filter_runs(view: &dyn UiStackView, filter_plugin: &str) -> bool {
-    // A guard makes the instance on top secret (it guards, or lies above the
-    // guard), so one rule covers both.
-    let Some(top_row) = top(view).filter(|_| top_is_secret(view)) else {
-        return true;
-    };
-    top_row.owner == filter_plugin || guard_owner(view) == Some(filter_plugin)
+/// the next input. With a guard up only two filters run (sections 1.2 and 4.3):
+/// the guard's plugin's, and the filter of the plugin that owns the top
+/// instance when that instance is the dialog the host opened for the guard's
+/// own question (secret or not: the keyboard above the lock needs its hardware
+/// keyboard and typed text for any question). No filter runs for any other
+/// row. Without a guard, while the top instance is secret only its own
+/// plugin's filter runs. Others are skipped, not called.
+pub(crate) fn filter_runs(view: &dyn UiStackView, filter_plugin: u64) -> bool {
+    if filter_plugin == 0 || invalid_view(view) {
+        return false;
+    }
+    if let Some(guard) = guard_owner(view) {
+        return guard == filter_plugin
+            || top(view).is_some_and(|r| r.guard_dialog && r.owner == filter_plugin);
+    }
+    match top(view).filter(|_| top_is_secret(view)) {
+        Some(top_row) => top_row.owner == filter_plugin,
+        None => true,
+    }
 }
 
 /// A binding in the slot or global key layer that names another plugin's
 /// action or input does nothing while a guard is up (logged); host actions
 /// and the guard's plugin's own run (section 4.3).
-pub(crate) fn binding_runs(view: &dyn UiStackView, target_plugin: Option<&str>) -> bool {
+pub(crate) fn binding_runs(view: &dyn UiStackView, target_plugin: Option<u64>) -> bool {
+    if target_plugin == Some(0) || invalid_view(view) {
+        return false;
+    }
     match (guard_owner(view), target_plugin) {
         (None, _) | (Some(_), None) => true,
         (Some(guard), Some(plugin)) => guard == plugin,
@@ -176,7 +221,10 @@ pub(crate) fn binding_runs(view: &dyn UiStackView, target_plugin: Option<&str>) 
 
 /// `command.raise_input`: while an instance guards only the guard's plugin
 /// may raise.
-pub(crate) fn raise_allowed(view: &dyn UiStackView, submitter: &str) -> Result<(), i32> {
+pub(crate) fn raise_allowed(view: &dyn UiStackView, submitter: u64) -> Result<(), i32> {
+    if submitter == 0 || invalid_view(view) {
+        return Err(ERR_STATE);
+    }
     match guard_owner(view) {
         Some(guard) if guard != submitter => Err(ERR_DENIED),
         _ => Ok(()),
@@ -185,14 +233,18 @@ pub(crate) fn raise_allowed(view: &dyn UiStackView, submitter: &str) -> Result<(
 
 /// `command.screen_policy` turning `guards` on for `instance` (section 1.2):
 /// only the submitter's own instance that is the top of the whole stack, not
-/// counting the host's own screen for a device state. Anywhere else
+/// counting the host's own screen for a device state, and not while another
+/// plugin's screen guards. Anywhere else
 /// `ERR_STATE` (the whole batch is refused); another plugin's instance is
 /// `ERR_DENIED`; an instance not on the stack `ERR_NOT_FOUND`.
 pub(crate) fn guard_on_allowed(
     view: &dyn UiStackView,
-    submitter: &str,
+    submitter: u64,
     instance: u32,
 ) -> Result<(), i32> {
+    if submitter == 0 || invalid_view(view) {
+        return Err(ERR_STATE);
+    }
     let index = find(view, instance).ok_or(ERR_NOT_FOUND)?;
     if view.row(index).is_none_or(|r| r.owner != submitter) {
         return Err(ERR_DENIED);
@@ -201,11 +253,45 @@ pub(crate) fn guard_on_allowed(
         .rev()
         .find(|&i| view.row(i).is_some_and(|r| !r.host))
         .ok_or(ERR_STATE)?;
-    if index == top_index {
-        Ok(())
-    } else {
-        Err(ERR_STATE)
+    if index != top_index {
+        return Err(ERR_STATE);
     }
+    // While another plugin's screen guards, no plugin may become the guard:
+    // the lock's keyboard or a dialog above it would otherwise take the guard
+    // over, close the lock and let go (section 1.2).
+    if guard_owner(view).is_some_and(|guard| guard != submitter) {
+        return Err(ERR_STATE);
+    }
+    Ok(())
+}
+
+/// `command.screen_policy` for a non-zero `instance` (section 1.2): the
+/// submitter's own instance only (another plugin's is `ERR_DENIED`, one not on
+/// the stack `ERR_NOT_FOUND`); `guards` on only as [`guard_on_allowed`] says,
+/// where the instance does not guard already. Everything else, turning
+/// `guards` off and `secret` or `holds_edges` either way, is allowed.
+#[allow(
+    dead_code,
+    reason = "the stage uses it; test crates that include this file by path do not"
+)]
+pub(crate) fn policy_allowed(
+    view: &dyn UiStackView,
+    submitter: u64,
+    instance: u32,
+    guards_on: bool,
+) -> Result<(), i32> {
+    if submitter == 0 || invalid_view(view) {
+        return Err(ERR_STATE);
+    }
+    let index = find(view, instance).ok_or(ERR_NOT_FOUND)?;
+    let row = view.row(index).ok_or(ERR_NOT_FOUND)?;
+    if row.owner != submitter {
+        return Err(ERR_DENIED);
+    }
+    if guards_on && !row.guards {
+        return guard_on_allowed(view, submitter, instance);
+    }
+    Ok(())
 }
 
 fn find(view: &dyn UiStackView, instance: u32) -> Option<usize> {
@@ -228,9 +314,12 @@ pub(crate) enum Close {
 /// except a guard dialog closing itself.
 pub(crate) fn close_allowed(
     view: &dyn UiStackView,
-    submitter: &str,
+    submitter: u64,
     instance: u32,
 ) -> Result<Close, i32> {
+    if submitter == 0 || invalid_view(view) {
+        return Err(ERR_STATE);
+    }
     let index = if instance == 0 {
         let Some(i) = view.len().checked_sub(1) else {
             return Err(ERR_STATE);
@@ -269,9 +358,12 @@ pub(crate) fn close_allowed(
 /// target is below it); nothing to close is `OK` for anyone.
 pub(crate) fn back_to_allowed(
     view: &dyn UiStackView,
-    submitter: &str,
+    submitter: u64,
     target: usize,
 ) -> Result<(), i32> {
+    if submitter == 0 || invalid_view(view) {
+        return Err(ERR_STATE);
+    }
     if target >= view.len() {
         return Err(ERR_NOT_FOUND);
     }
@@ -294,8 +386,15 @@ pub(crate) struct Visible {
 
 /// Op 1 under a guard: every other plugin sees the topmost guard alone; the
 /// guard's plugin sees from the guard up (section 4.3).
-pub(crate) fn visible_rows(view: &dyn UiStackView, viewer: &str) -> Visible {
+pub(crate) fn visible_rows(view: &dyn UiStackView, viewer: u64) -> Visible {
     let len = view.len();
+    if viewer == 0 || invalid_view(view) {
+        return Visible {
+            start: 0,
+            end: 0,
+            left_out: len != 0,
+        };
+    }
     match topmost_guard(view) {
         None => Visible {
             start: 0,
@@ -321,8 +420,11 @@ pub(crate) fn visible_rows(view: &dyn UiStackView, viewer: &str) -> Visible {
 pub(crate) fn drawn_under_overlay(
     view: &dyn UiStackView,
     index: usize,
-    overlay_owner: &str,
+    overlay_owner: u64,
 ) -> bool {
+    if invalid_view(view) {
+        return false;
+    }
     let Some(row) = view.row(index) else {
         return false;
     };
@@ -337,7 +439,7 @@ pub(crate) fn drawn_under_overlay(
 #[allow(dead_code, reason = "consumer is H2's op 8 handler")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Ask<'a> {
-    pub(crate) asker: &'a str,
+    pub(crate) asker: u64,
     pub(crate) kind: u32,
     pub(crate) slot: &'a str,
     /// The `secret` flag the caller set (kind 0).
@@ -395,6 +497,9 @@ pub(crate) fn ask_admission(
     open: OpenRequests,
     x4: bool,
 ) -> Result<Admission, i32> {
+    if ask.asker == 0 || invalid_view(view) {
+        return Err(ERR_STATE);
+    }
     if ask.kind > 3 {
         return Err(ERR_INVALID);
     }

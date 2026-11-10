@@ -415,6 +415,12 @@ fn start_kernel(
             return None;
         }
     };
+    // English hyphenation is a data plugin: this app has no flasher, so put it
+    // there once (`paperpaw-default-packs`).
+    let seeded = paperpaw_default_packs::seed_hyphenation(&storage);
+    if !matches!(seeded, paperpaw_default_packs::Seeded::Kept) {
+        log::info!("English hyphenation: {seeded:?}");
+    }
     // The passwords where only PaperPaw reads them (see `private`).
     let storage = Volumes(
         match internal
@@ -843,12 +849,42 @@ impl Storage for Volumes {
         self.0.create_dir(path)
     }
 
+    fn list_bounded(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        self.0.list_bounded(dir, from, visit)
+    }
+
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        self.0.remove_listed(dir, place)
+    }
+
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+        self.0.remove_tree_step(root, keep_root, place)
+    }
+
     fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
         self.0.remove_dir_all(path)
     }
 
     fn ignores_case(&self) -> bool {
         self.0.ignores_case()
+    }
+
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        self.0.same_entry(a, b)
+    }
+
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        self.0.entry_identity(path)
     }
 
     fn free_space(&self) -> Option<u64> {

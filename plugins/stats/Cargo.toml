@@ -10,17 +10,25 @@ homepage.workspace = true
 authors.workspace = true
 categories = ["no-std"]
 
+[features]
+linked = []
+native-entry = []
+
 [dependencies]
 paperpaw-sqlite.workspace = true
 paperpaw-sdk.workspace = true
+paperpaw-ui-kit.workspace = true
+
+[build-dependencies]
+paperpaw-sdk.workspace = true
+paperpaw-ui-kit.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
 paperpaw-i18n.workspace = true
 paperpaw-core.workspace = true
-paperpaw-platform.workspace = true
-paperpaw-plugin-home.workspace = true
-paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
+paperpaw-native.workspace = true
+paperpaw-scripted-host = { path = "../../crates/paperpaw-scripted-host" }
 
 [lints]
 workspace = true

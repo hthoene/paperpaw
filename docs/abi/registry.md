@@ -76,7 +76,7 @@ All query ops: `effect` `query`, `feature` null, `bound` `none`, `max_input` 256
 | 1 | `settings` | `reg_query` (`scope`: group id, plugin id or empty for all) | `reg_setting`*, `end` | registry order |
 | 2 | `setting` | `reg_key` | `reg_setting`, `reg_setting_extra`, `reg_text`? | one setting in full (help text) |
 | 3 | `choices` | `reg_query` (`scope`: setting id) | `reg_choice`*, `end` | own and foreign choices, in order |
-| 4 | `groups` | `reg_query` (`scope`: parent group or empty) | `reg_group`*, `end` | |
+| 4 | `groups` | `reg_query` (`scope`: parent group or empty) | `reg_group`*, `end` | a group's children; empty: every group, each row with its `parent` |
 | 5 | `plugins` | `reg_query` (`scope` empty) | `reg_plugin`*, `end` | every plugin the host knows, loaded or not |
 | 6 | `plugin` | `reg_key` | `reg_plugin`, `reg_text`? | description; requirements are op 20 |
 | 7 | `actions` | `reg_query` (`scope`: plugin id or empty) | `reg_item`*, `end` | |
@@ -91,7 +91,7 @@ All query ops: `effect` `query`, `feature` null, `bound` `none`, `max_input` 256
 | 16 | `presets` | `reg_query` (`scope`: preset kind, e.g. `core.power-mode`, or empty) | `reg_item`*, `end` | |
 | 17 | `preset` | `reg_key` | `reg_item`, `reg_text`? | name and description |
 | 18 | `values` | `reg_query` (`scope`: a preset id, or with `flags` bit 0 a placement, `widgets.clock@2`) | `reg_value`*, `end` | the values a preset or a placement sets, whole |
-| 19 | `widgets` | `reg_query` (`scope`: widget kind or empty) | `reg_widget`*, `end` | widget discovery, section 6 |
+| 19 | `widgets` | `reg_query` (`scope`: widget kind or empty; with `flags` bit 0 a settings group: the widgets that preview it; a page shows the last) | `reg_widget`*, `end` | widget discovery, section 6 |
 | 20 | `needs` | `reg_query` (`scope`: plugin id) | `reg_need`*, `end` | features, services and required plugins, paged (up to 32 + 32 + more do not fit one reply) |
 | 21 | `status` | `reg_query` (`scope`: empty, or `item` / `line` for one kind) | `reg_status`*, `end` | status items and lines (`ui.md` section 5.3); one row type per op, op 19 stays widgets only |
 | 22 | `setup_step` | `reg_key` | `reg_setup_step`, `reg_text`? | one step in full: its help text (Port A on #354) |
@@ -100,6 +100,9 @@ All query ops: `effect` `query`, `feature` null, `bound` `none`, `max_input` 256
   ask for a group or menu of a plugin that is not installed.
 - [D] `setting`, `plugin`, `preset` and `setup_step` with an unknown key: `ERR_NOT_FOUND`.
 - [D] `stack` (screen ids on the stack, owner, guarded) belongs to UIX, not here.
+- [D] `bindings` with an empty `scope` walks every layer in the byte order of the layer id, and
+  the inputs of one layer in the order of their names, so a cursor and a re-read under one
+  generation agree. A layer or input name over a row's cap is left out of the walk.
 
 ### 2.3 Authority (what a reply shows)
 
@@ -154,7 +157,7 @@ Ids (`key`, `plugin`, `item`, ...) are never cut: a declaration that admitted th
 | 1037 | `service.reg_binding` | `layer: str 128`, `input: str 64`, `action: str 128`, `origin: u32` |
 | 1038 | `service.reg_setup_step` | `id: str 128`, `page_kind: u32`, `page: str 128`, `order: i32`, `flags: u32`, `title: str 128` |
 | 1039 | `service.reg_value` | `key: str 128`, `value: bytes 512`, `flags: u32` |
-| 1040 | `service.reg_widget` | `id: str 128`, `plugin: str 64`, `kind: str 128`, `icon: str 64`, `flags: u32`, `title: str 128` |
+| 1040 | `service.reg_widget` | `id: str 128`, `plugin: str 64`, `kind: str 128`, `icon: str 64`, `flags: u32`, `title: str 128`, `cells: u32` (optional, ordinal 0, default 0; draft 29), `previews: str 128` (optional, ordinal 1, empty default; draft 32) |
 | 1059 | `service.reg_status` | `id: str 128`, `plugin: str 64`, `kind: u32`, `flags: u32`, `priority: u32`, `size: u32`, `tap: str 128`, `title: str 128` |
 
 Field meanings:
@@ -173,11 +176,29 @@ Field meanings:
   translated; none where it is empty); in `plugin` the description.
 - `reg_plugin.kind`: 0 built in, 1 data, 2 code; `state`: 0 running, 1 off, 2 failed; `flags`:
   bit 0 enabled, 1 restart needed, 2 required by another enabled plugin, 3 linked into the
-  firmware, 4 safe mode; `problem`: interface-6 `PluginProblem` order (0 none), `problem_arg`
-  its number (`built_for`); `update`: the version waiting, empty if none. The first row of op 5
-  is always the host itself: `id` `core`, its version (interface 6 `env.plugins().kernel()`).
+  firmware, 4 safe mode; `problem`: interface-6 `PluginProblem` order (0 none, 1-12, 13 `Other`
+  with its code in `problem_arg`), `problem_arg` its number (`built_for`); then the declaration caps
+  of interface 7, where a whole declaration batch was refused at one of them and the plugin did
+  not load (`state` 2 failed): 14 too many formats, 15 too many readers, `problem_arg` the cap it
+  ran into, only ever 8 or 32 with 14 (formats per plugin, `ERR_FULL`, or device-wide, `ERR_FULL`;
+  `document.md` 1) and 4 or 16 with 15 (readers per plugin, `ERR_INVALID`, or device-wide,
+  `ERR_FULL`; `document.md` 1); 16 too many book fields (`problem_arg` 8 per plugin or 64
+  device-wide), 17 too many book badges (4 per plugin or 16 device-wide; both `library.md` 1), 18
+  too many lookup providers (8 per plugin or 32 device-wide; `document.md` 7); 0 where the host
+  cannot say which. The cap decides the value, not the status. A duplicate name in one batch has no
+  problem number of its own. A plugin showing these rows treats a value it does not know as "could
+  not be loaded"; `update`: the version waiting, empty if none. The first row of op 5 is always the
+  host itself: `id` `core`, its version (interface 6 `env.plugins().kernel()`).
 - `reg_need.kind`: 0 feature (`key` = `uses.*`, `flags` bit 0 required), 1 service (`key`,
   `version` = major.revision), 2 required plugin (`key` = id, `version` = at least).
+- [D] **Where op 20's rows come from**: kinds 0 and 1 from the native metadata the host
+  admitted this run, which it keeps with the plugin's registry row: the validated view where its
+  bytes stay for the run (a linked plugin's are static), else one fallible copy of at most 2,048
+  bytes (`metadata::MAX_BYTES`) made at admission; features from
+  `metadata::Checked::requested_features` (unavailable optional ones too), services from `services`.
+  Kind 2 from the plugin's `requires` (`plugin.ini`), which the host keeps for every plugin it
+  lists. A plugin whose metadata was not admitted this run (off, refused, a data plugin) has kind 2
+  rows only; why it did not load is `reg_plugin.problem`.
 - `reg_item.flags` (actions, screens, inputs, menus): bit 0 hidden from lists, 1 sealed (interface 6
   `sealed`: no other plugin's handler overrides the action; the lock uses it), 2 gesture (inputs),
   3 pinned (section 4.2), 4 declared by a plugin (inputs and gestures of UIX; `plugin` names it),
@@ -201,7 +222,16 @@ Field meanings:
 - `reg_widget`: a widget the `core.widget` stage can make; `kind` its kind (category), `icon` the
   kind's icon, `flags` bit 0 shown somewhere now: a `widget.place` whose `shown_if` holds lists it
   (its base id, also a placement) in one of its `list_keys` (interface 6 `Widgets::shown`, not
-  "has instances"; `ui.md` section 5.2), bit 1 private.
+  "has instances"; `ui.md` section 5.2), bit 1 private, bit 2 square; `cells` the widget's
+  `widget.spec.cells` as declared (size and least size, draft 29); `previews` its
+  `widget.spec.previews` (the settings group it previews, `ui.md` section 5.2), empty for none:
+  a settings page lists the widgets whose `previews` is its group. With
+  `reg_query.flags` bit 0 op 19 lists those that preview `scope` in its order (the host's own,
+  then declarations by plugin slot, a plugin's own by name), and a page shows the last. Interface
+  6 took the last added; where two plugins preview one group the shown one may differ (accepted
+  for 1.0: no first-party group has two). Without bit 0, op 19 leaves out every widget whose
+  `previews` is set (a widget picker never offers one); bit 0 with an empty `scope` is
+  `ERR_INVALID`.
 - `reg_status` (1059, after the UIX rows 1041-1058): `kind` 0 item, 1 line; `flags` bit 0 drawn
   by its owner (always 1 for a line, 0 for an item: a reader tests one bit instead of `kind`),
   bit 1 private; `priority` 0-255 (items; 0 for lines); `size` an item's
@@ -230,7 +260,7 @@ key and text bytes within the stage budget.
 
 - [D] **Grants are out of reach.** No REG write touches a `core.grant.*` setting: `reset_setting`
   (every flag), `apply_preset` and `preview_setting` skip them in group, plugin and all resets and
-  refuse a single grant key with `ERR_INVALID`; declarations 25 and 28 naming one are dropped at
+  refuse a single grant key with `ERR_DENIED`; declarations 25 and 28 naming one are dropped at
   admission. Grants change only through the host's own settings screen (decisions 126, 131).
 - [D] **Checked again when applied.** Between submit and apply, an item, screen, slot or setting a
   staged REG command names can go (a plugin stopped). The host checks every REG command of a batch
@@ -287,21 +317,26 @@ These change the user's configuration of the whole device, so they need the D1 f
   `action` binds nothing (interface 6 `NOTHING`); `flags` bit 0 (`reset`) returns the input to the
   declared and preset bindings. Saved in the user's `paperpaw.ini`, in effect after the callback.
 - [D] **The escape is a host-fixed chord, not a table check.** Holding Power (8 s, the chord no
-  input filter sees, `stages-services.md` section 1.3) always opens the main menu with "reset
-  keys" on top, on every device (Android: the system back long-press or its equivalent). No
-  binding, layer, condition, declaration or filter can take it: `bind_key` or `key.bind` naming it
-  is `ERR_DENIED`. As a second line, the host refuses (`ERR_DENIED`) a `bind_key` batch, and drops
-  at admission a `key.bind`, that would leave the **global** layer without an input to the main
-  menu. Screen layers, conditions and declarations can still shadow it; the chord is the guarantee.
-  **Device gate (owner):** on the X4 and X4 Pro, holding Power for 8 s must not end in a hardware
-  power-off or reset before the host sees it; if it does, the escape takes another chord before the
-  freeze.
+  input filter sees, `stages-services.md` section 1.3) always opens the main menu with "reset keys"
+  on top, on every device (Android: the system back long-press or its equivalent). No binding,
+  layer, condition, declaration or filter can take it: it has no input name, and the host checks the
+  hold before the key map and every filter (`long.power` is the ordinary long press and stays
+  bindable, as do chords with Power). As a second line, the host refuses (`ERR_DENIED`) a `bind_key`
+  batch that would leave the **global** layer without an input to the main menu, and drops from the
+  key map, as it builds it, a global `key.bind` row that would replace or unbind the last such input
+  (the row stays its plugin's; nothing is refused, #815). Screen layers, conditions and declarations
+  can still shadow it; the chord is the guarantee. **Device gate (owner):** on the X4 and X4 Pro,
+  holding Power for 8 s must not end in a hardware power-off or reset before the host sees it; if it
+  does, the escape takes another chord before the freeze.
 - [D] `bind_slot`: binds `slot` to `screen`; empty `screen` returns to the default. The screen must
   be declared and offered for that slot, else `ERR_INVALID`.
 - [D] `set_plugin_enabled`: switches a plugin on or off; it takes effect at the next start
   (`reg_plugin` flag `restart needed`). Switching off a plugin another enabled plugin requires,
   or the submitter itself, is `ERR_DENIED`. A built-in the host needs (the settings editor while
   it is the only one) is `ERR_DENIED`.
+- [D] **The id `core` is the host's own** (reserved: no card, bundle, linked or native plugin may
+  take it, #857). `set_plugin_enabled`, `request_plugins` and `answer_plugin` naming it are
+  `ERR_DENIED` for the whole batch.
 
 ### 4.3 Presets
 
@@ -310,6 +345,17 @@ These change the user's configuration of the whole device, so they need the D1 f
   `flags` bit 0 previews it instead (section 4.4 rules, replacing any preview). Authority per
   setting as `command.set_setting`; a preset may not change guarded settings unless the submitter
   may (the batch is refused with `ERR_INVALID`). No feature: it changes settings, as slot 15 does.
+- [D] **What a preset of each kind covers** (the settings "of its kind" above; interface 6
+  `presets.rs`): `core.theme` covers the settings of the appearance group (`core.group.look`)
+  except `core.ui-size`, `core.ui-contrast`, `core.logo` and `core.widgets.frame`
+  (`theme_settings`), and values it names outside them are dropped; `core.widget-look` covers
+  `core.widgets.frame`, `.paper`, `.ink`, `.corners`, `.frame-line`, `.shadow`, `.padding` and
+  `.gap`, and each registered widget's `<widget>.frame`, `.padding`, `.size`, `.align`, `.paper`,
+  `.ink`, `.corners`, `.frame-line` and `.drop-shadow` (`widget_look_settings`; the settings
+  plugin's check of what a look covers must name the same list), and values it names outside them
+  are dropped; any other kind covers only the settings it names, so nothing else returns to its
+  default. Settings this device lacks and values that do not fit their setting are skipped, so the
+  rest still applies.
 
 ### 4.4 Preview
 

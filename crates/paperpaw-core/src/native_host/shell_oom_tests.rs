@@ -58,8 +58,14 @@ fn construct(
 fn first_and_later_plugin_refuse_each_post_make_allocation_and_destroy_once() {
     reset(NORMAL);
     let host = FlatHost {
+        log: Default::default(),
         meter: crate::meter::Meter::new(None),
+        directory: None,
+        stack_rows: alloc::rc::Rc::new(Default::default()),
         font_removals: Rc::new(crate::native_host::font_removals::FontRemovals::new()),
+        registry_generation: alloc::rc::Rc::new(
+            crate::native_host::registry_generation::RegistryGeneration::new(),
+        ),
     };
     for owned in [false, true] {
         let text = alloc::string::String::from("a").repeat(96);
@@ -210,8 +216,14 @@ fn registration_rollback(registry_oom: bool) {
     use paperpaw_sdk::{Params, Plugin, PluginState, builtin::events};
     reset(NORMAL);
     let host = FlatHost {
+        log: Default::default(),
         meter: crate::meter::Meter::new(None),
+        directory: None,
+        stack_rows: alloc::rc::Rc::new(Default::default()),
         font_removals: Rc::new(crate::native_host::font_removals::FontRemovals::new()),
+        registry_generation: alloc::rc::Rc::new(
+            crate::native_host::registry_generation::RegistryGeneration::new(),
+        ),
     };
     let destroyed = Rc::new(Cell::new(0));
     let calls = Rc::new(Cell::new(0));
@@ -331,10 +343,17 @@ fn service_budget_refusal_never_allocates_another_x4_page() {
         instance: None,
         env: &env,
         meter: &kernel.shared.meter,
+        depth: None,
+        directory: None,
+        stack_generation: kernel.shared.stack_rows.generation(),
+        stack_rows: &kernel.shared.stack_rows,
         font_removals: &kernel.shared.font_removals,
+        registry_generation: &kernel.shared.registry_generation,
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,
+        log: Default::default(),
+        ui: None,
     };
     let query = |text: &str, out: &mut u32| {
         // SAFETY: borrowed fixture inputs and scalar output are live and disjoint.
@@ -413,10 +432,17 @@ fn nested_plugin_query_shares_the_x4_blob_budget_until_outer_release() {
         instance: None,
         env: &env,
         meter: &kernel.shared.meter,
+        depth: None,
+        directory: None,
+        stack_generation: kernel.shared.stack_rows.generation(),
+        stack_rows: &kernel.shared.stack_rows,
         font_removals: &kernel.shared.font_removals,
+        registry_generation: &kernel.shared.registry_generation,
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,
+        log: Default::default(),
+        ui: None,
     };
     let query = |scope: &EnvironmentScope,
                  owner: &crate::native_host::resources::OwnerResources,

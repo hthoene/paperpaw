@@ -1,6 +1,6 @@
-# Interface 7 family DOC: formats, documents, images, lookup (draft)
+# Interface 7 family DOC: formats, documents, images, lookup
 
-Contract draft for #228 (assignment #1025). Items marked [D] are proposed decisions, [Q] open
+Contract for #228 (assignment #1025). Items marked [D] are proposed decisions, [Q] open
 questions for Plugin and Senior. Inputs: the plugin needs inventory (#984,
 `plugin-needs-reg-uix-dev-lib-doc-228.md`, DOC section and coverage ledger), the C-family proposals
 (#890, `c-families-228.md` 2.6 DOC and the IMG wave), the reader extensibility notes (#241, N2,
@@ -8,8 +8,7 @@ N4-N7),
 `stages-services.md` (stages, services, depth), `ui.md` (host texts, depth and stack rules, the X4
 nested-callback gate), `screens-input.md` (N5 pages and progress, tag blocks), `core-events.md`
 (book events 65-69) and the storage contract (`proposals/interface-7-events-storage-services.md` D2,
-owner decision 125). Doc-only: records, schemas and generator follow once this is approved, as for
-EVT, REG and UIX. Tags below are proposed; the records step numbers them without gaps after UIX.
+owner decision 125). Records: `abi/services/core.document@1.def`.
 
 ## 0. Scope and principles
 
@@ -68,9 +67,10 @@ EVT, REG and UIX. Tags below are proposed; the records step numbers them without
   op 1). The host never guesses from the path beyond that.
 - [D] `reader.spec` (interface 6 `ReaderSpec`): a reading app `<plugin>.<name>` whose `screen` (one
   of its own screens, `ERR_INVALID` otherwise) shows books of `formats` (format ids, one per line,
-  at most 8; empty: every format). `flags` reserved, 0. Op 21 lists them; which one opens a book is
-  the opener's choice (the files plugin remembers it in its Data, as interface 6
-  `readers::remember`).
+  at most 8; empty: every format). `flags` reserved, 0. At most 4 readers per plugin (a fifth is
+  `ERR_INVALID` for the batch) and 16 device-wide (`ERR_FULL` for the batch that would pass it;
+  #867). Op 21 lists them; which one opens a book is the opener's choice (the files plugin
+  remembers it in its Data, as interface 6 `readers::remember`).
 - [D] **Opening a book** (interface 6 `readers::open`, `open_page`, `Command::OpenBook`) is
   `command.open` (`ui.md` section 1) with a hand-over of the params `path` (the book's root-1 path)
   and, optionally, `page` (decimal): mode 1 with target slot `core.reader` opens it with the
@@ -82,6 +82,18 @@ EVT, REG and UIX. Tags below are proposed; the records step numbers them without
   files in a reader the same way, with the params `root` (`0` its data folder, `2` its install
   folder) and `path` instead of a book's path: About's licence texts. The reader opens it with
   `doc_open.root` 5 (section 2.1).
+- [D] **Opening a book at a place** (interface 6: open, then `events::GOTO`; notes-overview at an
+  annotation's start, vocabulary, stats, search, todo 167): the hand-over may also carry `section`
+  and `offset` (decimal `u32`, both or neither: the `doc_at` position of section 2, the format's
+  text coordinates as in `lib_position` and `lib_annotation`'s start) and
+  optionally `conversion` (decimal `u64`, the conversion those coordinates belong to). The reader
+  opens the book there instead of at its last position, as if the user had jumped there (the place
+  is saved as any jump is); `section` and `offset` win over `page`. Where `conversion` is given and
+  is not the document's (the book was prepared again since), or the place is past the section's end,
+  the reader opens at the last position as without them: never an error, never a wrong place. A
+  `section` without `offset` (or the reverse), or a value that is not a decimal number, is ignored
+  the same way. The host passes the params through unchecked (`ui.md` section 1); the readers read
+  them (Plugin's reader ports). No host change, no new record.
 
 ## 2. The service `core.document` (major 1)
 
@@ -113,6 +125,7 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 | 19 | `formats` | `doc_page` | `doc_format`*, `end` | every format, paged |
 | 20 | `format_for` | `doc_path` | `doc_format` | which format reads a file; `ERR_NOT_FOUND` |
 | 21 | `readers` | `doc_page` (`scope`: a format id or empty) | `doc_reader`*, `end` | reading apps |
+| 22 | `report` | `doc_report` | (none) | where the reader is; section 2.4 |
 
 | Tag | Record | Fields |
 | --- | --- | --- |
@@ -138,9 +151,11 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 | 1079 | `service.doc_path` | `root: u32`, `path: str 512`, `flags: u32` |
 | 1080 | `service.doc_reader` | `id: str 128`, `screen: str 128`, `formats: str 1032`, `title: str 128` |
 | 1081 | `service.doc_progress` | `progress_ppm: u32` |
+| 1183 | `service.doc_report` | `document: u32`, `section: u32`, `offset: u32`, `insert: u32`, `progress_ppm: u32`, `flags: u32`, `title: str 256`, `chapter: str 256`; optional (no default, `Option<u32>`): `page: u32`, `pages: u32`, `chapter_left: u32` |
 
-- [D] `doc_page.scope` is op 21's format filter, else empty; `doc_path.flags` bit 0: sniff when no
-  extension matches (op 20 reads the first 512 bytes; root 1 needs `uses.storage`).
+- [D] `doc_page.scope` is op 21's format filter, else empty. Ops 19 and 21 name no document: their
+  `doc_page.document` is 0 and ignored (the host accepts any value there). `doc_path.flags` bit 0:
+  sniff when no extension matches (op 20 reads the first 512 bytes; root 1 needs `uses.storage`).
   `doc_format.title` and `doc_reader.title` are translated by the host as REG rows are. Two-way
   records (plugin and host send them; never `HOST_ONLY`): `doc_state` and the block, meta, toc,
   link, font and image rows, because a format plugin answers them in its `core.format` reply and the
@@ -158,9 +173,13 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   `cover_side` of the cover (0: interface 6 `cover_fit`, the larger of 300 and 3/8 of the screen's
   long side; at most the screen's long side); `css_path` a file of user CSS (at most 65,536 bytes,
   empty for none) on `css_root` (0 or 1 under the same rule as `path`). Other flag bits
-  `ERR_INVALID`. The host checks the roots, finds the format, gives a new document id and calls the
-  format's op 2 `open`; its answer becomes `doc_state`.
-- [D] **Root 5, the handed file (draft 25).** A reader whose instance was made from a hand-over
+  `ERR_INVALID`. On root 1, a `path` or `css_path` whose first segment is `plugins`, `.paperpaw` or
+  `paperpaw.ini` (in any case) is `ERR_INVALID`, as on `core.files` (`files.md` 1.1), and so is
+  such a `doc_path.path` of op 20 `format_for` (with or without its sniff). This check comes
+  before the `uses.storage` check of root 1, so a plugin without the feature gets `ERR_INVALID`
+  for such a path too, not `ERR_DENIED`. The host checks the roots, finds the format, gives a new
+  document id and calls the format's op 2 `open`; its answer becomes `doc_state`.
+- [D] **Root 5, the handed file.** A reader whose instance was made from a hand-over
   (`ui.md` section 1, op 16) whose params carry `root` (`0` or `2`) and `path` may open that one
   file of the plugin that made the hand-over: `doc_open.root` 5 with the same `path`, read only,
   resolved in that plugin's data folder (`0`) or install folder (`2`) under the storage path
@@ -168,7 +187,10 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   and `css_root` 5 are `ERR_DENIED`; a maker no longer installed, or no such file, is
   `ERR_NOT_FOUND`. The format reads it as root 3, as any book; it is not a library book (no
   catalog row, position or "recently opened"; its root-6 cache is keyed by the maker's id, root
-  and path and goes when the maker is uninstalled). Root 5 exists only in `doc_open`
+  and path and goes when the maker is uninstalled). A handed document ends when its maker stops,
+  for any reason (stopped, turned off, uninstalled, failed): the opener gets
+  `event.document_closed` with `reason` 3 and later calls on the id are `ERR_CANCELLED`, as for
+  a book that was removed. Root 5 exists only in `doc_open`
   (slots 20-26, `core.files` and format calls answer it `ERR_UNSUPPORTED`). A host answers
   `ERR_UNSUPPORTED` until it is wired.
 - [D] **Options reach their format whole.** An option's `key` is a full setting id
@@ -185,9 +207,18 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 - [D] **Preparing** (interface 6 `prepared`): while `state` is 1, the host calls the format's op 3
   `prepare` again and again from its main loop, between inputs, each call for at most 50 ms of work
   by the format's own clock (the format stops at a safe point and answers its progress), until it
-  answers done or fails. The opener gets `event.document_changed` (88, a hint per document,
-  coalesced) when the state or the progress moves; other ops on a preparing document are
+  answers done or fails. The opener gets `event.document_changed` (88: `document`, `state` and
+  `progress_ppm`, 0 to 1,000,000, as `doc_state` has them at delivery; one per document, coalesced,
+  the latest wins) when the state or the progress moves; other ops on a preparing document are
   `ERR_BUSY`. The X4 runs at most one preparation at a time, queued in open order.
+- [D] **A preparation that does not move fails.** After 32 answers in a row of state 1 whose
+  `progress_ppm` is not higher than the highest one this preparation gave (equal or lower counts),
+  the host fails the document with `ERR_TIMEOUT`, exactly as if the format had answered failed:
+  the partial cache goes, `doc_state` is state 2 with that status and the opener gets event 88.
+  The count starts at 0 with each preparation and goes back to 0 at every answer that moves the
+  progress. Since the progress only rises and stops at 1,000,000, a format cannot keep the main
+  loop busy for ever (at most 32 calls of 50 ms without movement). Idle sleep is no bound: a
+  device on USB power never sleeps.
 - [D] **The cache is whole or not used.** A cache is made for one **conversion**: the book's
   identity (LIB's fingerprint), the format plugin's id and version, and the conversion key, a hash
   of everything that changes the output (publisher styles, colour, `image_side`, `cover_side`, the
@@ -205,10 +236,9 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   of the document (section 5) ends. The host closes the opener's documents when the opener stops,
   and closes a format's documents when the format plugin stops or is uninstalled: the opener gets
   `event.document_closed` (108: `document`, `reason` 1 the format stopped, 2 the card went, 3 the
-  book was moved or removed, 4 `needed`: the place went to a book to show, below; others treated
-  as 1) and every later call on the id is `ERR_CANCELLED`
-  until it closes it. A reply the format produces after that is never delivered (it is not called
-  again).
+  book was moved or removed (for root 5: its maker stopped), 4 `needed`: the place went to a book to
+  show, below; others treated as 1) and every later call on the id is `ERR_CANCELLED` until it
+  closes it. A reply the format produces after that is never delivered (it is not called again).
 - [D] Limits: at most 2 open documents per opener and 2 on the X4 device-wide (the shown book and a
   background index), 8 elsewhere; over that `ERR_FULL`. On the X4 the cap is in effect 1 per
   opener, so no one plugin can take both places.
@@ -225,13 +255,14 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 
 - [D] `doc_meta` (interface 6 `Metadata`): `title: str 512`, `language: str 35`, `series: str 512`,
   `series_index: str 32`, `direction` (0 left to right, 1 right to left), `writing_mode` (0
-  horizontal, 1 vertical right to left, 2 vertical left to right), `sections`, `authors`, `subjects`
-  (their counts, no cap), `description_bytes`, `flags` (bit 0 the title was cut, bit 1 the series).
-  Op 3 answers `doc_meta` alone. Op 4 (`doc_text_at`: `document`, `kind` 0 title, 1 author, 2
-  subject, 3 description, 4 series; `index` below the count, else `ERR_NOT_FOUND`; `offset`) answers
-  one `doc_text` (`kind`, `index`, `total` its whole length, `text` at most 1,024 bytes from
-  `offset`, cut at a UTF-8 boundary): an opener lists every author and subject by index and reads
-  any text whole by offsets. Nothing is cut for good and nothing is left out.
+  horizontal, 1 vertical right to left, 2 vertical left to right, 3 and 4 sideways, section 4),
+  `sections`, `authors`, `subjects` (their counts, no cap), `description_bytes`, `flags` (bit 0 the
+  title was cut, bit 1 the series). Op 3 answers `doc_meta` alone. Op 4 (`doc_text_at`: `document`,
+  `kind` 0 title, 1 author, 2 subject, 3 description, 4 series; `index` below the count, else
+  `ERR_NOT_FOUND`; `offset`) answers one `doc_text` (`kind`, `index`, `total` its whole length,
+  `text` at most 1,024 bytes from `offset`, cut at a UTF-8 boundary): an opener lists every author
+  and subject by index and reads any text whole by offsets. Nothing is cut for good and nothing is
+  left out.
 
 ### 2.3 Navigation and links
 
@@ -250,6 +281,70 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   `href` over 1,024 bytes is not listed (logged); `link_target` resolves one inside the book.
 - [D] `page_label` (`doc_label: str 32`), `xpointer` and `locate` (`doc_xpointer`: `document`,
   `text: str 1024`) as interface 6 (KOReader XPointers for EPUB, for koreader and kosync).
+
+### 2.4 The reader report (op 22, draft 37)
+
+The reader tells the host where the user is reading; the host turns it into the book events
+(`core-events.md` 3.1: 37 and 65-67), so no plugin raises them itself.
+
+- [D] **The report.** Op 22 `report` (`doc_report`): `document` (an id the caller opened),
+  `section`, `offset`, `insert` (the page's start, the N5 locator of `screens-input.md` 9),
+  `progress_ppm` (0 to 1,000,000, N5 rule 1), `flags` (bit 0 `finished`: the user reached the end,
+  interface 6 `BOOK_FINISHED`; other bits `ERR_INVALID`), `title` (the book's display title, cut
+  by the reader at a UTF-8 boundary), `chapter` (the title of the table-of-contents entry the page
+  is in; empty where the book has none or the page comes before its first entry), and optionally
+  `page` and `pages` (counted from 1, both or neither) and `chapter_left` (the pages after this one
+  in that chapter, 0 on its last page; only with `page` and `pages`, and with a `chapter` the
+  reader knows the end of). The reply is empty; the status is the call's.
+- [D] **Checks** (`ERR_INVALID`, nothing raised, the session as it was): `progress_ppm` above
+  1,000,000; `page` without `pages` or the reverse, a `page` of 0 or past `pages`; `chapter_left`
+  without `page` and `pages`, with an empty `chapter` (no chapter to count down), or above
+  `pages - page`; `section` not below the document's section
+  count; an unknown `flags` bit. Another plugin's document is `ERR_DENIED`, a closed one
+  `ERR_CANCELLED` (section 2.1). Text that is not UTF-8 is `ERR_UTF8`.
+- [D] **Which documents.** Only a book of the library raises book events: a document opened on
+  root 1 without `flags` bit 2 `background`. A report on any other document (root 0 or 5, an index
+  build) is accepted (`OK`) and raises nothing, so a reader reports every document the same way.
+- [D] **Only the reader on screen.** A report drives the session only when the caller declared a
+  `reader.spec` and owns the topmost screen of the stack that is not an overlay, and the document
+  is one it opened as a library book. Any other report, from a
+  plugin that opened a book from the card to index or read it in the background, or from a reader
+  that is not on top, passes the checks above and is `OK` with nothing raised: it never starts,
+  replaces, advances or ends the live session, so it cannot close the user's book or raise
+  `book_finished` (Senior's S1). The host tests that another plugin's report leaves the live
+  session as it was.
+- [D] **The session.** The host keeps one reading session device-wide: the reported document, its
+  `doc_open.path`, the last raised report and whether `finished` was raised. The first accepted
+  report of a document starts a session and raises `book_opened` (65) with its fields; a session
+  of another document ends first with `book_closed` (66, `reason` 0), so the old book's close
+  comes before the new book's open (`core-events.md` 3.3). A later report raises `page_turned`
+  (37) when any of `section`, `offset`, `insert`, `progress_ppm`, `chapter`, `page`, `pages` or
+  `chapter_left` differs from the last raised one; an identical report raises nothing, so a
+  repeat is free. `finished` raises `book_finished` (67) once per session, after the report's 37
+  where there is one; later `finished` reports raise nothing more.
+- [D] **Ending.** The session ends with `book_closed` (66, `reason` 0, the last raised fields)
+  when its document is closed (op 18, the opener stopping, or the host closing it with
+  `event.document_closed`). Sleep and power-off end it with `reason` 1 before `event.suspend` or
+  `event.stopping`, as `core-events.md` 3.3 orders them. After a wake within the same run, the
+  first report of the same book (same `doc_open.path`) starts a session with `book_opened`
+  `reason` 1; after a restart the host keeps no session, so it starts with `reason` 0.
+- [D] **The host stamps** `now_ms` (its monotonic clock), `path` (the session's `doc_open.path`,
+  at most 512 bytes as root-1 paths are, so never cut) and `reason`; it never takes them from the
+  plugin.
+- [D] **When the reader reports:** when a book's first page is shown, at every page turn and
+  jump, when it has counted the pages (the counters appear), and when the user reaches the end
+  (`finished`). Not on every redraw.
+- [D] **Memory and cost:** the session is one host record of the last raised fields (the path
+  and the two texts at most 1,024 bytes together, about 1.1 KiB on the X4 while a book is open),
+  allocated fallibly once at its full size when the session starts, so a later chapter or title
+  change never grows it (`ERR_NO_MEMORY`: nothing raised for the new book, the next report tries
+  again; when the report was another book's, the old session has still been ended with its
+  `book_closed` first) and freed when it ends. One call per page turn, at most 1,024 bytes of
+  input; the events go through the event queue as before (`core-events.md` 3.2). While the event
+  pump is behind, up to 8 book events wait in the queue (`core-events.md` 3.2), about 1.1 KiB
+  each: about 9 KiB at most on the X4, freed as they are delivered.
+- [D] Until the native reader reports, 37 keeps its interface-6 producer (`core-events.md` 3.1).
+  A host answers `ERR_UNSUPPORTED` until it is wired.
 
 ## 3. The stage `core.format` (major 1)
 
@@ -284,6 +379,17 @@ host passes them on after checking them.
 | 18 | `image` (`index` the image, `image_side`) | `fmt.image` | 2, 3 |
 | 19 | `progress` (`section`, `offset`) | `doc_progress` | 2, 3 |
 
+- [D] **Picture sides are the host's.** A format never asks for the screen and never sees a side
+  of 0: in `open` the host turns a `cover_side` of 0 into its default (the larger of 300 and 3/8
+  of the screen's long side, at most that side) and an `image_side` of 0 into 1,600 **before** the
+  conversion key is made, so an open with 0 and one with the same sides spelled out share one
+  cache; ops 2, 17 and 18 always carry both sides, set by the host.
+- [D] **Paged replies** (ops 7, 9, 14, 16): whole rows, then exactly one `fmt.end` (the
+  `service.end` row), the paging of `registry.md` 2.1: `flags` bit 0 the last page, `next` the
+  `cursor` of the next call, `total` the rows of the whole list, `generation` the format's own for
+  this document (never 0; a call whose `generation` is not it is `ERR_STATE`, start again at 0).
+  The host forwards `cursor` and `generation` as the caller gave them. Op 8's blocks end as
+  section 4 says (bit 1 `more`).
 - [D] Service ops map one to one: 3 → 5, 4 → 6, 5 → 7, 6 → 8, 7 → 9, 8 → 10, 9 → 11, 10 → 12, 11 →
   13, 12 → 14, 13 → 15, 14 → 16, 15 → 17, 16 → 18, 17 → 19; ops 1, 2, 18-21 of the service are the
   host's own (open, state, close, formats, readers). Sizes: `fmt.call` 1 + 10×4 + 8 + 1,026 + 514 +
@@ -302,6 +408,12 @@ host passes them on after checking them.
   only, `path` "", during op 2 and 3 only). These three outside such a call are `ERR_UNSUPPORTED`;
   roots 0-2 keep their meaning in every callback (`files.md`). The format writes its cache
   atomically per file (D2.5); it may not write root 3.
+- [D] **Root 3 through the slots and through `core.files`** (Files on #499): for a single-file
+  format, root 3 is read with the storage slots (`storage_size`, `storage_read_at`; `path` "" is
+  the file), and `core.files` `list`/`stat` on it are `ERR_UNSUPPORTED`. For a `folder` or
+  `siblings` format, `core.files` `list` and `stat` work on root 3 inside its `core.format` call.
+  The scope is checked first: root 3 outside such a call is `ERR_UNSUPPORTED` for every op;
+  inside it, every op that changes something is `ERR_DENIED`.
 - [D] **Root numbers mean one thing everywhere** (Code Reviewer on #346): root 2 is the plugin's
   own install folder (`files.md` section 1.1) in every callback, a format's too; the document's
   cache is root 6, not 2.
@@ -372,6 +484,24 @@ meaning (the format's own split of a very long paragraph).
   `i32::MIN` / `u32::MAX` for "the reader's" (interface 6 `None`); `style` the interface-6
   `TextStyle` bits unchanged (they are already a stable `u32`); `lang` a BCP 47 tag, empty for
   unknown.
+- [D] **Direction, writing mode, language** (interface 6 `Block.dir`, `writing_mode`, `lang`,
+  `inline_langs`; the SDK's `lang::Direction`, `lang::WritingMode`, `Lang`): `dir` 0 auto (the first
+  strong letter, UAX #9 P2/P3), 1 left to right, 2 right to left; `writing_mode` 0 horizontal top to
+  bottom, 1 vertical right to left, 2 vertical left to right, 3 sideways right to left, 4 sideways
+  left to right (`doc_meta.writing_mode` uses the same numbers). A later value the reader does not
+  know reads as 0 (auto, horizontal), never an error, so a newer format still opens in an older
+  reader; the reader lays out horizontal lines only, as interface 6. `lang` is interface 6's
+  `Block.lang` as a BCP 47 tag (language, script, region; `Lang`'s text form): the element's own
+  (`lang`, `xml:lang`, inherited), else the book's (`doc_meta.language`), as the format resolves it;
+  empty only when neither is known (`Lang::NONE`). The `doc_inline_lang`s are `inline_langs` in
+  order: a run's `TextStyle::lang_index` n names the n-th (from 1), 0 the block's `lang`; an index
+  past the list reads as the block's `lang`.
+- [D] **Annotations** (`doc_ruby`, interface 6 `Annotation`, now re-exported as
+  `paperpaw_sdk::document::{Annotation, AnnotationKind}`): `kind` 0 ruby, 1 phonetic, 2 gloss, 3+n
+  `Other(n)` (n at most 65,535); a value the reader does not know reads as a gloss, as
+  `AnnotationKind::Other` says. `size` is the percent of the text below, 0 for the reader's. A
+  footnote or note text is **not** an annotation: it stays a link to its target (`doc_link`, section
+  2.3) as in interface 6; a format sends a gloss only for a text meant to stand above the words.
 - [D] Inserted blocks and `leading_above` are the reader's (its text filters, #964); formats answer
   none, as in interface 6.
 
@@ -397,26 +527,36 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
 | 1560 | `command.image_release` | `image: u32` |
 | 90 | `event.image_ready` | `now_ms: u64`, `cookie: u32`, `status: u32`, `image: u32`, `width: u32`, `height: u32` |
 | 108 | `event.document_closed` | `now_ms: u64`, `document: u32`, `reason: u32` |
+| 88 | `event.document_changed` | `now_ms: u64`, `document: u32`, `state: u32`, `progress_ppm: u32` |
 
 - [D] `event.document_closed` was named 89 in earlier drafts, which is `event.spoken` (`ui.md`); it
   is 108 and comes with the draft-20 records. It comes from the host's document table (2 or 8 per
-  device), never from the held-event store, so it is never dropped.
+  device), never from the held-event store, so it is never dropped. The table keeps room for 2
+  undelivered document events per place: one 108 and one 88 (coalesced, so at most one per
+  document; its producer takes it from this room when it lands); while those of earlier
+  documents still fill it (their openers have not taken them yet), `open` answers `ERR_BUSY` and
+  opens nothing: the caller tries again at a later pass (Senior R1 on #919).
 
 - [D] An **image id** (`u32`, checked counter, never 0) names a decoded picture the host may draw. A
   document's images come from `doc_image` rows (a block's picture, the cover, op 16's larger one)
   and end with the document; a plugin's own come from `image_prepare` and end with `image_release`
   or when the plugin stops. Image ids are per plugin: another plugin's id is `ERR_NOT_FOUND`.
 - [D] A format answers a picture as its cache path (stage-local `fmt.image`: `path: str 256` in root
-  2, `index: u32`, `width`, `height`, `flags` bit 0 not decoded yet); the host turns it into an
+  6, `index: u32`, `width`, `height`, `flags` bit 0 not decoded yet); the host turns it into an
   image id for the opener. **Two names:** the image id is only a drawing handle and may end; `index`
   is the format's own number of the picture in the document (op 18's `index`; `u32::MAX` the cover),
   stable for the document's life, and `doc_image` carries it on, so the reader can always ask again.
   **Translation:** in a block stream (op 8) and in ops 17 and 18 the host replaces each `fmt.image`
   by a `doc_image` for the opener: it checks the path (root 6 rules, the cache file's header against
   `width`/`height`, section 5's hostile-input rule), gives the picture an image id of the opener (or
-  the id it already has for that path in this document), and passes `width`, `height` and `flags`
-  bit 0 on; a `fmt.image` that fails the check becomes no `doc_image` (the block keeps its alt text,
-  counted as a failed read) and never fails the whole stream. Over the 8 image ids per plugin, the
+  the id it already has for that path in this document), and passes `width` and `height` on;
+  `doc_image.flags` (the same bits as `image.info`'s) is bit 0 colour, set when the cache file's
+  header says the picture is in colour (the header is read for the check anyway; never on a screen
+  without colour), and bit 1 not decoded yet, `fmt.image`'s bit 0. Other `fmt.image` bits are
+  dropped, not refused: it is a format's reply row, so a bit a newer format sets must not cost an
+  older host the picture (requests to the host keep refusing unknown bits). A `fmt.image` that
+  fails the check becomes no `doc_image` (the block keeps its alt text, counted as a failed read)
+  and never fails the whole stream. Over the 8 image ids per plugin, the
   host ends the opener's least recently drawn document image first, so a long chapter of pictures
   never runs out (`ERR_NOT_FOUND` at a draw of an ended id: the reader asks again with op 16 by the
   picture's `index`; the host keeps nothing for an ended id). An id handed out is never ended before
@@ -430,21 +570,27 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   format decode that picture now (op 18 with `index`, or op 17 for the cover; interface 6
   `prepare_image`, `prepare_image_larger`): a new image id, or the live one where nothing was to do.
 - [D] `image_prepare` decodes a JPEG (baseline and progressive), PNG (not interlaced) or GIF
-  (first frame) of the caller's root 0 or root 1 (`uses.storage`) into the host's image cache at
+  (first frame) of the caller's root 0, root 1 (`uses.storage`) or root 2 (its own install folder,
+  read-only, no feature; a built-in plugin's is empty, so `status` 6) into the host's image cache at
   most `side` pixels on the longest side (0: the screen's), in the background: **one request per
   main-loop turn**, decoded to completion in that turn (the `paperpaw-image` decoders cannot pause;
   interface 6 prepared pictures the same way), never inside a plugin callback, so a waiting input
   is handled before the next request starts. A request is bounded by the caps below (8 Mpx source,
   `side` at most 1,600); its time on the X4 is a measured gate (a 1,600-pixel PNG), and a
-  resumable decoder replaces this rule if it fails. `event.image_ready` (to the
+  resumable decoder replaces this rule if it fails. A `side` above 1,600 is clamped to 1,600, not
+  refused (`image_prepare` and op 16 alike); `event.image_ready` reports the width and height
+  actually made. `event.image_ready` (to the
   caller only) tells `status` 0 ready, 1 unsupported (also BMP, which no first-party plugin
   prepares, interlaced PNG and WebP: the image crate has no decoder for them; WebP joins the list
   once one exists, with its own fuzz target), 2 damaged, 3 too large (over 8 Mpx source, `XTC` and
   decoder caps; `paperpaw_image::ImageError::TooLarge`), 4 card failure (`ERR_IO`, no card or
-  full), 5 not enough memory now (`ERR_NO_MEMORY`, try again later). Unknown values read as 2. At
+  full), 5 not enough memory now (`ERR_NO_MEMORY`, try again later), 6 not found (no such file on
+  that root, every root alike; an older SDK reads it as 2). Unknown values read as 2. There is no
+  prepare from bytes: a plugin writes them to a file in root 0 first. At
   most 4 waiting per plugin (`ERR_FULL`), 8 prepared images per plugin. `flags` bit 0 colour
   (where the screen has it).
-- [D] `image.info` writes one `doc_image` record (`width`, `height`, `flags` bit 0 colour) into
+- [D] `image.info` writes one `doc_image` record (`width`, `height`, `flags` bit 0 colour, bit 1
+  not decoded yet) into
   `out`. `canvas.draw_image` draws the image scaled into the rectangle (keeping its shape,
   centred), clipped by the canvas, only inside a `draw` callback (`ERR_STATE`). `flags`: bit 0
   `fill` (fill the rectangle and crop), bit 1 `small` (a small picture: it does not count towards
@@ -467,7 +613,10 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   picture whose bands this frame draws, at most 4 KiB per plugin, so band edges do not show; freed
   when the frame ends or the image id ends. A host that keeps none, or cannot have it (refused,
   or another picture holds it), dithers each call on its own (Atkinson within the call), never an
-  error. These limits are slot 37's; a plugin that draws a picture itself with the SDK's drawer
+  error. A dithered picture whose rectangle is up to 1,600 px wide is dithered over all its
+  columns, so a part redrawn alone matches the whole; for a wider rectangle, or where the device's
+  draw scratch does not hold the full width, only the visible columns are dithered and a redrawn
+  part may differ slightly (never an error). These limits are slot 37's; a plugin that draws a picture itself with the SDK's drawer
   spends its own heap under its own budget.
   Dithering and night-mode inversion are the host's own, by the screen and the user's settings,
   not flags.
@@ -486,13 +635,15 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
 
 - [D] `doc_font` rows, one per **face** (`index` from 0, at most 124: 31 families × regular, bold,
   italic, bold italic; `family` 1-31 as the runs' `TextStyle` family, `flags` bit 0 bold, bit 1
-  italic, `bytes` the file's size), paged. The format writes each embedded font (at most 16
-  MiB, interface 6's EPUB cap) whole into its cache when it prepares the document; the reader gets a
-  font handle with `font.acquire` (slot 7) and the key `document.<document>.<index>` (only the
-  document's opener: for any other plugin `ERR_NOT_FOUND`), which the host
-  resolves to that cache file and renders from the card like a card font. A damaged font is
-  `ERR_INVALID` at `font.acquire` (the reader falls back to the user's font and counts it, interface
-  6 `failed_reads`). Handles of a closed document's fonts draw nothing (`ERR_NOT_FOUND` at the next
+  italic, `bytes` the file's size), paged. The format writes each embedded font (at most 16 MiB,
+  interface 6's EPUB cap) whole into its cache when it prepares the document; the reader gets a font
+  handle with `font.acquire` (slot 7) and the key `document.<document>.<index>` (only the document's
+  opener: for any other plugin `ERR_NOT_FOUND`), which the host resolves to that cache file and
+  renders from the card like a card font. Face `index` i is the root-6 file `fonts/<i>` (decimal, no
+  extension), the format's to write; the host opens nothing else, and a file whose size is not the
+  row's `bytes` is `ERR_INVALID` at `font.acquire`. A damaged font is `ERR_INVALID` at
+  `font.acquire` (the reader falls back to the user's font and counts it, interface 6
+  `failed_reads`). Handles of a closed document's fonts draw nothing (`ERR_NOT_FOUND` at the next
   text call) and are released as usual.
 - [D] Embedded fonts are hostile input to the host's font engine: its parser has a fuzz target (a
   gate), `font.acquire` checks the tables it needs, and a glyph that fails to parse later draws
@@ -545,16 +696,60 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
 - [D] A host-defined stage `core.lookup` (major 1, generated schema): providers declare
   `lookup.spec` (230: `name: str 96`, `title: str 96`, `languages: str 512` one BCP 47 tag per line,
   at most 32 tags of at most 35 bytes, or empty for any, `flags` bit 0 network (shown only when a
-  network is up), `token: u32`) and are called in the user's order (a host setting listing them,
-  REG). The asker (the dictionary screen, the reader's selection menu) calls the service
-  `core.lookup` (major 1) op 1 `lookup` (1092 `lookup_ask`: `text: str 1024`, `language: str 35`,
-  `context: str 1024`, `cursor: u32`) and gets the providers' rows 1093 `lookup_entry` (`provider:
-  str 64`, `title: str 256`, `text: str 2048`, `flags` bit 0 more pages, bit 1 pending: the provider
-  answers later) in pages, one provider per page.
-- [D] A provider that must fetch (wikipedia, translate) answers "pending" at once and finishes with
-  ASY's async stage reply by request id (ASY family); the asker gets ASY's completion event and asks
-  again with the cursor. Until ASY lands, network providers answer `ERR_UNSUPPORTED` and only local
-  ones (stardict dictionaries) answer. No provider sees another's answer; the asker sees all.
+  network is up), `token: u32`) and are called in the order the plugins registered them (interface 6
+  `LookupProviders`; a user order is not part of 1.0). The asker (the dictionary screen, the
+  reader's selection menu) calls the service `core.lookup` (major 1) op 1 `lookup` (1092
+  `lookup_ask`: `text: str 1024`, `language: str 35`, `context: str 1024`, `cursor: u32`) and gets
+  the providers' rows 1093 `lookup_entry` (`provider: str 64`, `title: str 256`, `text: str 2048`,
+  `flags` bit 0 more pages, bit 1 pending: the provider answers later) in pages, one provider per
+  page.
+- [D] **Provider names:** the registry refuses a `lookup.spec` whose `name` is empty or longer than
+  64 bytes with `ERR_INVALID` (`lookup_entry.provider` holds 64), so every entry names its provider.
+- [D] **Caps and names:** at most 8 `lookup.spec` per plugin (a ninth is `ERR_INVALID` for the
+  batch) and 32 device-wide (`ERR_FULL` for the batch that would pass it), as for formats and
+  readers; the plugin does not load, `reg_plugin.problem` 18 (`registry.md`). A `name` twice in
+  one plugin is `ERR_INVALID` for the batch; two plugins may use the same name (a `lookup_ready`
+  matched to the wrong one of them costs one more ask, nothing worse).
+- [D] **Network providers** (`flags` bit 0) are called only while the host's network is connected
+  at the ask (as `event.wifi_changed` reports it; the cable serves a computer, not the internet,
+  and does not count); else they are skipped without a page. A lookup never starts a join.
+- [D] **Languages** (interface 6 `LookupQuery::fits`): an empty ask `language` or an empty spec
+  `languages` takes any; else a spec tag fits when it equals the ask's tag or the ask's primary
+  subtag (the part before the first `-` or `_`), ASCII case ignored: spec `de` takes `de-AT` and
+  `DE`; spec `de-AT` does not take `de`.
+- [D] **Empty answers:** a provider's own `ERR_NOT_FOUND` is not passed on: the host answers that
+  provider's page with one `lookup_entry` carrying the provider's name and an empty `title` and
+  `text`. Only running out of providers (a `cursor` past the last) is `ERR_NOT_FOUND` to the asker.
+- [D] **`flags` bit 0 (more) is the host's:** the host sets it on every entry that later providers
+  follow and clears whatever the provider set; the provider's own paging stays inside its page.
+- [D] **A provider that must fetch** (wikipedia, translate) never blocks the asker: its stage call
+  answers at once with its `lookup_entry` flagged bit 1 `pending` (empty `text`), starts its own
+  request (`core.net`, as itself) and keeps the result in its own data. If the asker subscribes
+  to `event.lookup_ready` (110), the host records one **pending ask**; for an asker that does not,
+  it records nothing (the asker sees `pending` and may ask again itself).
+- [D] **The pending table** is fixed and allocates nothing: **16 entries on the X4, 32
+  elsewhere**, 32 bytes each (the asker and the provider as `u64` owners, the ask's hash, the
+  deadline as `u64` ms, 60 s after the ask): 512 bytes on the X4. The hash is 64-bit FNV-1a over
+  the length of `language` as one byte, the `language` bytes and the `text` bytes, so the pair
+  (`language`, `text`) maps to one input without ambiguity. One entry per (asker, provider, hash):
+  asking again refreshes its deadline. At most 4 entries per asker and **at most 8 per provider
+  on the X4** (16 elsewhere), so one provider cannot fill the table for the others. With no room
+  (table, asker's or provider's share full), the provider's page is answered as an empty entry
+  (the empty-answer rule above) and the host logs it, so a full table never blocks or fails the
+  lookup. Two asks whose hashes collide are matched together: the extra asker gets an event,
+  asks again and sees `pending` or the answer; nothing worse.
+- [D] When its result is kept, the provider stages `command.lookup_ready` (1593: `text: str 1024`,
+  `language: str 35`, the ask it answered). The host matches it against the pending asks naming
+  that provider, removes them and sends each asker `event.lookup_ready` (110: `now_ms`, `provider:
+  str 64`; the asker subscribes to it like any event). The asker calls `lookup` again with the same
+  `text` and `language` (from 0 or at that provider's cursor) and the provider answers from what it
+  kept, now without `pending`. A `lookup_ready` that matches no pending ask does nothing but
+  count: the host adds 1 to a counter of unmatched ready commands and logs at most one line a
+  minute about them; the command is accepted (never an error to the provider).
+- [D] A pending ask ends without an event when its deadline passes, the asker stops or the
+  provider stops; an asker that wants the answer later asks again. The host never starts a
+  stopped plugin for a lookup and never holds a provider's answer itself. No provider sees
+  another's answer; the asker sees all.
 
 ## 8. Sizes and memory
 
@@ -612,12 +807,18 @@ reply 4,096 bytes, stage payload 3,840.
 - Hyphenation (section 6.1): no heap per call; open tables at most 48 KiB together (2 tables;
   about 20 KB for `de`), opened at a book's first hyphenated word and closed with the book, as
   interface 6's card tables, which the reader held; the same bytes, now counted to the host.
-- Lookup: one stage call on the scratch; nothing kept.
-- **X4 worst case for DOC's host side: about 6 KiB at rest** (documents 0.13 + images 1.5 + band 4 +
-  queue), **plus the decoder's transient peak while an image decodes (PNG at most 48 KiB on the
-  X4)**, **and the open hyphenation tables while a book is open (at most 48 KiB, `de` about 20
-  KB; interface 6's reader held the same)**, all fallible; an activation-gate item beside UIX's,
-  measured with the reader port. The format plugins' own heaps are gated by their ports.
+- Lookup: one stage call on the scratch; the pending table (section 7) of 16 × 32 bytes = **512
+  bytes on the X4** (1 KiB elsewhere), fixed, no allocation; no answer text kept. Registered
+  `lookup.spec` rows are not copied: the host reads them from the plugin's declarations where they
+  are, as it reads formats, readers and book fields (the declaration store keeps about 8 bytes per
+  record, so 256 bytes at the device cap of 32); a host that copied the rows would hold up to about
+  23 KiB at that cap, more than DOC's whole budget at rest, and must not.
+- **X4 worst case for DOC's host side: about 6.5 KiB at rest** (documents 0.13, images 1.5, band 4,
+  pending lookups 0.5, queue), **plus the decoder's transient peak while an image decodes (PNG at
+  most 48 KiB on the X4)**, **and the open hyphenation tables while a book is open (at most 48 KiB,
+  `de` about 20 KB; interface 6's reader held the same)**, all fallible; an activation-gate item
+  beside UIX's, measured with the reader port. The format plugins' own heaps are gated by their
+  ports.
 
 ## 9. Interface-6 calls and their interface-7 form
 

@@ -18,12 +18,15 @@
 //! made it and read (op 10) only by the owning instance; they are wiped when
 //! freed and never in a `Debug` or a log.
 use super::registrations::{self as wire, Record};
+use crate::native_host::codec;
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use core::fmt;
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
+    ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE,
+    ERR_NOT_FOUND, ERR_STATE,
 };
+use paperpaw_platform::MemoryClass;
 
 /// Most params of one hand-over.
 pub(crate) const PARAMS_MAX: usize = 32;
@@ -31,6 +34,17 @@ pub(crate) const PARAMS_MAX: usize = 32;
 pub(crate) const PARAM_BYTES_MAX: usize = 1_024;
 /// Longest key.
 const KEY_MAX: usize = 32;
+/// Whether the device declares the small memory class (a 256 KiB heap: the X4
+/// and the X3): the one place the X4 profile of `core.ui` is decided, for the
+/// store's limits (`HostWiring::ui`), for the admission rules
+/// (`Frame::ui_x4`) and for op 14 (`native_status`). It follows the declared
+/// class, not an id, so a device that declares `Large` (the X4 Pro until its
+/// memory is measured) keeps the large limits. A class added later gets the
+/// small limits until someone decides otherwise (fail closed).
+pub(crate) fn is_x4(memory: MemoryClass) -> bool {
+    !matches!(memory, MemoryClass::Large)
+}
+
 /// Largest text of a hand-over or a request.
 pub(crate) const TEXT_MAX: usize = 24_576;
 /// Largest part one write brings.
@@ -128,12 +142,68 @@ pub(crate) struct Param<'a> {
     pub(crate) value: &'a str,
 }
 
+/// The file an instance's hand-over names (see [`UiStore::handed_file`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Handed<'a> {
+    /// The plugin that made the hand-over, as its owner key, not its id. The
+    /// host hands owner keys out once (`HostResources::try_owner`, a counter
+    /// that is never reused and refuses at its end), so a key that outlives
+    /// its plugin can never name another one. The reader resolves it with
+    /// `native_instances.id(key)` when it opens the file and answers
+    /// `ERR_NOT_FOUND` when there is no such installed plugin any more.
+    pub(crate) maker: u64,
+    /// Where the file is in the maker's folders: `0` its data folder, `2`
+    /// its install folder.
+    pub(crate) root: u32,
+    /// The path as the hand-over carries it, not yet checked.
+    pub(crate) path: &'a str,
+}
+
 /// What the screen opened event says about an instance's hand-over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Info {
     pub(crate) handover: u32,
     pub(crate) params: u32,
     pub(crate) text_bytes: u32,
+}
+
+/// Whether `ok` holds for every param of the framed block `block`.
+fn params_in(block: &[u8], mut ok: impl FnMut(&str, &str) -> bool) -> bool {
+    let mut rest = block;
+    while !rest.is_empty() {
+        let Ok((Record::ServiceUiParam(param), used)) = wire::record_decode_prefix(rest) else {
+            return false;
+        };
+        if !ok(param.key, param.value) {
+            return false;
+        }
+        rest = &rest[used..];
+    }
+    true
+}
+
+/// The value of param `key` in the framed block, if it has one.
+fn value_of<'a>(block: &'a [u8], key: &str) -> Option<&'a str> {
+    let mut rest = block;
+    while !rest.is_empty() {
+        let (Record::ServiceUiParam(param), used) = wire::record_decode_prefix(rest).ok()? else {
+            return None;
+        };
+        if param.key == key {
+            return Some(param.value);
+        }
+        rest = &rest[used..];
+    }
+    None
+}
+
+impl Info {
+    /// No hand-over: what the event says of an instance opened without one.
+    pub(crate) const NONE: Self = Self {
+        handover: 0,
+        params: 0,
+        text_bytes: 0,
+    };
 }
 
 /// Bytes wiped when they are freed (with the shared volatile wipe). Room
@@ -157,9 +227,19 @@ impl Wiped {
 }
 
 enum State {
-    Made { owner: u64, epoch: u64 },
-    Claimed { owner: u64, batch: u64 },
-    Owned { instance: u32 },
+    Made {
+        owner: u64,
+        epoch: u64,
+    },
+    Claimed {
+        owner: u64,
+        batch: u64,
+    },
+    /// `maker` is the plugin that made and claimed it (kept when it stops).
+    Owned {
+        instance: u32,
+        maker: u64,
+    },
 }
 
 /// A text is kept in chunks: a chunk is one allocation, filled in place by
@@ -198,6 +278,10 @@ pub(super) struct Inner {
     pub(super) secret_memory: usize,
     /// The questions kept.
     pub(super) question_memory: usize,
+    /// Answers of a host dialog the store did not take, not yet logged.
+    pub(super) refused: u32,
+    /// The clipboard (`core.ui` ops 18 and 19).
+    pub(super) clipboard: super::ui_clipboard::ClipboardState,
 }
 
 /// The store.
@@ -353,6 +437,8 @@ impl UiStore {
                 text_memory: 0,
                 secret_memory: 0,
                 question_memory: 0,
+                refused: 0,
+                clipboard: super::ui_clipboard::ClipboardState::default(),
             }),
         }
     }
@@ -401,7 +487,7 @@ impl UiStore {
         // Encode once into a block of exactly the size.
         let mut framed = 0_usize;
         for param in params {
-            framed += wire::record_framed_len(&Record::ServiceUiParam(wire::ServiceUiParam {
+            framed += codec::framed_len(&Record::ServiceUiParam(wire::ServiceUiParam {
                 key: param.key,
                 value: param.value,
             }))?;
@@ -422,7 +508,7 @@ impl UiStore {
                 key: param.key,
                 value: param.value,
             });
-            used += wire::record_encode_one(&record, &mut block.0[used..])?;
+            used += codec::encode_one(&record, &mut block.0[used..])?;
         }
         inner.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         let id = self.alloc_id()?;
@@ -600,19 +686,18 @@ impl UiStore {
         let new = match id {
             Some(id) => {
                 let at = Self::position(&inner, id).ok_or(ERR_STATE)?;
-                if !matches!(inner.entries[at].state, State::Claimed { .. }) {
+                let State::Claimed { owner, .. } = inner.entries[at].state else {
                     return Err(ERR_STATE);
-                }
-                Some(at)
+                };
+                Some((at, owner))
             }
             None => None,
         };
-        let old = inner
-            .entries
-            .iter()
-            .position(|entry| matches!(entry.state, State::Owned { instance: i } if i == instance));
-        if let Some(at) = new {
-            inner.entries[at].state = State::Owned { instance };
+        let old = inner.entries.iter().position(
+            |entry| matches!(entry.state, State::Owned { instance: i, .. } if i == instance),
+        );
+        if let Some((at, maker)) = new {
+            inner.entries[at].state = State::Owned { instance, maker };
         }
         if let Some(old) = old {
             Self::free(&mut inner, old);
@@ -639,13 +724,34 @@ impl UiStore {
         Ok(())
     }
 
+    /// Find the next retained instance, including request ties and dialogs.
+    /// The kernel compares these ids against its actual stack during recovery.
+    pub(crate) fn next_retained_instance(&self, after: u32) -> Result<Option<u32>, i32> {
+        let inner = self.inner_busy()?;
+        Ok(inner
+            .entries
+            .iter()
+            .filter_map(|entry| match entry.state {
+                State::Owned { instance, .. } => Some(instance),
+                _ => None,
+            })
+            .chain(
+                inner
+                    .requests
+                    .iter()
+                    .flat_map(|request| request.instances())
+                    .flatten(),
+            )
+            .filter(|instance| *instance > after)
+            .min())
+    }
+
     /// An instance closed: what it owns is freed.
     pub(crate) fn instance_closed(&self, instance: u32) -> Result<(), i32> {
         let mut inner = self.inner_busy()?;
-        let owned = inner
-            .entries
-            .iter()
-            .position(|entry| matches!(entry.state, State::Owned { instance: i } if i == instance));
+        let owned = inner.entries.iter().position(
+            |entry| matches!(entry.state, State::Owned { instance: i, .. } if i == instance),
+        );
         if let Some(at) = owned {
             Self::free(&mut inner, at);
         }
@@ -682,18 +788,98 @@ impl UiStore {
         inner.text_memory -= entry.text.charged.min(inner.text_memory);
     }
 
+    /// Whether `made` (a hand-over of an `open` being applied, or none) has
+    /// the params `instance` was given: the compare of `open` modes 1 and 3 and
+    /// of instances per params (`ui.md` 1.1). Texts are not compared.
+    pub(crate) fn same_params(&self, made: Option<u32>, instance: u32) -> bool {
+        let Ok(inner) = self.inner.try_borrow() else {
+            return false;
+        };
+        let framed = |id: Option<u32>, owned: bool| -> (&[u8], u32) {
+            inner
+                .entries
+                .iter()
+                .find(|entry| match id {
+                    Some(id) => entry.id == id,
+                    None => {
+                        owned
+                            && matches!(entry.state, State::Owned { instance: i, .. } if i == instance)
+                    }
+                })
+                .map_or((&[][..], 0), |entry| (&entry.params.0[..], entry.count))
+        };
+        let ((new, new_count), (old, old_count)) = (framed(made, false), framed(None, true));
+        // The same keys with the same values, in any order (keys are unique).
+        new_count == old_count && params_in(new, |key, value| value_of(old, key) == Some(value))
+    }
+
     /// What the opened event says about `instance`'s hand-over, if it has one.
     pub(crate) fn info(&self, instance: u32) -> Option<Info> {
         let inner = self.inner.try_borrow().ok()?;
         inner
             .entries
             .iter()
-            .find(|entry| matches!(entry.state, State::Owned { instance: i } if i == instance))
+            .find(|entry| matches!(entry.state, State::Owned { instance: i, .. } if i == instance))
             .map(|entry| Info {
                 handover: entry.id,
                 params: entry.count,
                 text_bytes: u32::try_from(entry.text.bytes).unwrap_or(u32::MAX),
             })
+    }
+
+    /// The one file `instance`'s hand-over names: its params `root` (`0` or
+    /// `2`) and `path`, and the plugin that made it, for root 5 of
+    /// `doc_open` (`document.md` 2.1). Nothing is copied: `visit` sees them
+    /// in place and must not reenter the store; the store stays borrowed for
+    /// the length of `visit`, so a caller copies the path out and does its
+    /// card I/O afterwards. `root` is exactly `"0"` or `"2"`: any other text
+    /// (`"02"`, `" 2"`, `"+2"`) is not a root.
+    ///
+    /// # Errors
+    /// `ERR_DENIED` for an instance without a hand-over, a hand-over without
+    /// both params, a root other than `0` or `2`, or a repeated param;
+    /// `ERR_STATE` while the store is busy.
+    pub(crate) fn handed_file(
+        &self,
+        instance: u32,
+        visit: &mut dyn FnMut(Handed<'_>),
+    ) -> Result<(), i32> {
+        let inner = self.inner.try_borrow().map_err(|_| ERR_STATE)?;
+        let entry = inner
+            .entries
+            .iter()
+            .find(|entry| matches!(entry.state, State::Owned { instance: i, .. } if i == instance))
+            .ok_or(ERR_DENIED)?;
+        let State::Owned { maker, .. } = entry.state else {
+            return Err(ERR_DENIED);
+        };
+        let (mut root, mut path) = (None, None);
+        let mut rest = &entry.params.0[..];
+        while !rest.is_empty() {
+            let Ok((Record::ServiceUiParam(param), used)) = wire::record_decode_prefix(rest) else {
+                return Err(ERR_DENIED);
+            };
+            let slot = match param.key {
+                "root" => &mut root,
+                "path" => &mut path,
+                _ => {
+                    rest = &rest[used..];
+                    continue;
+                }
+            };
+            if slot.replace(param.value).is_some() {
+                return Err(ERR_DENIED);
+            }
+            rest = &rest[used..];
+        }
+        let root = match root {
+            Some("0") => 0,
+            Some("2") => 2,
+            _ => return Err(ERR_DENIED),
+        };
+        let path = path.ok_or(ERR_DENIED)?;
+        visit(Handed { maker, root, path });
+        Ok(())
     }
 
     /// Op 17: the params of `instance`'s hand-over as `ui_param` records into
@@ -719,7 +905,9 @@ impl UiStore {
             .entries
             .iter()
             .find(|entry| entry.id == handover)
-            .filter(|entry| matches!(entry.state, State::Owned { instance: i } if i == instance))
+            .filter(
+                |entry| matches!(entry.state, State::Owned { instance: i, .. } if i == instance),
+            )
             .ok_or(ERR_STATE)
     }
 

@@ -137,6 +137,7 @@ fn every_new_kind_allocation_refusal_leaves_the_store_unpublished() {
             let mut store = DeclarationStore::default();
             let mut allocations = Allocations {
                 fail_after: Some(fail_after),
+                ..Default::default()
             };
             let result = pending(&source, owned, &mut allocations).and_then(|p| {
                 store
@@ -202,7 +203,7 @@ fn every_declaration_kind_matches_the_raw_index_category() {
     let source = image();
     let bytes = source.bytes.borrow();
     let batch = records_decode(&bytes).unwrap();
-    let mut seen = [false; KIND_COUNT];
+    let mut seen = [false; Kind::Action as usize + 1];
     for record in batch.iter().chain(pair()) {
         let kind = Kind::of(&record).unwrap();
         assert_eq!(

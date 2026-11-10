@@ -34,15 +34,18 @@ use super::{
     registrations::{self as wire, Record},
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
+use crate::native_host::codec;
 use alloc::{rc::Rc, string::String};
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_UNSUPPORTED};
 
 pub(crate) mod args;
+mod device;
 mod serving;
 mod table;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use device::NetDevice;
 pub(crate) use table::NetTable;
 
 /// `event.http_done.reason` (`network.md` 4.1).
@@ -50,6 +53,7 @@ pub(crate) mod reason {
     pub(crate) const OK: u32 = 0;
     pub(crate) const NO_NETWORK: u32 = 1;
     pub(crate) const DNS: u32 = 2;
+    pub(crate) const TLS: u32 = 3;
     pub(crate) const TIMEOUT: u32 = 4;
     pub(crate) const REFUSED: u32 = 5;
     pub(crate) const TOO_LARGE: u32 = 6;
@@ -104,6 +108,10 @@ pub(crate) struct NetProfile {
     pub(crate) max_body: u32,
     /// Whether the cable server (`serve` port 0) exists.
     pub(crate) cable: bool,
+    /// `SERVERS`: servers open at once over all plugins, from `serve` until
+    /// they stop, fail or end (1 on the X4, 2 on the X4 Pro and Classic, 8
+    /// elsewhere). A `serve` past it answers `ERR_BUSY` and opens nothing.
+    pub(crate) servers: u32,
 }
 
 impl NetProfile {
@@ -116,6 +124,7 @@ impl NetProfile {
         connections: 2,
         max_body: 45_056,
         cable: true,
+        servers: 1,
     };
     /// Devices without a pool (Android, the emulator).
     pub(crate) const OTHER: Self = Self {
@@ -124,6 +133,7 @@ impl NetProfile {
         connections: 6,
         max_body: 1_048_576,
         cable: false,
+        servers: 8,
     };
 }
 
@@ -139,6 +149,8 @@ pub(crate) struct PowerEnd {
 
 /// What a request gives the transport when it starts.
 pub(crate) struct Start<'a> {
+    /// The plugin that made the request (the transport runs outside its call).
+    pub(crate) owner: u64,
     pub(crate) request: &'a args::Request<'a>,
     pub(crate) max_body: u32,
     pub(crate) max_file: u64,
@@ -147,6 +159,8 @@ pub(crate) struct Start<'a> {
 
 /// An answer to a served request.
 pub(crate) struct Reply<'a> {
+    /// The plugin that serves.
+    pub(crate) owner: u64,
     pub(crate) response: &'a args::Response<'a>,
     /// The file to send exists (a missing one is answered 404 by the
     /// transport; the service already checked).
@@ -166,11 +180,11 @@ pub(crate) type Refused = u32;
 pub(crate) trait NetTransport {
     /// Begin one request (connect, send, read). Its memory body is bounded
     /// by `max_body` (reserved from the pool already); a saving request writes
-    /// `<path>.part` in 4 KiB appends and renames it over the target only when
+    /// `<path>.pp-staged` in 4 KiB appends and renames it over the target only when
     /// the answer is whole. `Err` means it could not begin.
     fn start(&self, id: u32, start: &Start<'_>) -> Result<(), i32>;
     /// Drop the transfer of `id` without any report; a saving request's
-    /// `.part` file is removed by the service ([`NetHost::release_save`]).
+    /// `.pp-staged` file is removed by the service ([`NetHost::release_save`]).
     fn abort(&self, id: u32);
     /// Listen on `port` (0: the cable), trying the next 20 ports when it is
     /// taken. The address that was got (`""` for the cable) or the reason.
@@ -199,12 +213,12 @@ pub(crate) trait NetHost {
     /// Whether two paths of the same root name the same file (case, 8.3
     /// aliases): the storage's identity, not the spelling.
     fn same_file(&self, root: u32, a: &str, b: &str) -> bool;
-    /// Put the target and its `.part` file in the paths-in-use table. Claims
+    /// Put the target and its `.pp-staged` file in the paths-in-use table. Claims
     /// are counted: the same plugin may claim a file it already has claimed (a
     /// request that replaces its older one claims first, so a refusal changes
     /// nothing), and each `release_save` gives one back.
     fn claim_save(&self, owner: u64, root: u32, path: &str) -> Result<(), i32>;
-    /// Remove the `.part` file (best effort) and free the claim.
+    /// Remove the `.pp-staged` file (best effort) and free the claim.
     fn release_save(&self, owner: u64, root: u32, path: &str);
     /// Whether the plugin subscribed to the event `tag`.
     fn subscribed(&self, owner: u64, tag: u32) -> bool;
@@ -220,8 +234,30 @@ pub(crate) trait NetHost {
     fn network_demand(&self, wanted: bool);
     /// The work run the current callback of the plugin belongs to.
     fn current_run(&self, owner: u64) -> Option<u64>;
+    /// A request of work run `run` was stored: the run does not end while it
+    /// lives (`work.md` 2.3). Called after the request was admitted, once.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` (the scheduler is in use), `ERR_FULL`, `ERR_NOT_FOUND`: the
+    /// request is refused with it and nothing is stored.
+    fn resource_opened(&self, run: u64) -> Result<(), i32>;
+    /// The request of work run `run` ended (any way): exactly once for each
+    /// `resource_opened`, and never allocating.
+    fn resource_closed(&self, run: u64);
     /// The screen instance whose callback is running if it is showing.
     fn showing_screen(&self, owner: u64) -> Option<u64>;
+    /// The topmost screen instance of the owner when it is showing, for a
+    /// `serve` from a callback that is no screen's (`network.md` 5.1). The
+    /// default knows none.
+    fn topmost_screen(&self, _owner: u64) -> Option<u64> {
+        None
+    }
+    /// Whether [`Self::current_run`] can tell now: `false` while the
+    /// scheduler is in use or none is attached, and then a call outside a
+    /// screen does not count as outside a run.
+    fn run_known(&self) -> bool {
+        true
+    }
     /// Whether `extra` more bytes can be written and the storage's free-space
     /// reserve (D2.6) is kept.
     fn room_for(&self, extra: u64) -> bool;
@@ -264,33 +300,23 @@ pub(crate) fn backend(
             )
         }
         op::CANCEL => {
-            let Record::ServiceNetToken(t) = wire::records_decode_single(input)? else {
-                return Err(ERR_INVALID);
-            };
+            let t: wire::ServiceNetToken = codec::single(input)?;
             table::cancel(host, who.owner, t.token).map(|()| 0)
         }
         op::ANSWER => {
-            let Record::ServiceNetId(i) = wire::records_decode_single(input)? else {
-                return Err(ERR_INVALID);
-            };
+            let i: wire::ServiceNetId = codec::single(input)?;
             table::answer(host, who.owner, i.id, out)
         }
         op::BODY => {
-            let Record::ServiceNetRead(r) = wire::records_decode_single(input)? else {
-                return Err(ERR_INVALID);
-            };
+            let r: wire::ServiceNetRead = codec::single(input)?;
             table::body(host, who.owner, r.id, r.offset, out)
         }
         op::SERVE => {
-            let Record::ServiceNetServe(s) = wire::records_decode_single(input)? else {
-                return Err(ERR_INVALID);
-            };
+            let s: wire::ServiceNetServe = codec::single(input)?;
             serving::serve(host, who, &s).map(|()| 0)
         }
         op::STOP_SERVING => {
-            let Record::ServiceNetToken(t) = wire::records_decode_single(input)? else {
-                return Err(ERR_INVALID);
-            };
+            let t: wire::ServiceNetToken = codec::single(input)?;
             serving::stop_serving(host, who.owner, t.token).map(|()| 0)
         }
         op::RESPOND => serving::respond(host, who, input).map(|()| 0),
@@ -300,7 +326,7 @@ pub(crate) fn backend(
 
 /// A bare reply: the one record's framed bytes, no count and no end.
 fn reply(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
-    wire::record_encode_one(record, out)
+    codec::encode_one(record, out)
 }
 
 // The test hook for allocation failures: the `n`th gate of a test that armed
@@ -319,6 +345,12 @@ pub(crate) fn gate() -> Result<(), i32> {
             Ok(())
         }
     })
+}
+
+/// Makes the `n`th next [`gate`] (counting from 1) fail; 0 clears it.
+#[cfg(test)]
+pub(crate) fn fail_nth(n: u32) {
+    tests::FAIL_NTH.with(|nth| nth.set(n));
 }
 
 #[cfg(not(test))]
@@ -345,19 +377,31 @@ fn own(text: &str) -> Result<String, i32> {
     reason = "the shell's hooks into the tables; tests use them"
 )]
 pub(crate) use serving::{
-    Decision, screen_closed, served_body, served_gone, served_head, served_whole,
+    Decision, screen_closed, served_body, served_gone, served_head, served_whole, server_failed,
+    server_owner, server_started,
 };
 #[allow(
     unused_imports,
     reason = "the shell's hooks into the tables; tests use them"
 )]
 pub(crate) use table::{
-    Finished, event_delivered, finished, network_lost, next_event, progress, tick, work_ended,
+    Finished, event_delivered, finished, network_lost, next_deadline, next_event, next_event_run,
+    progress, redirected_to_https, tick, work_ended,
 };
+
+/// A request as the dispatcher admits it, for the tests of the shell's wiring.
+#[cfg(test)]
+pub(crate) fn request_for_tests(
+    host: &dyn NetHost,
+    who: &Caller<'_>,
+    input: &[u8],
+) -> Result<u32, i32> {
+    table::request(host, who, input)
+}
 
 /// The plugin stopped (its callbacks are revoked): its requests are
 /// cancelled without events, its servers stopped without events, held
-/// bodies freed, `.part` files removed and its `.received/` emptied.
+/// bodies freed, `.pp-staged` files removed and its `.received/` emptied.
 /// Idempotent.
 ///
 /// # Errors

@@ -1,0 +1,80 @@
+//! The plugin's native declarations (screens, actions, menu entries, events)
+//! are what the image holds, and the host admits them.
+#![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
+use paperpaw_core::native_host::{
+    declarations::{validate_batch, validate_record},
+    registrations::records_decode,
+};
+
+#[path = "../declarations.rs"]
+mod declarations;
+
+mod image {
+    include!(concat!(env!("OUT_DIR"), "/bluetooth_declarations.rs"));
+}
+
+/// The batches `$declare` submits.
+macro_rules! batches {
+    ($declare:path) => {{
+        let mut out: Vec<Vec<u8>> = Vec::new();
+        {
+            let mut d = paperpaw_sdk::native::declare::Declarations::new(|batch: &[u8]| {
+                out.push(batch.to_vec());
+                Ok(())
+            });
+            $declare(&mut d).unwrap();
+        }
+        out
+    }};
+}
+
+#[test]
+fn the_image_is_what_the_builder_makes() {
+    for (name, built, image) in [
+        (
+            "settings",
+            batches!(declarations::settings),
+            image::SETTINGS,
+        ),
+        ("screens", batches!(declarations::screens), image::SCREENS),
+        (
+            "navigation",
+            batches!(declarations::navigation),
+            image::NAVIGATION,
+        ),
+        ("events", batches!(declarations::events), image::EVENTS),
+    ] {
+        assert_eq!(built.len(), image.len(), "{name}");
+        for (built, image) in built.iter().zip(image) {
+            assert_eq!(built.as_slice(), *image, "{name}");
+        }
+    }
+}
+
+/// The host takes the settings, the screens, the action, the icons, the menu
+/// needs, the slot offer and the events (`screens-input.md` section 1).
+#[test]
+fn the_host_admits_every_declaration() {
+    for batch in batches!(declarations::settings)
+        .into_iter()
+        .chain(batches!(declarations::screens))
+        .chain(batches!(declarations::events))
+    {
+        let records = records_decode(&batch).unwrap();
+        validate_batch("bluetooth", &records).unwrap();
+    }
+    let mut refused = Vec::new();
+    for batch in batches!(declarations::navigation) {
+        let records = records_decode(&batch).unwrap();
+        for record in records.iter() {
+            match validate_record("bluetooth", &record) {
+                Ok(()) => {}
+                Err(status) => refused.push(format!("{record:?}: {status}")),
+            }
+        }
+    }
+    assert!(
+        refused.is_empty(),
+        "the host admits every record now: {refused:?}"
+    );
+}

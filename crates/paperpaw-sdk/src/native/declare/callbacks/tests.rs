@@ -8,6 +8,7 @@ use alloc::{vec, vec::Vec};
 use records_wire::{Record, records_decode, records_encode, registrations_encode};
 
 #[test]
+#[allow(clippy::too_many_lines, reason = "one table row per event kind")]
 fn every_event_kind_matches_its_generated_registration_bytes() {
     let kinds = [
         (
@@ -16,6 +17,10 @@ fn every_event_kind_matches_its_generated_registration_bytes() {
         ),
         (EventKind::ScreenReady, records_wire::EVENT_SCREEN_READY_TAG),
         (EventKind::Tick, records_wire::EVENT_TICK_TAG),
+        (
+            EventKind::WidgetChanged,
+            records_wire::EVENT_WIDGET_CHANGED_TAG,
+        ),
         (EventKind::Started, records_wire::EVENT_STARTED_TAG),
         (EventKind::Resume, records_wire::EVENT_RESUME_TAG),
         (EventKind::Suspend, records_wire::EVENT_SUSPEND_TAG),
@@ -40,10 +45,26 @@ fn every_event_kind_matches_its_generated_registration_bytes() {
         (EventKind::BookMoved, records_wire::EVENT_BOOK_MOVED_TAG),
         (EventKind::BookRemoved, records_wire::EVENT_BOOK_REMOVED_TAG),
         (
+            EventKind::LibraryChanged,
+            records_wire::EVENT_LIBRARY_CHANGED_TAG,
+        ),
+        (
             EventKind::PluginsChanged,
             records_wire::EVENT_PLUGINS_CHANGED_TAG,
         ),
         (EventKind::WifiChanged, records_wire::EVENT_WIFI_CHANGED_TAG),
+        (EventKind::WifiScanned, records_wire::EVENT_WIFI_SCANNED_TAG),
+        (EventKind::WifiDone, records_wire::EVENT_WIFI_DONE_TAG),
+        (
+            EventKind::NetworkWanted,
+            records_wire::EVENT_NETWORK_WANTED_TAG,
+        ),
+        (EventKind::NetworkIdle, records_wire::EVENT_NETWORK_IDLE_TAG),
+        (
+            EventKind::FirmwareChanged,
+            records_wire::EVENT_FIRMWARE_CHANGED_TAG,
+        ),
+        (EventKind::InstallDone, records_wire::EVENT_INSTALL_DONE_TAG),
         (
             EventKind::PowerChanged,
             records_wire::EVENT_POWER_CHANGED_TAG,

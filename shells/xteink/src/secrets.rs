@@ -31,7 +31,7 @@ use mbedtls_rs::sys::{
     mbedtls_gcm_context, mbedtls_gcm_crypt_and_tag, mbedtls_gcm_free, mbedtls_gcm_init,
     mbedtls_gcm_setkey, mbedtls_platform_zeroize,
 };
-use paperpaw_core::native_host::{ShellRandom, ShellSealer};
+use paperpaw_core::native_host::shell_wiring::{Rng, Sealer};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
 };
@@ -42,7 +42,7 @@ use crate::ota::Flash;
 /// The chip's generator, strong while a radio is on.
 pub struct ChipRandom;
 
-impl ShellRandom for ChipRandom {
+impl Rng for ChipRandom {
     fn fill(&self, out: &mut [u8]) -> Result<bool, i32> {
         let strong = crate::entropy::strong();
         esp_hal::rng::Rng::new().read(out);
@@ -109,11 +109,11 @@ pub struct DeviceSealer {
     flash: Flash,
     /// Where the key is in the flash, found at the first use.
     at: Cell<Option<u32>>,
-    random: Rc<dyn ShellRandom>,
+    random: Rc<dyn Rng>,
 }
 
 impl DeviceSealer {
-    pub fn new(flash: Flash, random: Rc<dyn ShellRandom>) -> Self {
+    pub fn new(flash: Flash, random: Rc<dyn Rng>) -> Self {
         Self {
             flash,
             at: Cell::new(None),
@@ -202,7 +202,7 @@ impl DeviceSealer {
     }
 }
 
-impl ShellSealer for DeviceSealer {
+impl Sealer for DeviceSealer {
     fn seals(&self) -> bool {
         true
     }

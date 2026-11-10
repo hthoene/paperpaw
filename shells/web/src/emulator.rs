@@ -90,6 +90,9 @@ impl Emulator {
                 .write(path, bytes)
                 .map_err(|e| format!("{path}: {e:?}"))?;
         }
+        // English hyphenation, a data plugin the flasher would have put on a
+        // card (`paperpaw-default-packs`).
+        paperpaw_default_packs::seed_hyphenation(&files);
         // The first-run setup counts as done.
         files
             .write(".paperpaw/plugins/setup/done", b"")
@@ -148,10 +151,7 @@ impl Emulator {
         let night = if self.dark { "night-mode = on\n" } else { "" };
         // Started as the first-run setup left it, and without the tips on
         // gestures a new reader sees once.
-        let config = format!(
-            "[core]\nlanguage = {}\n{night}[help]\nshow = false\n",
-            self.language
-        );
+        let config = format!("[core]\nlanguage = {}\n{night}", self.language);
         let mut device = Device::in_memory(
             self.profile,
             Some(config),

@@ -13,10 +13,16 @@ use std::{collections::BTreeMap, string::ToString};
 
 #[path = "tests/admission.rs"]
 mod admission;
+#[path = "tests/deadline.rs"]
+mod deadline;
+#[path = "tests/pump_bytes.rs"]
+mod pump_bytes;
 #[path = "tests/requests.rs"]
 mod requests;
 #[path = "tests/serving.rs"]
 mod serving_tests;
+#[path = "tests/tls.rs"]
+mod tls_tests;
 
 std::thread_local! {
     /// Armed with `n`, the `n`th allocation gate of the test fails.
@@ -36,7 +42,15 @@ pub(crate) struct Fake {
     pub(crate) power: Cell<Option<PowerEnd>>,
     pub(crate) subscribed: Cell<bool>,
     pub(crate) screen: Cell<Option<u64>>,
+    /// The plugin's topmost showing screen, for a call from no screen.
+    pub(crate) topmost: Cell<Option<u64>>,
+    /// Whether the work scheduler can be asked.
+    pub(crate) run_known: Cell<bool>,
     pub(crate) run: Cell<Option<u64>>,
+    /// The work run's resources: told open, told closed, refused to open.
+    pub(crate) run_opened: RefCell<Vec<u64>>,
+    pub(crate) run_closed: RefCell<Vec<u64>>,
+    pub(crate) run_open_fails: Cell<Option<i32>>,
     pub(crate) free: Cell<u64>,
     /// The plugins have `uses.storage` (root 1).
     pub(crate) storage: Cell<bool>,
@@ -61,7 +75,10 @@ pub(crate) struct Fake {
 
 impl Fake {
     pub(crate) fn new(profile: NetProfile) -> Self {
-        Self::with_pool(profile, Rc::new(NetPool::new(profile.pool)))
+        Self::with_pool(
+            profile,
+            Rc::new(NetPool::with_tls_sessions(profile.pool, 4)),
+        )
     }
     /// A device whose pool is shared with someone else (`core.sockets`).
     pub(crate) fn with_pool(profile: NetProfile, pool: Rc<NetPool>) -> Self {
@@ -73,7 +90,12 @@ impl Fake {
             power: Cell::new(None),
             subscribed: Cell::new(true),
             screen: Cell::new(Some(5)),
+            topmost: Cell::new(None),
+            run_known: Cell::new(true),
             run: Cell::new(None),
+            run_opened: RefCell::new(Vec::new()),
+            run_closed: RefCell::new(Vec::new()),
+            run_open_fails: Cell::new(None),
             free: Cell::new(u64::MAX),
             storage: Cell::new(false),
             files: RefCell::new(BTreeMap::new()),
@@ -96,6 +118,14 @@ impl Fake {
     }
     pub(crate) fn x4() -> Self {
         Self::new(NetProfile::X4)
+    }
+    /// The X4's profile with the servers of the X4 Pro (two at once), for the
+    /// tests that run several.
+    pub(crate) fn servers(count: u32) -> Self {
+        Self::new(NetProfile {
+            servers: count,
+            ..NetProfile::X4
+        })
     }
     pub(crate) fn advance(&self, ms: u64) {
         self.clock.set(self.clock.get() + ms);
@@ -222,8 +252,24 @@ impl NetHost for Fake {
     fn current_run(&self, _: u64) -> Option<u64> {
         self.run.get()
     }
+    fn resource_opened(&self, run: u64) -> Result<(), i32> {
+        if let Some(error) = self.run_open_fails.get() {
+            return Err(error);
+        }
+        self.run_opened.borrow_mut().push(run);
+        Ok(())
+    }
+    fn resource_closed(&self, run: u64) {
+        self.run_closed.borrow_mut().push(run);
+    }
     fn showing_screen(&self, _: u64) -> Option<u64> {
         self.screen.get()
+    }
+    fn topmost_screen(&self, _: u64) -> Option<u64> {
+        self.topmost.get()
+    }
+    fn run_known(&self) -> bool {
+        self.run_known.get()
     }
     fn room_for(&self, extra: u64) -> bool {
         extra <= self.free.get()
@@ -329,44 +375,55 @@ pub(crate) enum Event {
 }
 
 /// The next event of `owner`, if any.
-pub(crate) fn next(fake: &Fake, owner: u64) -> Option<Event> {
+pub(crate) fn next(fake: &dyn NetHost, owner: u64) -> Option<Event> {
     let mut out = std::vec![0; 2048];
     let used = next_event(fake, owner, &mut out).unwrap()?;
-    Some(match wire::record_decode_one(&out[..used]).unwrap() {
-        Record::EventHttpDone(e) => Event::Done {
-            id: e.id,
-            token: e.token,
-            status: e.status,
-            reason: e.reason,
-            flags: e.flags,
-            body_len: e.body_len,
+    // What the plugin's callback gets: the SDK frames it as a batch of one
+    // (the kernel's `service_event` reads its tag the same way), and decodes
+    // the kinds it has (99, 100; it has none yet for 101 and 102).
+    let incoming = paperpaw_sdk::native::events::Incoming::new(&out[..used]).unwrap();
+    if incoming.is::<paperpaw_sdk::native::events::kinds::HttpDone>()
+        || incoming.is::<paperpaw_sdk::native::events::kinds::HttpProgress>()
+    {
+        assert!(incoming.decode().is_ok(), "the plugin decodes the event");
+    }
+    Some(
+        match crate::native_host::codec::decode_any_single(&out[..used]).unwrap() {
+            Record::EventHttpDone(e) => Event::Done {
+                id: e.id,
+                token: e.token,
+                status: e.status,
+                reason: e.reason,
+                flags: e.flags,
+                body_len: e.body_len,
+            },
+            Record::EventHttpProgress(e) => Event::Progress {
+                id: e.id,
+                received: e.received,
+                total: e.total,
+                flags: e.flags,
+            },
+            Record::EventServer(e) => Event::Server {
+                token: e.server,
+                state: e.state,
+                reason: e.reason,
+                address: e.address.to_string(),
+            },
+            Record::EventServedRequest(e) => Event::Served {
+                server: e.server,
+                request: e.request,
+                method: e.method.to_string(),
+                target: e.target.to_string(),
+                flags: e.flags,
+                body_len: e.body_len,
+            },
+            other => panic!("{other:?}"),
         },
-        Record::EventHttpProgress(e) => Event::Progress {
-            id: e.id,
-            received: e.received,
-            total: e.total,
-            flags: e.flags,
-        },
-        Record::EventServer(e) => Event::Server {
-            token: e.server,
-            state: e.state,
-            reason: e.reason,
-            address: e.address.to_string(),
-        },
-        Record::EventServedRequest(e) => Event::Served {
-            server: e.server,
-            request: e.request,
-            method: e.method.to_string(),
-            target: e.target.to_string(),
-            flags: e.flags,
-            body_len: e.body_len,
-        },
-        other => panic!("{other:?}"),
-    })
+    )
 }
 
 /// Every event of `owner`, then the callback returns.
-pub(crate) fn drain(fake: &Fake, owner: u64) -> Vec<Event> {
+pub(crate) fn drain(fake: &dyn NetHost, owner: u64) -> Vec<Event> {
     let mut all = Vec::new();
     while let Some(event) = next(fake, owner) {
         all.push(event);

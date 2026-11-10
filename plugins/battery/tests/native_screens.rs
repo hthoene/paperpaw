@@ -19,7 +19,7 @@ use paperpaw_sdk::native::{
     self, Error, Host,
     callbacks::DrawFrame,
     declare::{Declarations, EventKind},
-    events::Event,
+    events::{Event, Incoming},
     reply::Reply,
 };
 use paperpaw_sdk::{Env, Id, Manifest, Plugin, RegisterError, Registrar, Version, builtin};
@@ -52,11 +52,11 @@ impl native::Plugin for ScreenProbe {
         &mut self,
         h: &Host<'_>,
         t: u32,
-        e: Event<'_>,
+        e: Incoming<'_>,
         r: &mut Reply<'_>,
     ) -> Result<(), Error> {
         // Test-only trigger: screen routing is Core #944, not this pixel fixture.
-        let Event::Started { now_ms } = e else {
+        let Event::Started { now_ms, .. } = e.decode()? else {
             return Err(Error::Invalid);
         };
         assert!(native::snapshot::capture_snapshot(h).is_ok());
@@ -67,19 +67,22 @@ impl native::Plugin for ScreenProbe {
         let font = native::fonts::Font::acquire_role(h, native::fonts::FontRole::Ui)?;
         assert!(font.read_line_metrics(16.0).is_ok());
         assert!(matches!(font.ink(16.0, "H"), Err(Error::State)));
-        native::Plugin::event(
-            &mut self.0,
-            h,
-            t,
-            Event::ScreenShown {
-                now_ms,
-                screen: "battery.screen",
-                width: 480,
-                height: 800,
-                instance: None,
-            },
-            r,
+        let mut bytes = [0; 128];
+        let len = paperpaw_core::native_host::events::encode(
+            &paperpaw_core::native_host::registrations::Record::EventScreenShown(
+                paperpaw_core::native_host::registrations::EventScreenShown {
+                    last_input: 0,
+                    now_ms,
+                    screen: "battery.screen",
+                    width: 480,
+                    height: 800,
+                    instance: None,
+                },
+            ),
+            &mut bytes,
         )
+        .map_err(|_| Error::Invalid)?;
+        native::Plugin::event(&mut self.0, h, t, Incoming::new(&bytes[..len])?, r)
     }
     fn draw(&mut self, h: &Host<'_>, t: u32, f: DrawFrame<'_>) -> Result<(), Error> {
         native::Plugin::draw(&mut self.0, h, t, f)
@@ -210,7 +213,6 @@ fn env_only_dispatch_refuses_core_only_services() {
                 "[core]\nlanguage = {language}\n[battery]\nenabled = off\n"
             ))
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-            .plugin(paperpaw_plugin_battery::Battery)
             .plugin(Capture(run))
             .build()
             .unwrap();

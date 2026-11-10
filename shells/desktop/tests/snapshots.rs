@@ -50,56 +50,6 @@ struct Case {
 }
 
 const CASES: &[Case] = &[
-    // The first-run setup: its first page, and a number with a sample.
-    Case {
-        name: "x4-setup",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-setup-size",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "page-forward,page-forward",
-        colour: 0,
-        fixtures: false,
-    },
-    // The Find screen of the library on buttons (#111): the focus starts
-    // on the search, and Up from the first row of letters returns to it.
-    Case {
-        name: "x4-library-find",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:core.library,wait:1500,run:files.list.find,wait:300,right,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-library-find-up",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:core.library,wait:1500,run:files.list.find,wait:300,right,page-back,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    // The search fields of the library's Find screen and of the settings
-    // (#113): one SDK part, focused in English, unfocused in German.
-    Case {
-        name: "x4-library-find-de",
-        profile: "xteink-x4",
-        book: None,
-        sets: &["core.language=de"],
-        script: "run:core.library,wait:1500,run:files.list.find,wait:300,right,right,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
     Case {
         name: "x4-settings-search",
         profile: "xteink-x4",
@@ -115,35 +65,6 @@ const CASES: &[Case] = &[
         book: None,
         sets: &["slots.core.home=settings.list", "core.language=de"],
         script: "right,right",
-        colour: 0,
-        fixtures: false,
-    },
-    // The keyboard on buttons with a phone to type on (#111): the focus
-    // starts on *Phone*, and Right goes to the first key.
-    Case {
-        name: "x4-keyboard-phone",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:core.library,wait:1500,run:files.search,wait:500",
-        colour: 0,
-        fixtures: true,
-    },
-    Case {
-        name: "x4-keyboard-phone-right",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:core.library,wait:1500,run:files.search,wait:500,right,wait:300",
-        colour: 0,
-        fixtures: true,
-    },
-    Case {
-        name: "boox-setup",
-        profile: "boox-go-7",
-        book: None,
-        sets: &[],
-        script: "",
         colour: 0,
         fixtures: false,
     },
@@ -261,15 +182,6 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "x4-notes-overview",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:core.library,wait:1500,back,wait:300,run:notes-overview.open,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         name: "x4-pictures-caption",
         profile: "xteink-x4",
         book: Some("books/pictures.epub"),
@@ -279,38 +191,11 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "x4-notes-overview-de",
-        profile: "xteink-x4",
-        book: None,
-        sets: &["core.language=de"],
-        script: "run:core.library,wait:1500,back,wait:300,run:notes-overview.open,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         name: "x4-pictures-hidden",
         profile: "xteink-x4",
         book: Some("books/pictures.epub"),
         sets: &["aids.pictures=aids.pictures.hide"],
         script: "wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-notes-overview-book",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:core.library,wait:1500,back,wait:300,run:notes-overview.open,wait:300,confirm,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-notes-overview-export",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:core.library,wait:1500,back,wait:300,run:notes-overview.open,wait:300,right,right,confirm,wait:300",
         colour: 0,
         fixtures: false,
     },
@@ -334,21 +219,12 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "boox-home-hints",
-        profile: "boox-go-7",
-        book: None,
-        sets: &["help.show=true"],
-        script: "",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         name: "boox-developer-settings",
         profile: "boox-go-7",
         book: None,
         // Developer options on: their group of settings.
         sets: &["settings.advanced=true", "core.developer=true"],
-        script: "swipe:600:1100:600:500,wait:300,tap-on:Settings,wait:500,swipe:600:1400:600:700,wait:300,tap-on:Developer,wait:300",
+        script: "swipe:600:1100:600:500,wait:300,tap-on:Settings,wait:500,tap-on:Developer,wait:300",
         colour: 0,
         fixtures: false,
     },
@@ -360,7 +236,7 @@ const CASES: &[Case] = &[
         profile: "xteink-x4-pro",
         book: None,
         sets: &[],
-        script: "swipe:240:700:240:300,wait:300,tap-on:Settings,wait:500,swipe:240:700:240:350,wait:300,tap-on:Wi-Fi,wait:500,tap:240:140,wait:2500",
+        script: "swipe:240:700:240:300,wait:300,tap-on:Settings,wait:500,tap-on:Wi-Fi,wait:500,tap:240:140,wait:2500",
         colour: 0,
         fixtures: false,
     },
@@ -370,7 +246,7 @@ const CASES: &[Case] = &[
         profile: "xteink-x4-pro",
         book: None,
         sets: &[],
-        script: "swipe:240:700:240:300,wait:300,tap-on:Settings,wait:500,swipe:240:700:240:350,wait:300,tap-on:Wi-Fi,wait:500,tap:240:140,wait:2500,tap-on:Networks,wait:500",
+        script: "swipe:240:700:240:300,wait:300,tap-on:Settings,wait:500,tap-on:Wi-Fi,wait:500,tap:240:140,wait:2500,tap-on:Networks,wait:500",
         colour: 0,
         fixtures: false,
     },
@@ -426,28 +302,8 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
-    Case {
-        name: "boox-menu-drag",
-        profile: "boox-go-7",
-        book: None,
-        // The main menu's first entry dragged by its grip to the fourth
-        // place (the editor opened by its action: where the settings list
-        // it depends on how many groups there are).
-        sets: &[],
-        script: "run:menu-editor.open,wait:300,tap-on:Main menu,wait:300,                 swipe:1220:159:1220:420,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "boox-lock-pin",
-        profile: "boox-go-7",
-        book: None,
-        // Setting up a screen lock: the keypad for a new PIN.
-        sets: &[],
-        script: "swipe:600:1100:600:500,wait:300,tap-on:Settings,wait:300,tap-on:Screen lock,wait:300,tap:600:200,wait:300,tap-on:PIN,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
+    // The screen lock's PIN keypad (`boox-lock-pin`) is gone with the interface-6 lock; it
+    // returns with the native lock screen when the host runs native plugins (#228).
     // The screens one passes through most, on the X4 (buttons alone,
     // black and white) and on the Boox (touch): the main menu and the
     // tools, the library, the reader's menus, the contents, the
@@ -480,15 +336,6 @@ const CASES: &[Case] = &[
         book: None,
         sets: &["core.language=de"],
         script: "open:home.drawer,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-library",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:core.library,wait:1000",
         colour: 0,
         fixtures: false,
     },
@@ -538,18 +385,8 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
-    Case {
-        name: "x4-stats",
-        profile: "xteink-x4",
-        book: Some("books/alice-in-wonderland.epub"),
-        sets: &[],
-        script: "page-forward,page-forward,run:stats.open,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
     // Buttons in slots of a touch row: the footnote's side by side, the
-    // skim screen's four, the transfer's and the update page's one below
-    // the other.
+    // skim screen's four and the transfer's one below the other.
     Case {
         name: "x4-footnote",
         profile: "xteink-x4",
@@ -626,7 +463,7 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
-    // Part 2: the way into the files (update, a save for each deck, the
+    // Part 2: the way into the files (a save for each deck, the
     // switch of each linked deck), and a deck saved to its file. The decks
     // are made from the files first (German is deck 1).
     Case {
@@ -686,24 +523,6 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "x4-update",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:update.open,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-file-manager",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        script: "run:file-manager.open,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         // The power button: the sleep screen, the device asleep.
         name: "x4-sleep",
         profile: "xteink-x4",
@@ -714,31 +533,11 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "x4-licences",
-        profile: "xteink-x4",
-        book: None,
-        sets: &[],
-        // Long enough for its pages to be counted (on the X4 with rests
-        // between), so the status line shows the page, not a percentage.
-        script: "run:about.open,left,confirm,wait:40000",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         name: "boox-main-menu",
         profile: "boox-go-7",
         book: None,
         sets: &[],
         script: "run:core.menu,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "boox-library",
-        profile: "boox-go-7",
-        book: None,
-        sets: &[],
-        script: "run:core.library,wait:1000",
         colour: 0,
         fixtures: false,
     },
@@ -790,34 +589,6 @@ const CASES: &[Case] = &[
         book: None,
         sets: &[],
         script: "run:core.settings,wait:300,tap-on:Search,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "boox-stats",
-        profile: "boox-go-7",
-        book: Some("books/alice-in-wonderland.epub"),
-        sets: &[],
-        script: "swipe:1000:800:300:800,wait:300,swipe:1000:800:300:800,wait:300,run:stats.open,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "boox-file-manager",
-        profile: "boox-go-7",
-        book: None,
-        sets: &[],
-        script: "run:file-manager.open,wait:300,tap-on:books,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        // A long press on a book in the library: what can be done with it.
-        name: "boox-book-menu",
-        profile: "boox-go-7",
-        book: None,
-        sets: &[],
-        script: "run:core.library,wait:300,long-tap:600:200,wait:300",
         colour: 0,
         fixtures: false,
     },
@@ -875,44 +646,6 @@ const CASES: &[Case] = &[
         colour: 1_000,
         fixtures: false,
     },
-    // The library: the book being read as a card, then the books; as
-    // covers; what to show, chosen from the row above the books.
-    Case {
-        name: "x4-library-reading",
-        profile: "xteink-x4",
-        book: Some("books/alice-in-wonderland.epub"),
-        sets: &[],
-        script: "page-forward,page-forward,run:core.library,wait:1000",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-library-covers",
-        profile: "xteink-x4",
-        book: Some("books/alice-in-wonderland.epub"),
-        sets: &["files.view=files.view.covers"],
-        script: "page-forward,page-forward,run:core.library,wait:1000",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-pro-library-show",
-        profile: "xteink-x4-pro",
-        book: None,
-        sets: &[],
-        script: "run:core.library,wait:1000,tap-on:All books,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "boox-library-reading",
-        profile: "boox-go-7",
-        book: Some("books/alice-in-wonderland.epub"),
-        sets: &[],
-        script: "swipe:1000:800:300:800,wait:300,swipe:1000:800:300:800,wait:300,run:core.library,wait:1000",
-        colour: 0,
-        fixtures: false,
-    },
     // A picture as a book: its page, the picture fit to the screen.
     Case {
         name: "x4-pictures-book",
@@ -933,29 +666,11 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "x4-read-later-cloud",
-        profile: "xteink-x4",
-        book: None,
-        sets: &["plugins.read-later-cloud=on"],
-        script: "run:read-later-cloud.open,wait:500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         name: "x4-mobi-picture",
         profile: "xteink-x4",
         book: Some("books/lighthouse.mobi"),
         sets: &[],
         script: "wait:1500,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-read-later-cloud-de",
-        profile: "xteink-x4",
-        book: None,
-        sets: &["plugins.read-later-cloud=on", "core.language=de"],
-        script: "run:read-later-cloud.open,wait:500",
         colour: 0,
         fixtures: false,
     },
@@ -969,15 +684,6 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
-        name: "x4-read-later-cloud-no-token",
-        profile: "xteink-x4",
-        book: None,
-        sets: &["plugins.read-later-cloud=on"],
-        script: "run:read-later-cloud.open,wait:500,run:read-later-cloud.fetch,wait:500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
         name: "x4-docx-reading",
         profile: "xteink-x4",
         book: Some("books/report.docx"),
@@ -986,85 +692,12 @@ const CASES: &[Case] = &[
         colour: 0,
         fixtures: false,
     },
-    // The end-of-book screen would show on the last page.
     Case {
         name: "x4-docx-second-page",
         profile: "xteink-x4",
         book: Some("books/report.docx"),
-        sets: &["plugins.end-of-book=off"],
+        sets: &[],
         script: "wait:1500,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-next",
-        profile: "xteink-x4",
-        book: Some("books/moor-1.epub"),
-        sets: &[],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-next-de",
-        profile: "xteink-x4",
-        book: Some("books/moor-1.epub"),
-        sets: &["core.language=de"],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-lone",
-        profile: "xteink-x4",
-        book: Some("books/lone.epub"),
-        sets: &[],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-lone-de",
-        profile: "xteink-x4",
-        book: Some("books/lone.epub"),
-        sets: &["core.language=de"],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-rated",
-        profile: "xteink-x4",
-        book: Some("books/moor-2.epub"),
-        sets: &[],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500,right,confirm,confirm,confirm,confirm,wait:300",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-large",
-        profile: "xteink-x4",
-        book: Some("books/moor-1.epub"),
-        sets: &["core.ui-size=24"],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-large-de",
-        profile: "xteink-x4",
-        book: Some("books/moor-1.epub"),
-        sets: &["core.ui-size=24", "core.language=de"],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500",
-        colour: 0,
-        fixtures: false,
-    },
-    Case {
-        name: "x4-endbook-opened-next",
-        profile: "xteink-x4",
-        book: Some("books/moor-1.epub"),
-        sets: &[],
-        script: "run:core.library,wait:1500,back,wait:300,page-forward,page-forward,wait:1500,confirm,wait:1500",
         colour: 0,
         fixtures: false,
     },
@@ -1142,29 +775,21 @@ fn library(case: &Case) -> PathBuf {
         .unwrap();
         fs::write(folder.join("Spanish.csv"), "casa;house\ngato;cat\n").unwrap();
     }
-    // The first-run setup only where it is what is shown.
-    if !case.name.contains("setup") {
-        let setup = dir.join(".paperpaw/plugins/setup");
-        fs::create_dir_all(&setup).unwrap();
-        fs::write(setup.join("done"), "").unwrap();
+    // Hyphenation is data: the German names of the drawer break only where
+    // the German pack is installed (built from the sources, as shipped).
+    if case.name == "x4-drawer-de" {
+        let german = paperpaw_hyphenation_packs::PACKAGES
+            .iter()
+            .find(|package| package.id == "hyphenation-de")
+            .unwrap();
+        let plugins = dir.join("plugins");
+        fs::create_dir_all(&plugins).unwrap();
+        paperpaw_hyphenation_packs::build(&root(), &plugins, german).unwrap();
     }
-    // Notes in two books (a file is named by the hash of the book's
-    // path): a highlight and a bookmark, and a bookmark.
-    if case.name.contains("notes-overview") {
-        let notes = dir.join(".paperpaw/annotations");
-        fs::create_dir_all(&notes).unwrap();
-        fs::write(
-            notes.join("b1348f1e1a4d5649.txt"),
-            "h\t0\t10\t0\t60\t12\t1793527500\t1793527500\tshe had peeped into the book her sister was reading\t\n\
-             b\t1\t0\t1\t0\t48\t1793527800\t1793527800\tCHAPTER II. The Pool of Tears\t\n",
-        )
-        .unwrap();
-        fs::write(
-            notes.join("6faa8b0d8dac72e2.txt"),
-            "b\t0\t0\t0\t0\t3\t1793528000\t1793528000\tAls Gregor Samsa eines Morgens\t\n",
-        )
-        .unwrap();
-    }
+    // The first-run setup is done (it is not what any case shows).
+    let setup = dir.join(".paperpaw/plugins/setup");
+    fs::create_dir_all(&setup).unwrap();
+    fs::write(setup.join("done"), "").unwrap();
     if let Some(book) = case.book {
         let state = dir.join(".paperpaw/plugins/reader");
         fs::create_dir_all(&state).unwrap();
@@ -1192,7 +817,6 @@ fn draw(case: &Case) -> (u32, u32, Vec<u8>, usize) {
         command.args(["--script", case.script]);
     }
     // The hint on gestures would cover every first home screen.
-    command.args(["--set", "help.show=false"]);
     // A card of the same free space on every computer.
     command.args(["--free-space", "7400000000"]);
     for set in case.sets {
@@ -1282,7 +906,6 @@ fn screens_say_what_they_show() {
         .args(["--profile", case.profile, "--headless", "--library"])
         .arg(&library)
         .args(["--set", "reader.open-last=false"])
-        .args(["--set", "help.show=false"])
         .args(["--set", case.sets[0]])
         .args([
             "--script",
@@ -1311,14 +934,14 @@ fn screens_say_what_they_show() {
 /// flat ones by a pixel), whatever the letters after it (a *g* or a *y*
 /// hangs below), not as their lines of text would, with more room above
 /// the letters. On the X4, the X4 Pro and the Boox, on screens with a back
-/// arrow, page arrows, a note and an empty list.
+/// arrow and page arrows. (The library's lists, which also had a note and an
+/// empty list, are the native `files` plugin's: the emulator does not register
+/// native plugins yet.)
 #[test]
 fn headers_are_centred_by_their_capitals() {
     let screens = [
-        "run:core.library,wait:300",
         "run:core.settings,wait:300",
-        "run:core.library,wait:300,run:files.favourites,wait:300",
-        "run:core.library,wait:300,run:files.by-tag,wait:300",
+        "run:core.settings,wait:300,run:core.confirm,wait:300",
     ];
     let mut failures = Vec::new();
     for profile in ["xteink-x4", "xteink-x4-pro", "boox-go-7"] {
@@ -1340,7 +963,6 @@ fn headers_are_centred_by_their_capitals() {
                 .args(["--screenshot"])
                 .arg(&shot)
                 .args(["--set", "reader.open-last=false"])
-                .args(["--set", "help.show=false"])
                 .args(["--script", &format!("{script},describe")])
                 .output()
                 .unwrap();

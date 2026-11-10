@@ -201,6 +201,25 @@ impl Storage for Traced {
         )
     }
 
+    fn list_bounded(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        note(
+            || format!("list {dir} from {from} (bounded)"),
+            || self.0.list_bounded(dir, from, visit),
+        )
+    }
+
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        note(
+            || format!("remove_listed {dir} at {place}"),
+            || self.0.remove_listed(dir, place),
+        )
+    }
+
     fn remove(&self, path: &str) -> Result<(), StorageError> {
         note(|| format!("remove {path}"), || self.0.remove(path))
     }
@@ -217,6 +236,18 @@ impl Storage for Traced {
         note(|| format!("create_dir {path}"), || self.0.create_dir(path))
     }
 
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+        note(
+            || format!("remove_tree_step {root} at {place}"),
+            || self.0.remove_tree_step(root, keep_root, place),
+        )
+    }
+
     fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
         note(
             || format!("remove_dir_all {path}"),
@@ -230,6 +261,14 @@ impl Storage for Traced {
 
     fn ignores_case(&self) -> bool {
         self.0.ignores_case()
+    }
+
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        self.0.same_entry(a, b)
+    }
+
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        self.0.entry_identity(path)
     }
 
     fn free_space(&self) -> Option<u64> {

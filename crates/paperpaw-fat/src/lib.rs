@@ -89,6 +89,7 @@ mod free;
 mod listed;
 mod settle;
 mod swap;
+mod walk;
 
 pub use disk::{BLOCK, BlockDisk, Blocks, DiskError, SharedDisk, VolumeError};
 pub use swap::{
@@ -1174,6 +1175,32 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
         self.list_piece(dir, from, visit)
     }
 
+    fn list_bounded(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        self.list_head(dir, from, visit)
+    }
+
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        self.remove_listed_entry(dir, place)
+    }
+
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+        let result = self.walk_tree(root, keep_root, place, &mut walk::Reads::default());
+        let back = self.write_back();
+        let step = result?;
+        back?;
+        Ok(step)
+    }
+
     fn modified(&self, path: &str) -> Option<i64> {
         let path = path.trim_matches('/');
         check(path).ok()?;
@@ -1199,6 +1226,61 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
     /// FAT names entries without regard to case.
     fn ignores_case(&self) -> bool {
         true
+    }
+
+    /// By the entries' first clusters, each path looked up as every other
+    /// call looks it up (a short alias of an entry with a long name names
+    /// nothing here). An entry's clusters are its own, so two that hold the
+    /// same are one (or the two places of a move cut off between, which a
+    /// check may take for one). A file that holds none (empty) cannot be
+    /// told from another empty one: `None` then, unless spelt alike.
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        let entry = |path: &str| -> Option<Option<FatEntry<IO>>> {
+            let path = path.trim_matches('/');
+            check(path).ok()?;
+            let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
+            match self.dir(dir) {
+                Ok(dir) => Some(lookup(&dir, name, false).ok()?.entry),
+                Err(StorageError::NotFound) => Some(None),
+                Err(_) => None,
+            }
+        };
+        let (Some(x), Some(y)) = (entry(a)?, entry(b)?) else {
+            return Some(false);
+        };
+        if x.is_dir() != y.is_dir() {
+            return Some(false);
+        }
+        match (x.first_cluster(), y.first_cluster()) {
+            (Some(x), Some(y)) => Some(x == y),
+            (None, None)
+                if a.trim_matches('/')
+                    .eq_ignore_ascii_case(b.trim_matches('/')) =>
+            {
+                Some(true)
+            }
+            (None, None) => None,
+            _ => Some(false),
+        }
+    }
+
+    /// The entry's first cluster, its own as long as it lives: a rename or a
+    /// move gives the entry a new place in a folder but keeps its clusters.
+    /// A move cut off by a power loss is settled first, so no two entries
+    /// answer the same. An empty file holds no cluster and has no stable
+    /// identity (`None`), nor has the root folder, which has no entry.
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        let path = path.trim_matches('/');
+        if path.is_empty() {
+            return Ok(None);
+        }
+        check(path)?;
+        self.settle_moves()?;
+        let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
+        let entry = lookup(&self.dir(dir)?, name, false)?
+            .entry
+            .ok_or(StorageError::NotFound)?;
+        Ok(entry.first_cluster().map(u64::from))
     }
 
     /// With the disk shared ([`FatStorage::with_disk`], as on the

@@ -47,43 +47,75 @@ fn int_type(v: i64) -> (u64, usize) {
     }
 }
 
+/// A value's serial type and the bytes it takes in the body.
+fn serial(value: &Value) -> (u64, usize) {
+    match value {
+        Value::Null => (0, 0),
+        Value::Int(v) => int_type(*v),
+        Value::Real(_) => (7, 8),
+        Value::Text(t) => (t.len() as u64 * 2 + 13, t.len()),
+        Value::Blob(b) => (b.len() as u64 * 2 + 12, b.len()),
+    }
+}
+
+/// The header size of the record of `values` (it counts itself) and the
+/// record's whole size; `None` past the address space.
+fn record_size(values: &[Value]) -> Option<(usize, usize)> {
+    let mut types = 0usize;
+    let mut body = 0usize;
+    for value in values {
+        let (serial, size) = serial(value);
+        types = types.checked_add(varint::len(serial))?;
+        body = body.checked_add(size)?;
+    }
+    let mut size = types.checked_add(1)?;
+    while varint::len(size as u64) + types != size {
+        size = varint::len(size as u64).checked_add(types)?;
+    }
+    Some((size, size.checked_add(body)?))
+}
+
+/// Appends the record of `values`, whose header is `header` bytes, to
+/// `out`, which has room for it.
+fn write_record(values: &[Value], header: usize, out: &mut Vec<u8>) {
+    varint::write(out, header as u64);
+    for value in values {
+        varint::write(out, serial(value).0);
+    }
+    for value in values {
+        match value {
+            Value::Null => {}
+            Value::Int(v) => {
+                let size = int_type(*v).1;
+                out.extend_from_slice(&v.to_be_bytes()[8 - size..]);
+            }
+            Value::Real(v) => out.extend_from_slice(&v.to_bits().to_be_bytes()),
+            Value::Text(t) => out.extend_from_slice(t.as_bytes()),
+            Value::Blob(b) => out.extend_from_slice(b),
+        }
+    }
+}
+
 /// `values` as a record.
 pub fn encode_record(values: &[Value]) -> Vec<u8> {
-    let mut types = Vec::new();
-    let mut body = Vec::new();
-    for value in values {
-        let serial = match value {
-            Value::Null => 0,
-            Value::Int(v) => {
-                let (serial, size) = int_type(*v);
-                body.extend_from_slice(&v.to_be_bytes()[8 - size..]);
-                serial
-            }
-            Value::Real(v) => {
-                body.extend_from_slice(&v.to_bits().to_be_bytes());
-                7
-            }
-            Value::Text(t) => {
-                body.extend_from_slice(t.as_bytes());
-                t.len() as u64 * 2 + 13
-            }
-            Value::Blob(b) => {
-                body.extend_from_slice(b);
-                b.len() as u64 * 2 + 12
-            }
-        };
-        varint::write(&mut types, serial);
-    }
-    // The header's size counts itself.
-    let mut size = types.len() + 1;
-    while varint::len(size as u64) + types.len() != size {
-        size = varint::len(size as u64) + types.len();
-    }
-    let mut out = Vec::with_capacity(size + body.len());
-    varint::write(&mut out, size as u64);
-    out.extend_from_slice(&types);
-    out.extend_from_slice(&body);
+    let (header, total) = record_size(values).unwrap_or((0, 0));
+    let mut out = Vec::with_capacity(total);
+    write_record(values, header, &mut out);
     out
+}
+
+/// [`encode_record`] with its one buffer allocated fallibly, sized exactly
+/// before anything is written: [`Error::OutOfMemory`] instead of an abort.
+///
+/// # Errors
+/// [`Error::OutOfMemory`] where the record's room cannot be had.
+pub fn try_encode_record(values: &[Value]) -> Result<Vec<u8>, Error> {
+    let (header, total) = record_size(values).ok_or(Error::OutOfMemory)?;
+    let mut out = Vec::new();
+    out.try_reserve_exact(total)
+        .map_err(|_| Error::OutOfMemory)?;
+    write_record(values, header, &mut out);
+    Ok(out)
 }
 
 /// The size of a value of serial type `serial`; `None` if it exceeds the

@@ -1,12 +1,11 @@
 //! Opaque composition handles and the widget service operations.
-use super::{Error, Host, Instance, Ui, UiPage, one, schema, wire};
+use super::{Error, Host, Instance, Ui, UiPage, expect, one, schema, wire};
 use crate::native::callbacks::FrameRect as Rect;
 
-/// A widget instance returned by the host, including its own-widget marker.
+/// A widget instance made by the host for another plugin's widget.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WidgetHandle {
     instance: Instance,
-    own: bool,
 }
 impl WidgetHandle {
     /// The instance used by its widget_made/dropped events.
@@ -14,12 +13,17 @@ impl WidgetHandle {
     pub const fn instance(self) -> Instance {
         self.instance
     }
-    /// The widget belongs to the caller, which draws it directly; asking the
-    /// host to reenter that same plugin returns Busy.
-    #[must_use]
-    pub const fn is_own(self) -> bool {
-        self.own
-    }
+}
+
+/// The answer to making a widget.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MadeWidget {
+    /// The widget belongs to the caller, which measures, places and draws it
+    /// itself: the host never re-enters the caller, so there is no instance.
+    Own,
+    /// A host-made instance of another plugin's widget.
+    Widget(WidgetHandle),
 }
 
 /// A status draw handle decoded from a status_values reply.
@@ -99,10 +103,8 @@ impl WidgetTarget {
     pub const fn rect(self) -> Rect {
         self.rect
     }
-    fn decode(record: wire::Record<'_>) -> Result<Self, Error> {
-        let wire::Record::ServiceUiTarget(row) = record else {
-            return Err(Error::State);
-        };
+    fn decode(record: wire::RawRecord<'_>) -> Result<Self, Error> {
+        let row: wire::ServiceUiTarget = expect(record)?;
         Ok(Self {
             target: row.target,
             rect: Rect::new(row.x, row.y, row.width, row.height),
@@ -111,10 +113,13 @@ impl WidgetTarget {
 }
 
 impl Ui {
-    /// Make a widget for the caller's own top screen instance.
+    /// Make a widget for the caller's own top screen instance. A widget of
+    /// the caller's own plugin answers [`MadeWidget::Own`] without an instance.
     ///
     /// # Errors
-    /// Returns invalid id syntax or the host's ownership/resource refusal.
+    /// Returns invalid id syntax, `Invalid` for an own marker with an
+    /// instance or an instance without the marker, or the host's
+    /// ownership/resource refusal.
     pub fn widget_make(
         &self,
         host: &Host<'_>,
@@ -122,24 +127,24 @@ impl Ui {
         place: &str,
         input: &mut [u8],
         out: &mut [u8],
-    ) -> Result<WidgetHandle, Error> {
+    ) -> Result<MadeWidget, Error> {
         let count = self.call(
             host,
             schema::OP_WIDGET_MAKE,
-            &[wire::Record::ServiceUiWidgetRef(wire::ServiceUiWidgetRef {
-                widget,
-                place,
-            })],
+            &[&wire::ServiceUiWidgetRef { widget, place }],
             input,
             out,
         )?;
-        let wire::Record::ServiceUiInstance(row) = one(&out[..count])? else {
-            return Err(Error::State);
-        };
-        Ok(WidgetHandle {
+        let row: wire::ServiceUiInstance = expect(one(&out[..count])?)?;
+        if row.flags & 1 != 0 {
+            if row.instance != 0 {
+                return Err(Error::Invalid);
+            }
+            return Ok(MadeWidget::Own);
+        }
+        Ok(MadeWidget::Widget(WidgetHandle {
             instance: Instance::new(row.instance).ok_or(Error::Invalid)?,
-            own: row.flags & 1 != 0,
-        })
+        }))
     }
     /// Drop a widget made by this screen.
     ///
@@ -155,10 +160,10 @@ impl Ui {
         let count = self.call(
             host,
             schema::OP_WIDGET_DROP,
-            &[wire::Record::ServiceUiInstance(wire::ServiceUiInstance {
+            &[&wire::ServiceUiInstance {
                 instance: widget.instance.get(),
                 flags: 0,
-            })],
+            }],
             input,
             out,
         )?;
@@ -189,15 +194,13 @@ impl Ui {
         let count = self.call(
             host,
             schema::OP_WIDGET_INPUT,
-            &[wire::Record::ServiceUiWidgetInput(
-                wire::ServiceUiWidgetInput {
-                    instance: widget.instance.get(),
-                    target,
-                    x: point.x,
-                    y: point.y,
-                    kind,
-                },
-            )],
+            &[&wire::ServiceUiWidgetInput {
+                instance: widget.instance.get(),
+                target,
+                x: point.x,
+                y: point.y,
+                kind,
+            }],
             input,
             out,
         )?;
@@ -218,13 +221,11 @@ impl Ui {
         let count = self.call(
             host,
             schema::OP_WIDGET_MEASURE,
-            &[area(widget, Rect::new(0, 0, width, 0))],
+            &[&area(widget, Rect::new(0, 0, width, 0))],
             input,
             out,
         )?;
-        let wire::Record::ServiceUiSize(row) = one(&out[..count])? else {
-            return Err(Error::State);
-        };
+        let row: wire::ServiceUiSize = expect(one(&out[..count])?)?;
         Ok(WidgetSize {
             height: row.height,
             min_height: row.min_height,
@@ -245,7 +246,7 @@ impl Ui {
         let count = self.call(
             host,
             schema::OP_WIDGET_PLACE,
-            &[area(widget, rect)],
+            &[&area(widget, rect)],
             input,
             out,
         )?;
@@ -267,7 +268,7 @@ impl Ui {
         let count = self.call(
             host,
             schema::OP_WIDGET_TARGETS,
-            &[area(widget, rect)],
+            &[&area(widget, rect)],
             input,
             out,
         )?;
@@ -306,14 +307,14 @@ impl Ui {
         })
     }
 }
-fn area(widget: WidgetHandle, rect: Rect) -> wire::Record<'static> {
-    wire::Record::ServiceUiWidgetArea(wire::ServiceUiWidgetArea {
+fn area(widget: WidgetHandle, rect: Rect) -> wire::ServiceUiWidgetArea {
+    wire::ServiceUiWidgetArea {
         instance: widget.instance.get(),
         x: rect.x,
         y: rect.y,
         width: rect.width,
         height: rect.height,
-    })
+    }
 }
 pub(super) fn empty(count: usize) -> Result<(), Error> {
     if count == 0 {

@@ -27,9 +27,7 @@
 //! metadata as they will lie once placed (`Relocator5::verify` and
 //! `check_entry`). A file it makes is one the X4's loader takes.
 
-use paperpaw_native::header5::{
-    ABI_MAJOR, HEADER_LEN, Header5, Host, META_MAX, RecordFacts, X4_ENTRY_BYTES,
-};
+use paperpaw_native::header5::{ABI_MAJOR, HEADER_LEN, Header5, Host, META_MAX, RecordFacts};
 use paperpaw_native::host_glue::{ENTRY_SYMBOL, METADATA_SYMBOL, MINOR};
 use paperpaw_native::preflight::PLUGIN_EXPORTS;
 use paperpaw_native::stream5::{MAX_PATCHES, Relocator5};
@@ -52,6 +50,15 @@ const STT_FILE: u8 = 4;
 const TRIAL_BASES: [u32; 2] = [LINK_BASE, LINK_BASE + 0x1_0000];
 /// Where the packer tries hot code run, if there is some: in the arena.
 const TRIAL_HOT: u32 = 0x4038_0000;
+
+/// The loader of `chip`: the X4's for target 5, the X4 Pro's and X4
+/// Classic's for target 9.
+fn host_of(chip: Chip) -> Host {
+    match chip {
+        Chip::Esp32S3 => Host::x4_pro(MINOR),
+        _ => Host::x4(MINOR),
+    }
+}
 
 /// A format-5 plugin file made.
 #[derive(Debug)]
@@ -98,34 +105,25 @@ pub fn pack5(elf: &[u8]) -> Result<Packed5, String> {
     }
     let chip = match elf.machine {
         EM_RISCV => Chip::Esp32C3,
-        EM_XTENSA => {
-            return Err(
-                "made for the X4 Pro (target 9): refused until an Xtensa profile exists in \
-                 abi/entry.md"
-                    .into(),
-            );
+        // Target 9 (decision 142): the same format with no hot code and no
+        // patches, the words to relocate of format 4's Xtensa table
+        // (`R_XTENSA_32` only), and the frame scan of the windowed ABI.
+        EM_XTENSA => Chip::Esp32S3,
+        other => {
+            return Err(format!(
+                "made for machine {other}, neither RISC-V nor Xtensa"
+            ));
         }
-        other => return Err(format!("made for machine {other}, not RISC-V")),
     };
+    let host = host_of(chip);
     let (symtab, symbols) = elf
         .symbols()?
         .ok_or("no symbol table: do not strip the plugin")?;
     let image = Image::of(&elf, &symbols)?;
     exports(&image, &symbols)?;
-    let (entry, meta_at, record) = locate(&image, &symbols)?;
+    let (entry, meta_at, record) = locate(&image, &symbols, &host)?;
     let heap_at = heap_word(&image, &symbols)?;
-    let facts = RecordFacts::read(record).ok_or_else(|| {
-        format!(
-            "`{METADATA_SYMBOL}` is not a metadata record this PaperPaw reads (abi/metadata.md)"
-        )
-    })?;
-    if facts.abi_major != ABI_MAJOR || facts.entry_bytes != X4_ENTRY_BYTES {
-        return Err(format!(
-            "its metadata says interface {} with an entry of {} bytes; the X4 reads interface \
-             {ABI_MAJOR} with {X4_ENTRY_BYTES}",
-            facts.abi_major, facts.entry_bytes
-        ));
-    }
+    let facts = record_facts(record, &host, chip)?;
     let mut used = [false; paperpaw_native::TABLE_SYMBOLS.len()];
     let words = image.words(&elf, chip, symtab, &symbols, &mut used)?;
     if let Some(n) = used.iter().position(|&u| u) {
@@ -136,12 +134,7 @@ pub fn pack5(elf: &[u8]) -> Result<Packed5, String> {
     }
     // After what is wrong with the file's identity, before it is made: the
     // frames the code takes on the stack.
-    let tables = crate::frames::Tables {
-        addr: image.rodata.addr,
-        bytes: &image.bytes[..image.code_at as usize],
-        relocated: Some(&words),
-    };
-    crate::frames::check(&elf, image.text, image.text_index, &symbols, tables)?;
+    stack_frames(&elf, &image, chip, &symbols, &words)?;
     let hot = Hot::of(&elf, &image, chip, &symbols, &words)?;
     let patches = records(&hot.patches)?;
     patch_count(patches.len())?;
@@ -187,13 +180,66 @@ pub fn pack5(elf: &[u8]) -> Result<Packed5, String> {
     Ok(Packed5 { header, file })
 }
 
+/// What the metadata `record` says, checked against the chip's host: the
+/// interface, the entry size and the profile it is built for (the loader's
+/// step 9 refuses the other: a C3 record in an S3 plugin).
+fn record_facts(record: &[u8], host: &Host, chip: Chip) -> Result<RecordFacts, String> {
+    let facts = RecordFacts::read(record).ok_or_else(|| {
+        format!(
+            "`{METADATA_SYMBOL}` is not a metadata record this PaperPaw reads (abi/metadata.md)"
+        )
+    })?;
+    if facts.abi_major != ABI_MAJOR || facts.entry_bytes != host.entry_bytes {
+        return Err(format!(
+            "its metadata says interface {} with an entry of {} bytes; {chip} reads interface \
+             {ABI_MAJOR} with {}",
+            facts.abi_major, facts.entry_bytes, host.entry_bytes
+        ));
+    }
+    if RecordFacts::target(record) != Some(host.profile_target.as_bytes()) {
+        return Err(format!(
+            "its metadata record is not built for the profile `{}` of {chip}: regenerate it for \
+             this target (the S3's is `native/metadata.s3.bin`)",
+            host.profile_target
+        ));
+    }
+    Ok(facts)
+}
+
+/// The pack-time rule on the frames the code takes on the stack: the RISC-V
+/// scan on the X4, the windowed-ABI scan (`entry`) on the S3.
+fn stack_frames(
+    elf: &Elf<'_>,
+    image: &Image<'_>,
+    chip: Chip,
+    symbols: &[Symbol],
+    words: &std::collections::BTreeSet<u32>,
+) -> Result<(), String> {
+    if chip == Chip::Esp32S3 {
+        return crate::frames_xtensa::check(elf, image.text, image.text_index, symbols);
+    }
+    let tables = crate::frames::Tables {
+        addr: image.rodata.addr,
+        bytes: &image.bytes[..image.code_at as usize],
+        relocated: Some(words),
+    };
+    crate::frames::check(elf, image.text, image.text_index, symbols, tables)
+}
+
 /// The file `file` (a format-5 plugin file, signed or not) read as the
 /// loader reads it: the header, the digest, every word to relocate, and the
 /// entry and the metadata as they will lie once placed, at the base it is
 /// linked at and at another, with its hot code in the arena. And the author's
 /// signature, if the file ends with one.
 pub fn check_file5(file: &[u8]) -> Result<(Header5, Option<Signature>), String> {
-    let host = Host::x4(MINOR);
+    // The host is the file's own chip's (bytes 6..8), so that a file for
+    // either target is read as its loader reads it; an unknown chip is the
+    // reader's refusal below.
+    let chip = file
+        .get(6..8)
+        .and_then(|b| Chip::from_id(u16::from_le_bytes([b[0], b[1]])))
+        .unwrap_or(Chip::Esp32C3);
+    let host = host_of(chip);
     let header = Header5::read(file, file.len() as u64, &host)
         .map_err(|why| format!("not a format-5 file the X4 reads: {why:?}"))?;
     let end = header.file_len() as usize;
@@ -287,6 +333,10 @@ fn exports(image: &Image<'_>, symbols: &[Symbol]) -> Result<(), String> {
     let mut extra: Vec<&str> = symbols
         .iter()
         .filter(|s| s.info >> 4 != 0 && s.kind() != STT_SECTION && s.kind() != STT_FILE)
+        // Hidden: no name another object can bind to (the Xtensa linker leaves
+        // such a symbol global in the output; `compiler_builtins`'s
+        // functions and the heap word's alias are).
+        .filter(|s| !s.hidden())
         .filter(|s| image.place(Some(s)) == Place::Image)
         .map(|s| s.name.as_str())
         .filter(|name| {
@@ -343,7 +393,11 @@ fn heap_word(image: &Image<'_>, symbols: &[Symbol]) -> Result<Option<u32>, Strin
 }
 
 /// Where the entry and the metadata record lie in the image, and the record.
-fn locate<'i>(image: &'i Image<'_>, symbols: &[Symbol]) -> Result<(u32, u32, &'i [u8]), String> {
+fn locate<'i>(
+    image: &'i Image<'_>,
+    symbols: &[Symbol],
+    host: &Host,
+) -> Result<(u32, u32, &'i [u8]), String> {
     let sized = |name: &str| {
         symbols
             .iter()
@@ -352,12 +406,15 @@ fn locate<'i>(image: &'i Image<'_>, symbols: &[Symbol]) -> Result<(u32, u32, &'i
             .ok_or_else(|| format!("no `{name}`: a plugin's entry and metadata come from its SDK"))
     };
     let entry_size = sized(ENTRY_SYMBOL)?;
-    if entry_size != X4_ENTRY_BYTES {
+    if entry_size != host.entry_bytes {
         return Err(format!(
-            "`{ENTRY_SYMBOL}` is {entry_size} bytes, not the {X4_ENTRY_BYTES} of the X4's entry"
+            "`{ENTRY_SYMBOL}` is {entry_size} bytes, not the {} of the target's entry",
+            host.entry_bytes
         ));
     }
     let entry = image.in_rodata(symbols, ENTRY_SYMBOL, entry_size)?;
+    // Always 8-aligned here (the linker script keeps it so), which is also
+    // the 4 the S3 profile asks.
     if !entry.is_multiple_of(8) {
         return Err(format!("`{ENTRY_SYMBOL}` is not 8-aligned"));
     }

@@ -1333,11 +1333,14 @@ fn short_names_alone_are_names() {
 mod after_cuts;
 mod cuts_v1;
 mod damaged;
+mod entry_identity;
 mod failing_writes;
 mod free_follow;
 mod free_space;
 mod listed;
 mod noted;
+mod same_entry;
+mod tree_cuts;
 
 /// The time a file was changed is the same listed and asked for, and
 /// read from FAT's date and time as seconds since 1970.

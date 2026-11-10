@@ -8,7 +8,7 @@ use paperpaw_sdk::{
 };
 
 pub(super) fn apply(
-    batch: &wire::RecordBatch<'_>,
+    batch: &wire::RecordStream<'_>,
     rules: wire::FilterRules<'_>,
     path: &str,
     block: &mut Block,
@@ -18,8 +18,8 @@ pub(super) fn apply(
         if rules.bold == 1 && edit.kind() == BlockKind::Paragraph {
             bold(edit, budget / 2)?;
         }
-        for row in batch.iter().skip(1) {
-            let wire::Record::FilterPair(pair) = row else {
+        for row in batch.clone().skip(1) {
+            let Ok(wire::Record::FilterPair(pair)) = row else {
                 return Err(Error::Invalid);
             };
             replace(edit, pair.from, pair.to, budget / 2)?;
@@ -93,7 +93,7 @@ fn bold(edit: &mut TextEdit, limit: usize) -> Result<(), Error> {
     for run in edit.runs() {
         push(&mut runs, *run, limit)?;
     }
-    runs.sort_unstable_by_key(|run| run.start);
+    paperpaw_sdk::sort::sort_by_key(&mut runs, |run| run.start);
     edit.try_set_runs(&runs)?;
     Ok(())
 }

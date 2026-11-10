@@ -13,6 +13,7 @@ use super::{
     require,
 };
 use crate::abi7::context::RowsEnd;
+use crate::native_host::codec;
 use alloc::vec::Vec;
 use core::{
     cell::{Cell, RefCell},
@@ -267,9 +268,7 @@ pub(super) fn run(
 }
 
 fn reference(input: &[u8]) -> Result<u32, i32> {
-    let Record::ServiceLibTransactionRef(reference) = args::single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let reference: wire::ServiceLibTransactionRef = args::single(input)?;
     Ok(reference.transaction)
 }
 
@@ -318,8 +317,18 @@ fn commit(
 ) -> Result<usize, i32> {
     let id = reference(input)?;
     let transaction = table.lease(who.owner, id, now)?;
+    // A commit on the caller's own transaction ends it whatever it answers
+    // (`library.md` 2.2): the plugin reads again, merges and begins again. A
+    // row that cannot be freed now ends with the idle expiry.
+    let end = || {
+        table.finish(id).ok();
+        host.abort_staged(id);
+    };
     // Every part must have arrived whole before anything is applied.
-    require(transaction.complete())?;
+    if let Err(error) = require(transaction.complete()) {
+        end();
+        return Err(error);
+    }
     // The reply is made ready first: once the host has applied the edits
     // nothing may report a failure, or the plugin retries and adds them twice.
     let reply = |committed: &Committed, out: &mut [u8]| {
@@ -338,7 +347,10 @@ fn commit(
         edits: u32::MAX,
         added: u32::MAX,
     };
-    reply(&probe, &mut *out)?;
+    if let Err(error) = reply(&probe, &mut *out) {
+        end();
+        return Err(error);
+    }
     let request = CommitRequest {
         transaction: id,
         owner: who.owner,
@@ -391,7 +403,7 @@ fn plan(edit: &wire::ServiceLibEdit<'_>) -> Result<(u32, Option<Fields>), i32> {
     }
     // The record costs what it takes on the card, empty or not; its inline
     // text, note and client key are in that size, the parts come on top.
-    let record = u32::try_from(wire::record_framed_len(&Record::ServiceLibEdit(*edit))?)
+    let record = u32::try_from(codec::framed_len(&Record::ServiceLibEdit(*edit))?)
         .map_err(|_| ERR_NO_SPACE)?;
     let staged = record
         .checked_add(edit.text_bytes)
@@ -487,9 +499,7 @@ fn text(
     input: &[u8],
     now: u64,
 ) -> Result<usize, i32> {
-    let Record::ServiceLibEditText(part) = args::single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let part: wire::ServiceLibEditText<'_> = args::single(input)?;
     let mut transaction = table.lease(who.owner, part.transaction, now)?;
     let last = part.flags & 1 != 0;
     require(part.flags & !1 == 0 && !part.data.is_empty())?;
@@ -581,9 +591,7 @@ fn receipt(
     rows_cap: usize,
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let Record::ServiceLibReceiptAsk(ask) = args::single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let ask: wire::ServiceLibReceiptAsk = args::single(input)?;
     rows(out, rows_cap, ask.transaction, |visit| {
         host.receipt(who, ask.transaction, ask.cursor, visit)
     })
@@ -604,7 +612,7 @@ fn rows(
         next: 0,
         cursor: None,
     };
-    let reserved = wire::record_framed_len(&Record::ServiceEnd(end))?;
+    let reserved = codec::framed_len(&Record::ServiceEnd(end))?;
     let available = out.len().checked_sub(reserved).ok_or(ERR_NO_SPACE)?;
     let mut used = 0;
     let mut count = 0;
@@ -613,7 +621,7 @@ fn rows(
         if count == rows_cap {
             return ControlFlow::Break(());
         }
-        match wire::record_encode_one(&record, &mut out[used..available]) {
+        match codec::encode_one(&record, &mut out[used..available]) {
             Ok(written) => {
                 used += written;
                 count += 1;
@@ -636,5 +644,5 @@ fn rows(
     } else if count == 0 {
         return Err(ERR_NO_SPACE);
     }
-    Ok(used + wire::record_encode_one(&Record::ServiceEnd(end), &mut out[used..])?)
+    Ok(used + codec::encode_one(&Record::ServiceEnd(end), &mut out[used..])?)
 }

@@ -111,8 +111,12 @@ fn instance(kernel: &crate::Kernel, depth: &FlatDepth) -> NativeLease {
         retained,
         depth.try_clone().unwrap(),
         FlatHost {
+            log: Default::default(),
             meter: Rc::clone(&kernel.shared.meter),
+            directory: None,
+            stack_rows: Rc::clone(&kernel.shared.stack_rows),
             font_removals: Rc::clone(&kernel.shared.font_removals),
+            registry_generation: Rc::clone(&kernel.shared.registry_generation),
         },
         |_, _, _| {},
         crate::native_host::native_instances::test_identity("probe"),

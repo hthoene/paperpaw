@@ -24,6 +24,21 @@ const KEYS: &[&str] = &[
     "core.host-firmware.unknown-key",
     "core.host-firmware.downgrade",
     "core.host-firmware.early-crash",
+    "core.firmware.title",
+    "core.firmware.title.restart",
+    "core.firmware.asked-by",
+    "core.firmware.image",
+    "core.firmware.signed",
+    "core.firmware.other-key",
+    "core.firmware.unsigned",
+    "core.firmware.older",
+    "core.firmware.foreign.1",
+    "core.firmware.foreign.2",
+    "core.firmware.foreign.3",
+    "core.firmware.foreign.4",
+    "core.firmware.yes",
+    "core.firmware.yes.restart",
+    "core.firmware.no",
     "core.host-remove.question",
     "core.host-remove.keep",
     "core.host-remove.delete",
@@ -42,6 +57,17 @@ const KEYS: &[&str] = &[
     "core.host-library.name-taken",
     "core.host-library.replace-denied",
     "core.host-safe-mode.power-escape",
+    "core.screen.open-failed",
+    "core.plugin.title",
+    "core.plugin.title.remove",
+    "core.plugin.what",
+    "core.plugin.sideload",
+    "core.plugin.uses",
+    "core.plugin.yes",
+    "core.plugin.yes.remove",
+    "core.plugin.remove-data",
+    "core.plugin.yes.remove-data",
+    "core.plugin.unforgotten",
 ];
 
 fn placeholders(text: &str) -> Vec<&str> {
@@ -98,6 +124,8 @@ fn core_catalogs_fit_flash_indexes() {
         include_str!("../../paperpaw-core/i18n/de.ini"),
         include_str!("../../paperpaw-core/i18n/host/en.ini"),
         include_str!("../../paperpaw-core/i18n/host/de.ini"),
+        include_str!("../../paperpaw-core/i18n/settings/en.ini"),
+        include_str!("../../paperpaw-core/i18n/settings/de.ini"),
     ] {
         assert!(Catalog::parse(source).unwrap().narrow_index().is_some());
     }

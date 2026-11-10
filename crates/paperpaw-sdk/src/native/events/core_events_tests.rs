@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "invalid fixtures must fail tests")]
 use super::*;
+use crate::native::declare::records_wire::Record;
 use crate::native::{declare::settings_value as settings, settings::SettingValue};
 use crate::power::PowerLevel;
 use alloc::{vec, vec::Vec};
@@ -19,6 +20,7 @@ macro_rules! position {
             page: $page,
             pages: $pages,
             reason: $reason,
+            chapter_left: None,
         }
     };
 }
@@ -413,4 +415,333 @@ fn complete_book_paths_and_text_caps_survive_without_truncation() {
         ),
         Err(paperpaw_native::host_glue::ERR_NO_SPACE)
     );
+}
+
+#[test]
+fn bluetooth_event_has_an_exact_typed_view_and_borrows_its_name() {
+    let bytes = encode(Record::EventBluetooth(wire::EventBluetooth {
+        now_ms: 42,
+        kind: 2,
+        device: 9,
+        name: "Remote",
+        device_kind: 2,
+        signal: -61,
+        reason: 5,
+    }));
+    assert_eq!(bytes[1], 98);
+    match Event::decode(&bytes).unwrap() {
+        Event::Bluetooth(change) => {
+            assert_eq!(
+                (
+                    change.now_ms(),
+                    change.kind(),
+                    change.device(),
+                    change.name(),
+                    change.device_kind(),
+                    change.signal(),
+                    change.reason()
+                ),
+                (
+                    42,
+                    BluetoothKind::Found,
+                    9,
+                    "Remote",
+                    BluetoothDeviceKind::Remote,
+                    Some(-61),
+                    Some(BluetoothReason::Timeout)
+                )
+            );
+            assert_borrowed_text(&bytes, change.name());
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn bluetooth_values_follow_the_contract_and_unknown_ones_are_other() {
+    let change = |kind, device_kind, signal, reason| {
+        let bytes = encode(Record::EventBluetooth(wire::EventBluetooth {
+            now_ms: 1,
+            kind,
+            device: 4,
+            name: "x",
+            device_kind,
+            signal,
+            reason,
+        }));
+        match Event::decode(&bytes).unwrap() {
+            Event::Bluetooth(change) => (
+                change.kind(),
+                change.device_kind(),
+                change.signal(),
+                change.reason(),
+            ),
+            other => panic!("{other:?}"),
+        }
+    };
+    use BluetoothDeviceKind as D;
+    use BluetoothKind as K;
+    use BluetoothReason as R;
+    let kinds = [
+        (1, K::Changed),
+        (2, K::Found),
+        (3, K::ScanEnded),
+        (4, K::Connected),
+        (5, K::Disconnected),
+        (6, K::Paired),
+        (7, K::Done),
+        (8, K::Failed),
+        (9, K::Other),
+        (0, K::Other),
+    ];
+    for (wire, expected) in kinds {
+        assert_eq!(change(wire, 0, 0, 0).0, expected, "kind {wire}");
+    }
+    let devices = [
+        (0, D::Other),
+        (1, D::Keyboard),
+        (2, D::Remote),
+        (3, D::Sensor),
+        (4, D::Phone),
+        (5, D::Other),
+    ];
+    for (wire, expected) in devices {
+        assert_eq!(change(2, wire, 0, 0).1, expected, "device kind {wire}");
+    }
+    // Zero is "not known" for the signal and "not said" for the reason.
+    assert_eq!(change(2, 0, 0, 0).2, None);
+    assert_eq!(change(2, 0, -60, 0).2, Some(-60));
+    assert_eq!(change(8, 0, 0, 0).3, None);
+    let reasons = [
+        (1, R::Off),
+        (2, R::NotAllowed),
+        (3, R::NotFound),
+        (4, R::Busy),
+        (5, R::Timeout),
+        (6, R::Declined),
+        (7, R::Lost),
+        (8, R::Att),
+        (9, R::Held),
+        (10, R::Unsupported),
+        (11, R::Other),
+    ];
+    for (wire, expected) in reasons {
+        assert_eq!(change(8, 0, 0, wire).3, Some(expected), "reason {wire}");
+    }
+}
+
+fn wifi_done(request: u32, status: i32, reason: u32, state: u32) -> Record<'static> {
+    Record::EventWifiDone(wire::EventWifiDone {
+        now_ms: 7,
+        request,
+        ssid: "Home",
+        status,
+        reason,
+        state,
+    })
+}
+
+#[test]
+fn radio_hints_and_the_network_manager_edges_are_typed() {
+    let bytes = encode(Record::EventWifiScanned(wire::EventWifiScanned {
+        now_ms: 7,
+        networks: 3,
+    }));
+    assert_eq!(
+        decode(&bytes),
+        Ok(Event::WifiScanned {
+            now_ms: 7,
+            networks: 3
+        })
+    );
+    let bytes = encode(Record::EventNetworkWanted(wire::EventNetworkWanted {
+        now_ms: 8,
+    }));
+    assert_eq!(decode(&bytes), Ok(Event::NetworkWanted { now_ms: 8 }));
+    let bytes = encode(Record::EventNetworkIdle(wire::EventNetworkIdle {
+        now_ms: 9,
+    }));
+    assert_eq!(decode(&bytes), Ok(Event::NetworkIdle { now_ms: 9 }));
+}
+
+#[test]
+fn a_wifi_outcome_says_how_this_request_ended() {
+    use crate::native::device::DeviceRequest;
+    // Online, and hosting.
+    for (state, expected) in [
+        (3, WifiLinkState::Connected),
+        (4, WifiLinkState::AccessPoint),
+    ] {
+        let bytes = encode(wifi_done(5, 0, 0, state));
+        let Ok(Event::WifiDone(done)) = decode(&bytes) else {
+            panic!("a typed outcome");
+        };
+        assert_eq!(done.now_ms(), 7);
+        assert_eq!(done.request(), DeviceRequest::new(5));
+        assert_eq!(done.ssid(), "Home");
+        assert_borrowed_text(&bytes, done.ssid());
+        assert_eq!((done.status(), done.failure()), (Ok(()), None));
+        assert_eq!(done.state(), expected);
+    }
+    // Every reason of the contract, and an unknown one as `Other`.
+    let reasons = [
+        (1, Error::NotFound, WifiFailure::NotFound),
+        (2, Error::Denied, WifiFailure::Password),
+        (3, Error::Timeout, WifiFailure::Timeout),
+        (4, Error::Cancelled, WifiFailure::Superseded),
+        (5, Error::Unsupported, WifiFailure::Unsupported),
+        (6, Error::Denied, WifiFailure::NeedsUser),
+        (0, Error::Io, WifiFailure::Other),
+        (99, Error::Io, WifiFailure::Other),
+    ];
+    for (reason, error, failure) in reasons {
+        let status = error.status();
+        let bytes = encode(wifi_done(5, status, reason, 0));
+        let Ok(Event::WifiDone(done)) = decode(&bytes) else {
+            panic!("a typed outcome");
+        };
+        assert_eq!(done.status(), Err(error));
+        assert_eq!(done.failure(), Some(failure), "reason {reason}");
+        assert_eq!(done.state(), WifiLinkState::Off);
+    }
+    // A join the host started itself has no request number; a failed one never
+    // reports a state it did not reach.
+    let bytes = encode(wifi_done(0, Error::Io.status(), 1, 3));
+    let Ok(Event::WifiDone(done)) = decode(&bytes) else {
+        panic!("a typed outcome");
+    };
+    assert_eq!(done.request(), None);
+    assert_eq!(done.state(), WifiLinkState::Off);
+}
+
+#[test]
+fn firmware_progress_and_install_outcomes_are_typed() {
+    use crate::native::device::{DeviceOutcome, DeviceRequest, FirmwareState, InstallKind};
+    let bytes = encode(Record::EventFirmwareChanged(wire::EventFirmwareChanged {
+        now_ms: 5,
+        request: 2,
+        state: 2,
+    }));
+    assert_eq!(
+        decode(&bytes),
+        Ok(Event::FirmwareChanged {
+            now_ms: 5,
+            request: DeviceRequest::new(2),
+            state: FirmwareState::Installing,
+        })
+    );
+    let done = |request, kind, status, reason, flags| {
+        encode(Record::EventInstallDone(wire::EventInstallDone {
+            now_ms: 6,
+            request,
+            kind,
+            status,
+            reason,
+            flags,
+            id: "wifi",
+        }))
+    };
+    // A removal that kept the data and takes effect at the next start.
+    let bytes = done(9, 2, 0, 0, 0b11);
+    let Ok(Event::InstallDone(end)) = decode(&bytes) else {
+        panic!("a typed outcome");
+    };
+    assert_eq!(end.now_ms(), 6);
+    assert_eq!(end.request(), DeviceRequest::new(9));
+    assert_eq!(end.kind(), InstallKind::Removal);
+    assert_eq!((end.status(), end.outcome()), (Ok(()), DeviceOutcome::Ok));
+    assert!(end.data_kept() && end.at_next_start());
+    assert_eq!(end.id(), "wifi");
+    assert_borrowed_text(&bytes, end.id());
+    // A refused install, an unknown reason and a future kind.
+    let bytes = done(1, 0, Error::Denied.status(), 2, 0);
+    let Ok(Event::InstallDone(end)) = decode(&bytes) else {
+        panic!("a typed outcome");
+    };
+    assert_eq!(end.kind(), InstallKind::Plugin);
+    assert_eq!(end.status(), Err(Error::Denied));
+    assert_eq!(end.outcome(), DeviceOutcome::Declined);
+    assert!(!end.data_kept() && !end.at_next_start());
+    let bytes = done(1, 77, Error::Io.status(), 999, 0);
+    let Ok(Event::InstallDone(end)) = decode(&bytes) else {
+        panic!("a typed outcome");
+    };
+    assert_eq!(end.kind(), InstallKind::Unknown(77));
+    assert_eq!(end.outcome(), DeviceOutcome::Other);
+}
+
+#[test]
+fn a_library_hint_for_several_books_has_an_empty_path() {
+    let record = Record::EventLibraryChanged(wire::EventLibraryChanged {
+        now_ms: 1,
+        what: 1 << 5,
+        generation: 0,
+        path: "",
+    });
+    assert!(matches!(
+        decode(&encode(record)),
+        Ok(Event::LibraryChanged { path: "", .. })
+    ));
+}
+
+#[test]
+fn a_library_hint_is_typed_keeps_future_bits_and_borrows_its_path() {
+    let record = Record::EventLibraryChanged(wire::EventLibraryChanged {
+        now_ms: 42,
+        what: 0b100_0011 | (1 << 20),
+        generation: 9,
+        path: "books/a.epub",
+    });
+    let bytes = encode(record);
+    let Ok(Event::LibraryChanged {
+        now_ms,
+        what,
+        generation,
+        path,
+    }) = decode(&bytes)
+    else {
+        panic!("a typed library hint");
+    };
+    assert_eq!((now_ms, generation, path), (42, 9, "books/a.epub"));
+    assert_eq!(what.bits(), 0b100_0011 | (1 << 20), "future bits are kept");
+    assert!(what.books() && what.status() && what.cover());
+    assert!(!(what.positions() || what.annotations() || what.fields() || what.walk()));
+    assert_borrowed_text(&bytes, path);
+}
+
+#[test]
+fn the_book_events_carry_chapter_left_with_the_same_bounds_as_a_page_turn() {
+    let mut bytes = vec![0; 4096];
+    for (left, ok) in [
+        (None, true),
+        (Some(0), true),
+        (Some(1), true),
+        (Some(2), false),
+    ] {
+        // Page 1 of 2: one page follows.
+        let opened = wire::EventBookOpened {
+            chapter_left: left,
+            ..position!(EventBookOpened, 500_000, Some(1), Some(2), 0)
+        };
+        let closed = wire::EventBookClosed {
+            chapter_left: left,
+            ..position!(EventBookClosed, 500_000, Some(1), Some(2), 0)
+        };
+        let finished = wire::EventBookFinished {
+            chapter_left: left,
+            ..position!(EventBookFinished, 500_000, Some(1), Some(2), 0)
+        };
+        for record in [
+            Record::EventBookOpened(opened),
+            Record::EventBookClosed(closed),
+            Record::EventBookFinished(finished),
+        ] {
+            let n = wire::records_encode(&[record], &mut bytes).unwrap();
+            match (decode(&bytes[..n]), ok) {
+                (Ok(Event::Book { reading, .. }), true) => assert_eq!(reading.chapter_left(), left),
+                (Err(Error::Invalid), false) => {}
+                (other, _) => panic!("{left:?}: {other:?}"),
+            }
+        }
+    }
 }

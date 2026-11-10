@@ -27,6 +27,9 @@ fn folders_path() -> String {
     format!("{DIR}/walk.dirs")
 }
 
+/// [`Walk::progress_ppm`] of a walk that is done.
+const PPM: u32 = 1_000_000;
+
 /// Bytes of folders still to walk a walk holds; more go to the card.
 const FOLDERS_HELD: usize = 1024;
 
@@ -55,7 +58,7 @@ fn hashed_list(storage: &dyn Storage, path: &str) -> Result<Vec<u32>, StorageErr
     let mut hashes = Vec::new();
     hashes
         .try_reserve_exact(count_lines(storage, path)?)
-        .map_err(|_| StorageError::TooLarge)?;
+        .map_err(|_| StorageError::OutOfMemory)?;
     lines(storage, path, &mut |_, line| {
         let line = line.trim_start_matches('\u{feff}');
         if !line.is_empty() && !line.starts_with(crate::data::MARK) {
@@ -381,6 +384,10 @@ struct Folders {
     held_bytes: usize,
     /// Where the next folder on the card starts, while there are any.
     filed: Option<u64>,
+    /// Folders found so far, the first included, and those of them taken
+    /// to walk: how far the walk is ([`Walk::progress_ppm`]).
+    found: u32,
+    taken: u32,
 }
 
 impl Folders {
@@ -389,10 +396,13 @@ impl Folders {
             held_bytes: first.len() + 1,
             held: Vec::from([first]),
             filed: None,
+            found: 1,
+            taken: 0,
         }
     }
 
     fn add(&mut self, storage: &dyn Storage, folder: String) -> Result<(), StorageError> {
+        self.found = self.found.saturating_add(1);
         self.held_bytes += folder.len() + 1;
         self.held.push(folder);
         if self.held_bytes <= FOLDERS_HELD {
@@ -424,6 +434,7 @@ impl Folders {
             match found.filter(|folder| !folder.is_empty()) {
                 Some(folder) => {
                     self.filed = Some(next);
+                    self.taken = self.taken.saturating_add(1);
                     return Ok(Some(folder));
                 }
                 None => {
@@ -441,6 +452,7 @@ impl Folders {
         }
         let folder = self.held.remove(0);
         self.held_bytes -= folder.len() + 1;
+        self.taken = self.taken.saturating_add(1);
         Ok(Some(folder))
     }
 }
@@ -674,6 +686,8 @@ pub struct Walk {
     /// While its folder is listed (a piece a step): where the next piece
     /// starts (see [`Storage::list_from`]).
     listed: Option<u64>,
+    /// The most [`Walk::progress_ppm`] said, so that it never goes back.
+    shown_ppm: u32,
 }
 
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
@@ -727,6 +741,27 @@ impl Walk {
         self.old.found
     }
 
+    /// How far the walk is, in parts per million: the folders taken to
+    /// walk over those found so far (a library's size is known only at
+    /// the end). Folders found later lower that share; what this says
+    /// never goes back, and it stays below 1,000,000 until the walk is
+    /// done, then is 1,000,000.
+    pub fn progress_ppm(&self) -> u32 {
+        self.shown_ppm
+    }
+
+    /// [`Walk::progress_ppm`] after a step, `done` when the catalog is made.
+    fn note_progress(&mut self, done: bool) {
+        let now = if done {
+            PPM
+        } else {
+            let share = u64::from(self.folders.taken) * u64::from(PPM)
+                / u64::from(self.folders.found.max(1));
+            u32::try_from(share).unwrap_or(PPM).min(PPM - 1)
+        };
+        self.shown_ppm = self.shown_ppm.max(now);
+    }
+
     /// Whether, since this was asked last, the walk put the books it
     /// found so far into the catalog, there being none when it began
     /// (`super::publish`): views are to hear of it (their sorted books
@@ -740,8 +775,9 @@ impl Walk {
     /// nothing is changed: the old catalog stays.
     pub fn step(&mut self, env: &Env<'_>) -> Result<bool, StorageError> {
         let result = self.go_on(env);
-        if result.is_err() {
-            Making::abort(env.storage());
+        match result {
+            Ok(done) => self.note_progress(done),
+            Err(_) => Making::abort(env.storage()),
         }
         result
     }

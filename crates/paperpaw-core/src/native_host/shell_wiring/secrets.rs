@@ -1,141 +1,130 @@
-//! Shell-owned objects behind the crate-private secrets service.
+//! What a shell gives `core.secrets` (`docs/abi/secrets.md`): the storage the
+//! secrets file lives on, how values are kept ([`Sealer`]) and, if the
+//! device has one, its random source ([`Rng`]).
+//!
+//! Core owns the file, its format, the ops and every rule of the service; the
+//! shell chooses where the file is and the key that protects it. Values are
+//! only ever written sealed (the X4: AES-256-GCM under a device key, decision
+//! 138). A shell that has no key does not wire `core.secrets`: a plugin that
+//! needs it is refused, and a [`Sealer`] that does not seal makes `keep`
+//! answer `ERR_STATE` with nothing written (decision 140: no veiled or plain
+//! value, ever). Values interface 6 wrote veiled are still read.
+//!
+//! The file is `.paperpaw/secrets.txt` on the storage given. A card removed
+//! or a file that cannot be read answers `ERR_IO` to the plugin and calls
+//! the notice given with [`SecretsInputs::on_unreadable`] once.
+//!
+//! After wiring, a shell calls [`SecretsLifecycle::upgrade`] once at start
+//! (veiled values found on a device that seals are rewritten sealed) and
+//! [`SecretsLifecycle::forget_plugin`] when the user deletes a plugin's data
+//! (decision 124).
 use super::*;
-use crate::native_host::{
-    secrets_file::{Sealer, Veiling},
-    secrets_service::{Rng, SecretsHost},
-};
+pub use crate::native_host::secrets_file::{SEALED_MAX, Sealer};
+pub use crate::native_host::secrets_service::Rng;
+use crate::native_host::secrets_service::{SecretsHost, SecretsServices};
 
-/// The shell's sealing of secret values, with no allocation or retained plaintext.
-/// On the X4 this uses AES-256-GCM and the device key kept in internal flash.
-/// The emulator and Android can use [`SecretsInputs::veiled`] instead.
-pub trait ShellSealer {
-    /// Whether new values are written sealed (`s1:`) and veiled ones found are
-    /// rewritten sealed at the next save.
-    fn seals(&self) -> bool;
-    /// Seal `plain` into `out`: nonce, ciphertext and tag, at most 1,052 bytes.
-    /// `aad` is the line's owner, a zero byte and its name; it authenticates the
-    /// value's owner and name. Nothing may log or retain the plaintext.
-    ///
-    /// Every seal draws a fresh 12-byte nonce from a strong random source,
-    /// never a counter that restarts and never one reused under the device key.
-    /// A repeated nonce under AES-GCM leaks the key stream and authentication
-    /// key. Refuse when a strong nonce is unavailable, without a weak fallback.
-    ///
-    /// # Errors
-    /// Return the failure status for missing entropy, storage/key failure or
-    /// insufficient output; the host refuses the save without replacing the file.
-    fn seal(&self, aad: &[u8], plain: &[u8], out: &mut [u8]) -> Result<usize, i32>;
-    /// Open `sealed` into `out`, returning the plaintext length. The value may
-    /// belong to another device or have been damaged; never log its bytes.
-    ///
-    /// # Errors
-    /// Any error means the value is absent here. The host clears its plaintext
-    /// scratch even if an implementation wrote beyond the returned length.
-    fn open(&self, aad: &[u8], sealed: &[u8], out: &mut [u8]) -> Result<usize, i32>;
-}
-
-/// The shell's random source, without a weaker stand-in on failure.
-pub trait ShellRandom {
-    /// Fill `out` and report whether the source is fully random now (`strong`).
-    /// ESP32-C3 hardware randomness is strong only while the radio or the
-    /// bootloader's entropy source is on. A key, token or nonce must not rely
-    /// on weak bytes. A device without a source leaves this input absent.
-    ///
-    /// # Errors
-    /// Return the source's refusal; the host clears its random scratch on error.
-    fn fill(&self, out: &mut [u8]) -> Result<bool, i32>;
-}
-
-struct Sealing(Rc<dyn ShellSealer>);
-impl Sealer for Sealing {
-    fn seals(&self) -> bool {
-        self.0.seals()
-    }
-    fn seal(&self, aad: &[u8], plain: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-        self.0.seal(aad, plain, out)
-    }
-    fn open(&self, aad: &[u8], sealed: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-        self.0.open(aad, sealed, out)
-    }
-}
-struct Random(Rc<dyn ShellRandom>);
-impl Rng for Random {
-    fn fill(&self, out: &mut [u8]) -> Result<bool, i32> {
-        self.0.fill(out)
-    }
-}
-
-/// Shared shell-owned objects for `core.secrets`. No key or plaintext is copied
-/// into this adapter. The shell controls each object's lifetime through its Rc.
-#[non_exhaustive]
+/// What a shell names for `core.secrets`.
+#[derive(Clone)]
 pub struct SecretsInputs {
     storage: Rc<dyn Storage>,
-    sealer: Option<Sealing>,
-    random: Option<Random>,
+    sealer: Rc<dyn Sealer>,
+    rng: Option<Rc<dyn Rng>>,
     unreadable: Option<Rc<dyn Fn()>>,
 }
+
 impl core::fmt::Debug for SecretsInputs {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SecretsInputs")
-            .field("custom_sealer", &self.sealer.is_some())
-            .field("random", &self.random.is_some())
-            .field("unreadable", &self.unreadable.is_some())
-            .finish()
+            .field("seals", &self.sealer.seals())
+            .field("rng", &self.rng.is_some())
+            .finish_non_exhaustive()
     }
 }
+
 impl SecretsInputs {
-    /// Wire shell-provided storage and sealing. The X4 shell supplies its
-    /// device-key sealer; core never creates, persists or exports that key.
+    /// The file lives on `storage` (the card, or the app's private folder);
+    /// `sealer` keeps the values.
     #[must_use]
-    pub fn new(storage: Rc<dyn Storage>, sealer: Rc<dyn ShellSealer>) -> Self {
+    pub fn new(storage: Rc<dyn Storage>, sealer: Rc<dyn Sealer>) -> Self {
         Self {
             storage,
-            sealer: Some(Sealing(sealer)),
-            random: None,
+            sealer,
+            rng: None,
             unreadable: None,
         }
     }
-    /// Keep interface 6's veiling on the emulator or in Android's private
-    /// folder. Veiling hides values from casual viewing; it is not encryption.
-    /// Do not use this constructor for the X4.
+
+    /// The device's random source, for `random` (a device without one is not
+    /// given one: there is no weaker stand-in).
     #[must_use]
-    pub fn veiled(storage: Rc<dyn Storage>) -> Self {
-        Self {
-            storage,
-            sealer: None,
-            random: None,
-            unreadable: None,
-        }
-    }
-    /// Set the random source. Without one, random requests are unsupported.
-    #[must_use]
-    pub fn random(mut self, source: Rc<dyn ShellRandom>) -> Self {
-        self.random = Some(Random(source));
+    pub fn with_rng(mut self, rng: Rc<dyn Rng>) -> Self {
+        self.rng = Some(rng);
         self
     }
-    /// Notify the shell once when reading the file fails with an I/O error.
-    /// The core's secrets service owns the once-only check.
+
+    /// Called once, from inside a plugin's call, when the file cannot be read
+    /// (show the user a notice; do not call the kernel).
     #[must_use]
-    pub fn unreadable(mut self, notice: Rc<dyn Fn()>) -> Self {
+    pub fn on_unreadable(mut self, notice: Rc<dyn Fn()>) -> Self {
         self.unreadable = Some(notice);
         self
     }
+
+    pub(crate) fn host(self) -> Rc<dyn SecretsHost> {
+        Rc::new(Adapter(self))
+    }
 }
-impl SecretsHost for SecretsInputs {
+
+struct Adapter(SecretsInputs);
+
+impl SecretsHost for Adapter {
     fn storage(&self) -> &dyn Storage {
-        self.storage.as_ref()
+        &*self.0.storage
     }
     fn sealer(&self) -> &dyn Sealer {
-        self.sealer
-            .as_ref()
-            .map_or(&Veiling, |sealer| sealer as &dyn Sealer)
+        &*self.0.sealer
     }
     fn rng(&self) -> Option<&dyn Rng> {
-        self.random.as_ref().map(|source| source as &dyn Rng)
+        self.0.rng.as_deref()
     }
     fn unreadable(&self) {
-        if let Some(notice) = &self.unreadable {
+        if let Some(notice) = &self.0.unreadable {
             notice();
         }
+    }
+}
+
+/// The calls the shell makes outside a plugin's call, once `core.secrets` is
+/// wired ([`WiredHosts::secrets`]).
+pub struct SecretsLifecycle(SecretsServices);
+
+impl core::fmt::Debug for SecretsLifecycle {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("SecretsLifecycle").finish_non_exhaustive()
+    }
+}
+
+impl SecretsLifecycle {
+    pub(crate) fn new(host: Rc<dyn SecretsHost>) -> Self {
+        Self(SecretsServices::new(host))
+    }
+
+    /// First start after an update on a device that seals: rewrites the veiled
+    /// values sealed. `Ok(true)` when the file was rewritten; `Ok(false)` when
+    /// nothing had to change (or the device does not seal).
+    ///
+    /// # Errors
+    /// `ERR_IO` (nothing changed), `ERR_NO_MEMORY`.
+    pub fn upgrade(&self) -> Result<bool, i32> {
+        self.0.upgrade()
+    }
+
+    /// Removes every secret of plugin `plugin` (its data was deleted by the
+    /// user, decision 124), also those that do not open here.
+    ///
+    /// # Errors
+    /// `ERR_IO` (nothing changed), `ERR_NO_MEMORY`, `ERR_INVALID`.
+    pub fn forget_plugin(&self, plugin: &str) -> Result<(), i32> {
+        self.0.forget_plugin(plugin)
     }
 }

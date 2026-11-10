@@ -296,6 +296,12 @@ impl Ota {
         }
     }
 
+    /// The firmware running, for `core.device` (interface 7 builds).
+    #[cfg(feature = "ppn5")]
+    pub fn running(&self) -> paperpaw_platform::firmware::Running<'_> {
+        paperpaw_platform::firmware::FirmwareHost::running(&self.updates)
+    }
+
     /// The firmware as plugins see it.
     pub fn firmware(&self) -> Firmware {
         self.updates.firmware()

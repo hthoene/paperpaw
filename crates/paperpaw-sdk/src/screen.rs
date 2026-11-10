@@ -39,6 +39,18 @@ pub trait ScreenMaker {
         Vec::new()
     }
 
+    /// [`slot_screens`](Self::slot_screens) without a list: `visit` is
+    /// called with each screen in that order until it returns `false`. The
+    /// kernel's maker allocates nothing here; this default walks
+    /// `slot_screens`.
+    fn each_slot_screen<'s>(&'s self, slot: &str, visit: &mut dyn FnMut(&'s Id) -> bool) {
+        for id in self.slot_screens(slot) {
+            if !visit(id) {
+                break;
+            }
+        }
+    }
+
     /// The screen the user chose for slot `slot` (`[slots]`), where it is
     /// there; `None` for automatic (the plugins' choice).
     fn slot_choice(&self, slot: &str) -> Option<&Id> {
@@ -1040,6 +1052,42 @@ impl<'a, 'e> Cx<'a, 'e> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A maker that offers three screens for `core.home` and makes none.
+    struct Offers([Id; 3]);
+
+    impl ScreenMaker for Offers {
+        fn make(&self, _: &Id, _: &Env<'_>, _: &Params) -> Option<Box<dyn Screen>> {
+            None
+        }
+
+        fn slot_screens(&self, slot: &str) -> Vec<&Id> {
+            if slot == "core.home" {
+                self.0.iter().collect()
+            } else {
+                Vec::new()
+            }
+        }
+    }
+
+    #[test]
+    fn each_slot_screen_visits_in_order_and_stops_when_told() {
+        let ids = ["a.one", "b.two", "c.three"].map(|id| Id::parse(id).unwrap());
+        let maker = Offers(ids.clone());
+        let mut seen = Vec::new();
+        maker.each_slot_screen("core.home", &mut |id| {
+            seen.push(id.as_str());
+            true
+        });
+        assert_eq!(seen, ["a.one", "b.two", "c.three"]);
+        seen.clear();
+        maker.each_slot_screen("core.home", &mut |id| {
+            seen.push(id.as_str());
+            seen.len() < 2
+        });
+        assert_eq!(seen, ["a.one", "b.two"]);
+        maker.each_slot_screen("core.other", &mut |_| panic!("no screen offered"));
+    }
 
     /// A screen saying `revision`, as one built with an SDK of that
     /// revision would.

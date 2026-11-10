@@ -1,6 +1,6 @@
 # Interface-7 port
 
-Version 1.0.8. Native plugin: `src/native_plugin.rs` (`NativeMenuEditor`),
+Version 1.0.9. Native plugin: `src/native_plugin.rs` (`NativeMenuEditor`),
 built-in descriptor `NATIVE_ENTRY` (feature `linked`), declarations in
 `declarations.rs` (built into the image by `build.rs`), metadata in `native/`
 (`python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json
@@ -47,8 +47,8 @@ Pending cases are `#[ignore]`d refusals in `tests/acceptance_pending.rs`; they n
 
 - `core.ui` opens in the first live callback, not in `make` (construction has no
   frame); `tests/hosted_construction.rs` constructs in the kernel's real registered
-  scope. Today the host refuses that construction with `Unsupported` because it
-  admits screen declarations only (#310); the positive case is an ignored refusal.
+  scope. The host admits every declaration the plugin makes (the registry-change
+  event, 75, since #916), so `make` runs to the end there: a real pass, no pin.
 - Every allocation on the callback paths is reserved first (`paperpaw_ui_kit::mem`,
   `text::concat`); allocator-failure sweeps (`plugins/test-support/fail_alloc.rs`)
   refuse each allocation in turn for the model/store code and the kit and require
@@ -60,3 +60,7 @@ Pending cases are `#[ignore]`d refusals in `tests/acceptance_pending.rs`; they n
 - Handover indices are digits that fit a `usize` and are in range for the entry, else the
   screen is refused before a view is installed; moves use checked arithmetic. Candidates
   are ordered by an in-place stable insertion sort (no scratch).
+- The interface-6 plugin is removed: `MenuEditor` and its four legacy screens in `lib.rs`, the kernel tests that pinned them (`circles.rs`, `editing.rs`, `sequences.rs`, `common`), the app's `offered(.., MenuEditor)` wiring and
+  `STORE_PLUGINS` entry, and the plugin-file build (`tools/plugin-files` bin, `plugins.txt`).
+  It does not run in the app until the host activates native plugins. The behaviour it pinned
+  is covered by the model/store unit tests above; the golden stays for the native acceptance.

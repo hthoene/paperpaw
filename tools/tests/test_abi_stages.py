@@ -191,12 +191,12 @@ class StageTests(unittest.TestCase):
     def test_repository_schemas_are_stage_local_and_copies_match(self):
         stages = self.schema['stages']
         self.assertEqual([s['key'] for s in stages],
-                         ['core.format', 'core.input-filter', 'core.lookup', 'core.status',
-                          'core.widget'])
+                         ['core.book-badge', 'core.format', 'core.input-filter', 'core.lookup',
+                          'core.status', 'core.widget'])
         self.assertTrue(all(s['records'][0]['id'] == 1 for s in stages))
         source = rust_stages(self.schema)
-        for module in ['core_format_v1', 'core_input_filter_v1', 'core_lookup_v1',
-                       'core_status_v1', 'core_widget_v1']:
+        for module in ['core_book_badge_v1', 'core_format_v1', 'core_input_filter_v1',
+                       'core_lookup_v1', 'core_status_v1', 'core_widget_v1']:
             self.assertIn(f'pub mod {module}', source)
         self.assertIn('pub static STAGES:', source)
         self.assertNotIn('unsafe', source)
@@ -467,6 +467,19 @@ class MirrorTests(unittest.TestCase):
         record['fields'][0]['max_bytes'] += 1
         with self.assertRaisesRegex(ValueError, 'exactly the fields'):
             validate_stages(schema)
+
+    def test_every_stage_module_has_both_batch_writers(self):
+        source = source_stages(self.schema)
+        modules = source.count('\npub mod ')
+        self.assertGreater(modules, 0)
+        for side in ('Reply', 'Input'):
+            self.assertEqual(source.count(f"pub struct {side}Writer<'w>"), modules, side)
+        # The one-byte count needs at most 127 rows a side.
+        from abi_records import local_codec_source
+        stage = copy.deepcopy(self.format_stage(copy.deepcopy(self.schema)))
+        stage['reply_rows'] = 128
+        with self.assertRaisesRegex(ValueError, 'at most 127 rows'):
+            local_codec_source(stage)
 
     def test_reply_kinds_are_capped_at_32_and_input_kinds_at_8(self):
         schema = copy.deepcopy(self.schema)

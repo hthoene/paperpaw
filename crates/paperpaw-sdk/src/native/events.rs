@@ -1,14 +1,46 @@
 //! Borrowed interface-7 host events and stage subscriber calls, decoded without allocations.
 //! All strings borrow the
 //! callback input; decoding allocates nothing and copies no strings.
-use super::{
-    Error,
-    declare::records_wire::{self as wire, Record},
-};
+use super::{Error, declare::records_wire as wire};
+
+/// One function per event: the record's body read as its type and made an [`Event`].
+/// `$r` is the decoded record, `$body` the event (it may use `?`).
+macro_rules! event_fn {
+    ($name:ident, $ty:ty, |$r:ident| $body:expr) => {
+        // Two entries to one decoder. `inline` is what `decode_any` (every kind) uses,
+        // folded into it. `alone` is what `Incoming::decode_as` uses: a function of its
+        // own, so that a plugin's link holds the decoders of the kinds it reads and
+        // `tools/plugin-symbols.sh --events` can tell which.
+        pub(super) mod $name {
+            #[allow(unused_imports, reason = "what the decoder of one kind happens to use")]
+            use super::*;
+            #[inline(always)]
+            pub(in crate::native::events) fn inline<'a>(
+                raw: wire::RawRecord<'a>,
+                _bytes: &'a [u8],
+            ) -> Result<Event<'a>, Error> {
+                let $r: $ty = raw.decode().map_err(Error::from_status)?;
+                Ok($body)
+            }
+            #[inline(never)]
+            pub(in crate::native::events) fn alone<'a>(
+                raw: wire::RawRecord<'a>,
+                bytes: &'a [u8],
+            ) -> Result<Event<'a>, Error> {
+                inline(raw, bytes)
+            }
+        }
+    };
+}
 
 mod core_events;
+mod host_events;
+pub mod kinds;
 mod states;
-pub use states::{BookKind, ChargeFlags, PowerChange, WifiLinkState};
+pub use states::{
+    BluetoothChange, BluetoothDeviceKind, BluetoothKind, BluetoothReason, BookKind, ChargeFlags,
+    InstallDone, LibraryChanges, PowerChange, WifiDone, WifiFailure, WifiLinkState,
+};
 
 /// A host-issued plugin installation request, obtained from a decoded event.
 ///
@@ -158,6 +190,8 @@ pub struct ReadingView<'a> {
     page: Option<u32>,
     /// Page count, if counted.
     pages: Option<u32>,
+    /// Pages after this one in its chapter, if the reader knows the chapter's end.
+    chapter_left: Option<u32>,
 }
 
 impl<'a> ReadingView<'a> {
@@ -211,16 +245,53 @@ impl<'a> ReadingView<'a> {
     pub fn pages(&self) -> Option<u32> {
         self.pages
     }
+    /// The pages after this one up to the end of its chapter, 0 on the chapter's last page;
+    /// `None` where the reader has no chapter end (no table of contents, a page before its
+    /// first entry, pages not counted yet). Present only with a page and a page count, and
+    /// at most the pages after this one.
+    #[must_use]
+    pub fn chapter_left(&self) -> Option<u32> {
+        self.chapter_left
+    }
     fn validate(self) -> Result<Self, Error> {
         if self.progress_ppm > 1_000_000
             || self.page == Some(0)
             || self.pages == Some(0)
             || matches!((self.page, self.pages), (Some(p), Some(n)) if p > n)
         {
-            Err(Error::Invalid)
-        } else {
-            Ok(self)
+            return Err(Error::Invalid);
         }
+        // Chapter pages left need the counted pages and fit in what follows this page.
+        match (self.chapter_left, self.page, self.pages) {
+            (None, _, _) => Ok(self),
+            (Some(left), Some(page), Some(pages)) if left <= pages - page => Ok(self),
+            _ => Err(Error::Invalid),
+        }
+    }
+}
+
+/// Text typed from outside (`event.text_typed`). It may be a password, so `Debug`
+/// shows only its length; read it with [`TypedText::as_str`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct TypedText<'a>(&'a str);
+
+impl<'a> TypedText<'a> {
+    pub(super) const fn new(text: &'a str) -> Self {
+        Self(text)
+    }
+
+    /// The typed text, borrowed from the callback input.
+    #[must_use]
+    pub const fn as_str(&self) -> &'a str {
+        self.0
+    }
+}
+
+impl core::fmt::Debug for TypedText<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("TypedText")
+            .field("len", &self.0.len())
+            .finish_non_exhaustive()
     }
 }
 
@@ -230,29 +301,59 @@ impl<'a> ReadingView<'a> {
 #[non_exhaustive]
 pub enum Event<'a> {
     /// A scheduled tick callback.
+    #[non_exhaustive]
     Tick { now_ms: u64 },
     /// PaperPaw started.
+    #[non_exhaustive]
     Started { now_ms: u64 },
     /// PaperPaw resumed.
+    #[non_exhaustive]
     Resume { now_ms: u64 },
     /// PaperPaw is suspending; save synchronously before returning.
+    #[non_exhaustive]
     Suspend { now_ms: u64 },
     /// PaperPaw is stopping; save synchronously before returning.
+    #[non_exhaustive]
     Stopping { now_ms: u64 },
     /// A fresh battery measurement is available through the snapshot.
+    #[non_exhaustive]
     BatteryMeasured { now_ms: u64 },
     /// The displayed page changed.
     PageTurned(ReadingView<'a>),
-    /// A screen became visible or its pane changed size.
+    /// A screen became visible or its pane changed size. `last_input` is what
+    /// the user used last before it was shown, as the host saw it (`None` where
+    /// the host does not say): a focus at once for buttons, none for a finger.
+    #[non_exhaustive]
     ScreenShown {
         now_ms: u64,
         screen: &'a str,
         width: u32,
         height: u32,
         instance: Option<super::ui::Instance>,
+        last_input: Option<crate::keys::InputMode>,
     },
-    /// A registered action was invoked.
-    ActionRun { now_ms: u64, action: &'a str },
+    /// A registered action was invoked. `background`: not the reader's own
+    /// doing but a rule's or another plugin's run (interface 6
+    /// `!env.reader()`), which may wait for a good moment (declared work);
+    /// `false` (the reader pressed, chose or mapped it): act at once.
+    #[non_exhaustive]
+    ActionRun {
+        now_ms: u64,
+        action: &'a str,
+        background: bool,
+    },
+    /// Text typed from outside: a hardware keyboard's keys or a shell's remote
+    /// control (`event.text_typed`, 109). Sent only to the instance on top when it
+    /// is a screen offered on slot `core.keyboard`, through `dispatch_event`, and
+    /// needs no subscription (naming 109 in a registration refuses the batch). Text
+    /// over 1,024 bytes comes in several events cut between characters; `done` is
+    /// set only on the last, and confirms the dialog.
+    #[non_exhaustive]
+    TextTyped {
+        now_ms: u64,
+        text: TypedText<'a>,
+        done: bool,
+    },
     /// An extension stage calls this subscription's token. Answer through
     /// [`super::reply::Reply`] using the stage owner's payload schema.
     ///
@@ -271,6 +372,7 @@ pub enum Event<'a> {
     ///     }
     /// }
     /// ```
+    #[non_exhaustive]
     StageCall {
         stage: &'a str,
         schema: u32,
@@ -278,6 +380,7 @@ pub enum Event<'a> {
     },
     /// A setting changed. An empty key asks the plugin to reread retained settings.
     /// Empty old bytes mean no previous readable value; the new value is read from the host.
+    #[non_exhaustive]
     SettingChanged {
         now_ms: u64,
         key: &'a str,
@@ -286,34 +389,84 @@ pub enum Event<'a> {
     /// A book session edge with the host-stamped reading position.
     /// Reason 0 is an ordinary open/close or a finished book. Reason 1 is a
     /// restored open or a sleep/shutdown close. Reserved reasons become 0.
+    #[non_exhaustive]
     Book {
         kind: BookKind,
         reason: u32,
         reading: ReadingView<'a>,
     },
     /// A root-1 book moved; paths are complete and never truncated.
+    #[non_exhaustive]
     BookMoved {
         now_ms: u64,
         from: &'a str,
         path: &'a str,
     },
     /// A root-1 book was removed.
+    #[non_exhaustive]
     BookRemoved { now_ms: u64, path: &'a str },
+    /// The library changed (`event.library_changed`): a hint, coalesced per
+    /// plugin, so reread what you show. `generation` is the catalog generation;
+    /// `path` is the one book the change was about, empty for several. The
+    /// plugin's own changes arrive too.
+    #[non_exhaustive]
+    LibraryChanged {
+        now_ms: u64,
+        what: LibraryChanges,
+        generation: u32,
+        path: &'a str,
+    },
     /// Installed plugin state changed; read inventory through its owning service.
+    #[non_exhaustive]
     PluginsChanged { now_ms: u64 },
     /// The radio connection state changed.
+    #[non_exhaustive]
     WifiChanged { now_ms: u64, state: WifiLinkState },
+    /// A Wi-Fi scan finished (`event.wifi_scanned`), a hint coalesced per kind:
+    /// read the list again. `networks` is the number of networks found.
+    #[non_exhaustive]
+    WifiScanned { now_ms: u64, networks: u32 },
+    /// A `join` or `host` request of this plugin ended, exactly once.
+    WifiDone(WifiDone<'a>),
+    /// Network work waits for a network (`event.network_wanted`). Only the
+    /// network manager (`core.network-manager`) gets it.
+    #[non_exhaustive]
+    NetworkWanted { now_ms: u64 },
+    /// The network is no longer needed (`event.network_idle`); the network
+    /// manager may switch the radio off. Only the network manager gets it.
+    #[non_exhaustive]
+    NetworkIdle { now_ms: u64 },
+    /// Firmware installation progressed (`event.firmware_changed`), at most every
+    /// 250 ms: a hint, read the details with the device's firmware read.
+    #[non_exhaustive]
+    FirmwareChanged {
+        now_ms: u64,
+        request: Option<super::device::DeviceRequest>,
+        state: super::device::FirmwareState,
+    },
+    /// An install, removal, firmware or file-check request of this plugin ended,
+    /// exactly once.
+    InstallDone(InstallDone<'a>),
+    /// A Bluetooth device or scan changed; sent to the plugin bound to
+    /// `core.bluetooth` only, so it is declared as a slot offer, not as a
+    /// subscription.
+    Bluetooth(BluetoothChange<'a>),
     /// The interface-6 power mode or level changed.
     PowerChanged(PowerChange<'a>),
     /// Status items changed; read them through the owning stage.
+    #[non_exhaustive]
     StatusChanged { now_ms: u64 },
     /// Charging, external power or low-battery state changed.
+    #[non_exhaustive]
     ChargeChanged { now_ms: u64, flags: ChargeFlags },
     /// Registry sections changed; reread the sections used by this plugin.
+    #[non_exhaustive]
     RegistryChanged { now_ms: u64, what: RegistryChanges },
     /// The active settings preview changed or ended.
+    #[non_exhaustive]
     PreviewChanged { now_ms: u64 },
     /// Another plugin asks subscribers to offer installation. This installs nothing itself.
+    #[non_exhaustive]
     PluginsRequested {
         now_ms: u64,
         request: PluginRequestId,
@@ -322,6 +475,7 @@ pub enum Event<'a> {
     },
     /// One requested plugin received an installation outcome. Delivered only to the requester.
     /// Reserved outcome values become Failed.
+    #[non_exhaustive]
     PluginAnswered {
         now_ms: u64,
         request: PluginRequestId,
@@ -329,6 +483,7 @@ pub enum Event<'a> {
         outcome: super::commands::PluginOutcome,
     },
     /// An instance opened or received a new handover.
+    #[non_exhaustive]
     ScreenOpened {
         now_ms: u64,
         screen: &'a str,
@@ -341,16 +496,55 @@ pub enum Event<'a> {
         restored: bool,
     },
     /// An instance closed after its final draw.
+    #[non_exhaustive]
     ScreenClosed {
         now_ms: u64,
         screen: &'a str,
         instance: super::ui::Instance,
     },
     /// Read the current stack through core.ui.
+    #[non_exhaustive]
     StackChanged { now_ms: u64 },
+    /// A request of this plugin ended (`core.net`); read the answer in this callback.
+    HttpDone(super::net::HttpDone),
+    /// Bytes of a request's body came.
+    HttpProgress(super::net::HttpProgress),
+    /// A server of this plugin started, failed or stopped (`core.net`).
+    Server(super::net::ServerEvent<'a>),
+    /// A server of this plugin got a request; its body, if any, is readable
+    /// only in this callback.
+    ServedRequest(super::net::ServedRequest<'a>),
+    /// A picture the plugin asked the host to prepare is ready or failed
+    /// (`core.document`).
+    ImageReady(super::image::ImageReady),
+    /// Something happened to a socket of this plugin (`core.sockets`); read
+    /// arrived bytes in this callback.
+    Socket(super::sockets::SocketEvent),
+    /// Something happened to a broadcast of this plugin.
+    Broadcast(super::sockets::BroadcastEvent<'a>),
+    /// Work of this plugin came due (`core.work`): opens a run. Requests and sockets
+    /// started in this callback belong to the run (background, `work.md` 2.3); the
+    /// run ends when this callback has returned and its last request and socket
+    /// have ended, so its sockets must have an idle time. It lasts at most 10
+    /// minutes. The run is quiet: UI calls that would ask the user answer
+    /// `Error::State` in this callback and in the events of the run's requests and
+    /// sockets, and notices go to the plugin's work note.
+    WorkDue(super::work::WorkDue<'a>),
+    /// Work was taken out for good (the user turned the network off).
+    WorkRefused(super::work::WorkRefused<'a>),
+    /// What held work back no longer does: try again what was held.
+    #[non_exhaustive]
+    WorkAllowed { now_ms: u64 },
+    /// A provider kept the answer it had marked `pending`: ask again with the
+    /// same text and language (`event.lookup_ready`). Only an asker subscribed to
+    /// it is told.
+    #[non_exhaustive]
+    LookupReady { now_ms: u64, provider: &'a str },
     /// A final answer or committed live update, readable in this callback.
+    #[non_exhaustive]
     Answered { now_ms: u64, answer: Answered },
     /// The host made a widget instance for its maker.
+    #[non_exhaustive]
     WidgetMade {
         now_ms: u64,
         widget: &'a str,
@@ -358,22 +552,26 @@ pub enum Event<'a> {
         place: &'a str,
     },
     /// The host dropped a widget instance.
+    #[non_exhaustive]
     WidgetDropped {
         now_ms: u64,
         instance: super::ui::Instance,
     },
     /// A widget's content or layout changed.
+    #[non_exhaustive]
     WidgetChanged {
         now_ms: u64,
         instance: super::ui::Instance,
     },
     /// A screen drew its first page and is ready for help.
+    #[non_exhaustive]
     ScreenReady {
         now_ms: u64,
         screen: &'a str,
         instance: super::ui::Instance,
     },
     /// Speech ended or was refused; the caller's cookie is unchanged.
+    #[non_exhaustive]
     Spoken {
         now_ms: u64,
         cookie: u32,
@@ -382,7 +580,9 @@ pub enum Event<'a> {
 }
 
 impl<'a> Event<'a> {
-    /// Decode one event, borrowing strings from the callback input.
+    /// Decode one event, borrowing strings from the callback input. This decodes
+    /// whichever event the record holds, so it links the decoder of every event; a
+    /// plugin that reads a few kinds uses [`Incoming::decode_as`].
     ///
     /// The decoded event cannot outlive its input:
     ///
@@ -397,101 +597,95 @@ impl<'a> Event<'a> {
     /// Returns framing, UTF-8, cap or event-field errors. Other exact tags
     /// return [`Error::Unsupported`].
     pub fn decode(bytes: &'a [u8]) -> Result<Self, Error> {
-        decode(bytes)
+        Incoming::new(bytes)?.decode()
     }
 }
 
-/// Decode exactly one event record. Unknown appended optional fields are
-/// accepted; strings remain borrowed from `bytes`.
+/// One event as the host delivered it: its record framed and its body not read yet.
+/// The plugin reads the kinds it handles with [`Self::decode_as`] and links only
+/// their decoders; [`Self::decode`] reads any kind.
 ///
-/// # Errors
-/// Returns framing/UTF-8/cap errors from the generated codec; Invalid for a
-/// non-singleton batch or unsound counters/progress; Unsupported for other tags.
-fn decode(bytes: &[u8]) -> Result<Event<'_>, Error> {
-    let record = match wire::records_decode_single(bytes) {
-        Ok(record) => record,
-        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED) => {
-            return wire::tick_decode(bytes)
-                .map(|now_ms| Event::Tick { now_ms })
-                .map_err(Error::from_status);
-        }
-        Err(status) => return Err(Error::from_status(status)),
-    };
-    Ok(match record {
-        Record::StageCall(r) => Event::StageCall {
-            stage: r.stage,
-            schema: r.schema,
-            payload: r.payload,
-        },
-        Record::EventStarted(r) => Event::Started { now_ms: r.now_ms },
-        Record::EventResume(r) => Event::Resume { now_ms: r.now_ms },
-        Record::EventSuspend(r) => Event::Suspend { now_ms: r.now_ms },
-        Record::EventStopping(r) => Event::Stopping { now_ms: r.now_ms },
-        Record::EventBatteryMeasured(r) => Event::BatteryMeasured { now_ms: r.now_ms },
-        Record::EventPageTurned(r) => Event::PageTurned(
-            ReadingView {
-                now_ms: r.now_ms,
-                section: r.section,
-                offset: r.offset,
-                insert: r.insert.unwrap_or(0),
-                progress_ppm: r.progress_ppm,
-                path: r.path,
-                title: r.title,
-                chapter: r.chapter,
-                page: r.page,
-                pages: r.pages,
-            }
-            .validate()?,
-        ),
-        Record::EventScreenShown(r) => Event::ScreenShown {
-            now_ms: r.now_ms,
-            screen: r.screen,
-            width: r.width,
-            height: r.height,
-            instance: r
-                .instance
-                .map(|value| super::ui::Instance::new(value).ok_or(Error::Invalid))
-                .transpose()?,
-        },
-        Record::EventActionRun(r) => Event::ActionRun {
-            now_ms: r.now_ms,
-            action: r.action,
-        },
-        other => decode_registry(other)?,
-    })
+/// ```
+/// use paperpaw_sdk::native::{Error, events::{Event, Incoming, kinds}};
+/// fn on_tick(event: Incoming<'_>) -> Result<Option<u64>, Error> {
+///     Ok(match event.decode_as::<kinds::Tick>()? {
+///         Some(Event::Tick { now_ms, .. }) => Some(now_ms),
+///         _ => None,
+///     })
+/// }
+/// ```
+///
+/// It cannot outlive the callback bytes:
+///
+/// ```compile_fail
+/// use paperpaw_sdk::native::events::Incoming;
+/// fn escape(bytes: &[u8]) -> Incoming<'static> {
+///     Incoming::new(bytes).unwrap()
+/// }
+/// ```
+#[derive(Clone, Copy)]
+pub struct Incoming<'a> {
+    raw: wire::RawRecord<'a>,
+    bytes: &'a [u8],
 }
 
-fn decode_registry(record: Record<'_>) -> Result<Event<'_>, Error> {
-    Ok(match record {
-        Record::EventRegistryChanged(r) => Event::RegistryChanged {
-            now_ms: r.now_ms,
-            what: RegistryChanges::from_bits(r.what),
-        },
-        Record::EventPreviewChanged(r) => Event::PreviewChanged { now_ms: r.now_ms },
-        Record::EventPluginsRequested(r) => Event::PluginsRequested {
-            now_ms: r.now_ms,
-            request: PluginRequestId(r.request),
-            by: r.by,
-            plugins: RequestedPlugins::decode(r.plugins)?,
-        },
-        Record::EventPluginAnswered(r) => {
-            use super::commands::PluginOutcome;
-            let outcome = match r.outcome {
-                0 => PluginOutcome::Installed,
-                1 => PluginOutcome::Declined,
-                3 => PluginOutcome::NotFound,
-                _ => PluginOutcome::Failed,
-            };
-            Event::PluginAnswered {
-                now_ms: r.now_ms,
-                request: PluginRequestId(r.request),
-                plugin: r.plugin,
-                outcome,
-            }
-        }
-        other => uix_events::decode(other)?,
-    })
+/// Its tag only: a body may hold text a plugin keeps private.
+impl core::fmt::Debug for Incoming<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Incoming")
+            .field("tag", &self.raw.tag())
+            .finish()
+    }
 }
+
+impl<'a> Incoming<'a> {
+    /// Frame one event record: exactly one record in a batch of one, nothing after.
+    /// The body is not read.
+    ///
+    /// # Errors
+    /// Returns the framing errors [`Event::decode`] returns before it reads a body.
+    pub fn new(bytes: &'a [u8]) -> Result<Self, Error> {
+        let raw = wire::RawRecord::single(bytes).map_err(Error::from_status)?;
+        Ok(Self { raw, bytes })
+    }
+
+    /// Whether this is an event of kind `K`; the body is not read.
+    #[must_use]
+    pub fn is<K: kinds::Kind>(&self) -> bool {
+        self.raw.tag() == K::TAG
+    }
+
+    /// Read the event if it is of kind `K`: `Ok(None)` for any other, without reading
+    /// its body. A plugin links the decoders of the kinds it names only.
+    ///
+    /// # Errors
+    /// Returns UTF-8, cap or event-field errors of an event of kind `K`.
+    pub fn decode_as<K: kinds::Kind>(&self) -> Result<Option<Event<'a>>, Error> {
+        if self.raw.tag() != K::TAG {
+            return Ok(None);
+        }
+        <K as kinds::sealed::Sealed>::decode_event(self.raw, self.bytes).map(Some)
+    }
+
+    /// Read the event, whichever kind it is, as [`Event::decode`] does. This links the
+    /// decoder of every event: use [`Self::decode_as`] where a plugin handles a few.
+    ///
+    /// # Errors
+    /// Returns UTF-8, cap or event-field errors; Unsupported for a tag no event has.
+    pub fn decode(&self) -> Result<Event<'a>, Error> {
+        kinds::decode_any(self.raw, self.bytes)
+    }
+}
+
+/// What the tests of the decoders read an event with.
+#[cfg(test)]
+fn decode(bytes: &[u8]) -> Result<Event<'_>, Error> {
+    Event::decode(bytes)
+}
+
+#[cfg(test)]
+#[path = "events/kinds_tests.rs"]
+mod kinds_tests;
 
 #[cfg(test)]
 #[path = "events_tests.rs"]

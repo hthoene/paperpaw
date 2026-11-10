@@ -30,6 +30,94 @@ impl PowerAction {
     }
 }
 
+/// Where the plugin or firmware image to install is, in the folder the host
+/// reads it from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum InstallRoot {
+    /// This plugin's data folder (`core.net` `save_to` root 0 puts a download there).
+    Data,
+    /// The user's files on the card (needs `uses.storage`).
+    Files,
+}
+
+/// What [`CommandSender::check_file`] checks a file as.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CheckKind {
+    /// A plugin: a `.ppn` file or a plugin folder (`uses.install`).
+    Plugin,
+    /// A firmware image (`uses.firmware`).
+    Firmware,
+}
+
+impl CheckKind {
+    const fn wire(self) -> u32 {
+        match self {
+            Self::Plugin => 0,
+            Self::Firmware => 1,
+        }
+    }
+}
+
+impl InstallRoot {
+    pub(super) const fn wire(self) -> u32 {
+        match self {
+            Self::Data => 0,
+            Self::Files => 1,
+        }
+    }
+}
+
+/// How a firmware image is installed: the options of
+/// [`CommandSender::install_firmware`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct FirmwareOptions<'a> {
+    allow_older: bool,
+    foreign: bool,
+    key: Option<&'a [u8; 32]>,
+}
+
+impl<'a> FirmwareOptions<'a> {
+    /// A PaperPaw image, newer than the running one, signed by a PaperPaw key.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            allow_older: false,
+            foreign: false,
+            key: None,
+        }
+    }
+
+    /// Also take an older or the same version.
+    #[must_use]
+    pub const fn allow_older(mut self) -> Self {
+        self.allow_older = true;
+        self
+    }
+
+    /// The image is another firmware than PaperPaw: unsigned, checked as the boot
+    /// loader would start it. The host always asks, and tells the user that
+    /// PaperPaw does not start again by itself.
+    #[must_use]
+    pub const fn foreign(mut self) -> Self {
+        self.foreign = true;
+        self
+    }
+
+    /// The signing key (32 bytes) of an image signed by another key than
+    /// PaperPaw's, which installs only when this names exactly that key and the
+    /// user accepts it in the host's confirmation. A foreign image is not
+    /// signed, so a key has no meaning with [`foreign`](Self::foreign): the
+    /// contract states no combination of the two, and the host decides.
+    #[must_use]
+    pub const fn key(mut self, key: &'a [u8; 32]) -> Self {
+        self.key = Some(key);
+        self
+    }
+}
+
 impl CommandSender<'_, '_> {
     /// Turn the radio on (`uses.wifi`). Ignored where the device has none.
     ///
@@ -172,6 +260,149 @@ impl CommandSender<'_, '_> {
         self.submit(wire::Command::Wear {
             mode,
             flags: u32::from(automatic),
+        })
+    }
+
+    /// Ask the host to install the plugin downloaded into `path` of `root`
+    /// (`uses.install`, `docs/abi/device.md` 5.2): a `.ppn` file or a plugin
+    /// folder. The host copies it, checks it and **asks the user** before it
+    /// installs (decision 132); a plugin never decides. `update`
+    /// replaces an installed plugin of the same id, `allow_older` also takes an
+    /// older version. `request` is the caller's own non-zero number: the end of
+    /// the request is `install_done` (kind 0) and `Device::install` its state.
+    /// A user who granted this plugin the trusted-installer grant is not asked
+    /// (the checks still run). The catalog's author key, recovery key and
+    /// rotations (`install_author`, `install_rotation`, commands 1580 and 1581)
+    /// are not sent by this method; [`install_plugin_with`](Self::install_plugin_with) sends them.
+    ///
+    /// # Errors
+    /// Returns `Invalid` for a zero request or an empty path, buffer limits or
+    /// the host's refusal (`Denied` without `uses.install`, `Full` when four
+    /// install, removal, firmware or check requests wait already).
+    pub fn install_plugin(
+        &mut self,
+        request: u32,
+        root: InstallRoot,
+        path: &str,
+        update: bool,
+        allow_older: bool,
+    ) -> Result<(), Error> {
+        if request == 0 || path.is_empty() {
+            return Err(Error::Invalid);
+        }
+        self.submit(wire::Command::InstallPlugin {
+            request,
+            root: root.wire(),
+            path,
+            flags: u32::from(update) | (u32::from(allow_older) << 1),
+        })
+    }
+
+    /// Ask the host to remove the installed plugin `plugin` (`uses.install`,
+    /// `docs/abi/device.md` 5.2): the user is asked once, with the choice to
+    /// keep the plugin's data (decision 124). `request` is the caller's own
+    /// non-zero number: the end is `install_done` (kind 2).
+    ///
+    /// # Errors
+    /// Returns `Invalid` for a zero request or an empty id, buffer limits or
+    /// the host's refusal (`Denied` without `uses.install`).
+    pub fn remove_plugin(&mut self, request: u32, plugin: &str) -> Result<(), Error> {
+        if request == 0 || plugin.is_empty() {
+            return Err(Error::Invalid);
+        }
+        self.submit(wire::Command::RemovePlugin {
+            request,
+            plugin,
+            flags: 0,
+        })
+    }
+
+    /// Ask the host to install the firmware image in `path` of `root`
+    /// (`uses.firmware`, `docs/abi/device.md` 5.3); `root` [`InstallRoot::Files`]
+    /// also needs `uses.storage`. The host checks the image, **always asks the
+    /// user** (whatever grant the plugin has) and writes the other flash slot
+    /// in bounded steps. `request` is the caller's own non-zero number: the end
+    /// is `install_done` (kind 1) and `Device::install` its state. The flags the
+    /// options set are the only ones the contract has: the host refuses any
+    /// other bit as `Invalid`, and this method sets no other. Installing
+    /// does not restart: [`firmware_restart`](Self::firmware_restart) starts
+    /// the installed image.
+    ///
+    /// # Errors
+    /// Returns `Invalid` for a zero request or an empty path, `NoSpace` for a
+    /// path over 512 bytes or buffer limits, or the host's refusal (`Denied`
+    /// without `uses.firmware`, `Full` when four install, removal, firmware or
+    /// check requests wait already).
+    pub fn install_firmware(
+        &mut self,
+        request: u32,
+        root: InstallRoot,
+        path: &str,
+        options: FirmwareOptions<'_>,
+    ) -> Result<(), Error> {
+        if request == 0 || path.is_empty() {
+            return Err(Error::Invalid);
+        }
+        if path.len() > 512 {
+            return Err(Error::NoSpace);
+        }
+        self.submit(wire::Command::InstallFirmware {
+            request,
+            root: root.wire(),
+            path,
+            key: options.key.map_or(&[][..], |key| &key[..]),
+            flags: u32::from(options.allow_older) | (u32::from(options.foreign) << 1),
+        })
+    }
+
+    /// Start the firmware image an install of this plugin left waiting
+    /// (`uses.firmware`, `docs/abi/device.md` 5.3). Only the plugin whose install
+    /// is waiting may restart: another plugin gets `Denied`, and with no image
+    /// waiting the host answers `State`. **The host always asks the user again**
+    /// (decision 134); declining keeps the image installed, and it starts at the
+    /// next start.
+    ///
+    /// # Errors
+    /// Returns buffer limits or the host's refusal (`Denied` without
+    /// `uses.firmware` or for an install that is not this plugin's, `State` with
+    /// no image waiting).
+    pub fn firmware_restart(&mut self) -> Result<(), Error> {
+        self.submit(wire::Command::FirmwareRestart {})
+    }
+
+    /// Ask the host to check a file before the user is asked to install it
+    /// (`docs/abi/device.md` 5.1): a plugin (`uses.install`) or a firmware image
+    /// (`uses.firmware`), from `root` ([`InstallRoot::Files`] also needs
+    /// `uses.storage`). Nothing is changed. The check is a job of the install queue
+    /// run in bounded steps and ends with `install_done` kind 3 (`status` OK once it
+    /// ran); then read the evidence (verdict, signer, version, whether it is newer
+    /// or foreign) with `Device::check`, naming the same non-zero `request`, until
+    /// the plugin's next check. A check is advice for the view: an install checks
+    /// the file again, whatever a check said.
+    ///
+    /// # Errors
+    /// Returns `Invalid` for a zero request or an empty path, `NoSpace` for a
+    /// path over 512 bytes or buffer limits, or the host's refusal (`Denied`
+    /// without the feature of the `kind`, `Full` when four install, removal,
+    /// firmware or check requests wait already).
+    pub fn check_file(
+        &mut self,
+        request: u32,
+        root: InstallRoot,
+        path: &str,
+        kind: CheckKind,
+    ) -> Result<(), Error> {
+        if request == 0 || path.is_empty() {
+            return Err(Error::Invalid);
+        }
+        if path.len() > 512 {
+            return Err(Error::NoSpace);
+        }
+        self.submit(wire::Command::CheckFile {
+            request,
+            root: root.wire(),
+            path,
+            kind: kind.wire(),
         })
     }
 }

@@ -8,11 +8,12 @@
 
 use alloc::string::String;
 
-use paperpaw_sdk::document::TextStyle;
+use paperpaw_sdk::document::{DocumentError, TextStyle};
 use paperpaw_sdk::xml::Attrs;
 
 use super::{Converter, Frame};
 use crate::css::{ListStyle, Props};
+use crate::fallible::{self, TryPush};
 
 /// Most of a marker's width the lines of an item hang by, in hundredths
 /// of an em: a longer marker (a huge number) pushes its first line on.
@@ -45,12 +46,12 @@ pub(super) fn list_style(tag: &str, props: &Props, parent: Option<&Frame>) -> Op
 }
 
 /// The items counted so far of a list, `<ol start>` less one.
-pub(super) fn counter(tag: &str, attrs: &Attrs<'_>) -> Option<u32> {
-    match tag {
-        "ol" => Some(number(attrs, "start").map_or(0, |s| s.saturating_sub(1))),
+pub(super) fn counter(tag: &str, attrs: &Attrs<'_>) -> Result<Option<u32>, DocumentError> {
+    Ok(match tag {
+        "ol" => Some(number(attrs, "start")?.map_or(0, |s| s.saturating_sub(1))),
         "ul" => Some(0),
         _ => None,
-    }
+    })
 }
 
 /// A list's or an item's `type` attribute: `1 a A i I` or a bullet's
@@ -62,40 +63,42 @@ pub(super) fn type_attribute(value: &str) -> Option<ListStyle> {
         "A" => Some(ListStyle::UpperAlpha),
         "i" => Some(ListStyle::LowerRoman),
         "I" => Some(ListStyle::UpperRoman),
-        value => ListStyle::parse(&value.to_ascii_lowercase()),
+        value => ListStyle::parse_nocase(value),
     }
 }
 
-fn number(attrs: &Attrs<'_>, name: &str) -> Option<u32> {
-    attrs.get(name).and_then(|s| s.trim().parse::<u32>().ok())
+fn number(attrs: &Attrs<'_>, name: &str) -> Result<Option<u32>, DocumentError> {
+    let value = attrs.try_get(name).map_err(|_| fallible::OOM)?;
+    Ok(value.and_then(|s| s.trim().parse::<u32>().ok()))
 }
 
 /// `number` as `style` writes it, with its punctuation; `None` for no
 /// marker.
-fn marker_text(style: ListStyle, number: u32) -> Option<String> {
-    let mut text = String::new();
+fn marker_text(style: ListStyle, number: u32) -> Result<Option<String>, DocumentError> {
+    // The longest marker is `ZZZZZZZ.` and its gap, or ten digits and a point.
+    let mut text = fallible::string_with(40)?;
     match style {
-        ListStyle::None => return None,
-        ListStyle::Disc => text.push('•'),
-        ListStyle::Circle => text.push('◦'),
-        ListStyle::Square => text.push('▪'),
+        ListStyle::None => return Ok(None),
+        ListStyle::Disc => text.try_push('•')?,
+        ListStyle::Circle => text.try_push('◦')?,
+        ListStyle::Square => text.try_push('▪')?,
         ListStyle::LowerAlpha | ListStyle::UpperAlpha if number > 0 => {
-            alpha(&mut text, number, style == ListStyle::UpperAlpha);
-            text.push('.');
+            alpha(&mut text, number, style == ListStyle::UpperAlpha)?;
+            text.try_push('.')?;
         }
         ListStyle::LowerRoman | ListStyle::UpperRoman if (1..4000).contains(&number) => {
-            roman(&mut text, number, style == ListStyle::UpperRoman);
-            text.push('.');
+            roman(&mut text, number, style == ListStyle::UpperRoman)?;
+            text.try_push('.')?;
         }
         // Decimal, and numbers the others cannot write (0, 4000 and on).
-        _ => text.push_str(&alloc::format!("{number}.")),
+        _ => fallible::try_write!(&mut text, "{number}.")?,
     }
-    text.push(GAP);
-    Some(text)
+    text.try_push(GAP)?;
+    Ok(Some(text))
 }
 
 /// a … z, aa … az, ba …: bijective base 26, as CSS counts.
-fn alpha(out: &mut String, mut number: u32, upper: bool) {
+fn alpha(out: &mut String, mut number: u32, upper: bool) -> Result<(), DocumentError> {
     let mut letters = [0u8; 7];
     let mut at = letters.len();
     while number > 0 && at > 0 {
@@ -104,11 +107,14 @@ fn alpha(out: &mut String, mut number: u32, upper: bool) {
         letters[at] = if upper { b'A' } else { b'a' } + (number % 26) as u8;
         number /= 26;
     }
-    out.extend(letters[at..].iter().map(|&b| char::from(b)));
+    for &b in &letters[at..] {
+        out.try_push(char::from(b))?;
+    }
+    Ok(())
 }
 
 /// 1 to 3999 in Roman numerals.
-fn roman(out: &mut String, mut number: u32, upper: bool) {
+fn roman(out: &mut String, mut number: u32, upper: bool) -> Result<(), DocumentError> {
     const NUMERALS: [(u32, &str); 13] = [
         (1000, "m"),
         (900, "cm"),
@@ -126,13 +132,13 @@ fn roman(out: &mut String, mut number: u32, upper: bool) {
     ];
     for (value, numeral) in NUMERALS {
         while number >= value {
-            match upper {
-                true => out.extend(numeral.chars().map(|c| c.to_ascii_uppercase())),
-                false => out.push_str(numeral),
+            for c in numeral.chars() {
+                out.try_push(if upper { c.to_ascii_uppercase() } else { c })?;
             }
             number -= value;
         }
     }
+    Ok(())
 }
 
 /// About how wide `text` is in a book's font, in hundredths of an em:
@@ -160,17 +166,17 @@ fn width(text: &str) -> u16 {
 impl Converter<'_> {
     /// An `<li>` starts: counted in the nearest list, its marker made to
     /// wait for its text and the item's lines set in by the marker.
-    pub(super) fn list_item(&mut self, attrs: &Attrs<'_>) {
+    pub(super) fn list_item(&mut self, attrs: &Attrs<'_>) -> Result<(), DocumentError> {
         // An item before whose marker no text came (a list in it): the
         // marker on its own line, set in as that item.
         if self.marker.is_some() {
             let outer = self.stack.iter().rev().skip(1).find(|f| f.tag == "li");
             let margins = outer.map(|f| f.margins);
-            self.place_marker();
+            self.place_marker()?;
             self.margins = margins.unwrap_or(self.margins);
-            self.flush();
+            self.flush()?;
         }
-        let value = number(attrs, "value");
+        let value = number(attrs, "value")?;
         let list = self.stack.iter_mut().rev().find(|f| f.numbered.is_some());
         let number = match list.and_then(|f| f.numbered.as_mut()) {
             Some(count) => {
@@ -180,31 +186,32 @@ impl Converter<'_> {
             None => value.unwrap_or(1),
         };
         let Some(item) = self.stack.last_mut() else {
-            return;
+            return Ok(());
         };
-        let Some(text) = marker_text(item.list_style.unwrap_or(ListStyle::Disc), number) else {
-            return;
+        let Some(text) = marker_text(item.list_style.unwrap_or(ListStyle::Disc), number)? else {
+            return Ok(());
         };
         let hang = width(&text);
         item.margins.0 = item.margins.0.saturating_add(hang);
         let style = item.style;
         self.marker = Some(Marker { text, style, hang });
+        Ok(())
     }
 
     /// Writes the waiting marker before the first text of a block, which
     /// then starts back by the marker's width.
-    pub(super) fn place_marker(&mut self) {
+    pub(super) fn place_marker(&mut self) -> Result<(), DocumentError> {
         let Some(marker) = self.marker.take() else {
-            return;
+            return Ok(());
         };
         // The text's place in its node is the text's, not the marker's.
         let origin = self.origin.take();
-        marker
-            .text
-            .chars()
-            .for_each(|c| self.push_styled(c, marker.style));
+        for c in marker.text.chars() {
+            self.push_styled(c, marker.style)?;
+        }
         self.origin = origin;
         self.indent = Some(-i16::try_from(marker.hang).unwrap_or(0));
+        Ok(())
     }
 }
 
@@ -213,7 +220,7 @@ mod tests {
     use super::*;
 
     fn marker(style: ListStyle, number: u32) -> String {
-        marker_text(style, number).unwrap_or_default()
+        marker_text(style, number).unwrap().unwrap_or_default()
     }
 
     #[test]
@@ -237,7 +244,7 @@ mod tests {
         assert_eq!(upper(3999), "MMMCMXCIX.\u{a0}");
         assert_eq!(upper(4000), "4000.\u{a0}");
         assert_eq!(marker(ListStyle::LowerRoman, 49), "xlix.\u{a0}");
-        assert_eq!(marker_text(ListStyle::None, 1), None);
+        assert_eq!(marker_text(ListStyle::None, 1), Ok(None));
     }
 
     #[test]

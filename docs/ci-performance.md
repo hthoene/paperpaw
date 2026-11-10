@@ -84,14 +84,59 @@ Clippy, security checks or reproducibility comparisons.
 GitHub Actions minutes are limited, so a run is only started when its
 result is wanted:
 
-- A newer push to the same branch or pull request cancels the run before it
-  (`concurrency` in `ci.yml`, `codeql.yml`); `main` always finishes.
-- Changes only to `docs/`, `CHANGELOG.md`, `README.md`, `CONTRIBUTING.md`,
-  `AGENTS.md` or `.claude/` start no CI run.
-- A draft pull request starts no CI job. Mark it ready for review to run
+- A newer push to the same pull request or branch cancels the run before it
+  (`concurrency` in `ci.yml`; `codeql.yml` and `changelog.yml` for pull
+  requests). That includes `integration` and `abi7/integration`, which get one
+  push per merge: the newest commit's run is the one that counts, and merge
+  tools check the checks of the exact head SHA. `main` always finishes a full
+  run per commit. A red push run on an integration branch is triaged by QA.
+- Changes only to `docs/`, `CHANGELOG.md`, `changelog.d/`, `README.md`,
+  `CONTRIBUTING.md`, `RELEASING.md`, `AGENTS.md` or `.claude/` skip full CI.
+  A separate lightweight changelog check still runs for every pull request.
+- A draft pull request skips full CI. Mark it ready for review to run
   them (`ready_for_review` starts a run).
 - A pull request runs the emulator on Linux only; Windows and macOS run on
   `main` and `integration`. The fuzz job runs on pushes to `main` and
   `integration`, not on pull requests.
 - CodeQL scans a pull request only when it changes `.github/`, JavaScript or
   TypeScript; it scans `main` on every push and every Monday.
+
+## Shorter runs, and the cache quota
+
+- **"Format, lint, test"** is the required check and is an aggregate job
+  (`check` in `ci.yml`): it runs after the two parts `lint` (fmt, clippy,
+  docs, the Bluetooth host tests) and `test` (the workspace tests, the
+  line-break conformance test, the no-default-features tests) and passes only
+  when both of them succeeded. A failed, skipped or cancelled part fails it.
+  The parts run side by side and share the one rust-cache entry
+  (`shared-key: check`, saved by the test job alone), so the lint (about 4
+  minutes) is off the path of the tests (about 16).
+- **The repository's caches are 10 GB.** When they are full GitHub evicts the
+  least recently used entry, and with the 1 GB firmware entries that included
+  the ones that save the most: without the espup toolchain every S3 job spends
+  5.5 minutes installing it, and the `.deb` cache saves the apt step. After a
+  push, `prune-caches` (`tools/ci/prune_caches.py`) deletes all but the newest
+  `v0-rust-*` entry of each prefix and branch; other caches are never touched.
+  A failing prune job changes nothing and is no required check. Try it with
+  `python3 -I tools/ci/prune_caches.py <owner/repo> --dry-run`.
+- **`tools/train-smoke.sh`** runs the checks a merge train went red on
+  (clippy of the workspace, rustdoc with `-D warnings`, the wasm lint, `cargo
+  deny`, the tag test, the stage codec, the workspace tests, and the S3
+  frame-budget scan where `tools/check-s3-budget.sh` exists) before its pull
+  request is opened.
+
+## Fewer workflow runs
+
+- **Billing:** `paperpaw` is public, so its standard hosted runners (every
+  `runs-on` here is `ubuntu-latest`, `windows-latest` or `macos-*`, no larger
+  runner, no self-hosted one) use no included minutes; the private repositories
+  (`paperpaw.org`: one scheduled workflow plus a few pull request runs a month,
+  `paperpaw-notes`: none) use almost none.
+- **Drafts:** the `Changelog` workflow skips its job for a draft pull request
+  (it runs on `ready_for_review` and on every push after that); the `CI`
+  jobs already skip drafts. A skipped run still appears in the list, it costs
+  no minutes.
+- **Already so:** a push to a pull request cancels the run before it (`CI`,
+  `Changelog`, `CodeQL`); `push` triggers only on `main`, `integration` and
+  `abi7/integration` (a merge train is one push); CodeQL and the reproducible
+  build run on `main`, tags and weekly only.

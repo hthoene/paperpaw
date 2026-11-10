@@ -50,9 +50,11 @@ pub(crate) const DEVICE_IMAGES: usize = 64;
 /// Document image ids a plugin holds at once, and prepared ones.
 pub(crate) const DOC_IMAGES: usize = 8;
 pub(crate) const PREPARED_IMAGES: usize = 8;
-/// The longest side of a picture the host keeps (cache images are at most
-/// 1,600 pixels; the bound keeps the band drawer's rows small).
-pub(crate) const MAX_SIDE: u32 = 4096;
+/// The longest side of a picture the host keeps and decodes to: 1,600
+/// pixels on every device (`document.md` 5: `side` at most 1,600). A larger
+/// `side` in `image_prepare` is clamped to it, not refused; `event.image_ready`
+/// reports the size the picture really has. Keeps the band drawer's rows small.
+pub(crate) const MAX_SIDE: u32 = 1_600;
 /// The longest side of a document image (what the band drawer's one transient
 /// block takes: a colour row of 1,600 pixels is 4.7 KiB).
 pub(crate) const DOC_SIDE_MAX: u32 = 1_600;
@@ -403,7 +405,37 @@ impl ImageTable {
         path: &str,
         image: &wire::ServiceDocImage,
         in_block: bool,
+        screen_colour: bool,
     ) -> Result<Option<u32>, i32> {
+        Ok(self
+            .map_document_colour(
+                storage,
+                owner,
+                document,
+                cache,
+                path,
+                image,
+                in_block,
+                screen_colour,
+            )?
+            .map(|(id, _)| id))
+    }
+
+    /// [`ImageTable::map_document`] and whether the entry is colour: its
+    /// header says so and the screen (`screen_colour`) keeps colour, as
+    /// `image.info` reports it.
+    #[allow(clippy::too_many_arguments, reason = "what the translation needs")]
+    fn map_document_colour(
+        &self,
+        storage: &dyn Storage,
+        owner: u64,
+        document: u32,
+        cache: &str,
+        path: &str,
+        image: &wire::ServiceDocImage,
+        in_block: bool,
+        screen_colour: bool,
+    ) -> Result<Option<(u32, bool)>, i32> {
         if !cache_path_ok(path) || cache.len().saturating_add(1 + path.len()) > PATH_MAX {
             return Ok(None);
         }
@@ -424,11 +456,11 @@ impl ImageTable {
             document,
             index: image.index,
         };
-        let colour = kind == paperpaw_sdk::ui::PictureKind::Color;
+        let colour = kind == paperpaw_sdk::ui::PictureKind::Color && screen_colour;
         match self.add(owner, origin, &full, image.width, image.height, colour) {
-            Ok(id) => Ok(Some(id)),
+            Ok(id) => Ok(Some((id, colour))),
             Err(ERR_INVALID) => Ok(None),
-            Err(ERR_BUSY) if in_block => Ok(Some(0)),
+            Err(ERR_BUSY) if in_block => Ok(Some((0, colour))),
             Err(error) => Err(error),
         }
     }
@@ -436,10 +468,15 @@ impl ImageTable {
     /// The stage adapter's step for one `fmt.image` of a reply: the record
     /// the opener gets, or `None` where the picture is left out (see
     /// [`ImageTable::map_document`]). `cache` is the document's root 2 on the
-    /// card. The `flags` of the format's record pass on, the id is the host's.
+    /// card. The record's "not decoded yet" (`fmt.image.flags` bit 0) becomes
+    /// `doc_image.flags` bit 1; bit 0 there is colour as `image.info` says it
+    /// (the cache file's header, and `screen_colour`: never on a screen
+    /// without colour); other bits of the record are dropped. The id is the
+    /// host's.
     ///
     /// # Errors
     /// As [`ImageTable::map_document`].
+    #[allow(clippy::too_many_arguments, reason = "what the translation needs")]
     pub(crate) fn map_fmt_image(
         &self,
         storage: &dyn Storage,
@@ -448,16 +485,30 @@ impl ImageTable {
         cache: &str,
         image: &super::stages_wire::core_format_v1::FmtImage<'_>,
         in_block: bool,
+        screen_colour: bool,
     ) -> Result<Option<wire::ServiceDocImage>, i32> {
         let doc = wire::ServiceDocImage {
             image: 0,
             index: image.index,
             width: image.width,
             height: image.height,
-            flags: image.flags,
+            flags: (image.flags & 1) << 1,
         };
-        let id = self.map_document(storage, owner, document, cache, image.path, &doc, in_block)?;
-        Ok(id.map(|image| wire::ServiceDocImage { image, ..doc }))
+        let mapped = self.map_document_colour(
+            storage,
+            owner,
+            document,
+            cache,
+            image.path,
+            &doc,
+            in_block,
+            screen_colour,
+        )?;
+        Ok(mapped.map(|(image, colour)| wire::ServiceDocImage {
+            image,
+            flags: doc.flags | u32::from(colour),
+            ..doc
+        }))
     }
 
     /// `image_release`, or a reader giving a document image up.
@@ -611,13 +662,7 @@ impl ImageTable {
             // Nothing of the rectangle is on the canvas; still a draw.
             return self.drawn(owner, id);
         };
-        let picture = paperpaw_sdk::ui::Picture {
-            path: &path,
-            kind,
-            width: w,
-            height: h,
-            scratch_max: self.scratch_max.get(),
-        };
+        let picture = paperpaw_sdk::ui::Picture::new(&path, kind, w, h, self.scratch_max.get());
         let mut child = canvas.clipped(visible).offset(place.left, place.top);
         let area = Rect::new(0, 0, place.width, place.height);
         let mut drawn = Ok(());

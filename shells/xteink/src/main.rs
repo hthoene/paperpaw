@@ -27,6 +27,12 @@ extern crate alloc;
 #[cfg(all(feature = "textprobe", not(feature = "x4")))]
 compile_error!("textprobe is restricted to the X4 ESP32-C3 test build");
 
+#[cfg(all(feature = "static-native", not(feature = "flash-gate-measure")))]
+compile_error!(
+    "static-native is measurement only and not flashable: it drops the interface-6 plugins it \
+     links natively and nothing hosts them yet; set `flash-gate-measure` too (tools/flash-gate.sh)"
+);
+
 #[cfg(all(feature = "bluetooth", not(feature = "x4-pro")))]
 compile_error!("Bluetooth is built for the X4 Pro alone (ADR 0027)");
 
@@ -53,11 +59,15 @@ mod card;
 mod clock;
 mod crash;
 mod device;
+#[cfg(feature = "ppn5")]
+mod device_host;
 mod dual;
 mod entropy;
 mod firmware;
 #[cfg(feature = "remote")]
 mod gray_test;
+#[cfg(feature = "ppn5")]
+mod host_net;
 mod http;
 mod input;
 #[cfg(feature = "waveform-lab")]
@@ -81,6 +91,8 @@ mod safe_mode;
 #[cfg(feature = "ppn5")]
 mod secrets;
 mod serve;
+#[cfg(feature = "ppn5")]
+mod serve7;
 mod sockets;
 mod stack;
 mod startup;
@@ -159,7 +171,16 @@ esp_bootloader_esp_idf::esp_app_desc!(
 /// Bluetooth takes of the same memory for good, and less the X4's arena
 /// for plugins' hot code, which the heap gets once plugins are loaded as
 /// far as they did not take it (`native::HOT_ARENA_LEN`).
-const HEAP_SIZE: usize = (192 - BLUETOOTH_KB) * 1024 - native::HOT_ARENA_LEN;
+const HEAP_SIZE: usize = (192 - BLUETOOTH_KB - S3_BAND_KB) * 1024 - native::HOT_ARENA_LEN;
+/// The ESP32-S3's band at the stack's end and its reserve, in KB, where
+/// interface-7 plugins are built in (`ppn5`): the stack grows by as much (the
+/// heap gives it, `build.rs` checks the stack's size). 16 KB: 14,336 bytes of
+/// reserve and the band's 2,048 (`paperpaw_x4::s3_band::SPARE`).
+const S3_BAND_KB: usize = if cfg!(all(target_arch = "xtensa", feature = "ppn5")) {
+    (paperpaw_x4::s3_band::SPARE / 1024) as usize
+} else {
+    0
+};
 /// Bluetooth's fixed share of the internal RAM, in KB, as measured: its
 /// controller's code in IRAM (20.6 KB) and statics (4.4 KB). The stack,
 /// after them, would lose it: the heap gives it back (`build.rs` checks
@@ -262,6 +283,15 @@ fn random(buf: &mut [u8]) -> bool {
     true
 }
 
+/// One line of the host's own diagnostics (`KernelBuilder::device_log`): to
+/// the log. A plain function without state that never calls the kernel, as
+/// the builder asks; the line is at most 120 bytes of plugin ids and numbers
+/// (never plugin text), and `log` formats it in place, so nothing is
+/// allocated.
+fn device_log(line: &str) {
+    log::info!("host: {line}");
+}
+
 /// How this start came, from the chip's reason for its reset: a sleep
 /// that cut the power ends by the power coming again.
 fn started() -> paperpaw_sdk::power::Start {
@@ -355,6 +385,11 @@ fn start() -> Firmware {
     info!("startup: building the kernel");
     let bundle = ready.staged.other_slot.take();
     let flash = ready.flash.clone();
+    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+    let device_table = match &ready.code {
+        CodePlugins::Load(loader) => Some(loader.device_table()),
+        _ => None,
+    };
     let firmware = Firmware {
         panel: ready.panel,
         network: ready.network,
@@ -368,6 +403,10 @@ fn start() -> Firmware {
         #[cfg(feature = "x4-pro")]
         light: ready.light,
         card_swap: ready.card_swap,
+        #[cfg(feature = "ppn5")]
+        device: ready.device,
+        #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+        device_table,
         state: State::default(),
         // Last, and built right in its place: the kernel is large.
         kernel: kernel(
@@ -382,6 +421,13 @@ fn start() -> Firmware {
     // `native::bundle`).
     if let Some(at) = bundle {
         native::bundle::forget(&flash, at);
+    }
+    // The radios the kernel has are told to the device once, now that the
+    // kernel exists (it answers their state itself).
+    #[cfg(feature = "ppn5")]
+    {
+        device_host::present(&firmware.device, &firmware.kernel);
+        device_host::check(&firmware.device, &firmware.kernel);
     }
     power::mark(power::at::START_KERNEL);
     info!(
@@ -409,6 +455,9 @@ struct Ready {
     card_trouble: Option<paperpaw_core::CardTrouble>,
     firmware: Option<paperpaw_sdk::firmware::Firmware>,
     code: CodePlugins,
+    /// The device behind `core.device`.
+    #[cfg(feature = "ppn5")]
+    device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
     staged: native::bundle::Staged,
     /// The flash, to let the web flasher's bundle go once installed.
     flash: ota::Flash,
@@ -552,7 +601,8 @@ fn prepare() -> Ready {
         WATCHDOG_S,
     );
     // The radio (on when the kernel says so) and what goes over it.
-    let network = network::Network::new(wifi::Parts {
+    #[cfg_attr(not(feature = "ppn5"), allow(unused_mut))]
+    let mut network = network::Network::new(wifi::Parts {
         timer: board.timers1.timer0,
         interrupt: board.radio.1,
         wifi: board.radio.0,
@@ -578,7 +628,38 @@ fn prepare() -> Ready {
         startup.starting_if_needed();
         staged
     };
-    let code = code_plugins(ota.as_ref(), &flash);
+    #[cfg(feature = "ppn5")]
+    let host_net = host_net::Bridge::new();
+    #[cfg(feature = "ppn5")]
+    network.attach(host_net.clone());
+    // The device behind `core.device`, made before the code plugins are
+    // decided so that the loader can wire it.
+    #[cfg(feature = "ppn5")]
+    let device = device_host::make(
+        ota.as_ref().map(ota::Ota::running).as_ref(),
+        &staged.not_installed,
+        started(),
+    );
+    // English hyphenation is a data plugin on the card: the flasher puts it
+    // there, but an update of a firmware that had English built in (Beta 3)
+    // leaves none. Put it there once if no start did (`paperpaw-default-packs`);
+    // after the flasher's bundle, so that its own copy is found, not doubled.
+    native::seed::hyphenation(storage.as_ref());
+    let code = code_plugins(
+        ota.as_ref(),
+        &flash,
+        #[cfg(feature = "ppn5")]
+        host_net,
+        #[cfg(feature = "ppn5")]
+        device.clone(),
+    );
+    #[cfg(feature = "ppn5")]
+    network.attach_device(device.clone());
+    // Safe mode is known only now: no loader is made then, so the device is told.
+    #[cfg(feature = "ppn5")]
+    if let CodePlugins::SafeMode(mode) = &code {
+        device_host::tell_native(&device, Some(mode));
+    }
     // Light sleeps while idle on battery (allowed only by the main loop),
     // the deep one at the end.
     power::init(LowPower::new(board.low_power));
@@ -603,6 +684,8 @@ fn prepare() -> Ready {
         card_swap,
         card_trouble,
         code,
+        #[cfg(feature = "ppn5")]
+        device,
         staged,
         flash,
     }
@@ -751,7 +834,12 @@ impl paperpaw_core::CodeLoader for NoCode {
 
 /// Whether code plugins are loaded at this start, after the key for safe
 /// mode was looked for and the failed starts counted.
-fn code_plugins(ota: Option<&ota::Ota>, flash: &ota::Flash) -> CodePlugins {
+fn code_plugins(
+    ota: Option<&ota::Ota>,
+    flash: &ota::Flash,
+    #[cfg(feature = "ppn5")] host_net: alloc::rc::Rc<host_net::Bridge>,
+    #[cfg(feature = "ppn5")] device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
+) -> CodePlugins {
     if ota.is_some_and(ota::Ota::on_trial) {
         info!("native: an update on trial starts without code plugins");
         native::no_hot_code();
@@ -776,6 +864,10 @@ fn code_plugins(ota: Option<&ota::Ota>, flash: &ota::Flash) -> CodePlugins {
     let place = native::Place::new(flash.clone());
     CodePlugins::Load(native::Loader::new(
         place,
+        #[cfg(feature = "ppn5")]
+        host_net,
+        #[cfg(feature = "ppn5")]
+        device,
         #[cfg(feature = "ppn5")]
         flash.clone(),
     ))
@@ -825,6 +917,7 @@ fn kernel(
         .clock(micros)
         // Fully random while the radio is on, as when serving.
         .random(random)
+        .device_log(device_log)
         .memory(memory)
         .started(start)
         .after_sleep(after_sleep)
@@ -921,6 +1014,16 @@ fn kernel(
         paperpaw_app::StorePlugins::Left,
     )
     .plugin(device::X4);
+    // Linked and kept for the image's measure, never activated here: the stack
+    // gate (`abi/heap-word.md` section 6) holds every interface-7 plugin back.
+    #[cfg(feature = "static-native")]
+    log::info!(
+        "native: {} interface-7 plugins linked, none activated",
+        core::hint::black_box(&paperpaw_app::NATIVE_PLUGINS)
+            .iter()
+            .filter(|(_, linked)| linked.entry().make.is_some())
+            .count()
+    );
     #[cfg(feature = "frame-test")]
     let builder = builder.plugin(paperpaw_sample_frame_test::FrameTest);
     // Its warnings are logged as the main loop starts: taken here, the

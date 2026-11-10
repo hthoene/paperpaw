@@ -135,10 +135,17 @@ fn usage_slots_preserve_failures_read_positionally_and_expire_at_core_callback_e
         instance: None,
         env: &env,
         meter: &kernel.shared.meter,
+        depth: None,
+        directory: None,
+        stack_generation: kernel.shared.stack_rows.generation(),
+        stack_rows: &kernel.shared.stack_rows,
         font_removals: &kernel.shared.font_removals,
+        registry_generation: &kernel.shared.registry_generation,
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,
+        log: Default::default(),
+        ui: None,
     };
     let mut handle = 0x1234;
     let font = owner.insert_font(FontKey::Role(FontRole::Ui)).unwrap();

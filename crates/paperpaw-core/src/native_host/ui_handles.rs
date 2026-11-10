@@ -14,7 +14,8 @@
 //! Memory: each table is one allocation of its whole cap, made at its first
 //! insert and kept (no growth, no realloc, so no old-plus-new peak): widgets
 //! 32 B x 32 = 1,024 B (x 16 = 512 B on the X4), status handles 40 B x 16 =
-//! 640 B (x 8 = 320 B on the X4); on the X4 at most 832 B once both are used.
+//! 640 B (x 8 = 320 B on the X4), and the drops to tell 16 B x 32 = 512 B (x 16 =
+//! 256 B on the X4); on the X4 at most 1,088 B once all three are used.
 //!
 //! Plugins are named by their full-width host owner id (`u64`, the one
 //! `OwnerResources` id, never reused, no second namespace), so a made
@@ -47,6 +48,11 @@ pub(crate) trait GuardState {
     fn guard_plugin(&self) -> Option<u64>;
     /// Whether the screen instance lies below the topmost guard.
     fn below_guard(&self, screen_instance: u32) -> bool;
+    /// Whether the screen instance is still on the stack. A reader that does
+    /// not know says so (`true`): only a delivery between callbacks asks.
+    fn on_stack(&self, _screen_instance: u32) -> bool {
+        true
+    }
 }
 
 /// No guard: for tests and for a stack without one.
@@ -76,6 +82,27 @@ struct Widget {
     private: bool,
 }
 
+/// A dropped widget instance its owner has yet to hear of (`event.widget_dropped`,
+/// 85, at the owner's token): 16 bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Dropped {
+    /// The owner's host owner id.
+    pub(crate) owner: u64,
+    /// The widget's callback token of the owner.
+    pub(crate) token: u32,
+    pub(crate) instance: u32,
+}
+
+impl Widget {
+    fn notice(&self) -> Dropped {
+        Dropped {
+            owner: self.owner,
+            token: self.token,
+            instance: self.id,
+        }
+    }
+}
+
 /// A status handle, valid for one callback of `caller`.
 #[derive(Clone, Copy, Debug)]
 struct Status {
@@ -97,6 +124,16 @@ pub(crate) struct Caller {
     pub(crate) depth: u8,
 }
 
+/// A widget instance as its maker's layout ops see it (`widget_of`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct WidgetRef {
+    pub(crate) owner: u64,
+    pub(crate) token: u32,
+    /// The maker's screen instance that made it.
+    pub(crate) screen: u32,
+    pub(crate) private: bool,
+}
+
 /// What a handle resolved to: the owner's plugin and its callback token.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Target {
@@ -108,6 +145,16 @@ pub(crate) struct Target {
 #[derive(Debug)]
 pub(crate) struct UiHandles {
     widgets: Vec<Widget>,
+    /// Drops the owners have not been told of yet: never lost, so while live
+    /// instances and these fill the cap new instances are refused (`ERR_FULL`)
+    /// until Core delivers some.
+    dropped: Vec<Dropped>,
+    /// Instances their owners said show something new
+    /// (`command.widget_changed`), told to the makers by `event.widget_changed`
+    /// (86): a hint, one entry per instance. Room for every live instance is
+    /// taken with the instance ([`Self::make_widget`]), so marking never
+    /// allocates.
+    changed: Vec<u32>,
     status: Vec<Status>,
     next_widget: u32,
     next_status: u32,
@@ -120,6 +167,8 @@ impl UiHandles {
     pub(crate) const fn new(x4: bool) -> Self {
         Self {
             widgets: Vec::new(),
+            dropped: Vec::new(),
+            changed: Vec::new(),
             status: Vec::new(),
             next_widget: 1,
             next_status: 1,
@@ -143,12 +192,19 @@ impl UiHandles {
         if screen == 0 {
             return Err(ERR_INVALID);
         }
-        if self.widgets.len() >= self.widget_cap {
+        // Live instances and undelivered drops share the cap, so the drops
+        // always fit the one allocation below.
+        if self.widgets.len() + self.dropped.len() >= self.widget_cap {
             return Err(ERR_FULL);
         }
         let id = self.next_widget;
         let next = id.checked_add(1).ok_or(ERR_FULL)?;
         reserve(&mut self.widgets, self.widget_cap)?;
+        // Room for every notice there can be, taken once: the drop paths
+        // (op 5, a screen close, a stopped maker) never allocate, so a drop
+        // cannot fail for the heap and no notice is lost.
+        reserve(&mut self.dropped, self.widget_cap)?;
+        reserve(&mut self.changed, self.widget_cap)?;
         self.widgets.push(Widget {
             id,
             screen,
@@ -161,8 +217,59 @@ impl UiHandles {
         Ok(id)
     }
 
+    /// Notices that fit without allocating.
+    #[cfg(test)]
+    pub(crate) fn dropped_room(&self) -> usize {
+        self.dropped.capacity() - self.dropped.len()
+    }
+
     fn widget(&self, id: u32) -> Option<&Widget> {
         self.widgets.iter().find(|w| w.id == id)
+    }
+
+    /// Whether `owner` may say instance `id` changed: `ERR_NOT_FOUND` for an
+    /// unknown or dropped instance, `ERR_DENIED` for another plugin's widget.
+    pub(crate) fn check_changed(&self, owner: u64, id: u32) -> Result<(), i32> {
+        match self.widget(id) {
+            None => Err(ERR_NOT_FOUND),
+            Some(w) if w.owner != owner => Err(ERR_DENIED),
+            Some(_) => Ok(()),
+        }
+    }
+
+    /// `owner` says instance `id` shows something new: marked once however
+    /// often it is said before the maker is told. An instance that is gone or
+    /// not `owner`'s is ignored (it was checked at submit; a drop may have
+    /// come since). Allocation-free.
+    pub(crate) fn mark_changed(&mut self, owner: u64, id: u32) {
+        if self.check_changed(owner, id).is_err() || self.changed.contains(&id) {
+            return;
+        }
+        if self.changed.len() >= self.changed.capacity() {
+            // Marks of instances dropped since: nobody is told of those.
+            let live = &self.widgets;
+            self.changed.retain(|id| live.iter().any(|w| w.id == *id));
+        }
+        if self.changed.len() < self.changed.capacity() {
+            self.changed.push(id);
+        }
+    }
+
+    /// The oldest change of a live instance not yet told, as (the maker, the
+    /// instance), taken off the list: told once, never retried (a hint).
+    pub(crate) fn take_changed(&mut self) -> Option<(u64, u32)> {
+        while !self.changed.is_empty() {
+            let id = self.changed.remove(0);
+            if let Some(w) = self.widget(id) {
+                return Some((w.maker, id));
+            }
+        }
+        None
+    }
+
+    /// Whether a change waits.
+    pub(crate) fn has_changed(&self) -> bool {
+        !self.changed.is_empty()
     }
 
     /// Op 5: the instance's maker drops it. Another plugin's is `ERR_DENIED`,
@@ -176,33 +283,97 @@ impl UiHandles {
         if self.widgets[at].maker != maker {
             return Err(ERR_DENIED);
         }
-        self.widgets.swap_remove(at);
+        // Room for the notice was taken when the instance was made.
+        let gone = self.widgets.swap_remove(at);
+        self.dropped.push(gone.notice());
         Ok(())
     }
 
-    /// The screen instance closed: its widgets go (the owners get
-    /// `widget_dropped`; the caller reads them first with
-    /// [`Self::dropped_by_screen`]).
+    /// Whether instance `id` is still made (not dropped).
+    pub(crate) fn has_widget(&self, id: u32) -> bool {
+        self.widget(id).is_some()
+    }
+
+    /// An instance for ops 6, 7, 12 and 13, for its maker only: instance 0 (an
+    /// own widget, op 4's `flags` bit 0) `ERR_BUSY` (the plugin lays out and
+    /// draws its own), an unknown or dropped one `ERR_NOT_FOUND`, another
+    /// plugin's `ERR_DENIED` (as op 5).
+    pub(crate) fn widget_of(&self, maker: u64, id: u32) -> Result<WidgetRef, i32> {
+        if id == 0 {
+            return Err(ERR_BUSY);
+        }
+        let widget = self.widget(id).ok_or(ERR_NOT_FOUND)?;
+        if widget.maker != maker {
+            return Err(ERR_DENIED);
+        }
+        Ok(WidgetRef {
+            owner: widget.owner,
+            token: widget.token,
+            screen: widget.screen,
+            private: widget.private,
+        })
+    }
+
+    /// The screen instance closed: its widgets go and their owners are to be
+    /// told ([`Self::next_dropped`]). Allocation-free (see [`Self::make_widget`]).
     pub(crate) fn drop_screen(&mut self, screen: u32) -> usize {
         let before = self.widgets.len();
-        self.widgets.retain(|w| w.screen != screen);
+        let dropped = &mut self.dropped;
+        self.widgets.retain(|w| {
+            let gone = w.screen == screen;
+            if gone {
+                dropped.push(w.notice());
+            }
+            !gone
+        });
         before - self.widgets.len()
     }
 
-    /// `(instance, owner)` of the widgets `screen` made, to tell their owners.
-    #[allow(dead_code, reason = "read by the applier when a screen closes")]
-    pub(crate) fn dropped_by_screen(&self, screen: u32) -> impl Iterator<Item = (u32, u64)> + '_ {
+    /// The first drop `owner` has not been told of. It stays listed until
+    /// [`Self::dropped_delivered`] is given it, which ends it at the first
+    /// delivery attempt whatever the outcome (returned, failed or trapped:
+    /// `ui.md` 8.2), and at once when the owner stops ([`Self::drop_plugin`]).
+    /// A dead owner never holds a place of the cap.
+    pub(crate) fn next_dropped(&self, owner: u64) -> Option<Dropped> {
+        self.dropped.iter().find(|d| d.owner == owner).copied()
+    }
+
+    /// The owner of the oldest drop not yet told: the next to hear of one.
+    pub(crate) fn next_dropped_owner(&self) -> Option<u64> {
+        self.dropped.first().map(|d| d.owner)
+    }
+
+    /// `notice` was attempted (not "succeeded"): it leaves the list.
+    pub(crate) fn dropped_delivered(&mut self, notice: &Dropped) {
+        if let Some(at) = self.dropped.iter().position(|d| d == notice) {
+            self.dropped.remove(at);
+        }
+    }
+
+    /// The lowest screen above `after` that still has widgets (the sweep of
+    /// closed screens whose cleanup was refused).
+    pub(crate) fn next_screen(&self, after: u32) -> Option<u32> {
         self.widgets
             .iter()
-            .filter(move |w| w.screen == screen)
-            .map(|w| (w.id, w.owner))
+            .map(|w| w.screen)
+            .filter(|screen| *screen > after)
+            .min()
     }
 
     /// A plugin stopped: whatever it made or owns is gone, as are its status
-    /// handles.
+    /// handles and what it was yet to be told. The owners of what it made are
+    /// to be told. Allocation-free (see [`Self::make_widget`]), so nothing is
+    /// lost to the heap.
     pub(crate) fn drop_plugin(&mut self, plugin: u64) {
-        self.widgets
-            .retain(|w| w.maker != plugin && w.owner != plugin);
+        self.dropped.retain(|d| d.owner != plugin);
+        let dropped = &mut self.dropped;
+        self.widgets.retain(|w| {
+            let gone = w.maker == plugin || w.owner == plugin;
+            if gone && w.owner != plugin {
+                dropped.push(w.notice());
+            }
+            !gone
+        });
         self.status
             .retain(|s| s.caller != plugin && s.owner != plugin);
     }
@@ -302,6 +473,12 @@ impl UiHandles {
         Ok(target)
     }
 
+    /// Status handles granted now (tests).
+    #[cfg(test)]
+    pub(crate) fn statuses(&self) -> usize {
+        self.status.len()
+    }
+
     /// Instances made now (for the heap gauge and tests).
     #[allow(dead_code, reason = "gauge")]
     pub(crate) fn widgets(&self) -> usize {
@@ -348,6 +525,18 @@ pub(crate) fn compose(
     canvas: &mut Canvas<'_>,
 ) -> Result<(), i32> {
     let target = handles.resolve(caller, request.kind, request.handle, guard)?;
+    draw_target(host, target, request, canvas)
+}
+
+/// The second half of [`compose`]: draw the resolved `target` if anything is
+/// visible, and log a child's failure. Callers that must not hold the table
+/// across the child's `draw` resolve first and call this after releasing it.
+pub(crate) fn draw_target(
+    host: &dyn ChildDraw,
+    target: Target,
+    request: &ComposeRequest,
+    canvas: &mut Canvas<'_>,
+) -> Result<(), i32> {
     let Some(frame) = request.draw_frame() else {
         return Ok(());
     };

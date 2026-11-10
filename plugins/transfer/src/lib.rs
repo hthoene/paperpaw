@@ -16,11 +16,43 @@
 
 extern crate alloc;
 
+#[cfg(test)]
+extern crate std;
+/// Test-only: refuses chosen allocations to prove the fallible paths.
+#[cfg(test)]
+#[path = "../../test-support/fail_alloc.rs"]
+mod fail_alloc;
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
+
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+mod declarations;
+
 mod cable;
 mod link;
+mod native_draw;
+mod native_entry;
+mod native_files;
+mod native_install;
+mod native_install_host;
+mod native_key;
+mod native_page;
+mod native_phone;
+/// The interface-7 plugin.
+pub mod native_plugin;
+pub mod native_transfer;
+mod native_web;
 mod phone;
 mod plugins;
 mod web;
+
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
@@ -464,37 +496,39 @@ fn library_follows(env: &Env<'_>, done: &web::Done, cx: &mut Cx<'_, '_>) {
     }
 }
 
+/// The texts of the web page: the name it reads them by, and the translation.
+pub(crate) const PAGE_TEXTS: [(&str, &str); 25] = [
+    ("title", "transfer.web.title"),
+    ("device", "transfer.web.device"),
+    ("upload", "transfer.web.upload"),
+    ("drop", "transfer.web.drop"),
+    ("newFolder", "transfer.web.new-folder"),
+    ("folderName", "transfer.web.folder-name"),
+    ("delete", "transfer.web.delete"),
+    ("deleteQuestion", "transfer.web.delete-question"),
+    ("empty", "transfer.web.empty"),
+    ("done", "transfer.web.done"),
+    ("failed", "transfer.web.failed"),
+    ("target", "transfer.web.target"),
+    ("outside", "transfer.web.outside"),
+    ("toLibrary", "transfer.web.to-library"),
+    ("here", "transfer.web.here"),
+    ("move", "transfer.web.move"),
+    ("rename", "transfer.web.rename"),
+    ("moving", "transfer.web.moving"),
+    ("moveHere", "transfer.web.move-here"),
+    ("cancel", "transfer.web.cancel"),
+    ("newName", "transfer.web.new-name"),
+    ("waiting", "transfer.web.waiting"),
+    ("sent", "transfer.web.sent"),
+    ("notSent", "transfer.web.not-sent"),
+    ("retry", "transfer.web.retry"),
+];
+
 /// The web page, with its texts in the device's language.
 fn page(env: &Env<'_>) -> String {
-    let texts = [
-        ("title", "transfer.web.title"),
-        ("device", "transfer.web.device"),
-        ("upload", "transfer.web.upload"),
-        ("drop", "transfer.web.drop"),
-        ("newFolder", "transfer.web.new-folder"),
-        ("folderName", "transfer.web.folder-name"),
-        ("delete", "transfer.web.delete"),
-        ("deleteQuestion", "transfer.web.delete-question"),
-        ("empty", "transfer.web.empty"),
-        ("done", "transfer.web.done"),
-        ("failed", "transfer.web.failed"),
-        ("target", "transfer.web.target"),
-        ("outside", "transfer.web.outside"),
-        ("toLibrary", "transfer.web.to-library"),
-        ("here", "transfer.web.here"),
-        ("move", "transfer.web.move"),
-        ("rename", "transfer.web.rename"),
-        ("moving", "transfer.web.moving"),
-        ("moveHere", "transfer.web.move-here"),
-        ("cancel", "transfer.web.cancel"),
-        ("newName", "transfer.web.new-name"),
-        ("waiting", "transfer.web.waiting"),
-        ("sent", "transfer.web.sent"),
-        ("notSent", "transfer.web.not-sent"),
-        ("retry", "transfer.web.retry"),
-    ];
     let mut json = String::from("{");
-    for (i, (name, key)) in texts.iter().enumerate() {
+    for (i, (name, key)) in PAGE_TEXTS.iter().enumerate() {
         if i > 0 {
             json.push(',');
         }

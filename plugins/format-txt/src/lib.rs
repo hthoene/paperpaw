@@ -16,7 +16,22 @@
 
 extern crate alloc;
 
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+mod declarations;
 mod document;
+mod native_entry;
+/// The interface-7 plugin.
+pub mod native_plugin;
+pub mod preparation;
+pub mod provider;
+mod utf16;
+
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
 
 use alloc::borrow::Cow;
 use alloc::boxed::Box;

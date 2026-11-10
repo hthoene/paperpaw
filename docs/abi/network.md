@@ -1,6 +1,6 @@
-# Interface 7 family NET: HTTP requests and serving HTTP (draft)
+# Interface 7 family NET: HTTP requests and serving HTTP
 
-Contract draft for #228 (assignment #1088). Items marked [D] are proposed decisions, [Q] open
+Contract for #228 (assignment #1088). Items marked [D] are proposed decisions, [Q] open
 questions for Plugin, Firmware and Senior. Inputs: an audit of interface 6's HTTP client and
 server (`crates/paperpaw-core/src/io/http.rs`, `io/servers.rs`, `network.rs`, `work.rs`, the X4
 shell's `http.rs`, `serve.rs`, `tls.rs`, `crates/paperpaw-http`, `crates/paperpaw-serve`, the SDK's
@@ -9,8 +9,8 @@ shell's `http.rs`, `serve.rs`, `tls.rs`, `crates/paperpaw-http`, `crates/paperpa
 `device.md` (Wi-Fi, network demand, `uses.wifi`), `files.md` (roots, `uses.storage`),
 `stages-services.md` (service schemas, D4), `registry.md` 2.1 (bare replies) and
 `core-events.md` 3.3 (event admission and the held-event store). Its companion `secrets.md`
-(SEC) is reviewed with it. Doc-only; records follow once approved. Tags are proposed and numbered
-without gaps at the records step.
+(SEC) is reviewed with it.
+Records: `abi/services/core.net@1.def`.
 
 ## 0. Scope and principles
 
@@ -122,7 +122,7 @@ file's size, 2.1).
   root-1 exclusions) another of the plugin's unfinished requests saves to ends that older one at
   once with reason `replaced`; the new one goes on (interface 6). If **another plugin's** unfinished
   request saves to it (only possible on root 1), the new request is `ERR_BUSY`: a plugin never ends
-  another's download. While a request saves, its target and its `.part` file are in the host's
+  another's download. While a request saves, its target and its `.pp-staged` file are in the host's
   paths-in-use table (`files.md` section 3): a `core.files` `move` or `remove_tree` and the file
   slots' `write`, `append`, `rename`, `remove` over them are `ERR_BUSY`.
 
@@ -167,6 +167,11 @@ file's size, 2.1).
   `If-Modified-Since`, `If-None-Match`, `If-Unmodified-Since`, `Range`, `User-Agent`), so
   `Authorization`, cookies and key headers never leave the origin the plugin named. `final_url` is
   where the answer came from.
+- [D] **A redirect from `http` to `https`** is followed like any other: the request closes its
+  plain connection first, then waits for the TLS session (3.4) as if it were an `https` request,
+  in its original start order and with its `timeout_ms` still counting from its start. It never
+  holds a connection while it waits (no deadlock with SOCK); while the session stays taken (a SOCK
+  TLS socket) it ends with reason `timeout`, never `refused` (interface 6 followed such redirects).
 - [D] **TLS:** 1.2 and 1.3; the chain must lead to a root of the host's store (on the X4, Mozilla's
   roots, ADR 0017) and the name must match; dates are checked against network time once it is
   known (ADR 0017). No pinning, no trust override and no client certificate over HTTP (mail pins
@@ -177,22 +182,31 @@ file's size, 2.1).
 - [D] A request made while no network is up waits for one: the host tells the network manager
   (`event.network_wanted`, `device.md`) and ends the request with reason `no_network` if none came
   within 30,000 ms. When the last request, server and socket ends, the manager gets
-  `event.network_idle`. The host never turns the radio on by itself.
+  `event.network_idle`. The host never turns the radio on by itself. NET and `core.sockets`
+  share one demand in the host: `network_wanted` and `network_idle` follow the combined state, so
+  one service going idle never cancels the other's wait, and each change sends exactly one event.
 - [D] **Power saving** (ADR 0025) ends a request at once, before any byte goes out, with:
   `offline` when the device is in the offline power mode (except a request started within 2,000 ms
   of the user's input, as DEV's window); `saving` when the user put this plugin's network use on
   hold; `network_off` when the user turned this plugin's network off. `offline` and `saving` set
   `flags` bit 0 `later` in the event (try again once `dev_power.flags` bit 1 `online` is set, ASY
-  schedules that); `network_off` does not.
+  schedules that); `network_off` does not. `saving` holds only a plugin's background use (no
+  user-input window open for it, interface 6's "not the reader"). These are admission checks: a
+  request, server or socket already running is ended by `network_off` alone (at the next host pass,
+  `network_off` with no `later`); the offline mode and a hold let it finish, and a radio the mode
+  turns off ends it as any lost network does (`no_network`, SOCK `lost`). Off is checked first,
+  then offline, then saving; a plugin the host can't place, or a policy it can't build for want of
+  memory, counts as off.
 - [D] While a request or a server runs, the device does not go to sleep on its own (interface 6).
 
 ### 3.3 Files, power cuts and the card
 
-- [D] A saved answer is written to `<path>.part` beside the target in 4 KiB appends and renamed over
-  the target only when it is whole (2xx, not over `max_file`); on any failure, a cancel or a
-  `replaced`, the `.part` file is removed and **the old file stays as it was**. A power cut leaves
-  at most a stray `.part`, which the next request to that path replaces. The plugin's own file is
-  never half written. `net_file` paths may not end in `.part` (`ERR_INVALID`).
+- [D] A saved answer is written to `<path>.pp-staged` beside the target in 4 KiB appends and renamed
+  over the target only when it is whole (2xx, not over `max_file`); on any failure, a cancel or a
+  `replaced`, the `.pp-staged` file is removed and **the old file stays as it was**. A power cut
+  leaves at most a stray `.pp-staged` file, which the next request to that path replaces. The
+  plugin's own file is never half written. `net_file` paths may not end in `.pp-staged` in any case
+  (`ERR_INVALID`); `.part` is an ordinary name, so a user's own `x.part` is never overwritten.
 - [D] A card that goes away ends the request with reason `io`; a full card with reason `full`.
 
 ### 3.4 Concurrency and memory
@@ -292,8 +306,11 @@ file's size, 2.1).
   (served over USB to a computer, without a network, `CABLE_PORT` of interface 6; the X4 only),
   `max_body` the largest request body the server takes (0 for 4 MiB, vocabulary's import cap; at
   most 64 MiB, `ERR_NO_SPACE` above; transfer passes its largest upload), `flags` none
-  (`ERR_UNSUPPORTED`). A plugin has at most 2 servers (`ERR_BUSY`); serving again
-  with a token in use stops the old server first (interface 6).
+  (`ERR_UNSUPPORTED`). A plugin has at most 2 servers, and the device at most the profile's
+  `SERVERS` of all plugins together (**1 on the X4**, 2 on the X4 Pro and Classic, 8 on others: a
+  server's sockets and buffers cost up to about 48 KiB): past either, `ERR_BUSY` at once and
+  nothing opens. A server counts from `serve` until it is stopped, has failed or has ended.
+  Serving again with a token in use stops the old server first (interface 6).
 - [D] `stop_serving` with a token the plugin has no server under (never served, already stopped,
   or stopped by the network) answers `OK` and does nothing, with no `event.server`: stopping is
   idempotent, so a plugin may stop on every close without tracking whether the server still runs.
@@ -301,12 +318,18 @@ file's size, 2.1).
   `""` for the cable), 1 `failed` with `reason` (as 4.1: `no_network`, `offline`, `saving`,
   `network_off`, `refused` for a port that could not be had), 2 `stopped` (by `stop_serving`, by a
   newer `serve`, or because the network went away, `reason` then `no_network`). When the port is
-  taken, the host tries the next 20 ports (the address says which it got).
+  taken, the host tries the next 20 ports (the address says which it got). `started` comes only
+  once the listener is really open; one that cannot open (no socket, no memory) ends with `failed`,
+  `refused`, and its server slot is free again, so a plugin never waits for requests that cannot
+  come.
 - [D] **A server lives on a screen** (interface 6 tied servers to the screen that started them):
-  `serve` is only allowed from a callback of one of the plugin's own screen instances that is
-  showing (`ERR_STATE` elsewhere: no background server the user cannot see, and none that keeps
-  the device awake unseen). The server is tied to that instance and stops (`stopped`) when it
-  closes. transfer, vocabulary and wifi all serve from the screen that shows the address.
+  `serve` is only allowed while one of the plugin's own screen instances is showing, not covered,
+  from any of the plugin's callbacks but a work run's (`work.md` section 2): a screen's own, or a
+  plugin event such as `event.wifi_changed` once its own network is up (`ERR_STATE` elsewhere: no
+  background server the user cannot see, and none that keeps the device awake unseen). The server
+  is tied to that instance (from a screen's callback, that screen; else the plugin's topmost
+  showing one) and stops (`stopped`) when it closes. transfer, vocabulary and wifi all serve while
+  the screen that shows the address is up.
 - [D] Anyone on the network can reach a server: guarding it is the plugin's work. The SDK's
   `served::key` and `Guard` (section 6) give the shown address a key; the host does not check it.
 
@@ -387,7 +410,7 @@ file's size, 2.1).
 
 | Plugin | Uses | Methods | Options |
 | --- | --- | --- | --- |
-| browser | request | GET | save to file |
+| browser | request | GET | save to file, `max_file` 0 (64 MiB) for pages and downloads |
 | fonts-browser | request | GET | save, `max_file` 512 KiB / 1 MiB |
 | joplin | request | GET, POST, PUT, PROPFIND | save, send a file, `Authorization` |
 | kosync | request | GET, PUT, POST | `x-auth-user` / `x-auth-key` headers |
@@ -430,7 +453,7 @@ file's size, 2.1).
   `serve`, 120 s answer time), and tests for each status and reason. Interface 6's `io/http.rs`
   and `io/servers.rs` logic moves over; the shells' `HttpCall` / `ServerCall` stay.
 - **Firmware (with H10):** the shell transport. The X4 shell keeps its HTTP client and server
-  (`.part` renames, the 20-port probe, the cable server), the emulator and Android shells keep
+  (`.pp-staged` renames, the 20-port probe, the cable server), the emulator and Android shells keep
   theirs, and the shells advertise `uses.network`. The servers keep the 8 KiB head cap, the 30 s
   head and stall times and stop a body at `max_body`. Firmware measures the X4 worst case
   (a full `NET_POOL`, the receive and send buffers of NET's and SOCK's connections, one TLS

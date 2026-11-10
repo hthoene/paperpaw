@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Validate the draft ABI schema and generate deterministic M1 declarations.
+"""Validate the ABI schema and generate deterministic declarations.
 
-This draft generates raw declarations and the bounded settings wire codec.
-A checked-in lock is independent of normal generation; updating it is explicit.
+A checked-in lock is independent of normal generation; updating it is
+explicit (`--write-lock`). Until a minor is released (`released_minor` 0:
+interface 7 until 1.0, owner decision 2026-11-10) the lock only has to match
+the code and the pull request that changes the ABI carries its regenerated
+lock; from the first release on, every check of the prior lock and of the
+trusted baseline (`--baseline`) holds, so what released plugins use only grows.
 """
 import argparse
-import hashlib
 import json
-import os
 from pathlib import Path
 import re
 import sys
@@ -181,7 +183,8 @@ def validate_record(record, minor):
     names, ordinals = set(), set()
     for field in record['fields']:
         # `list` (str fields only) bounds a separated list inside the text;
-        # `secret` (true, str fields of commands only) keeps the text out of Debug.
+        # `secret` (true: str fields of commands and events, str or bytes fields
+        # of service records) keeps the value out of Debug.
         keys(field, 'name type since optional ordinal default max_bytes' +
              (' list' if type(field) is dict and 'list' in field else '') +
              (' secret' if type(field) is dict and 'secret' in field else ''))
@@ -253,7 +256,10 @@ def compatible(old, new, released_minor=None):
                         {k: v for k, v in after.items() if k != 'fields'},
                         'changed/reordered record')
                 fields = before['fields']
-                require(after['fields'][:len(fields)] == fields, 'changed record field')
+                require(len(after['fields']) >= len(fields)
+                        and all(same_field(old_field, new_field)
+                                for old_field, new_field in zip(fields, after['fields'])),
+                        'changed record field')
                 for field in after['fields'][len(fields):]:
                     require(field['optional'], 'appended required field')
                     require(field['since'] >= minimum_since, 'backdated appended field')
@@ -367,13 +373,8 @@ EMITTED = (('emitted_c', 'header', 1, 'emitted C contract changed from prior loc
             'emitted host decoder contract changed from prior lock'),
            ('emitted_stages', 'stages_digest', 11,
             'emitted stages contract changed from prior lock'))
-# What a reviewed baseline replacement may waive, and nothing else: the lock's
-# shape, its format and major, and every check not named stay enforced.
-WAIVABLE = frozenset(['schema', 'compatible'] + [key for key, *_ in EMITTED])
-
-
 def lock_shape(prior, schema):
-    """The lock's structure and line (format, major), never waived."""
+    """The lock's structure and line (format, major)."""
     require(type(prior) is dict, 'lock must be an object')
     version = prior.get('lock_format')
     require(type(version) is int and version in range(1, 12), 'unsupported lock format')
@@ -390,7 +391,7 @@ def lock_shape(prior, schema):
 
 
 def lock_checks(prior, schema, version):
-    """The waivable checks of a prior lock, by name, in order."""
+    """The checks of a prior lock, by name, in order."""
     def valid():
         validate(prior['schema'])
         integer(prior['released_minor'], prior['schema']['minor'])
@@ -406,57 +407,21 @@ def lock_checks(prior, schema, version):
     yield 'compatible', lambda: compatible(prior['schema'], schema, prior['released_minor'])
 
 
-def check_lock(prior, schema, waives=frozenset()):
-    """Every check of the prior lock; `waives` names checks a reviewed baseline
-    replacement lets fail. A waived check that passes is refused: the waiver
-    must be exactly what the replacement needs."""
+def same_field(before, after):
+    """Whether a record field kept its contract. `secret` only keeps a value
+    out of Debug and changes no byte on the wire, so marking a field secret
+    later keeps it; dropping the mark does not (the value would show again)."""
+    if before.get('secret') is True:
+        return after == before
+    return {k: v for k, v in after.items() if k != 'secret'} == before \
+        and after.get('secret', True) is True
+
+
+def check_lock(prior, schema):
+    """Every check of the prior lock."""
     version = lock_shape(prior, schema)
-    for name, run_check in lock_checks(prior, schema, version):
-        if name not in waives:
-            run_check()
-            continue
-        try:
-            run_check()
-        except (ValueError, KeyError, TypeError, IndexError):
-            continue
-        raise ValueError(f'baseline replacement waives {name}, which passes: drop it from waives')
-
-
-def baseline_replaced(folder, baseline_path, baseline):
-    """The checks a reviewed replacement waives for exactly this baseline.
-
-    `abi/baseline-replacement.json` lets one reviewed pull request replace the
-    trusted lock while nothing is released: it names the SHA-256 of the exact
-    baseline lock it replaces, why, and the checks it waives (`waives`, from
-    WAIVABLE). The lock's shape, format and major are never waived. A marker
-    naming another baseline is an error: it must be removed once it was used,
-    so it is single-use. Empty when there is no marker.
-    """
-    path = folder / 'baseline-replacement.json'
-    if not path.exists():
-        return frozenset()
-    marker = load(path)
-    require(type(marker) is dict
-            and set(marker) == {'replaces_sha256', 'reason', 'ticket', 'waives'}
-            and all(type(marker[key]) is str and marker[key]
-                    for key in ('replaces_sha256', 'reason', 'ticket')),
-            'baseline replacement needs replaces_sha256, reason, ticket and waives')
-    waives = marker['waives']
-    require(type(waives) is list and waives and all(type(item) is str for item in waives)
-            and len(set(waives)) == len(waives) and set(waives) <= WAIVABLE,
-            'baseline replacement waives a non-empty list of distinct checks from ' +
-            ', '.join(sorted(WAIVABLE)))
-    digest = hashlib.sha256(baseline_path.read_bytes()).hexdigest()
-    require(marker['replaces_sha256'] == digest,
-            'stale baseline replacement: it names another baseline; remove '
-            'abi/baseline-replacement.json')
-    require(type(baseline) is dict and baseline.get('released_minor') == 0,
-            'a baseline replacement is only allowed before any minor is released')
-    note = (f"reviewed baseline replacement ({marker['ticket']}) waives "
-            f"{', '.join(waives)}: {marker['reason']}")
-    print(('::warning::abi-gen: ' if os.environ.get('GITHUB_ACTIONS') else 'abi-gen: ') + note,
-          file=sys.stderr)
-    return frozenset(waives)
+    for _, run_check in lock_checks(prior, schema, version):
+        run_check()
 
 
 def with_services(schema, folder):
@@ -490,20 +455,19 @@ def run(argv=None):
     release_floor = 0
     if args.baseline:
         baseline = load(args.baseline)
-        waives = baseline_replaced(folder, args.baseline, baseline)
-        if waives:
-            lock_shape(baseline, schema)
-            require(schema['minor'] == baseline['schema']['minor'],
-                    'a baseline replacement keeps the minor')
-        check_lock(baseline, schema, waives)
+        lock_shape(baseline, schema)
         release_floor = baseline['released_minor']
+        if release_floor:
+            check_lock(baseline, schema)
     released_minor = release_floor
     if lock.exists():
         prior = load(lock)
-        check_lock(prior, schema)
+        lock_shape(prior, schema)
         released_minor = prior['released_minor']
         require(released_minor >= release_floor,
                 'candidate release boundary is below trusted baseline')
+        if released_minor:
+            check_lock(prior, schema)
     elif not args.write_lock:
         raise ValueError('missing lock; explicit --write-lock required')
     outputs = {folder / 'abi.json': canonical(schema),

@@ -84,14 +84,19 @@ fn the_first_checks_are_in_the_order_of_the_loader() {
     assert_eq!(edited(|b| set16(b, 4, 6)), Err(Refusal::NewerFormat));
     assert_eq!(edited(|b| set16(b, 4, 0)), Err(Refusal::OlderFormat));
     assert_eq!(edited(|b| set16(b, 4, 0xFFFF)), Err(Refusal::NewerFormat));
-    // Chip: unknown, the X4 Pro's (no profile), and a host that has none.
+    // Chip: unknown, the other chip's (each host refuses the other's files),
+    // and a host that has no profile.
     assert_eq!(edited(|b| set16(b, 6, 77)), Err(Refusal::UnknownChip));
-    assert_eq!(edited(|b| set16(b, 6, 9)), Err(Refusal::NoProfile));
-    let xtensa = Host {
-        target: Chip::Esp32S3,
+    assert_eq!(edited(|b| set16(b, 6, 9)), Err(Refusal::OtherChip));
+    assert_eq!(
+        Header5::read(&bytes, len, &Host::x4_pro(1)),
+        Err(Refusal::OtherChip)
+    );
+    let other = Host {
+        target: Chip::Other(77),
         ..HOST
     };
-    assert_eq!(Header5::read(&bytes, len, &xtensa), Err(Refusal::NoProfile));
+    assert_eq!(Header5::read(&bytes, len, &other), Err(Refusal::NoProfile));
     // Interface major, then the needed minor.
     assert_eq!(edited(|b| set16(b, 8, 6)), Err(Refusal::OlderInterface));
     assert_eq!(edited(|b| set16(b, 8, 8)), Err(Refusal::NewerInterface));
@@ -434,7 +439,16 @@ fn relocation_words_must_be_addresses_in_the_image_by_either_view() {
 }
 
 fn record_bytes(len: usize) -> Vec<u8> {
-    (0..len).map(|i| i as u8).collect()
+    record_for(len, X4_PROFILE.target)
+}
+
+/// A record of `len` bytes that names `target` where a record does (24: its
+/// length, 32: the text); the rest is whatever.
+fn record_for(len: usize, target: &str) -> Vec<u8> {
+    let mut bytes: Vec<u8> = (0..len).map(|i| i as u8).collect();
+    bytes[24..26].copy_from_slice(&(target.len() as u16).to_le_bytes());
+    bytes[32..32 + target.len()].copy_from_slice(target.as_bytes());
+    bytes
 }
 
 fn entry<'a>(h: &Header5, record: &'a [u8]) -> EntryFacts<'a> {
@@ -841,4 +855,141 @@ fn the_x4_profile_is_the_one_abi_def_names() {
         .expect("the profile is in abi.def");
     assert_eq!(profile["entry_layout"], X4_PROFILE.entry_layout);
     assert_eq!(profile["entry_bytes"], X4_PROFILE.entry_bytes);
+}
+
+// ---- Target 9: the X4 Pro and the X4 Classic (decision 142) ----
+
+const S3_HOST: Host = Host::x4_pro(1);
+
+/// A target-9 header that holds together: no hot code, no patches.
+fn good_s3() -> Header5 {
+    Header5 {
+        target: Chip::Esp32S3,
+        entry: 68,
+        ..good()
+    }
+}
+
+#[test]
+fn a_target_9_header_is_read_by_the_s3_host_and_refused_by_the_c3() {
+    let header = good_s3();
+    let bytes = header.to_bytes();
+    let len = header.file_len();
+    assert_eq!(Header5::read(&bytes, len, &S3_HOST), Ok(header));
+    // The C3's host and a target-5 file on the S3 refuse each other, at the chip.
+    assert_eq!(Header5::read(&bytes, len, &HOST), Err(Refusal::OtherChip));
+    let c3 = good();
+    assert_eq!(
+        Header5::read(&c3.to_bytes(), c3.file_len(), &S3_HOST),
+        Err(Refusal::OtherChip)
+    );
+    // The rules that come before the rest apply to it as to target 5.
+    for (at, value, refusal) in [
+        (8, 6, Refusal::OlderInterface),
+        (8, 8, Refusal::NewerInterface),
+        (10, 2, Refusal::NeedsNewerMinor),
+    ] {
+        let mut changed = bytes;
+        set16(&mut changed, at, value);
+        assert_eq!(Header5::read(&changed, len, &S3_HOST), Err(refusal));
+    }
+}
+
+#[test]
+fn target_9_has_no_hot_code_and_no_patches() {
+    let s3 = good_s3();
+    let read_s3 = |h: Header5| Header5::read(&h.to_bytes(), h.file_len(), &S3_HOST);
+    assert!(read_s3(s3).is_ok());
+    for h in [
+        Header5 {
+            hot_at: 1024,
+            hot_len: 64,
+            ..s3
+        },
+        Header5 { hot_at: 4, ..s3 },
+        Header5 { patches: 1, ..s3 },
+        Header5 {
+            hot_at: 1024,
+            hot_len: 64,
+            patches: 2,
+            ..s3
+        },
+    ] {
+        assert!(
+            matches!(read_s3(h), Err(Refusal::Malformed(_))),
+            "{h:?} was taken"
+        );
+    }
+    // Target 5 still may have both.
+    let c3 = Header5 {
+        hot_at: 1024,
+        hot_len: 64,
+        patches: 2,
+        ..good()
+    };
+    assert!(Header5::read(&c3.to_bytes(), c3.file_len(), &HOST).is_ok());
+}
+
+#[test]
+fn the_entry_is_4_aligned_on_the_s3_and_8_aligned_on_the_c3() {
+    let s3 = Header5 {
+        entry: 68,
+        ..good_s3()
+    };
+    assert!(Header5::read(&s3.to_bytes(), s3.file_len(), &S3_HOST).is_ok());
+    assert!(matches!(
+        Header5::read(
+            &Header5 { entry: 66, ..s3 }.to_bytes(),
+            s3.file_len(),
+            &S3_HOST
+        ),
+        Err(Refusal::Malformed(_))
+    ));
+    let c3 = Header5 {
+        entry: 68,
+        ..good()
+    };
+    assert!(malformed(c3));
+}
+
+#[test]
+fn step_9_wants_the_hosts_profile_in_the_record() {
+    let h = good_s3();
+    let record = record_for(h.meta_len as usize, S3_PROFILE.target);
+    let facts = RecordFacts {
+        entry_bytes: S3_ENTRY_BYTES,
+        ..RECORD
+    };
+    let found = entry(&h, &record);
+    assert_eq!(
+        h.check_entry(h.base, &S3_HOST, &facts, &record, &found),
+        Ok(())
+    );
+    // A record built for the C3's profile, or for none, is refused on the S3
+    // and the other way round.
+    for target in [X4_PROFILE.target, "esp32s3-xtensa-lx7-ilp32-call0-le", ""] {
+        let other = record_for(h.meta_len as usize, target);
+        let found = entry(&h, &other);
+        assert_eq!(
+            h.check_entry(h.base, &S3_HOST, &facts, &other, &found),
+            Err(EntryRefusal::RecordDisagrees),
+            "{target}"
+        );
+    }
+    let c3 = good();
+    let mine = record_bytes(c3.meta_len as usize);
+    let theirs = record_for(c3.meta_len as usize, S3_PROFILE.target);
+    assert_eq!(
+        c3.check_entry(c3.base, &HOST, &RECORD, &mine, &entry(&c3, &mine)),
+        Ok(())
+    );
+    assert_eq!(
+        c3.check_entry(c3.base, &HOST, &RECORD, &theirs, &entry(&c3, &theirs)),
+        Err(EntryRefusal::RecordDisagrees)
+    );
+    // The target length may not run past the record.
+    let mut cut = record.clone();
+    cut[24..26].copy_from_slice(&u16::MAX.to_le_bytes());
+    assert_eq!(RecordFacts::target(&cut), None);
+    assert_eq!(RecordFacts::target(&record[..30]), None);
 }

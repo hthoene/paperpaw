@@ -1,7 +1,10 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail tests")]
 use super::*;
+use crate::native::declare::records_wire::Record;
+use alloc::format;
 use wire::{
-    EventActionRun, EventPageTurned, EventScreenShown, InputAction, Registration, records_encode,
+    EventActionRun, EventPageTurned, EventScreenShown, EventServedRequest, EventServer,
+    InputAction, Registration, records_encode,
 };
 
 // Same scalar vectors as core's abi7_events::simple_events_round_trip_with_distinct_tags.
@@ -38,6 +41,7 @@ fn page() -> EventPageTurned<'static> {
         chapter: "One",
         page: Some(12),
         pages: Some(300),
+        chapter_left: None,
     }
 }
 #[test]
@@ -75,6 +79,63 @@ fn page_vectors_preserve_counters_and_borrow_input_strings() {
         assert!(bytes.as_ptr_range().contains(&got.path().as_ptr()));
         assert!(bytes.as_ptr_range().contains(&got.title().as_ptr()));
         assert!(bytes.as_ptr_range().contains(&got.chapter().as_ptr()));
+    }
+}
+#[test]
+fn chapter_left_is_read_present_and_absent_and_bounded_by_the_pages_after_this_one() {
+    let mut bytes = [0; 1200];
+    // Page 12 of 300: 288 pages follow it; 0 is the chapter's last page.
+    for left in [None, Some(0), Some(1), Some(288)] {
+        let record = EventPageTurned {
+            chapter_left: left,
+            ..page()
+        };
+        let len = records_encode(&[Record::EventPageTurned(record)], &mut bytes).unwrap();
+        let Event::PageTurned(got) = decode(&bytes[..len]).unwrap() else {
+            panic!()
+        };
+        assert_eq!(got.chapter_left(), left);
+        assert_eq!((got.page(), got.pages()), (Some(12), Some(300)));
+    }
+    // On the last page nothing follows: only 0.
+    let last = EventPageTurned {
+        page: Some(300),
+        chapter_left: Some(0),
+        ..page()
+    };
+    let len = records_encode(&[Record::EventPageTurned(last)], &mut bytes).unwrap();
+    assert!(decode(&bytes[..len]).is_ok());
+    for refused in [
+        // Past the pages after this one, and past them on the last page.
+        EventPageTurned {
+            chapter_left: Some(289),
+            ..page()
+        },
+        EventPageTurned {
+            page: Some(300),
+            chapter_left: Some(1),
+            ..page()
+        },
+        // Without the page, without the page count, or without either.
+        EventPageTurned {
+            page: None,
+            chapter_left: Some(0),
+            ..page()
+        },
+        EventPageTurned {
+            pages: None,
+            chapter_left: Some(0),
+            ..page()
+        },
+        EventPageTurned {
+            page: None,
+            pages: None,
+            chapter_left: Some(0),
+            ..page()
+        },
+    ] {
+        let n = records_encode(&[Record::EventPageTurned(refused)], &mut bytes).unwrap();
+        assert_eq!(decode(&bytes[..n]), Err(Error::Invalid), "{refused:?}");
     }
 }
 #[test]
@@ -150,6 +211,7 @@ fn screen_and_action_events_borrow_the_exact_input_fields() {
     let mut bytes = [0; 256];
     let now_ms = 0x1234_5678_9abc_def0;
     let screen = Record::EventScreenShown(EventScreenShown {
+        last_input: 0,
         now_ms,
         screen: "demo.main",
         width: 0x1234_5678,
@@ -164,11 +226,12 @@ fn screen_and_action_events_borrow_the_exact_input_fields() {
         width,
         height,
         instance,
+        last_input,
     } = decode(&bytes[..len]).unwrap()
     else {
         panic!()
     };
-    assert_eq!(instance, None);
+    assert_eq!((instance, last_input), (None, None));
     assert_eq!(
         (got_ms, screen, width, height),
         (now_ms, "demo.main", 0x1234_5678, 0x9abc_def0)
@@ -177,24 +240,76 @@ fn screen_and_action_events_borrow_the_exact_input_fields() {
     let action = Record::EventActionRun(EventActionRun {
         now_ms,
         action: "demo.refresh",
+        flags: 0,
     });
     let len = records_encode(&[action], &mut bytes).unwrap();
     assert_eq!(bytes[1], 39);
     let Event::ActionRun {
         now_ms: got_ms,
         action,
+        background,
     } = decode(&bytes[..len]).unwrap()
     else {
         panic!()
     };
-    assert_eq!((got_ms, action), (now_ms, "demo.refresh"));
+    assert_eq!(
+        (got_ms, action, background),
+        (now_ms, "demo.refresh", false)
+    );
     assert!(bytes[..len].as_ptr_range().contains(&action.as_ptr()));
+}
+
+#[test]
+fn action_run_says_whether_the_reader_ran_it_and_refuses_unknown_bits() {
+    let run = |flags| {
+        let mut bytes = [0; 64];
+        let record = Record::EventActionRun(EventActionRun {
+            now_ms: 7,
+            action: "demo.fetch",
+            flags,
+        });
+        let len = records_encode(&[record], &mut bytes).unwrap();
+        decode(&bytes[..len]).map(|event| match event {
+            Event::ActionRun { background, .. } => background,
+            _ => panic!(),
+        })
+    };
+    assert!(!run(0).unwrap());
+    assert!(run(1).unwrap());
+    assert!(run(2).is_err() && run(u32::MAX).is_err());
+}
+
+#[test]
+fn screen_shown_says_what_was_used_last_and_refuses_unknown_values() {
+    use crate::keys::InputMode;
+    let shown = |last_input| {
+        let mut bytes = [0; 128];
+        let record = Record::EventScreenShown(EventScreenShown {
+            last_input,
+            now_ms: 1,
+            screen: "demo.main",
+            width: 480,
+            height: 800,
+            instance: None,
+        });
+        let len = records_encode(&[record], &mut bytes).unwrap();
+        decode(&bytes[..len]).map(|event| match event {
+            Event::ScreenShown { last_input, .. } => last_input,
+            _ => panic!("not screen_shown"),
+        })
+    };
+    assert_eq!(shown(0), Ok(None));
+    assert_eq!(shown(1), Ok(Some(InputMode::Buttons)));
+    assert_eq!(shown(2), Ok(Some(InputMode::Touch)));
+    assert_eq!(shown(3), Ok(Some(InputMode::Pen)));
+    assert_eq!(shown(4), Err(Error::Invalid));
 }
 
 #[test]
 fn screen_and_action_events_refuse_bad_framing_and_utf8() {
     for record in [
         Record::EventScreenShown(EventScreenShown {
+            last_input: 0,
             now_ms: 9,
             screen: "demo.main",
             width: 800,
@@ -204,6 +319,7 @@ fn screen_and_action_events_refuse_bad_framing_and_utf8() {
         Record::EventActionRun(EventActionRun {
             now_ms: 13,
             action: "demo.refresh",
+            flags: 0,
         }),
     ] {
         let mut bytes = [0; 256];
@@ -511,4 +627,226 @@ fn host_plugin_ids_use_wire_caps_instead_of_the_current_loader_grammar() {
     };
     assert_eq!(plugin, id);
     assert!(bytes.as_ptr_range().contains(&plugin.as_ptr()));
+}
+
+#[test]
+fn lookup_ready_names_the_provider_that_kept_its_answer() {
+    let mut bytes = [0; 128];
+    let n = wire::records_encode(
+        &[wire::Record::EventLookupReady(wire::EventLookupReady {
+            now_ms: 9,
+            provider: "wikipedia.lookup",
+        })],
+        &mut bytes,
+    )
+    .unwrap();
+    assert_eq!(
+        Event::decode(&bytes[..n]),
+        Ok(Event::LookupReady {
+            now_ms: 9,
+            provider: "wikipedia.lookup"
+        })
+    );
+    // A provider name of the contract's full 64 bytes decodes whole.
+    let mut long = bytes;
+    let n = wire::records_encode(
+        &[wire::Record::EventLookupReady(wire::EventLookupReady {
+            now_ms: 9,
+            provider: &"p".repeat(64),
+        })],
+        &mut long,
+    )
+    .unwrap();
+    assert!(Event::decode(&long[..n]).is_ok());
+}
+
+#[test]
+fn typed_text_reads_its_text_and_done_flag_and_refuses_other_bits() {
+    let encode = |flags| {
+        let mut bytes = [0; 128];
+        let n = wire::records_encode(
+            &[wire::Record::EventTextTyped(wire::EventTextTyped {
+                now_ms: 4,
+                text: "héllo wörld",
+                flags,
+            })],
+            &mut bytes,
+        )
+        .unwrap();
+        bytes[..n].to_vec()
+    };
+    assert_eq!(
+        Event::decode(&encode(0)),
+        Ok(Event::TextTyped {
+            now_ms: 4,
+            text: TypedText::new("héllo wörld"),
+            done: false
+        })
+    );
+    // The text may be a password: `Debug` shows its length, never the text.
+    let shown = format!("{:?}", Event::decode(&encode(0)).unwrap());
+    assert!(
+        shown.contains("len: 13") && !shown.contains("llo"),
+        "{shown}"
+    );
+    assert!(matches!(
+        Event::decode(&encode(1)),
+        Ok(Event::TextTyped { done: true, .. })
+    ));
+    for flags in [2, 3, 0x8000_0000] {
+        assert_eq!(
+            Event::decode(&encode(flags)),
+            Err(Error::Invalid),
+            "{flags}"
+        );
+    }
+}
+
+#[test]
+fn server_events_tell_started_failed_and_stopped_with_their_reasons() {
+    use crate::native::net::{Reason, ServerState};
+    let mut bytes = [0; 256];
+    let cases = [
+        (
+            0,
+            0,
+            "192.168.1.20:8080",
+            ServerState::Started {
+                address: "192.168.1.20:8080",
+            },
+        ),
+        (0, 0, "", ServerState::Started { address: "" }),
+        (
+            1,
+            5,
+            "",
+            ServerState::Failed {
+                reason: Reason::Refused,
+            },
+        ),
+        (
+            2,
+            1,
+            "",
+            ServerState::Stopped {
+                reason: Reason::NoNetwork,
+            },
+        ),
+        (2, 0, "", ServerState::Stopped { reason: Reason::Ok }),
+        (9, 0, "", ServerState::Other(9)),
+    ];
+    for (state, reason, address, want) in cases {
+        let record = Record::EventServer(EventServer {
+            now_ms: 7,
+            server: 3,
+            state,
+            reason,
+            address,
+        });
+        let len = records_encode(&[record], &mut bytes).unwrap();
+        let Event::Server(got) = decode(&bytes[..len]).unwrap() else {
+            panic!("not a server event")
+        };
+        assert_eq!((got.now_ms(), got.server(), got.state()), (7, 3, want));
+    }
+}
+
+#[test]
+fn a_served_request_borrows_its_text_and_tells_a_body_only_when_flagged() {
+    let mut bytes = [0; 1400];
+    for (flags, body, want) in [(1, 5_000_000_000, Some(5_000_000_000)), (0, 0, None)] {
+        let record = Record::EventServedRequest(EventServedRequest {
+            now_ms: 7,
+            server: 3,
+            request: 77,
+            method: "POST",
+            target: "/upload?x=1",
+            flags,
+            body_len: body,
+        });
+        let len = records_encode(&[record], &mut bytes).unwrap();
+        let Event::ServedRequest(got) = decode(&bytes[..len]).unwrap() else {
+            panic!("not a served request")
+        };
+        assert_eq!(
+            (
+                got.server(),
+                got.request(),
+                got.method(),
+                got.target(),
+                got.body_len()
+            ),
+            (3, 77, "POST", "/upload?x=1", want)
+        );
+        assert!(bytes.as_ptr_range().contains(&got.target().as_ptr()));
+    }
+}
+
+#[test]
+fn a_served_request_tells_the_body_by_its_flag_and_never_prints_its_target() {
+    let long = "/".repeat(1024);
+    let mut bytes = [0; 1400];
+    let cases = [(0, 99, None), (1, 0, Some(0)), (1 | 0b110, 12, Some(12))];
+    for (flags, body, want) in cases {
+        let record = Record::EventServedRequest(EventServedRequest {
+            now_ms: 7,
+            server: 3,
+            request: 0,
+            method: "GET",
+            target: &long,
+            flags,
+            body_len: body,
+        });
+        let len = records_encode(&[record], &mut bytes).unwrap();
+        let Event::ServedRequest(got) = decode(&bytes[..len]).unwrap() else {
+            panic!("not a served request")
+        };
+        assert_eq!(
+            (got.request(), got.target().len(), got.body_len()),
+            (0, 1024, want)
+        );
+        let shown = format!("{got:?}");
+        assert!(
+            shown.contains("target_len: 1024") && !shown.contains("//"),
+            "{shown}"
+        );
+    }
+    let key = Record::EventServedRequest(EventServedRequest {
+        now_ms: 7,
+        server: 3,
+        request: 1,
+        method: "GET",
+        target: "/?k=secretkey",
+        flags: 0,
+        body_len: 0,
+    });
+    let len = records_encode(&[key], &mut bytes).unwrap();
+    let got = decode(&bytes[..len]).unwrap();
+    assert!(!format!("{got:?}").contains("secretkey"));
+}
+
+#[test]
+fn every_failed_reason_of_a_server_is_told_as_the_http_reasons() {
+    use crate::native::net::{Reason, ServerState};
+    let mut bytes = [0; 256];
+    for (code, reason) in [
+        (1, Reason::NoNetwork),
+        (11, Reason::Offline),
+        (12, Reason::Saving),
+        (13, Reason::NetworkOff),
+        (5, Reason::Refused),
+    ] {
+        let record = Record::EventServer(EventServer {
+            now_ms: 7,
+            server: 3,
+            state: 1,
+            reason: code,
+            address: "",
+        });
+        let len = records_encode(&[record], &mut bytes).unwrap();
+        let Event::Server(got) = decode(&bytes[..len]).unwrap() else {
+            panic!("not a server event")
+        };
+        assert_eq!(got.state(), ServerState::Failed { reason });
+    }
 }

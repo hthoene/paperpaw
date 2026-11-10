@@ -15,6 +15,9 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+mod native_activation;
+use native_activation::BuildNative as _;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -206,7 +209,7 @@ impl App {
             .with(".paperpaw/plugins/setup/done", "");
         let switch = |on: bool| if on { "on" } else { "off" };
         let config = format!(
-            "[help]\nshow = false\n[core]\nlanguage = en\n[interlinear]\non = {}\nparallel = {}\n",
+            "[core]\nlanguage = en\n[interlinear]\non = {}\nparallel = {}\n",
             switch(on),
             switch(parallel)
         );
@@ -217,8 +220,7 @@ impl App {
                 seen: seen.clone(),
                 asks,
             })
-            .build()
-            .unwrap();
+            .build_native();
         let effects = kernel.start(Instant(0));
         let mut app = Self {
             kernel,

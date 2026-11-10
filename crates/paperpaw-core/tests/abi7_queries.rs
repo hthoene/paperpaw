@@ -6,6 +6,8 @@
 mod context;
 #[path = "../src/abi7/queries.rs"]
 mod queries;
+#[path = "../src/abi7/settings_visibility.rs"]
+mod settings_visibility;
 #[path = "../src/abi7/settings_wire.rs"]
 mod settings_wire;
 #[path = "../src/abi7/snapshot_wire.rs"]
@@ -531,4 +533,26 @@ fn translation_input_validation_precedes_the_missing_frame_error() {
         },
         ERR_INVALID
     );
+}
+
+#[test]
+fn owned_settings_read_requires_a_live_frame() {
+    let slot = pin!(FrameSlot::new());
+    let caller = Id::new_static("fixture");
+    // SAFETY: empty input/output pairs retain no pointers or uninitialized reads.
+    let status = unsafe {
+        queries::settings_read_for(
+            &slot,
+            &caller,
+            PpBytes {
+                ptr: ptr::null(),
+                len: 0,
+            },
+            PpBuffer {
+                ptr: ptr::null_mut(),
+                cap: 0,
+            },
+        )
+    };
+    assert_eq!(status, ERR_STATE);
 }

@@ -2,14 +2,15 @@
 //! `doc_service/check.rs` does for a format's: a record of another kind, a
 //! value outside its set, rows out of order or a repeated id is `ERR_INVALID`.
 use super::super::BookRef;
+use crate::native_host::codec;
 use crate::native_host::registrations::{self as wire, Record};
 use paperpaw_native::host_glue::ERR_INVALID;
 
 const PPM: u32 = 1_000_000;
 /// `lib_entry.flags` and `lib_book.flags`: bits 0-7.
-const BOOK_FLAGS: u32 = 0xff;
+const ENTRY_FLAGS: u32 = 0xff;
 /// `lib_book` also has bit 8 `missing` (the host's own lookup).
-const LIB_BOOK_FLAGS: u32 = 0x1ff;
+const LIB_BOOK_FLAGS: u32 = ENTRY_FLAGS | 1 << 8;
 /// `lib_position.flags`: has xpointer, has conversion, from sync.
 const POSITION_FLAGS: u32 = 0b111;
 /// `lib_annotation.flags`: noted, text cut, note cut, conversion, XPointers.
@@ -46,7 +47,7 @@ impl<'a> Iterator for Earlier<'a> {
         if self.0.is_empty() {
             return None;
         }
-        let (record, used) = wire::record_decode_prefix(self.0).ok()?;
+        let (record, used) = codec::decode_prefix(self.0).ok()?;
         self.0 = &self.0[used..];
         Some(record)
     }
@@ -89,7 +90,7 @@ pub(super) fn row(kind: Row, record: &Record<'_>, before: &[u8]) -> Result<(), i
 pub(super) fn entry(row: &wire::ServiceLibEntry<'_>) -> Result<(), i32> {
     require(
         progress_ok(row.progress)
-            && row.flags & !BOOK_FLAGS == 0
+            && row.flags & !ENTRY_FLAGS == 0
             && row.badges.matches('\n').count() <= 1,
     )
 }

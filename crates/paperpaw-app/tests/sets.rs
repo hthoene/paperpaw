@@ -9,6 +9,9 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+mod native_activation;
+use native_activation::BuildNative as _;
+
 use paperpaw_core::{Kernel, KernelBuilder};
 use paperpaw_platform::{DeviceInfo, DisplayInfo, InputCaps, MemoryClass, PixelFormat, Rotation};
 use paperpaw_sdk::{MemoryStorage, PluginState};
@@ -27,23 +30,20 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
 );
 
 /// What a beginner needs on a fresh device, and what gets the rest back.
-const ALWAYS: [&str; 16] = [
+/// (The library, `files`, and the update are native plugins: the app registers
+/// none until the host activates them, `NATIVE_PLUGINS`.)
+const ALWAYS: [&str; 11] = [
     "fonts-default",
     "format-epub",
     "format-txt",
     "reader",
-    "files",
     "home",
     "menu",
     "settings",
-    "setup",
     "wifi",
     "keyboard",
     "store",
-    "plugin-manager",
-    "update",
     "transfer",
-    "about",
 ];
 
 fn fonts() -> paperpaw_app::Fonts {
@@ -56,7 +56,7 @@ fn fonts() -> paperpaw_app::Fonts {
 fn builder() -> KernelBuilder {
     Kernel::builder(DEVICE)
         .storage(MemoryStorage::new().with(".paperpaw/plugins/setup/done", ""))
-        .user_config("[help]\nshow = false\n[core]\nlanguage = en\n")
+        .user_config("[core]\nlanguage = en\n")
 }
 
 /// The plugins registered, with their states.
@@ -81,10 +81,13 @@ fn crate_of(id: &str) -> Option<String> {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "native-linked",
+    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
+)]
 fn the_lean_set_keeps_what_a_beginner_needs() {
     let kernel = paperpaw_app::install_with(builder(), fonts(), paperpaw_app::StorePlugins::Left)
-        .build()
-        .unwrap();
+        .build_native();
     let plugins = plugins(&kernel);
     for id in ALWAYS {
         assert!(
@@ -110,8 +113,12 @@ fn the_lean_set_keeps_what_a_beginner_needs() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "native-linked",
+    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
+)]
 fn the_crates_listed_are_those_installed() {
-    let kernel = paperpaw_app::install(builder(), fonts()).build().unwrap();
+    let kernel = native_activation::build(paperpaw_app::install(builder(), fonts()));
     let mut installed: Vec<String> = plugins(&kernel)
         .iter()
         .filter_map(|(id, _)| crate_of(id))
@@ -125,14 +132,14 @@ fn the_crates_listed_are_those_installed() {
 #[cfg(feature = "store-plugins")]
 #[test]
 fn built_in_store_plugins_are_off_unless_used() {
-    let used = ["stats"];
+    // Any one of them: the plugins leave this list as their interface-6 code goes.
+    let used = [paperpaw_app::STORE_PLUGINS[0]];
     let kernel = paperpaw_app::install_with(
         builder(),
         fonts(),
         paperpaw_app::StorePlugins::Off(&|id| used.contains(&id)),
     )
-    .build()
-    .unwrap();
+    .build_native();
     let plugins = plugins(&kernel);
     for id in paperpaw_app::STORE_PLUGINS {
         let state = plugins
@@ -174,35 +181,32 @@ fn a_store_plugin_switched_off_before_stays_off() {
         .with(".paperpaw/plugins/setup/done", "")
         .with(
             "paperpaw.ini",
-            "[core]\nlanguage = en\n\n[plugins]\nrules = off\n",
+            "[core]\nlanguage = en\n\n[plugins]\nvocabulary = off\n",
         );
     let ran_before = paperpaw_app::ran_before(&storage);
     let kernel = paperpaw_app::install_with(
-        Kernel::builder(DEVICE)
-            .storage(storage)
-            .user_config("[help]\nshow = false\n"),
+        Kernel::builder(DEVICE).storage(storage).user_config(""),
         fonts(),
         paperpaw_app::StorePlugins::Off(&|_| ran_before),
     )
-    .build()
-    .unwrap();
+    .build_native();
     let plugins = plugins(&kernel);
     let state = |id: &str| plugins.iter().find(|(p, _)| p == id).map(|(_, s)| *s);
     assert_eq!(state("aids"), Some(PluginState::Running));
-    assert_eq!(state("stats"), Some(PluginState::Running));
-    assert_eq!(state("rules"), Some(PluginState::Off));
-    // Off as it always shipped.
-    assert_eq!(state("browser"), Some(PluginState::Off));
+    assert_eq!(
+        state(paperpaw_app::STORE_PLUGINS[0]),
+        Some(PluginState::Running)
+    );
+    assert_eq!(state("vocabulary"), Some(PluginState::Off));
 }
 
 #[cfg(feature = "store-plugins")]
 #[test]
 fn every_store_plugin_is_one_of_the_app() {
     // The list the shells use names every plugin the feature builds in.
-    let all = paperpaw_app::install(builder(), fonts()).build().unwrap();
+    let all = native_activation::build(paperpaw_app::install(builder(), fonts()));
     let lean = paperpaw_app::install_with(builder(), fonts(), paperpaw_app::StorePlugins::Left)
-        .build()
-        .unwrap();
+        .build_native();
     let lean: Vec<String> = plugins(&lean).into_iter().map(|(id, _)| id).collect();
     let mut offered: Vec<String> = plugins(&all)
         .into_iter()

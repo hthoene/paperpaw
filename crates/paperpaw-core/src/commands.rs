@@ -25,6 +25,8 @@ impl Kernel {
         reason = "longer than the limit from before it was set; split it when it is next changed"
     )]
     pub(crate) fn finish(&mut self) -> Effects {
+        // The events of the host services, between callbacks.
+        self.native_service_pump();
         self.run_commands();
         // The time since, to the screen on top.
         let top = self.stack.last().map_or(meter::CORE, |s| s.id.namespace());
@@ -44,6 +46,8 @@ impl Kernel {
         }
         self.check_network();
         self.run_commands();
+        // Whatever this call decided is what the next callback goes by.
+        self.sync_net_policy();
         if let Some(row) = self.hint_row() {
             // A screen that read much as it opened may have filled what is
             // read from a card catalog: the row's labels would fall back.
@@ -243,6 +247,8 @@ impl Kernel {
             self.bluetooth_deadline(),
             self.escape_due(),
             self.native_unload_due(),
+            self.service_due(),
+            self.work_pump_due(),
         ]
         .into_iter()
         .flatten()
@@ -291,12 +297,18 @@ impl Kernel {
     }
 
     pub(crate) fn run_commands(&mut self) {
+        self.drain_deferred_ui_closes();
         self.retry_native_unloads();
         for _ in 0..MAX_COMMAND_ROUNDS {
             // Callbacks from the previous round have returned their borrowed
             // messages. Make room before on_show or another command translates.
             self.forget_read_messages_if_full();
             if self.output.commands.is_empty() {
+                // The makers of widgets dropped meanwhile hear of it; what
+                // they stage is the next round's.
+                if self.deliver_widget_drops() {
+                    continue;
+                }
                 // All done: the screen on top now is told it shows, if it
                 // changed; what that asks for runs too.
                 if !mem::take(&mut self.show_pending) {
@@ -439,6 +451,9 @@ impl Kernel {
                 self.usb_drive = self.shared.caps.has(paperpaw_sdk::Capability::USB_DRIVE);
                 if self.usb_drive {
                     self.free_count.pause_for_usb();
+                    // The card goes to the computer: nothing reads it for a
+                    // check or a write any more.
+                    self.firmware_suspend();
                 }
             }
             Command::KeepAwake(hold) => self.keep_awake(hold),
@@ -506,15 +521,22 @@ impl Kernel {
             }
         }
         if let Some(index) = open.filter(|&index| below_guard(index)) {
-            if params.is_empty() || self.stack[index].params == params {
+            if self.slot_open_same(index, &params) {
                 return;
             }
         } else if let Some(index) = open {
-            if params.is_empty() || self.stack[index].params == params {
+            if self.slot_open_same(index, &params) {
                 if index + 1 < self.stack.len()
                     && self.may_close_above(index, paperpaw_sdk::CloseCause::Slot)
                 {
                     self.close_above(index);
+                }
+                // A staged open passes the open native instance its new
+                // hand-over (or none), also when the params are the same.
+                if self.shared.native_instances.pending_handover().is_some()
+                    && self.is_native_at(index)
+                {
+                    self.reopen(index, &params);
                 }
                 return;
             }
@@ -551,6 +573,7 @@ impl Kernel {
             Some(screen) => self.shared.registry.bind_user(slot.clone(), screen.clone()),
             None => self.shared.registry.unbind_user(&slot),
         }
+        self.shared.registry_generation.bump();
         self.update_config(&format_args!("slot `{slot}`"), |source| match &screen {
             Some(screen) => paperpaw_config::set(source, "slots", slot.as_str(), screen.as_str()),
             None => paperpaw_config::remove(source, "slots", slot.as_str()),
@@ -573,6 +596,8 @@ impl Kernel {
         if self.bluetooth_answer(event, params) {
             return;
         }
+        // (The firmware confirmation's answer is not an event anyone can
+        // send: `with_screen` takes it from the confirmation screen alone.)
         // A page turned, also by itself, is use.
         if *event == events::PAGE_TURNED {
             self.last_activity = self.now;
@@ -589,6 +614,9 @@ impl Kernel {
         }
         // Moments for declared work, and jobs waiting for this event.
         self.works.saw(event, params);
+        // A setting of a plugin's network changed: the plugins that hear it
+        // next are already answered by the new one.
+        self.sync_net_policy();
         let env = self.shared.env(self.now);
         // A password typed (an answer to a question asked as one) reaches
         // the plugin that asked alone, the one its reply event is named
@@ -623,6 +651,9 @@ impl Kernel {
                 &mut self.works,
             );
         }
+        // The native plugins that subscribed to a kernel event (tick, the
+        // lifecycle, the page turned), queued in their one order.
+        self.native_core_event(event, params, &hears);
         if refused_secret {
             self.warn_runtime("a plugin asked what only the settings editor may; not done");
         }
@@ -695,6 +726,9 @@ impl Kernel {
             let reserved = Reserved::of(&self.shared.settings, &self.shared.registry);
             vet_reserved(&mut self.output.commands, from, plugin.as_str(), &reserved);
         }
+        self.native_core_event(event, params, &|plugin| {
+            owners.iter().any(|owner| owner == plugin)
+        });
         let keys: Vec<_> = screens.iter().map(|&i| self.stack[i].serial).collect();
         for key in keys {
             // Each where it is now: one may have closed meanwhile.
@@ -915,8 +949,8 @@ impl Kernel {
                 )),
             },
             Command::SetClipboard(text) => {
-                self.shared.clipboard = clipped(&text);
-                self.io.clipboard.copy(self.shared.clipboard.clone());
+                self.shared.clipboard.set(clipped(&text));
+                self.io.clipboard.copy(self.shared.clipboard.get());
             }
             Command::ReadClipboard(reply, params) if self.io.clipboard.system => {
                 self.io.clipboard.read(reply, params);
@@ -1146,6 +1180,15 @@ pub(crate) fn vet_reserved(
         !refused
     });
     out.len() != before
+}
+
+/// `text` cut to what the clipboard holds, at a character boundary.
+pub(crate) fn clipped(text: &str) -> String {
+    let mut end = text.len().min(paperpaw_sdk::MAX_CLIPBOARD);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    String::from(&text[..end])
 }
 
 #[cfg(test)]

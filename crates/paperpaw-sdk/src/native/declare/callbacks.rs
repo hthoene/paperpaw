@@ -36,10 +36,24 @@ pub enum EventKind {
     BookMoved,
     /// Subscribe to the book removed host event.
     BookRemoved,
+    /// Subscribe to the library changed host event (a coalesced hint).
+    LibraryChanged,
     /// Subscribe to the plugins changed host event.
     PluginsChanged,
     /// Subscribe to the wifi changed host event.
     WifiChanged,
+    /// A Wi-Fi scan finished (a coalesced hint).
+    WifiScanned,
+    /// A `join` or `host` request of this plugin ended.
+    WifiDone,
+    /// Network work waits for a network (network manager only).
+    NetworkWanted,
+    /// The network is no longer needed (network manager only).
+    NetworkIdle,
+    /// Firmware installation progressed (a hint).
+    FirmwareChanged,
+    /// An install, removal, firmware or check request of this plugin ended.
+    InstallDone,
     /// Subscribe to the power changed host event.
     PowerChanged,
     /// Subscribe to the status changed host event.
@@ -58,6 +72,38 @@ pub enum EventKind {
     StackChanged,
     /// A screen drew its first page and is ready for help.
     ScreenReady,
+    /// A request of this plugin ended (`core.net`). Needed before the first request.
+    HttpDone,
+    /// Bytes of a request's body came.
+    HttpProgress,
+    /// A server of this plugin started, failed or stopped (`core.net`).
+    Server,
+    /// A server of this plugin got a request.
+    ServedRequest,
+    /// A picture the plugin asked the host to prepare is ready or failed.
+    ImageReady,
+    /// Something happened to a socket of this plugin (`core.sockets`). Needed
+    /// before the first `connect`.
+    Socket,
+    /// Something happened to a broadcast of this plugin. Needed before the
+    /// first `broadcast`.
+    Broadcast,
+    /// Work of this plugin came due (`core.work`). Needed before `Work::declare`
+    /// (without it the call answers `State`); the event goes only to the plugin
+    /// that declared the work.
+    WorkDue,
+    /// Work of this plugin was taken out for good. Optional: without it a refused
+    /// work just vanishes from the work list.
+    WorkRefused,
+    /// What held work back no longer does (a hint, coalesced). Optional: without
+    /// it the plugin tries again at its next work or event.
+    WorkAllowed,
+    /// A lookup provider's pending answer is kept (`event.lookup_ready`). Needed
+    /// for the host to remember an ask that comes back `pending`.
+    LookupReady,
+    /// A widget instance of this plugin changed (`event.widget_changed`, ui.md 5.2): a
+    /// widget a screen shows says its content changed, so the plugin refreshes its view.
+    WidgetChanged,
 }
 
 impl EventKind {
@@ -78,8 +124,15 @@ impl EventKind {
             Self::BookFinished => records_wire::EVENT_BOOK_FINISHED_TAG,
             Self::BookMoved => records_wire::EVENT_BOOK_MOVED_TAG,
             Self::BookRemoved => records_wire::EVENT_BOOK_REMOVED_TAG,
+            Self::LibraryChanged => records_wire::EVENT_LIBRARY_CHANGED_TAG,
             Self::PluginsChanged => records_wire::EVENT_PLUGINS_CHANGED_TAG,
             Self::WifiChanged => records_wire::EVENT_WIFI_CHANGED_TAG,
+            Self::WifiScanned => records_wire::EVENT_WIFI_SCANNED_TAG,
+            Self::WifiDone => records_wire::EVENT_WIFI_DONE_TAG,
+            Self::NetworkWanted => records_wire::EVENT_NETWORK_WANTED_TAG,
+            Self::NetworkIdle => records_wire::EVENT_NETWORK_IDLE_TAG,
+            Self::FirmwareChanged => records_wire::EVENT_FIRMWARE_CHANGED_TAG,
+            Self::InstallDone => records_wire::EVENT_INSTALL_DONE_TAG,
             Self::PowerChanged => records_wire::EVENT_POWER_CHANGED_TAG,
             Self::StatusChanged => records_wire::EVENT_STATUS_CHANGED_TAG,
             Self::ChargeChanged => records_wire::EVENT_CHARGE_CHANGED_TAG,
@@ -89,6 +142,18 @@ impl EventKind {
             Self::PluginAnswered => records_wire::EVENT_PLUGIN_ANSWERED_TAG,
             Self::StackChanged => records_wire::EVENT_STACK_CHANGED_TAG,
             Self::ScreenReady => records_wire::EVENT_SCREEN_READY_TAG,
+            Self::HttpDone => records_wire::EVENT_HTTP_DONE_TAG,
+            Self::HttpProgress => records_wire::EVENT_HTTP_PROGRESS_TAG,
+            Self::Server => records_wire::EVENT_SERVER_TAG,
+            Self::ServedRequest => records_wire::EVENT_SERVED_REQUEST_TAG,
+            Self::ImageReady => records_wire::EVENT_IMAGE_READY_TAG,
+            Self::Socket => records_wire::EVENT_SOCKET_TAG,
+            Self::Broadcast => records_wire::EVENT_BROADCAST_TAG,
+            Self::WorkDue => records_wire::EVENT_WORK_DUE_TAG,
+            Self::WorkRefused => records_wire::EVENT_WORK_REFUSED_TAG,
+            Self::WorkAllowed => records_wire::EVENT_WORK_ALLOWED_TAG,
+            Self::LookupReady => records_wire::EVENT_LOOKUP_READY_TAG,
+            Self::WidgetChanged => records_wire::EVENT_WIDGET_CHANGED_TAG,
         }
     }
 }

@@ -271,6 +271,10 @@ fn text_field(fields: &[&str]) -> usize {
     }
 }
 
+/// The annotation of a line. **A second row rule:** this and [`fields`] still
+/// decide what a row is for the plain readers and writers here, apart from
+/// [`is_row`]. They stay until the writes slice replaces them with that one
+/// definition (todo: one rule, then ids on write cannot drift from the reads).
 fn parse(line: &str, version: u32) -> Option<Annotation> {
     parse_anchored(line, version).map(|(a, _)| a)
 }
@@ -364,7 +368,7 @@ fn write(
     unread: &[String],
     fingerprint: Option<&Fingerprint>,
 ) -> Result<(), Error> {
-    all.sort_by_cached_key(|(a, _)| (a.mark.start, a.mark.end));
+    paperpaw_sort::sort_by_cached_key(&mut all, |(a, _)| (a.mark.start, a.mark.end));
     // After the version, wherever it was (PaperPaw of before put it
     // last).
     let (books, unread): (Vec<&String>, Vec<&String>) =
@@ -706,6 +710,12 @@ pub fn changed(book: &str) -> Command {
         path: book.to_string(),
     })
 }
+
+mod read;
+pub use read::{
+    FILE_VERSION, Head, KEY_MAX, LINE_MAX, Part, Row, Window, Windows, generation_of, is_row,
+    next_generation, try_head, try_rows,
+};
 
 #[cfg(test)]
 mod tests {

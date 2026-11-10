@@ -28,10 +28,17 @@ impl Kernel {
             instance: None,
             env: &env,
             meter: &self.shared.meter,
+            depth: None,
+            directory: None,
+            stack_generation: self.shared.stack_rows.generation(),
+            stack_rows: &self.shared.stack_rows,
             font_removals: &self.shared.font_removals,
+            registry_generation: &self.shared.registry_generation,
             usage: &self.shared.usage,
             plugins: &self.shared.plugins,
             work: &self.shared.work_states,
+            log: self.shared.device_log,
+            ui: None,
         };
         batch.dispatch(index, depth, |context, record| {
             let _running = self.shared.meter.enter(&context.id);
@@ -65,10 +72,17 @@ impl Kernel {
             instance: None,
             env: &env,
             meter: &self.shared.meter,
+            depth: None,
+            directory: None,
+            stack_generation: self.shared.stack_rows.generation(),
+            stack_rows: &self.shared.stack_rows,
             font_removals: &self.shared.font_removals,
+            registry_generation: &self.shared.registry_generation,
             usage: &self.shared.usage,
             plugins: &self.shared.plugins,
             work: &self.shared.work_states,
+            log: self.shared.device_log,
+            ui: None,
         };
         batch.dispatch(index, depth, |context, record| {
             let _running = self.shared.meter.enter(&context.id);

@@ -132,6 +132,29 @@ def declarations():
 # from the text, and following all of them would make every hash change
 # with any change in the crate.
 MAX_SAME_NAME = 2
+# The names a shared body calls that its crate defines more than
+# `MAX_SAME_NAME` times, by crate: their functions are not followed (see
+# above). Any other name that crosses the limit fails: a new function named
+# like one a shared body calls would otherwise drop that body from the digest
+# without a trace (#732). Rename the new function, or add the name here.
+# A name listed here that no shared body skips any more fails too.
+SAME_NAME_SKIPPED = {
+    "paperpaw-graphics": frozenset({
+        "format",
+    }),
+    "paperpaw-sdk": frozenset({
+        "bits", "button", "cells", "choice", "color", "command", "default", "device",
+        "draw", "draw_lines", "each", "env", "fit", "fits", "focused", "font", "forget",
+        "frame", "height", "ink", "into_iter", "keep", "key", "line", "list", "make",
+        "name", "new", "on", "read", "read_at", "rows", "separator", "set", "settings",
+        "shows", "size", "state", "switch", "targets", "text", "title", "widgets",
+        "with", "wrap",
+    }),
+    "paperpaw-text": frozenset({
+        "advance", "anchors", "class", "default", "finish", "glyph", "has_char", "kern",
+        "level", "new", "read_at",
+    }),
+}
 # Copies of the plugin-boundary codecs that tools/abi-gen.py writes: the ABI
 # lock pins every byte of them. Index their names without parsing their bodies:
 # a reachable call defined only there is refused rather than silently unhashed.
@@ -180,7 +203,17 @@ abs pow sqrt floor ceil round signum saturating_sub saturating_add checked_sub c
 wrapping_add wrapping_sub min_value max_value as_str as_bytes with_capacity reserve clear
 binary_search sort sort_by sort_by_key windows chunks join concat repeat replace parse
 to_lowercase to_uppercase is_char_boundary rfind find_char hash write write_str fmt
+then then_some
 """.split())
+
+# Methods of workspace crates that are not hashed, which shared bodies call
+# and the native facade also names: `format` is `paperpaw_i18n::I18n::format`
+# (and the facade's `Declarations::format`), `tone` is
+# `paperpaw_text::Ink::tone` (and the facade's `fonts::Ink::tone`, slot 41).
+# As for a standard name, the call is that method only where src/native/
+# alone defines the name; unlike a standard name it is still followed where
+# a hashed function has it.
+EXTERNAL = {"format", "tone"}
 
 
 def block_end(text, i):
@@ -295,11 +328,15 @@ def bodies():
     return found
 
 
-def reach(functions, file, body, generated=None, native_users=frozenset()):
+def reach(functions, file, body, generated=None, native_users=frozenset(),
+          skipped=None):
     """The bodies of the functions `body` (in `file`) reaches by calls,
     from `functions` (`crate_functions`): a name defined in the file of
     the code that calls it means that file's functions, another one those
-    of the crate where it has at most `MAX_SAME_NAME`.
+    of the crate where it has at most `MAX_SAME_NAME`. A name with more is
+    refused unless it is in `skipped` (the crate's `SAME_NAME_SKIPPED`, a
+    set the caller passes and sees filled with the names met: with None,
+    every such name is refused).
 
     Native facade code is never hashed, so reaching it is refused: a
     `native::` path in a reached body, or a call of a name the facade
@@ -317,7 +354,8 @@ def reach(functions, file, body, generated=None, native_users=frozenset()):
             # named `len` is still refused. Only a standard name the native
             # facade alone defines (`retain`) is the standard method.
             if not defs and generated and callee in generated and not (
-                    callee in STANDARD and all(is_native(path) for path in generated[callee])):
+                    (callee in STANDARD or callee in EXTERNAL)
+                    and all(is_native(path) for path in generated[callee])):
                 files = ", ".join(str(path) for path in generated[callee])
                 sys.exit(f"{at}: shared body calls {callee}, defined only in "
                          f"generated or native source: {files}; its body cannot be skipped")
@@ -333,6 +371,12 @@ def reach(functions, file, body, generated=None, native_users=frozenset()):
             if local:
                 defs = local
             elif len(defs) > MAX_SAME_NAME:
+                if skipped is None or callee not in skipped[0]:
+                    sys.exit(f"{at}: shared body calls {callee}, which its crate defines "
+                             f"{len(defs)} times (more than {MAX_SAME_NAME}): its bodies "
+                             "would drop out of the digest. Rename the function that "
+                             "made it cross, or add the name to SAME_NAME_SKIPPED")
+                skipped[1].add(callee)
                 continue
             for d in defs:
                 if d not in seen:
@@ -348,15 +392,23 @@ def body_hashes(entries):
     found = bodies()
     crates = {}
     out = {}
+    met = {}
     for family, _, name, _ in entries:
         crate, file, body = found[(family, name)]
         if crate not in crates:
             generated, users = {}, set()
             crates[crate] = (crate_functions(crate, generated, users), generated, users)
         functions, generated, users = crates[crate]
-        reached = reach(functions, file, body, generated, users)
+        listed = SAME_NAME_SKIPPED.get(crate.name, frozenset())
+        skipped = (listed, met.setdefault(crate.name, set()))
+        reached = reach(functions, file, body, generated, users, skipped)
         text = normal(body) + "\n" + "\n".join(sorted(reached))
         out[(family, name)] = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+    stale = sorted(f"{crate} {name}" for crate, names in SAME_NAME_SKIPPED.items()
+                   for name in names - met.get(crate, set()))
+    if stale:
+        sys.exit("SAME_NAME_SKIPPED lists names no shared body skips any more "
+                 f"(remove them): {', '.join(stale)}")
     return out
 
 

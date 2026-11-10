@@ -20,7 +20,7 @@ use paperpaw_sdk::native::{
     self, Error, Host,
     callbacks::DrawFrame,
     declare::{Declarations, EventKind},
-    events::Event,
+    events::{Event, Incoming},
     reply::Reply,
 };
 use paperpaw_sdk::{Id, Manifest, Plugin, RegisterError, Registrar, SettingSpec, Version};
@@ -60,11 +60,11 @@ impl native::Plugin for ScreenProbe {
         &mut self,
         h: &Host<'_>,
         t: u32,
-        e: Event<'_>,
+        e: Incoming<'_>,
         r: &mut Reply<'_>,
     ) -> Result<(), Error> {
         // Test-only trigger: screen routing is Core #944, not this pixel fixture.
-        let Event::Started { now_ms } = e else {
+        let Event::Started { now_ms, .. } = e.decode()? else {
             return Err(Error::Invalid);
         };
         eprintln!(
@@ -82,19 +82,22 @@ impl native::Plugin for ScreenProbe {
             }
             Err(error) => eprintln!("native font acquisition: {error:?}"),
         }
-        native::Plugin::event(
-            &mut self.0,
-            h,
-            t,
-            Event::ScreenShown {
-                now_ms,
-                screen: "battery.screen",
-                width: 480,
-                height: 800,
-                instance: None,
-            },
-            r,
+        let mut bytes = [0; 128];
+        let len = crate::native_host::events::encode(
+            &crate::native_host::registrations::Record::EventScreenShown(
+                crate::native_host::registrations::EventScreenShown {
+                    last_input: 0,
+                    now_ms,
+                    screen: "battery.screen",
+                    width: 480,
+                    height: 800,
+                    instance: None,
+                },
+            ),
+            &mut bytes,
         )
+        .map_err(|_| Error::Invalid)?;
+        native::Plugin::event(&mut self.0, h, t, Incoming::new(&bytes[..len])?, r)
     }
     fn input(
         &mut self,

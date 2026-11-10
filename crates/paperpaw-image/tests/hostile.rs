@@ -169,7 +169,7 @@ fn gif_picture_without_width_or_height_fails_cleanly() {
 }
 
 #[test]
-fn gif_picture_larger_than_the_limit_is_refused_whatever_the_screen() {
+fn gif_picture_larger_than_its_screen_is_refused_before_its_rows_are_gathered() {
     // 65535 × 2000 pixels on a screen of one: refused before its rows are
     // gathered (131 MB), interlaced or not.
     for interlaced in [true, false] {
@@ -181,30 +181,33 @@ fn gif_picture_larger_than_the_limit_is_refused_whatever_the_screen() {
             &lzw_literals(&[0]),
         );
         let (result, _, _) = run(&data, Fit::side(64), false);
-        assert_eq!(result, Err(ImageError::Unsupported("GIF this large")));
+        assert_eq!(
+            result,
+            Err(ImageError::Invalid("GIF picture larger than its screen"))
+        );
     }
 }
 
 #[test]
 fn gif_decoding_stops_at_the_bottom_of_the_screen() {
-    // A screen of 2 × 1 and a picture of 2 × 2: its first row shows, its
-    // second (a broken code here) is not read.
+    // A screen of 2 × 2 and a picture of 2 × 2 at (0, 1): its first row
+    // shows, its second (a broken code here) is not read.
     let codes = [4, 0, 1, 4, 6, 5];
-    let data = gif((2, 1), (0, 0), (2, 2), false, &codes);
+    let data = gif((2, 2), (0, 1), (2, 2), false, &codes);
     let (result, image, _) = run(&data, Fit::side(64), false);
     result.unwrap();
-    assert_eq!((image.width, image.height), (2, 1));
-    assert_eq!(image.pixels, [0, 85]);
+    assert_eq!((image.width, image.height), (2, 2));
+    assert_eq!(image.pixels, [255, 255, 0, 85]);
 }
 
 #[test]
 fn interlaced_gif_partly_off_the_screen_matches_the_same_in_order() {
-    // A picture of 4 × 5 at (1, 1) on a screen of 3 × 4: its right and
+    // A picture of 3 × 4 at (1, 1) on a screen of 3 × 4: its right and
     // bottom parts are off the screen.
-    let (w, h) = (4u16, 5u16);
+    let (w, h) = (3u16, 4u16);
     let indices: Vec<u8> = (0..w * h).map(|i| ((i * 7 + i / 3) % 4) as u8).collect();
     let rows: Vec<&[u8]> = indices.chunks(usize::from(w)).collect();
-    let stored: Vec<u8> = [0, 4, 2, 1, 3]
+    let stored: Vec<u8> = [0, 2, 1, 3]
         .iter()
         .flat_map(|&r| rows[r].iter().copied())
         .collect();
@@ -394,10 +397,7 @@ impl ImageSink for Discard {
 fn downscaling_more_than_its_sums_hold_is_refused() {
     // 4200 × 4200 pixels of white in one: their sum is past 32 bits.
     match Downscaler::new(4200, 4200, (1, 1), 1) {
-        Err(e) => assert_eq!(
-            e,
-            ImageError::Unsupported("image this large made this small")
-        ),
+        Err(e) => assert_eq!(e, ImageError::TooLarge),
         Ok(mut scaler) => {
             let row = vec![255u8; 4200];
             for _ in 0..4200 {

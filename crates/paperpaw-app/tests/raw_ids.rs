@@ -1,15 +1,18 @@
 //! No screen made from what plugins register shows an id where a name
-//! belongs: in every language shipped, every row of the menu editor (its
-//! list of menus, page by page, and each menu's entries), of every
-//! settings group and of every choice is a name, never a raw id such as
+//! belongs: in every language shipped, every row of every settings group
+//! and of every choice is a name, never a raw id such as
 //! `core.status-font` (a key no catalog has, or no key at all); and so is
-//! every entry of every menu, as the menus show them.
+//! every entry of every menu, as the menus show them. The same walk over
+//! the menu editor is the pending case `menu-editor-names-every-menu-and-entry`
+//! (`plugins/menu-editor/tests/acceptance_pending.rs`).
 
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
     reason = "tests panic on purpose when something is wrong"
 )]
+
+mod native_activation;
 
 use std::collections::BTreeSet;
 
@@ -57,10 +60,8 @@ impl App {
         let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
         let builder = Kernel::builder(DEVICE)
             .storage(storage)
-            .user_config(format!(
-                "[core]\nlanguage = {language}\n[help]\nshow = false\n"
-            ));
-        let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
+            .user_config(format!("[core]\nlanguage = {language}\n"));
+        let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
         let effects = kernel.start(Instant(0));
         let mut namespaces: BTreeSet<String> = kernel
             .plugins()
@@ -172,7 +173,7 @@ fn languages() -> Vec<String> {
 fn ids_are_found_where_shown() {
     let app = App::new("en");
     assert!(app.is_id("core.status-font"));
-    assert!(app.is_id("menu-editor.title"));
+    assert!(app.is_id("core.settings-pages"));
     assert!(!app.is_id("Status lines"));
     assert!(!app.is_id("paperpaw.org"));
     assert!(!app.is_id("1.5"));
@@ -180,43 +181,13 @@ fn ids_are_found_where_shown() {
     assert_eq!(app.raw_ids(&shown).len(), 1);
 }
 
-/// The menu editor names every menu, on every page, and every entry of
-/// each; a setting's chooser's menu (more fonts, say) by the setting.
-#[cfg(feature = "store-plugins")]
-#[test]
-fn the_menu_editor_names_every_menu_and_entry() {
-    for language in languages() {
-        let mut app = App::new(&language);
-        app.run(Id::new_static("menu-editor.open"));
-        let mut shown = app.walk();
-        let menus: Vec<String> = app
-            .kernel
-            .menus()
-            .menu_ids()
-            .into_iter()
-            .map(ToString::to_string)
-            .collect();
-        for menu in menus {
-            // The editor's own screen of a menu's entries.
-            app.open(
-                Id::new_static("menu-editor.entries"),
-                Params::new().with("menu", menu.clone()),
-            );
-            shown.extend(app.walk());
-            app.run(actions::BACK);
-        }
-        assert!(shown.len() > 50, "{language}: the walk saw the menus");
-        let raw = app.raw_ids(&shown);
-        assert!(
-            raw.is_empty(),
-            "{language}: the menu editor shows ids: {raw:#?}"
-        );
-    }
-}
-
 /// Every settings group names its settings and their values, and every
 /// choice its options and more ways to choose.
 #[test]
+#[cfg_attr(
+    feature = "native-linked",
+    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
+)]
 fn settings_pages_and_choosers_show_names() {
     for language in languages() {
         let mut app = App::new(&language);

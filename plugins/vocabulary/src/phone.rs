@@ -260,7 +260,7 @@ pub(crate) fn answer(
                 None => cards::add_deck(storage, &name),
             }
             .map(|id| {
-                let name = cards::clean(&name, cards::MAX_NAME);
+                let name = cards::clean_or_empty(&name, cards::MAX_NAME);
                 (format!("{{\"id\":{id}}}"), Some(Done::Deck(name)))
             })
         }
@@ -278,7 +278,7 @@ pub(crate) fn answer(
                     back: field("back"),
                     example: field("example"),
                 };
-                let front = cards::clean(&texts.front, cards::MAX_TEXT);
+                let front = cards::clean_or_empty(&texts.front, cards::MAX_TEXT);
                 let seen = param(&form, "v").and_then(|v| v.parse().ok());
                 match param(&form, "id").and_then(|i| i.parse().ok()) {
                     Some(id) => cards::edit(storage, deck, id, seen, &texts),
@@ -330,7 +330,7 @@ pub(crate) fn answer(
 }
 
 fn decks_json(storage: &dyn Storage) -> String {
-    let sizes = cards::sizes(storage);
+    let sizes = cards::sizes(storage).unwrap_or_default();
     let decks: Vec<String> = cards::decks(storage)
         .unwrap_or_default()
         .iter()

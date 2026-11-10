@@ -792,17 +792,17 @@ fn spec_choice_list_rules() {
     let wide =
         |n: usize| -> &'static str { Box::leak(format!("a\n{}", "x".repeat(n)).into_boxed_str()) };
     assert_eq!(check(with("a")), Ok(()));
-    assert_eq!(check(with(many(32))), Ok(()));
+    assert_eq!(check(with(many(64))), Ok(()));
     assert_eq!(check(with(wide(96))), Ok(()));
     expect(vec![
         ("empty list", with(""), ERR_INVALID),
-        ("33 values", with(many(33)), ERR_INVALID),
+        ("65 values", with(many(65)), ERR_INVALID),
         ("97 byte value", with(wide(97)), ERR_INVALID),
         ("empty value", with("a\n\nb"), ERR_INVALID),
         ("trailing newline", with("a\n"), ERR_INVALID),
         ("leading newline", with("\na"), ERR_INVALID),
         ("duplicate", with("a\nb\na"), ERR_INVALID),
-        // 512 one-byte values in 1023 bytes: refused at the 33rd, not compared all.
+        // 512 one-byte values in 1023 bytes: refused at the 65th, not compared all.
         (
             "512 tiny values",
             with(Box::leak(
@@ -1277,23 +1277,22 @@ fn event_only_wire_batch_remains_committable() {
     assert_eq!(run(&batch(&[record(2, &[u(7)])])), (Ok(()), Ok(())));
 }
 
-/// UIX declarations (`docs/abi/ui.md`: inputs, help hints, widgets, status
-/// items, lines and places) decode but stay refused until the host admits
-/// them, so a batch carrying one is never accepted with it dropped.
+/// Input/help declarations are admitted; an empty one (no name, no screen) is
+/// invalid and poisons construction, as the widget and status ones.
 #[test]
-fn uix_declarations_stay_refused_until_admitted() {
-    for tag in [29, 30, 224, 225, 226, 227, 228] {
+fn empty_input_and_help_declarations_are_invalid() {
+    for tag in [29, 30] {
         // Sixty-four zero bytes are a valid body of every generated record.
         let bytes = batch(&[record(tag, &[vec![0; 64]])]);
         let decoded = records_decode(&bytes).unwrap();
         let first = decoded.iter().next().unwrap();
         assert_eq!(
             validate_record(PLUGIN, &first),
-            Err(ERR_UNSUPPORTED),
+            Err(ERR_INVALID),
             "tag {tag}"
         );
         let (result, committed) = run(&bytes);
-        assert_eq!(result, Err(ERR_UNSUPPORTED), "tag {tag}");
+        assert_eq!(result, Err(ERR_INVALID), "tag {tag}");
         assert!(
             committed.is_err(),
             "tag {tag}: refusal must poison construction"
@@ -1301,37 +1300,33 @@ fn uix_declarations_stay_refused_until_admitted() {
     }
 }
 
-/// DOC and LIB declarations (`docs/abi/document.md`, `library.md`: formats,
-/// readers, lookup providers, book badges and library sources) decode but stay
-/// refused until the host admits them, as the UIX ones.
+#[test]
+fn malformed_widget_and_status_declarations_poison_construction() {
+    for tag in [224, 225, 226, 227, 228] {
+        let bytes = batch(&[record(tag, &[vec![0; 64]])]);
+        let decoded = records_decode(&bytes).unwrap();
+        assert_eq!(
+            validate_record(PLUGIN, &decoded.iter().next().unwrap()),
+            Err(ERR_INVALID)
+        );
+        let (result, committed) = run(&bytes);
+        assert_eq!(result, Err(ERR_INVALID), "tag {tag}");
+        assert!(
+            committed.is_err(),
+            "invalid declarations are never dropped silently"
+        );
+    }
+}
+
+/// DOC and LIB declarations (`docs/abi/document.md`, `library.md`: book badges
+/// and library sources) decode but stay refused until the host admits them, as
+/// the UIX ones. Formats, readers and lookup providers are admitted
+/// (`format_and_reader_declarations_are_admitted`).
 #[test]
 fn doc_and_lib_declarations_stay_refused_until_admitted() {
-    use paperpaw_core::native_host::registrations::{
-        BookBadgeSpec, BookDataSpec, BookFieldSpec, FormatSpec, LookupSpec, ReaderSpec,
-    };
+    use paperpaw_core::native_host::registrations::{BookBadgeSpec, BookDataSpec, BookFieldSpec};
     // Well-formed ones: checked, then refused, never accepted and dropped.
     let valid = [
-        Record::FormatSpec(FormatSpec {
-            name: "epub",
-            title: "format.epub",
-            extensions: "epub",
-            flags: 0,
-            priority: 0,
-            token: 1,
-        }),
-        Record::ReaderSpec(ReaderSpec {
-            name: "main",
-            screen: "main",
-            formats: "",
-            flags: 0,
-        }),
-        Record::LookupSpec(LookupSpec {
-            name: "dict",
-            title: "lookup.dict",
-            languages: "en",
-            flags: 0,
-            token: 1,
-        }),
         Record::BookFieldSpec(BookFieldSpec {
             name: "rating",
             title: "field.rating",
@@ -1375,4 +1370,52 @@ fn doc_and_lib_declarations_stay_refused_until_admitted() {
         );
         assert_eq!(run(&bytes).0, Err(ERR_INVALID), "tag {tag}");
     }
+}
+
+/// A format and a reader are checked and admitted (`document.md` section 1);
+/// the cross-record rules (extensions, screens, limits) are the commit's.
+#[test]
+fn format_and_reader_declarations_are_admitted() {
+    use paperpaw_core::native_host::registrations::{FormatSpec, LookupSpec, ReaderSpec};
+    let admitted = [
+        Record::LookupSpec(LookupSpec {
+            name: "dict",
+            title: "lookup.dict",
+            languages: "en",
+            flags: 0,
+            token: 1,
+        }),
+        Record::FormatSpec(FormatSpec {
+            name: "epub",
+            title: "format.epub",
+            extensions: "epub",
+            flags: 0,
+            priority: 0,
+            token: 1,
+        }),
+        Record::ReaderSpec(ReaderSpec {
+            name: "main",
+            screen: "weather.main",
+            formats: "",
+            flags: 0,
+        }),
+    ];
+    for record in admitted {
+        let bytes = encode(&[record]);
+        let decoded = records_decode(&bytes).unwrap();
+        let first = decoded.iter().next().unwrap();
+        assert_eq!(validate_record(PLUGIN, &first), Ok(()), "{first:?}");
+        assert_eq!(run(&bytes).0, Ok(()), "{first:?}");
+    }
+    // A bad extension and an unknown flag bit are invalid, not unsupported.
+    let bad = Record::FormatSpec(FormatSpec {
+        name: "epub",
+        title: "format.epub",
+        extensions: "EPUB",
+        flags: 0,
+        priority: 0,
+        token: 1,
+    });
+    let bytes = encode(&[bad]);
+    assert_eq!(run(&bytes).0, Err(ERR_INVALID));
 }

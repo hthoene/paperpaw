@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail tests")]
 use super::*;
+use crate::native::declare::records_wire::Record;
 use alloc::{string::String, vec, vec::Vec};
 use core::{
     cell::{Cell, RefCell},
@@ -572,6 +573,30 @@ fn remaining_list_operations_use_the_declared_schema_and_accept_empty_pages() {
     );
 }
 
+/// The widget list leaves bit 0 of the flags unset (`registry.md`, op 19): the
+/// host then leaves out the widgets that only preview a settings group, so a
+/// widget picker (the home plugin's) offers no preview widget. Bit 0 lists
+/// only those.
+#[test]
+fn the_widget_list_never_asks_for_preview_widgets() {
+    let table = table();
+    let mut fixture = Fixture::default();
+    *fixture.response.borrow_mut() = encode(&[end(0, 0, 1, true)]);
+    let host = host(&table, &mut fixture);
+    let registry = Registry::open(&host).unwrap();
+    let mut input = [0; 256];
+    let mut out = [0; 4096];
+    for scope in ["", "home"] {
+        registry
+            .widgets(&host, scope, PageCursor::start(), &mut input, &mut out)
+            .unwrap();
+    }
+    assert_eq!(
+        &*fixture.queries.borrow(),
+        &[(schema::OP_WIDGETS, 0, 0, 0), (schema::OP_WIDGETS, 0, 0, 0)]
+    );
+}
+
 #[test]
 fn host_id_caps_remain_independent_of_plugin_loader_validation() {
     let id = "p".repeat(wire::SERVICE_REG_PLUGIN_ID_MAX_BYTES);
@@ -727,13 +752,82 @@ fn status_discovery_checks_empty_pages_unknown_kinds_and_scope_mismatch() {
 #[test]
 fn menu_user_definition_is_read_from_the_explicit_flag() {
     for flags in [0, 31, 32, 63, 1 << 31] {
-        let item = RegistryItem::decode(Record::ServiceRegItem(wire::ServiceRegItem {
+        let row = wire::ServiceRegItem {
             id: "demo.menu",
             plugin: "demo",
             title: "Menu",
             flags,
-        }))
-        .unwrap();
+        };
+        let mut bytes = [0; 512];
+        let n = wire::record_encode_of(&row, &mut bytes).unwrap();
+        let item = RegistryItem::decode(wire::RawRecord::one(&bytes[..n]).unwrap()).unwrap();
         assert_eq!(item.user_defined(), flags & 32 != 0);
     }
+}
+
+#[test]
+fn a_group_asks_for_the_widgets_that_preview_it_with_bit_zero_and_reads_what_they_say() {
+    let table = table();
+    let mut fixture = Fixture::default();
+    let widget = |id, previews| {
+        Record::ServiceRegWidget(wire::ServiceRegWidget {
+            id,
+            plugin: "widgets",
+            kind: "clock",
+            icon: "",
+            flags: 0,
+            title: id,
+            cells: 0,
+            previews,
+        })
+    };
+    *fixture.response.borrow_mut() = encode(&[
+        widget("widgets.look", "widgets.look"),
+        widget("widgets.plain", ""),
+        end(2, 2, 3, true),
+    ]);
+    let host = host(&table, &mut fixture);
+    let registry = Registry::open(&host).unwrap();
+    let mut input = [0; 256];
+    let mut out = [0; 4096];
+    let page = registry
+        .widgets_previewing(
+            &host,
+            "widgets.look",
+            PageCursor::start(),
+            &mut input,
+            &mut out,
+        )
+        .unwrap();
+    let rows: Vec<_> = page.rows().collect();
+    assert_eq!(rows[0].previews(), "widgets.look");
+    assert_eq!(
+        rows[1].previews(),
+        "",
+        "none for a widget that previews nothing"
+    );
+    assert_eq!(&*fixture.queries.borrow(), &[(schema::OP_WIDGETS, 0, 0, 1)]);
+    assert_eq!(&*fixture.scopes.borrow(), &[String::from("widgets.look")]);
+    // An empty group is refused before the host is called; an empty page is no preview.
+    let calls = fixture.calls.get();
+    assert_eq!(
+        registry
+            .widgets_previewing(&host, "", PageCursor::start(), &mut input, &mut out)
+            .map(|page| page.len()),
+        Err(Error::Invalid)
+    );
+    assert_eq!(fixture.calls.get(), calls);
+    *fixture.response.borrow_mut() = encode(&[end(0, 0, 3, true)]);
+    assert!(
+        registry
+            .widgets_previewing(
+                &host,
+                "widgets.look",
+                PageCursor::start(),
+                &mut input,
+                &mut out
+            )
+            .unwrap()
+            .is_empty()
+    );
 }

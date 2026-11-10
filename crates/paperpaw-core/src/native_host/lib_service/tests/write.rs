@@ -9,7 +9,7 @@ use crate::native_host::lib_service::{
 use alloc::rc::Rc;
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{
-    ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
+    ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
 };
 use std::{collections::BTreeMap, string::String};
 use wire::{
@@ -33,6 +33,8 @@ pub(super) struct Fake {
     pub(super) commit: Cell<Result<w::Committed, i32>>,
     pub(super) fields: RefCell<BTreeMap<String, bool>>,
     pub(super) receipts: RefCell<std::vec::Vec<(u32, u32, u32)>>,
+    /// What `delete` answers (the status of each path, or as a whole).
+    pub(super) deleted: Cell<Result<[i32; 7], i32>>,
 }
 impl Fake {
     pub(super) fn new() -> Rc<Self> {
@@ -51,6 +53,7 @@ impl Fake {
             })),
             fields: RefCell::new(BTreeMap::from([(String::from("files.rating"), true)])),
             receipts: RefCell::new(std::vec::Vec::new()),
+            deleted: Cell::new(Ok([0; 7])),
         })
     }
     pub(super) fn note(&self, line: impl Into<String>) {
@@ -89,9 +92,12 @@ impl LibWrite for Fake {
         self.note(std::format!("can_delete {path}"));
         self.facts.borrow().get(path).copied().unwrap_or((0, 0))
     }
-    fn delete(&self, path: &str) -> (i32, u32) {
-        self.note(std::format!("delete {path}"));
-        (0, 0)
+    fn delete(&self, paths: &[&str], with_notes: bool) -> Result<[i32; 7], i32> {
+        self.note(std::format!("batch {} {with_notes}", paths.len()));
+        for path in paths {
+            self.note(std::format!("delete {path}"));
+        }
+        self.deleted.get()
     }
     fn move_book(&self, from: &str, to: &str, replace: bool) -> Result<(), i32> {
         self.note(std::format!("move {from} {to} {replace}"));
@@ -434,8 +440,18 @@ fn delete_needs_storage_and_keeps_a_book_with_notes_unless_told() {
         ["delete plain.epub", "delete gone.epub"],
         "a gone book is only forgotten"
     );
+    // One call to the host for the whole list (one journalled job).
+    assert_eq!(
+        fake.log
+            .borrow()
+            .iter()
+            .filter(|l| l.starts_with("batch"))
+            .count(),
+        1
+    );
     let reply = del("noted.epub", 1).unwrap();
-    assert_eq!(results(&reply), [("noted.epub".into(), 0, 0)]);
+    // The facts say what was kept for the book that went.
+    assert_eq!(results(&reply), [("noted.epub".into(), 0, 1)]);
     assert_eq!(fake.last(), "delete noted.epub");
     assert_eq!(del("a", 2), Err(ERR_INVALID));
     // Without `uses.storage` nothing is touched, can_delete excepted.
@@ -624,6 +640,11 @@ fn no_library_path_reaches_plugins_or_the_hosts_folder() {
         ".paperpaw/library/keys",
         ".PaperPaw/x.epub",
         "PAPERP~1/x.epub",
+        // The kernel's settings file: its own 8.3 name, in any case.
+        "paperpaw.ini",
+        "PAPERPAW.INI",
+        "Paperpaw.Ini",
+        "paperpaw.ını",
     ];
     for path in excluded {
         // One line among others refuses the whole list, before any is touched.
@@ -676,7 +697,13 @@ fn no_library_path_reaches_plugins_or_the_hosts_folder() {
     );
     // Into the library folder at the card's root: plugins and the host's folder.
     *fake.library.borrow_mut() = String::new();
-    for folder in ["plugins", "Plugins/x", "PAPERP~1", ".paperpaw"] {
+    for folder in [
+        "plugins",
+        "Plugins/x",
+        "PAPERP~1",
+        ".paperpaw",
+        "PAPERPAW.INI",
+    ] {
         assert_eq!(
             import(&fake, folder, "x.epub", 0),
             Err(ERR_INVALID),
@@ -688,6 +715,13 @@ fn no_library_path_reaches_plugins_or_the_hosts_folder() {
         Err(ERR_INVALID),
         "a file named so"
     );
+    for name in ["paperpaw.ini", "PAPERPAW.INI", "Paperpaw.ini"] {
+        assert_eq!(
+            import(&fake, "", name, 0),
+            Err(ERR_INVALID),
+            "a file named {name} at the top"
+        );
+    }
     *fake.library.borrow_mut() = "Plugins".into();
     assert_eq!(
         import(&fake, "", "x.epub", 0),
@@ -901,6 +935,18 @@ fn provided(flags: u32, title: &'static str, tags: &'static str) -> Record<'stat
     })
 }
 
+/// A record with all four text fields, for the per-field rules.
+fn provided_all(flags: u32, texts: [&'static str; 4], tags: &'static str) -> Record<'static> {
+    Record::ServiceLibProvided(Provided {
+        title: texts[0],
+        author: texts[1],
+        series: texts[2],
+        number: texts[3],
+        tags,
+        flags,
+    })
+}
+
 #[test]
 fn provided_metadata_names_the_fields_it_sets_and_nothing_else() {
     let fake = Fake::new();
@@ -911,9 +957,140 @@ fn provided_metadata_names_the_fields_it_sets_and_nothing_else() {
         Err(ERR_INVALID),
         "a value that is not provided"
     );
-    assert_eq!(provide(provided(0b100000, "", "")), Err(ERR_INVALID));
     assert!(provide(provided(0b10000, "", "a\nb")).is_ok());
     assert_eq!(fake.last(), "provide 16 a\nb");
+    assert!(go(&fake, 24, &[provided(1, "T", "")]).is_err());
+}
+
+#[test]
+fn provided_flags_follow_the_records_field_order() {
+    let fake = Fake::new();
+    let provide = |record| go(&fake, 24, &[book(), record]);
+    // Bit n provides field n: title, author, series, number, tags. Each field
+    // alone with a value is accepted; the value of any other field is refused.
+    let texts = ["t", "a", "s", "n"];
+    for bit in 0..4_usize {
+        let mut only = ["", "", "", ""];
+        only[bit] = texts[bit];
+        assert!(
+            provide(provided_all(1 << bit, only, "")).is_ok(),
+            "bit {bit}"
+        );
+        for other in (0..4_usize).filter(|o| *o != bit) {
+            let mut wrong = ["", "", "", ""];
+            wrong[other] = texts[other];
+            assert_eq!(
+                provide(provided_all(1 << bit, wrong, "")),
+                Err(ERR_INVALID),
+                "bit {bit}, field {other} not provided"
+            );
+        }
+        // Its own bit with a blank value is no value.
+        assert_eq!(
+            provide(provided_all(1 << bit, ["", "", "", ""], "")),
+            Err(ERR_INVALID),
+            "bit {bit} blank"
+        );
+    }
+    assert!(provide(provided_all(0b1_1111, texts, "x")).is_ok());
+    // A tag list without its bit.
+    assert_eq!(provide(provided(0b00001, "T", "x")), Err(ERR_INVALID));
+}
+
+#[test]
+fn provided_refuses_flags_0_unknown_bits_blank_values_and_a_tags_bit_without_a_tag() {
+    let fake = Fake::new();
+    let provide = |record| go(&fake, 24, &[book(), record]);
+    assert_eq!(provide(provided(0, "", "")), Err(ERR_INVALID), "flags 0");
+    for bit in [5_u32, 6, 31] {
+        assert_eq!(
+            provide(provided(1 << bit | 1, "T", "")),
+            Err(ERR_INVALID),
+            "unknown bit {bit}"
+        );
+    }
+    // Blank: empty, and Unicode White_Space of every kind (`str::trim`).
+    for blank in [
+        "",
+        " ",
+        "\t",
+        "  \u{a0}",
+        "\u{2003}\u{3000}",
+        "\u{85}",
+        "\u{2028}",
+    ] {
+        let blank: &'static str = std::boxed::Box::leak(blank.into());
+        // (a control character in it is refused as well, as another rule)
+        assert_eq!(
+            provide(provided(0b0001, blank, "")),
+            Err(ERR_INVALID),
+            "{blank:?}"
+        );
+        assert_eq!(
+            provide(provided_all(0b0010, ["", blank, "", ""], "")),
+            Err(ERR_INVALID),
+            "{blank:?}"
+        );
+    }
+    // The tags bit with no tag, and with blank ones.
+    for tags in ["", " ", "\n", "a\n ", "\u{3000}"] {
+        assert_eq!(
+            provide(provided(0b10000, "", tags)),
+            Err(ERR_INVALID),
+            "{tags:?}"
+        );
+    }
+    // Text that is not blank is kept as it is, spaces and all.
+    assert!(provide(provided(0b0001, " T ", "")).is_ok());
+}
+
+#[test]
+fn provided_refuses_control_characters_and_never_escapes_them() {
+    let fake = Fake::new();
+    let provide = |record| go(&fake, 24, &[book(), record]);
+    let mut bad = std::vec::Vec::new();
+    for c in (0_u32..=0x1f).chain(0x7f..=0x9f).chain([0x2028, 0x2029]) {
+        bad.push(std::format!("a{}b", char::from_u32(c).unwrap()));
+    }
+    for text in bad {
+        let text: &'static str = std::boxed::Box::leak(text.into_boxed_str());
+        for bit in 0..4_usize {
+            let mut texts = ["", "", "", ""];
+            texts[bit] = text;
+            assert_eq!(
+                provide(provided_all(1 << bit, texts, "")),
+                Err(ERR_INVALID),
+                "{text:?} in field {bit}"
+            );
+        }
+        // In a tag too; `\n` is the one separator (`\n` itself is no
+        // control character of a tag: it splits it).
+        if text != "a\nb" {
+            assert_eq!(
+                provide(provided(0b10000, "", text)),
+                Err(ERR_INVALID),
+                "{text:?} in a tag"
+            );
+            assert_eq!(
+                provide(provided(
+                    0b10000,
+                    "",
+                    std::boxed::Box::leak(std::format!("ok\n{text}").into_boxed_str())
+                )),
+                Err(ERR_INVALID),
+                "{text:?} in a second tag"
+            );
+        }
+    }
+    // Other characters, non-ASCII among them (U+00A0 is the first after the C1 range), are text.
+    assert!(provide(provided(0b0001, "Caf\u{e9} \u{a0}x\u{2027}\u{202a}", "")).is_ok());
+    assert!(provide(provided(0b10000, "", "\u{e9}l\u{fc}\n\u{4e2d}")).is_ok());
+}
+
+#[test]
+fn provided_tags_are_one_to_32_lines_of_1_to_128_bytes() {
+    let fake = Fake::new();
+    let provide = |record| go(&fake, 24, &[book(), record]);
     let tags = |n: usize| -> &'static str {
         std::boxed::Box::leak(
             ((0..n)
@@ -923,10 +1100,104 @@ fn provided_metadata_names_the_fields_it_sets_and_nothing_else() {
             .into_boxed_str(),
         )
     };
+    assert!(provide(provided(0b10000, "", tags(1))).is_ok());
     assert!(provide(provided(0b10000, "", tags(32))).is_ok());
+    // A cap past its count is `ERR_NO_SPACE`, as everywhere.
     assert_eq!(provide(provided(0b10000, "", tags(33))), Err(ERR_NO_SPACE));
-    assert_eq!(provide(provided(0b10000, "", "a\n\nb")), Err(ERR_INVALID));
-    let long: &'static str = std::boxed::Box::leak("x".repeat(129).into_boxed_str());
-    assert_eq!(provide(provided(0b10000, "", long)), Err(ERR_INVALID));
-    assert!(go(&fake, 24, &[provided(1, "T", "")]).is_err());
+    // Empty lines are no tags: in the middle, at the ends.
+    for empty in ["a\n\nb", "\na", "a\n"] {
+        assert_eq!(
+            provide(provided(0b10000, "", empty)),
+            Err(ERR_INVALID),
+            "{empty:?}"
+        );
+    }
+    let tag = |n: usize| -> &'static str { std::boxed::Box::leak("x".repeat(n).into_boxed_str()) };
+    assert!(provide(provided(0b10000, "", tag(128))).is_ok());
+    assert_eq!(provide(provided(0b10000, "", tag(129))), Err(ERR_NO_SPACE));
+}
+
+#[test]
+fn delete_hands_the_accepted_paths_to_the_host_as_one_list_and_keeps_each_status() {
+    let fake = Fake::new();
+    fake.facts
+        .borrow_mut()
+        .insert("noted.epub".into(), (0, 0b001));
+    // The host answers per accepted path: the first is in use on the card.
+    fake.deleted.set(Ok([ERR_BUSY, 0, 0, 0, 0, 0, 0]));
+    let reply = go_rows(
+        &fake,
+        10,
+        &[Record::ServiceLibPaths(Paths {
+            paths: "busy.epub\nnoted.epub\nok.epub",
+            flags: 0,
+        })],
+    )
+    .unwrap();
+    assert_eq!(
+        results(&reply),
+        [
+            ("busy.epub".into(), ERR_BUSY, 0),
+            ("noted.epub".into(), ERR_STATE, 1),
+            ("ok.epub".into(), 0, 0),
+        ]
+    );
+    assert!(fake.log.borrow().contains(&"batch 2 false".into()));
+    // A job open is refused as a whole: that status for each path, nothing
+    // removed, and the refused ones are not asked about again.
+    fake.deleted.set(Err(ERR_BUSY));
+    let reply = go_rows(
+        &fake,
+        10,
+        &[Record::ServiceLibPaths(Paths {
+            paths: "a.epub\nb.epub",
+            flags: 0,
+        })],
+    )
+    .unwrap();
+    assert_eq!(
+        results(&reply),
+        [
+            ("a.epub".into(), ERR_BUSY, 0),
+            ("b.epub".into(), ERR_BUSY, 0)
+        ]
+    );
+    // Nothing accepted: the host is not called at all.
+    fake.log.borrow_mut().clear();
+    fake.facts
+        .borrow_mut()
+        .insert("txt.txt".into(), (ERR_INVALID, 0));
+    go_rows(
+        &fake,
+        10,
+        &[Record::ServiceLibPaths(Paths {
+            paths: "txt.txt",
+            flags: 0,
+        })],
+    )
+    .unwrap();
+    assert!(!fake.log.borrow().iter().any(|l| l.starts_with("batch")));
+}
+
+#[test]
+fn a_book_named_twice_goes_to_the_host_once_and_both_rows_say_the_same() {
+    let fake = Fake::new();
+    let reply = go_rows(
+        &fake,
+        10,
+        &[Record::ServiceLibPaths(Paths {
+            paths: "a.epub\nb.epub\na.epub",
+            flags: 0,
+        })],
+    )
+    .unwrap();
+    assert_eq!(
+        results(&reply),
+        [
+            ("a.epub".into(), 0, 0),
+            ("b.epub".into(), 0, 0),
+            ("a.epub".into(), 0, 0)
+        ]
+    );
+    assert!(fake.log.borrow().contains(&"batch 2 false".into()));
 }

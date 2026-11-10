@@ -40,10 +40,11 @@
 use super::{
     DispatchDepth,
     native_instances::NativeInstances,
-    registrations::{self as wire, Record},
+    registrations::Record,
     stage_broker::{Run, Schema, Subscription},
     stages_wire::core_input_filter_v1 as stage,
 };
+use crate::native_host::codec;
 use paperpaw_native::host_glue::{ERR_CANCELLED, ERR_FULL, ERR_INVALID, ERR_NO_SPACE};
 use paperpaw_platform::buttons;
 use paperpaw_sdk::Env;
@@ -120,7 +121,7 @@ impl Encoded {
     fn from_record(record: &Record<'_>) -> Result<Self, i32> {
         classify(record)?;
         let mut bytes = [0; INPUT_BYTES];
-        let len = wire::records_encode(core::slice::from_ref(record), &mut bytes)?;
+        let len = codec::encode_batch(core::slice::from_ref(record), &mut bytes)?;
         Ok(Self { bytes, len })
     }
 
@@ -128,7 +129,7 @@ impl Encoded {
     /// It is input made by a plugin, so a key name is checked: 1 to 32 bytes
     /// without control characters (otherwise `ERR_INVALID`).
     fn from_batch(batch: &[u8]) -> Result<Self, i32> {
-        let record = wire::records_decode_single(batch)?;
+        let record = codec::decode_single(batch)?;
         // The Power key's escape and power actions come from the physical
         // button only: a replace may not make it.
         if let Record::InputKey(key) = &record
@@ -147,7 +148,7 @@ impl Encoded {
 
     /// The record, to hand on to the router.
     pub(crate) fn record(&self) -> Result<Record<'_>, i32> {
-        wire::records_decode_single(self.batch())
+        codec::decode_single(self.batch())
     }
 }
 
@@ -382,6 +383,7 @@ impl InputFilters {
     /// Sends `input` through the filters (`filters` in registration order).
     /// `Err` only when the input is not a key, pointer or gesture record
     /// (`ERR_INVALID`): the router passes it on unfiltered.
+    #[inline(never)] // own frame: the input buffers stay out of the caller's (X4 frame band)
     pub(crate) fn dispatch(
         &mut self,
         runner: &mut dyn FilterRunner,
@@ -481,6 +483,7 @@ impl InputFilters {
     /// ignored, the others end it. The input is taken either way. A failed call,
     /// or a subscription no longer there, releases the capture to the up or
     /// release; a released capture is swallowed without a call.
+    #[inline(never)] // own frame: the input buffers stay out of the caller's (X4 frame band)
     fn captured_rest(
         &mut self,
         at: usize,
@@ -523,8 +526,10 @@ impl InputFilters {
                 if !is_owner {
                     match ask(runner, filter, &current, secret) {
                         Some(Verdict::Replace(next)) if replacement_fits(&next) => current = next,
+                        // A verdict that is none (unknown kind, bad replace
+                        // or raise) is counted for the log, as at the start.
+                        Some(Verdict::Replace(_) | Verdict::Invalid) | None => refused += 1,
                         Some(_) => {}
-                        None => refused += 1,
                     }
                     continue;
                 }
@@ -536,6 +541,7 @@ impl InputFilters {
                     }
                     Some(Verdict::Run(action)) => routed = run(action),
                     Some(Verdict::Raise(name)) => routed = raise(filter, name, policy),
+                    Some(Verdict::Invalid) => refused += 1,
                     Some(_) => {}
                 }
                 break;
@@ -595,6 +601,7 @@ enum Verdict {
 }
 
 /// One filter call and the verdict it answers; `None` for a failed callback or
+#[inline(never)] // own frame: the input buffers stay out of the caller's (X4 frame band)
 /// a reply that is not exactly one `filter.verdict`.
 fn ask(
     runner: &mut dyn FilterRunner,

@@ -39,6 +39,14 @@ pub(crate) struct IoState {
 }
 
 impl Kernel {
+    /// Wi-Fi as plugins see it (state, the networks last found, whether a
+    /// scan runs, whether the network is wanted or busy), for a shell that
+    /// tells its own host services of it (`core.device`, ops 8 and 9). `None`
+    /// where the kernel is built without Wi-Fi.
+    pub fn wifi_model(&self) -> Option<&paperpaw_sdk::wifi::Wifi> {
+        self.shared.wifi.as_ref()
+    }
+
     /// What happened with Wi-Fi: plugins hear of it, and network work that
     /// waited goes on once there is a network.
     pub fn wifi_event(&mut self, now: Instant, event: WifiEvent) -> Effects {
@@ -70,7 +78,7 @@ impl Kernel {
             WifiEvent::Scanned(mut networks) => {
                 // Strongest first, each name once (several access points
                 // may carry one network).
-                networks.sort_by_cached_key(|n| core::cmp::Reverse(n.signal));
+                paperpaw_sort::sort_by_cached_key(&mut networks, |n| core::cmp::Reverse(n.signal));
                 let mut seen: Vec<String> = Vec::new();
                 networks.retain(|n| {
                     let new = !n.ssid.is_empty() && !seen.contains(&n.ssid);
@@ -118,7 +126,10 @@ impl Kernel {
     /// work waits for a network ([`events::NETWORK_WANTED`]) or that
     /// nothing uses it any more ([`events::NETWORK_IDLE`]).
     pub(crate) fn check_network(&mut self) {
-        let work = self.network_work_waiting();
+        // What `core.net` and `core.sockets` want (and a wish of the work
+        // scheduler) counts as work that waits where no network is up.
+        let (native_wants, native_live) = self.native_demand();
+        let work = self.network_work_waiting() || native_wants;
         let Some(wifi) = &mut self.shared.wifi else {
             return;
         };
@@ -134,7 +145,8 @@ impl Kernel {
         // Also once waiting work failed (`fail_waiting_network`): nothing
         // wants the radio then.
         wifi.wanted = self.io.network_waiting.is_some();
-        let busy = self.io.http.busy() || self.io.servers.busy() || self.io.sockets.any();
+        let busy =
+            self.io.http.busy() || self.io.servers.busy() || self.io.sockets.any() || native_live;
         wifi.busy = busy;
         if self.io.network_busy && !busy {
             self.output.commands.push(events::NETWORK_IDLE.emit(()));
@@ -409,7 +421,7 @@ impl Kernel {
 
     /// Answers a [`Command::ReadClipboard`] with the text known here.
     pub(crate) fn reply_clipboard(&mut self, reply: Id, params: Params) {
-        let typed = paperpaw_sdk::Typed::new(self.shared.clipboard.clone(), params);
+        let typed = paperpaw_sdk::Typed::new(self.shared.clipboard.get(), params);
         self.output
             .commands
             .push(Command::Emit(reply, typed.to_params()));
@@ -454,7 +466,7 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         self.now = now;
         if let Some(text) = text {
-            self.shared.clipboard = clipped(&text);
+            self.shared.clipboard.set(crate::commands::clipped(&text));
         }
         for (reply, params) in self.io.clipboard.answered() {
             self.reply_clipboard(reply, params);

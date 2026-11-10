@@ -1,8 +1,5 @@
 //! Allocation-free catalog formatting with caller-owned argument and output buffers.
-use super::{
-    Error, Host,
-    declare::records_wire::{self as wire, Record},
-};
+use super::{Error, Host, declare::records_wire as wire};
 use paperpaw_native::host_glue::{PpBuffer, PpBytes};
 
 /// Maximum UTF-8 bytes in a catalog key.
@@ -52,16 +49,34 @@ impl Arg<'_> {
             Self::Count(_) => "count",
         }
     }
-    fn record(&self) -> Record<'_> {
+    fn record(&self) -> ArgRecord<'_> {
         match self {
-            Self::Text { name, value } => Record::I18nArgStr(wire::I18nArgStr { name, value }),
-            Self::Int { name, value } => Record::I18nArgInt(wire::I18nArgInt {
+            Self::Text { name, value } => ArgRecord::Text(wire::I18nArgStr { name, value }),
+            Self::Int { name, value } => ArgRecord::Int(wire::I18nArgInt {
                 name,
                 value: *value as u64,
             }),
-            Self::Count(value) => Record::I18nCount(wire::I18nCount {
+            Self::Count(value) => ArgRecord::Count(wire::I18nCount {
                 value: *value as u64,
             }),
+        }
+    }
+}
+
+/// An argument's wire record, encoded by type: only these three codecs are linked.
+#[derive(Clone, Copy)]
+enum ArgRecord<'a> {
+    Text(wire::I18nArgStr<'a>),
+    Int(wire::I18nArgInt<'a>),
+    Count(wire::I18nCount),
+}
+
+impl ArgRecord<'_> {
+    fn wire(&self) -> &dyn wire::WireEncode {
+        match self {
+            Self::Text(record) => record,
+            Self::Int(record) => record,
+            Self::Count(record) => record,
         }
     }
 }
@@ -142,7 +157,30 @@ pub fn format_message(
     let scratch = &mut *buffers.scratch;
     let out = &mut *buffers.out;
     let key = key.as_ref();
-    if key.len() > MAX_KEY_BYTES || args.len() > wire::I18N_FORMAT_MAX_RECORDS {
+    if key.len() > MAX_KEY_BYTES {
+        return Err(Error::NoSpace);
+    }
+    let count = encode_args(args, scratch)?;
+    // SAFETY: all inputs and the exclusively borrowed output live through this call.
+    length(unsafe {
+        (host.table.i18n_format)(
+            host.ctx,
+            bytes(key.as_bytes()),
+            bytes(&scratch[..count]),
+            buffer(out),
+        )
+    })
+}
+
+/// Encodes `args` as the argument batch of a catalog message (slot 27's `args`,
+/// the `label_args` of `command.set_item_state`) into the front of `scratch`;
+/// returns the bytes written.
+///
+/// # Errors
+/// NoSpace for more than 16 arguments or a batch over [`MAX_ARGUMENT_BYTES`]
+/// or `scratch`, Invalid for duplicate names or a second plural selector.
+pub(crate) fn encode_args(args: &[Arg<'_>], scratch: &mut [u8]) -> Result<usize, Error> {
+    if args.len() > wire::I18N_FORMAT_MAX_RECORDS {
         return Err(Error::NoSpace);
     }
     for (index, arg) in args.iter().enumerate() {
@@ -154,22 +192,18 @@ pub fn format_message(
         }
     }
     let mut records =
-        [Record::I18nCount(wire::I18nCount { value: 0 }); wire::I18N_FORMAT_MAX_RECORDS];
+        [ArgRecord::Count(wire::I18nCount { value: 0 }); wire::I18N_FORMAT_MAX_RECORDS];
     for (record, arg) in records.iter_mut().zip(args) {
         *record = arg.record();
     }
     let capacity = scratch.len().min(MAX_ARGUMENT_BYTES);
-    let count = wire::records_encode(&records[..args.len()], &mut scratch[..capacity])
-        .map_err(Error::from_status)?;
-    // SAFETY: all inputs and the exclusively borrowed output live through this call.
-    length(unsafe {
-        (host.table.i18n_format)(
-            host.ctx,
-            bytes(key.as_bytes()),
-            bytes(&scratch[..count]),
-            buffer(out),
-        )
-    })
+    wire::records_encode_counted_of(
+        records[..args.len()].iter().map(ArgRecord::wire),
+        wire::I18N_FORMAT_MAX_RECORDS,
+        MAX_ARGUMENT_BYTES,
+        &mut scratch[..capacity],
+    )
+    .map_err(Error::from_status)
 }
 
 /// Convert ASCII digits to the UI language's digits without allocating.

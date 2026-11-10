@@ -7,22 +7,22 @@
 //! page is first shown and kept in the cache, so only one page is ever
 //! decoded at a time, also on small devices.
 
-use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 
+use paperpaw_sdk::Storage;
 use paperpaw_sdk::document::{
     Align, Block, BlockKind, Document, DocumentError, ImageRef, Locator, Metadata, OffsetMap,
 };
 use paperpaw_sdk::image::Fit;
-use paperpaw_sdk::xml::{Token, Tokenizer, decode, local_name};
+use paperpaw_sdk::xml::{Token, Tokenizer, local_name};
 use paperpaw_sdk::zip::ZipArchive;
-use paperpaw_sdk::{Env, Storage};
 
 use crate::PLUGIN;
 use crate::cached;
 use crate::convert;
+use crate::fallible;
 use crate::package::error;
 
 /// Pages kept at most: the first in reading order.
@@ -57,12 +57,21 @@ pub struct CbzDocument {
 
 /// Whether `name` is a picture PaperPaw shows.
 fn is_picture(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    !lower.starts_with("__macosx/")
-        && !lower.rsplit('/').next().unwrap_or("").starts_with('.')
-        && [".jpg", ".jpeg", ".png", ".gif"]
-            .iter()
-            .any(|e| lower.ends_with(e))
+    let bytes = name.as_bytes();
+    let starts = |prefix: &str| {
+        bytes
+            .get(..prefix.len())
+            .is_some_and(|b| b.eq_ignore_ascii_case(prefix.as_bytes()))
+    };
+    let ends = |suffix: &str| {
+        bytes
+            .len()
+            .checked_sub(suffix.len())
+            .is_some_and(|at| bytes[at..].eq_ignore_ascii_case(suffix.as_bytes()))
+    };
+    !starts("__macosx/")
+        && !name.rsplit('/').next().unwrap_or("").starts_with('.')
+        && [".jpg", ".jpeg", ".png", ".gif"].iter().any(|e| ends(e))
 }
 
 /// Names in reading order: numbers within them by value.
@@ -110,14 +119,15 @@ impl CbzDocument {
         options: &paperpaw_sdk::OpenOptions,
     ) -> Result<Self, DocumentError> {
         let archive = ZipArchive::open(storage, path).map_err(error)?;
-        let cache =
-            paperpaw_sdk::library::kept_path(&Env::plugin_dir(PLUGIN.as_str()), "cbz-", path);
+        let cache = fallible::kept_path(&fallible::plugin_dir(PLUGIN.as_str())?, "cbz-", path)?;
         // Pictures decoded from another file of the same name go.
-        let stamp = format!("{}\n", crate::fingerprint(storage, path)?);
-        let stamp_path = format!("{cache}/source");
-        let list = format!("{cache}/pages.bin");
-        let fresh = paperpaw_sdk::read_file(storage, &stamp_path, 64).ok()
-            == Some(stamp.clone().into_bytes());
+        let stamp = fallible::try_format!("{}\n", fallible::fingerprint(storage, path)?)?;
+        let stamp_path = fallible::try_format!("{cache}/source")?;
+        let list = fallible::try_format!("{cache}/pages.bin")?;
+        let fresh = paperpaw_sdk::read_file(storage, &stamp_path, 64)
+            .ok()
+            .as_deref()
+            == Some(stamp.as_bytes());
         let pages = match storage.size(&list) {
             Ok(size) if fresh && size >= 8 => (size / 4 - 1) as u32,
             _ => {
@@ -132,12 +142,15 @@ impl CbzDocument {
             .ok()
             .filter(|&record| record != NO_INFO)
             .and_then(|record| archive.entry_by_record(storage, record).ok());
-        let mut metadata = info
-            .and_then(|entry| comic_info(storage, &archive, &entry))
-            .unwrap_or_default();
+        let mut metadata = match info {
+            Some(entry) => comic_info(storage, &archive, &entry)?.unwrap_or_default(),
+            None => Metadata::default(),
+        };
         if metadata.title.is_none() {
             let name = path.rsplit('/').next().unwrap_or(path);
-            metadata.title = Some(name.rsplit_once('.').map_or(name, |(s, _)| s).to_string());
+            metadata.title = Some(fallible::string(
+                name.rsplit_once('.').map_or(name, |(s, _)| s),
+            )?);
         }
         Ok(Self {
             archive,
@@ -151,10 +164,23 @@ impl CbzDocument {
     }
 
     /// The archive entry of page `index`.
-    fn page(&self, storage: &dyn Storage, index: usize) -> Option<paperpaw_sdk::zip::Entry> {
+    fn page(
+        &self,
+        storage: &dyn Storage,
+        index: usize,
+    ) -> Result<Option<paperpaw_sdk::zip::Entry>, DocumentError> {
         let at = (index as u64 + 1) * 4;
-        let record = cached::u32_at(storage, &format!("{}/pages.bin", self.cache), at).ok()?;
-        self.archive.entry_by_record(storage, record).ok()
+        let list = fallible::try_format!("{}/pages.bin", self.cache)?;
+        let Ok(record) = cached::u32_at(storage, &list, at) else {
+            return Ok(None);
+        };
+        match self.archive.entry_by_record(storage, record) {
+            Ok(entry) => Ok(Some(entry)),
+            Err(e) => match error(e) {
+                DocumentError::OutOfMemory => Err(DocumentError::OutOfMemory),
+                _ => Ok(None),
+            },
+        }
     }
 
     /// Page `index` decoded no larger than `fit` allows into
@@ -165,14 +191,18 @@ impl CbzDocument {
         index: usize,
         base: &str,
         fit: Fit,
-    ) -> Option<ImageRef> {
-        if !crate::pictures::has(storage, base, self.color) {
+    ) -> Result<Option<ImageRef>, DocumentError> {
+        if !crate::pictures::has(storage, base, self.color)? {
             if crate::pictures::failed(storage, base) {
-                return None;
+                return Ok(None);
             }
-            let entry = self.page(storage, index)?;
-            let file = crate::pictures::file(base, self.color);
-            convert::decode_entry(
+            let Some(entry) = self.page(storage, index)? else {
+                return Ok(None);
+            };
+            let file = crate::pictures::try_file(base, self.color)?;
+            // A picture that cannot be decoded is its page's name; one that
+            // found no room is that too, and is tried again.
+            if convert::decode_entry(
                 storage,
                 &self.archive,
                 &entry,
@@ -182,9 +212,12 @@ impl CbzDocument {
                 self.color,
             )
             .inspect_err(|e| crate::pictures::note_failure(storage, base, e))
-            .ok()?;
+            .is_err()
+            {
+                return Ok(None);
+            }
         }
-        crate::pictures::open(storage, base, self.color)
+        crate::pictures::try_open(storage, base, self.color)
     }
 }
 
@@ -201,7 +234,7 @@ fn list_pages(
     let mut bytes = 0;
     let mut info = NO_INFO;
     let keep = |pages: &mut Vec<(String, u32)>, count: usize| {
-        pages.sort_by(|a, b| natural(&a.0, &b.0));
+        paperpaw_sdk::sort::sort_by(pages, |a, b| natural(&a.0, &b.0));
         pages.truncate(count);
         pages
             .iter()
@@ -215,7 +248,7 @@ fn list_pages(
         } else if is_picture(&entry.name) && entry.name.len() <= MAX_NAME {
             bytes += entry.name.len() + ENTRY;
             let record = entry.record();
-            pages.push((entry.name, record));
+            fallible::push(&mut pages, (entry.name, record))?;
             if pages.len() > 2 * MAX_PAGES {
                 bytes = keep(&mut pages, MAX_PAGES);
             } else if bytes > MAX_NAMES {
@@ -235,6 +268,7 @@ fn list_pages(
         )));
     }
     let mut data = Vec::new();
+    fallible::reserve_exact(&mut data, 4 * (1 + pages.len()))?;
     data.extend_from_slice(&info.to_le_bytes());
     for (_, record) in &pages {
         data.extend_from_slice(&record.to_le_bytes());
@@ -244,67 +278,98 @@ fn list_pages(
 }
 
 /// Title, series and number, writers, summary, language and genres from
-/// `ComicInfo.xml`.
+/// `ComicInfo.xml`; none where it cannot be read, `OutOfMemory` where it
+/// finds no room.
 fn comic_info(
     storage: &dyn Storage,
     archive: &ZipArchive,
     entry: &paperpaw_sdk::zip::Entry,
-) -> Option<Metadata> {
-    let mut data = Vec::new();
-    archive
-        .stream(storage, entry, &mut |chunk| {
-            data.extend_from_slice(chunk);
-            data.len() < MAX_INFO
-        })
-        .ok()?;
+) -> Result<Option<Metadata>, DocumentError> {
+    let mut data: Vec<u8> = Vec::new();
+    let mut refused = None;
+    let read = archive.stream(storage, entry, &mut |chunk| {
+        if let Err(e) = fallible::reserve(&mut data, chunk.len()) {
+            refused = Some(e);
+            return false;
+        }
+        data.extend_from_slice(chunk);
+        data.len() < MAX_INFO
+    });
+    if let Some(e) = refused {
+        return Err(e);
+    }
+    if read.is_err() {
+        return Ok(None);
+    }
     let mut metadata = Metadata::default();
     let mut field = String::new();
     let mut text = String::new();
-    let list = |text: &str| -> Vec<String> {
-        text.split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(String::from)
-            .collect()
+    let list = |text: &str| -> Result<Vec<String>, DocumentError> {
+        let mut out = Vec::new();
+        for item in text.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            fallible::push(&mut out, fallible::string(item)?)?;
+        }
+        Ok(out)
     };
-    Tokenizer::parse(&data, &mut |token| match token {
-        Token::Start { name, .. } => {
-            field = local_name(name).to_string();
-            text.clear();
-        }
-        Token::Text(t) => text.push_str(&decode(&t)),
-        Token::End { name } => {
-            let value = text.trim().to_string();
-            if local_name(name) == field && !value.is_empty() {
-                match field.as_str() {
-                    "Title" => metadata.title = Some(value),
-                    "Series" => metadata.series = Some(value),
-                    "Number" => metadata.series_index = Some(value),
-                    "Writer" => metadata.authors = list(&value),
-                    "Summary" => metadata.description = Some(value),
-                    "LanguageISO" => metadata.language = Some(value),
-                    "Genre" | "Tags" => metadata.subjects.extend(list(&value)),
-                    _ => {}
-                }
+    let mut fill = |token: Token<'_>| -> Result<(), DocumentError> {
+        match token {
+            Token::Start { name, .. } => {
+                field = fallible::string(local_name(name))?;
+                text.clear();
             }
-            text.clear();
+            Token::Text(t) => {
+                let decoded = paperpaw_sdk::xml::try_decode(&t).map_err(|_| fallible::OOM)?;
+                fallible::push_str(&mut text, &decoded)?;
+            }
+            Token::End { name } => {
+                let value = text.trim();
+                if local_name(name) == field && !value.is_empty() {
+                    match field.as_str() {
+                        "Title" => metadata.title = Some(fallible::string(value)?),
+                        "Series" => metadata.series = Some(fallible::string(value)?),
+                        "Number" => metadata.series_index = Some(fallible::string(value)?),
+                        "Writer" => metadata.authors = list(value)?,
+                        "Summary" => metadata.description = Some(fallible::string(value)?),
+                        "LanguageISO" => metadata.language = Some(fallible::string(value)?),
+                        "Genre" | "Tags" => {
+                            for subject in list(value)? {
+                                fallible::push(&mut metadata.subjects, subject)?;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                text.clear();
+            }
+            _ => {}
         }
-        _ => {}
+        Ok(())
+    };
+    let mut failed = None;
+    Tokenizer::parse(&data, &mut |token| {
+        if failed.is_none()
+            && let Err(e) = fill(token)
+        {
+            failed = Some(e);
+        }
     });
+    if let Some(e) = failed {
+        return Err(e);
+    }
     // An issue's title alone says little: with its series.
     if let (Some(series), Some(title)) = (&metadata.series, &metadata.title)
         && !title.contains(series.as_str())
     {
-        metadata.title = Some(format!("{series}: {title}"));
+        metadata.title = Some(fallible::try_format!("{series}: {title}")?);
     } else if metadata.title.is_none()
         && let Some(series) = &metadata.series
     {
         metadata.title = Some(match &metadata.series_index {
-            Some(number) => format!("{series} {number}"),
-            None => series.clone(),
+            Some(number) => fallible::try_format!("{series} {number}")?,
+            None => fallible::string(series)?,
         });
     }
-    Some(metadata)
+    Ok(Some(metadata))
 }
 
 impl Document for CbzDocument {
@@ -329,14 +394,14 @@ impl Document for CbzDocument {
         if index >= self.pages as usize || at.offset >= 1 {
             return Ok(None);
         }
-        let cache = format!("{}/p{index}", self.cache);
-        let image = self.picture(storage, index, &cache, self.image_fit);
+        let cache = fallible::try_format!("{}/p{index}", self.cache)?;
+        let image = self.picture(storage, index, &cache, self.image_fit)?;
         // A picture that cannot be shown is named instead.
         let (kind, text) = match &image {
             Some(_) => (BlockKind::Image, String::new()),
             None => (
                 BlockKind::Paragraph,
-                self.page(storage, index)
+                self.page(storage, index)?
                     .map(|e| e.name)
                     .unwrap_or_default(),
             ),
@@ -350,8 +415,8 @@ impl Document for CbzDocument {
     }
 
     fn cover(&self, storage: &dyn Storage) -> Result<Option<ImageRef>, DocumentError> {
-        let cache = format!("{}/cover-{}", self.cache, self.cover_fit.long);
-        Ok(self.picture(storage, 0, &cache, self.cover_fit))
+        let cache = fallible::try_format!("{}/cover-{}", self.cache, self.cover_fit.long)?;
+        self.picture(storage, 0, &cache, self.cover_fit)
     }
 }
 

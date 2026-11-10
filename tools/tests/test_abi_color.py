@@ -109,7 +109,7 @@ class ColorTests(unittest.TestCase):
     def test_color_argument_and_status_contract(self):
         color_hosts = [entry for entry in self.schema['host_entries']
                        if any(arg['name'] == 'color' for arg in entry['args'])]
-        self.assertEqual([entry['id'] for entry in color_hosts], [9, 10, 11, 12, 14])
+        self.assertEqual([entry['id'] for entry in color_hosts], [9, 10, 11, 12, 14, 41])
         for entry in color_hosts:
             candidate = copy.deepcopy(self.schema)
             host = next(item for item in candidate['host_entries'] if item['id'] == entry['id'])
