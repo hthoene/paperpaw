@@ -5,4 +5,4 @@
   outside callbacks and with the kernel's own catalog on the same card; the
   library's book-moved events and the settings that follow run right after the
   pump. A step the card or memory refused waits two seconds (twice as long after
-  each refusal in a row, up to a minute) and the job is kept; an interrupted job is finished at the first pass after a start.
+  each refusal in a row, up to a minute) and the job is kept; an interrupted job is finished at the first pass after a start. A move the user begins during a wait does not wait for it: the back-off starts again.

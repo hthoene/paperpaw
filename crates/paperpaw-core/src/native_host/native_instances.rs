@@ -202,6 +202,8 @@ pub(crate) struct NativeInstances {
     moves_retry: Cell<Option<u64>>,
     /// How many steps in a row were refused (the back-off of `moves_pump`).
     moves_failures: Cell<u8>,
+    /// The count of begun moves the pump last saw (`moves_pump`).
+    moves_begun: Cell<u32>,
     /// Where the event pump goes on (the running plugin it starts at).
     service_cursor: Cell<usize>,
     /// What the work pump saw of the device at its last pass (see
@@ -680,6 +682,17 @@ impl NativeInstances {
         let failures = self.moves_failures.get().saturating_add(1);
         self.moves_failures.set(failures);
         failures
+    }
+
+    /// A move was begun, if the count differs from the last one seen: the
+    /// back-off of the earlier steps does not hold it back.
+    pub(crate) fn moves_begun_seen(&self, begun: u32) -> bool {
+        if self.moves_begun.replace(begun) == begun {
+            return false;
+        }
+        self.moves_failures.set(0);
+        self.moves_retry.set(None);
+        true
     }
 
     /// A step was not refused: the back-off starts again.
