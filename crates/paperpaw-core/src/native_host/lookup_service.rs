@@ -68,7 +68,8 @@ pub(crate) trait LookupHost {
 
     /// One line for the host's own capture, in addition to the device log
     /// (`KernelBuilder::device_log`), which the service writes itself: a
-    /// shell need not forward it.
+    /// shell must not forward it to the device log (every line would print
+    /// twice).
     fn log(&self, _line: &str) {}
 }
 
