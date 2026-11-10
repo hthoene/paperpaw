@@ -1,8 +1,9 @@
-# Interface-7 port (slices 1 to 4: the declarations, the decisions, the native entry, the dashboard)
+# Interface-7 port (slices 1 to 6: the declarations, the decisions, the native entry, the dashboard, Add, the picture)
 
 Version 1.0.2. Partial. The plugin has a native entry (`NATIVE_ENTRY`, features `linked` and
-`native-entry`) with the picture chooser, the bar items' editor and the dashboard (on a plain
-background: see *Slice 4*); *Add* is declared and answers `Unsupported` when opened. The interface-6
+`native-entry`) with the picture chooser, the bar items' editor, the dashboard (on a plain
+background until *Slice 6* gives it the picture) and *Add* (*Slice 5*). What is still missing for the plugin to be
+native-only is listed under *Still missing for native-only*. The interface-6
 `PictureHome` and everything of it stays until the host activates native plugins (then it goes
 together, no shim): see *Removal step*.
 
@@ -29,8 +30,8 @@ native/metadata.json --bytes native/metadata.bin --json native/metadata.inspecte
   `bar.right-items`, opened by the settings editor with `id`): the kit's `StatusItemsView` over the
   items `core.registry` lists, the setting read with `settings.read`, each change `set_setting`.
   Any other `id` is refused (`Invalid`).
-- `add` answers `Unsupported` when opened: it is declared (the declaration parity test pins that)
-  and nothing opens it while the app has the interface-6 screens. The dashboard is slice 4.
+- `add` was declared and answered `Unsupported` here; it is open since slice 5. The dashboard is
+  slice 4. Nothing opens the screens while the app has the interface-6 screens.
 - `core.ui` opens in the first callback that needs it, not in `make` (construction has no frame).
   `tests/hosted_construction.rs`: `make` runs to its end in the kernel's registered scope; the host
   then refuses the commit (`DeclarationViewsUnavailable`, #944), pinned by the second test; the
@@ -78,25 +79,135 @@ over the host's budget says so ("This change is too big to save at once.") and k
 On its side the pages are shown (placed anew) but not arranged: the pencil says to turn the screen
 upright, as interface 6 did. A dashboard opened again keeps its page and its widgets.
 
-Differences from interface 6, each a named step below: no picture behind the page, no bar in its
-strip, no hints row, *Add* left out of the editing footer, words instead of the pencil, plus and
-tick icons, no drag with the finger.
+Differences from interface 6, each a named step below: no bar in its
+strip, no hints row, words instead of the pencil, plus and tick icons, no drag with the finger, and
+the parts of the picture's recipe the host cannot do (*Slice 6*).
+
+## Slice 5: Add
+
+`native_add.rs` (without the host) and `native_add_screen.rs` (the screen), copied from
+`plugins/home`'s `native_add*.rs` and adapted to this plugin's settings (`picture-home.page-1` to
+`-4`, `picture-home.pages`): there is no layout for a screen on its side, no status line among the
+widgets and no *Reset landscape layout*. The tests are `native_add/tests.rs` and
+`native_add_screen/tests.rs` (sweeps that refuse each allocation included).
+
+- The screen `add` (`picture-home.add`, token `ADD`), opened by the dashboard's *Add* button with
+  `page` (the page that shows) and, for the second step, `kind`; a page that is not a number is the
+  first, a key given twice differently is `Invalid`. Step one: the kinds (the registry's widgets
+  by kind in the order of `categories::ALL`, plugins' own kinds after them, the tools last under
+  `picture-home.add.tools`) with their counts, *Add a page* (under four pages), *Remove this page*
+  (over one). Step two: the things of one kind, each with `+`. The tools are those the dashboard
+  runs (`home.actions`, `core.tools`, `core.apps`) that are not on the page; a widget may be added
+  again (each placement `id@n` has settings of its own: the first `n` that no page holds and that
+  has no values set, asked of the registry with `ValuesQuery::Placement`). `core.space`,
+  `core.fill` and `home.tools` are the grid's own and not offered.
+- A choice is staged in one callback (`native_stage::apply`): the page settings that changed
+  (`native_pages::store` for an item added, which also keeps what the page hides, and
+  `store_all` for a page added or removed: pages move up, only changed settings are written), the
+  placements a removed page's widgets set that no page left shows (`ResetTarget::Placement`), and
+  the way back to the page (two `back`s from step two). Over the 4,096 B budget it says "This
+  change is too big to save at once." (`picture-home.too-big`) and keeps the old layout; no room
+  says `picture-home.no-room` and keeps the screen; any error drops all that was staged. A widget
+  to add is measured at the grid's width (made, asked, let go) so that it gets the rows it needs.
+- On a screen on its side nothing is added (`Plan::Upright`: it says to turn the screen upright,
+  `picture-home.edit-upright`): the cells of the grid there are derived and are not what a page
+  keeps. The dashboard does not edit on its side either, so only a direct open reaches it.
+  *Add a page* and *Remove this page* work in either position.
+- The dashboard's editing footer has its *Add* button again (a `+` word, at the left, reached
+  first by the buttons, before the pencil); it opens the screen for the page that shows, and the
+  dashboard is laid out anew when it shows again.
+- No new texts: the keys are interface 6's (`picture-home.add`, `.add.tools`, `.add-page`,
+  `.remove-page`, `.no-room`, `.too-big`), present in `en.ini` and `de.ini` (a test checks).
+- Memory: the entries (at most the 256 widgets and tools the snapshot holds) and the row labels;
+  one screen open at a time.
+- todo 323: the widget picker queries registry op 19 without bit 0 (`Registry::widgets` sends
+  flags 0), so the host leaves preview widgets out; pinned by the SDK test
+  `the_widget_list_never_asks_for_preview_widgets` (`crates/paperpaw-sdk/src/native/registry/tests.rs`:
+  the flags sent are 0) and the host test
+  `op_19_with_flags_bit_0_lists_the_widgets_that_preview_a_group`
+  (`crates/paperpaw-core/src/native_host/registry_service/menus_tests.rs`: bit 0 is what lists them;
+  `registry_service/widgets.rs` takes a kind's widgets only with empty `previews`). The SDK's
+  `RegistryWidget` does not expose `previews`, so the plugin has no client-side filter to test;
+  `native_add::tests::only_the_widgets_the_registry_lists_are_offered` pins that what the registry
+  lists is what is offered, and the screen itself needs a host to run (`picture-home-add`).
+
+## Slice 6: the picture behind the dashboard
+
+The image facade (`CommandSender::image_prepare`, `Event::ImageReady`, `image.info`, `Canvas::draw_image`,
+`docs/abi/document.md` section 5) is on integration, so the dashboard draws the picture natively.
+`native_backdrop.rs` (without the host; `native_backdrop/tests.rs`, sweeps that refuse each allocation
+included) decides, `native_backdrop_host.rs` reads, asks, draws and says, `native_dashboard.rs` and
+`native_plugin.rs` wire it.
+
+- Which picture: `picture-home.picture` (the name) in `picture-home.folder`, as interface 6 (the
+  chosen file only: interface 6 never took "the next picture of the folder"). Read with the fit, the
+  place, the zoom and the paleness into the recipe (`Recipe::new`, whose `key` says whether a request is
+  the same as the one before). Brightness, contrast and the render are not read for it: the host's
+  drawing cannot do them, so a change of them must not ask again. The path goes to root 1 (the library,
+  `uses.storage`); one that is over 512 bytes is no picture.
+- When: at every `ScreenShown` of the dashboard (the first show, and after a settings screen or *Add*
+  closes over it), so a changed setting is met there. A recipe that is the same as the held, asked or
+  given-up one asks nothing; another gives the held picture back (`image_release`) and asks anew.
+  `image_prepare` is sent with the side the fit needs (`native_backdrop::side`: the screen's long side
+  times the zoom, a half more for a picture cut to fill it, at most 1,600, half the screen for a tile,
+  1,600 for *as large as it is*), one request at a time (the cookie of each request is the plugin's, so
+  the answer of an old one is given back). The request is sent from an event, never from a draw.
+- Drawn: first of all, before the plates and the page, and not while editing (`draw_image`, one call
+  for each place). The place is `native_picture::plan` of the size the host reports in `ImageReady`:
+  *Fill* and *Fit* (the picture whole with paper round it), *As large as it is* and the zoom and the
+  place of the anchor are the rectangle the plan gives (the host scales the picture into it, keeping its
+  shape, clipped by the screen). *Paler by* is the host's transparency (255 times the percent) over the
+  paper that is painted first (`Style::paper`; also under a picture that does not cover the screen).
+  *Tile* is one call for each tile, from the tile before the first edge as interface 6 started it, at
+  most 64 of them.
+- The notice while it is made: the screen says *Preparing the picture* (`picture-home.preparing` and
+  `.text`, centred) instead of the page and takes no input (the host's own keys apply, so *Back*
+  leaves), as on interface 6; the redraw that shows it is queued with the request. The page is not laid
+  out (no widget is made) until the picture lands.
+- The answer (`ImageReady`, routed to the dashboard whose cookie it has): ready, the page is drawn
+  anew with a full refresh (the picture's grays, as interface 6 refreshed once the picture was made); any
+  other status leaves the page plain and says why with a message (`picture-home.unreadable` for an
+  unsupported, damaged, too large or missing file, `picture-home.short` for a card failure or no
+  memory), as before the picture was ported. A request the host refuses (too many waiting, no consent)
+  leaves the page plain without a message. A request is not made again for the same recipe whatever
+  became of it, until the picture or a setting changes. An answer nobody waits for gives its picture back.
+- Released: when the screen closes (`ScreenClosed`), and when another picture replaces it; the host ends
+  the rest with the plugin.
+- The refresh after a small change: the native dashboard only asks for partial redraws, never the fast
+  (black and white) one that breaks the picture's grays into dots, so interface 6's rule (fast unless
+  *Every gray*) is met by never asking for fast.
+- Memory: the picture is the host's (a file of the card, drawn in bands); the plugin holds the id, the
+  size and the recipe (a path), and at a draw a list of at most 64 places.
+
+Blocked, each named (nothing invented):
+
+- `IMG-turn`: the turn of a phone's JPEG (the EXIF orientation; `native_picture::jpeg_orientation` and
+  `Turn` are ported, the host's decoder does not turn the picture and `draw_image` has no turn).
+- `IMG-tone`: *Brightness* and *Contrast* (`native_picture::tone`): the facade has no tone curve.
+- `IMG-dots`: *Render* as *dots* by force (`native_picture::dotted`) and the shell's grays flag of
+  interface 6 (`grays`, `pictures_in_grays`): no contract lets a screen ask for either; the host draws
+  with the panel's own rule.
+- `IMG-stretch`: *Stretch to the screen* is drawn cropped to fill it (`draw_image` keeps the picture's shape).
+- `IMG-tile-many`: a tile that would repeat more than 64 times is not drawn (each tile is one host call
+  that reads the picture again).
+- `IMG-replaced`: a picture replaced by another file of the same name is not noticed (the key has no file
+  size or time, `Asked::bytes` and `modified` are 0; interface 6 read them from the card).
+- `IMG-ink`: the bar's ink over the picture (`native_picture::ink_over`): the bar is not drawn yet
+  (H1b #851, `picture-home-bars`), and no contract reads the brightness of a prepared picture behind
+  a rectangle.
+- A picture over 1,600 pixels on its long side is made smaller than interface 6's 2,400 (the host's limit).
+- A change of the screen's turn while the dashboard is open is met at the next show, as the page itself.
 
 ### Named steps still BLOCKED or not yet ported (ignored cases in `tests/acceptance_pending.rs`)
 
-- *Add* (the screen `add`: the tools and widgets to put on a page, *Add a page*, *Remove this page*;
-  its button in the editing footer): the rules and the screen of `plugins/home`'s `native_add*.rs`
-  are to be copied as this slice did for the dashboard; `native_stage.rs` (staging the writes,
-  `fits`, `say`) and `native_pages::store_all` are ready for it. Next slice (`picture-home-edit`
-  with the drag below). The footer has no *Add* button until then.
+*Add* is no longer one of them (slice 5); its icons wait for #517 (`picture-home-add`).
+
+
 - Moving and sizing with a finger (H2/H4; the drag of an item or its corner waits for the pointer
   input): `picture-home-edit`.
-- `IMG-slots-36-37`: the picture's decode and scale (image slots 36 and 37, `core.document` ops
-  15 and 16) are not on integration, so the gray file `picture` cannot be made natively and the
-  dashboard has a plain background (the plates are painted as on interface 6; the picture's
-  settings are not read by the screen); what the screen decides from the picture is ported
-  (`native_picture.rs`). `picture-home-picture`. When it lands: the picture drawn first (not while
-  editing), the notice while it is made, the bar's ink over it, the grays/dots refresh choice.
+- The picture's parts the host cannot do are named under *Slice 6* (`IMG-turn`, `IMG-tone`,
+  `IMG-dots`, `IMG-stretch`, `IMG-tile-many`, `IMG-replaced`, `IMG-ink`); the rest is ported and
+  waits for the production loader (`picture-home-picture`).
 - `H1`: the bar drawn through the host's status frame and the hints row (`picture-home-bars`). The
   bar's strip is kept free when it is not off (the page does not move when it comes) and the
   settings that place it are read (`native_dash::frame`); nothing is drawn in it, and the press that
@@ -119,13 +230,29 @@ Worst case memory: the snapshot (4 page texts of at most 4 KiB, 256 widgets and 
 bytes) and one page of cells with their names; one dashboard open at a time. Not measured on the
 device.
 
-### Gate: not in `NATIVE_PLUGINS` or `complete.txt` before the dashboard and *Add* are both open
+### Still missing for native-only
 
-`make` submits the `core.home` offer at the priority of a replacing plugin. The dashboard opens (slice
-4), but `add` answers `Unsupported` until its slice: a home screen whose editing cannot add anything
-is not the one the reader has now. So `NativePictureHome` is listed in `NATIVE_PLUGINS` and in
-`tools/plugin-files7/complete.txt` only when the dashboard and *Add* are both open (together with the
-removal step below). The gate stays.
+With *Add* and the picture open, three things stand between this plugin and the interface-6 one,
+and the picture has parts the host cannot do:
+
+1. The picture's remaining parts (*Slice 6*): the turn of a phone's picture, brightness and contrast,
+   dots by force, stretching, many tiles, a replaced file of the same name, and the bar's ink over it
+   (with the bar).
+2. The bar: the host's status frame drawn in the strip the dashboard keeps free, and the hints row
+   (H1b #851, in train 7), with the press that shows a bar that shows after a press
+   (`picture-home-bars`).
+3. The finger's drag of an item and its corner while editing (H2/H4, `picture-home-edit`), and the
+   grip's drag in the bar items' editor (`KIT-grip-drag`).
+
+The icons (#517) and the widgets' updates are smaller steps named above.
+
+### Gate: not in `NATIVE_PLUGINS` or `complete.txt` before the bar and the drag are open
+
+`make` submits the `core.home` offer at the priority of a replacing plugin. The dashboard, *Add* and
+the picture open (slices 4 to 6), but the bar and the hints row are missing and the picture lacks the
+parts named under *Slice 6*: a picture home screen without its bar is not what the reader has now. So
+`NativePictureHome` is listed in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt` only when
+the bar (and the finger's drag) are drawn (together with the removal step below). The gate stays.
 
 ### Removal step (one later sweep)
 
@@ -163,9 +290,9 @@ interface-6 suites (`tests/home.rs`, `tests/common`), the app's wiring of `Pictu
 
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
-- Through the production loader (H1, H3 compose, H2/H4 input) every screen; *Add*, the picture's
-  decode and scale (image slots 36/37) and the bars drawn through the host's status frame (see
-  *Slice 4*).
+- Through the production loader (H1, H3 compose, H2/H4 input) every screen, *Add* included
+  (`picture-home-add`) and the picture (`picture-home-picture`); the bars drawn through the host's
+  status frame (see *Slice 4*).
 - The bar's three item settings are edited on the screen `status-items` of this plugin
   (`EditorDecl::Screen`, one screen for the three, opened with the setting's id), built on
   `paperpaw_ui_kit::status_items` as home's footer items are (Kernel's ruling, todo 121). The

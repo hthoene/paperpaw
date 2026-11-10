@@ -35,6 +35,9 @@ pub(crate) fn spec(callback: Callback, lease: NativeLease) -> Result<ActionSpec,
         let record = Record::EventActionRun(EventActionRun {
             now_ms: env.now().millis(),
             action: name.as_str(),
+            // Bit 0 `background`: not the reader's own doing (a rule's or
+            // another plugin's run), as interface 6 `Env::reader` said.
+            flags: u32::from(!env.reader()),
         });
         if let Ok(len) = super::events::encode(&record, &mut bytes) {
             // A stopped or failing plugin leaves the action without effect;

@@ -347,7 +347,23 @@ fn declared(geometry: &Geometry, hint: &CellSpan) -> (u8, u8, u8) {
     (w, h, hint.min_h.clamp(1, h))
 }
 
+/// Whether `key` is a setting of the grid's size, which the pages are fitted to.
+#[must_use]
+pub fn is_grid_setting(key: &str) -> bool {
+    key == COLUMNS || key == ROWS
+}
+
 impl HostSource {
+    /// The cells widget `id` (or its base) declared, with its least size.
+    #[must_use]
+    pub fn span(&self, id: &str) -> Option<CellSpan> {
+        let base = native_pages::base(id);
+        self.widgets
+            .iter()
+            .find(|row| row.id == base)
+            .and_then(|row| row.span)
+    }
+
     /// Whether widget `id` (or its base) declared how many cells it takes.
     #[must_use]
     pub fn declares(&self, id: &str) -> bool {
@@ -447,6 +463,15 @@ mod tests {
                 .collect(),
             ..HostSource::default()
         }
+    }
+
+    #[test]
+    fn only_the_grids_columns_and_rows_are_grid_settings() {
+        assert!(is_grid_setting("home.columns"));
+        assert!(is_grid_setting("home.rows"));
+        assert!(!is_grid_setting("home.status-bar"));
+        assert!(!is_grid_setting("home.page-1"));
+        assert!(!is_grid_setting(""));
     }
 
     #[test]

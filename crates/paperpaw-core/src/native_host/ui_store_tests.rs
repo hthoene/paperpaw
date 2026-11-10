@@ -490,3 +490,69 @@ fn only_the_small_memory_class_gets_the_x4_profile() {
     assert!(is_x4(MemoryClass::Small));
     assert!(!is_x4(MemoryClass::Large));
 }
+
+/// What `handed_file` shows for `instance`: the maker, the root and the path.
+fn handed(s: &UiStore, instance: u32) -> Result<(u64, u32, String), i32> {
+    let mut seen = None;
+    s.handed_file(instance, &mut |h| {
+        seen = Some((h.maker, h.root, String::from(h.path)));
+    })?;
+    seen.ok_or(ERR_STATE)
+}
+
+#[test]
+fn the_handed_file_is_the_root_and_path_of_the_instances_hand_over_and_its_maker() {
+    let s = store();
+    let id = s
+        .handover_make(
+            who(9, 1),
+            &[p("page", "2"), p("root", "2"), p("path", "licences/a.txt")],
+        )
+        .unwrap();
+    own(&s, who(9, 1), id, 4);
+    assert_eq!(handed(&s, 4), Ok((9, 2, String::from("licences/a.txt"))));
+    // The data folder is root 0.
+    let data = s
+        .handover_make(who(9, 2), &[p("root", "0"), p("path", "notes.txt")])
+        .unwrap();
+    own(&s, who(9, 2), data, 5);
+    assert_eq!(handed(&s, 5), Ok((9, 0, String::from("notes.txt"))));
+    // The maker stopping does not take it from the instance.
+    s.owner_stopped(9).unwrap();
+    assert_eq!(handed(&s, 5), Ok((9, 0, String::from("notes.txt"))));
+}
+
+#[test]
+fn no_hand_over_or_one_without_a_usable_root_and_path_is_denied() {
+    let s = store();
+    // An instance without a hand-over, an unknown instance.
+    assert_eq!(handed(&s, 1), Err(ERR_DENIED));
+    let cases: [&[Param<'_>]; 5] = [
+        &[p("path", "a.txt")],
+        &[p("root", "0")],
+        &[p("root", "1"), p("path", "a.txt")],
+        &[p("root", "5"), p("path", "a.txt")],
+        &[p("root", "x"), p("path", "a.txt")],
+    ];
+    for (n, params) in cases.iter().enumerate() {
+        let instance = 10 + n as u32;
+        let id = s.handover_make(who(3, 1), params).unwrap();
+        own(&s, who(3, 1), id, instance);
+        assert_eq!(handed(&s, instance), Err(ERR_DENIED), "case {n}");
+    }
+}
+
+#[test]
+fn a_handed_file_goes_with_its_instance_and_a_busy_store_is_a_state_error() {
+    let s = store();
+    let id = s
+        .handover_make(who(3, 1), &[p("root", "0"), p("path", "a.txt")])
+        .unwrap();
+    own(&s, who(3, 1), id, 6);
+    assert!(handed(&s, 6).is_ok());
+    let hold = s.inner.borrow_mut();
+    assert_eq!(handed(&s, 6), Err(ERR_STATE));
+    drop(hold);
+    s.instance_closed(6).unwrap();
+    assert_eq!(handed(&s, 6), Err(ERR_DENIED));
+}

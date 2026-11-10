@@ -140,3 +140,20 @@ fn every_record_is_valid_for_the_host_and_admitted() {
         "the host admits every record now: {waiting:?}"
     );
 }
+
+/// A widget that `previews` a settings group is made for that group's settings
+/// page and never offered in the Add picker (`registry.md`, op 19). Beta 3's
+/// statistics widgets declared none, so each stays pickable.
+#[test]
+fn no_widget_previews_a_settings_group() {
+    let mut seen = 0;
+    for batch in batches(|sink| declarations::widgets(sink)) {
+        for record in records_decode(&batch).unwrap().iter() {
+            if let Record::WidgetSpec(spec) = record {
+                assert_eq!(spec.previews, "", "{}", spec.name);
+                seen += 1;
+            }
+        }
+    }
+    assert_eq!(seen, declarations::WIDGETS.len());
+}

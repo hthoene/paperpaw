@@ -151,7 +151,7 @@ fn run(f: &Fixture, service: &Service) -> bool {
 }
 
 /// One pass of the real pump over `services`, at time 0.
-pub(crate) fn run_services(f: &Fixture, services: [Option<&dyn ServiceEvents>; 2]) -> bool {
+pub(crate) fn run_services(f: &Fixture, services: [Option<&dyn ServiceEvents>; 3]) -> bool {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
@@ -164,7 +164,12 @@ fn run_at(f: &Fixture, service: &Service, ms: u64) -> bool {
         .build()
         .unwrap();
     let env = kernel.shared.env(paperpaw_platform::Instant(ms));
-    pump(&f.instances, &[Some(service), None], &env, &plain(&env))
+    pump(
+        &f.instances,
+        &[Some(service), None, None],
+        &env,
+        &plain(&env),
+    )
 }
 
 fn queue(service: &Service, owner: u64, tags: &[u8]) {
@@ -254,7 +259,7 @@ fn nothing_is_delivered_inside_a_callback_and_the_pass_stays_wanted() {
     f.instances.test_enter_callback();
     assert!(pump(
         &f.instances,
-        &[Some(&service), None],
+        &[Some(&service), None, None],
         &env,
         &plain(&env)
     ));
@@ -279,7 +284,7 @@ fn no_wired_service_means_no_pass_and_no_buffer() {
         .build()
         .unwrap();
     let env = kernel.shared.env(paperpaw_platform::Instant(0));
-    assert!(!pump(&f.instances, &[None, None], &env, &plain(&env)));
+    assert!(!pump(&f.instances, &[None, None, None], &env, &plain(&env)));
 }
 
 #[test]

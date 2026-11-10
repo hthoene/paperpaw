@@ -41,9 +41,15 @@ pub(crate) struct CoreFrame<'a> {
     pub(crate) work: &'a WorkStates,
     /// The device's `core.ui` service: the widget handles slot 35 resolves.
     pub(crate) ui: Option<&'a crate::native_host::ui_service::UiServices>,
+    /// The shell's device log, if it gave one (`Frame::log`).
+    pub(crate) log: crate::native_host::device_log::DeviceLog,
 }
 
 impl Frame for CoreFrame<'_> {
+    fn log(&self, line: core::fmt::Arguments<'_>) {
+        self.log.line(line);
+    }
+
     fn stage_run(
         &self,
         _caller_id: &str,
@@ -139,6 +145,30 @@ impl Frame for CoreFrame<'_> {
             directory,
         }
         .ask(owner, token, items, context, out)
+    }
+
+    fn call_native(
+        &self,
+        owner: u64,
+        token: u32,
+        input: &[u8],
+        reply: &mut [u8],
+        accept: &mut dyn FnMut(&[u8]) -> Result<(), i32>,
+    ) -> Result<usize, i32> {
+        crate::native_host::native_call::call(self, owner, token, input, reply, accept)
+    }
+
+    fn with_declarations(&self, visit: &mut dyn FnMut(&dyn core::any::Any)) -> Result<(), i32> {
+        self.callback_epoch()?;
+        let directory = self
+            .directory
+            .ok_or(paperpaw_native::host_glue::ERR_UNSUPPORTED)?;
+        let store = directory
+            .store
+            .try_borrow()
+            .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
+        visit(&*store);
+        Ok(())
     }
 
     fn widget_call(
