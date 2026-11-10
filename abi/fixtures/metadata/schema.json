@@ -1514,6 +1514,62 @@
       "reentry": "deny",
       "result": "length",
       "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "font",
+          "type": "handle"
+        },
+        {
+          "name": "size",
+          "type": "f32"
+        },
+        {
+          "name": "x",
+          "type": "f32"
+        },
+        {
+          "name": "baseline",
+          "type": "i32"
+        },
+        {
+          "name": "color",
+          "type": "u32"
+        },
+        {
+          "name": "text",
+          "type": "bytes"
+        },
+        {
+          "name": "extra",
+          "type": "u32"
+        },
+        {
+          "name": "tone",
+          "type": "bytes"
+        },
+        {
+          "name": "flags",
+          "type": "u32"
+        },
+        {
+          "name": "out",
+          "type": "out_f32"
+        }
+      ],
+      "effect": "mutate",
+      "id": 41,
+      "max_bytes": 4096,
+      "name": "text.draw_inked",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
     }
   ],
   "i18n_limits": {
