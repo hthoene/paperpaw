@@ -139,3 +139,40 @@ fn a_book_in_use_is_busy_and_nothing_changes() {
     assert!(library::favourites(&*card.storage).is_empty());
     let _ = ERR_IO;
 }
+
+#[test]
+fn a_list_is_edited_in_place_whatever_its_line_endings_blanks_and_marks() {
+    let card = card();
+    let file = ".paperpaw/library/opened.txt";
+    // CRLF, a blank line and the path twice.
+    card.storage
+        .write(
+            file,
+            b"books/a.epub\r\n\nbooks/c.epub\nbooks/e.epub\nbooks/c.epub\n",
+        )
+        .unwrap();
+    let reads = card.reads();
+    reads.set_status(C, OPENED, 0).unwrap();
+    assert_eq!(
+        library::opened_books(&*card.storage),
+        ["books/c.epub", "books/a.epub", "books/e.epub"]
+    );
+    reads.set_status(C, 0, OPENED).unwrap();
+    assert_eq!(
+        library::opened_books(&*card.storage),
+        ["books/a.epub", "books/e.epub"]
+    );
+    // The file is exactly the lines, with no trailing line break.
+    let mut text = std::vec![0_u8; 64];
+    let n = card.storage.read_at(file, 0, &mut text).unwrap();
+    assert_eq!(&text[..n], b"books/a.epub\nbooks/e.epub");
+    // A file that begins with a byte order mark is read without it.
+    card.storage
+        .write(file, "\u{feff}books/e.epub\n".as_bytes())
+        .unwrap();
+    reads.set_status(C, OPENED, 0).unwrap();
+    assert_eq!(
+        library::opened_books(&*card.storage),
+        ["books/c.epub", "books/e.epub"]
+    );
+}

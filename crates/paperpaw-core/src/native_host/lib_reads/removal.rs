@@ -12,7 +12,7 @@
 //!   imported it.
 //!
 //! Plugins' book data and the document caches are the job's own.
-use super::{importer, kept_file, position, storage_status};
+use super::{fail, importer, kept_file, position, storage_status};
 use paperpaw_platform::Storage;
 use paperpaw_sdk::{library, library::catalog};
 
@@ -22,11 +22,11 @@ const ANNOTATIONS: &str = ".paperpaw/annotations";
 /// The catalog line, details, cover and lists of the book at `path`.
 pub(crate) fn details(storage: &dyn Storage, path: &str) -> Result<(), i32> {
     catalog::forget(storage, path).map_err(storage_status)?;
-    // The SDK's one implementation: the details, the cover (and the old
-    // names of both) and the two lists. What it cannot remove belongs to no
-    // book and is never shown.
-    library::removed(storage, path);
-    Ok(())
+    // The SDK's one implementation, with its errors: the details (and the
+    // fields), the cover (and the old names of both) and the two lists. A
+    // card error is the answer, so that the step is repeated: details left
+    // behind would be inherited by a later book at the same path.
+    library::try_removed(storage, path).map_err(fail)
 }
 
 /// The position, annotations and importer record of the book at `path`.

@@ -1178,3 +1178,26 @@ fn delete_hands_the_accepted_paths_to_the_host_as_one_list_and_keeps_each_status
     .unwrap();
     assert!(!fake.log.borrow().iter().any(|l| l.starts_with("batch")));
 }
+
+#[test]
+fn a_book_named_twice_goes_to_the_host_once_and_both_rows_say_the_same() {
+    let fake = Fake::new();
+    let reply = go_rows(
+        &fake,
+        10,
+        &[Record::ServiceLibPaths(Paths {
+            paths: "a.epub\nb.epub\na.epub",
+            flags: 0,
+        })],
+    )
+    .unwrap();
+    assert_eq!(
+        results(&reply),
+        [
+            ("a.epub".into(), 0, 0),
+            ("b.epub".into(), 0, 0),
+            ("a.epub".into(), 0, 0)
+        ]
+    );
+    assert!(fake.log.borrow().contains(&"batch 2 false".into()));
+}

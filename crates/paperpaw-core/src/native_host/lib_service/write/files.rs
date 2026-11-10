@@ -113,7 +113,14 @@ fn deleted(
     let mut accepted = [""; MAX_PATHS];
     let mut ask = [0_usize; MAX_PATHS];
     let mut count = 0;
+    // A line that names a book again (the same spelling) is the first one's
+    // verdict: the host gets each book once.
+    let mut again = [None; MAX_PATHS];
     for (index, path) in paths.iter().enumerate() {
+        if let Some(first) = paths[..index].iter().position(|p| p == path) {
+            again[index] = Some(first);
+            continue;
+        }
         // A book with an annotation transaction open is in use.
         verdicts[index] = match super::edit::book_busy(host, path) {
             Ok(true) => (ERR_BUSY, 0),
@@ -130,19 +137,23 @@ fn deleted(
             },
         };
     }
-    if count == 0 {
-        return;
-    }
-    match host.delete(&accepted[..count], with_notes) {
-        Ok(results) => {
-            for (slot, status) in ask.iter().zip(results).take(count) {
-                verdicts[*slot].0 = status;
+    if count > 0 {
+        match host.delete(&accepted[..count], with_notes) {
+            Ok(results) => {
+                for (slot, status) in ask.iter().zip(results).take(count) {
+                    verdicts[*slot].0 = status;
+                }
+            }
+            Err(error) => {
+                for slot in &ask[..count] {
+                    verdicts[*slot].0 = error;
+                }
             }
         }
-        Err(error) => {
-            for slot in &ask[..count] {
-                verdicts[*slot].0 = error;
-            }
+    }
+    for (index, first) in again.iter().enumerate().take(paths.len()) {
+        if let Some(first) = first {
+            verdicts[index] = verdicts[*first];
         }
     }
 }
