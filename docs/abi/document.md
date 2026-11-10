@@ -450,7 +450,10 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
 
 - [D] `event.document_closed` was named 89 in earlier drafts, which is `event.spoken` (`ui.md`); it
   is 108 and comes with the draft-20 records. It comes from the host's document table (2 or 8 per
-  device), never from the held-event store, so it is never dropped.
+  device), never from the held-event store, so it is never dropped. The table keeps room for 2
+  undelivered document events (88 and 108) per place; while those of earlier documents still fill
+  it (their openers have not taken them yet), `open` answers `ERR_BUSY` and opens nothing: the
+  caller tries again at a later pass (Senior R1 on #919).
 
 - [D] An **image id** (`u32`, checked counter, never 0) names a decoded picture the host may draw. A
   document's images come from `doc_image` rows (a block's picture, the cover, op 16's larger one)
