@@ -34,6 +34,8 @@ pub mod private;
 pub mod profiles;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod registry;
+#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+mod sealing;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod stdio;
 pub mod trace;

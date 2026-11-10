@@ -251,7 +251,35 @@ pub struct Device {
     /// (`--abi7-dev-loader`): none by default. Kept, not applied (S2).
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     abi7: crate::native_runtime::DevPlugins,
+    /// What the linked native plugins are registered with (the card's second
+    /// handle, the clock and network `core.work` reads, written by
+    /// [`Device::now`]): kept for every restart.
+    linked: LinkedInputs,
 }
+
+/// What the registration of the linked native plugins is given besides the
+/// profile (`linked`): none without the feature.
+#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+type LinkedInputs = crate::linked::Inputs;
+#[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+type LinkedInputs = ();
+
+/// The card's second handle for the secrets file and the clock `core.work`
+/// reads.
+#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+fn linked_inputs(library: &Library, simulated: bool) -> LinkedInputs {
+    let storage: Rc<dyn Storage> = match library.open() {
+        Ok(card) => Rc::new(card),
+        Err(_) => Rc::new(MemoryStorage::new()),
+    };
+    crate::linked::Inputs {
+        storage,
+        view: Rc::default(),
+        simulated,
+    }
+}
+#[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+fn linked_inputs(_: &Library, _: bool) -> LinkedInputs {}
 
 /// How many of the kernel's warnings [`Device::warnings`] keeps.
 const KEPT_WARNINGS: usize = 1000;
@@ -311,14 +339,29 @@ impl Device {
     ) -> Result<Self, KernelError> {
         budget::set_limit(profile.heap_budget);
         let config = user_config.as_deref();
-        let mut kernel = build_kernel(profile, config, card, Rotation::Deg0, add)?;
+        #[cfg_attr(
+            not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")),
+            allow(
+                clippy::let_unit_value,
+                reason = "nothing is linked without the feature"
+            )
+        )]
+        let linked = linked_inputs(&library, simulated_time);
+        let mut kernel = build_kernel(profile, config, card, Rotation::Deg0, add, &linked)?;
         // Turned by the settings: built again for the turned size.
         let rotation = kernel.rotation();
         if rotation != Rotation::Deg0
             && let Ok(card) = library.open()
         {
             drop(kernel);
-            kernel = build_kernel(profile, user_config.as_deref(), card, rotation, add)?;
+            kernel = build_kernel(
+                profile,
+                user_config.as_deref(),
+                card,
+                rotation,
+                add,
+                &linked,
+            )?;
         }
         let display = turned(profile.device, rotation).display;
         let controller = Framebuffer::new(display.width, display.height, display.format)
@@ -345,6 +388,7 @@ impl Device {
             wifi_online: WIFI_ONLINE.load(std::sync::atomic::Ordering::Relaxed),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             abi7: crate::native_runtime::DevPlugins::default(),
+            linked,
             asleep: false,
             rotation,
             wall: None,
@@ -385,10 +429,15 @@ impl Device {
     }
 
     pub fn now(&self) -> Instant {
-        match self.clock {
+        let now = match self.clock {
             Clock::Real(start) => Instant(start.elapsed().as_millis() as u64),
             Clock::Simulated(ms) => Instant(ms),
-        }
+        };
+        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        self.linked
+            .view
+            .set(now.0, !self.profile.wifi || self.wifi.is_online());
+        now
     }
 
     /// Advances simulated time; no-op for real time.
@@ -958,6 +1007,7 @@ impl Device {
             storage,
             self.rotation,
             self.add,
+            &self.linked,
         ) {
             Ok(new) => {
                 let kernel = &mut self.kernel;
@@ -1002,7 +1052,10 @@ fn build_kernel(
     storage: Card,
     rotation: Rotation,
     add: Option<AddPlugins>,
+    linked: &LinkedInputs,
 ) -> Result<Kernel, KernelError> {
+    #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+    let _ = linked;
     budget::track(|| {
         let fonts = if profile.font_packs {
             paperpaw_app::Fonts::Packs
@@ -1090,7 +1143,7 @@ fn build_kernel(
         #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
         let kernel = {
             let mut kernel = kernel;
-            match crate::linked::register(&mut kernel, profile) {
+            match crate::linked::register(&mut kernel, profile, linked.clone()) {
                 Ok(_) => {}
                 Err(why) => eprintln!("native plugins: none registered ({why:?})"),
             }
