@@ -328,10 +328,20 @@ fn install_plugin(request: u32, flags: u32) -> WireCommand<'static> {
 }
 
 fn author<'a>(request: u32, author: &'a [u8], recovery: &'a [u8]) -> WireCommand<'a> {
+    author_with(request, author, recovery, &[])
+}
+
+fn author_with<'a>(
+    request: u32,
+    author: &'a [u8],
+    recovery: &'a [u8],
+    sha256: &'a [u8],
+) -> WireCommand<'a> {
     WireCommand::InstallAuthor {
         request,
         author,
         recovery,
+        sha256,
     }
 }
 
@@ -474,7 +484,7 @@ fn the_evidence_of_the_batch_reaches_the_job() {
         Some(&d),
         &[
             install_plugin(5, 1),
-            author(5, &key, &recovery),
+            author_with(5, &key, &recovery, &[7; 32]),
             rotation(5, &[9; 32], &signature),
         ],
     );
@@ -496,7 +506,8 @@ fn the_evidence_of_the_batch_reaches_the_job() {
     let author = evidence.author.expect("the author record");
     assert_eq!(
         (author.author, author.recovery, author.sha256),
-        (Some(key), Some(recovery), None)
+        (Some(key), Some(recovery), Some([7; 32])),
+        "the catalog's digest reaches the job, which refuses other code with 18"
     );
     assert_eq!(evidence.rotations().len(), 1);
     assert_eq!(evidence.rotations()[0].to, [9; 32]);
@@ -507,4 +518,141 @@ fn the_evidence_of_the_batch_reaches_the_job() {
         panic!("an install")
     };
     assert!(evidence.author.is_none() && evidence.rotations().is_empty());
+}
+
+#[test]
+fn the_digest_is_none_or_32_bytes_and_a_wrong_length_is_refused_at_validation() {
+    let kernel = kernel();
+    let d = plugin_driver();
+    let (key, sha) = ([1_u8; 32], [4_u8; 32]);
+    let run = |commands: &[WireCommand<'_>]| stage(&kernel, INSTALL, Some(&d), commands).0;
+    for bad in [1_usize, 16, 31] {
+        assert_eq!(
+            run(&[
+                install_plugin(1, 0),
+                author_with(1, &key, &key, &sha[..bad])
+            ]),
+            ERR_INVALID,
+            "digest of {bad} bytes"
+        );
+    }
+    assert_eq!(
+        run(&[install_plugin(1, 0), author_with(1, &key, &key, &sha)]),
+        OK
+    );
+    assert_eq!(
+        run(&[install_plugin(1, 0), author_with(1, &key, &key, &[])]),
+        OK
+    );
+}
+
+#[test]
+fn evidence_after_another_device_command_is_refused_at_validation() {
+    let kernel = kernel();
+    let d = plugin_driver();
+    let key = [1_u8; 32];
+    let run = |commands: &[WireCommand<'_>]| stage(&kernel, INSTALL, Some(&d), commands).0;
+    // Between the install and its evidence stands another command: the
+    // batch is refused whole, before anything is taken.
+    assert_eq!(
+        run(&[
+            install_plugin(1, 0),
+            WireCommand::WifiOn {},
+            author(1, &key, &[])
+        ]),
+        ERR_INVALID
+    );
+    assert_eq!(
+        run(&[
+            install_plugin(1, 0),
+            WireCommand::RemovePlugin {
+                request: 2,
+                plugin: "x",
+                flags: 0
+            },
+            author(1, &key, &[])
+        ]),
+        ERR_INVALID
+    );
+    assert_eq!(d.borrow().waiting(), 0, "nothing was accepted");
+    // Another command before the install, or after its evidence, is fine.
+    assert_eq!(
+        run(&[
+            WireCommand::WifiOn {},
+            install_plugin(1, 0),
+            author(1, &key, &[])
+        ]),
+        OK
+    );
+}
+
+fn remove_plugin(request: u32, plugin: &str, flags: u32) -> WireCommand<'_> {
+    WireCommand::RemovePlugin {
+        request,
+        plugin,
+        flags,
+    }
+}
+
+#[test]
+fn a_removal_needs_the_feature_a_plugin_host_a_request_a_name_and_reserved_flags() {
+    let kernel = kernel();
+    let d = plugin_driver();
+    assert_eq!(
+        stage(&kernel, FIRMWARE, Some(&d), &[remove_plugin(1, "dials", 0)]).0,
+        ERR_DENIED
+    );
+    let bare = driver();
+    assert_eq!(
+        stage(
+            &kernel,
+            INSTALL,
+            Some(&bare),
+            &[remove_plugin(1, "dials", 0)]
+        )
+        .0,
+        ERR_UNSUPPORTED
+    );
+    for (request, plugin, flags) in [(0, "dials", 0), (1, "", 0), (1, "dials", 1)] {
+        assert_eq!(
+            stage(
+                &kernel,
+                INSTALL,
+                Some(&d),
+                &[remove_plugin(request, plugin, flags)]
+            )
+            .0,
+            ERR_INVALID,
+            "{request} {plugin:?} {flags}"
+        );
+    }
+    // Evidence belongs to installs only.
+    assert_eq!(
+        stage(
+            &kernel,
+            INSTALL,
+            Some(&d),
+            &[remove_plugin(1, "dials", 0), author(1, &[1; 32], &[])]
+        )
+        .0,
+        ERR_INVALID
+    );
+    // One firmware-queue command a batch.
+    assert_eq!(
+        stage(
+            &kernel,
+            INSTALL,
+            Some(&d),
+            &[remove_plugin(1, "dials", 0), remove_plugin(2, "dials", 0)]
+        )
+        .0,
+        ERR_INVALID
+    );
+    // Accepted at submit; the name is checked by the job (a built-in or a
+    // name no plugin has ends with reason 15), and given back with the batch.
+    let (status, output) = stage(&kernel, INSTALL, Some(&d), &[remove_plugin(1, "dials", 0)]);
+    assert_eq!(status, OK);
+    assert!(d.borrow().holds(OWNER, 1));
+    drop(output);
+    assert_eq!(d.borrow().waiting(), 0);
 }

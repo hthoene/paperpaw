@@ -14,7 +14,7 @@ fn lines(card: &MemoryStorage) -> Vec<String> {
 }
 
 #[test]
-fn leftovers_no_journal_owns_are_swept_and_an_old_folder_never() {
+fn leftovers_no_journal_owns_are_swept_and_a_stage_or_an_old_folder_never() {
     let card = MemoryStorage::new();
     for path in [
         "plugins/dials/plugin.ini",
@@ -30,7 +30,10 @@ fn leftovers_no_journal_owns_are_swept_and_an_old_folder_never() {
     }
     sweep(&card);
     assert!(card.exists("plugins/dials/plugin.ini"));
-    assert!(!card.exists("plugins/.cut.part/plugin.ini"));
+    assert!(
+        card.exists("plugins/.cut.part/plugin.ini"),
+        "a stage may be the shell's, waiting to be installed"
+    );
     assert!(!card.exists("plugins/.removing-gone/plugin.ini"));
     assert!(!card.exists(".paperpaw/plugins/.removing-gone/notes.txt"));
     assert!(
@@ -52,20 +55,20 @@ fn leftovers_no_journal_owns_are_swept_and_an_old_folder_never() {
 fn nothing_is_swept_while_a_journal_is_there_and_at_most_eight_a_start() {
     let card = MemoryStorage::new();
     for n in 0..12 {
-        card.write(&alloc::format!("plugins/.p{n}.part/plugin.ini"), b"x")
+        card.write(&alloc::format!("plugins/.removing-p{n}/plugin.ini"), b"x")
             .unwrap();
     }
     card.write("plugins/.journal", b"journal").unwrap();
     sweep(&card);
-    assert!(card.exists("plugins/.p0.part/plugin.ini"));
+    assert!(card.exists("plugins/.removing-p0/plugin.ini"));
     card.remove("plugins/.journal").unwrap();
     sweep(&card);
     let left = (0..12)
-        .filter(|n| card.exists(&alloc::format!("plugins/.p{n}.part/plugin.ini")))
+        .filter(|n| card.exists(&alloc::format!("plugins/.removing-p{n}/plugin.ini")))
         .count();
     assert_eq!(left, 12 - SWEEP_MAX);
     sweep(&card);
-    assert!((0..12).all(|n| !card.exists(&alloc::format!("plugins/.p{n}.part/plugin.ini"))));
+    assert!((0..12).all(|n| !card.exists(&alloc::format!("plugins/.removing-p{n}/plugin.ini"))));
 }
 
 #[test]

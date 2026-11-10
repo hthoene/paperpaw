@@ -74,12 +74,6 @@ pub(crate) mod plugin_folder;
     reason = "the queue's plugin seam wires it; see plugin_check"
 )]
 pub(crate) mod plugin_install;
-#[path = "native_host/plugin_remove.rs"]
-#[allow(dead_code, reason = "the queue and the start use it; see plugin_check")]
-pub(crate) mod plugin_remove;
-#[path = "native_host/plugin_start.rs"]
-#[allow(dead_code, reason = "the builder runs it; see plugin_check")]
-pub(crate) mod plugin_start;
 #[path = "native_host/plugin_job.rs"]
 #[allow(
     dead_code,
@@ -88,9 +82,15 @@ pub(crate) mod plugin_start;
 pub(crate) mod plugin_job;
 #[path = "native_host/plugin_jobs.rs"]
 pub(crate) mod plugin_jobs;
+#[path = "native_host/plugin_remove.rs"]
+#[allow(dead_code, reason = "the queue and the start use it; see plugin_check")]
+pub(crate) mod plugin_remove;
 #[path = "native_host/plugin_rules.rs"]
 #[allow(dead_code, reason = "the install job applies it; see plugin_check")]
 pub(crate) mod plugin_rules;
+#[path = "native_host/plugin_start.rs"]
+#[allow(dead_code, reason = "the builder runs it; see plugin_check")]
+pub(crate) mod plugin_start;
 #[path = "native_host/plugin_swap.rs"]
 #[allow(
     dead_code,

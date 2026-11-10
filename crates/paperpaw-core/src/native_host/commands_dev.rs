@@ -395,6 +395,8 @@ impl<'a> CommandStage<'a> {
             }
             if let WireCommand::InstallPlugin { request, .. } = command {
                 evidence.install(request);
+            } else if area(&command).is_some() {
+                evidence.other_command();
             }
             if firmware::is_firmware(&command) {
                 firmware += 1;

@@ -3,11 +3,15 @@
 //! install or a removal (`plugin_swap::replay`), then sweep what no journal
 //! owns, at most [`SWEEP_MAX`] folders a start.
 //!
-//! Swept: a stage `plugins/.<id>.part` (an install that was stopped or cut
-//! before its journal), and a folder `.removing-<id>` of a removal, in
-//! `plugins/` and in `.paperpaw/plugins/`. Never an `.old-<id>` folder: it can
-//! be the only copy of a plugin, and the journal alone decides what becomes of
-//! it. Nothing is swept while a journal is still there.
+//! Swept: a folder `.removing-<id>` of a removal, in `plugins/` and in
+//! `.paperpaw/plugins/`, and a half-written journal. Never a stage
+//! `.<id>.part` (the shell hands stages over to be installed after the start,
+//! and the next install of the id removes its own leftover stage), and never
+//! an `.old-<id>` folder: it can be the only copy of a plugin, and the journal
+//! alone decides what becomes of it. Nothing is swept while a journal is still
+//! there.
+//!
+//! Nothing here writes to the card unless there is something to do.
 use alloc::{format, string::String, vec::Vec};
 use paperpaw_platform::Storage;
 use paperpaw_sdk::builtin::PLUGIN_DIR;
@@ -22,7 +26,9 @@ pub(crate) const SWEEP_MAX: usize = 8;
 pub(crate) fn replay_at_start(storage: &dyn Storage, say: &mut dyn FnMut(String)) {
     // A journal that was being written when the power went is never the
     // journal: only the renamed one counts.
-    let _ = storage.remove(TMP);
+    if storage.size(TMP).is_ok() {
+        let _ = storage.remove(TMP);
+    }
     match replay(storage) {
         Replayed::Nothing | Replayed::Finished { .. } | Replayed::Removed { .. } => {}
         Replayed::SetAside => say(String::from(
@@ -48,15 +54,14 @@ pub(crate) fn sweep(storage: &dyn Storage) {
 }
 
 /// Whether `name` is a leftover this start owns.
-fn leftover(name: &str, dir: &str) -> bool {
+fn leftover(name: &str) -> bool {
     name.starts_with(".removing-")
-        || (dir == PLUGIN_DIR && name.starts_with('.') && name.ends_with(".part") && name.len() > 6)
 }
 
 fn sweep_in(storage: &dyn Storage, dir: &str) {
     let mut found: Vec<String> = Vec::new();
     let _ = storage.list_from(dir, 0, &mut |entry| {
-        if entry.is_dir && leftover(entry.name, dir) && found.len() < SWEEP_MAX {
+        if entry.is_dir && leftover(entry.name) && found.len() < SWEEP_MAX {
             let mut path = String::new();
             if path
                 .try_reserve_exact(dir.len() + 1 + entry.name.len())

@@ -48,7 +48,7 @@ fn the_words_name_the_plugin_its_signer_and_what_it_uses() {
     q.uses.keys[1] = Text::new("network");
     q.uses.count = 2;
     q.uses.more = true;
-    let said = texts(&i18n, "update", &q);
+    let said = texts(&i18n, "update", &q).unwrap();
     assert_eq!(said.title, "Install this plugin?");
     assert!(said.body.contains("Asked by update."));
     assert!(said.body.contains("Dials 1.2.0 (dials)"));
@@ -65,13 +65,18 @@ fn another_key_a_sideload_and_an_older_version_are_said() {
     q.signer = Text::new("");
     q.sideload = true;
     q.relation = Relation::Older;
-    let said = texts(&i18n, "update", &q);
+    let said = texts(&i18n, "update", &q).unwrap();
     assert!(said.body.contains("abab abab abab abab"));
     assert!(said.body.contains("not PaperPaw's"));
     assert!(said.body.contains("nothing vouches for it"));
     assert!(said.body.contains("older version"));
     q.key = None;
-    assert!(texts(&i18n, "update", &q).body.contains("Not signed."));
+    assert!(
+        texts(&i18n, "update", &q)
+            .unwrap()
+            .body
+            .contains("Not signed.")
+    );
 }
 
 #[test]
@@ -79,9 +84,12 @@ fn a_removal_says_remove_and_no_install_facts() {
     let i18n = en();
     let mut q = question();
     q.kind = KIND_REMOVAL;
-    let said = texts(&i18n, "update", &q);
+    let said = texts(&i18n, "update", &q).unwrap();
     assert_eq!(said.title, "Remove this plugin?");
-    assert_eq!(said.yes, "Remove");
+    assert_eq!(said.yes, "Remove, keep data");
+    assert_eq!(said.data.as_deref(), Some("Remove with data"));
+    assert_eq!(said.no, "Cancel");
+    assert!(said.body.contains("data folder is kept"));
     assert!(!said.body.contains("Signed"));
 }
 
@@ -95,7 +103,7 @@ fn names_from_the_plugin_cannot_forge_lines() {
     q.key = None;
     q.uses.keys[0] = Text::new("a\nSigned by PaperPaw.");
     q.uses.count = 1;
-    let said = texts(&i18n, "evil\nSigned by PaperPaw.", &q);
+    let said = texts(&i18n, "evil\nSigned by PaperPaw.", &q).unwrap();
     assert!(
         said.body.lines().all(|line| !line.starts_with("Signed")),
         "{:?}",
@@ -315,5 +323,102 @@ mod kernel_side {
         submit(&mut kernel);
         assert_eq!(open_count(&kernel), 0, "no screen");
         assert_eq!(ended(&kernel), Some(3), "dismissed, nobody can answer");
+    }
+
+    /// A kernel over a card that holds the plugin `dials` and its data, and a
+    /// removal of it that asked.
+    fn removal_shown() -> (Kernel, u128) {
+        let fake = FakeFirmware::new(
+            "0.5.0",
+            "paperpaw-x4",
+            5,
+            paperpaw_facts("0.6.0", "paperpaw-x4", 2 * WRITE_BLOCK),
+        );
+        let (loader, offered) = kernel_host();
+        let mut kernel = Kernel::builder(crate::tests::DEVICE)
+            .random(fill)
+            .storage(paperpaw_sdk::MemoryStorage::new())
+            .plugin(Home)
+            .firmware_host(alloc::boxed::Box::new(fake))
+            .plugin_host(loader, offered, &[])
+            .build()
+            .unwrap();
+        kernel.start(Instant(0));
+        let card = kernel.storage();
+        card.write(
+            "plugins/dials/plugin.ini",
+            b"[plugin]\nid = dials\nname = Dials\nversion = 1.0.0\n",
+        )
+        .unwrap();
+        card.write(".paperpaw/plugins/dials/notes.txt", b"notes")
+            .unwrap();
+        let driver = kernel.firmware.clone().unwrap();
+        let job = crate::native_host::plugin_remove::PluginRemove::new(1, 5, "dials").unwrap();
+        driver
+            .borrow_mut()
+            .submit_plugin(crate::native_host::plugin_jobs::PluginJobs::Remove(job))
+            .unwrap();
+        for _ in 0..20 {
+            kernel.native_firmware_pump();
+        }
+        let _ = kernel.tick(Instant(0));
+        let top = kernel.stack.last().expect("the confirmation is open");
+        assert_eq!(top.id, SCREEN);
+        let nonce = top.params.get(NONCE).unwrap().parse().unwrap();
+        (kernel, nonce)
+    }
+
+    fn removal_ended(kernel: &mut Kernel) -> Option<u8> {
+        for _ in 0..40 {
+            kernel.native_firmware_pump();
+        }
+        let driver = kernel.firmware.clone().unwrap();
+        let driver = driver.borrow();
+        driver
+            .kept(1, crate::native_host::plugin_job::KIND_REMOVAL)
+            .or_else(|| driver.peek_ready())
+            .map(|outcome| outcome.reason)
+    }
+
+    #[test]
+    fn a_removal_shows_three_buttons_and_the_focus_starts_on_cancel() {
+        let (mut kernel, _) = removal_shown();
+        let top = kernel.stack.last().unwrap();
+        assert!(top.params.get("data").is_some(), "the middle yes");
+        // Enter on the focus that starts: Cancel, reason 2; nothing changes.
+        let _ = kernel.run_action(Instant(600), actions::CONFIRM);
+        assert_eq!(removal_ended(&mut kernel), Some(2));
+        let card = kernel.storage();
+        assert!(card.exists("plugins/dials/plugin.ini"));
+        assert!(card.exists(".paperpaw/plugins/dials/notes.txt"));
+    }
+
+    #[test]
+    fn the_first_yes_keeps_the_data_and_the_middle_one_removes_it_too() {
+        // Two steps left from Cancel: "Remove, keep data".
+        let (mut kernel, _) = removal_shown();
+        let _ = kernel.run_action(Instant(600), actions::LEFT);
+        let _ = kernel.run_action(Instant(650), actions::LEFT);
+        let _ = kernel.run_action(Instant(700), actions::CONFIRM);
+        assert_eq!(removal_ended(&mut kernel), Some(0));
+        let card = kernel.storage();
+        assert!(!card.exists("plugins/dials/plugin.ini"));
+        assert!(card.exists(".paperpaw/plugins/dials/notes.txt"), "kept");
+        // One step left: "Remove with data".
+        let (mut kernel, _) = removal_shown();
+        let _ = kernel.run_action(Instant(600), actions::LEFT);
+        let _ = kernel.run_action(Instant(700), actions::CONFIRM);
+        assert_eq!(removal_ended(&mut kernel), Some(0));
+        let card = kernel.storage();
+        assert!(!card.exists("plugins/dials/plugin.ini"));
+        assert!(!card.exists(".paperpaw/plugins/dials/notes.txt"), "removed");
+    }
+
+    #[test]
+    fn back_dismisses_a_removal_and_nothing_is_removed() {
+        let (mut kernel, _) = removal_shown();
+        let _ = kernel.run_action(Instant(600), actions::BACK);
+        assert_eq!(removal_ended(&mut kernel), Some(3));
+        assert!(kernel.storage().exists("plugins/dials/plugin.ini"));
     }
 }

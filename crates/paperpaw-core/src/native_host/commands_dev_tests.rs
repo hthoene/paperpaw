@@ -198,9 +198,10 @@ fn install_and_bluetooth_commands_stay_unsupported() {
         plugin: "x",
         flags: 0,
     };
+    // The stage admits no install feature, and wired no firmware host.
     assert_eq!(
         submit(&mut stage, &[WireCommand::WifiOn {}, removal]),
-        ERR_UNSUPPORTED
+        ERR_DENIED
     );
     assert_eq!(dev_len(&stage), 0);
     let scan = WireCommand::BtScan { lasting_ms: 1 };
