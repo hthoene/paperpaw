@@ -209,17 +209,21 @@ impl View {
         };
         let at = match native_open::opening(|k| found.get(k), |p: Place| p.section < sections) {
             Start::At(place) => (place.section, place.offset),
-            Start::Saved => library
-                .and_then(|library| {
-                    native_place::saved(
-                        host,
-                        library,
-                        &found.path,
-                        (sections, conversion),
-                        (&mut input, &mut out),
-                    )
-                })
-                .unwrap_or((0, 0)),
+            Start::Saved => {
+                // The library's calls take 1,024 bytes of input.
+                let mut ask = buffer(1024)?;
+                library
+                    .and_then(|library| {
+                        native_place::saved(
+                            host,
+                            library,
+                            &found.path,
+                            (sections, conversion),
+                            (&mut ask, &mut out),
+                        )
+                    })
+                    .unwrap_or((0, 0))
+            }
             _ => (0, 0),
         };
         Ok(Self {
@@ -389,10 +393,9 @@ impl Open {
         CommandSender::new(host, &mut scratch).notify(note).ok();
     }
 
-    /// Writes the place of the page on show if it is not saved: now where
-    /// `closing`, else once Beta 3's interval has gone since the last write. A
-    /// refused write leaves it to the next (a notice needs a command the host
-    /// has not given the reader yet: `PORTING-7.md`).
+    /// Writes the place of the page on show if it is not saved: now unless
+    /// `when` is a turn, else once Beta 3's interval has gone since the last
+    /// write. A refused write is said once and tried again at the next time.
     fn save(&mut self, host: &Host<'_>, library: Option<&Library>, when: When) {
         let (true, Some(library)) = (self.unsaved, library) else {
             return;

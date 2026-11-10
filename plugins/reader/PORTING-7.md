@@ -269,3 +269,8 @@ relative to the data folder).
   used); a `page` number of the hand-over (needs the page index); a hand-over `root` other than the
   library's for the saved place's path; the status lines and the page index; the hosted end-to-end test
   of save and restore (needs a library host in the harness). Progress is not shown yet.
+- Review remarks of #1019, named: a close without a turn does not write the place (Beta 3 forced it;
+  here it would overwrite a place that could not be read); a stored place that cannot be read means
+  the start, and the first turn overwrites it (Beta 3 retried the read and set the old file aside); a
+  book of more than 4,096 sections writes progress 0; a book outside the catalog gets NOT_FOUND on
+  read and write, so it is "not saved" (said once).
