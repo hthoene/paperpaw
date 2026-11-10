@@ -873,6 +873,7 @@ impl BuilderParts {
             secrets_unreadable: false,
             pairing_nonce: None,
             plugin_defaults: Vec::new(),
+            late_device_defaults: Vec::new(),
             plugin_choices: Vec::new(),
             now: Instant::default(),
         }
@@ -1082,8 +1083,12 @@ impl Kernel {
             }
         }
         for (id, value) in device {
-            if let Err(error) = self.shared.settings.set_default_from_text(id, value) {
-                self.warn_runtime(format!("device default `{id}`: {error}"));
+            match self.shared.settings.set_default_from_text(id, value) {
+                Ok(()) => {}
+                // A native plugin declares its settings only once it is
+                // hosted, after this: kept for then (`apply_late_defaults`).
+                Err(paperpaw_sdk::SettingError::Unknown) => self.keep_device_default(id, value),
+                Err(error) => self.warn_runtime(format!("device default `{id}`: {error}")),
             }
         }
         for (plugin, id, value) in mem::take(&mut self.plugin_defaults) {
@@ -1114,6 +1119,40 @@ impl Kernel {
                 );
             }
         }
+    }
+
+    /// Keeps the device default of a setting nobody has declared yet.
+    fn keep_device_default(&mut self, id: &str, value: &str) {
+        let (mut own_id, mut own_value) = (String::new(), String::new());
+        if own_id.try_reserve_exact(id.len()).is_err()
+            || own_value.try_reserve_exact(value.len()).is_err()
+            || self.late_device_defaults.try_reserve(1).is_err()
+        {
+            self.warn_runtime(format!("device default `{id}`: no memory to keep it"));
+            return;
+        }
+        own_id.push_str(id);
+        own_value.push_str(value);
+        self.late_device_defaults.push((own_id, own_value));
+    }
+
+    /// The device defaults kept for settings a plugin declares since
+    /// (`keep_device_default`), set now that it has: a plugin published after
+    /// the kernel was built (a native one) gets the device's value as the
+    /// default, as a plugin of the first pass does. A value the user set
+    /// still wins, as for any default.
+    pub(crate) fn apply_late_defaults(&mut self) {
+        let mut waiting = mem::take(&mut self.late_device_defaults);
+        for (id, value) in &waiting {
+            if self.shared.settings.spec(id.as_str()).is_none() {
+                continue;
+            }
+            if let Err(error) = self.shared.settings.set_default_from_text(id, value) {
+                self.warn_runtime(format!("device default `{id}`: {error}"));
+            }
+        }
+        // Kept: a plugin removed and published again is given them again.
+        self.late_device_defaults.append(&mut waiting);
     }
 
     /// The language, night mode and colours the settings say.
