@@ -75,7 +75,7 @@ impl StatusAsk for StatusCalls<'_> {
     }
 }
 
-fn scratch(length: usize) -> Result<Vec<u8>, i32> {
+pub(super) fn scratch(length: usize) -> Result<Vec<u8>, i32> {
     let mut bytes = Vec::new();
     bytes.try_reserve_exact(length).map_err(|_| ERR_NO_MEMORY)?;
     bytes.resize(length, 0);

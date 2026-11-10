@@ -33,15 +33,28 @@ pub(crate) struct CoreFrame<'a> {
     pub(crate) callback: Option<CallbackStamp>,
     pub(crate) instance: Option<u32>,
     pub(crate) env: &'a Env<'a>,
-    pub(crate) meter: &'a crate::meter::Meter,
+    pub(crate) meter: &'a alloc::rc::Rc<crate::meter::Meter>,
     pub(crate) font_removals: &'a crate::native_host::font_removals::FontRemovals,
     pub(crate) registry_generation: &'a crate::native_host::registry_generation::RegistryGeneration,
     pub(crate) usage: &'a Usage,
     pub(crate) plugins: &'a Plugins,
     pub(crate) work: &'a WorkStates,
+    /// The device's `core.ui` service: the widget handles slot 35 resolves.
+    pub(crate) ui: Option<&'a crate::native_host::ui_service::UiServices>,
 }
 
 impl Frame for CoreFrame<'_> {
+    fn stage_run(
+        &self,
+        _caller_id: &str,
+        full_stage: &str,
+        cursor: u32,
+        input: &[u8],
+        out: &mut [core::mem::MaybeUninit<u8>],
+    ) -> Result<usize, i32> {
+        crate::native_host::stage_run::run(self, full_stage, cursor, input, out)
+    }
+
     fn caller(&self) -> Result<u64, i32> {
         self.callback
             .filter(|stamp| stamp.epoch != 0)
@@ -71,6 +84,10 @@ impl Frame for CoreFrame<'_> {
     fn callback_depth(&self) -> Result<u8, i32> {
         self.callback_epoch()?;
         self.depth.map(|depth| depth.current()).ok_or(ERR_STATE)
+    }
+
+    fn kernel_env(&self) -> Option<&Env<'_>> {
+        Some(self.env)
     }
 
     fn with_stack(
@@ -146,6 +163,25 @@ impl Frame for CoreFrame<'_> {
             .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
         visit(&*store);
         Ok(())
+    }
+
+    fn widget_call(
+        &self,
+        owner: u64,
+        token: u32,
+        payload: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, i32> {
+        crate::native_host::native_widget::call(self, owner, token, payload, out)
+    }
+
+    fn compose(
+        &self,
+        _caller_id: &str,
+        request: &super::context::ComposeRequest,
+        canvas: &mut paperpaw_graphics::Canvas<'_>,
+    ) -> Result<(), i32> {
+        crate::native_host::ui_compose_host::compose_in(self, request, canvas)
     }
 
     fn settings(&self) -> &Settings {

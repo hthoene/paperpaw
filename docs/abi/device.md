@@ -87,7 +87,7 @@ agree (a host test).
 | 8 | `wifi` | (none) | `dev_wifi` | radio state |
 | 9 | `networks` | `reg_query` | `dev_network`*, `end` | found networks, strongest first, at most 32 |
 | 10 | `bluetooth` | (none) | `dev_bluetooth` | radio state |
-| 11 | `bonded` | `reg_query` | `dev_bonded`*, `end` | bonded devices, at most 16 |
+| 11 | `bonded` | `reg_query` | `dev_bonded`*, `end` | bonded devices (the caller's), at most 16 |
 | 12 | `power` | `dev_interval` | `dev_power` | power level and mode; `every(base)` |
 | 13 | `install` | `dev_request` | `dev_install` | state of an install, removal, firmware or check request |
 | 14 | `not_installed` | `reg_query` | `dev_not_installed`*, `end` | plugins this start could not install, at most 32 |
@@ -159,7 +159,11 @@ agree (a host test).
   wanted, 2 busy), `dev_network` (`flags` bit 0 secured, 1 known: a password is stored, SEC),
   `dev_bluetooth`, `dev_bonded` (`flags` bit 0 connected, 1 remote keys on; `given` the plugin a
   sensor is handed to, shown only to the plugin bound to the host slot `core.bluetooth`, else
-  empty).
+  empty). Op 11 lists to each plugin only the devices given to it, and all of them to the plugin
+  bound to `core.bluetooth`, as interface 6's Bluetooth view did (#833); the caller is the one the
+  host resolved, at any depth. Wi-Fi, Bluetooth, bonded devices and the power mode (ops 8, 10, 11,
+  12) are read from the kernel's own state at each call, for every shell; the shell's host answers
+  the rest (the scan list, the power level, readings).
 - [D] `dev_power` (interface 6 `env.power()`): `level` 0 normal, 1 saving, 2 offline; `mode` the
   worn power mode (a REG preset id of kind `core.power-mode`, `registry.md` op 16); `flags` bit 0
   automatic, bit 1 online: plugins may use the network for their own work now (interface 6

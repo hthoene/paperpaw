@@ -145,7 +145,7 @@ native screens replace these callers.
 - The widgets on the widget stage, as Stats' (`native_widgets.rs`): the host call and the stage exist
   (Core todo 76 is done), so this is Vocabulary's own work, not a blocker.
 - The dictionary hand-off (tap a word) on `core.lookup` (#352, draft 23).
-- Marks in books (decorations): the decoration stage of interface 7 is not defined (Kernel).
+- Marks in books (`marks.rs`): **waits for the reader's decorations stage** (`reader.decorations@1`, to be defined with the reader port by Plugin Engineer; Kernel ruling, todo 334: parity stays, nothing is lost). The mark logic (which words, which role) stays ready behind it; Vocabulary subscribes when the stage exists.
 - Phone page (`phone.rs`): `core.net`/sockets, secrets (Services todo 79).
 - Card-folder files: done, see *Ported: the card files* below.
 
@@ -277,3 +277,18 @@ takes the kit's helpers (and, where it keeps its own keys, swaps left and right 
   allocation of a whole update refused in turn, with the decks still whole). Not tested (needs a host with `core.ui`,
   `core.files` and `core.work`): what the shell draws and the work callbacks.
 - Metadata: `core.files` and `core.work` join the services.
+
+## Ported: the words looked up (`native_collect.rs`, `stages_subscribed.rs`)
+
+- Vocabulary subscribes to the stage `reader.word-looked-up@1` (Plugin Engineer's, PR #791; `stages/subscribed/` holds
+  a copy of the schema, `tests/stages.rs` pins it equal to the reader's and the generated codec to it:
+  `python3 tools/stage-codec.py stages/subscribed src/stages_subscribed.rs`). The call carries the word, the sentence, the book's path,
+  the place (section, offset) and, where known, the language and the title; the reply is empty.
+- `native_collect::keep` (host-free) keeps the word as interface 6's `record` did: newest first, once, blanks are no word,
+  nothing where `vocabulary.collect` is off, and with `vocabulary.cards-from-lookups` a card is queued for the deck
+  *Looked up*. A word that could not be kept tells the reader (*The word could not be kept…*), as before. Tested in
+  `native_collect_tests.rs`, also with every allocation refused.
+- **The interface-6 handler of `core.word-looked-up` stays** until the interface-6 plugin goes (the interface-6 reader
+  still fires that event, and the native reader does not run the stage yet, so removing it now would collect nothing);
+  the marks, the interface-6 list and `tests/collecting.rs` use it. It goes with the interface-6 removal.
+- Not run against a host (hosted construction): that the reader's call reaches `word_looked_up`.
