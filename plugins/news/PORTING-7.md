@@ -2,7 +2,8 @@
 
 Version 1.0.10. Partial: the list of feeds, the library import and the headlines widget are native now; the
 interface-6 `News` and everything of it stays until the host activates native plugins (then it goes
-together, no shim). `tools/plugin-files7` builds and packs the native file for the X4;
+together, no shim). `tools/plugin-files7` builds and packs the native file for the X4
+(`news-1.0.10-x4.ppn`, 196,112 bytes: 157,540 code, 33,408 data; the packer accepts it, no frame over 2,048 B);
 it is not in `complete.txt` (a partial port). The page's read buffer is on the heap (a 2 KiB array
 made the frame 2,368 bytes, over the packer's limit of 2,048).
 
