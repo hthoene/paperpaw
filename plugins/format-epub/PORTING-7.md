@@ -7,3 +7,9 @@ Status: **not complete** (ticket #228). Skeleton: the plugin has its native entr
 one the app registers; the removal (native only, held until native activation) is a PR of its own per format.
 The plugin's texts (`i18n/`, `how/`) live here; the crate that has the interface-6 registration includes them.
 Version 1.0.5 (as the crate before the split; no further bump).
+
+## Gap: untitled books
+
+This is not a `siblings` format, so the opener gets an empty file name (root 3 is the book itself). A book with no
+title of its own (a comic book without `ComicInfo.xml`, an EPUB without a title) now has an empty title where
+Beta 3 used the file stem. The reader names such a book by its path (#1045); the library does the same.
