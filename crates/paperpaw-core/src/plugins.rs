@@ -567,6 +567,7 @@ impl Kernel {
         self.output
             .commands
             .push(events::MENU_CHANGED.emit(events::MenuChanged::new(menu.clone())));
+        self.native_registry_changed(crate::native_host::REGISTRY_MENUS);
     }
 
     /// Adds a font file of `plugin`, described by its header.

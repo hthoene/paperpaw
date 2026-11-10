@@ -362,3 +362,28 @@ fn the_preview_hint_is_one_pending_bit_that_keeps_the_order() {
     }
     assert_eq!(told, 16 + 5 + 1 + 1);
 }
+
+#[test]
+fn registry_and_preview_bits_are_held_while_all_sixteen_edges_are_held() {
+    let budget = EventBudget::try_new().unwrap();
+    let mut queue = budget.pending().unwrap();
+    for at in 0..16 {
+        raise(&mut queue, at);
+    }
+    assert_eq!(
+        queue.setting(17, "plugin.value", Ok(&[]), Readable),
+        Err(ERR_NO_SPACE)
+    );
+    // Bits need no edge room: none is lost to the full edge queue.
+    queue.registry(1 << 31);
+    queue.hint(wire::EVENT_PREVIEW_CHANGED_TAG).unwrap();
+    for at in 0..16 {
+        assert_eq!(edge_time(queue.take().unwrap()), at);
+    }
+    assert!(matches!(queue.take(), Some(Ready::Registry(0x8000_0000))));
+    assert!(matches!(
+        queue.take(),
+        Some(Ready::Hint(wire::EVENT_PREVIEW_CHANGED_TAG))
+    ));
+    assert!(queue.take().is_none());
+}

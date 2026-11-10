@@ -38,7 +38,7 @@ use super::{
 use crate::abi7::settings_visibility::{SettingIdentity, visibility};
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
-use paperpaw_native::host_glue::ERR_NO_MEMORY;
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY};
 use paperpaw_sdk::{Id, Settings, wifi::WifiState};
 
 /// The tag of the event.
@@ -326,7 +326,11 @@ impl crate::Kernel {
             wire::EVENT_POWER_CHANGED_TAG => Hint::Power(&shared.power),
             wire::EVENT_STATUS_CHANGED_TAG => Hint::Status,
             wire::EVENT_PREVIEW_CHANGED_TAG => Hint::Preview,
-            _ => Hint::Charge(ChargeState::from_status(&shared.status, None)),
+            wire::EVENT_CHARGE_CHANGED_TAG => {
+                Hint::Charge(ChargeState::from_status(&shared.status, None))
+            }
+            // Not a hint: nothing is encoded.
+            _ => return Err(ERR_INVALID),
         };
         // The longest is the power mode's id (128 bytes) and its fixed fields.
         bytes.try_reserve_exact(256).map_err(|_| ERR_NO_MEMORY)?;

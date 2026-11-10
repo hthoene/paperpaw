@@ -633,3 +633,17 @@ fn a_registry_bit_for_a_plugin_that_is_not_running_is_not_kept() {
             .is_empty()
     );
 }
+
+#[test]
+fn a_registry_bit_raised_while_the_queues_are_borrowed_is_dropped_without_a_panic() {
+    let mut w = world_with(REGISTRY);
+    let events = &w.kernel.shared.native_instances.setting_events;
+    {
+        let _held = events.queues.borrow_mut();
+        w.kernel.native_registry_changed(1);
+        w.kernel
+            .native_registry_dropped(&Id::try_parse("b").unwrap());
+    }
+    run(&mut w);
+    assert!(w.hints.borrow().is_empty());
+}

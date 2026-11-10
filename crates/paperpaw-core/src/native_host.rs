@@ -226,6 +226,8 @@ mod storage_slots;
 mod widget_events;
 mod work_pump;
 
+/// Bit 0 (`menus`) of `event.registry_changed`: menus and their item state.
+pub(crate) const REGISTRY_MENUS: u32 = 1;
 /// Every `what` bit of `event.registry_changed` (`registry.md` section 5): a
 /// change of the plugin set may change anything the registry holds.
 pub(crate) const REGISTRY_ALL: u32 = 0xFF;
