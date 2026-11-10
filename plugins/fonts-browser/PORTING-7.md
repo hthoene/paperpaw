@@ -131,3 +131,10 @@ not yet in `tools/plugin-files7/complete.txt`: list it when download, update and
   `discover_fonts_asks_for_the_restart_a_fonts_browser_waits_for`, `discover_fonts_offers_to_switch_a_switched_off_fonts_browser_on`,
   `larger_sizes_are_discovered_from_the_reading_settings`, `the_list_shows_what_fits_by_group`) are `#[ignore]`d: they need the browser registered.
 - *Your own fonts* does nothing natively until the reader can be opened with a handed page (above).
+
+## Notes for activation (Port Reviewer, #1058)
+
+- The native plugin has no `HOW`/`CATALOGS` statics, so `how/*.txt` is unused until the rule for plugin help texts is picked (as #996 to #999).
+- The store tests' `discovering(fonts, ...)` ignores its argument now: drop the parameter when the six tests return.
+- Put `fonts-browser` back into the app's `NETWORK_SETTINGS` (memory only).
+
