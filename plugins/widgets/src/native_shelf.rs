@@ -19,6 +19,8 @@ use paperpaw_ui_kit::{
 
 /// The target of a book: this and its index among those that show.
 pub const BOOK_TARGET: u32 = 0x4000_0000;
+/// The most places a layout makes.
+const MOST_PLACES: u32 = 64;
 /// The most targets a widget declares (a stage reply holds 32).
 const MOST_TARGETS: usize = 24;
 
@@ -127,7 +129,9 @@ pub fn places(
         let cell_h = (rows_h / rows).saturating_sub(u32::from(label));
         by_width.min(cell_h * 2 / 3)
     };
-    let n = u32::try_from(count).unwrap_or(u32::MAX);
+    // A library page lists at most 32 books: never more places than that.
+    let n = u32::try_from(count).unwrap_or(u32::MAX).min(MOST_PLACES);
+    let count = n as usize;
     let least = u32::from(least);
     // The columns and rows that make the covers largest, all of them shown
     // where they are not too small.
@@ -173,9 +177,9 @@ pub fn places(
         }
         return Ok(places);
     }
-    let shown = (columns * rows).min(n);
+    let shown = columns.saturating_mul(rows).min(n);
     let cover_w = u16::try_from(width).unwrap_or(u16::MAX);
-    let cover_h = u16::try_from(width * 3 / 2).unwrap_or(u16::MAX);
+    let cover_h = u16::try_from(width.saturating_mul(3) / 2).unwrap_or(u16::MAX);
     let step = cover_w.saturating_add(gap);
     let used_columns = u16::try_from(shown.min(columns)).unwrap_or(u16::MAX);
     let row_w = step.saturating_mul(used_columns).saturating_sub(gap);
@@ -656,7 +660,7 @@ mod tests {
         assert!(first.width > 0 && first.height == first.width * 3 / 2);
         // Four covers and three gaps, centred.
         let used = places.last().unwrap().cover.x + first.width - first.x;
-        assert!(first.x >= (area.width - used) / 2 - 1);
+        assert!(first.x + 1 >= area.width.saturating_sub(used) / 2);
         for pair in places.windows(2) {
             assert_eq!(pair[1].cover.x - (pair[0].cover.x + pair[0].cover.width), 8);
         }
