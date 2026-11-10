@@ -266,6 +266,7 @@ mod service_slots;
 pub(crate) mod setting_events;
 #[allow(dead_code, reason = "wired into the shell frame by the SOCK adapter")]
 pub(crate) mod sock_service;
+mod stack_events;
 #[allow(
     dead_code,
     reason = "the native stage.run host (#828) frames its replies with it"
