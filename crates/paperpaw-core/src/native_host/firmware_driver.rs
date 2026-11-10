@@ -140,6 +140,9 @@ pub(crate) struct Driver {
     grants: Option<Box<dyn InstallGrants>>,
     /// The running plugin job asked the user and waits for the answer.
     plugin_question: Option<PluginQuestion>,
+    /// The nonce of the confirmation that shows `plugin_question`: only an
+    /// answer that carries it is taken, once.
+    plugin_shown: Option<u128>,
     /// Ended, not yet delivered; room for every entry is reserved.
     ready: Vec<Outcome>,
     kept: Vec<Kept>,
@@ -177,6 +180,7 @@ impl Driver {
             plugin_host: None,
             grants: None,
             plugin_question: None,
+            plugin_shown: None,
             ready: Vec::new(),
             kept: Vec::new(),
             lost: 0,
@@ -344,6 +348,26 @@ impl Driver {
         self.plugin_question.as_ref()
     }
 
+    /// The open question the host has not shown yet.
+    pub(crate) fn peek_plugin_question(&self) -> Option<PluginQuestion> {
+        self.plugin_question.filter(|_| self.plugin_shown.is_none())
+    }
+
+    /// The host opened the confirmation of `question` with `nonce`.
+    pub(crate) fn plugin_question_shown(&mut self, nonce: u128, question: &PluginQuestion) {
+        if self.plugin_question.as_ref() == Some(question) && self.plugin_shown.is_none() {
+            self.plugin_shown = Some(nonce);
+        }
+    }
+
+    /// The confirmation of `question` could not be shown: it ends as
+    /// dismissed (reason 3), never as a yes.
+    pub(crate) fn plugin_question_dismissed(&mut self, question: &PluginQuestion) {
+        if self.plugin_question.as_ref() == Some(question) {
+            self.answer_plugin(question.owner, question.request, Answer::Dismissed);
+        }
+    }
+
     /// The user's answer to [`Self::plugin_question`]; `false` for a question
     /// that is not (or no longer) the open one.
     pub(crate) fn answer_plugin(&mut self, owner: u64, request: u32, answer: Answer) -> bool {
@@ -358,6 +382,7 @@ impl Driver {
             return false;
         };
         self.plugin_question = None;
+        self.plugin_shown = None;
         self.plugin_jobs[at].answer(answer);
         true
     }
@@ -498,6 +523,12 @@ impl Driver {
     /// The user's answer to the confirmation shown with `nonce`; any other
     /// nonce, or none shown, changes nothing.
     pub(crate) fn answer_shown(&mut self, nonce: u128, answer: Answer) -> Option<Event> {
+        if self.plugin_shown == Some(nonce)
+            && let Some(question) = self.plugin_question
+        {
+            self.answer_plugin(question.owner, question.request, answer);
+            return Some(Event::Quiet);
+        }
         let (shown, question) = self.shown?;
         if shown != nonce {
             return None;
@@ -509,6 +540,12 @@ impl Driver {
     /// The shown confirmation ends as dismissed (sleep); its nonce, so that
     /// the screen can be closed.
     pub(crate) fn dismiss_shown(&mut self) -> Option<u128> {
+        if let Some(nonce) = self.plugin_shown
+            && let Some(question) = self.plugin_question
+        {
+            self.answer_plugin(question.owner, question.request, Answer::Dismissed);
+            return Some(nonce);
+        }
         let (nonce, question) = self.shown.take()?;
         self.answer(question, Answer::Dismissed);
         Some(nonce)
@@ -798,7 +835,9 @@ impl Driver {
     /// waits for [`Self::due`], so the device may idle.
     pub(crate) fn has_work(&self, now: u64) -> bool {
         let held = self.blocked_until.is_some_and(|until| now < until);
-        if self.restart_wanted || self.running.is_some() || (!held && self.tell_pending()) {
+        // A job that waits for the user's answer has nothing to step.
+        let stepping = self.running.is_some() && self.plugin_question.is_none();
+        if self.restart_wanted || stepping || (!held && self.tell_pending()) {
             return true;
         }
         self.machine.try_borrow().map_or(true, |machine| {
@@ -921,6 +960,7 @@ impl Driver {
         // stays, aborted: [`Self::finish_stopped`] steps it on.
         // Nobody is left to answer.
         self.plugin_question = None;
+        self.plugin_shown = None;
         let mut running = None;
         if let Some((owner, request)) = self.running.take()
             && let Some(at) = self.plugin_at(owner, request)
@@ -1023,9 +1063,12 @@ impl Driver {
                 .entries
                 .iter()
                 .any(|entry| entry.owner == owner && !self.queue_has(entry));
+        // Its question goes with its sender (or with the job); a confirmation
+        // that shows it is closed by the caller.
+        let mut closed = None;
         if plugin_runs {
-            // Its question goes with its sender (or with the job).
             self.plugin_question = None;
+            closed = self.plugin_shown.take();
         }
         if plugin_runs
             && let Some((runs, request)) = self.running
@@ -1070,7 +1113,7 @@ impl Driver {
                 self.shown = None;
                 Some(nonce)
             }
-            _ => None,
+            _ => closed,
         }
     }
 

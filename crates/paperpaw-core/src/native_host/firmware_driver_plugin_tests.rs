@@ -93,6 +93,7 @@ impl PluginJob for Script {
             return match self.answered {
                 None => JobStep::Ask(question(self.owner, self.request)),
                 Some(Answer::Yes) => JobStep::Done(Finished::refused(job_reason::OK)),
+                Some(Answer::No) => JobStep::Done(Finished::refused(2)),
                 Some(_) => JobStep::Done(Finished::refused(3)),
             };
         }
@@ -140,6 +141,29 @@ fn question(owner: u64, request: u32) -> PluginQuestion {
             more: false,
         },
     }
+}
+
+/// An install-like job that asks the user once (`question`) and ends with
+/// reason 0 for a yes, 2 for a no and 3 for a dismissal.
+pub(crate) fn asking_job(owner: u64, request: u32) -> PluginJobs {
+    PluginJobs::Script(Script {
+        owner,
+        request,
+        kind: KIND_INSTALL,
+        steps: 1,
+        done: Finished::refused(job_reason::OK),
+        seen: Rc::default(),
+        must_finish: false,
+        keep: false,
+        asks: true,
+        answered: None,
+    })
+}
+
+/// The plugin host the kernel tests give `Kernel::builder`.
+pub(crate) fn kernel_host() -> (Loader, Offered<'static>) {
+    let host = host();
+    (host.loader, host.offered)
 }
 
 fn check_job(owner: u64, request: u32, steps: u32) -> (PluginJobs, Rc<Seen>) {

@@ -63,6 +63,8 @@ pub(crate) mod firmware_install;
     reason = "the queue's plugin seam wires the job (slice B2c-1 wiring after Core's queue enum); tests do today"
 )]
 pub(crate) mod plugin_check;
+#[path = "native_host/plugin_confirm.rs"]
+pub(crate) mod plugin_confirm;
 #[path = "native_host/plugin_folder.rs"]
 #[allow(dead_code, reason = "the plugin jobs use it; see plugin_check")]
 pub(crate) mod plugin_folder;
