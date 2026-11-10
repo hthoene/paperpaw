@@ -20,6 +20,8 @@ std::thread_local! {
     /// Calls announced to the shell, and how many are open now.
     static CALLS: Cell<u32> = const { Cell::new(0) };
     static OPEN: Cell<i32> = const { Cell::new(0) };
+    /// The shell refuses every call (`Hooks::call_begin` answers `false`).
+    static REFUSE: Cell<bool> = const { Cell::new(false) };
     /// Host slots the shell announced on this thread, and how many are open.
     static SLOTS: Cell<u32> = const { Cell::new(0) };
     static SLOTS_OPEN: Cell<i32> = const { Cell::new(0) };
@@ -143,6 +145,7 @@ fn reset(mode: u8) {
     MAKES.with(|m| m.set(0));
     CALLS.with(|c| c.set(0));
     OPEN.with(|o| o.set(0));
+    REFUSE.with(|r| r.set(false));
     UNCOVERED.with(|u| u.set(0));
     EVENT_ONLY.with(|e| e.set(false));
     TICKS_TOO.with(|e| e.set(false));
@@ -663,9 +666,13 @@ mod instance_tests {
     fn teardown_failed(_: &str, _: super::super::super::Error) {
         log("teardown_failed");
     }
-    fn begin(_: &str) {
+    fn begin(_: &str) -> bool {
+        if REFUSE.with(Cell::get) {
+            return false;
+        }
         CALLS.with(|c| c.set(c.get() + 1));
         OPEN.with(|o| o.set(o.get() + 1));
+        true
     }
     fn end(_: &str) {
         OPEN.with(|o| o.set(o.get() - 1));
@@ -679,7 +686,7 @@ mod instance_tests {
             call_end: end,
         }
     }
-    fn load() -> Result<Instance<Heap, Module>, Error> {
+    pub(super) fn load() -> Result<Instance<Heap, Module>, Error> {
         load_with(crate::native_host::HostResources::try_new().unwrap())
     }
     /// With the device's table made beforehand (a test that fails the nth
@@ -915,7 +922,7 @@ mod instance_tests {
     }
 
     /// Points at the hosted plugin that `a_release_that_stays_busy...` keeps for good.
-    static KEPT_OWNER: core::sync::atomic::AtomicPtr<u8> =
+    pub(super) static KEPT_OWNER: core::sync::atomic::AtomicPtr<u8> =
         core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
     #[test]
@@ -1459,3 +1466,6 @@ mod stage_broker_native;
 
 #[path = "native_screen_install_tests.rs"]
 mod native_screen_install;
+
+#[path = "shell_refuse_tests.rs"]
+mod refuse;
