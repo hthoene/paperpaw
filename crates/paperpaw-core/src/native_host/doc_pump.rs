@@ -31,6 +31,7 @@ const fn wait(failures: u8) -> u64 {
 impl crate::Kernel {
     /// One step of the preparing loop; `true` while more are to be made
     /// (see the module).
+    #[inline(never)]
     pub(crate) fn native_doc_pump(&mut self) -> bool {
         let instances = &self.shared.native_instances;
         // Waiting for its time after a step that could not be made.

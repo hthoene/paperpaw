@@ -186,6 +186,7 @@ impl DocState {
     }
 
     /// One step of the preparing loop (see the module).
+    #[inline(never)]
     pub(super) fn prepare_next(&self, hosts: &HostServices, route: &dyn Route) -> PrepareStep {
         let Some(document) = self.table.next_preparing(self.last_prepared.get()) else {
             return PrepareStep::Idle;
@@ -228,6 +229,7 @@ impl DocState {
         }
     }
 
+    #[inline(never)]
     fn prepare_one(
         &self,
         hosts: &HostServices,
