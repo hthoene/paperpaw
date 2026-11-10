@@ -217,7 +217,14 @@ and leaves the old layout (see *Add*). The page is laid out anew from the settin
   names, as before. The tests drive the page logic with a scripted stage (compose, refusals, and
   the all-`Unsupported` host). **Not covered without a real host:** the drawing and composition
   themselves (the scripted host has no screen stack or slot 35), and on the X4 the instances of
-  one page (at most the cells that fit) and the measuring at open.
+  one page (at most the cells that fit) and the measuring at open: every widget of the kind is
+  made, measured and dropped in one callback, with two 4 KiB buffers for each `make`, which goes on
+  the X4 measurement list (heap peak and time). The gallery's draw (header, names, frames,
+  composition, the text rows, a page turn) is a case of the activation list (`home-add`, ignored
+  until H1 gives the screen a stack and slot 35 is wired). One cell is silently left without its
+  text row where the bookkeeping of the cells that failed cannot grow (`Gallery::compose`): the
+  rest of the page still shows, nothing panics. The draw path's stack frames are checked against
+  the X4 budget with the plugin build (`tools/plugin-files/build.sh x4`, see the PR).
 - The kind rows are named by the catalog key the registry gives; a kind without a translation shows
   the key.
 - At a show the focus is drawn only if `home.focus-at-once` is on **and** the last input was by buttons
