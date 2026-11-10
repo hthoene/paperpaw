@@ -172,7 +172,7 @@ mod linked {
                 entry_bytes: 32,
             },
             services: offered(),
-            features: FEATURES,
+            features: super::FEATURES,
         };
         // SAFETY: the offered services are the ones wired above, and the plugins are the app's
         // linked ones, as the helper's contract says.
