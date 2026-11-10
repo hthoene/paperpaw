@@ -70,7 +70,9 @@ interface-7 port uses it, none builds its own.
   library where there is none. Differences: which books are new is the catalog's (`Show::New`: added
   lately and never opened), so the interface-6 files `seen.bits` and `newest.txt` are gone and the
   first run after porting finds no "newest" backlog; the chance picks among the first page of the
-  unread books (at most 32) the day's lowest scores, the first whose file is on the card.
+  unread books (at most 32) the day's lowest scores, the first whose file is on the card. The series pick
+  skips a book once it is opened (the catalog's `opened()`), where Beta 3 counted a book as begun only with
+  a progress above 0.
 - Book progress (`native_progress`, token 119; shares `native_block` with Next up and `native_current` with
   Reading): the book being read is the one the library lists as opened last whose file is on the card
   (read once per catalog generation, up to 8 candidates). Styles: cover beside a ring, ring round a small
@@ -86,7 +88,9 @@ interface-7 port uses it, none builds its own.
   end: pending on Kernel's `chapter_left` field of `ReadingView`. The setting `chapter-left` stays declared
   (it does nothing for now) and its texts stay in the catalogs, so the line comes back without a settings change; the chapter's
   title stays on one line, shortened, where interface 6 broke it in several; the title is set in the
-  space the other parts leave. Host acceptance (the reading events delivered to this plugin, H1/H3) is pending.
+  space the other parts leave. The plugin is woken on every page turn (it subscribes to the reading events to record
+  them): put it on the X4 page-turn timing list (unmeasured). If Kernel's `chapter_left` (todo 446) misses
+  1.0, drop the inert `chapter-left` setting. Host acceptance (the reading events delivered to this plugin, H1/H3) is pending.
 
 ## Not ported yet (explicit)
 
