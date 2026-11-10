@@ -171,3 +171,20 @@ fn the_sleep_screen_is_offered_below_the_sleep_plugins_own_and_chosen_by_sleep_s
         "{all}"
     );
 }
+
+/// A widget that `previews` a settings group is made for that group's settings
+/// page and never offered in the Add picker (`registry.md`, op 19). Beta 3's
+/// *Reading cat* declared none, so it stays pickable.
+#[test]
+fn the_widget_previews_no_settings_group() {
+    let mut seen = 0;
+    for batch in batches(|sink| declarations::widgets(&mut Declarations::new(sink))) {
+        for record in records_decode(&batch).unwrap().iter() {
+            if let Record::WidgetSpec(spec) = record {
+                assert_eq!(spec.previews, "", "{}", spec.name);
+                seen += 1;
+            }
+        }
+    }
+    assert_eq!(seen, 1);
+}

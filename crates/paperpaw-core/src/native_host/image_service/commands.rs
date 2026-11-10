@@ -96,10 +96,11 @@ impl ImageAdmit {
             return Err(ERR_UNSUPPORTED);
         }
         checked(path)?;
-        // Root 1 never reaches the install folders or the kernel's folder.
+        // Root 1 never reaches the install folders, the kernel's folder or its
+        // settings file.
         if root == 1 {
             let first = path.split('/').next().unwrap_or_default();
-            if first.eq_ignore_ascii_case("plugins") || first.eq_ignore_ascii_case(".paperpaw") {
+            if super::super::owner_paths::protected_first(first) {
                 return Err(ERR_INVALID);
             }
         }

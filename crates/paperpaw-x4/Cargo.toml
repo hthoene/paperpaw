@@ -28,9 +28,8 @@ paperpaw-sdk = { workspace = true, features = ["kernel"] }
 [dev-dependencies]
 # The tests of `generation` on smoltcp's own socket set, as the firmware uses it.
 smoltcp = { version = "0.12", default-features = false, features = ["medium-ethernet", "proto-ipv4", "socket-udp", "alloc"] }
-# The whole update path (`tests/update_path.rs`): the update plugin on the
-# kernel, update files signed and checked, images as espflash makes them.
-paperpaw-plugin-update.workspace = true
+# The whole update path (`tests/update_path.rs`): update files signed and
+# checked, images as espflash makes them, the kernel running on them.
 paperpaw-plugin-fonts-default.workspace = true
 # English hyphenation on the card at the first start (`tests/update_path.rs`).
 paperpaw-default-packs.workspace = true

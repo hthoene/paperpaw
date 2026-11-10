@@ -21,7 +21,14 @@ fn construct() -> Result<(), String> {
     hosted::try_construct(
         paperpaw_plugin_update::NATIVE_ENTRY.entry(),
         "update",
-        &["core.device", "core.files", "core.ui"],
+        &[
+            "core.device",
+            "core.files",
+            "core.net",
+            "core.registry",
+            "core.ui",
+            "core.work",
+        ],
     )
 }
 
