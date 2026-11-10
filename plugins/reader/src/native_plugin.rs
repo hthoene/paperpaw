@@ -168,8 +168,8 @@ impl NativeReader {
         };
         let (handled, outcome) = view.input(host, self.library.as_ref(), input)?;
         if let NotesOutcome::Go(place) = outcome {
-            if let (Some(reading), Some(docs)) = (self.screens.top(SCREEN), &self.docs) {
-                reading.go_to(host, docs, (place.section, place.offset))?;
+            if let Some(reading) = self.screens.top(SCREEN) {
+                reading.go_to((place.section, place.offset))?;
                 if reading.take_turned() {
                     self.start_quiet(host);
                 }
