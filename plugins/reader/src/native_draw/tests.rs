@@ -66,7 +66,7 @@ impl Ink for Recorder {
             return Err(Error::State);
         }
         self.calls.push((role, x as i32, baseline, text.into()));
-        Ok(Fixed.width(role, size, text)?)
+        Fixed.width(role, size, text)
     }
 }
 

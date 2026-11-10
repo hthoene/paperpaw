@@ -46,7 +46,8 @@ pub fn draw_lines<M: Measure>(
     (left, top): (f32, f32),
 ) -> Result<(), Error> {
     for line in &page.lines {
-        let baseline = (top + line.baseline).round() as i32;
+        // Rounded to the row (the page is below the top of the screen: never negative).
+        let baseline = (top + line.baseline + 0.5) as i32;
         let mut x = left + line.x;
         for run in &line.runs {
             let Some(text) = line.text.get(run.start..run.end) else {
