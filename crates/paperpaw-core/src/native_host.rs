@@ -214,6 +214,7 @@ pub(crate) mod dialog_pump;
 pub(crate) mod dialogs;
 pub(crate) mod doc_cache;
 pub(crate) mod doc_host;
+pub(crate) mod doc_reading;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
 pub(crate) mod event_call;
@@ -270,6 +271,7 @@ pub(crate) mod net_service;
 mod network_demand;
 pub(crate) mod owner_paths;
 pub(crate) mod paths_in_use;
+mod reading_events;
 pub(crate) mod save_files;
 pub(crate) mod service_events;
 mod service_pump;
