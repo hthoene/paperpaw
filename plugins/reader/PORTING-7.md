@@ -108,3 +108,18 @@ relative to the data folder).
   the subscriber (aids) must validate its setting against the reply size (named there as a settings
   validation); the reader drops a reply that is invalid whole.
 
+
+## The native entry (slice 2)
+
+- `NATIVE_ENTRY` (feature `linked`; `native-entry` for the packed form), `src/native_plugin.rs`,
+  `build.rs` (the batches of `declarations.rs` built into the image: settings, screens, navigation
+  with the six `slot.offer`s, keys, hold keys, events, stages) and `native/metadata*` (regenerate with
+  `python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json --bytes
+  native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.host.*`).
+- `make` submits the seven groups; the events are heard and ignored; an opened screen draws nothing
+  (`Error::State`). **The plugin is not in `paperpaw_app::NATIVE_PLUGINS`**: with no view the
+  screens it offers would be empty. The views come next: the annotations screen (model in
+  `native_annotations.rs`), then TOC, skim, search, footnote and the reading screen with the
+  document host.
+- Metadata asks `core.ui` and no features yet; it grows with the views (storage for the last book,
+  `core.library` for annotations, `core.files` for the export).
