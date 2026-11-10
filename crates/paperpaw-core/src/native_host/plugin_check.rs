@@ -23,7 +23,7 @@
 //!
 //! A check says what an install would end with at that moment; the install
 //! checks again. It reads only: a cut changes nothing.
-use alloc::{string::String, vec::Vec};
+use alloc::{boxed::Box, string::String, vec::Vec};
 use paperpaw_native::{
     header5::{HEADER_LEN, Header5, Refusal},
     metadata,
@@ -39,6 +39,7 @@ use super::plugin_job::{
     PluginFacts, PluginJob, io_buffer, reason,
 };
 use super::plugin_trust;
+use super::shared::try_box;
 
 /// The code file this device reads (`CODE_FILES[0]`).
 const CODE: &str = "code.ppn";
@@ -74,7 +75,9 @@ pub(crate) struct PluginCheck {
     size: u64,
     signature: Option<Signature>,
     sha: Option<Sha256>,
-    check: Option<SignatureCheck>,
+    // Boxed: the running hash is the job's biggest part, and the job is moved
+    // by value (a frame on the X4 holds 2 KiB).
+    check: Option<Box<SignatureCheck>>,
     at: u64,
     /// The code's header digest, once it held.
     digest: Option<[u8; 32]>,
@@ -279,6 +282,9 @@ impl PluginCheck {
                 return self.end(reason::DAMAGED);
             };
             check.absorb(&self.buf[..HEADER_LEN]);
+            let Some(check) = try_box(check) else {
+                return self.end(reason::OTHER);
+            };
             self.check = Some(check);
             self.signature = Some(signature);
         }
@@ -405,8 +411,8 @@ impl PluginCheck {
 /// Whether the signature holds for everything absorbed: the heavy step, in
 /// a frame of its own.
 #[inline(never)]
-fn signature_holds(check: SignatureCheck) -> bool {
-    check.finish().is_ok()
+fn signature_holds(check: Box<SignatureCheck>) -> bool {
+    (*check).finish().is_ok()
 }
 
 impl PluginJob for PluginCheck {

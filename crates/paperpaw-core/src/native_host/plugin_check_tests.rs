@@ -1024,3 +1024,13 @@ fn the_facts_slot_is_not_much_larger_than_a_firmware_check_s() {
     assert!(plugin <= 320, "{plugin}");
     assert!(plugin <= firmware + 96, "{plugin} against {firmware}");
 }
+
+#[test]
+fn the_job_is_small_enough_to_pass_by_value_on_the_x4() {
+    // Frames hold 2 KiB there; the running signature hash lives in a box.
+    assert!(
+        core::mem::size_of::<PluginCheck>() <= 1024,
+        "{} bytes",
+        core::mem::size_of::<PluginCheck>()
+    );
+}
