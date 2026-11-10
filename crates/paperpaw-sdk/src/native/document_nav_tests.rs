@@ -320,11 +320,12 @@ fn links_of_a_span_read_as_typed_links_and_a_bad_span_sends_nothing() {
     ));
     drop(bytes);
     let calls = state.calls.get();
+    let (from, to) = (9, 3);
     assert_eq!(
         docs.links(
             &host,
             DOC,
-            DocSpan::new(1, 9..3),
+            DocSpan::new(1, from..to),
             DocCursor::start(),
             &mut input,
             &mut out
@@ -394,6 +395,10 @@ fn text(part: &str) -> Record<'_> {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one fragment walks every record kind in wire order"
+)]
 fn a_whole_block_in_one_fragment_reads_as_typed_records_in_order() {
     setup!(table, state, host, docs);
     let (mut input, mut out) = ([0; 256], [0; 4096]);
