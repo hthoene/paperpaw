@@ -206,3 +206,67 @@ fn the_hosts_refusal_is_the_calls_status_and_a_short_command_scratch_sends_nothi
     );
     assert_eq!(ctx.batches.borrow().len(), calls);
 }
+
+#[test]
+fn label_and_badge_arguments_both_fit_the_documented_512_byte_scratch() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 256];
+    let mut args = [0; 512];
+    let label = [
+        Arg::Count(2),
+        Arg::Text {
+            name: "who",
+            value: "me",
+        },
+    ];
+    let badge = [Arg::Int {
+        name: "n",
+        value: 7,
+    }];
+    CommandSender::new(&host, &mut scratch)
+        .set_item_state(
+            "update.check",
+            &ItemState::new()
+                .label("a.title", &label)
+                .badge("a.badge", &badge),
+            &mut args,
+        )
+        .unwrap();
+    let batches = ctx.batches.borrow();
+    let decoded = wire::commands_decode(&batches[0]).unwrap();
+    let Some(wire::Command::SetItemState {
+        label_args,
+        badge_args,
+        ..
+    }) = decoded.iter().next()
+    else {
+        panic!("not an item state");
+    };
+    assert!(!label_args.is_empty() && !badge_args.is_empty());
+    // A batch over 256 bytes of one list is NoSpace, not a cut one.
+    drop(batches);
+    let text = "x".repeat(200);
+    let big = [
+        Arg::Text {
+            name: "a",
+            value: &text,
+        },
+        Arg::Text {
+            name: "b",
+            value: &text,
+        },
+    ];
+    assert_eq!(
+        CommandSender::new(&host, &mut scratch).set_item_state(
+            "update.check",
+            &ItemState::new().label("a.title", &big),
+            &mut args
+        ),
+        Err(Error::NoSpace)
+    );
+}

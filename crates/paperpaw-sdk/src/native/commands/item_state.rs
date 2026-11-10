@@ -1,7 +1,7 @@
 //! `command.set_item_state` (60): what menus show of one of the plugin's own
 //! actions or settings (`docs/abi/screens-input.md` 3.1).
 use super::{CommandSender, Error, check_id, wire};
-use crate::native::formatting::{Arg, MAX_ARGUMENT_BYTES, encode_args};
+use crate::native::formatting::{Arg, encode_args};
 
 /// What a menu shows of one item: faint, hidden, a switch, another label or a
 /// badge. The default state removes the item's state.
@@ -87,8 +87,8 @@ impl CommandSender<'_, '_> {
     /// Stage the state a menu shows for `item`, one of the submitting plugin's
     /// own actions or settings, relative to the plugin. The state replaces the
     /// item's whole state; the default state removes it, the kept copy included.
-    /// `arg_scratch` holds the encoded arguments of the label and the badge,
-    /// at most 512 bytes of it.
+    /// `arg_scratch` holds the encoded arguments of the label (its first 256
+    /// bytes) and of the badge (the next 256): 512 bytes hold both.
     ///
     /// # Errors
     /// Invalid for an empty item, an overlong one or a catalog key over 128
@@ -115,16 +115,10 @@ impl CommandSender<'_, '_> {
             }
         }
         let (label_room, badge_room) =
-            arg_scratch.split_at_mut(arg_scratch.len().min(MAX_ARGUMENT_BYTES));
+            arg_scratch.split_at_mut(arg_scratch.len().min(wire::COMMAND_MAX_ITEM_ARGS_BYTES));
         // No arguments is no bytes (the wire says "empty for none").
         let label_len = batch(state.label_args, label_room)?;
         let badge_len = batch(state.badge_args, badge_room)?;
-        // Each batch is at most `COMMAND_MAX_ITEM_ARGS_BYTES` on the wire.
-        if label_len > wire::COMMAND_MAX_ITEM_ARGS_BYTES
-            || badge_len > wire::COMMAND_MAX_ITEM_ARGS_BYTES
-        {
-            return Err(Error::NoSpace);
-        }
         self.submit(wire::Command::SetItemState {
             item,
             flags: state.flags,
