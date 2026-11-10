@@ -37,6 +37,7 @@ mod look;
 mod native_card;
 mod native_check;
 mod native_entry;
+mod native_online;
 /// The interface-7 plugin.
 pub mod native_plugin;
 pub mod native_update;
@@ -321,12 +322,24 @@ mod tests {
     fn the_native_page_names_only_texts_that_exist() {
         let en = Catalog::parse(include_str!("../i18n/en.ini")).unwrap();
         let de = Catalog::parse(include_str!("../i18n/de.ini")).unwrap();
-        // Ids of the page and the actions, which are no texts.
-        let ids = ["update.open", "update.check", "update.page"];
+        // Ids of the page, the actions, the settings and the work, which are no texts.
+        let ids = [
+            "update.open",
+            "update.check",
+            "update.page",
+            "update.server",
+            "update.look",
+            "update.betas",
+            "update.look-due",
+            "update.check-due",
+        ];
         let mut seen = 0;
         for source in [
             include_str!("native_plugin.rs"),
+            include_str!("native_plugin/online.rs"),
+            include_str!("native_plugin/fetch.rs"),
             include_str!("native_card.rs"),
+            include_str!("native_online.rs"),
         ] {
             for piece in source.split("\"update.").skip(1) {
                 let Some((name, _)) = piece.split_once('"') else {
@@ -337,8 +350,16 @@ mod tests {
                     continue;
                 }
                 seen += 1;
-                assert!(en.get(&key).is_some(), "{key} is not in en.ini");
-                assert!(de.get(&key).is_some(), "{key} is not in de.ini");
+                // A message with a count is kept as its `.one` and `.other`.
+                let one = alloc::format!("{key}.one");
+                assert!(
+                    en.get(&key).is_some() || en.get(&one).is_some(),
+                    "{key} is not in en.ini"
+                );
+                assert!(
+                    de.get(&key).is_some() || de.get(&one).is_some(),
+                    "{key} is not in de.ini"
+                );
             }
         }
         assert!(seen > 20, "{seen}");

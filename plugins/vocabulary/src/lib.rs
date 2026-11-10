@@ -78,10 +78,15 @@ mod native_review_screen;
 )]
 mod native_sd;
 mod native_sd_shell;
+mod native_sleep_card;
 #[allow(
     dead_code,
     reason = "used by the native screens, which wait (PORTING-7.md)"
 )]
+mod native_widget_due;
+mod native_widget_saved;
+mod native_widget_word;
+mod native_widgets;
 mod native_words;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;

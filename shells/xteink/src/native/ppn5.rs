@@ -98,7 +98,7 @@ fn refused(path: &str, head: &[u8], why: Refusal) -> PluginProblem {
 /// [module documentation](self)). `place` puts the image where it runs.
 pub fn load(
     place: &mut super::Place,
-    depth: &mut Option<FlatDepth>,
+    depth: &FlatDepth,
     resources: &mut Option<HostResources>,
     device: &alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
     storage: &dyn Storage,
@@ -455,8 +455,10 @@ mod x4 {
             services: shell::DATA_SERVICES,
             features: X4_FEATURES,
         };
-        // The loader's own table of handles (one for the device), not a second.
-        let (Ok(depth), Some(resources)) = (FlatDepth::try_new(), table.share()) else {
+        // The loader's own table of handles and callback-depth counter (one of
+        // each for the device), not a second: the kernel refuses a plugin that
+        // brings another counter.
+        let (Some(depth), Some(resources)) = (table.depth(), table.share()) else {
             return;
         };
         for (id, linked) in paperpaw_app::NATIVE_PLUGINS.iter() {
@@ -598,13 +600,20 @@ mod x4 {
         header: &Header5,
         placed: &crate::native::Placed5,
         make: u32,
-        depth: &mut Option<FlatDepth>,
+        depth: &FlatDepth,
         resources: &mut Option<HostResources>,
         device: &alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
         declared_services: shell::DeclaredServices,
         started: u64,
     ) -> Result<Box<dyn Plugin>, PluginProblem> {
         let id = code.id.as_str();
+        // The device's one counter, a counted share of it, taken before anything
+        // is made: the core's `into_plugin` then never makes a counter of its own
+        // (the kernel refuses a plugin that brings another).
+        let Some(depth) = depth.try_clone() else {
+            return Err(PluginProblem::NoRoom);
+        };
+        let mut depth = Some(depth);
         // Plugin calls into the host's slots are told to the record of calls,
         // so the Power-hold escape never blames a plugin for waiting on the host.
         paperpaw_core::native_host::host_slot::set(
@@ -693,7 +702,7 @@ mod x4 {
         // fallible, a full heap is `NoRoom`, never an abort. A refusal drops
         // the instance exactly once.
         let plugin = instance
-            .into_plugin(manifest, depth, code.host)
+            .into_plugin(manifest, &mut depth, code.host)
             .map_err(|why| {
                 warn!("native: {id}: format 5: {why:?}");
                 match why {

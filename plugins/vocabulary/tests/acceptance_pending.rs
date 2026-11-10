@@ -35,7 +35,9 @@ const LOOKUP: Case = Case {
 const WIDGETS: Case = Case {
     name: "vocabulary-widgets",
     golden: None,
-    blocked_by: &["the port of the widgets on the widget stage (Vocabulary's own, as Stats')"],
+    blocked_by: &[
+        "a scripted host that measures and draws a widget with fonts and the cards (hosted construction, #944)",
+    ],
 };
 /// The words marked in books of their language.
 const MARKS: Case = Case {
@@ -73,7 +75,9 @@ const WORD_LIST_ACTIONS: Case = Case {
 const SLEEP: Case = Case {
     name: "vocabulary-sleep-card",
     golden: None,
-    blocked_by: &["sleep and wake stages"],
+    blocked_by: &[
+        "a scripted host that shows the sleep slot and wakes (hosted construction, #944)",
+    ],
 };
 
 #[test]
@@ -115,7 +119,7 @@ fn a_tapped_word_is_looked_up_again() {
 }
 
 #[test]
-#[ignore = "BLOCKED Core todo 76 and #366: the widget host call and the widget toolkit"]
+#[ignore = "BLOCKED a scripted host that measures and draws a widget (hosted construction #944): the widgets are native (native_widgets.rs); made, dropped and declared are tested in tests/scripted_widgets.rs"]
 fn the_widgets_show_a_word_and_the_cards_due() {
     WIDGETS.refuse().unwrap();
 }
@@ -145,7 +149,7 @@ fn a_word_is_gone_to_in_its_book_and_the_list_is_exported() {
 }
 
 #[test]
-#[ignore = "BLOCKED sleep/wake stages: the front of the next card asleep, answered on waking (sleep.rs)"]
+#[ignore = "BLOCKED a scripted host that shows the sleep slot and wakes (hosted construction #944): the pick of the card is native_sleep_card (tested), the offer is declared (tests/declarations.rs)"]
 fn a_flash_card_due_is_the_sleep_screen_and_review_opens_on_waking() {
     SLEEP.refuse().unwrap();
 }
