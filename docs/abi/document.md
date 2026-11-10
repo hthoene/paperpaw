@@ -298,7 +298,8 @@ The reader tells the host where the user is reading; the host turns it into the 
   reader knows the end of). The reply is empty; the status is the call's.
 - [D] **Checks** (`ERR_INVALID`, nothing raised, the session as it was): `progress_ppm` above
   1,000,000; `page` without `pages` or the reverse, a `page` of 0 or past `pages`; `chapter_left`
-  without `page` and `pages`, or above `pages - page`; `section` not below the document's section
+  without `page` and `pages`, with an empty `chapter` (no chapter to count down), or above
+  `pages - page`; `section` not below the document's section
   count; an unknown `flags` bit. Another plugin's document is `ERR_DENIED`, a closed one
   `ERR_CANCELLED` (section 2.1). Text that is not UTF-8 is `ERR_UTF8`.
 - [D] **Which documents.** Only a book of the library raises book events: a document opened on
