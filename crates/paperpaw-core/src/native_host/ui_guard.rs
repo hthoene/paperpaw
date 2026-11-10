@@ -93,7 +93,9 @@ pub(crate) fn guard_owner(view: &dyn UiStackView) -> Option<u64> {
 /// Index of the instance that gets keys and pointers. Without a guard that is
 /// the top; with one it is the topmost instance that is not the host's own
 /// screen for a device state: the sleep screen shows above the guard but "gets
-/// no input while the guard is up" (section 4.3).
+/// no input while the guard is up" (section 4.3). A host screen that guards
+/// itself (the firmware confirmation, `device.md` 5.0) is the input target:
+/// no plugin filter, binding or raised input reaches it.
 pub(crate) fn input_index(view: &dyn UiStackView) -> Option<usize> {
     if invalid_view(view) {
         return None;
@@ -104,7 +106,7 @@ pub(crate) fn input_index(view: &dyn UiStackView) -> Option<usize> {
     }
     (0..=last)
         .rev()
-        .find(|&i| view.row(i).is_some_and(|r| !r.host))
+        .find(|&i| view.row(i).is_some_and(|r| !r.host || r.guards))
 }
 
 fn top(view: &dyn UiStackView) -> Option<Row> {
@@ -183,20 +185,25 @@ pub(crate) fn open_allowed(view: &dyn UiStackView, from: Option<u32>) -> Result<
 }
 
 /// Whether the `core.input-filter` subscriber `filter_plugin` is called for
-/// the next input. While the top instance is secret, only the filters of its
-/// own plugin and of the topmost guard's plugin run (sections 1.2 and 4.3: with
-/// a guard up that is the guard's plugin, beside the top guard dialog's plugin).
-/// Others are skipped, not called.
+/// the next input. With a guard up only two filters run (sections 1.2 and 4.3):
+/// the guard's plugin's, and the filter of the plugin that owns the top
+/// instance when that instance is the dialog the host opened for the guard's
+/// own question (secret or not: the keyboard above the lock needs its hardware
+/// keyboard and typed text for any question). No filter runs for any other
+/// row. Without a guard, while the top instance is secret only its own
+/// plugin's filter runs. Others are skipped, not called.
 pub(crate) fn filter_runs(view: &dyn UiStackView, filter_plugin: u64) -> bool {
     if filter_plugin == 0 || invalid_view(view) {
         return false;
     }
-    // A guard makes the instance on top secret (it guards, or lies above the
-    // guard), so one rule covers both.
-    let Some(top_row) = top(view).filter(|_| top_is_secret(view)) else {
-        return true;
-    };
-    top_row.owner == filter_plugin || guard_owner(view) == Some(filter_plugin)
+    if let Some(guard) = guard_owner(view) {
+        return guard == filter_plugin
+            || top(view).is_some_and(|r| r.guard_dialog && r.owner == filter_plugin);
+    }
+    match top(view).filter(|_| top_is_secret(view)) {
+        Some(top_row) => top_row.owner == filter_plugin,
+        None => true,
+    }
 }
 
 /// A binding in the slot or global key layer that names another plugin's

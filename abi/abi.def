@@ -2348,6 +2348,15 @@
           "ordinal": null,
           "default": null,
           "max_bytes": 128
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 1,
+          "optional": true,
+          "ordinal": 0,
+          "default": 0,
+          "max_bytes": 0
         }
       ]
     },
@@ -12078,6 +12087,15 @@
         },
         {
           "name": "recovery",
+          "type": "bytes",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 32
+        },
+        {
+          "name": "sha256",
           "type": "bytes",
           "since": 1,
           "optional": false,

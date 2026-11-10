@@ -77,9 +77,16 @@ impl Shown {
     /// The grid of a screen on its side.
     #[must_use]
     pub fn wide_grid(&self) -> Geometry {
+        self.grid(true)
+    }
+
+    /// The grid of a screen on its side (`wide`) or one upright, whichever the
+    /// screen is now.
+    #[must_use]
+    pub fn grid(&self, wide: bool) -> Geometry {
         dash::frame(
             &self.metrics,
-            true,
+            wide,
             self.src.status_bar(),
             self.columns,
             self.src.rows,

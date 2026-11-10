@@ -38,8 +38,11 @@ mod link;
 mod native_draw;
 mod native_entry;
 mod native_files;
+mod native_install;
+mod native_install_host;
 mod native_key;
 mod native_page;
+mod native_phone;
 /// The interface-7 plugin.
 pub mod native_plugin;
 pub mod native_transfer;
