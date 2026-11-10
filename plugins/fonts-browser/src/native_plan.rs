@@ -2,7 +2,7 @@
 //! downloaded where (each saved by `core.net` to this plugin's data folder,
 //! then checked against its SHA-1), and the folder the host is told to
 //! install (`command.install_plugin`, root 0). The same rules as the
-//! interface-6 `Package` check, with fallible allocation, and the file sizes
+//! interface-6 `Package` check had, with fallible allocation, and the file sizes
 //! that `docs/abi/network.md` §8 audits (`max_file` 512 KiB for packs,
 //! 1 MiB for font files).
 use crate::native_catalog::Font;

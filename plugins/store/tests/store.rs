@@ -467,8 +467,8 @@ fn discovering(fonts: Option<bool>, network: bool) -> Kernel {
         .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
         .plugin(Store);
     builder = match fonts {
-        Some(true) => builder.plugin(paperpaw_plugin_fonts_browser::FontsBrowser),
-        Some(false) => builder.plugin_off(paperpaw_plugin_fonts_browser::FontsBrowser),
+        Some(true) => builder.plugin(common::FontsStandIn),
+        Some(false) => builder.plugin_off(common::FontsStandIn),
         None => builder,
     };
     let mut kernel = builder.build().unwrap();

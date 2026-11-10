@@ -78,9 +78,8 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 11] = [
+pub const STORE_PLUGINS: [&str; 10] = [
     "aids",
-    "fonts-browser",
     "format-docx",
     "format-images",
     "format-mobi",
@@ -127,11 +126,15 @@ pub fn install(builder: KernelBuilder, fonts: Fonts) -> KernelBuilder {
 /// registers each through the kernel (`Kernel::register_native`); until a
 /// device activates them it only keeps them linked.
 #[cfg(feature = "native-linked")]
-pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 13] = [
+pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 14] = [
     ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
     ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
     ("files", &paperpaw_plugin_files::NATIVE_ENTRY),
+    (
+        "fonts-browser",
+        &paperpaw_plugin_fonts_browser::NATIVE_ENTRY,
+    ),
     ("help", &paperpaw_plugin_help::NATIVE_ENTRY),
     ("keyboard", &paperpaw_plugin_keyboard::NATIVE_ENTRY),
     ("lock", &paperpaw_plugin_lock::NATIVE_ENTRY),
@@ -151,7 +154,6 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 13] = [
 /// [`KernelBuilder::network_settings`]); one missing here only costs
 /// memory (the tests say so).
 pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::network_settings!(
-    "fonts-browser",
     "mail",
     "news",
     "store",
@@ -220,10 +222,6 @@ pub fn install_with(
     b = b
         .plugin(paperpaw_plugin_wifi::Wifi)
         .plugin(paperpaw_plugin_transfer::Transfer);
-    #[cfg(feature = "store-plugins")]
-    {
-        b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);
-    }
     b = b.plugin(paperpaw_plugin_store::Store);
     #[cfg(feature = "store-plugins")]
     {

@@ -1,20 +1,14 @@
-//! The native declarations name what the interface-6 registration names: the
-//! screens, the catalog setting, the actions with their menu places and
-//! icons, and the events. Callbacks are a later slice (`PORTING-7.md`).
+//! The native declarations name what the interface-6 registration named (pinned
+//! here from that code, which is gone): the screens, the catalog setting, the
+//! actions with their menu places and icons, and the events; and what interface
+//! 6 did not have (the host's end of an install, the settings and the plugins
+//! that change).
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
 mod declarations;
-#[path = "../../test-support/native_navigation.rs"]
-mod navigation;
-use paperpaw_plugin_fonts_browser::FontsBrowser;
-use paperpaw_sdk::native::declare::{Declarations, Instances, ScreenDecl};
-use paperpaw_sdk::{Contribution, Id, Plugin, Registrar, SettingKind};
-
-fn legacy() -> Vec<Contribution> {
-    let mut r = Registrar::new(Id::new_static("fonts-browser"));
-    FontsBrowser.register(&mut r).unwrap();
-    r.into_contributions()
-}
+#[path = "../../test-support/declared.rs"]
+mod declared;
+use paperpaw_sdk::native::declare::Declarations;
 
 fn batches(
     declare: impl FnOnce(&mut Declarations<&mut dyn FnMut(&[u8]) -> Result<(), i32>>),
@@ -31,94 +25,81 @@ fn batches(
     out
 }
 
-#[test]
-fn screens_match() {
-    let mut expected = Vec::new();
-    for contribution in legacy() {
-        if let Contribution::FixedScreens(list) = contribution {
-            for (token, s) in (10..).zip(list.iter()) {
-                let instances = if s.how_many() == paperpaw_sdk::Instances::SINGLE {
-                    Instances::Single
-                } else if s.how_many() == paperpaw_sdk::Instances::MANY {
-                    Instances::Many
-                } else {
-                    assert_eq!(s.how_many(), paperpaw_sdk::Instances::PER_PARAMS);
-                    Instances::PerParams
-                };
-                expected.push((
-                    s.id()
-                        .as_str()
-                        .strip_prefix("fonts-browser.")
-                        .unwrap()
-                        .to_string(),
-                    s.title().to_string(),
-                    token,
-                    instances,
-                ));
-            }
-        }
-    }
-    let mut want = Vec::new();
-    {
-        let mut d = Declarations::new(|b: &[u8]| {
-            want.push(b.to_vec());
-            Ok(())
-        });
-        for (name, title, token, instances) in &expected {
-            d.screen(ScreenDecl::new(name, title, *token).instances(*instances))
-                .unwrap();
-        }
-        d.submit().unwrap();
-    }
-    assert_eq!(batches(|d| declarations::screens(d).unwrap()), want);
+fn all() -> Vec<Vec<u8>> {
+    let mut all = Vec::new();
+    all.extend(batches(|d| declarations::screens(d).unwrap()));
+    all.extend(batches(|d| declarations::settings(d).unwrap()));
+    all.extend(batches(|d| declarations::navigation(d).unwrap()));
+    all.extend(batches(|d| declarations::events(d).unwrap()));
+    all.extend(batches(|d| declarations::installs(d).unwrap()));
+    all
 }
 
 #[test]
-fn the_catalog_setting_matches() {
-    let mut found = Vec::new();
-    for contribution in legacy() {
-        if let Contribution::FixedSettings(settings) = contribution {
-            for spec in settings.iter() {
-                assert!(matches!(spec.kind, SettingKind::Text));
-                found.push((
-                    spec.id.as_str().to_string(),
-                    spec.title.to_string(),
-                    spec.description.as_deref().map(str::to_string),
-                    spec.group.as_str().to_string(),
-                    format!("{:?}", spec.default),
-                ));
-            }
-        }
-    }
+fn the_decoded_batches_say_what_the_registration_said() {
+    let native = declared::native("fonts-browser", &all());
+    // The catalog setting: text, in the developer group, with its help.
     assert_eq!(
-        found,
-        [(
-            "fonts-browser.catalog".to_string(),
-            "fonts-browser.setting.catalog".to_string(),
-            Some("fonts-browser.setting.catalog.help".to_string()),
-            "core.group.developer".to_string(),
-            "Text(\"https://paperpaw.org/api/v1/fonts.json\")".to_string(),
-        )]
+        native.specs,
+        [
+            "catalog|3|0|core.group.developer|fonts-browser.setting.catalog|fonts-browser.setting.catalog.help|t:https://paperpaw.org/api/v1/fonts.json|0|0|\"\""
+        ]
     );
-    assert_eq!(batches(|d| declarations::settings(d).unwrap()).len(), 1);
+    assert_eq!(
+        native.screens,
+        ["font|fonts-browser.title", "list|fonts-browser.title"]
+    );
+    assert_eq!(
+        native.actions,
+        ["open|fonts-browser.more", "own|fonts-browser.own"]
+    );
+    // After the fonts to choose from, where the reading font and the status
+    // lines' font are chosen.
+    assert_eq!(
+        native.menu_entries,
+        [
+            "core.reading-font|fonts-browser.open|0",
+            "core.reading-font|fonts-browser.own|0",
+            "core.status-font|fonts-browser.open|0",
+            "core.status-font|fonts-browser.own|0",
+        ]
+    );
+    assert_eq!(
+        native.icons,
+        [
+            "fonts-browser.open|typography",
+            "fonts-browser.own|folder-open"
+        ]
+    );
+    // The events (tag:token): a file or the catalog arrived (64 is the
+    // setting that changed, 70 the plugins that changed, 97 the end of an
+    // install or removal, 99 an answer of `core.net`).
+    assert_eq!(native.events, ["64:5", "70:6", "97:4", "99:3"]);
+    assert!(native.needs.is_empty());
+    assert!(native.groups.is_empty() && native.extras.is_empty());
+    assert!(native.slots.is_empty() && native.keys.is_empty() && native.others.is_empty());
+    assert!(native.widget_places.is_empty() && native.status_places.is_empty());
 }
 
+/// Every text the declarations ask for exists in both languages.
 #[test]
-fn actions_menus_and_icons_match() {
-    let expected = navigation::encode("fonts-browser", legacy());
-    assert_eq!(batches(|d| declarations::navigation(d).unwrap()), expected);
-}
-
-#[test]
-fn the_events_are_the_download() {
-    // Interface 6: `install::DOWNLOADED` (and `events::STARTED`, which cancels a download
-    // cut off by a restart: it comes back with the download, `PORTING-7.md`).
-    assert_eq!(batches(|d| declarations::events(d).unwrap()).len(), 1);
-}
-
-#[test]
-fn the_end_of_an_install_is_heard() {
-    // Not in interface 6 (the kernel said it was done): `install_done` ends the install and
-    // the removal the plugin asked the host for.
-    assert_eq!(batches(|d| declarations::installs(d).unwrap()).len(), 1);
+fn the_declared_texts_have_words() {
+    let (en, de) = (
+        include_str!("../i18n/en.ini"),
+        include_str!("../i18n/de.ini"),
+    );
+    for key in [
+        "fonts-browser.title",
+        "fonts-browser.more",
+        "fonts-browser.own",
+        "fonts-browser.setting.catalog",
+        "fonts-browser.setting.catalog.help",
+    ] {
+        for (name, catalog) in [("en", en), ("de", de)] {
+            assert!(
+                catalog.lines().any(|l| l.starts_with(&format!("{key} = "))),
+                "{key} missing in {name}"
+            );
+        }
+    }
 }

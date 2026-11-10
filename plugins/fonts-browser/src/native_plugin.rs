@@ -1,8 +1,8 @@
-//! The interface-7 fonts browser: the list of the library's fonts (the
-//! catalog fetched with `core.net` into the data folder and kept there) and a
-//! font's page, on `core.ui` list screens (`PORTING-7.md` says what is not
-//! native yet: downloading and installing a font, removing it, the font's own
-//! face in the list, *Your own fonts*).
+//! The fonts browser: the list of the library's fonts (the catalog fetched
+//! with `core.net` into the data folder and kept there), a font's page, and
+//! downloading, updating and removing a font, on `core.ui` list screens
+//! (`PORTING-7.md` says what the interface-6 plugin did that this does not:
+//! the font's own face in the list and on the page).
 //!
 //! The font a page shows is handed over as the screen's one parameter
 //! (`Font::to_param`), so that the page does not read the catalog again.

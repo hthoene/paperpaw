@@ -66,7 +66,7 @@ differently; a plugin must keep that mapping.
 | `.paperpaw/plugins/plugin-manager/screens.txt` | plugin-manager | the screens offered for a slot that were already asked about, `slot screen` a line | |
 | `.paperpaw/plugins/store/queue.txt`, `queue-quiet.txt` | store | the plugins waiting to be installed, a line each, the one whose turn it is first (marked `> `, those of the setup `~`); what became of the setup's, `+<id>` or `-<id>` a line | |
 | `.paperpaw/plugins/store/author.txt` | store | the key the plugin library names for the author of the code plugin being downloaded, until it is installed | |
-| `.paperpaw/plugins/<id>/install.txt` | SDK `install` | a download of a plugin not yet complete, in the folder of the plugin that installs (the store, the fonts browser) | |
+| `.paperpaw/plugins/<id>/install.txt` | SDK `install` | a download of a plugin not yet complete, in the folder of the plugin that installs (the store) | |
 | `.paperpaw/plugins/calibre/host.txt` | calibre | the address of the computer the reader chose to trust | version 1 |
 | `.paperpaw/plugins/opds/catalogs.txt` | opds | a catalog per line: name, address, user, (password, empty: a password an older version kept here moves to the passwords and keys), folder (below the library folder), `sync`, `webdav` | version 1 |
 | `.paperpaw/plugins/opds/synced/<md5 of the address>.txt` | opds | the books a catalog's sync fetched, by their ids in the catalog, so that one deleted is not fetched again | |
@@ -143,7 +143,7 @@ differently; a plugin must keep that mapping.
 | `.paperpaw/code-room.txt` | SDK `native` | the room code plugins have, as the shell found it at this start |
 | `.paperpaw/plugins/diagnostics/device-check.bin` | diagnostics | 128 KiB the check writes and reads back, removed after |
 | `.paperpaw/plugins/browser/pages/<hash>.html` | browser | a page shown, by the hash of its address, its address as `<base href>` on its first line |
-| `.paperpaw/plugins/fonts-browser/samples/` | fonts-browser | samples of the fonts offered; those no longer offered are removed |
+| `.paperpaw/plugins/fonts-browser/catalog.json.part`, `staging/<font plugin>/…`, `own.txt` | fonts-browser | the catalog on its way (kept as `catalog.json` once it reads as one), the files of the font being downloaded until the host has installed it (removed after every end, and all of `staging/` at the next start), and the help about fonts of one's own shown in the reader (written again each time) |
 | `.paperpaw/plugins/files/index.bin` | files | the library's index while a book covers its view, read back when the view shows again |
 | `.paperpaw/plugins/android/<hash>/` | Android shell | a PDF's pages drawn; `source`: the file's size, its pages and the size drawn for |
 | `.paperpaw/plugins/browser/download.tmp`, `calibre/dropped.part`, `news/page.tmp`, `news/feed-<hash>.tmp`, `wallabag/article.tmp`, `read-later-cloud/article.tmp`, `vocabulary/words.tmp`, `stats/incoming.sqlite3` | their plugins | a download or a file being written, until it is moved where it belongs or removed |
