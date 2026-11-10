@@ -3001,6 +3001,8 @@ pub fn paperpaw_sdk::library::try_book(&dyn paperpaw_platform::storage::Storage,
 pub fn paperpaw_sdk::library::try_book_sized(&dyn paperpaw_platform::storage::Storage, &str, u64) -> core::result::Result<core::option::Option<paperpaw_sdk::library::Book>, paperpaw_sdk::data::Error>
 pub fn paperpaw_sdk::library::try_indexed(&dyn paperpaw_platform::storage::Storage, &str, u64) -> core::result::Result<bool, paperpaw_sdk::data::Error>
 pub fn paperpaw_sdk::library::try_key(&str) -> core::result::Result<alloc::string::String, alloc::collections::TryReserveError>
+pub fn paperpaw_sdk::library::try_moved(&dyn paperpaw_platform::storage::Storage, &str, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
+pub fn paperpaw_sdk::library::try_removed(&dyn paperpaw_platform::storage::Storage, &str) -> core::result::Result<(), paperpaw_platform::storage::StorageError>
 pub fn paperpaw_sdk::library::try_status(&dyn paperpaw_platform::storage::Storage, &str) -> core::result::Result<paperpaw_sdk::library::catalog::Status, paperpaw_sdk::data::Error>
 pub fn paperpaw_sdk::library::unused_books(&dyn paperpaw_platform::storage::Storage, &[paperpaw_sdk::library::BookData], &str, paperpaw_sdk::library::BookDataKind) -> core::result::Result<u32, paperpaw_platform::storage::StorageError>
 pub mod paperpaw_sdk::logo
