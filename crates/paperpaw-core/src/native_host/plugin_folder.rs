@@ -14,8 +14,15 @@
 //!   or more than [`DIRS_MAX`] folders end it with reason 4.
 //! * **Bytes** are the sum of the sizes of the files, which is what lands
 //!   on the card.
-//! * **The manifest** is read whole (at most [`MANIFEST_MAX`] bytes, one
-//!   fallible reservation) and its `[plugin]` section read as the loader does.
+//! * **The manifest** is read whole into the job's I/O buffer (at most
+//!   [`MANIFEST_MAX`] bytes, the buffer's size) and its `[plugin]` section read
+//!   as the loader does.
+//! * **Names** follow `install::is_safe_path`, the rule of interface 6's
+//!   local install: a dot file (`._x`, `.DS_Store`) or an unsafe name in the
+//!   folder ends it with reason 4, as it did there.
+//! * **Links** (a desktop shell's symlinks) are not told apart here: a shell
+//!   lists what a card holds. The desktop rule of #786 R1 applies before the
+//!   desktop shell serves installs.
 use alloc::{string::String, vec::Vec};
 use paperpaw_platform::{Storage, StorageError, firmware::Text};
 use paperpaw_sdk::{Version, install, native::CODE_FILES};
@@ -267,6 +274,15 @@ impl Walk {
     }
 }
 
+/// The reason a card error ends with: no memory is 1, not a card error.
+fn card_reason(error: StorageError) -> u8 {
+    match error {
+        StorageError::OutOfMemory => reason::OTHER,
+        StorageError::NotFound => reason::DAMAGED,
+        _ => reason::CARD,
+    }
+}
+
 /// What `plugin.ini` says.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Manifest {
@@ -288,32 +304,28 @@ pub(crate) fn read_manifest(
     storage: &dyn Storage,
     root: &str,
     folder: &str,
+    buf: &mut [u8],
 ) -> Result<Manifest, u8> {
     let mut path = String::new();
     path.try_reserve_exact(root.len() + 11)
         .map_err(|_| reason::OTHER)?;
     path.push_str(root);
     path.push_str("/plugin.ini");
-    let size = storage.size(&path).map_err(|error| match error {
-        StorageError::NotFound => reason::DAMAGED,
-        _ => reason::CARD,
-    })?;
+    let size = storage.size(&path).map_err(card_reason)?;
     if size > MANIFEST_MAX as u64 {
         return Err(reason::DAMAGED);
     }
-    let mut data: Vec<u8> = Vec::new();
-    data.try_reserve_exact(size as usize)
-        .map_err(|_| reason::OTHER)?;
-    data.resize(size as usize, 0);
+    // Read into the job's buffer: no second 4 KiB beside it.
+    let data = buf.get_mut(..size as usize).ok_or(reason::OTHER)?;
     let mut at = 0;
     while at < data.len() {
         match storage.read_at(&path, at as u64, &mut data[at..]) {
             Ok(0) => return Err(reason::CARD),
             Ok(n) => at += n,
-            Err(_) => return Err(reason::CARD),
+            Err(error) => return Err(card_reason(error)),
         }
     }
-    let source = core::str::from_utf8(&data).map_err(|_| reason::DAMAGED)?;
+    let source = core::str::from_utf8(data).map_err(|_| reason::DAMAGED)?;
     let (mut id, mut name, mut version) = (None, None, None);
     for entry in paperpaw_config::parse(source) {
         let entry = entry.map_err(|_| reason::DAMAGED)?;

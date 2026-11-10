@@ -200,6 +200,7 @@ impl PluginCheck {
             self.hint
                 .as_ref()
                 .map_or_else(|| walk.folder_name(), |hint| hint.as_str()),
+            &mut self.buf,
         ) {
             Ok(manifest) => manifest,
             Err(why) => return self.end(why),

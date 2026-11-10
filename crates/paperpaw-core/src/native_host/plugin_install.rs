@@ -205,7 +205,10 @@ impl PluginInstall {
     fn start(&mut self, env: &JobEnv<'_>) -> JobStep {
         let storage = env.storage;
         let folder = self.source.rsplit('/').next().unwrap_or("");
-        let manifest = match plugin_folder::read_manifest(storage, &self.source, folder) {
+        let Some(mut buf) = io_buffer() else {
+            return self.end(storage, reason::OTHER);
+        };
+        let manifest = match plugin_folder::read_manifest(storage, &self.source, folder, &mut buf) {
             Ok(manifest) => manifest,
             Err(why) => return self.end(storage, why),
         };
@@ -220,7 +223,7 @@ impl PluginInstall {
         };
         let installed = match present(storage, &target) {
             Ok(false) => None,
-            Ok(true) => Some(installed_of(storage, &target, id)),
+            Ok(true) => Some(installed_of(storage, &target, id, &mut buf)),
             Err(why) => return self.end(storage, why),
         };
         // An installed plugin of the id is replaced only when asked to.
@@ -234,9 +237,6 @@ impl PluginInstall {
         self.id = manifest.id;
         self.installed = installed;
         self.stage = stage;
-        let Some(buf) = io_buffer() else {
-            return self.end(storage, reason::OTHER);
-        };
         self.buf = buf;
         self.phase = Phase::CleanStage;
         JobStep::More
@@ -402,7 +402,12 @@ impl PluginInstall {
             return self.end(storage, reason::OTHER);
         };
         // The manifest of the stage is what installs: it names the id still.
-        let manifest = match plugin_folder::read_manifest(storage, &self.stage, self.id.as_str()) {
+        let manifest = match plugin_folder::read_manifest(
+            storage,
+            &self.stage,
+            self.id.as_str(),
+            &mut self.buf,
+        ) {
             Ok(manifest) if manifest.id.as_str() == self.id.as_str() => manifest,
             Ok(_) => return self.end(storage, reason::CHANGED),
             Err(why) => return self.end(storage, why),
@@ -593,8 +598,8 @@ fn no_uses() -> Uses {
     }
 }
 
-fn installed_of(storage: &dyn Storage, target: &str, id: &str) -> Installed {
-    let version = plugin_folder::read_manifest(storage, target, id)
+fn installed_of(storage: &dyn Storage, target: &str, id: &str, buf: &mut [u8]) -> Installed {
+    let version = plugin_folder::read_manifest(storage, target, id, buf)
         .ok()
         .map(|manifest| manifest.parsed);
     let mut code = String::new();
