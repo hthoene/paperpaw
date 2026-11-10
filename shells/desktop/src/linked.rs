@@ -58,6 +58,7 @@ fn offered_list(wired: Wired) -> &'static [Service<'static>] {
         (wired.documents, "core.document"),
         (wired.library, "core.library"),
         (wired.files, "core.files"),
+        (wired.lookup, "core.lookup"),
     ]
     .into_iter()
     .filter_map(|(on, key)| on.then_some(key));
@@ -85,11 +86,12 @@ struct Wired {
     documents: bool,
     library: bool,
     files: bool,
+    lookup: bool,
 }
 
 impl Wired {
     /// How many combinations there are (one bit a service).
-    const COMBINATIONS: usize = 1 << 7;
+    const COMBINATIONS: usize = 1 << 8;
 
     fn index(self) -> usize {
         [
@@ -100,6 +102,7 @@ impl Wired {
             self.documents,
             self.library,
             self.files,
+            self.lookup,
         ]
         .into_iter()
         .enumerate()
@@ -319,6 +322,7 @@ pub fn register(
     let mut wiring = HostWiring::new()
         .ui(profile.device.memory)
         .device(device)
+        .lookup()
         .work(WorkInputs::new(inputs.view.clone(), profile.device.memory));
     // HTTP over the card (saved and sent files); no card, no `core.net`.
     let transport = inputs.storage.clone().map(|storage| {
@@ -384,6 +388,7 @@ pub fn register(
         work: true,
         net: wired.net().is_some(),
         sockets: wired.sockets().is_some(),
+        lookup: true,
         ..on_card
     };
     *inputs.net.borrow_mut() =
@@ -459,6 +464,17 @@ mod tests {
         // The rest is offered as before.
         assert!(keys(card).contains(&"core.ui") && wanted.contains(&"uses.registry"));
         assert!(!wanted.contains(&"uses.secrets") && !wanted.contains(&"uses.network"));
+    }
+
+    #[test]
+    fn the_lookup_is_offered_only_where_it_is_wired() {
+        assert!(!keys(Wired::default()).contains(&"core.lookup"));
+        let lookup = Wired {
+            lookup: true,
+            ..Wired::default()
+        };
+        assert!(keys(lookup).contains(&"core.lookup"));
+        assert_ne!(lookup.index(), Wired::default().index());
     }
 
     #[test]
