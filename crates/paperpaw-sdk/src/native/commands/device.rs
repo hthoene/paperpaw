@@ -61,7 +61,7 @@ impl CheckKind {
 }
 
 impl InstallRoot {
-    const fn wire(self) -> u32 {
+    pub(super) const fn wire(self) -> u32 {
         match self {
             Self::Data => 0,
             Self::Files => 1,
@@ -273,7 +273,7 @@ impl CommandSender<'_, '_> {
     /// A user who granted this plugin the trusted-installer grant is not asked
     /// (the checks still run). The catalog's author key, recovery key and
     /// rotations (`install_author`, `install_rotation`, commands 1580 and 1581)
-    /// are not sent by this method.
+    /// are not sent by this method; [`install_plugin_with`](Self::install_plugin_with) sends them.
     ///
     /// # Errors
     /// Returns `Invalid` for a zero request or an empty path, buffer limits or
