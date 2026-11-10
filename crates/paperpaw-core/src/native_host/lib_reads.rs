@@ -53,7 +53,7 @@ const PPM: u32 = 1_000_000;
 const STATE_TRIES: usize = 3;
 
 /// What the card cannot tell the adapter.
-pub(crate) trait CatalogEnv {
+pub trait CatalogEnv {
     /// `Some(progress in parts per million)` while the walk makes the
     /// catalog where there was none (its books are those found so far:
     /// `core.library-walking`), `None` otherwise.

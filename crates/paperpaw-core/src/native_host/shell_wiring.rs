@@ -9,12 +9,14 @@
 //! Which families a shell can name grows with the adapters: `text.hyphenate`
 //! (the card's tables), `core.device` (a host that already is public),
 //! `core.ui` (the store; the stack's view comes from each call's frame) and
-//! `core.net` (the card and the shell's network) today; the other families'
+//! `core.net` (the card and the shell's network), `core.document` and
+//! `core.library` (its reads) today; the other families'
 //! hosts are core's adapters over kernel objects and join as their adapters
 //! land, one method each.
 use super::{
     device_service::DeviceHost,
     hyphen_card::CardTables,
+    lib_host::LibraryHost,
     resources::HostResources,
     secrets_service::SecretsServices,
     shared::Shared,
@@ -32,6 +34,7 @@ mod secrets;
 mod sockets;
 #[path = "shell_wiring/work.rs"]
 mod work;
+pub use super::lib_reads::CatalogEnv;
 pub use super::sock_service::{Connect, PeerInfo, SockTls, SockTransport, TlsOpen, TlsPin};
 use alloc::{rc::Rc, vec::Vec};
 pub use net::{
@@ -58,6 +61,8 @@ pub struct HostWiring {
     ui: Option<bool>,
     /// `core.document`: the memory class and the screen's long side.
     documents: Option<(paperpaw_platform::MemoryClass, u32)>,
+    /// `core.library`: the catalog's card and the shell's facts.
+    library: Option<(Rc<dyn Storage>, Rc<dyn CatalogEnv>)>,
     secrets: Option<SecretsInputs>,
     work: Option<WorkInputs>,
 }
@@ -72,6 +77,7 @@ impl core::fmt::Debug for HostWiring {
             .field("sockets", &self.sockets.is_some())
             .field("ui", &self.ui.is_some())
             .field("documents", &self.documents.is_some())
+            .field("library", &self.library.is_some())
             .field("secrets", &self.secrets.is_some())
             .field("work", &self.work.is_some())
             .finish()
@@ -176,6 +182,19 @@ impl HostWiring {
         screen_long_side: u32,
     ) -> Self {
         self.documents = Some((memory, screen_long_side));
+        self
+    }
+
+    /// `core.library`: the reads of the library's catalog on this storage (the
+    /// card), with what the card cannot tell: whether the walk is making the
+    /// catalog, today's date, the format of a file ([`CatalogEnv`]). Only the
+    /// reads are served: every write op answers `ERR_UNSUPPORTED` (the
+    /// production write half is todo 307), and a name below the card's top
+    /// is one of the host's folders by spelling or, for an 8.3 alias, by
+    /// identity, as `core.files` decides it.
+    #[must_use]
+    pub fn library(mut self, storage: Rc<dyn Storage>, env: Rc<dyn CatalogEnv>) -> Self {
+        self.library = Some((storage, env));
         self
     }
 
@@ -355,6 +374,7 @@ impl HostResources {
                 && (hosts.files().is_some()
                     || !(hosts.busy_sources().complete() || wiring.documents.is_some())))
             || (wiring.documents.is_some() && hosts.documents().is_some())
+            || (wiring.library.is_some() && hosts.library().is_some())
             || (wiring.device.is_some() && hosts.device().is_some())
             || (wiring.net.is_some() && hosts.net().is_some())
             || (wiring.sockets.is_some() && hosts.sockets().is_some())
@@ -424,6 +444,9 @@ impl HostResources {
             // The reader's open book is a source of `core.files` from now on.
             hosts.register_reader_book_reporting()?;
             hosts.wire_documents(Rc::new(state))?;
+        }
+        if let Some((storage, env)) = wiring.library {
+            hosts.wire_library(Rc::new(LibraryHost::new(storage, env)))?;
         }
         if let Some(storage) = wiring.files {
             // The library's move job, a busy source `core.files` needs and
