@@ -145,7 +145,12 @@ pub(crate) struct Param<'a> {
 /// The file an instance's hand-over names (see [`UiStore::handed_file`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Handed<'a> {
-    /// The plugin that made the hand-over (its owner key).
+    /// The plugin that made the hand-over, as its owner key, not its id. The
+    /// host hands owner keys out once (`HostResources::try_owner`, a counter
+    /// that is never reused and refuses at its end), so a key that outlives
+    /// its plugin can never name another one. The reader resolves it with
+    /// `native_instances.id(key)` when it opens the file and answers
+    /// `ERR_NOT_FOUND` when there is no such installed plugin any more.
     pub(crate) maker: u64,
     /// Where the file is in the maker's folders: `0` its data folder, `2`
     /// its install folder.
@@ -822,7 +827,10 @@ impl UiStore {
     /// The one file `instance`'s hand-over names: its params `root` (`0` or
     /// `2`) and `path`, and the plugin that made it, for root 5 of
     /// `doc_open` (`document.md` 2.1). Nothing is copied: `visit` sees them
-    /// in place and must not reenter the store.
+    /// in place and must not reenter the store; the store stays borrowed for
+    /// the length of `visit`, so a caller copies the path out and does its
+    /// card I/O afterwards. `root` is exactly `"0"` or `"2"`: any other text
+    /// (`"02"`, `" 2"`, `"+2"`) is not a root.
     ///
     /// # Errors
     /// `ERR_DENIED` for an instance without a hand-over, a hand-over without
