@@ -177,6 +177,9 @@ impl crate::Kernel {
         let work_more = self.native_work_pump();
         // Pictures a plugin asked for decode one a turn (`image_pump`).
         let image_more = self.native_image_pump();
+        // The reading session's events are queued for the subscribers (the
+        // reader's report raised them), before the pump that tells them.
+        let reading_more = self.native_reading_pump();
         // Changed settings reach the plugins that subscribed (`setting_events`).
         let setting_more = self.native_setting_pump();
         // Widgets their owners said changed reach their makers (`widget_events`).
@@ -195,6 +198,7 @@ impl crate::Kernel {
         self.shared.native_instances.set_service_more(
             more || work_more
                 || image_more
+                || reading_more
                 || setting_more
                 || widget_more
                 || stack_more
