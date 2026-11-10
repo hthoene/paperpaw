@@ -275,7 +275,7 @@ type LinkedInputs = ();
 /// The card's second handle for the secrets file and the clock `core.work`
 /// reads.
 #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
-fn linked_inputs(library: &Library, simulated: bool) -> LinkedInputs {
+fn linked_inputs(library: &Library, simulated: bool, user_config: Option<&str>) -> LinkedInputs {
     // A run on simulated time keeps its secrets in memory, so it cannot touch
     // the secrets of a card a real run shares; a real run whose card cannot
     // be opened has no secrets.
@@ -287,15 +287,29 @@ fn linked_inputs(library: &Library, simulated: bool) -> LinkedInputs {
             .ok()
             .map(|card| Rc::new(card) as Rc<dyn Storage>)
     };
+    // The card's configuration and the run's own: which store plugins are on.
+    let on_card = library.open().ok().and_then(|card| {
+        paperpaw_core::sdk::files::load_text_for_update(
+            &card,
+            paperpaw_core::sdk::builtin::CONFIG_FILE,
+            64 * 1024,
+        )
+        .ok()
+        .flatten()
+    });
     crate::linked::Inputs {
         storage,
         view: Rc::default(),
+        configs: on_card
+            .into_iter()
+            .chain(user_config.map(String::from))
+            .collect(),
         simulated,
         net: Rc::default(),
     }
 }
 #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
-fn linked_inputs(_: &Library, _: bool) -> LinkedInputs {}
+fn linked_inputs(_: &Library, _: bool, _: Option<&str>) -> LinkedInputs {}
 
 /// How many of the kernel's warnings [`Device::warnings`] keeps.
 const KEPT_WARNINGS: usize = 1000;
@@ -362,7 +376,7 @@ impl Device {
                 reason = "nothing is linked without the feature"
             )
         )]
-        let linked = linked_inputs(&library, simulated_time);
+        let linked = linked_inputs(&library, simulated_time, config);
         let mut kernel = build_kernel(profile, config, card, Rotation::Deg0, add, &linked)?;
         // Turned by the settings: built again for the turned size.
         let rotation = kernel.rotation();

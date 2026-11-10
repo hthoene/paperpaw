@@ -113,29 +113,64 @@ pub const CRATES: &str = env!("PAPERPAW_APP_CRATES");
 /// switched on as each ships (the plugins the store offers as files too
 /// on, where the feature `store-plugins` builds them).
 pub fn install(builder: KernelBuilder, fonts: Fonts) -> KernelBuilder {
+    install_with(builder, fonts, default_store())
+}
+
+/// What [`install`] does with the plugins the store offers as files too: they
+/// are built in and on where the feature `store-plugins` builds them, left out
+/// otherwise.
+#[must_use]
+pub const fn default_store() -> StorePlugins<'static> {
     #[cfg(feature = "store-plugins")]
-    let store = StorePlugins::On;
+    {
+        StorePlugins::On
+    }
     #[cfg(not(feature = "store-plugins"))]
-    let store = StorePlugins::Left;
-    install_with(builder, fonts, store)
+    {
+        StorePlugins::Left
+    }
 }
 
 /// The first-party plugins that are interface-7 native plugins already,
 /// linked into the program (`native_plugin!(…, linked = NATIVE_ENTRY)`), with
-/// their ids: the list is what Beta 3 built in, so a plugin joins it when its
-/// port lands and its interface-6 form leaves [`install_with`]. A shell
+/// their ids: a plugin joins the list when its port is finished and its
+/// interface-6 form leaves [`install_with`] (under the same feature). A shell
 /// registers each through the kernel (`Kernel::register_native`); until a
 /// device activates them it only keeps them linked.
+///
+/// The plugins the store offers as files too ([`STORE_PLUGINS`]) are in the
+/// list only with the feature `native-linked-store`; whether one registers is
+/// [`native_registers`]. Not in the list yet, because their ports are not
+/// finished and their interface-6 forms stay (each one's `PORTING-7.md` says
+/// what is open): home, reader, dictionary, store, wifi, transfer,
+/// fonts-browser, vocabulary, news, picture-home.
 #[cfg(feature = "native-linked")]
-pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 14] = [
+pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("aids", &paperpaw_plugin_aids::NATIVE_ENTRY),
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
     ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
     ("files", &paperpaw_plugin_files::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("format-docx", &paperpaw_plugin_format_docx::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    (
+        "format-images",
+        &paperpaw_plugin_format_images::NATIVE_ENTRY,
+    ),
+    #[cfg(feature = "native-linked-store")]
+    ("format-mobi", &paperpaw_plugin_format_mobi::NATIVE_ENTRY),
+    ("format-txt", &paperpaw_plugin_format_txt::NATIVE_ENTRY),
+    ("format-xtc", &paperpaw_plugin_format_xtc::NATIVE_ENTRY),
     ("help", &paperpaw_plugin_help::NATIVE_ENTRY),
     ("keyboard", &paperpaw_plugin_keyboard::NATIVE_ENTRY),
     ("lock", &paperpaw_plugin_lock::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("mail", &paperpaw_plugin_mail::NATIVE_ENTRY),
     ("menu", &paperpaw_plugin_menu::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("notes-vault", &paperpaw_plugin_notes_vault::NATIVE_ENTRY),
     ("opds", &paperpaw_plugin_opds::NATIVE_ENTRY),
     (
         "plugin-manager",
@@ -144,8 +179,52 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 14] = [
     ("power", &paperpaw_plugin_power::NATIVE_ENTRY),
     ("settings", &paperpaw_plugin_settings::NATIVE_ENTRY),
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
+    ("sleep", &paperpaw_plugin_sleep::NATIVE_ENTRY),
     ("update", &paperpaw_plugin_update::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("widgets", &paperpaw_plugin_widgets::NATIVE_ENTRY),
 ];
+
+/// Whether the linked native plugin `id` registers: the rule
+/// [`install_with`] applies to the plugin's interface-6 form, so that a plugin
+/// the store offers keeps the state it shipped in. A plugin of
+/// [`STORE_PLUGINS`] registers only where `store` offers it (`Left`: the store
+/// installs it, as a file), is not shipped off and is not switched off, or is
+/// switched on in the configuration. Shipped off: Mail always (as `store` says
+/// anything built in), Picture home where `store` is `On` (it takes the place
+/// of the home screen). Every other plugin registers. `configs` are the
+/// configuration files' texts (`[plugins]`: `id = on` or `id = off`, in any of
+/// them, an off wins over the shipped state as in [`install_with`]).
+///
+/// A plugin that does not register is not hosted at all: it is off. The
+/// reader switches it on with `id = on` in `[plugins]` for the next start.
+#[cfg(feature = "native-linked")]
+pub fn native_registers(id: &str, store: StorePlugins<'_>, configs: &[&str]) -> bool {
+    if !STORE_PLUGINS.contains(&id) {
+        return true;
+    }
+    let switched = |on: bool| {
+        configs.iter().any(|config| {
+            paperpaw_core::sdk::config::parse(config)
+                .filter_map(Result::ok)
+                .any(|entry| {
+                    entry.section == "plugins"
+                        && entry.key == id
+                        && entry.value.as_bool() == Some(on)
+                })
+        })
+    };
+    let shipped_on = match store {
+        StorePlugins::Left => return false,
+        #[cfg(feature = "store-plugins")]
+        StorePlugins::On => id != "mail" && id != "picture-home",
+        #[cfg(feature = "store-plugins")]
+        StorePlugins::Off(on) => id != "mail" && on(id),
+        #[allow(unreachable_patterns)]
+        _ => false,
+    };
+    !switched(false) && (shipped_on || switched(true))
+}
 
 /// Registers every plugin of [`NATIVE_PLUGINS`] with `kernel` through
 /// `Kernel::register_linked`, before the kernel starts (the one path the X4,
@@ -179,6 +258,7 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
     mut services: impl FnMut() -> S,
     teardown: paperpaw_core::native_host::shell::Report<S>,
     report: fn(&S, u32, i32),
+    registers: impl Fn(&str) -> bool,
 ) -> alloc::vec::Vec<(
     &'static str,
     Result<(), paperpaw_core::native_host::shell::Error>,
@@ -188,7 +268,10 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
     if outcome.try_reserve_exact(NATIVE_PLUGINS.len()).is_err() {
         return outcome;
     }
-    for (id, linked) in &NATIVE_PLUGINS {
+    for (id, linked) in NATIVE_PLUGINS {
+        if !registers(id) {
+            continue;
+        }
         let Some(share) = resources.try_clone() else {
             outcome.push((*id, Err(Error::Allocation)));
             continue;
@@ -257,14 +340,21 @@ pub fn install_with(
     };
     #[cfg(not(feature = "store-plugins"))]
     let _ = store;
-    let mut b = builder
-        .plugin(paperpaw_plugin_format_txt::TxtFormat)
+    let mut b = builder;
+    // The plugins that are native plugins, linked (`NATIVE_PLUGINS`), where the
+    // feature says, are not installed here: one plugin, one form.
+    #[cfg(not(feature = "native-linked"))]
+    {
+        b = b
+            .plugin(paperpaw_plugin_format_txt::TxtFormat)
+            .plugin(paperpaw_plugin_format_xtc::XtcFormat);
+    }
+    b = b
         .plugin(paperpaw_plugin_format_epub::EpubFormat)
         .plugin(paperpaw_plugin_format_epub::HtmlFormat)
         .plugin(paperpaw_plugin_format_epub::Fb2Format)
         .plugin(paperpaw_plugin_format_epub::MarkdownFormat)
         .plugin(paperpaw_plugin_format_epub::CbzFormat)
-        .plugin(paperpaw_plugin_format_xtc::XtcFormat)
         .plugin(paperpaw_plugin_dictionary::DictionaryPlugin)
         .plugin(paperpaw_plugin_reader::Reader);
     // Home and Menu keep their order; Files and Menu are native plugins,
@@ -274,10 +364,16 @@ pub fn install_with(
     {
         b = b.plugin(paperpaw_plugin_menu::Menu);
     }
-    #[cfg(feature = "store-plugins")]
+    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
     {
         b = offered(b, store, paperpaw_plugin_notes_vault::NotesVault);
+    }
+    #[cfg(feature = "store-plugins")]
+    {
         b = offered_replacing_home(b, store, paperpaw_plugin_picture_home::PictureHome);
+    }
+    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
+    {
         b = offered(b, store, paperpaw_plugin_format_mobi::MobiFormat);
         b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);
         b = offered(b, store, paperpaw_plugin_format_images::ImagesFormat);
@@ -290,16 +386,28 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);
     }
     b = b.plugin(paperpaw_plugin_store::Store);
-    #[cfg(feature = "store-plugins")]
+    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
     {
         b = offered(b, store, paperpaw_plugin_aids::Aids);
+    }
+    #[cfg(feature = "store-plugins")]
+    {
         b = offered(b, store, paperpaw_plugin_vocabulary::Vocabulary);
     }
-    b = b.plugin(paperpaw_plugin_sleep::Sleep);
+    #[cfg(not(feature = "native-linked"))]
+    {
+        b = b.plugin(paperpaw_plugin_sleep::Sleep);
+    }
     #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_news::News);
+    }
+    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
+    {
         b = offered(b, store, paperpaw_plugin_widgets::Widgets);
+    }
+    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
+    {
         b = offer_shipped_off(b, store);
     }
     // A theme of the app's own, off as it ships, on every device.
@@ -313,7 +421,7 @@ pub fn install_with(
 
 /// Adds the plugins the store offers that ship off, wherever they are
 /// built in, as `store` says.
-#[cfg(feature = "store-plugins")]
+#[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
 fn offer_shipped_off(mut b: KernelBuilder, store: StorePlugins<'_>) -> KernelBuilder {
     let shipped_off = match store {
         StorePlugins::Left => StorePlugins::Left,

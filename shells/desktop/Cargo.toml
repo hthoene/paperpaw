@@ -88,7 +88,7 @@ interlinear = ["dep:paperpaw-sample-interlinear"]
 # the app keeps their interface-6 form). Off until every host service and
 # event the plugins need is wired (#2220): the app without their interface-6
 # form lacks the screens of the ones that cannot register yet.
-native-linked = ["paperpaw-app/native-linked", "dep:aes-gcm", "dep:zeroize"]
+native-linked = ["paperpaw-app/native-linked", "paperpaw-app/native-linked-store", "dep:aes-gcm", "dep:zeroize"]
 
 [lints]
 workspace = true

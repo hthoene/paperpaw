@@ -185,6 +185,7 @@ mod linked {
                 || Heap,
                 teardown,
                 report,
+                |_| true,
             )
         };
         for (id, status) in outcome {
