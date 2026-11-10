@@ -93,6 +93,7 @@ impl PluginJob for Script {
             return match self.answered {
                 None => JobStep::Ask(question(self.owner, self.request)),
                 Some(Answer::Yes) => JobStep::Done(Finished::refused(job_reason::OK)),
+                Some(Answer::No) => JobStep::Done(Finished::refused(2)),
                 Some(_) => JobStep::Done(Finished::refused(3)),
             };
         }
@@ -143,6 +144,29 @@ fn question(owner: u64, request: u32) -> PluginQuestion {
             more: false,
         },
     }
+}
+
+/// An install-like job that asks the user once (`question`) and ends with
+/// reason 0 for a yes, 2 for a no and 3 for a dismissal.
+pub(crate) fn asking_job(owner: u64, request: u32) -> PluginJobs {
+    PluginJobs::Script(Script {
+        owner,
+        request,
+        kind: KIND_INSTALL,
+        steps: 1,
+        done: Finished::refused(job_reason::OK),
+        seen: Rc::default(),
+        must_finish: false,
+        keep: false,
+        asks: true,
+        answered: None,
+    })
+}
+
+/// The plugin host the kernel tests give `Kernel::builder`.
+pub(crate) fn kernel_host() -> (Loader, Offered<'static>) {
+    let host = host();
+    (host.loader, host.offered)
 }
 
 fn check_job(owner: u64, request: u32, steps: u32) -> (PluginJobs, Rc<Seen>) {
@@ -536,9 +560,7 @@ fn a_sender_that_stops_takes_an_install_that_may_be_abandoned() {
 }
 
 #[test]
-fn a_question_the_host_cannot_ask_yet_is_a_dismissal_never_a_yes() {
-    // The confirmation of a plugin install is wired with the install
-    // (B2c-2b): until then the host answers "dismissed" at once.
+fn a_question_waits_for_the_host_and_one_it_cannot_show_is_a_dismissal_never_a_yes() {
     let mut d = driver(true);
     let seen = Rc::new(Seen::default());
     d.submit_plugin(PluginJobs::Script(Script {
@@ -554,6 +576,21 @@ fn a_question_the_host_cannot_ask_yet_is_a_dismissal_never_a_yes() {
         answered: None,
     }))
     .unwrap();
+    for now in 0..10 {
+        d.pump(&NoStorage, &Names, now * 100);
+    }
+    // It asked once and waits: nothing steps it, and it is no work.
+    assert_eq!(seen.steps.get(), 1);
+    let asked = d.peek_plugin_question().expect("a question waits");
+    assert!(!d.has_work(1_000));
+    // The host shows it (nonce 7): it is no longer waiting to be shown, and
+    // only the screen's nonce answers.
+    d.plugin_question_shown(7, &asked);
+    assert!(d.peek_plugin_question().is_none());
+    assert!(d.answer_shown(8, Answer::Yes).is_none());
+    assert_eq!(seen.steps.get(), 1);
+    // The screen cannot be kept: dismissed (reason 3), never a yes.
+    assert!(d.answer_shown(7, Answer::Dismissed).is_some());
     let ended = run(&mut d);
     assert!(
         matches!(ended, Event::Ended(o) if (o.owner, o.kind, o.reason) == (1, KIND_INSTALL, 3))

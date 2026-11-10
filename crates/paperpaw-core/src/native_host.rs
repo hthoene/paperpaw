@@ -64,6 +64,8 @@ pub(crate) mod firmware_install;
     reason = "the queue's plugin seam wires the job (slice B2c-1 wiring after Core's queue enum); tests do today"
 )]
 pub(crate) mod plugin_check;
+#[path = "native_host/plugin_confirm.rs"]
+pub(crate) mod plugin_confirm;
 #[path = "native_host/plugin_folder.rs"]
 #[allow(dead_code, reason = "the plugin jobs use it; see plugin_check")]
 pub(crate) mod plugin_folder;
@@ -81,9 +83,15 @@ pub(crate) mod plugin_install;
 pub(crate) mod plugin_job;
 #[path = "native_host/plugin_jobs.rs"]
 pub(crate) mod plugin_jobs;
+#[path = "native_host/plugin_remove.rs"]
+#[allow(dead_code, reason = "the queue and the start use it; see plugin_check")]
+pub(crate) mod plugin_remove;
 #[path = "native_host/plugin_rules.rs"]
 #[allow(dead_code, reason = "the install job applies it; see plugin_check")]
 pub(crate) mod plugin_rules;
+#[path = "native_host/plugin_start.rs"]
+#[allow(dead_code, reason = "the builder runs it; see plugin_check")]
+pub(crate) mod plugin_start;
 #[path = "native_host/plugin_swap.rs"]
 #[allow(
     dead_code,
