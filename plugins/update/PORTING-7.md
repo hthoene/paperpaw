@@ -236,6 +236,8 @@ the interface-6 ones are used as they are (`update.leaves`, `update.leaves.downl
 
 ## Before activation
 
+- Not measured: the heap peak of the op-16 (`leaves_out`) reads, which run for every PaperPaw image on the card and
+  hold one page of rows each (X4 gate stays open until the device test).
 - `update.check` is implemented (declared work, above).
 - A refused `firmware_restart` (after an install, or the *Restart now* row) shows `update.restart-failed` and keeps
   the *Restart now* row. *Installed* ("Restarting …") has an *OK* row to leave the page where the restart does not
