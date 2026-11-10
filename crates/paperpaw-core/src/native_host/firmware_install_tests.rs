@@ -431,7 +431,7 @@ fn a_check_keeps_one_result_per_plugin_with_a_bit_per_built_in_it_has() {
     assert_eq!((outcome.kind, outcome.reason), (KIND_CHECK, 0));
     let checked = machine.checked(OWNER).unwrap();
     assert_eq!((checked.request, checked.reason), (5, 0));
-    assert_eq!(checked.facts().unwrap().size, 3 * WRITE_BLOCK);
+    assert_eq!(checked.facts.unwrap().size, 3 * WRITE_BLOCK);
     // The image has `stats`; `weather` and `clock` are left out.
     assert!(!checked.leaves_out(0) && checked.leaves_out(1) && checked.leaves_out(2));
     assert!(checked.leaves_out_some());
@@ -467,7 +467,7 @@ fn a_check_that_fails_after_streaming_built_ins_keeps_no_bits() {
     let checked = machine.checked(OWNER).unwrap();
     assert_eq!(checked.reason, 18);
     assert!(!checked.leaves_out_some() && !checked.leaves_out(1));
-    assert!(checked.facts().is_none());
+    assert!(checked.facts.is_none());
 }
 
 #[test]
@@ -616,8 +616,8 @@ fn a_finished_check_keeps_its_facts_where_it_refuses_and_a_damaged_or_foreign_ch
         run(&mut machine, &mut fw);
         let checked = machine.checked(OWNER).unwrap();
         assert_eq!(checked.reason, reason, "{name}");
-        assert_eq!(checked.facts().is_some(), kept, "{name}");
-        if let Some(facts) = checked.facts() {
+        assert_eq!(checked.facts.is_some(), kept, "{name}");
+        if let Some(facts) = checked.facts {
             // What op 6 reads: the image's key, version and size.
             assert_eq!(facts.size, fw.facts.size, "{name}");
             assert_eq!(facts.signer, fw.facts.signer, "{name}");
