@@ -700,4 +700,23 @@ impl<F: Flash> FirmwareHost for Updates<F> {
             None => Err(Reason::NOT_HERE),
         }
     }
+
+    /// The X4 always has two app partitions (`ota::SLOTS`), the one another
+    /// firmware can share (`docs/dual-boot.md`).
+    fn dual_boot_capable(&self) -> bool {
+        true
+    }
+
+    /// Declared at this start: the marker in the bootloader or `paperpaw.ini`
+    /// (`Updates::settle`), and stays so until the next start whatever the
+    /// file says later.
+    fn dual_boot_declared(&self) -> bool {
+        self.dual.is_some()
+    }
+
+    /// The firmware's own restart (it starts the image the OTA data names:
+    /// the one running, where no install waits), as [`Self::restart`].
+    fn restart_running(&mut self) -> Result<(), Reason> {
+        self.restart()
+    }
 }

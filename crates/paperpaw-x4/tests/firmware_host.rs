@@ -412,6 +412,22 @@ fn restart_is_the_firmwares_and_says_so_where_there_is_none() {
     assert_eq!(device.updates.restart(), Ok(()));
 }
 
+/// The X4 has two app partitions, so it is dual-boot capable; it is declared
+/// only once `settle` says so, and `restart_running` is the same restart.
+#[test]
+fn dual_boot_facts_are_the_devices() {
+    let mut device = Device::started(Vec::new());
+    assert!(device.updates.dual_boot_capable());
+    assert!(!device.updates.dual_boot_declared());
+    assert_eq!(device.updates.restart_running(), Err(Reason::NOT_HERE));
+    device.updates.set_restarter(|| Ok(()));
+    assert_eq!(device.updates.restart_running(), Ok(()));
+    device.updates.settle(Some(Source::Ini));
+    assert!(device.updates.dual_boot_declared());
+    device.updates.settle(None);
+    assert!(!device.updates.dual_boot_declared());
+}
+
 /// A key that is not PaperPaw's installs only where the user accepted that
 /// very key; the check says whose it is and decides nothing.
 #[test]
