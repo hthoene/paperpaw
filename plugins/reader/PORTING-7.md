@@ -409,6 +409,36 @@ relative to the data folder).
   both into paragraphs (`native_block::start`), so a table's rules never occur yet; carrying them over needs the
   `doc_image` and `doc_columns` pieces of the document service (docs/abi/document.md section 5).
 
+## Book info, the font panel and the bookmark (view slice R3b, Port D, `native_bookmark.rs`, `native_view/r3.rs`)
+
+- `reader.book-info` opens the slot `core.book-info` with the book's path as a hand-over parameter (the files
+  plugin's information screen fills it); `reader.quick-settings` opens `core.panel` with the menu
+  `core.reader-panel` (the font and layout panel: the entries are the host's). Both as Beta 3's actions did.
+- `reader.toggle-bookmark` (`native_bookmark::toggle`): a page that has a bookmark loses all of them, any other gets
+  one, kept as an annotation of the book (`core.library` 2.2: the book's annotations are read page by page, up to 8,192
+  rows, then one staged transaction at the generation read: remove the ids / add one, commit; a `State` answer, another
+  change in between, looks again once; a refused edit aborts the transaction and says "the bookmark could not be kept"
+  once, `reader.marks-not-saved`). A bookmark is on the page when it starts between the page's start and the next
+  page's; a row in another conversion is not compared. A new bookmark keeps the page's text from its lines as the
+  book has it (a word broken by the layout is whole again, the layout's hyphen left out, a filter's lines left out;
+  `native_bookmark::text_of`), on one line and cut at 512 bytes at a character (Beta 3 ended a cut text in "…": the
+  library cuts at its own limit), the progress in whole percent (rounded, as Beta 3), the book's clock and
+  the conversion. At most 24 bookmarks of one page are removed in one go.
+- **Not yet (named):** the ribbon on a bookmarked page and the tap on the top right corner
+  (`reader.corner-bookmark`): both belong to the draw and the gesture code (`native_view.rs`, R2b's files) and
+  follow when that lands; until then a toggle shows no mark on the page (the annotations screen, R5, lists it).
+  Go to a page / percentage (a number dialog; its answer is an event of the reader's own) and the status-line actions
+  (`reader.next-status-line`, R2b) are not here. The annotations screen itself is R5.
+- An empty page (nothing laid out) is a silent no-op: no bookmark, no notice. Beta 3 sent `annotations::changed`
+  itself after an edit; here the plugin does not: `docs/abi/library.md` lists event 91 (`annotations-changed`)
+  as the host's after a commit, but `paperpaw-core` does not raise it yet. **Gap:** the library annotation
+  transactions (ops 15-21) are not wired on devices (`ERR_UNSUPPORTED`) and event 91 is not raised: Services'
+  todo 307/476 (with a host test for the edit transaction). Until it lands the toggle does nothing on a device;
+  it gates the reader entering `NATIVE_PLUGINS`.
+- Not tested with a host (no harness for `core.library` edits here): the pure parts are (the page's range, which
+  rows are the page's, the percent, the page text and the snippet, with refused allocations); host acceptance of the
+  edit transaction (H-library) is pending.
+
 
 ## Annotations (native model, `native_annotations.rs`)
 
