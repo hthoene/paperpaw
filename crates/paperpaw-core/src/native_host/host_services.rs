@@ -24,6 +24,10 @@ use alloc::vec::Vec;
 use core::cell::{Cell, OnceCell, RefCell};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED};
 
+/// The most documents of one maker the host ends in one go (more than the
+/// device holds).
+const HANDED_ENDS: usize = 64;
+
 /// What the dispatcher tells a service backend about its caller.
 #[derive(Clone, Copy)]
 pub(crate) struct Caller<'a> {
@@ -687,6 +691,21 @@ impl HostServices {
                     result.and(doc_service::format_retired(host, format, Some(owner)).map(|_| ()));
             });
             result = result.and(doc_service::opener_stopped(host, owner).map(|_| ()));
+            // A book of this plugin's folders (root 5) cannot stay open under
+            // a reader once the folder may go (its update or removal): the
+            // documents end now (reason 3).
+            for _ in 0..HANDED_ENDS {
+                let Some(id) = host.document_of_maker(owner) else {
+                    break;
+                };
+                if let Err(status) = doc_service::end_by_host(host, id, 3) {
+                    result = result.and(Err(status));
+                    break;
+                }
+            }
+            // (The pictures of a format are not mapped yet in this build: no
+            // image id needs ending here; the picture slice, #991, ends them
+            // through `end_document_by_host`.)
         }
         if let Some(library) = self.library.get() {
             result = result.and(lib_service::owner_stopped(&*library.0, owner));

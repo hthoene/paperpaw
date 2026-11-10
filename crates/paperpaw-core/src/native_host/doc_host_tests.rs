@@ -91,6 +91,8 @@ struct World<'a> {
     sniffs: RefCell<Vec<u64>>,
     /// What the format answers to the next call.
     reply: RefCell<Result<Vec<u8>, i32>>,
+    /// The screen instance the opener's call runs in (`Frame::calling_instance`).
+    instance: Cell<Option<u32>>,
     /// (owner, token, the call's fmt op) of each call made to a format.
     calls: RefCell<Vec<(u64, u32, u32)>>,
     hosts: HostServices,
@@ -164,6 +166,9 @@ impl Frame for World<'_> {
             guard_dialog: false,
         }]));
         Ok(())
+    }
+    fn calling_instance(&self) -> Result<u32, i32> {
+        self.instance.get().ok_or(ERR_STATE)
     }
     fn plugin_name(&self, plugin: &str, visit: &mut dyn FnMut(&str)) -> Result<(), i32> {
         visit(&std::format!("Name of {plugin}"));
@@ -529,6 +534,7 @@ fn world<R>(body: impl FnOnce(&World<'_>) -> R) -> R {
         version: Cell::new("1.0.0"),
         scoped: RefCell::new(Vec::new()),
         fail: Cell::new(0),
+        instance: Cell::new(None),
         reply: RefCell::new(Ok(state_reply())),
         calls: RefCell::new(Vec::new()),
         hosts,
@@ -814,8 +820,10 @@ fn malformed_input_and_unwired_roots_are_refused_before_a_format_is_called() {
                 "op {id}"
             );
         }
-        // `doc_open` names root 0 or 1 only; any other root is invalid.
-        assert_eq!(w.open(5, "a.epub"), Err(ERR_INVALID));
+        // `doc_open` names root 0, 1 or 5 only; root 5 needs a hand-over
+        // (unsupported while no `core.ui` store is wired), any other is invalid.
+        assert_eq!(w.open(5, "a.epub"), Err(ERR_UNSUPPORTED));
+        assert_eq!(w.open(2, "a.epub"), Err(ERR_INVALID));
         assert!(w.open(9, "a.epub").is_err());
         assert!(w.calls.borrow().is_empty());
         assert_eq!(w.state.table.len(), 0);
@@ -1170,6 +1178,12 @@ fn seen_cache(w: &World<'_>, at: usize) -> std::string::String {
 
 #[path = "doc_host_cache_tests.rs"]
 mod cache;
+
+#[path = "doc_host_protected_tests.rs"]
+mod protected_tests;
+
+#[path = "doc_host_root5_tests.rs"]
+mod root5_tests;
 
 #[path = "doc_host_report_tests.rs"]
 mod report_tests;
