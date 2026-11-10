@@ -275,3 +275,30 @@ fn a_refused_or_oversized_answer_is_dropped_and_reported() {
     assert_eq!(fixture.dropped.borrow().len(), 2);
     assert_eq!(fixture.dropped.borrow()[0], (7, ERR_INVALID));
 }
+
+#[test]
+fn the_callee_is_metered_to_the_callee_and_not_the_caller() {
+    let fixture = Fixture::new();
+    let (callee, caller) = fixture.with_frame(|frame| {
+        let _caller = frame.meter.enter_scoped("caller");
+        frame
+            .call_native(CALLEE, 7, &[], &mut [0; 8], &mut |_| Ok(()))
+            .unwrap();
+        (
+            frame.meter.calls_of("callee"),
+            frame.meter.calls_of("caller"),
+        )
+    });
+    assert_eq!((callee, caller), (1, 1));
+}
+
+#[test]
+fn a_refused_call_charges_nobody() {
+    let fixture = Fixture::new();
+    let calls = fixture.with_frame(|frame| {
+        let _ = frame.call_native(CALLEE + 1, 7, &[], &mut [0; 8], &mut |_| Ok(()));
+        let _ = frame.call_native(CALLER, 7, &[], &mut [0; 8], &mut |_| Ok(()));
+        frame.meter.calls_of("callee")
+    });
+    assert_eq!(calls, 0);
+}
