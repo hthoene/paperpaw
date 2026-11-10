@@ -180,3 +180,20 @@ fn an_unconfirmed_sync_position_is_busy_for_a_book_the_move_carries_and_a_local_
     host.write_position(BookRef::Path("books/a.epub"), &at, true)
         .unwrap();
 }
+
+#[test]
+fn the_delete_preflight_is_the_cards() {
+    let host = host();
+    assert_eq!(
+        host.can_delete("books/c.epub"),
+        (paperpaw_native::host_glue::OK, 0)
+    );
+    assert_eq!(
+        host.can_delete("books/none.epub").0,
+        paperpaw_native::host_glue::ERR_NOT_FOUND
+    );
+    assert_eq!(
+        host.can_delete("books/d.txt").0,
+        paperpaw_native::host_glue::ERR_INVALID
+    );
+}
