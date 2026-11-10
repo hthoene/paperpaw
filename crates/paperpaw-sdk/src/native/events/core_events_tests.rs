@@ -20,6 +20,7 @@ macro_rules! position {
             page: $page,
             pages: $pages,
             reason: $reason,
+            chapter_left: None,
         }
     };
 }

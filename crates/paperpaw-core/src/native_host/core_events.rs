@@ -139,6 +139,7 @@ macro_rules! book {
             page: $page.page,
             pages: $page.pages,
             insert: None,
+            chapter_left: None,
         }
     };
 }
