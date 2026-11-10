@@ -56,7 +56,7 @@ impl<S: Services> SharedHeap<S> {
 /// to write the address of into the plugin's heap word.
 ///
 /// Never inlined: the address of the table is the identity of `S` for the
-/// frame owner ([`frame_owner::context_of`]), and a constant reference copied
+/// frame owner (`frame_owner::context_of`), and a constant reference copied
 /// into each use would have as many addresses as uses. Every user of the
 /// table (the loader, a context's frames, the entries) asks this one function.
 #[must_use]
