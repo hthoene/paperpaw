@@ -88,8 +88,12 @@ impl Open {
             // Not drawn yet: there is no page to mark.
             return Ok(());
         };
-        let text = native_bookmark::page_text(&page.lines)?;
         let start = (page.start.section, page.start.offset);
+        if start == (page.end.section, page.end.offset) {
+            // An empty page has nothing to mark: no bookmark, and no notice.
+            return Ok(());
+        }
+        let text = native_bookmark::page_text(&page.lines)?;
         let ppm = self
             .progress
             .as_ref()

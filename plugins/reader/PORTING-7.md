@@ -429,6 +429,12 @@ relative to the data folder).
   follow when that lands; until then a toggle shows no mark on the page (the annotations screen, R5, lists it).
   Go to a page / percentage (a number dialog; its answer is an event of the reader's own) and the status-line actions
   (`reader.next-status-line`, R2b) are not here. The annotations screen itself is R5.
+- An empty page (nothing laid out) is a silent no-op: no bookmark, no notice. Beta 3 sent `annotations::changed`
+  itself after an edit; here the plugin does not: `docs/abi/library.md` lists event 91 (`annotations-changed`)
+  as the host's after a commit, but `paperpaw-core` does not raise it yet. **Gap:** the library annotation
+  transactions (ops 15-21) are not wired on devices (`ERR_UNSUPPORTED`) and event 91 is not raised: Services'
+  todo 307/476 (with a host test for the edit transaction). Until it lands the toggle does nothing on a device;
+  it gates the reader entering `NATIVE_PLUGINS`.
 - Not tested with a host (no harness for `core.library` edits here): the pure parts are (the page's range, which
   rows are the page's, the percent, the page text and the snippet, with refused allocations); host acceptance of the
   edit transaction (H-library) is pending.
