@@ -94,6 +94,10 @@ pub(crate) struct FormatCall<'a> {
     pub(crate) text: &'a str,
     /// Op 2 only.
     pub(crate) options: Options<'a>,
+    /// Op 2 only: the user's CSS file (`doc_open.css_root`, `css_path`;
+    /// `""` for none), which the format reads as root 4.
+    pub(crate) css_root: u32,
+    pub(crate) css_path: &'a str,
 }
 impl FormatCall<'_> {
     fn new(format: FormatRef, op: u32, document: u32) -> Self {
@@ -112,6 +116,8 @@ impl FormatCall<'_> {
             conversion: 0,
             text: "",
             options: Options::NONE,
+            css_root: 0,
+            css_path: "",
         }
     }
 }
@@ -591,6 +597,8 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
         call.cover_side = cover_side;
         call.conversion = conversion;
         call.options = options;
+        call.css_root = request.css_root;
+        call.css_path = request.css_path;
         let length = run(host, &call, out)?;
         let answer: wire::ServiceDocState<'_> = check::only(&out[..length])?;
         check::state(&answer)?;

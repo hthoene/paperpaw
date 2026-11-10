@@ -78,6 +78,8 @@ fn call(op: u32) -> FormatCall<'static> {
         conversion: 0x1122_3344_5566_7788,
         text: "",
         options: Options::NONE,
+        css_root: 0,
+        css_path: "",
     };
     call.op = op;
     call

@@ -61,6 +61,12 @@ pub(crate) struct FormatBook<'a> {
     pub(crate) opened: &'a str,
     /// The document id the call is for.
     pub(crate) document: u32,
+    /// The card path of the document's cache folder, root 6 (`""`: the
+    /// document has none yet).
+    pub(crate) cache: &'a str,
+    /// The card path of the user's CSS file, root 4, in the calls that may
+    /// read it (ops 2 and 3); `""` for none.
+    pub(crate) css: &'a str,
 }
 
 impl FormatBook<'_> {
@@ -86,6 +92,8 @@ struct Entry {
     opened: String,
     kind: BookKind,
     document: u32,
+    cache: String,
+    css: String,
 }
 
 /// One place for a call under way. Whether it is in use and whose it is are
@@ -186,6 +194,8 @@ impl FormatScope {
             opened: text(book.opened)?,
             kind: book.kind,
             document: book.document,
+            cache: text(book.cache)?,
+            css: text(book.css)?,
         };
         // A place that is not live is not looked at (`current` goes by `live`).
         *slot.entry.try_borrow_mut().map_err(|_| ERR_BUSY)? = Some(entry);
@@ -216,6 +226,8 @@ impl FormatScope {
             kind: entry.kind,
             opened: &entry.opened,
             document: entry.document,
+            cache: &entry.cache,
+            css: &entry.css,
         });
         true
     }

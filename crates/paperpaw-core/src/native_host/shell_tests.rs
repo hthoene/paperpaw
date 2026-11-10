@@ -1273,6 +1273,7 @@ fn callback_admission_busy_preserves_read_output_before_raw_slot_entry() {
                     super::super::storage_slots::read_at(
                         &context.environment,
                         "fake",
+                        None,
                         0,
                         PpBytes {
                             ptr: b"state".as_ptr(),
