@@ -56,6 +56,8 @@ pub struct HostWiring {
     sockets: Option<SockInputs>,
     /// `core.ui`: `Some(x4)`.
     ui: Option<bool>,
+    /// `core.document`: the memory class and the screen's long side.
+    documents: Option<(paperpaw_platform::MemoryClass, u32)>,
     secrets: Option<SecretsInputs>,
     work: Option<WorkInputs>,
 }
@@ -69,6 +71,7 @@ impl core::fmt::Debug for HostWiring {
             .field("net", &self.net.is_some())
             .field("sockets", &self.sockets.is_some())
             .field("ui", &self.ui.is_some())
+            .field("documents", &self.documents.is_some())
             .field("secrets", &self.secrets.is_some())
             .field("work", &self.work.is_some())
             .finish()
@@ -156,6 +159,23 @@ impl HostWiring {
     #[must_use]
     pub fn ui(mut self, memory: paperpaw_platform::MemoryClass) -> Self {
         self.ui = Some(super::ui_store::is_x4(memory));
+        self
+    }
+
+    /// `core.document`: the books plugins open and the formats that read
+    /// them (`docs/abi/document.md`). The host makes its table (2 documents
+    /// on the device for a `Small` memory class, 8 elsewhere) and reads the
+    /// formats and reading apps from the plugins' declarations; the shell
+    /// names only the screen's long side in pixels (the bound of a cover).
+    /// Wiring it makes the host the source of "the reader's open book" that
+    /// `core.files` needs, so `files` may be named in the same wiring.
+    #[must_use]
+    pub fn documents(
+        mut self,
+        memory: paperpaw_platform::MemoryClass,
+        screen_long_side: u32,
+    ) -> Self {
+        self.documents = Some((memory, screen_long_side));
         self
     }
 
@@ -316,6 +336,10 @@ impl HostResources {
     /// `ERR_STATE` when one of them is wired already, `ERR_INVALID` when
     /// `core.net` and `core.sockets` name different network pools (nothing is
     /// wired then).
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one wiring step per service, in order; each is a few lines"
+    )]
     pub fn wire(&self, wiring: HostWiring) -> Result<WiredHosts, i32> {
         let hosts = self.hosts();
         // What `core.net` and `core.sockets` hold in use is a busy source of
@@ -328,7 +352,9 @@ impl HostResources {
         // without one "nothing is busy" would be wrong, so it is refused.
         if (wiring.hyphenation.is_some() && hosts.hyphen().is_some())
             || (wiring.files.is_some()
-                && (hosts.files().is_some() || !hosts.busy_sources().complete()))
+                && (hosts.files().is_some()
+                    || !(hosts.busy_sources().complete() || wiring.documents.is_some())))
+            || (wiring.documents.is_some() && hosts.documents().is_some())
             || (wiring.device.is_some() && hosts.device().is_some())
             || (wiring.net.is_some() && hosts.net().is_some())
             || (wiring.sockets.is_some() && hosts.sockets().is_some())
@@ -385,6 +411,18 @@ impl HostResources {
             ));
             hosts.wire_sockets(device.clone())?;
             wired.sockets = Some(SockReports(device));
+        }
+        if let Some((memory, long_side)) = wiring.documents {
+            let limits = if super::ui_store::is_x4(memory) {
+                super::doc_service::Limits::X4
+            } else {
+                super::doc_service::Limits::LARGE
+            };
+            let state =
+                super::doc_host::DocState::try_new(limits, long_side, hosts.in_use().clone())?;
+            // The reader's open book is a source of `core.files` from now on.
+            hosts.register_reader_book_reporting()?;
+            hosts.wire_documents(Rc::new(state))?;
         }
         if let Some(storage) = wiring.files {
             // The library's move job, a busy source `core.files` needs and

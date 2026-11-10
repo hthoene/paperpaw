@@ -148,10 +148,6 @@ impl Kernel {
 
     /// Opens screen `id` with `params` on top, for `slot` if it was bound
     /// to one.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one line over the limit with the two ready flags; split it when it is next changed"
-    )]
     pub(crate) fn open(&mut self, id: Id, slot: Option<Id>, params: &Params) {
         if !self.screen_stack_has_room() || !self.require_screen_keys(1) {
             return;
@@ -248,6 +244,18 @@ impl Kernel {
             ready: false,
             drawn: false,
         };
+        self.push_opened(active, params, beside.is_some(), on_open);
+    }
+
+    /// Puts the screen just made on the stack (below a guard, or on top) and
+    /// tells it and the display; `beside` when it is shown beside the list.
+    fn push_opened(
+        &mut self,
+        active: ActiveScreen,
+        params: &Params,
+        beside: bool,
+        on_open: Option<paperpaw_sdk::RefreshMode>,
+    ) {
         // Opened by another while a screen guards the device: it waits
         // below the guard, hidden.
         if let Some(guard) = self.guard().filter(|_| !self.from_guard) {
@@ -257,7 +265,7 @@ impl Kernel {
             return;
         }
         // The list a detail shows beside stays shown.
-        if active.screen.region(&self.shared.env(self.now)).is_none() && beside.is_none() {
+        if active.screen.region(&self.shared.env(self.now)).is_none() && !beside {
             self.hide_from(self.shown_base());
         }
         self.screens_changed = true;
