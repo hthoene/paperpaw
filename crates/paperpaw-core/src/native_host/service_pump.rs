@@ -178,6 +178,8 @@ impl crate::Kernel {
         let setting_more = self.native_setting_pump();
         // Widgets their owners said changed reach their makers (`widget_events`).
         let widget_more = self.native_widget_pump();
+        // The library's move job goes on, a bounded step a pass (`moves_pump`).
+        let moves_more = self.native_moves_pump();
         // Questions open their dialogs and their answers come back.
         let dialog_more = self.native_dialog_pump();
         // The outcomes of Wi-Fi requests reach their senders (`wifi_events`).
@@ -190,6 +192,7 @@ impl crate::Kernel {
                 || image_more
                 || setting_more
                 || widget_more
+                || moves_more
                 || dialog_more
                 || wifi_more
                 || firmware_more,
@@ -213,6 +216,7 @@ impl crate::Kernel {
             .filter_map(|service| service.next_deadline())
             .chain(instances.service_retry())
             .chain(instances.image_pump.retry_at())
+            .chain(instances.moves_retry())
             .chain(self.native_demand_due().map(|at| at.millis()))
             .chain(self.native_wifi_due())
             .chain(self.firmware_due())

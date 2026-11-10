@@ -175,6 +175,9 @@ pub(crate) struct NativeInstances {
     /// may try again after a refusal.
     service_buffer: core::cell::RefCell<Vec<u8>>,
     service_retry: Cell<Option<u64>>,
+    /// When the library's move job may be pumped again after a step that
+    /// failed (`moves_pump`).
+    moves_retry: Cell<Option<u64>>,
     /// Where the event pump goes on (the running plugin it starts at).
     service_cursor: Cell<usize>,
     /// What the work pump saw of the device at its last pass (see
@@ -623,6 +626,14 @@ impl NativeInstances {
 
     pub(crate) fn set_service_retry(&self, at: Option<u64>) {
         self.service_retry.set(at);
+    }
+
+    pub(crate) fn moves_retry(&self) -> Option<u64> {
+        self.moves_retry.get()
+    }
+
+    pub(crate) fn set_moves_retry(&self, at: Option<u64>) {
+        self.moves_retry.set(at);
     }
 
     pub(crate) fn work_seen(&self) -> u8 {

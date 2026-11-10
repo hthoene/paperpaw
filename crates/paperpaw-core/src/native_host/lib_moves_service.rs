@@ -78,6 +78,7 @@ impl LibraryMoves {
     ///
     /// # Errors
     /// As [`Moves::open_book`].
+    #[allow(dead_code, reason = "the reader's open (Host, #946) calls it")]
     pub(crate) fn open_book(&self, book: &str) -> Result<(), i32> {
         self.moves.open_book(&*self.card, book)
     }
