@@ -24,6 +24,7 @@ use super::registrations::{
     EventPageTurned, EventResume, EventStarted, EventStopping, EventSuspend,
     REGISTRATION_MAX_RECORDS, Record,
 };
+use super::registrations::{EVENT_BOOK_MOVED_TAG, EVENT_BOOK_REMOVED_TAG, EVENT_STACK_CHANGED_TAG};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
 
 /// Whether `tag` names an event a plugin can register for: tick (3), 32-37,
@@ -32,10 +33,13 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
 /// 97 (`firmware_events`), the events of the services the kernel pumps:
 /// `core.net` 99-102 and
 /// `core.sockets` 106-107 (`service_pump`), and `event.book_opened`,
-/// `event.book_closed` and `event.book_finished` (65-67): registered now,
-/// delivered when the reader port produces them (`core-events.md` 3.1: the
+/// `event.book_closed`, `event.book_finished`, `event.book_moved` and
+/// `event.book_removed` (65-69): registered now,
+/// delivered when the reader port produces them (`core-events.md` 3.3: the
 /// host never fails a registration for an event a device does not raise, and
-/// until the reading session reports, nothing raises these).
+/// until the reading session reports, nothing raises these). The same holds
+/// for `event.stack_changed` (81, a hint, `ui.md` 5.1): a plugin that closes
+/// what a covering screen hides registers for it.
 ///
 /// The answers of a plugin's own requests register as well: `event.wifi_done` (93,
 /// ended `join` and `host`; `wifi_events`) and the work events 103-105
@@ -63,6 +67,9 @@ pub const fn is_event_tag(tag: u32) -> bool {
             | EVENT_BOOK_OPENED_TAG
             | EVENT_BOOK_CLOSED_TAG
             | EVENT_BOOK_FINISHED_TAG
+            | EVENT_BOOK_MOVED_TAG
+            | EVENT_BOOK_REMOVED_TAG
+            | EVENT_STACK_CHANGED_TAG
             | EVENT_SETTING_CHANGED_TAG
             | EVENT_PLUGINS_CHANGED_TAG
             | EVENT_WIFI_CHANGED_TAG
