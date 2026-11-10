@@ -440,6 +440,7 @@ fn every_reg_allocation_refusal_leaves_the_store_unpublished() {
             let mut store = DeclarationStore::default();
             let mut allocations = Allocations {
                 fail_after: Some(fail_after),
+                ..Default::default()
             };
             let result = stage("fixture", &source, owned, &mut allocations).and_then(|pending| {
                 store.prepare(pending, &mut allocations)?.commit();

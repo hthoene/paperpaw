@@ -43,6 +43,11 @@ fn reader<'a>(name: &'a str, screen: &'a str, formats: &'a str) -> Record<'a> {
 
 /// The plugin `epub`'s batches, committed and checked at the end.
 fn finish(batches: &[&[Record<'_>]]) -> Result<(), i32> {
+    refused(batches).0
+}
+
+/// As `finish`, with the cap the check said it refused the batch at.
+fn refused(batches: &[&[Record<'_>]]) -> (Result<(), i32>, Option<Cap>) {
     let mut raw = RawDeclarations::default();
     for records in batches {
         let mut bytes = vec![0; REGISTRATION_MAX_BYTES];
@@ -55,13 +60,15 @@ fn finish(batches: &[&[Record<'_>]]) -> Result<(), i32> {
     }
     raw.sort_index();
     let owned = Declarations::default();
-    View {
+    let view = View {
         raw: &raw,
         owned: &owned,
         image: None,
         plugin: "epub",
-    }
-    .finish()
+        refused: Default::default(),
+    };
+    let result = view.finish();
+    (result, view.refused.get())
 }
 
 #[test]
@@ -115,10 +122,12 @@ fn a_plugin_declares_eight_formats_and_the_ninth_is_full() {
         .map(|(name, ext)| fmt(name, ext))
         .collect();
     assert_eq!(finish(&[&rows[..4], &rows[4..8]]), Ok(()));
+    // Refused at the plugin's cap: problem 14, arg 8.
     assert_eq!(
-        finish(&[&rows[..4], &rows[4..8], &rows[8..]]),
-        Err(ERR_FULL)
+        refused(&[&rows[..4], &rows[4..8], &rows[8..]]),
+        (Err(ERR_FULL), Some(Cap::of(Cap::FORMATS, 8)))
     );
+    assert_eq!(refused(&[&rows[..4]]).1, None);
 }
 
 #[test]
@@ -156,5 +165,10 @@ fn a_plugin_declares_four_reading_apps_and_the_fifth_is_invalid() {
     all.extend(rows[..4].iter().copied());
     assert_eq!(finish(&[&all[..3], &all[3..]]), Ok(()));
     all.push(rows[4]);
-    assert_eq!(finish(&[&all[..3], &all[3..]]), Err(ERR_INVALID));
+    // Refused at the plugin's cap: problem 15, arg 4 (the status stays
+    // `ERR_INVALID`: the cap decides the value, not the status).
+    assert_eq!(
+        refused(&[&all[..3], &all[3..]]),
+        (Err(ERR_INVALID), Some(Cap::of(Cap::READERS, 4)))
+    );
 }

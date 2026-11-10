@@ -196,10 +196,8 @@ impl<'a> View<'a> {
             .filter(|entry| entry.kind() == KIND_FORMAT)
             .count();
         if formats > super::format_index::PER_PLUGIN {
-            self.refused.set(Some(Cap::of(
-                Cap::FORMATS,
-                super::format_index::PER_PLUGIN,
-            )));
+            self.refused
+                .set(Some(Cap::of(Cap::FORMATS, super::format_index::PER_PLUGIN)));
             return Err(ERR_FULL);
         }
         // At most 4 reading apps per plugin: the fifth refuses the batch

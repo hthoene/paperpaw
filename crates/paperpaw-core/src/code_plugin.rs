@@ -353,6 +353,10 @@ impl Kernel {
         let admitted = if taken {
             Err(PluginProblem::Mismatch)
         } else {
+            // What was kept of an earlier refusal goes: this try says its own.
+            if let Some(declared) = self.shared.registry.native_declarations.as_ref() {
+                declared.clear_refusal(id.as_str());
+            }
             admission.admit(self, plugin.folder())
         };
         match admitted {
