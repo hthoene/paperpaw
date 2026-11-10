@@ -190,6 +190,8 @@ pub struct ReadingView<'a> {
     page: Option<u32>,
     /// Page count, if counted.
     pages: Option<u32>,
+    /// Pages after this one in its chapter, if the reader knows the chapter's end.
+    chapter_left: Option<u32>,
 }
 
 impl<'a> ReadingView<'a> {
@@ -243,15 +245,27 @@ impl<'a> ReadingView<'a> {
     pub fn pages(&self) -> Option<u32> {
         self.pages
     }
+    /// The pages after this one up to the end of its chapter, 0 on the chapter's last page;
+    /// `None` where the reader has no chapter end (no table of contents, a page before its
+    /// first entry, pages not counted yet). Present only with a page and a page count, and
+    /// at most the pages after this one.
+    #[must_use]
+    pub fn chapter_left(&self) -> Option<u32> {
+        self.chapter_left
+    }
     fn validate(self) -> Result<Self, Error> {
         if self.progress_ppm > 1_000_000
             || self.page == Some(0)
             || self.pages == Some(0)
             || matches!((self.page, self.pages), (Some(p), Some(n)) if p > n)
         {
-            Err(Error::Invalid)
-        } else {
-            Ok(self)
+            return Err(Error::Invalid);
+        }
+        // Chapter pages left need the counted pages and fit in what follows this page.
+        match (self.chapter_left, self.page, self.pages) {
+            (None, _, _) => Ok(self),
+            (Some(left), Some(page), Some(pages)) if left <= pages - page => Ok(self),
+            _ => Err(Error::Invalid),
         }
     }
 }

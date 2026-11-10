@@ -22,6 +22,12 @@ pub(crate) mod event_tags;
 pub(crate) mod owner_directory;
 
 pub(crate) mod device_log;
+#[allow(
+    dead_code,
+    reason = "the dual-boot request of the firmware queue uses it (Core todo 397)"
+)]
+pub(crate) mod dual_boot_ini;
+pub(crate) mod dual_boot_job;
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
 pub(crate) mod registry_generation;
@@ -58,12 +64,16 @@ mod firmware_events;
 )]
 pub(crate) mod firmware_install;
 
+#[path = "native_host/install_grants.rs"]
+pub(crate) mod install_grants;
 #[path = "native_host/plugin_check.rs"]
 #[allow(
     dead_code,
     reason = "the queue's plugin seam wires the job (slice B2c-1 wiring after Core's queue enum); tests do today"
 )]
 pub(crate) mod plugin_check;
+#[path = "native_host/plugin_confirm.rs"]
+pub(crate) mod plugin_confirm;
 #[path = "native_host/plugin_folder.rs"]
 #[allow(dead_code, reason = "the plugin jobs use it; see plugin_check")]
 pub(crate) mod plugin_folder;
@@ -81,9 +91,15 @@ pub(crate) mod plugin_install;
 pub(crate) mod plugin_job;
 #[path = "native_host/plugin_jobs.rs"]
 pub(crate) mod plugin_jobs;
+#[path = "native_host/plugin_remove.rs"]
+#[allow(dead_code, reason = "the queue and the start use it; see plugin_check")]
+pub(crate) mod plugin_remove;
 #[path = "native_host/plugin_rules.rs"]
 #[allow(dead_code, reason = "the install job applies it; see plugin_check")]
 pub(crate) mod plugin_rules;
+#[path = "native_host/plugin_start.rs"]
+#[allow(dead_code, reason = "the builder runs it; see plugin_check")]
+pub(crate) mod plugin_start;
 #[path = "native_host/plugin_swap.rs"]
 #[allow(
     dead_code,
@@ -93,6 +109,8 @@ pub(crate) mod plugin_swap;
 #[path = "native_host/plugin_trust.rs"]
 #[allow(dead_code, reason = "the plugin jobs use it; see plugin_check")]
 pub(crate) mod plugin_trust;
+#[path = "native_host/plugin_unforgotten.rs"]
+pub(crate) mod plugin_unforgotten;
 
 #[path = "native_host/secrets_file.rs"]
 pub(crate) mod secrets_file;
@@ -113,6 +131,9 @@ mod screen_ready;
 #[path = "native_host/ui_service.rs"]
 pub(crate) mod ui_service;
 pub use ui_service::check_ask;
+
+#[path = "native_host/ui_clipboard.rs"]
+pub(crate) mod ui_clipboard;
 
 #[path = "native_host/ui_hints.rs"]
 pub(crate) mod ui_hints;
@@ -184,6 +205,8 @@ pub use shell_wiring::{HostWiring, HyphenTables, WiredHosts};
 
 #[path = "native_host/fonts.rs"]
 mod fonts;
+#[path = "native_host/fonts_data.rs"]
+mod fonts_data;
 
 mod admitted_features;
 #[path = "native_host/secret_bytes.rs"]
@@ -202,6 +225,7 @@ pub(crate) mod dialog_pump;
 pub(crate) mod dialogs;
 pub(crate) mod doc_cache;
 pub(crate) mod doc_host;
+pub(crate) mod doc_reading;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
 pub(crate) mod event_call;
@@ -234,13 +258,14 @@ pub(crate) mod image_pump;
     reason = "wired into the shell table; the DOC, LIB and prepare producers fill it"
 )]
 pub(crate) mod image_service;
+#[allow(
+    dead_code,
+    reason = "wired by HostWiring::library; the write half is todo 307"
+)]
+pub(crate) mod lib_host;
 pub(crate) mod lib_moves_carry;
 pub(crate) mod lib_moves_host;
 pub(crate) mod lib_moves_journal;
-#[allow(
-    dead_code,
-    reason = "the kernel's service pump calls `pump_library_moves` (Core wires it)"
-)]
 pub(crate) mod lib_moves_service;
 pub(crate) mod lib_moves_walk;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
@@ -250,6 +275,7 @@ pub(crate) mod lib_service;
 pub(crate) mod linked_plugins;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
+mod moves_pump;
 #[allow(
     dead_code,
     reason = "the shell builds the pool with the NET host and the SOCK host charges it"
@@ -261,7 +287,10 @@ pub(crate) mod net_service;
 mod network_demand;
 pub(crate) mod owner_paths;
 pub(crate) mod paths_in_use;
+mod reading_events;
 pub(crate) mod save_files;
+pub(crate) mod screen_apply;
+pub(crate) mod screen_stage;
 pub(crate) mod service_events;
 mod service_pump;
 mod service_slots;

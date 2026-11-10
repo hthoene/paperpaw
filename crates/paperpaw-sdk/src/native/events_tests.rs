@@ -41,6 +41,7 @@ fn page() -> EventPageTurned<'static> {
         chapter: "One",
         page: Some(12),
         pages: Some(300),
+        chapter_left: None,
     }
 }
 #[test]
@@ -78,6 +79,63 @@ fn page_vectors_preserve_counters_and_borrow_input_strings() {
         assert!(bytes.as_ptr_range().contains(&got.path().as_ptr()));
         assert!(bytes.as_ptr_range().contains(&got.title().as_ptr()));
         assert!(bytes.as_ptr_range().contains(&got.chapter().as_ptr()));
+    }
+}
+#[test]
+fn chapter_left_is_read_present_and_absent_and_bounded_by_the_pages_after_this_one() {
+    let mut bytes = [0; 1200];
+    // Page 12 of 300: 288 pages follow it; 0 is the chapter's last page.
+    for left in [None, Some(0), Some(1), Some(288)] {
+        let record = EventPageTurned {
+            chapter_left: left,
+            ..page()
+        };
+        let len = records_encode(&[Record::EventPageTurned(record)], &mut bytes).unwrap();
+        let Event::PageTurned(got) = decode(&bytes[..len]).unwrap() else {
+            panic!()
+        };
+        assert_eq!(got.chapter_left(), left);
+        assert_eq!((got.page(), got.pages()), (Some(12), Some(300)));
+    }
+    // On the last page nothing follows: only 0.
+    let last = EventPageTurned {
+        page: Some(300),
+        chapter_left: Some(0),
+        ..page()
+    };
+    let len = records_encode(&[Record::EventPageTurned(last)], &mut bytes).unwrap();
+    assert!(decode(&bytes[..len]).is_ok());
+    for refused in [
+        // Past the pages after this one, and past them on the last page.
+        EventPageTurned {
+            chapter_left: Some(289),
+            ..page()
+        },
+        EventPageTurned {
+            page: Some(300),
+            chapter_left: Some(1),
+            ..page()
+        },
+        // Without the page, without the page count, or without either.
+        EventPageTurned {
+            page: None,
+            chapter_left: Some(0),
+            ..page()
+        },
+        EventPageTurned {
+            pages: None,
+            chapter_left: Some(0),
+            ..page()
+        },
+        EventPageTurned {
+            page: None,
+            pages: None,
+            chapter_left: Some(0),
+            ..page()
+        },
+    ] {
+        let n = records_encode(&[Record::EventPageTurned(refused)], &mut bytes).unwrap();
+        assert_eq!(decode(&bytes[..n]), Err(Error::Invalid), "{refused:?}");
     }
 }
 #[test]

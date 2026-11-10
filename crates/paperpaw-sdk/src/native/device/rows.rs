@@ -263,7 +263,7 @@ macro_rules! flag {
         impl $name<'_> { $(#[doc=$word] #[must_use] pub const fn $method(self)->bool { self.row.flags & (1 << $bit)!=0 })+ }
     };
 }
-flag!(FileCheck,data_plugin=0=>"The file contains data only.",author_pinned=1=>"This id is pinned to the checked author.",other_author=2=>"This id is pinned to another author.",paperpaw_signed=3=>"Signed by a PaperPaw key.",foreign_firmware=4=>"Another firmware than PaperPaw.");
+flag!(FileCheck,data_plugin=0=>"The file contains data only.",author_pinned=1=>"This id is pinned to the checked author.",other_author=2=>"This id is pinned to another author.",paperpaw_signed=3=>"Signed by a PaperPaw key.",foreign_firmware=4=>"Another firmware than PaperPaw.",leaves_out=5=>"The checked firmware leaves out plugins built into the running image (see `Device::leaves_out`).");
 flag!(WifiInfo,scanning=0=>"A scan is in progress.",wanted=1=>"Wi-Fi is wanted.",busy=2=>"The radio is busy.");
 flag!(WifiNetwork,secured=0=>"This network requires a password.",known=1=>"A password is stored for this network.");
 flag!(BondedDevice,connected=0=>"Currently connected.",remote_keys=1=>"Remote keys are enabled.");

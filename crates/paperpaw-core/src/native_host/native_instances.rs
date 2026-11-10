@@ -197,6 +197,13 @@ pub(crate) struct NativeInstances {
     /// may try again after a refusal.
     service_buffer: core::cell::RefCell<Vec<u8>>,
     service_retry: Cell<Option<u64>>,
+    /// When the library's move job may be pumped again after a step that
+    /// failed (`moves_pump`).
+    moves_retry: Cell<Option<u64>>,
+    /// How many steps in a row were refused (the back-off of `moves_pump`).
+    moves_failures: Cell<u8>,
+    /// The count of begun moves the pump last saw (`moves_pump`).
+    moves_begun: Cell<u32>,
     /// Where the event pump goes on (the running plugin it starts at).
     service_cursor: Cell<usize>,
     /// What the work pump saw of the device at its last pass (see
@@ -251,6 +258,14 @@ impl NativeInstances {
         self.pool.as_ref()?.owners().ok()
     }
 
+    /// Hands the plugin id of the enabled owner `key` to `visit`; `false`
+    /// for an owner that is unknown or stopped, or while the directory is
+    /// busy. Nothing is copied.
+    pub(crate) fn with_id(&self, key: u64, visit: &mut dyn FnMut(&str)) -> bool {
+        self.directory()
+            .is_some_and(|directory| directory.with_id(key, visit).is_ok())
+    }
+
     /// How many owner-directory updates were skipped since the last call.
     pub(crate) fn take_directory_missed(&self) -> u32 {
         self.directory()
@@ -299,6 +314,20 @@ impl NativeInstances {
     /// The `core.ui` service of the device pool (widget and status tables).
     pub(crate) fn ui_services(&self) -> Option<&super::ui_service::UiServices> {
         self.pool.as_ref()?.ui()
+    }
+
+    /// What the screens' callbacks stage for the kernel, once the pool is
+    /// adopted (a kernel with no native plugin has none).
+    pub(crate) fn screen_stage(&self) -> Option<&super::screen_stage::ScreenStage> {
+        Some(&self.pool.as_ref()?.hosts().screen_stage)
+    }
+
+    /// The host owner key of the running plugin `id`, if it has an instance.
+    pub(crate) fn key_of(&self, id: &str) -> Option<u64> {
+        self.entries
+            .iter()
+            .find(|entry| entry.enabled && entry.id.as_str() == id)
+            .map(|entry| entry.key)
     }
 
     /// Retain the device pool before any fallible admission work, including
@@ -654,6 +683,38 @@ impl NativeInstances {
         self.service_retry.set(at);
     }
 
+    pub(crate) fn moves_retry(&self) -> Option<u64> {
+        self.moves_retry.get()
+    }
+
+    pub(crate) fn set_moves_retry(&self, at: Option<u64>) {
+        self.moves_retry.set(at);
+    }
+
+    /// Counts one more refused step and returns how many in a row.
+    pub(crate) fn moves_failed(&self) -> u8 {
+        let failures = self.moves_failures.get().saturating_add(1);
+        self.moves_failures.set(failures);
+        failures
+    }
+
+    /// The pump saw the count of begun moves: when it differs from the last
+    /// one, the back-off of earlier steps is dropped. It matters when no job
+    /// is open (a move is refused as busy while one is, and a refused step
+    /// keeps its job open): a journal that could not be read at the start, a
+    /// job ended by the failure.
+    pub(crate) fn moves_begun_seen(&self, begun: u32) {
+        if self.moves_begun.replace(begun) != begun {
+            self.moves_failures.set(0);
+            self.moves_retry.set(None);
+        }
+    }
+
+    /// A step was not refused: the back-off starts again.
+    pub(crate) fn moves_ok(&self) {
+        self.moves_failures.set(0);
+    }
+
     pub(crate) fn work_seen(&self) -> u8 {
         self.work_seen.get()
     }
@@ -771,6 +832,11 @@ impl NativeIdentity {
     /// The device's `core.ui` service (widget handles), once a shell wired it.
     pub(crate) fn ui_services(&self) -> Option<&super::ui_service::UiServices> {
         self.pool.as_ref()?.ui()
+    }
+
+    /// What the screens' callbacks stage for the kernel (`screen_stage`).
+    pub(crate) fn screen_stage(&self) -> Option<&super::screen_stage::ScreenStage> {
+        Some(&self.pool.as_ref()?.hosts().screen_stage)
     }
 }
 

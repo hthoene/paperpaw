@@ -15,7 +15,6 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use catalog_job::{CatalogJob, make_library_folder, waits};
 use clean_up::{ask_clean_up, register_clean_up};
-
 use paperpaw_sdk::builtin::{
     actions, events, fonts, group_sections, groups, keymap_presets, menus, params, screens,
     settings, settings_page, slots, status_items,

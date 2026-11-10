@@ -21,9 +21,17 @@
 //!   install and removal are not commands here yet (`BLOCKED 5.2-install`).
 use super::{CommandStage, DevOp, WireCommand};
 use crate::native_host::{
-    firmware_driver::Driver, owner_paths, plugin_check::PluginCheck, plugin_jobs::PluginJobs,
+    dual_boot_ini::Mode,
+    firmware_driver::Driver,
+    owner_paths,
+    plugin_check::PluginCheck,
+    plugin_install::{self, PluginInstall},
+    plugin_jobs::PluginJobs,
+    plugin_remove::PluginRemove,
+    plugin_rules::{Author, Evidence, Rotation},
+    shared::try_box,
 };
-use alloc::{rc::Rc, string::String, vec::Vec};
+use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
 use core::{
     cell::{Cell, RefCell},
     fmt,
@@ -31,9 +39,12 @@ use core::{
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED,
 };
+use paperpaw_sdk::native::keys::Revocation;
 
 /// At most one firmware command in a batch.
 pub(super) const MAX_PER_BATCH: usize = 1;
+/// At most this many `trust_revoked` in a batch (`device.md` 3).
+pub(super) const MAX_REVOKED_PER_BATCH: usize = 8;
 const FEATURE_FIRMWARE: &str = "uses.firmware";
 const FEATURE_INSTALL: &str = "uses.install";
 /// `install_firmware.flags` bits 0 (older) and 1 (foreign).
@@ -90,8 +101,25 @@ pub(crate) enum FirmwareOp {
     Check { request: u32, path: String },
     /// `check_file` of a plugin folder: a plugin job of the queue.
     PluginCheck { request: u32, path: String },
+    /// `remove_plugin`: a plugin job of the queue (the host asks the user).
+    PluginRemove { request: u32, id: String },
+    /// `install_plugin`: a plugin job of the queue, with the evidence that
+    /// came with it in the batch (`install_author`, `install_rotation`).
+    PluginInstall {
+        request: u32,
+        path: String,
+        flags: u32,
+        evidence: Box<Evidence>,
+    },
     /// `firmware_restart`: the host asks the user.
     Restart(FirmwareContext),
+    /// `firmware_dual_boot`: a job of the queue (mode 1 asks the user).
+    DualBoot { request: u32, mode: Mode },
+    /// `trust_revoked`: handed to the driver, which keeps it if it holds.
+    Revoke {
+        ctx: FirmwareContext,
+        revocation: Revocation,
+    },
 }
 
 /// The requests a stage accepted and no drain applied yet; dropped, it takes
@@ -139,16 +167,86 @@ pub(super) fn is_firmware(command: &WireCommand<'_>) -> bool {
         WireCommand::InstallFirmware { .. }
             | WireCommand::FirmwareRestart {}
             | WireCommand::CheckFile { .. }
+            | WireCommand::FirmwareDualBoot { .. }
+            | WireCommand::InstallPlugin { .. }
+            | WireCommand::RemovePlugin { .. }
     )
+}
+
+/// Whether the command is evidence for the `install_plugin` before it.
+pub(super) fn is_evidence(command: &WireCommand<'_>) -> bool {
+    matches!(
+        command,
+        WireCommand::InstallAuthor { .. } | WireCommand::InstallRotation { .. }
+    )
+}
+
+/// Most `install_rotation` of one request (`device.md` 3).
+const ROTATIONS_PER_REQUEST: u8 = plugin_rules_max();
+
+const fn plugin_rules_max() -> u8 {
+    crate::native_host::plugin_rules::ROTATIONS_MAX as u8
+}
+
+/// What the batch has said of its install so far: the request it belongs to
+/// and how much evidence came after it.
+#[derive(Clone, Copy, Default)]
+pub(super) struct EvidenceSeen {
+    request: Option<u32>,
+    author: bool,
+    rotations: u8,
+}
+
+impl EvidenceSeen {
+    /// An `install_plugin` of this request starts a new evidence record.
+    pub(super) fn install(&mut self, request: u32) {
+        *self = Self {
+            request: Some(request),
+            ..Self::default()
+        };
+    }
+
+    /// Another device command stands between an install and what follows:
+    /// evidence after it belongs to no install (`dev_push` would only refuse
+    /// it later, with the batch half taken).
+    pub(super) fn other_command(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Counts one evidence command: it must name the batch's install, at most
+    /// one author and [`ROTATIONS_PER_REQUEST`] rotations.
+    pub(super) fn take(&mut self, command: &WireCommand<'_>) -> Result<(), i32> {
+        match *command {
+            WireCommand::InstallAuthor { request, .. } => {
+                if self.request != Some(request) || self.author {
+                    return Err(ERR_INVALID);
+                }
+                self.author = true;
+            }
+            WireCommand::InstallRotation { request, .. } => {
+                if self.request != Some(request) || self.rotations >= ROTATIONS_PER_REQUEST {
+                    return Err(ERR_INVALID);
+                }
+                self.rotations += 1;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
 }
 
 /// The feature key the command needs.
 pub(super) fn area(command: &WireCommand<'_>) -> Option<&'static str> {
     match command {
-        WireCommand::InstallFirmware { .. } | WireCommand::FirmwareRestart {} => {
-            Some(FEATURE_FIRMWARE)
-        }
+        WireCommand::InstallFirmware { .. }
+        | WireCommand::FirmwareRestart {}
+        | WireCommand::FirmwareDualBoot { .. } => Some(FEATURE_FIRMWARE),
         WireCommand::CheckFile { kind, .. } if *kind == KIND_PLUGIN => Some(FEATURE_INSTALL),
+        WireCommand::InstallPlugin { .. }
+        | WireCommand::RemovePlugin { .. }
+        | WireCommand::InstallAuthor { .. }
+        | WireCommand::InstallRotation { .. }
+        | WireCommand::TrustRevoked { .. } => Some(FEATURE_INSTALL),
         // A kind beyond 1 is refused by its own rule (`ERR_DENIED`).
         WireCommand::CheckFile { .. } => Some(FEATURE_FIRMWARE),
         _ => None,
@@ -171,6 +269,42 @@ impl CommandStage<'_> {
         let features = self.dev.as_ref().ok_or(ERR_UNSUPPORTED)?.ctx.features;
         owner_paths::access_with(features, root, path, false)?;
         owner_paths::OwnerPaths::join(Some(self.owner.as_str()), root, path)
+    }
+
+    /// The key and the signature of a `trust_revoked` are whole; whether it
+    /// holds is the store's rule, checked where it is kept.
+    fn validate_revocation(
+        &self,
+        plugin: &str,
+        key: &[u8],
+        signature: &[u8],
+    ) -> Result<usize, i32> {
+        let _ = self.firmware()?;
+        if plugin.is_empty() || key.len() != 32 || signature.len() != 64 {
+            return Err(ERR_INVALID);
+        }
+        Ok(plugin.len())
+    }
+
+    /// Keys and the digest of an `install_author` are none or whole, an
+    /// `install_rotation`'s are (`device.md` 5.2).
+    fn validate_evidence(&self, command: &WireCommand<'_>) -> Result<usize, i32> {
+        let _ = self.firmware()?;
+        let whole = match *command {
+            WireCommand::InstallAuthor {
+                author,
+                recovery,
+                sha256,
+                ..
+            } => [author, recovery, sha256]
+                .iter()
+                .all(|bytes| matches!(bytes.len(), 0 | 32)),
+            WireCommand::InstallRotation { to, signature, .. } => {
+                to.len() == 32 && signature.len() == 64
+            }
+            _ => false,
+        };
+        if whole { Ok(0) } else { Err(ERR_INVALID) }
     }
 
     /// Checks one firmware command; the bytes it will copy.
@@ -211,10 +345,64 @@ impl CommandStage<'_> {
                     _ => Err(ERR_DENIED),
                 }
             }
+            WireCommand::InstallPlugin {
+                request,
+                root,
+                path,
+                flags,
+            } => {
+                let ctx = self.firmware()?;
+                if request == 0 || flags & !plugin_install::FLAGS != 0 {
+                    return Err(ERR_INVALID);
+                }
+                let driver = ctx.driver.try_borrow().map_err(|_| ERR_BUSY)?;
+                if !driver.plugins_accepted() {
+                    return Err(ERR_UNSUPPORTED);
+                }
+                self.firmware_path(root, path).map(|joined| joined.len())
+            }
+            // The plugin's id is checked by the job (a name no plugin has, a
+            // built-in: reason 15); `flags` is reserved.
+            WireCommand::RemovePlugin {
+                request,
+                plugin,
+                flags,
+            } => {
+                let ctx = self.firmware()?;
+                if request == 0 || flags != 0 || plugin.is_empty() {
+                    return Err(ERR_INVALID);
+                }
+                let driver = ctx.driver.try_borrow().map_err(|_| ERR_BUSY)?;
+                if !driver.plugins_accepted() {
+                    return Err(ERR_UNSUPPORTED);
+                }
+                Ok(plugin.len())
+            }
+            WireCommand::InstallAuthor { .. } | WireCommand::InstallRotation { .. } => {
+                self.validate_evidence(command)
+            }
+            WireCommand::TrustRevoked {
+                plugin,
+                key,
+                signature,
+            } => self.validate_revocation(plugin, key, signature),
             WireCommand::FirmwareRestart {} => {
                 let ctx = self.firmware()?;
                 let mut driver = ctx.driver.try_borrow_mut().map_err(|_| ERR_BUSY)?;
                 driver.restart_gate(ctx.owner).map(|()| 0)
+            }
+            // Answered as unsupported until the host opens it
+            // ([`Driver::open_dual_boot`]); a mode beyond 1 is `ERR_INVALID`.
+            WireCommand::FirmwareDualBoot { request, mode } => {
+                let ctx = self.firmware()?;
+                let driver = ctx.driver.try_borrow().map_err(|_| ERR_BUSY)?;
+                if !driver.dual_boot_open() || !driver.plugins_accepted() {
+                    return Err(ERR_UNSUPPORTED);
+                }
+                if request == 0 || Mode::of(mode).is_none() {
+                    return Err(ERR_INVALID);
+                }
+                Ok(0)
             }
             _ => Ok(0),
         }
@@ -245,6 +433,43 @@ impl CommandStage<'_> {
                 request,
                 path: self.firmware_path(root, path)?,
             })),
+            WireCommand::InstallPlugin {
+                request,
+                root,
+                path,
+                flags,
+            } => Ok(DevOp::Firmware(FirmwareOp::PluginInstall {
+                request,
+                path: self.firmware_path(root, path)?,
+                flags,
+                evidence: try_box(Evidence::NONE).ok_or(ERR_NO_MEMORY)?,
+            })),
+            WireCommand::RemovePlugin {
+                request, plugin, ..
+            } => {
+                let mut id = String::new();
+                id.try_reserve_exact(plugin.len())
+                    .map_err(|_| ERR_NO_MEMORY)?;
+                id.push_str(plugin);
+                Ok(DevOp::Firmware(FirmwareOp::PluginRemove { request, id }))
+            }
+            WireCommand::TrustRevoked {
+                plugin,
+                key,
+                signature,
+            } => {
+                let (Ok(key), Ok(signature)) = (key.try_into(), signature.try_into()) else {
+                    return Err(ERR_INVALID);
+                };
+                let mut id = String::new();
+                id.try_reserve_exact(plugin.len())
+                    .map_err(|_| ERR_NO_MEMORY)?;
+                id.push_str(plugin);
+                Ok(DevOp::Firmware(FirmwareOp::Revoke {
+                    ctx: self.firmware()?.clone(),
+                    revocation: Revocation::new(id, key, signature),
+                }))
+            }
             WireCommand::CheckFile {
                 request,
                 root,
@@ -257,8 +482,51 @@ impl CommandStage<'_> {
             WireCommand::FirmwareRestart {} => Ok(DevOp::Firmware(FirmwareOp::Restart(
                 self.firmware()?.clone(),
             ))),
+            WireCommand::FirmwareDualBoot { request, mode } => {
+                Ok(DevOp::Firmware(FirmwareOp::DualBoot {
+                    request,
+                    mode: Mode::of(mode).ok_or(ERR_INVALID)?,
+                }))
+            }
             _ => Err(ERR_UNSUPPORTED),
         }
+    }
+
+    /// Adds an `install_author` or an `install_rotation` to the install before
+    /// it in the batch (validated: the request matches, the counts hold).
+    pub(super) fn firmware_evidence(&mut self, command: &WireCommand<'_>) -> Result<(), i32> {
+        let dev = self.dev.as_mut().ok_or(ERR_UNSUPPORTED)?;
+        let Some(DevOp::Firmware(FirmwareOp::PluginInstall { evidence, .. })) =
+            dev.items.last_mut().map(|item| &mut item.op)
+        else {
+            return Err(ERR_INVALID);
+        };
+        match *command {
+            WireCommand::InstallAuthor {
+                author,
+                recovery,
+                sha256,
+                ..
+            } => {
+                // None or whole (validated): a digest that does not match the
+                // staged code is reason 18.
+                evidence.author = Some(Author {
+                    author: author.try_into().ok(),
+                    recovery: recovery.try_into().ok(),
+                    sha256: sha256.try_into().ok(),
+                });
+            }
+            WireCommand::InstallRotation { to, signature, .. } => {
+                let (Ok(to), Ok(signature)) = (to.try_into(), signature.try_into()) else {
+                    return Err(ERR_INVALID);
+                };
+                if !evidence.push_rotation(Rotation { to, signature }) {
+                    return Err(ERR_INVALID);
+                }
+            }
+            _ => return Err(ERR_INVALID),
+        }
+        Ok(())
     }
 
     /// Accepts the installs and checks of the items from `start` in the
@@ -278,6 +546,9 @@ impl CommandStage<'_> {
                         FirmwareOp::Install { .. }
                             | FirmwareOp::Check { .. }
                             | FirmwareOp::PluginCheck { .. }
+                            | FirmwareOp::PluginInstall { .. }
+                            | FirmwareOp::PluginRemove { .. }
+                            | FirmwareOp::DualBoot { .. }
                     )
                 )
             })
@@ -305,12 +576,30 @@ impl CommandStage<'_> {
                 DevOp::Firmware(FirmwareOp::Check { request, path }) => driver
                     .submit_check(ctx.owner, *request, path)
                     .map(|()| *request),
+                DevOp::Firmware(FirmwareOp::DualBoot { request, mode }) => driver
+                    .submit_dual_boot(ctx.owner, *request, *mode)
+                    .map(|()| *request),
                 DevOp::Firmware(FirmwareOp::PluginCheck { request, path }) => {
                     PluginCheck::new(ctx.owner, *request, path)
                         .ok_or(ERR_NO_MEMORY)
                         .and_then(|job| driver.submit_plugin(PluginJobs::Check(job)))
                         .map(|()| *request)
                 }
+                DevOp::Firmware(FirmwareOp::PluginRemove { request, id }) => {
+                    PluginRemove::new(ctx.owner, *request, id)
+                        .ok_or(ERR_NO_MEMORY)
+                        .and_then(|job| driver.submit_plugin(PluginJobs::Remove(job)))
+                        .map(|()| *request)
+                }
+                DevOp::Firmware(FirmwareOp::PluginInstall {
+                    request,
+                    path,
+                    flags,
+                    evidence,
+                }) => PluginInstall::new(ctx.owner, *request, path, *flags, **evidence)
+                    .ok_or(ERR_NO_MEMORY)
+                    .and_then(|job| driver.submit_plugin(PluginJobs::Install(job)))
+                    .map(|()| *request),
                 _ => continue,
             };
             match accepted {
@@ -337,9 +626,23 @@ impl crate::Kernel {
         match op {
             FirmwareOp::Install { request, .. }
             | FirmwareOp::Check { request, .. }
-            | FirmwareOp::PluginCheck { request, .. } => {
+            | FirmwareOp::PluginCheck { request, .. }
+            | FirmwareOp::PluginInstall { request, .. }
+            | FirmwareOp::PluginRemove { request, .. }
+            | FirmwareOp::DualBoot { request, .. } => {
                 if let Some(release) = fw {
                     release.applied(request);
+                }
+            }
+            FirmwareOp::Revoke { ctx, revocation } => {
+                // Nothing answers it: one that finds no room is counted, and
+                // the library lists it again.
+                let queued = ctx
+                    .driver
+                    .try_borrow_mut()
+                    .is_ok_and(|mut driver| driver.queue_revocation(revocation));
+                if !queued {
+                    ctx.skip();
                 }
             }
             FirmwareOp::Restart(ctx) => {
