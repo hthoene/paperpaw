@@ -271,7 +271,13 @@ fn by_chance(
             continue;
         }
         mem::push(&mut kept, (score, row_of(row.key(), generation, &row)?))?;
-        kept.sort_unstable_by_key(|(s, _)| *s);
+        // The row goes to its place among the sorted ones; a std sort's frame is
+        // over the X4's 2,048 B bound.
+        let mut at = kept.len() - 1;
+        while at > 0 && kept[at - 1].0 > kept[at].0 {
+            kept.swap(at - 1, at);
+            at -= 1;
+        }
         kept.truncate(CANDIDATES);
     }
     present(
