@@ -41,6 +41,7 @@ dependencies = [
  "ctr",
  "ghash",
  "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -1800,6 +1801,7 @@ dependencies = [
  "serde_json",
  "softbuffer",
  "winit",
+ "zeroize",
 ]
 
 [[package]]

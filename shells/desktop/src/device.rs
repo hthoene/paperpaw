@@ -268,9 +268,16 @@ type LinkedInputs = ();
 /// reads.
 #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
 fn linked_inputs(library: &Library, simulated: bool) -> LinkedInputs {
-    let storage: Rc<dyn Storage> = match library.open() {
-        Ok(card) => Rc::new(card),
-        Err(_) => Rc::new(MemoryStorage::new()),
+    // A run on simulated time keeps its secrets in memory, so it cannot touch
+    // the secrets of a card a real run shares; a real run whose card cannot
+    // be opened has no secrets.
+    let storage: Option<Rc<dyn Storage>> = if simulated {
+        Some(Rc::new(MemoryStorage::new()))
+    } else {
+        library
+            .open()
+            .ok()
+            .map(|card| Rc::new(card) as Rc<dyn Storage>)
     };
     crate::linked::Inputs {
         storage,
@@ -1187,6 +1194,37 @@ mod tests {
         let mut device = Device::new(profile, None, storage, true).unwrap();
         device.start();
         (device, root)
+    }
+
+    /// A run on simulated time keeps its secrets file in memory: the card's
+    /// own file is byte for byte what it was; a real run whose card cannot be
+    /// opened has no store at all (`core.secrets` is not wired).
+    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+    #[test]
+    fn a_simulated_run_leaves_the_cards_secrets_alone_and_an_unopenable_card_has_none() {
+        let root =
+            std::env::temp_dir().join(format!("paperpaw-secrets-card-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".paperpaw")).unwrap();
+        let file = root.join(".paperpaw/secrets.txt");
+        std::fs::write(&file, b"mail.password\t\t\ts1:00aa\n").unwrap();
+        let before = std::fs::read(&file).unwrap();
+        let library = Library::Dir(root.clone());
+        let inputs = linked_inputs(&library, true);
+        let storage = inputs.storage.unwrap();
+        storage.write(".paperpaw/secrets.txt", b"lost").unwrap();
+        storage.write(".paperpaw/secrets.new", b"temp").unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), before);
+        assert!(!root.join(".paperpaw/secrets.new").exists());
+        // A real run reads and writes the card's file.
+        let real = linked_inputs(&library, false).storage.unwrap();
+        let mut buf = [0u8; 64];
+        let n = real.read_at(".paperpaw/secrets.txt", 0, &mut buf).unwrap();
+        assert_eq!(&buf[..n], &before[..]);
+        // A card that cannot be opened: no store.
+        let missing = Library::Dir(file.clone());
+        assert!(linked_inputs(&missing, false).storage.is_none());
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
