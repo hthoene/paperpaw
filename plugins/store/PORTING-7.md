@@ -117,6 +117,39 @@ finishes the port; until then nothing is dropped.
   also for 1,300 plugins across runs and the merge, refusing cards),
   `tests/native_index_refusal.rs`.
 
+## Ported in slice 6 (`src/native_page.rs`, `src/native_refusal.rs`, host-free)
+
+- **The rows of a plugin's page** (`rows`, `actions`): install, stop, update, remove,
+  restart, understood/cancel (the notice before the first code plugin), use the
+  store's version, switch on, no room, needs a newer PaperPaw, not available yet, and
+  what there is to read (how it works, pictures, source), as the interface-6 page
+  decided them: a job or the notice above the rest, a built-in only switched on, one
+  kind never over the other (`may_install`), an unbuilt build keeps what is installed
+  (`unbuilt`), an update only over a plugin this store installed (`newer`, `local`,
+  `offers`: betas where the device takes them, the release as the store named it) and
+  a same-version build that repairs one built for another interface (`repairs`).
+  Parity: `offers` and `is_pre_release` against the interface-6 functions for any
+  versions (`native_parity_tests.rs`), the rest as a table (`tests/native_page.rs`).
+- **The words for how an install ended** (`native_refusal::outcome`): the host's
+  reasons of `device.md` 5.5 (0 to 21; unknown reads as 1) to the store's en/de texts,
+  silent for the reader's own word (2, 3) and the host's stop (20), the stock-flash
+  wording for *no room* (13). Nine texts are new for reasons interface 6 had no
+  word for (revoked, unknown key, needs a newer PaperPaw, same version, card did not
+  answer, card full, changed while installing, firmware restart first, other); every
+  reason has both languages (`tests/native_page.rs`).
+- **Differences on purpose (interface 7):** the room for a plugin is the host's
+  check (`check_file`, reason 13), no longer worked out from the card and the flash
+  here: *no room* shows once a check said it (`PageInput::no_room`); until then
+  *Install* is offered, as where the room could not be told. The pre-install
+  messages for a code plugin's key and signature (`trust.rs`'s `Refusal`) are the
+  host's checks now, said through `outcome`. **Pending (`BLOCKED 5.2-install`):**
+  who installed a version (`Origin`) and as which release (`Installed::release`): the
+  host does not say, so the store keeps its own record of what it installed after an
+  `install_done` of reason 0 (the `store-installs` file of `paperpaw_sdk::install`);
+  until that is wired a plugin counts as put in place another way.
+- Fallible (`NoMemory`; sweep in `tests/native_page_refusal.rs`); nothing indexes
+  text; no host call.
+
 ## Not yet (the install and the fetch)
 
 - Whether a page's files make a package the install accepts (safe paths, each once,
