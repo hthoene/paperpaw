@@ -326,3 +326,15 @@ relative to the data folder).
   (`native_toc`'s model: the scan, the kept copy `headings.txt`, the "Finding the chapters" screen), the
   chapter of the page for the status line and the report, next/previous chapter actions, and the
   skim screen (R6b). The hosted end-to-end test waits for a document host in the harness.
+
+## Reflow (view slice R8a, Port E)
+
+- The page on show is laid out with a key (the reading settings and the display's width, height and density,
+  `LayoutKey`); each draw compares it with the current one and, when they differ, lays the page out again from
+  the place it starts at and forgets the trail of earlier pages (their starts belong to the old layout). A
+  turned screen is covered by this: it is another size.
+- `event.setting_changed` (token 8 in `declarations::events`; a host that does not admit it answers
+  `Unsupported` and the next draw's key check shows the change): a layout setting calls `View::reflow` (page
+  laid out again, the place reported to the host anew), an ink setting only `View::repaint`.
+- **Not yet:** the pictures, tables, underline and strike-through of the page drawing (R1c/R1d), hands-free and
+  auto-turn, read-aloud. Unmeasured: the time of a reflow on the X4 and the heap of laying out twice.

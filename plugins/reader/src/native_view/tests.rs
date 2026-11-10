@@ -28,3 +28,29 @@ fn a_refusal_of_the_layout_is_the_hosts_where_it_has_one() {
     );
     assert_eq!(document_error_kind(&DocumentError::UnsupportedFormat), None);
 }
+
+#[test]
+fn a_page_is_laid_out_again_when_the_reading_or_the_display_changes() {
+    let reading = Reading::new(12, 120, 100, 4, 4, true);
+    let key = LayoutKey {
+        reading,
+        display: (480, 800, 220),
+    };
+    assert_eq!(key, key);
+    let bigger = LayoutKey {
+        reading: Reading::new(14, 120, 100, 4, 4, true),
+        display: (480, 800, 220),
+    };
+    assert_ne!(key, bigger);
+    // A turned screen: the same reading, another size.
+    let turned = LayoutKey {
+        reading,
+        display: (800, 480, 220),
+    };
+    assert_ne!(key, turned);
+    let justified = LayoutKey {
+        reading: Reading::new(12, 120, 100, 4, 4, false),
+        display: (480, 800, 220),
+    };
+    assert_ne!(key, justified);
+}

@@ -114,3 +114,29 @@ fn a_layout_that_does_not_move_on_or_runs_long_is_refused() {
         Err(Error::NoMemory)
     );
 }
+
+#[test]
+fn the_settings_that_change_the_layout_are_told_from_those_that_change_the_ink() {
+    for key in [
+        "core.font-size",
+        "core.line-spacing",
+        "core.word-spacing",
+        "core.margin",
+        "core.margin-ends",
+        "core.justify",
+        "core.font",
+        "core.font-family",
+        "core.hyphenation",
+        "core.publisher-styles",
+    ] {
+        assert!(affects_layout(key), "{key}");
+        assert!(!affects_ink(key) || key == "core.font-weight", "{key}");
+    }
+    for key in ["core.smooth-text", "core.text-contrast", "core.text-curve"] {
+        assert!(affects_ink(key), "{key}");
+        assert!(!affects_layout(key), "{key}");
+    }
+    for key in ["core.theme", "reader.hold-chapters", "core.brightness", ""] {
+        assert!(!affects_layout(key) && !affects_ink(key), "{key}");
+    }
+}

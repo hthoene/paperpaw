@@ -135,6 +135,31 @@ pub fn turn(input: &Input<'_>) -> Turn {
 /// Most page starts kept to turn back along.
 pub const TRAIL: usize = 64;
 
+/// Whether a change of the setting `key` changes how a page is laid out (its
+/// size, spacing, margins, justification, fonts or hyphenation): the page on
+/// show is laid out again and the page before it is found anew.
+#[must_use]
+pub fn affects_layout(key: &str) -> bool {
+    matches!(
+        key,
+        "core.font-size"
+            | "core.line-spacing"
+            | "core.word-spacing"
+            | "core.margin"
+            | "core.margin-ends"
+            | "core.justify"
+    ) || key.starts_with("core.font")
+        || key.starts_with("core.hyphen")
+        || key.starts_with("core.publisher")
+}
+
+/// Whether a change of the setting `key` changes only how the page is drawn (the
+/// weight, contrast and smoothness of the text): it is drawn again as laid out.
+#[must_use]
+pub fn affects_ink(key: &str) -> bool {
+    key == "core.smooth-text" || key.starts_with("core.text-") || key == "core.font-weight"
+}
+
 /// The starts of the pages turned on from, newest last.
 #[derive(Debug, Default)]
 pub struct Trail {

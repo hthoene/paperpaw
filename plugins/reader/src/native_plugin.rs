@@ -6,7 +6,8 @@
 //! (`PORTING-7.md`). What the reader decides without a host is in the
 //! `native_*` models, tested without one.
 use crate::{
-    declarations::{SCREEN, STOPPING, SUSPEND, TOC, WORK_DUE},
+    declarations::{SCREEN, SETTING_CHANGED, STOPPING, SUSPEND, TOC, WORK_DUE},
+    native_pages,
     native_toc_view::{Outcome, TocView},
     native_view::View,
 };
@@ -136,6 +137,31 @@ impl NativeReader {
         Ok(handled)
     }
 
+    /// A setting changed: every reading screen lays its page out again (a
+    /// setting of the layout) or draws it again (a setting of the ink). A refusal
+    /// of one screen costs the others nothing.
+    fn setting_changed(&mut self, host: &Host<'_>, key: &str) -> Result<(), Error> {
+        let layout = native_pages::affects_layout(key);
+        if !layout && !native_pages::affects_ink(key) {
+            return Ok(());
+        }
+        let Some(docs) = &self.docs else {
+            return Ok(());
+        };
+        let mut result = Ok(());
+        for view in self.screens.all() {
+            let done = if layout {
+                view.reflow(host, docs)
+            } else {
+                view.repaint(host)
+            };
+            if let Err(error) = done {
+                result = Err(error);
+            }
+        }
+        result
+    }
+
     /// Writes the place of every reading screen not saved.
     fn save_now(&mut self, host: &Host<'_>) {
         let library = self.library.as_ref();
@@ -200,7 +226,8 @@ impl Plugin for NativeReader {
             kinds::ScreenClosed,
             kinds::Suspend,
             kinds::Stopping,
-            kinds::WorkDue
+            kinds::WorkDue,
+            kinds::SettingChanged
         ) else {
             return Ok(());
         };
@@ -211,6 +238,11 @@ impl Plugin for NativeReader {
             {
                 self.save_now(host);
                 Ok(())
+            }
+            // A reading setting changed: the pages on show are laid out again (or
+            // drawn again where only the ink changed).
+            Event::SettingChanged { key, .. } if token == SETTING_CHANGED => {
+                self.setting_changed(host, key)
             }
             // The reading screen and the table of contents have views; the
             // other screens come with their slices (`PORTING-7.md`).
@@ -279,7 +311,7 @@ mod tests {
     fn the_quiet_time_is_beta_3s_and_the_tokens_differ() {
         assert_eq!(QUIET_MS, 2_000);
         assert!(WorkSpec::new(QUIET_KEY, WORK_DUE).is_ok());
-        let tokens = [SCREEN, SUSPEND, STOPPING, WORK_DUE];
+        let tokens = [SCREEN, SUSPEND, STOPPING, WORK_DUE, SETTING_CHANGED];
         for (i, a) in tokens.iter().enumerate() {
             assert!(tokens[i + 1..].iter().all(|b| a != b));
         }
