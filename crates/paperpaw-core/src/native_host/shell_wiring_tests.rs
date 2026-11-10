@@ -246,3 +246,39 @@ fn the_library_is_wired_over_the_catalog_reads_and_once() {
     let again = resources.wire(HostWiring::new().library(storage, card.env.clone()));
     assert_eq!(again.err(), Some(ERR_STATE));
 }
+
+#[test]
+fn a_library_wired_after_files_sees_the_move_job_of_files() {
+    use crate::native_host::lib_service::BookRef;
+    use crate::native_host::registrations as wire;
+    use paperpaw_native::host_glue::ERR_BUSY;
+    let card = crate::native_host::lib_reads::tests::card();
+    let storage: Rc<dyn Storage> = card.storage.clone();
+    let resources = HostResources::try_new().unwrap();
+    resources
+        .wire(
+            HostWiring::new()
+                .documents(MemoryClass::Large, 800)
+                .files(storage.clone()),
+        )
+        .unwrap();
+    // A later wiring names the library alone: it shares the job all the same.
+    resources
+        .wire(HostWiring::new().library(storage, card.env.clone()))
+        .unwrap();
+    let moves = resources.hosts().library_moves().unwrap().clone();
+    moves.begin("books/c.epub", "moved/c.epub", false).unwrap();
+    let provided = wire::ServiceLibProvided {
+        title: "Provided",
+        author: "",
+        series: "",
+        number: "",
+        tags: "",
+        flags: 0b1,
+    };
+    let library = resources.hosts().library().unwrap();
+    assert_eq!(
+        library.0.provide(BookRef::Path("books/c.epub"), &provided),
+        Err(ERR_BUSY)
+    );
+}
