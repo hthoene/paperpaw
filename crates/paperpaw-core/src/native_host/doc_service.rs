@@ -32,7 +32,7 @@ mod args;
 mod check;
 mod table;
 #[allow(unused_imports, reason = "the shell builds the table with its limits")]
-pub(crate) use table::{Document, DocumentTable, FormatRef, Limits, PREPARING};
+pub(crate) use table::{Document, DocumentTable, FormatRef, Limits, PREPARING, READY};
 
 /// Operations of `core.format` the host calls (`document.md` 3).
 pub(crate) mod fmt {
@@ -223,6 +223,9 @@ pub(crate) trait DocHost {
         image: &wire::ServiceDocImage,
         in_block: bool,
     ) -> Result<Option<u32>, i32>;
+    /// The format answered that the document is ready (the open, or the
+    /// last preparing call): what the host keeps for it is complete now.
+    fn document_ready(&self, _document: u32) {}
     /// The owner is a format plugin that stopped: it is removed from the
     /// format index and `visit` gets each format reference it had. Nothing
     /// is called on the plugin.
@@ -401,6 +404,9 @@ impl DocHost for Cx<'_> {
     }
     fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
         self.host.reader_opened(document, root, path)
+    }
+    fn document_ready(&self, document: u32) {
+        self.host.document_ready(document);
     }
     fn reader_closed(&self, document: u32) {
         self.host.reader_closed(document);
@@ -609,7 +615,11 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
             answer.status,
             answer.flags,
             conversion,
-        )
+        )?;
+        if answer.state == READY {
+            host.document_ready(id);
+        }
+        Ok(())
     })();
     if let Err(error) = answered {
         // The id never reached the opener; the format may hold state for it.

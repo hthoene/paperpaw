@@ -53,6 +53,17 @@ impl Limits {
         }
     }
 
+    /// The most a book's cache may hold (`document.md` 3, Cache quota): 64
+    /// MiB where the device has the X4's two places, else 4 GiB (FAT's file
+    /// size bound is not the cache's).
+    pub(crate) const fn cache_bytes(&self) -> u64 {
+        if self.device <= self.per_owner {
+            64 << 20
+        } else {
+            4 << 30
+        }
+    }
+
     /// At most 2 per opener and 2 device-wide: the shown book and an index build.
     pub(crate) const X4: Self = Self {
         per_owner: 2,
