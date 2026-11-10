@@ -499,6 +499,38 @@ pub fn arm_band() {
     }
 }
 
+/// Whether a plugin call may be entered now (the `call_begin` hook of the
+/// interface-7 plugins, todo 185): on the ESP32-S3 only at interrupt level 0
+/// on the first core, the one the band's monitor watches. At a level of 3 or
+/// more the band's interrupt cannot fire, and on the other core the monitor
+/// is not armed: the call is refused (the plugin is not run) and the refusal
+/// is logged once. Elsewhere every call is allowed.
+#[cfg(all(target_arch = "xtensa", feature = "ppn5"))]
+pub fn dispatch_allowed() -> bool {
+    use core::sync::atomic::{AtomicBool, Ordering};
+    static LOGGED: AtomicBool = AtomicBool::new(false);
+    let level = esp_hal::xtensa_lx::interrupt::get_level();
+    let on_core = esp_hal::system::Cpu::current() == esp_hal::system::Cpu::ProCpu;
+    let allowed = on_core && paperpaw_x4::s3_band::dispatch_allowed(level);
+    if !allowed && !LOGGED.swap(true, Ordering::Relaxed) {
+        log::warn!("stack: a plugin call refused (interrupt level {level}, first core: {on_core})");
+    }
+    allowed
+}
+
+/// Every call may run where there is no S3 band.
+#[cfg(not(all(target_arch = "xtensa", feature = "ppn5")))]
+#[cfg_attr(
+    not(feature = "ppn5"),
+    allow(
+        dead_code,
+        reason = "its only caller is the interface-7 plugins' hook (ppn5)"
+    )
+)]
+pub fn dispatch_allowed() -> bool {
+    true
+}
+
 /// No band on the Xtensa chips without `ppn5`.
 #[cfg(all(target_arch = "xtensa", not(feature = "ppn5")))]
 pub fn arm_band() {}
