@@ -78,15 +78,3 @@ fn network_settings_keep_their_ids_defaults_and_values() {
     );
     assert!(kernel.settings().bool("core.network.news"));
 }
-
-/// A native plugin admitted with `uses.network` gets `core.network.<id>` and
-/// `core.saving.<id>` (Kernel ruling on #228); the wifi plugin is the first
-/// that has no interface-6 form to get them from.
-#[test]
-#[ignore = "BLOCKED NET-SETTINGS-NATIVE: the host defines them for native plugins at admission (Core)"]
-fn a_native_only_plugin_gets_its_network_settings() {
-    let kernel = app("");
-    let settings = kernel.settings();
-    assert!(settings.bool("core.network.wifi"));
-    assert_eq!(settings.text("core.saving.wifi"), "core.saving.follow");
-}
