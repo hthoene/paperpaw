@@ -296,6 +296,22 @@ impl Setup {
 }
 
 impl Open {
+    /// The content box: the whole display for whole-page books (as Beta 3's
+    /// margins of none), else inside the reading margins.
+    fn area(&self, setup: &Setup) -> Option<native_pages::Box> {
+        let mut reading = setup.reading;
+        if self.whole_pages {
+            reading.margin = 0;
+            reading.margin_ends = 0;
+        }
+        native_pages::content_box(
+            setup.display.display_width(),
+            setup.display.display_height(),
+            setup.display.display_dpi(),
+            &reading,
+        )
+    }
+
     /// The page after the one on show; whether there is one.
     fn next(&mut self) -> Result<bool, Error> {
         let Some(page) = &self.page else {
@@ -351,13 +367,7 @@ impl Open {
         setup: &Setup,
         start: (u32, u32),
     ) -> Result<Page, Error> {
-        let area = native_pages::content_box(
-            setup.display.display_width(),
-            setup.display.display_height(),
-            setup.display.display_dpi(),
-            &setup.reading,
-        )
-        .ok_or(Error::NoSpace)?;
+        let area = self.area(setup).ok_or(Error::NoSpace)?;
         let fonts = HostFonts::acquire(host)?;
         let page =
             Faces::new(&fonts, setup.base(), setup.reading.spacing_factor()).and_then(|faces| {
@@ -395,13 +405,7 @@ impl Open {
         frame: &mut DrawFrame<'_>,
     ) -> Result<(), Error> {
         let setup = Setup::read(host)?;
-        let area = native_pages::content_box(
-            setup.display.display_width(),
-            setup.display.display_height(),
-            setup.display.display_dpi(),
-            &setup.reading,
-        )
-        .ok_or(Error::NoSpace)?;
+        let area = self.area(setup).ok_or(Error::NoSpace)?;
         let fonts = HostFonts::acquire(host)?;
         let drawn = self.draw_with(host, docs, frame, &setup, &fonts, area);
         let released = fonts.release();

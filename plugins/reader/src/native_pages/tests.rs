@@ -7,13 +7,15 @@ fn action(action: &str) -> Input<'_> {
 #[test]
 fn settings_are_kept_to_what_they_allow() {
     let r = Reading::new(14, 130, 100, 6, 0, true);
-    assert_eq!((r.margin, r.margin_ends), (6, 6));
+    assert_eq!((r.margin, r.margin_ends), (6, 0));
     assert!((r.size_pt - 14.0).abs() < 1e-6);
     assert!((r.spacing_factor() - 1.3).abs() < 1e-6);
     // Not set (0), too small or too large: the default or the nearest allowed.
     let d = Reading::new(0, 0, 0, 0, 0, false);
     assert_eq!((d.line_spacing, d.word_spacing), (120, 100));
     assert!((d.size_pt - 12.0).abs() < 1e-6);
+    // A margin of 0 mm is none, as in Beta 3.
+    assert_eq!((d.margin, d.margin_ends), (0, 0));
     let wild = Reading::new(9_000, 10, 999, -4, 99, false);
     assert!((wild.size_pt - 72.0).abs() < 1e-6);
     assert_eq!((wild.line_spacing, wild.word_spacing), (80, 200));

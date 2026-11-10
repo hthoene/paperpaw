@@ -39,19 +39,20 @@ impl Reading {
         justify: bool,
     ) -> Self {
         let kept = |v: i64, low: i64, high: i64, default: i64| {
-            u16::try_from(if v == 0 { default } else { v.clamp(low, high) }).unwrap_or(0)
+            u16::try_from(if v == 0 && low > 0 {
+                default
+            } else {
+                v.clamp(low, high)
+            })
+            .unwrap_or(0)
         };
         Self {
             size_pt: f32::from(kept(size_pt, 6, 72, 12)),
             line_spacing: kept(line_spacing, 80, 250, 120),
             word_spacing: kept(word_spacing, 50, 200, 100),
-            margin: kept(margin, 0, 30, 5),
-            // As the sides until set.
-            margin_ends: if margin_ends <= 0 {
-                kept(margin, 0, 30, 5)
-            } else {
-                kept(margin_ends, 0, 30, 5)
-            },
+            // Zero is a margin of none, as in Beta 3.
+            margin: kept(margin, 0, 30, 4),
+            margin_ends: kept(margin_ends, 0, 30, 4),
             justify,
         }
     }

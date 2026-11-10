@@ -229,3 +229,11 @@ relative to the data folder).
   layout `Style` (defaults only); pictures and tables (see the assembler); a hosted end-to-end test
   (open a book of a real format plugin, draw, turn) waits for DocHost's root 5 and a format plugin in
   the hosted harness; first-page timing on the X4 is not measured.
+
+### R1e review notes (#1000)
+
+- The handover read turns an out-of-memory error into "no book" (a named gap).
+- One input callback can lay out up to 4,096 pages going back: an X4 timing gate, not measured.
+- Settings and fonts are read on every draw band (cost not measured on X4).
+- `uses.storage` is declared but no call uses it in this slice (R2 saves the place).
+- Whole-page books (xtc, images) use margins of 0, as Beta 3; a margin setting of 0 is 0 mm.
