@@ -73,4 +73,7 @@ fn what_the_user_set_still_wins_and_a_bad_value_is_warned_about() {
         warnings.iter().any(|w| w.message.contains("factory.flag")),
         "{warnings:?}"
     );
+    // Used up: a later publish does not warn again.
+    kernel.apply_late_defaults();
+    assert!(kernel.take_warnings().is_empty());
 }
