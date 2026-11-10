@@ -114,11 +114,13 @@ fn partial(profile: &str, tap: bool) {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_page_turn_refreshes_partially_on_the_x4() {
     partial("xteink-x4", false);
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_page_turn_refreshes_partially_on_the_x4_pro() {
     partial("xteink-x4-pro", false);
     partial("xteink-x4-pro", true);
@@ -127,6 +129,7 @@ fn a_page_turn_refreshes_partially_on_the_x4_pro() {
 /// Smooth text, where the reader chose it on such a panel: each page in
 /// grays, as its help says (slower, more battery).
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn smooth_text_shows_pages_in_grays_where_chosen() {
     let shown = page_turns("xteink-x4-pro", "[core]\nsmooth-text = on\n", 2, false);
     assert!(

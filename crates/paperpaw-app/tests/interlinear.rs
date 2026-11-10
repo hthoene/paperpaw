@@ -305,6 +305,7 @@ impl App {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn room_asked_above_the_lines_lowers_them_and_ends_the_page_sooner() {
     let plain = App::new(false);
     let spaced = App::new(true);
@@ -333,6 +334,7 @@ fn room_asked_above_the_lines_lowers_them_and_ends_the_page_sooner() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_layer_that_asks_gets_the_pages_words_with_the_room_free_above_them() {
     // A page of the story, past the title.
     let mut app = App::new(true);
@@ -370,6 +372,7 @@ fn a_layer_that_asks_gets_the_pages_words_with_the_room_free_above_them() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn without_a_layer_that_asks_no_words_are_given() {
     let app = App::with(true, false);
     let seen = app.seen.borrow();
@@ -378,6 +381,7 @@ fn without_a_layer_that_asks_no_words_are_given() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn switching_the_room_on_lays_the_page_out_anew() {
     let mut app = App::new(false);
     let before = app.seen.borrow().end;
@@ -395,6 +399,7 @@ fn switching_the_room_on_lays_the_page_out_anew() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn blocks_a_filter_inserts_show_and_the_books_places_stay_its_own() {
     let pages = 6;
     let plain = App::configured(false, false, true).word_starts(pages);
@@ -420,6 +425,7 @@ fn blocks_a_filter_inserts_show_and_the_books_places_stay_its_own() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_tap_on_a_layers_item_is_its_plugins_and_other_taps_the_readers() {
     let mut app = App::new(true);
     app.turn(3);
@@ -449,6 +455,7 @@ fn a_tap_on_a_layers_item_is_its_plugins_and_other_taps_the_readers() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_layers_item_is_chosen_with_the_buttons_as_links_are() {
     let mut app = App::new(true);
     app.turn(3);

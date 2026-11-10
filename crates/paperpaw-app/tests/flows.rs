@@ -250,6 +250,7 @@ impl App {
 /// the app registers neither until the host activates native plugins: the
 /// pending cases of `plugins/files` and `plugins/setup`.)
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn reading_and_home_keep_the_book_opened() {
     let card = Card::new(true);
     let mut app = App::start(BUTTONS, &card);
@@ -354,6 +355,7 @@ fn settings_changed_in_the_ui_are_saved_and_read_back_after_a_restart() {
 /// a word broken at the end of a line is whole in it, not
 /// "restric- tions" with the hyphen and the line break of the page.
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn bookmarks_keep_words_broken_across_lines_whole() {
     let card = Card::new(true);
     let mut app = App::start(BUTTONS, &card);

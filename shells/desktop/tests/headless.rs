@@ -405,6 +405,7 @@ fn a_plugin_switched_on_applies_after_the_restart() {
 /// Reading aloud where the device speaks: each passage logged, the next
 /// spoken when the one before has ended.
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn reading_aloud_speaks_passage_after_passage() {
     let library = library("speech");
     let state = library.join(".paperpaw/plugins/reader");

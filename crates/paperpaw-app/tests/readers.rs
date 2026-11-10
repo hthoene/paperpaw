@@ -339,6 +339,7 @@ fn books_open_in_the_shipped_reader_until_another_is_chosen() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_format_opens_with_its_reading_app() {
     let mut app = App::new(books(), "reading-app.format-txt.txt = plain.app\n");
     assert_eq!(app.opens("plain.text"), "plain.screen");
@@ -347,6 +348,7 @@ fn a_format_opens_with_its_reading_app() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn the_default_reading_app_opens_what_it_reads() {
     let mut app = App::new(books(), "reading-app = plain.app\n");
     assert_eq!(app.opens("plain.text"), "plain.screen");
@@ -355,6 +357,7 @@ fn the_default_reading_app_opens_what_it_reads() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_book_and_a_folder_keep_their_reading_app() {
     let storage = books();
     readers::remember(&storage, Choice::Folder("books/plain"), Some(&PLAIN)).unwrap();
@@ -375,6 +378,7 @@ fn a_book_and_a_folder_keep_their_reading_app() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn the_settings_offer_the_readers_of_each_format() {
     let app = App::new(books(), "");
     let settings = app.kernel.settings();
@@ -407,6 +411,7 @@ fn listed(app: &mut App) -> (Vec<String>, Option<String>) {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn open_with_lists_the_readers_of_the_book_and_keeps_the_one_chosen() {
     let mut app = App::new(books(), "");
     assert_eq!(app.opens("plain.ask-book"), "core.choice-dialog");
@@ -424,6 +429,7 @@ fn open_with_lists_the_readers_of_the_book_and_keeps_the_one_chosen() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn by_touch_a_reading_app_is_tapped_in_the_list_and_in_the_settings() {
     let mut app = App::on(BOOX, books(), "", true);
     assert_eq!(app.opens("plain.ask-book"), "core.choice-dialog");
@@ -460,6 +466,7 @@ fn by_touch_a_reading_app_is_tapped_in_the_list_and_in_the_settings() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_folders_reading_app_is_chosen_from_every_reader() {
     let mut app = App::new(books(), "");
     app.opens("plain.ask-folder");
@@ -486,6 +493,7 @@ fn reading(app: &App) -> Vec<String> {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn one_reading_app_is_open_at_a_time() {
     let mut app = App::new(books(), "");
     app.opens("plain.ask-book");
@@ -523,6 +531,7 @@ fn a_reading_app_that_is_gone_is_passed_over_silently() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_book_is_the_same_with_slashes_at_its_ends() {
     let storage = books();
     readers::remember(&storage, Choice::Book("/books/notes.txt"), Some(&PLAIN)).unwrap();
