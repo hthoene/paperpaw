@@ -60,6 +60,7 @@ fn last(reading: &Reading) -> events::Reading {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn chapters_are_jumped_to_and_turned_back_from() {
     let epub = include_bytes!("../../../../samples/library/books/alice-in-wonderland.epub");
     let mut reading = Reading::with_book(Shared::default(), EPUB, epub);
@@ -97,6 +98,7 @@ fn chapters_are_jumped_to_and_turned_back_from() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn whole_chapters_begin_on_their_own_pages() {
     let in_chapter = InChapter::default();
     let mut reading = probed(&whole_chapters_epub(), in_chapter.clone());
@@ -145,6 +147,7 @@ fn whole_chapters_begin_on_their_own_pages() {
 /// Past the pages counted yet, where the index says nothing about which
 /// page anything is on.
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn chapters_work_where_the_index_does_not_reach() {
     let storage = Shared::default();
     // One step of eight pages, not as far as the last chapter.

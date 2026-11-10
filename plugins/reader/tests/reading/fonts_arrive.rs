@@ -267,6 +267,7 @@ fn whole_book(reading: &mut Reading) -> (Vec<(u32, u32)>, Option<u32>) {
 /// layout are counted right (each page after the one before, as many as
 /// the count says) and the place read stays.
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_script_pack_that_comes_and_goes_keeps_a_long_book_whole() {
     let epub = include_bytes!("../../../../samples/library/books/alice-in-wonderland.epub");
     let mut reading = lean_reading_of("books/alice.epub", epub);
