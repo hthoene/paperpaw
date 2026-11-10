@@ -320,7 +320,8 @@ relative to the data folder).
   reader is in (`current_of_table`, exact targets by op 8 where the host's place is approximate) and says
   `reader.no-toc` / `reader.preparing` / `reader.error` where there is nothing to list.
 - A choice (tap, press) goes to the entry's exact place in the reading screen below (`View::go_to`: the
-  page left is kept to turn back to; the place is reported and written as a turn's) and closes the
+  page left is kept to turn back to; the place is written as a turn's and reported to the host when the
+  reading screen is shown again, as the host drops the report of a screen below the top) and closes the
   screen. Both screens are this plugin's, so no hand-over carries the place back.
 - **Not yet:** the headings found by scanning blocks where the book's table has at most one entry
   (`native_toc`'s model: the scan, the kept copy `headings.txt`, the "Finding the chapters" screen), the
@@ -365,3 +366,8 @@ relative to the data folder).
   the library's preview (512 bytes), not whole (`annotation_text` would read it whole: the export uses the preview, as
   Beta 3's snippet was short too). Editing a note, deleting one and the bookmark toggle are not in this screen (Beta 3 had none
   here); `reader.toggle-bookmark` belongs to the reading screen.
+- The screen reads the reading screen's document (`View::doc_id`), never opening a second one: the X4 holds
+  one open document per plugin. **X4 gates (Port Reviewer 2):** a list of 500 entries holds its titles twice
+  (the entries and the items), about 100-190 KB of the 256 KiB heap (pieces or a paged read if it does not
+  fit); finding the focus asks `toc_target` once per approximate entry of the current section; a
+  `read_handover` error is "no book".
