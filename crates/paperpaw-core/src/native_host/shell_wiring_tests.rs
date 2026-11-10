@@ -46,6 +46,19 @@ fn the_families_named_are_wired_and_the_hyphen_tables_can_be_declared() {
 }
 
 #[test]
+fn core_lookup_is_wired_once_over_the_declarations() {
+    let resources = HostResources::try_new().unwrap();
+    assert!(resources.hosts().lookup().is_none());
+    resources.wire(HostWiring::new().lookup()).unwrap();
+    assert!(resources.hosts().lookup().is_some());
+    // Wired once: a second wiring is refused.
+    assert_eq!(
+        resources.wire(HostWiring::new().lookup()).err(),
+        Some(paperpaw_native::host_glue::ERR_STATE)
+    );
+}
+
+#[test]
 fn a_family_wired_twice_is_refused_and_nothing_else_is_wired_by_that_call() {
     let resources = HostResources::try_new().unwrap();
     resources

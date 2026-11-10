@@ -60,13 +60,16 @@ fn install(store: &mut DeclarationStore, plugin: &Rc<Plugin>, rows: &[(&str, &st
     store.prepare(pending, &mut allocations).unwrap().commit();
 }
 
+/// One call of a provider: owner, token, text, language, cursor.
+type Call = (u64, u32, String, String, u32);
+
 /// A frame over a declaration store whose providers answer
 /// `title of <owner>` (or fail with `failing`'s status).
 struct Rig<'a> {
     env: &'a Env<'a>,
     store: DeclarationStore,
     /// (owner, token, text, language, cursor) of every call.
-    calls: RefCell<Vec<(u64, u32, String, String, u32)>>,
+    calls: RefCell<Vec<Call>>,
     /// The owner whose provider fails, and how; the flags of every answer.
     failing: Cell<Option<(u64, i32)>>,
     flags: Cell<u32>,
