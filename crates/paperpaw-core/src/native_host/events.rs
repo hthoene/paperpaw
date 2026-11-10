@@ -11,21 +11,28 @@
 //! only states, never enforces: see [`bypasses_queue`](crate::native_host::events::bypasses_queue).
 
 use super::registrations::{
-    EVENT_ACTION_RUN_TAG, EVENT_BATTERY_MEASURED_TAG, EVENT_BROADCAST_TAG,
-    EVENT_CHARGE_CHANGED_TAG, EVENT_HTTP_DONE_TAG, EVENT_HTTP_PROGRESS_TAG,
-    EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES, EVENT_PAGE_TURNED_PATH_MAX_BYTES, EVENT_PAGE_TURNED_TAG,
-    EVENT_PAGE_TURNED_TITLE_MAX_BYTES, EVENT_PLUGINS_CHANGED_TAG, EVENT_POWER_CHANGED_TAG,
-    EVENT_RESUME_TAG, EVENT_SCREEN_SHOWN_TAG, EVENT_SERVED_REQUEST_TAG, EVENT_SERVER_TAG,
-    EVENT_SETTING_CHANGED_TAG, EVENT_SOCKET_TAG, EVENT_STARTED_TAG, EVENT_STATUS_CHANGED_TAG,
-    EVENT_STOPPING_TAG, EVENT_SUSPEND_TAG, EVENT_TICK_TAG, EVENT_WIFI_CHANGED_TAG,
-    EventBatteryMeasured, EventPageTurned, EventResume, EventStarted, EventStopping, EventSuspend,
+    EVENT_ACTION_RUN_TAG, EVENT_BATTERY_MEASURED_TAG, EVENT_BOOK_CLOSED_TAG,
+    EVENT_BOOK_FINISHED_TAG, EVENT_BOOK_OPENED_TAG, EVENT_BROADCAST_TAG, EVENT_CHARGE_CHANGED_TAG,
+    EVENT_HTTP_DONE_TAG, EVENT_HTTP_PROGRESS_TAG, EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES,
+    EVENT_PAGE_TURNED_PATH_MAX_BYTES, EVENT_PAGE_TURNED_TAG, EVENT_PAGE_TURNED_TITLE_MAX_BYTES,
+    EVENT_PLUGINS_CHANGED_TAG, EVENT_POWER_CHANGED_TAG, EVENT_RESUME_TAG, EVENT_SCREEN_SHOWN_TAG,
+    EVENT_SERVED_REQUEST_TAG, EVENT_SERVER_TAG, EVENT_SETTING_CHANGED_TAG, EVENT_SOCKET_TAG,
+    EVENT_STARTED_TAG, EVENT_STATUS_CHANGED_TAG, EVENT_STOPPING_TAG, EVENT_SUSPEND_TAG,
+    EVENT_TICK_TAG, EVENT_WIDGET_CHANGED_TAG, EVENT_WIFI_CHANGED_TAG, EventBatteryMeasured,
+    EventPageTurned, EventResume, EventStarted, EventStopping, EventSuspend,
     REGISTRATION_MAX_RECORDS, Record,
 };
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
 
 /// Whether `tag` names an event a plugin can register for: tick (3), 32-37,
-/// `event.setting_changed` (64) and the hints 70-74 (`setting_events`), and the events of the services the kernel pumps: `core.net` 99-102 and
-/// `core.sockets` 106-107 (`service_pump`).
+/// `event.setting_changed` (64) and the hints 70-74 (`setting_events`),
+/// `event.widget_changed` (86, `widget_events`), the
+/// events of the services the kernel pumps: `core.net` 99-102 and
+/// `core.sockets` 106-107 (`service_pump`), and `event.book_opened`,
+/// `event.book_closed` and `event.book_finished` (65-67): registered now,
+/// delivered when the reader port produces them (`core-events.md` 3.1: the
+/// host never fails a registration for an event a device does not raise, and
+/// until the reading session reports, nothing raises these).
 /// Never 38 or 39: those go to the token of the screen or action declaration
 /// they name (`docs/abi/screens-input.md` section 2).
 #[must_use]
@@ -45,12 +52,16 @@ pub const fn is_event_tag(tag: u32) -> bool {
             | EVENT_SERVED_REQUEST_TAG
             | EVENT_SOCKET_TAG
             | EVENT_BROADCAST_TAG
+            | EVENT_BOOK_OPENED_TAG
+            | EVENT_BOOK_CLOSED_TAG
+            | EVENT_BOOK_FINISHED_TAG
             | EVENT_SETTING_CHANGED_TAG
             | EVENT_PLUGINS_CHANGED_TAG
             | EVENT_WIFI_CHANGED_TAG
             | EVENT_POWER_CHANGED_TAG
             | EVENT_STATUS_CHANGED_TAG
             | EVENT_CHARGE_CHANGED_TAG
+            | EVENT_WIDGET_CHANGED_TAG
     )
 }
 
@@ -168,16 +179,17 @@ fn sound(progress_ppm: u32, page: Option<u32>, pages: Option<u32>) -> bool {
         && !matches!((page, pages), (Some(page), Some(pages)) if page > pages)
 }
 
-/// Encode `event.page_turned`, cutting each string to its cap at a char boundary.
+/// The `event.page_turned` record for `turn`, each string cut to its cap at a
+/// char boundary. Nothing is encoded or allocated.
 ///
 /// # Errors
 /// `ERR_INVALID` for `progress_ppm` over 1,000,000, a `Some(0)` page or count, or a
-/// page past the count; `ERR_NO_SPACE` when `out` is too small.
-pub fn encode_page_turned(turn: &PageTurn<'_>, out: &mut [u8]) -> Result<usize, i32> {
+/// page past the count.
+pub(crate) fn page_turned_record<'a>(turn: &PageTurn<'a>) -> Result<EventPageTurned<'a>, i32> {
     if !sound(turn.progress_ppm, turn.page, turn.pages) {
         return Err(ERR_INVALID);
     }
-    let record = EventPageTurned {
+    Ok(EventPageTurned {
         now_ms: turn.now_ms,
         section: turn.section,
         offset: turn.offset,
@@ -189,8 +201,16 @@ pub fn encode_page_turned(turn: &PageTurn<'_>, out: &mut [u8]) -> Result<usize, 
         pages: turn.pages,
         // The kernel reader inserts no content: every page starts in text (N5).
         insert: None,
-    };
-    encode(&Record::EventPageTurned(record), out)
+    })
+}
+
+/// Encode `event.page_turned`, cutting each string to its cap at a char boundary.
+///
+/// # Errors
+/// `ERR_INVALID` for `progress_ppm` over 1,000,000, a `Some(0)` page or count, or a
+/// page past the count; `ERR_NO_SPACE` when `out` is too small.
+pub fn encode_page_turned(turn: &PageTurn<'_>, out: &mut [u8]) -> Result<usize, i32> {
+    encode(&Record::EventPageTurned(page_turned_record(turn)?), out)
 }
 
 /// Whether the batch's leading count is a whole, canonical varint above

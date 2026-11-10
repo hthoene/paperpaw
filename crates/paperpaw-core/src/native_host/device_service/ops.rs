@@ -11,8 +11,9 @@ use crate::native_host::host_services::Caller;
 use crate::native_host::registrations::{self as wire, Record};
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{
-    ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
+    ERR_BUSY, ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
 };
+use paperpaw_platform::firmware::Signer;
 
 /// Operation numbers of `core.device` major 1.
 mod op {
@@ -31,25 +32,45 @@ mod op {
     pub(super) const INSTALL: u32 = 13;
     pub(super) const NOT_INSTALLED: u32 = 14;
     pub(super) const KEYS: u32 = 15;
+    pub(super) const LEAVES_OUT: u32 = 16;
 }
 
 /// The `core.device` backend.
 pub(crate) fn backend(
-    _frame: &dyn Frame,
+    frame: &dyn Frame,
     who: &Caller<'_>,
     op: &ServiceOp,
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
     let services = who.hosts.device().ok_or(ERR_UNSUPPORTED)?;
-    let host: &dyn DeviceHost = &*services.0;
+    // The kernel answers Wi-Fi, Bluetooth and power from its own models, where
+    // the frame has them (`kernel_models`).
+    let kernel;
+    let host: &dyn DeviceHost = match frame.kernel_env() {
+        Some(env) => {
+            kernel = super::kernel_models::KernelHost {
+                inner: &*services.0,
+                env,
+                caller: who.plugin,
+            };
+            &kernel
+        }
+        None => &*services.0,
+    };
     match op.id {
-        // Ops 6 `check` and 13 `install` read the request tables of the install
-        // commands (`device.md` 3, 5.1), which another slice builds. Until
-        // they exist these answer ERR_UNSUPPORTED on purpose, not by accident
-        // of an unknown op.
-        op::CHECK | op::INSTALL => Err(ERR_UNSUPPORTED),
-        op::DEVICE | op::FIRMWARE | op::NATIVE | op::MEMORY | op::WIFI | op::BLUETOOTH => {
+        // Op 13 `install` reads the request table of the install commands
+        // (`device.md` 3), which another slice builds. Until it exists it
+        // answers ERR_UNSUPPORTED on purpose, not by accident of an unknown
+        // op. Ops 3, 6 and 16 read the firmware install machine.
+        op::INSTALL => Err(ERR_UNSUPPORTED),
+        op::CHECK => check(who, input, out),
+        op::LEAVES_OUT => leaves_out(who, host, op, input, out),
+        op::FIRMWARE => {
+            no_input(input)?;
+            firmware(who, host, out)
+        }
+        op::DEVICE | op::NATIVE | op::MEMORY | op::WIFI | op::BLUETOOTH => {
             no_input(input)?;
             single(host, op.id, out)
         }
@@ -611,4 +632,169 @@ fn networks(host: &dyn DeviceHost, query: &Query, mut rows: Rows<'_>) -> Result<
         }
     }
     rows.finish_total(true, query.generation, total)
+}
+
+/// The running built-ins as op 4 lists them: its rows in its order, a row
+/// without an id left out. The firmware check numbers the image's built-ins
+/// with this and op 16 lists the rows by the same numbers, so a bit never
+/// points at another row (`device.md` 5.1).
+#[allow(
+    dead_code,
+    reason = "the kernel's firmware pump numbers built-ins with it (slice B2); only tests build it until then"
+)]
+pub(crate) struct DeviceBuiltIns<'a>(pub(crate) &'a dyn DeviceHost);
+
+impl crate::native_host::firmware_install::BuiltIns for DeviceBuiltIns<'_> {
+    fn count(&self) -> usize {
+        let mut count = 0_usize;
+        let _ = self.0.builtin(&mut |row: &BuiltinRow<'_>| {
+            if !row.id.is_empty() {
+                count += 1;
+            }
+            ControlFlow::Continue(())
+        });
+        count
+    }
+
+    fn index_of(&self, plugin_id: &str) -> Option<usize> {
+        let (mut index, mut found) = (0_usize, None);
+        let _ = self.0.builtin(&mut |row: &BuiltinRow<'_>| {
+            if row.id.is_empty() {
+                return ControlFlow::Continue(());
+            }
+            if row.id == plugin_id {
+                found = Some(index);
+                return ControlFlow::Break(());
+            }
+            index += 1;
+            ControlFlow::Continue(())
+        });
+        found
+    }
+}
+
+/// Op 3: the host's facts, with the install state, progress and last outcome
+/// of the install machine where there is one (the host leaves them idle).
+fn firmware(who: &Caller<'_>, host: &dyn DeviceHost, out: &mut [u8]) -> Result<usize, i32> {
+    let mut slot: Option<Result<usize, i32>> = None;
+    host.firmware(&mut |facts| {
+        let mut facts = *facts;
+        if let Some(machine) = who.hosts.firmware_install() {
+            // A machine in use (borrowed) is a host fault: not idle by guess.
+            match machine.try_borrow() {
+                Ok(machine) => {
+                    facts.state = machine.state().number();
+                    (facts.done, facts.total) = machine.progress();
+                    let (request, reason) = machine.last(who.owner);
+                    facts.request = request;
+                    facts.reason = u32::from(reason);
+                }
+                Err(_) => set(&mut slot, || Err(ERR_BUSY)),
+            }
+        }
+        set(&mut slot, || encode(&firmware_record(&facts), out));
+    })?;
+    slot.unwrap_or(Err(ERR_NOT_FOUND))
+}
+
+/// `dev_check.flags` bits of a firmware check (`device.md` 5.1).
+const CHECK_SIGNED_BY_PAPERPAW: u32 = 1 << 3;
+const CHECK_FOREIGN: u32 = 1 << 4;
+const CHECK_LEAVES_OUT: u32 = 1 << 5;
+
+/// Op 6: the caller's last finished firmware check, by its request.
+fn check(who: &Caller<'_>, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+    let machine = who.hosts.firmware_install().ok_or(ERR_UNSUPPORTED)?;
+    let asked: wire::ServiceDevRequest = codec::single(input)?;
+    let machine = machine.try_borrow().map_err(|_| ERR_BUSY)?;
+    let checked = machine.checked(who.owner)?;
+    if checked.request != asked.request {
+        return Err(ERR_NOT_FOUND);
+    }
+    let (mut signer, mut key, mut flags) = ("", [0_u8; 32], 0_u32);
+    let mut keyed = false;
+    let (mut bytes, mut id, mut version) = (0_u64, "", "");
+    let mut digest = [0_u8; 32];
+    if let Some(facts) = &checked.facts {
+        bytes = u64::from(facts.size);
+        id = facts.project.as_str();
+        version = facts.version.as_str();
+        match &facts.signer {
+            Signer::PaperPaw { name, key: found } => {
+                (signer, key, keyed) = (name.as_str(), *found, true);
+                flags |= CHECK_SIGNED_BY_PAPERPAW;
+            }
+            Signer::Other { key: found } => (key, keyed) = (*found, true),
+            _ => {}
+        }
+        if facts.foreign {
+            flags |= CHECK_FOREIGN;
+        }
+        // The digest is told for a signed image only.
+        digest = facts.sha256;
+    }
+    if checked.leaves_out_some() {
+        flags |= CHECK_LEAVES_OUT;
+    }
+    encode(
+        &Record::ServiceDevCheck(wire::ServiceDevCheck {
+            reason: u32::from(checked.reason),
+            needs_draft: 0,
+            bytes,
+            signer: clip(signer, wire::SERVICE_DEV_CHECK_SIGNER_MAX_BYTES),
+            key: if keyed { &key } else { &[] },
+            id: clip(id, wire::SERVICE_DEV_CHECK_ID_MAX_BYTES),
+            version: clip(version, wire::SERVICE_DEV_CHECK_VERSION_MAX_BYTES),
+            flags,
+            sha256: if keyed { &digest } else { &[] },
+        }),
+        out,
+    )
+}
+
+/// Op 16: the running built-ins (op 4's rows, in its order) the caller's last
+/// finished firmware check's image does not have, paged. The `end`'s
+/// generation is the check's request: a cursor from another check is
+/// `ERR_STATE`.
+fn leaves_out(
+    who: &Caller<'_>,
+    host: &dyn DeviceHost,
+    op: &ServiceOp,
+    input: &[u8],
+    out: &mut [u8],
+) -> Result<usize, i32> {
+    let machine = who.hosts.firmware_install().ok_or(ERR_UNSUPPORTED)?;
+    let query: wire::ServiceRegQuery<'_> = codec::single(input)?;
+    if query.flags != 0 || !query.scope.is_empty() {
+        return Err(ERR_INVALID);
+    }
+    let machine = machine.try_borrow().map_err(|_| ERR_BUSY)?;
+    let checked = machine.leaves_out_of(who.owner)?;
+    // Never 0: 0 asks for the first page (a request number is the sender's own
+    // and non-zero, but the paging does not depend on it).
+    let generation = checked.request.max(1);
+    if query.generation != 0 && query.generation != generation
+        || query.generation == 0 && query.cursor != 0
+    {
+        return Err(ERR_STATE);
+    }
+    let mut rows = Rows::new(out, op, query.cursor, u32::MAX)?;
+    let mut index = 0_usize;
+    host.builtin(&mut |row: &BuiltinRow<'_>| {
+        if row.id.is_empty() {
+            return ControlFlow::Continue(());
+        }
+        let number = index;
+        index += 1;
+        if !checked.leaves_out(number) {
+            return ControlFlow::Continue(());
+        }
+        rows.push(|| {
+            Record::ServiceDevBuiltin(wire::ServiceDevBuiltin {
+                id: clip(row.id, wire::SERVICE_DEV_BUILTIN_ID_MAX_BYTES),
+                version: clip(row.version, wire::SERVICE_DEV_BUILTIN_VERSION_MAX_BYTES),
+            })
+        })
+    })?;
+    rows.finish(true, generation)
 }

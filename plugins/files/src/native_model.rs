@@ -118,7 +118,7 @@ impl Order {
 }
 
 /// Which books a list holds.
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub enum Scope {
     /// Every book of the library.
     #[default]
@@ -148,6 +148,23 @@ const KINDS: [(&str, u8); 7] = [
 ];
 
 impl Scope {
+    /// A second copy of the scope.
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn try_clone(&self) -> Result<Self, Error> {
+        Ok(match self {
+            Self::Library => Self::Library,
+            Self::Favourites => Self::Favourites,
+            Self::Author(name) => Self::Author(copy(name)?),
+            Self::Series(name) => Self::Series(copy(name)?),
+            Self::Tag(name) => Self::Tag(copy(name)?),
+            Self::Folder(path) => Self::Folder(copy(path)?),
+            Self::Search(words) => Self::Search(copy(words)?),
+            Self::Next => Self::Next,
+        })
+    }
+
     /// The parameters (`kind`, `value`) that open a list of this scope.
     #[must_use]
     pub fn params(&self) -> (&'static str, &str) {
@@ -186,14 +203,30 @@ impl Scope {
 }
 
 /// What a list holds and in which order: the library's filter or a scope.
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub struct Selection {
     pub filter: Filter,
     pub order: Order,
     pub scope: Scope,
+    /// The order belongs to the list (a list found by letter is by title,
+    /// whatever `files.sort` says): the setting does not replace it.
+    pub fixed: bool,
 }
 
 impl Selection {
+    /// A second copy of the selection.
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub fn try_clone(&self) -> Result<Self, Error> {
+        Ok(Self {
+            filter: self.filter,
+            order: self.order,
+            scope: self.scope.try_clone()?,
+            fixed: self.fixed,
+        })
+    }
+
     /// The host's query for this selection, continuing from `cursor`. The
     /// archive folder is left out of the library's own lists, not of a
     /// folder's or a search's.
@@ -370,6 +403,74 @@ pub fn read_window<C: Copy, T>(
     Ok((window, restarted))
 }
 
+/// Where a book of a list is: the window that holds it.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Found<C> {
+    /// Where the window's first reply is read from.
+    pub start: C,
+    /// Where each window before it begins, the nearest last (what "Previous
+    /// books" goes back through).
+    pub starts: Vec<C>,
+    /// The row of the book in the window; the window's last row when the
+    /// list ends before the index.
+    pub at: usize,
+    /// Whether the index was reached; false when the list has fewer books
+    /// (or more than the bound reads), the last window read is then given.
+    pub reached: bool,
+}
+
+/// Finds the window of the list that holds the book at `index`, by reading
+/// the windows from `first` forward as "More books" does (a list cannot
+/// start at an index: a cursor is only made by a reply) and counting their
+/// books. At most [`MOST_BOOKS`] windows are read, so a list of thousands of
+/// books is reached and nothing loops. A stale cursor starts the walk over
+/// from `first` once, the index then counting in the new catalog; a second
+/// one is `Error::State`.
+///
+/// # Errors
+/// The source's refusal, or `NoMemory`.
+pub fn find_window<C: Copy, T>(
+    source: &mut impl Source<C, T>,
+    first: C,
+    index: usize,
+) -> Result<Found<C>, Error> {
+    let mut starts = Vec::new();
+    let (mut begin, mut cursor, mut restarted) = (0usize, first, false);
+    for round in 1..=MOST_BOOKS {
+        let (window, stale) = read_window(source, cursor, first, MOST_BOOKS)?;
+        if stale {
+            if restarted {
+                return Err(Error::State);
+            }
+            // The window read is the first one of the new generation.
+            (restarted, begin) = (true, 0);
+            starts.clear();
+        }
+        let end = begin.saturating_add(window.books.len());
+        let reached = index < end;
+        match window.next {
+            Some(next) if !reached && !window.books.is_empty() && round < MOST_BOOKS => {
+                push(&mut starts, window.start)?;
+                (begin, cursor) = (end, next);
+            }
+            _ => {
+                let at = if reached {
+                    index - begin
+                } else {
+                    window.books.len().saturating_sub(1)
+                };
+                return Ok(Found {
+                    start: window.start,
+                    starts,
+                    at,
+                    reached,
+                });
+            }
+        }
+    }
+    Err(Error::State)
+}
+
 /// The words a row is made of, in the reader's language.
 pub trait Say {
     /// The catalog's text for `key`.
@@ -383,10 +484,17 @@ pub trait Say {
     /// # Errors
     /// The host's refusal or `NoMemory`.
     fn count(&mut self, key: &str, count: i64) -> Result<String, Error>;
+
+    /// The catalog's text for `key` with `value` for its `{name}`.
+    ///
+    /// # Errors
+    /// The host's refusal or `NoMemory`.
+    fn with(&mut self, key: &str, name: &str, value: &str) -> Result<String, Error>;
 }
 
 /// A book's row: its title, how far it is read (or *Finished*, or *New*)
-/// and, below, its author, series with number and badges.
+/// and, below, its author and series with number. The badges plugins put
+/// on it are [`chips`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Line {
     pub title: String,
@@ -430,14 +538,26 @@ pub fn line(say: &mut impl Say, book: &BookLine) -> Result<Line, Error> {
         };
         part(&numbered)?;
     }
-    for badge in &book.badges {
-        part(badge)?;
-    }
     Ok(Line {
         title: copy(&book.title)?,
         value,
         note,
     })
+}
+
+/// The badges plugins put on `book`, copied for its row's chips.
+///
+/// # Errors
+/// `NoMemory`.
+pub fn chips(book: &BookLine) -> Result<Vec<String>, Error> {
+    let mut chips = Vec::new();
+    chips
+        .try_reserve_exact(book.badges.len())
+        .map_err(|_| Error::NoMemory)?;
+    for badge in &book.badges {
+        push(&mut chips, copy(badge)?)?;
+    }
+    Ok(chips)
 }
 
 #[cfg(test)]
@@ -452,6 +572,9 @@ mod tests {
         }
         fn count(&mut self, key: &str, _: i64) -> Result<String, Error> {
             copy(key)
+        }
+        fn with(&mut self, key: &str, _: &str, value: &str) -> Result<String, Error> {
+            concat(&[key, ":", value])
         }
     }
 
@@ -564,10 +687,12 @@ mod tests {
         b.series = "Saga".into();
         b.number = "2".into();
         b.badges = alloc::vec!["On loan".into()];
-        assert_eq!(line(&mut Words, &b).unwrap().note, "A · Saga #2 · On loan");
+        // The badges are chips of their own, not words of the note.
+        assert_eq!(line(&mut Words, &b).unwrap().note, "A · Saga #2");
+        assert_eq!(chips(&b).unwrap(), ["On loan"]);
         b.author = String::new();
         b.number = String::new();
-        assert_eq!(line(&mut Words, &b).unwrap().note, "Saga · On loan");
+        assert_eq!(line(&mut Words, &b).unwrap().note, "Saga");
     }
 
     /// A list of `len` books read 32 at a time; cursors are the offsets.
@@ -575,12 +700,18 @@ mod tests {
         len: u32,
         rows: u32,
         stale_once: bool,
+        /// The cursor that is refused once as stale.
+        stale_at: Option<u32>,
         calls: Vec<u32>,
     }
 
     impl Source<u32> for Fake {
         fn read(&mut self, from: u32) -> Result<Replied<u32>, Error> {
             self.calls.push(from);
+            if self.stale_at == Some(from) {
+                self.stale_at = None;
+                return Err(Error::State);
+            }
             if self.stale_once && from != 0 {
                 self.stale_once = false;
                 return Err(Error::State);
@@ -607,6 +738,7 @@ mod tests {
             len,
             rows: 32,
             stale_once: false,
+            stale_at: None,
             calls: Vec::new(),
         }
     }
@@ -720,5 +852,120 @@ mod tests {
             }
         }
         assert_eq!(read_window(&mut Always, 5, 0, 1).err(), Some(Error::State));
+    }
+
+    #[test]
+    fn a_book_in_the_first_window_is_found_without_earlier_windows() {
+        let mut source = fake(250);
+        let found = find_window(&mut source, 0, 40).unwrap();
+        assert_eq!((found.start, found.at, found.reached), (0, 40, true));
+        assert!(found.starts.is_empty());
+        let found = find_window(&mut fake(250), 0, 0).unwrap();
+        assert_eq!((found.at, found.reached), (0, true));
+    }
+
+    #[test]
+    fn a_book_in_the_third_window_keeps_the_starts_for_previous_books() {
+        let mut source = fake(500);
+        let found = find_window(&mut source, 0, 200).unwrap();
+        assert_eq!((found.start, found.at, found.reached), (192, 8, true));
+        assert_eq!(found.starts, [0, 96]);
+        // The window it names holds the book on that row, from that cursor.
+        let (window, _) = read_window(&mut source, found.start, 0, MOST_BOOKS).unwrap();
+        assert_eq!(window.books.get(found.at).map(|b| b.key), Some(200));
+    }
+
+    #[test]
+    fn a_book_exactly_at_a_window_boundary_is_the_next_windows_first() {
+        let found = find_window(&mut fake(250), 0, 95).unwrap();
+        assert_eq!((found.start, found.at), (0, 95));
+        let found = find_window(&mut fake(250), 0, 96).unwrap();
+        assert_eq!((found.start, found.at, found.reached), (96, 0, true));
+        assert_eq!(found.starts, [0]);
+        let found = find_window(&mut fake(250), 0, 192).unwrap();
+        assert_eq!(
+            (found.start, found.at, found.starts),
+            (192, 0, alloc::vec![0, 96])
+        );
+    }
+
+    #[test]
+    fn windows_of_short_replies_are_counted_as_they_were_read() {
+        // Ten rows a reply: a window is 100 books, the second starts at 100.
+        let mut source = fake(250);
+        source.rows = 10;
+        let found = find_window(&mut source, 0, 105).unwrap();
+        assert_eq!(
+            (found.start, found.at, found.starts),
+            (100, 5, alloc::vec![0])
+        );
+    }
+
+    #[test]
+    fn an_index_past_the_end_gives_the_last_window_and_its_last_row() {
+        let found = find_window(&mut fake(250), 0, 250).unwrap();
+        assert_eq!((found.start, found.at, found.reached), (192, 57, false));
+        assert_eq!(found.starts, [0, 96]);
+        let found = find_window(&mut fake(96), 0, 96).unwrap();
+        assert_eq!((found.start, found.at, found.reached), (0, 95, false));
+        let found = find_window(&mut fake(0), 0, 3).unwrap();
+        assert_eq!((found.at, found.reached), (0, false));
+        let found = find_window(&mut fake(250), 0, usize::MAX).unwrap();
+        assert!(!found.reached);
+    }
+
+    #[test]
+    fn the_walk_is_bounded() {
+        // A list that never ends is read for at most MOST_BOOKS windows.
+        struct Endless(usize);
+        impl Source<u32> for Endless {
+            fn read(&mut self, from: u32) -> Result<Replied<u32>, Error> {
+                self.0 += 1;
+                Ok(Replied {
+                    books: alloc::vec![book(); 96],
+                    generation: 1,
+                    total: u32::MAX,
+                    next: Some(from + 96),
+                })
+            }
+        }
+        let mut source = Endless(0);
+        let found = find_window(&mut source, 0, usize::MAX).unwrap();
+        assert!(!found.reached);
+        assert_eq!(found.starts.len(), MOST_BOOKS - 1);
+        assert_eq!(source.0, MOST_BOOKS);
+    }
+
+    #[test]
+    fn a_stale_cursor_restarts_the_walk_once_and_a_second_is_refused() {
+        let mut source = fake(500);
+        source.stale_at = Some(96);
+        let found = find_window(&mut source, 0, 200).unwrap();
+        assert_eq!((found.start, found.at, found.reached), (192, 8, true));
+        assert_eq!(found.starts, [0, 96]);
+        // Stale at the second window: the walk starts over from 0, then reads on.
+        assert_eq!(
+            source.calls.iter().take(7).copied().collect::<Vec<_>>(),
+            [0, 32, 64, 96, 0, 32, 64]
+        );
+        struct Twice(u32);
+        impl Source<u32> for Twice {
+            fn read(&mut self, from: u32) -> Result<Replied<u32>, Error> {
+                // Every cursor after the first of each walk is stale.
+                if from != 0 {
+                    self.0 += 1;
+                    return Err(Error::State);
+                }
+                Ok(Replied {
+                    books: alloc::vec![book(); 96],
+                    generation: 1,
+                    total: 500,
+                    next: Some(96),
+                })
+            }
+        }
+        let mut twice = Twice(0);
+        assert_eq!(find_window(&mut twice, 0, 200).err(), Some(Error::State));
+        assert_eq!(twice.0, 2);
     }
 }

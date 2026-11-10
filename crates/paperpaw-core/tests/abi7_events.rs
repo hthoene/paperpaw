@@ -332,11 +332,12 @@ fn only_suspend_and_stopping_bypass_the_queue() {
             tag == EVENT_SUSPEND_TAG || tag == EVENT_STOPPING_TAG
         );
     }
-    // 64 and the hints 70-74 have their delivery (`setting_events`); the book
-    // events 65-69 stay refused until Core wires their producers.
+    // 64, the book events 65-67 (registered, delivered by the reader port) and
+    // the hints 70-74 are admitted; 68 and 69 stay refused until Core wires
+    // their producers.
     for tag in [0, 1, 2, 4, 5, 31, 38, 43, 63, u32::MAX]
         .into_iter()
-        .chain(65..=69)
+        .chain(68..=69)
     {
         assert!(!events::is_event_tag(tag));
     }
@@ -392,8 +393,19 @@ fn registration_admits_tick_and_every_event_kind_and_refuses_the_rest() {
     {
         assert_eq!(submit_one(tag), (OK, true), "tag {tag}");
     }
-    for tag in [0, 4, 5, 31, 38, 63, u32::MAX].into_iter().chain(65..=69) {
+    for tag in [0, 4, 5, 31, 38, 63, u32::MAX].into_iter().chain(68..=69) {
         assert_eq!(submit_one(tag), (ERR_UNSUPPORTED, false), "tag {tag}");
+    }
+}
+
+/// `event.book_opened`, `book_closed` and `book_finished` register (rules and
+/// setup subscribe to them); nothing produces them until the reader port.
+#[test]
+fn the_book_events_register_and_each_is_admitted() {
+    for tag in 65..=67 {
+        assert!(events::is_event_tag(tag), "tag {tag}");
+        assert_eq!(submit_one(tag), (OK, true), "tag {tag}");
+        assert!(!events::bypasses_queue(tag), "tag {tag}");
     }
 }
 

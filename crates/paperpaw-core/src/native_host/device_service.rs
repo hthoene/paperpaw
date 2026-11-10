@@ -28,11 +28,19 @@ use alloc::rc::Rc;
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::ERR_NOT_FOUND;
 
+mod kernel_models;
+#[cfg(test)]
+mod kernel_tests;
 mod ops;
 mod probe;
 #[cfg(test)]
 mod tests;
 
+#[allow(
+    unused_imports,
+    reason = "the kernel's firmware pump numbers built-ins with it (slice B2)"
+)]
+pub(crate) use ops::DeviceBuiltIns;
 pub(crate) use ops::backend;
 pub use probe::{PROBE_WINDOW_MS, ProbeCache};
 

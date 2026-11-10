@@ -1,5 +1,6 @@
 //! Host-only UI authority and deferred redraw effects for one callback.
 use super::*;
+use crate::native_host::stack_rows::StackRows;
 use paperpaw_native::host_glue::ERR_NOT_FOUND;
 use paperpaw_platform::RefreshMode;
 use paperpaw_sdk::{Env, IdError, Params, ScreenKey};
@@ -15,6 +16,12 @@ pub(super) struct UiContext<'a> {
         &'a core::cell::RefCell<crate::native_host::hint_labels::HintLabels>,
         bool,
     )>,
+    /// The widget table and the caller's owner key, to check
+    /// `command.widget_changed` (without it the command is `ERR_UNSUPPORTED`).
+    widgets: Option<(&'a crate::native_host::ui_service::UiServices, u64)>,
+    /// The kernel's stack and the submitter's owner id, for the navigation
+    /// commands (`commands_nav.rs`); without it they are `ERR_UNSUPPORTED`.
+    stack: Option<super::nav::NavStack<'a>>,
 }
 
 impl<'a> UiContext<'a> {
@@ -24,6 +31,10 @@ impl<'a> UiContext<'a> {
 
     pub(super) fn hop(&self) -> u8 {
         self.hop
+    }
+
+    pub(super) fn stack(&self) -> Option<super::nav::NavStack<'a>> {
+        self.stack
     }
 }
 
@@ -47,8 +58,32 @@ impl<'a> CommandStage<'a> {
             hop,
             open_budget,
             labels: None,
+            widgets: None,
+            stack: None,
         });
         self
+    }
+
+    /// Admits `command.widget_changed` for owner `owner_key`: the instance
+    /// must be one of its own widgets in `ui`'s table.
+    #[must_use]
+    pub(crate) fn with_widgets(
+        mut self,
+        ui: Option<&'a crate::native_host::ui_service::UiServices>,
+        owner_key: u64,
+    ) -> Self {
+        if let (Some(context), Some(ui)) = (&mut self.ui, ui) {
+            context.widgets = Some((ui, owner_key));
+        }
+        self
+    }
+
+    /// The checked widget changes, in order, for the host to apply after the
+    /// callback ([`UiServices::widgets_changed`]); call it before
+    /// [`Self::into_commands`].
+    #[must_use]
+    pub(crate) fn take_widget_changes(&mut self) -> Vec<u32> {
+        core::mem::take(&mut self.staged_widgets)
     }
 
     /// Admits `command.set_hint`: `labels` keeps what instances relabel,
@@ -62,6 +97,17 @@ impl<'a> CommandStage<'a> {
     ) -> Self {
         if let Some(ui) = &mut self.ui {
             ui.labels = Some((labels, row));
+        }
+        self
+    }
+
+    /// Admits the navigation commands (`close`, `back_to`, `set_key_layer`,
+    /// `show_hints`, `raise_input`): `rows` is the kernel's stack, `owner` the
+    /// submitter's host owner id.
+    #[must_use]
+    pub(crate) fn with_stack(mut self, rows: &'a StackRows, owner: u64) -> Self {
+        if let Some(ui) = &mut self.ui {
+            ui.stack = Some(super::nav::NavStack { rows, owner });
         }
         self
     }
@@ -227,6 +273,7 @@ impl<'a> CommandStage<'a> {
                 Ok(action.len())
             }
             WireCommand::Redraw { .. } | WireCommand::CloseScreen => self.own_top().map(|_| 0),
+            command if super::nav::is_nav(&command) => self.validate_nav(command),
             WireCommand::SetHint {
                 action,
                 kind,
@@ -238,6 +285,11 @@ impl<'a> CommandStage<'a> {
                 crate::native_host::hint_labels::check(action, kind, label)?;
                 self.own_top()?;
                 Ok(action.len() + label.len())
+            }
+            WireCommand::WidgetChanged { instance } => {
+                let (ui, owner) = ui.widgets.ok_or(ERR_UNSUPPORTED)?;
+                ui.widget_check_changed(owner, instance)?;
+                Ok(0)
             }
             _ => Err(ERR_UNSUPPORTED),
         }
@@ -255,6 +307,7 @@ impl<'a> CommandStage<'a> {
                 Ok(Command::RunAction(copy_id(action)?, Params::new()))
             }
             WireCommand::CloseScreen => Ok(Command::Close(self.own_top()?)),
+            command if super::nav::is_nav(&command) => self.owned_nav(command),
             _ => Err(ERR_UNSUPPORTED),
         }
     }
@@ -332,17 +385,92 @@ impl crate::Kernel {
     /// Apply one staged command of `owner`; a close of a screen that is gone
     /// is dropped with a warning.
     pub(crate) fn drain_native_command(&mut self, owner: &Id, command: Command) {
+        // The guard's own plugin's commands are the guard's own, as the
+        // interface-6 guard's are: its screens open and close above and
+        // including itself, and its raised input is not held (ui.md 4.3). Any
+        // other plugin's are held below it. Judged for each command, as an
+        // earlier one of the batch may have closed the guard. The marks the
+        // caller had are put back.
+        let own_guard = self
+            .guard()
+            .and_then(|guard| self.stack.get(guard))
+            .is_some_and(|guard| guard.id.namespace() == owner.as_str());
+        let before = (self.from_guard, self.from_guard_own);
+        (self.from_guard, self.from_guard_own) = (own_guard, own_guard);
+        self.drain_native_command_as(owner, command);
+        (self.from_guard, self.from_guard_own) = before;
+    }
+
+    fn drain_native_command_as(&mut self, owner: &Id, command: Command) {
+        // A close names an instance still open that is the owner's own or an
+        // overlay (`command.close`, ui.md 1.3).
         if let Command::Close(key) = &command
-            && !self
-                .shared
-                .stack
-                .iter()
-                .any(|entry| entry.key == *key && entry.screen.namespace() == owner.as_str())
+            && !self.shared.stack.iter().any(|entry| {
+                entry.key == *key && (entry.screen.namespace() == owner.as_str() || entry.overlay)
+            })
         {
             self.warn_runtime("native close dropped: its screen no longer exists");
             return;
         }
+        // A key map layer is laid for the owner's own screen on top, the one
+        // that asked, if it still is.
+        if let Command::SetKeyLayer(key, layer) = command {
+            if self.native_top(owner, key) {
+                self.set_key_layer(key, layer);
+            } else {
+                self.warn_runtime("native key layer dropped: its screen is no longer on top");
+            }
+            return;
+        }
         self.apply(command);
+    }
+
+    /// Applies the policy changes a callback of `owner` (host owner id
+    /// `owner_key`) asked for (`command.screen_policy`, ui.md 1.2), before its
+    /// other commands. A change for a screen that is gone, or that turns
+    /// `guards` on where the screen is no longer the top one, is dropped with
+    /// a warning; the stage judged it at submit.
+    #[allow(
+        dead_code,
+        reason = "the command runner (shell_commands) calls it, wired with the shell"
+    )]
+    pub(crate) fn native_screen_policies(
+        &mut self,
+        owner: &Id,
+        owner_key: u64,
+        changes: Vec<super::nav::PolicyChange>,
+    ) {
+        use crate::screens::POLICY_GUARDS;
+        let mut changed = false;
+        for change in changes {
+            let Some(index) = self.stack.iter().position(|active| {
+                active.serial == change.instance && active.id.namespace() == owner.as_str()
+            }) else {
+                self.warn_runtime("native screen policy dropped: its screen is gone");
+                continue;
+            };
+            let turns_on = change.flags & POLICY_GUARDS != 0 && !self.stack[index].guards();
+            if turns_on
+                && crate::native_host::ui_guard::guard_on_allowed(
+                    &*self.shared.stack_rows,
+                    owner_key,
+                    change.instance,
+                )
+                .is_err()
+            {
+                self.warn_runtime("native screen policy dropped: its screen is no longer on top");
+                continue;
+            }
+            self.stack[index].policy = Some(change.flags);
+            changed = true;
+        }
+        if changed {
+            // The stack rows and the guard follow; what the guard held waits
+            // no longer once none guards.
+            self.sync_stack();
+            self.release_held_notice();
+            self.output.redraw = true;
+        }
     }
 
     /// The deferred redraw, if its screen is still on top.

@@ -242,6 +242,13 @@ native screens replace these callers.
   word-looked-up event yet). Rows are numbered from the newest, so a hold first counts the words again: a list
   that changed since it was counted is counted again and drawn anew, never deleting another word.
 
+## Right-to-left (`ar`: a regression against Beta 3 until this is done)
+
+Beta 3 mirrored the interface where its language is written right to left (Arabic). The UI kit now
+does so for what it draws (`Style::rtl`, read from `core.language`: header, list rows, items, dialog,
+chips, the sheet's pager; `Style::flip`, `flip_x` and `text::label_in` for the rest). What this plugin
+draws itself is not mirrored yet, so its screens are left to right in those parts for `ar` until it
+takes the kit's helpers (and, where it keeps its own keys, swaps left and right as `Chips::step` does).
 ## Ported: the card files (`native_card.rs`, `native_sd.rs`, `native_sd_shell.rs`)
 
 - **The card as a `Storage`** (`native_card.rs`): `core.files` (folders, information, moves) and the card root of the

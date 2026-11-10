@@ -24,6 +24,7 @@ STATUSES
 }
 mod snapshot_wire { pub struct Snapshot; }
 pub struct Settings;
+pub struct Env<'a>(core::marker::PhantomData<&'a ()>);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rect;
 pub struct Canvas<'a>(core::marker::PhantomData<&'a mut ()>);

@@ -23,7 +23,6 @@ panes = ["paperpaw-core/panes"]
 # and the X4 Pro's firmware (see `StorePlugins`).
 store-plugins = [
     "dep:paperpaw-plugin-widgets",
-    "dep:paperpaw-plugin-calibre",
     "dep:paperpaw-plugin-news",
     "dep:paperpaw-plugin-vocabulary",
     "dep:paperpaw-plugin-fonts-browser",
@@ -33,8 +32,6 @@ store-plugins = [
     "dep:paperpaw-plugin-format-mobi",
     "dep:paperpaw-plugin-format-docx",
     "dep:paperpaw-plugin-format-images",
-    "dep:paperpaw-plugin-browser",
-    "dep:paperpaw-plugin-read-later-cloud",
     "dep:paperpaw-plugin-mail",
 ]
 # The diagnostics screen, for bringing up devices: in developer builds.
@@ -53,8 +50,10 @@ native-linked = [
     "dep:paperpaw-plugin-about",
     "dep:paperpaw-plugin-bluetooth",
     "dep:paperpaw-plugin-file-manager",
+    "dep:paperpaw-plugin-files",
     "dep:paperpaw-plugin-help",
     "dep:paperpaw-plugin-lock",
+    "dep:paperpaw-plugin-opds",
     "dep:paperpaw-plugin-plugin-manager",
     "dep:paperpaw-plugin-power",
     "dep:paperpaw-plugin-setup",
@@ -80,7 +79,7 @@ paperpaw-i18n.workspace = true
 paperpaw-core.workspace = true
 paperpaw-i18n.workspace = true
 paperpaw-plugin-dictionary.workspace = true
-paperpaw-plugin-files.workspace = true
+paperpaw-plugin-files = { workspace = true, optional = true }
 paperpaw-plugin-fonts-default = { workspace = true, default-features = false }
 paperpaw-plugin-fonts-browser = { workspace = true, optional = true }
 paperpaw-plugin-store.workspace = true
@@ -90,7 +89,6 @@ paperpaw-plugin-format-xtc.workspace = true
 paperpaw-plugin-home.workspace = true
 paperpaw-plugin-keyboard.workspace = true
 paperpaw-plugin-menu.workspace = true
-paperpaw-plugin-calibre = { workspace = true, optional = true }
 paperpaw-plugin-notes-vault = { workspace = true, optional = true }
 paperpaw-plugin-picture-home = { workspace = true, optional = true }
 paperpaw-plugin-format-mobi = { workspace = true, optional = true }
@@ -100,8 +98,7 @@ paperpaw-plugin-widgets = { workspace = true, optional = true }
 paperpaw-plugin-wifi.workspace = true
 paperpaw-plugin-file-manager = { workspace = true, optional = true }
 paperpaw-plugin-transfer.workspace = true
-paperpaw-plugin-browser = { workspace = true, optional = true }
-paperpaw-plugin-opds.workspace = true
+paperpaw-plugin-opds = { workspace = true, optional = true }
 paperpaw-plugin-lock = { workspace = true, optional = true }
 paperpaw-plugin-aids = { workspace = true, optional = true }
 paperpaw-plugin-vocabulary = { workspace = true, optional = true }
@@ -112,7 +109,6 @@ paperpaw-plugin-setup = { workspace = true, optional = true }
 paperpaw-plugin-help = { workspace = true, optional = true }
 paperpaw-plugin-plugin-manager = { workspace = true, optional = true }
 paperpaw-plugin-power = { workspace = true, optional = true }
-paperpaw-plugin-read-later-cloud = { workspace = true, optional = true }
 paperpaw-plugin-mail = { workspace = true, optional = true }
 paperpaw-plugin-update.workspace = true
 paperpaw-plugin-news = { workspace = true, optional = true }

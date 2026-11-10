@@ -95,5 +95,5 @@ Deliberately different from interface 6:
 - The fetch started by a rule as declared work (no native work declaration yet): interface 6's
   `wallabag.fetch-due` has no counterpart.
 - The set-up screen on the production host (H1, H2) and the keyboard slot, as before.
-- Not measured: the X4 file size (`tools/plugin-files7`, no `complete.txt` entry before it is) and peak
-  memory of a fetch.
+- The X4 file (`tools/plugin-files7`, listed in `complete.txt`): `wallabag-1.0.7-x4.ppn` is 148,152 B
+  (117,356 code, 26,384 data). Not measured: the peak memory of a fetch.

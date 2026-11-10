@@ -6,9 +6,9 @@
 //! `native_source` (what is read of the device); this file reads, draws and
 //! hands inputs on through the host.
 //!
-//! Not yet (ignored acceptance cases, `PORTING-7.md`): editing, the status line
-//! above the grid, the icons of tools and of the footer, the widgets of the
-//! home screen's own, and the widgets' updates.
+//! Not yet (ignored acceptance cases, `PORTING-7.md`): the status line above the
+//! grid, the widgets of the home screen's own, the fitting of the pages to a new
+//! grid, and what the host lacks to run any of it (H1, H4).
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Color, Handled, Point, Rect,
@@ -309,8 +309,9 @@ impl Dashboard {
         })
     }
 
-    /// The widgets with no place yet are measured at the grid's width (made,
-    /// asked and let go), so the grid gives each the rows it needs. A widget the
+    /// The widgets with no place yet (and no cells declared) are measured at the
+    /// grid's width (made, asked and let go), so the grid gives each the rows it
+    /// needs. A widget the
     /// host cannot measure keeps the default of one row.
     fn measure_unplaced(
         host: &Host<'_>,
@@ -323,6 +324,10 @@ impl Dashboard {
             let (None, What::Widget(id)) = (item.at, &item.what) else {
                 continue;
             };
+            // As interface 6: one that says how many cells it takes is not made.
+            if src.declares(id) {
+                continue;
+            }
             match measure::measure_widget(host, ui, id, PLACE, geometry) {
                 Ok(Some((rows, least))) => src.measured(id, rows, least)?,
                 Ok(None) => {}

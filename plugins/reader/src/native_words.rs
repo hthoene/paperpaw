@@ -67,21 +67,40 @@ pub fn input(looked: &Looked<'_>) -> Result<Vec<u8>, Error> {
     Ok(bytes)
 }
 
-/// Runs the stage for `looked`: every subscriber is asked once, in stage
-/// order; what they answer or fail with is not read.
+/// Announces `looked` to `ask`, once, with the stage's input: the one place a
+/// lookup becomes a stage run. `ask` does the run (the host's stage, or a
+/// recorder in a test). A path the stage cannot carry is refused before `ask`
+/// is called.
 ///
 /// # Errors
-/// What the input or the host refuses; none of it concerns the lookup.
-pub fn run(host: &Host<'_>, looked: &Looked<'_>) -> Result<(), Error> {
+/// What [`input`] refuses, and what `ask` returns.
+pub fn announce(
+    looked: &Looked<'_>,
+    ask: impl FnOnce(&[u8]) -> Result<(), Error>,
+) -> Result<(), Error> {
     let input = input(looked)?;
-    let mut out = Vec::new();
-    let room = Stage::out_len(stage::MAX_REPLY as u32);
-    out.try_reserve_exact(room).map_err(|_| Error::NoMemory)?;
-    out.resize(room, 0);
-    let stage = Stage::new(host, stage::KEY)?;
-    let mut run = stage.run(&input, &mut out);
-    while run.next()?.is_some() {}
-    Ok(())
+    ask(&input)
+}
+
+/// Runs the stage for `looked`: every subscriber is asked once, in stage
+/// order; what they answer or fail with is not read. The native lookup flow
+/// calls this when the user looks a word up (the interface-6 reader still
+/// fires its event: see `PORTING-7.md`).
+///
+/// # Errors
+/// What the input or the host refuses; none of it concerns the lookup, which
+/// goes on whatever this returns.
+pub fn run(host: &Host<'_>, looked: &Looked<'_>) -> Result<(), Error> {
+    announce(looked, |input| {
+        let mut out = Vec::new();
+        let room = Stage::out_len(stage::MAX_REPLY as u32);
+        out.try_reserve_exact(room).map_err(|_| Error::NoMemory)?;
+        out.resize(room, 0);
+        let stage = Stage::new(host, stage::KEY)?;
+        let mut run = stage.run(input, &mut out);
+        while run.next()?.is_some() {}
+        Ok(())
+    })
 }
 
 #[cfg(test)]
@@ -134,5 +153,64 @@ mod tests {
             panic!("no record");
         };
         assert_eq!(r.language, "");
+    }
+
+    #[test]
+    fn a_lookup_is_one_stage_run_with_the_payload_of_the_word() {
+        use core::cell::RefCell;
+        let runs = RefCell::new(Vec::<Vec<u8>>::new());
+        announce(&looked("serendipity", "Books/a.epub"), |input| {
+            runs.borrow_mut().push(input.to_vec());
+            Ok(())
+        })
+        .unwrap();
+        let runs = runs.into_inner();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(
+            runs[0],
+            input(&looked("serendipity", "Books/a.epub")).unwrap()
+        );
+        let mut records = stage::input_decode(&runs[0]).unwrap();
+        assert_eq!(records.len(), 1);
+        let Some(Ok(stage::Record::WordLooked(r))) = records.next() else {
+            panic!("no record");
+        };
+        assert_eq!(
+            (
+                r.word, r.sentence, r.path, r.section, r.offset, r.language, r.title
+            ),
+            (
+                "serendipity",
+                "A sentence.",
+                "Books/a.epub",
+                3,
+                40,
+                "en",
+                "Title"
+            )
+        );
+    }
+
+    #[test]
+    fn a_path_over_the_limit_is_refused_and_no_run_happens() {
+        let path = "p".repeat(513);
+        let mut asked = false;
+        let result = announce(&looked("w", &path), |_| {
+            asked = true;
+            Ok(())
+        });
+        assert_eq!(result, Err(Error::NoSpace));
+        assert!(!asked, "the stage must not run with a cut path");
+        // The longest the stage carries goes through whole.
+        let path = "p".repeat(512);
+        assert!(announce(&looked("w", &path), |_| Ok(())).is_ok());
+    }
+
+    #[test]
+    fn what_the_run_fails_with_is_given_back_for_the_caller_to_ignore() {
+        assert_eq!(
+            announce(&looked("w", "a.epub"), |_| Err(Error::State)),
+            Err(Error::State)
+        );
     }
 }

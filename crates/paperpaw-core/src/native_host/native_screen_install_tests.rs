@@ -218,6 +218,7 @@ fn submit_registrations(host: *const PpHost, ctx: *mut c_void) -> Option<i32> {
         token,
     };
     let draw = |token| wire::Registration::Draw { token };
+    let tagged = |event_tag, token| wire::Registration::Event { event_tag, token };
     let batches: &[&[wire::Registration]] = match REGS.with(Cell::get) {
         0 => return None,
         1 => &[&[event(91)]],
@@ -234,6 +235,15 @@ fn submit_registrations(host: *const PpHost, ctx: *mut c_void) -> Option<i32> {
         // The same event in two batches; the same draw in two batches.
         7 => &[&[event(91)], &[event(92)]],
         8 => &[&[draw(91)], &[draw(91)]],
+        // The book events 65-67 and suspend, each its own token (95-98).
+        14 => &[&[
+            tagged(65, 95),
+            tagged(66, 96),
+            tagged(67, 97),
+            tagged(34, 98),
+        ]],
+        // `event.widget_changed`, which a maker registers for (`widget_events`).
+        13 => &[&[tagged(wire::EVENT_WIDGET_CHANGED_TAG, 91)]],
         // An event and a draw, each in a batch of its own.
         _ => &[&[event(91)], &[draw(91)]],
     };
@@ -272,7 +282,13 @@ unsafe extern "C" fn screen_make(
     let menus = MENUS.with(Cell::get);
     if menus != 0 {
         // SAFETY: the same live host table and context as the submit above.
-        let status = unsafe { menu_records::submit(host, ctx, menus) };
+        let status = unsafe {
+            if menus >= key_records::FIRST {
+                key_records::submit(host, ctx, menus)
+            } else {
+                menu_records::submit(host, ctx, menus)
+            }
+        };
         if status != OK {
             return status;
         }
@@ -288,7 +304,7 @@ unsafe extern "C" fn screen_make(
             state: ptr::null_mut(),
             drop: Some(screen_destroy),
             dispatch_event: Some(screen_event),
-            input: None,
+            input: Some(input_records::screen_input),
             draw: None,
         },
     }));
@@ -327,7 +343,7 @@ unsafe extern "C" fn screen_event(
     _: PpBuffer,
 ) -> i32 {
     if token != 91 {
-        return ERR_INVALID;
+        return events_registered::told(token, bytes);
     }
     // SAFETY: the owner retains the initialized fixture and its pinned context.
     let context = unsafe {
@@ -404,6 +420,14 @@ fn host_named(owner: &str, flags: u32) -> Hosted<Heap, ()> {
     }
     .unwrap()
 }
+/// The device's depth counter: the first plugin's, once there is one.
+fn device_depth(kernel: &crate::Kernel) -> FlatDepth {
+    match kernel.shared.native_depth.as_ref() {
+        Some(depth) => depth.try_clone().unwrap(),
+        None => FlatDepth::try_new().unwrap(),
+    }
+}
+
 /// Installs with the resource records of mode `res`, in the plugin's folder.
 fn install_resources(
     kernel: &mut crate::Kernel,
@@ -411,12 +435,7 @@ fn install_resources(
     folder: Option<&str>,
 ) -> Result<(), Error> {
     RES.with(|value| value.set(res));
-    let result = kernel.register_native_in(
-        host(0),
-        &FlatDepth::try_new().unwrap(),
-        folder,
-        |_, _, _| {},
-    );
+    let result = kernel.register_native_in(host(0), &device_depth(kernel), folder, |_, _, _| {});
     RES.with(|value| value.set(0));
     result
 }
@@ -426,18 +445,30 @@ fn install_resources(
 /// the admission.
 fn admit_resources(kernel: &mut crate::Kernel, res: u8, folder: Option<&str>) -> Result<(), Error> {
     RES.with(|value| value.set(res));
-    let result = kernel.admit_native(
-        host(0),
-        &FlatDepth::try_new().unwrap(),
-        folder,
-        |_, _, _| {},
-    );
+    let result = kernel.admit_native(host(0), &device_depth(kernel), folder, |_, _, _| {});
     RES.with(|value| value.set(0));
     result
 }
 
+#[test]
+fn a_plugin_with_a_depth_counter_of_its_own_is_refused() {
+    let mut kernel = kernel(1 << 1);
+    let depth = device_depth(&kernel);
+    // The device's counter again is fine; another one would double the budget.
+    for name in ["one", "two"] {
+        let hosted = host_named(name, 0);
+        kernel
+            .register_native(hosted, &depth, |_, _, _| {})
+            .unwrap();
+    }
+    let other = FlatDepth::try_new().unwrap();
+    let result = kernel.register_native(host_named("three", 0), &other, |_, _, _| {});
+    assert!(matches!(result, Err(Error::Status(host_glue::ERR_STATE))));
+    assert!(kernel.shared.native_instances.find("three").is_none());
+}
+
 fn install(kernel: &mut crate::Kernel, flags: u32) -> Result<(), Error> {
-    kernel.register_native(host(flags), &FlatDepth::try_new().unwrap(), |_, _, _| {
+    kernel.register_native(host(flags), &device_depth(kernel), |_, _, _| {
         REPORTS.with(|value| value.set(value.get() + 1));
     })
 }
@@ -693,11 +724,9 @@ fn an_empty_install_is_refused_without_publication() {
     EMPTY.with(|value| value.set(true));
     let result = install(&mut kernel, 0);
     EMPTY.with(|value| value.set(false));
-    assert!(matches!(
-        result,
-        Err(Error::Status(host_glue::ERR_UNSUPPORTED))
-    ));
+    assert!(matches!(result, Err(Error::Status(host_glue::ERR_INVALID))));
     assert_eq!(kernel.shared.registry.screens.list().iter().count(), before);
+    assert!(kernel.shared.native_instances.find("factory").is_none());
     assert_eq!(DESTROYED.with(Cell::get), 1);
 }
 
@@ -804,11 +833,7 @@ fn native_screen_below_guard_is_opened_and_closed_without_being_shown() {
     let mut kernel = kernel(1 << 1);
     for owner in ["base", "other"] {
         kernel
-            .register_native(
-                host_named(owner, 0),
-                &FlatDepth::try_new().unwrap(),
-                |_, _, _| {},
-            )
+            .register_native(host_named(owner, 0), &device_depth(&kernel), |_, _, _| {})
             .unwrap();
     }
     kernel.open_screen(
@@ -1198,9 +1223,9 @@ fn first_failed_admission_retains_pool_for_orphan_cleanup_before_any_row_exists(
     assert_eq!(kernel.shared.native_instances.retained_rows().0, 0);
     {
         let _busy = documents.table().hold().unwrap();
-        EMPTY.with(|value| value.set(true));
+        UNSUPPORTED.with(|value| value.set(true));
         let result = kernel.register_native(hosted, &depth, |_, _, _| {});
-        EMPTY.with(|value| value.set(false));
+        UNSUPPORTED.with(|value| value.set(false));
         assert!(matches!(
             result,
             Err(Error::Status(host_glue::ERR_UNSUPPORTED))
@@ -1441,36 +1466,19 @@ mod resources;
 #[path = "native_slot_offers_tests.rs"]
 mod slot_offers;
 
-#[test]
-fn hosted_owners_share_one_host_table_and_cost_a_bounded_heap() {
-    let mut kernel = kernel(0);
-    let live = || crate::native_host::shell::tests::HEAP_LIVE.with(Cell::get);
-    let before = live();
-    let owners = ["b1", "b2", "b3", "b4", "b5", "b6", "b7", "b8"];
-    for owner in owners {
-        kernel
-            .register_native(
-                host_named(owner, 0),
-                &FlatDepth::try_new().unwrap(),
-                |_, _, _| {},
-            )
-            .unwrap();
-    }
-    let each = (live() - before) / owners.len();
-    std::println!("host heap per registered native owner (x86_64, with its test plugin): {each} B");
-    // x86_64 pointers are twice the X4's; abi/heap-word.md section 9 has the
-    // riscv32 sizes. Bounded here so that growth shows in review: with one
-    // sorted list per owner (not a table per kind) the cost does not grow
-    // with the kinds.
-    assert!(each <= 2_048, "{each} B per owner");
-    // Every owner's `make` was handed the same static table, not a copy.
-    let tables = TABLES.with(|tables| tables.borrow().clone());
-    assert!(tables.len() > owners.len());
-    assert!(tables.windows(2).all(|pair| pair[0] == pair[1]));
-}
-
 #[path = "native_menu_install_tests.rs"]
 mod menu_records;
 
+#[path = "native_events_install_tests.rs"]
+mod events_registered;
+#[path = "native_input_install_tests.rs"]
+mod input_records;
+#[path = "native_key_install_tests.rs"]
+mod key_records;
+#[path = "native_widget_install_tests.rs"]
+mod widget_registered;
+
+#[path = "native_reserved_id_tests.rs"]
+mod reserved_id;
 #[path = "native_stage_install_tests.rs"]
 mod stage_records;

@@ -64,7 +64,7 @@ fn has(capability: u64, caps: Capabilities) -> bool {
 /// Whether setting `key` has the value `value`, read as that setting reads it
 /// (`on`, `true`, ...); an empty key always holds, and so does one naming no
 /// setting (as `SettingExtra::shown_if`: a setting not there hides nothing).
-pub(super) fn value_holds(settings: &Settings, key: &str, value: &str) -> bool {
+pub(in crate::native_host) fn value_holds(settings: &Settings, key: &str, value: &str) -> bool {
     if key.is_empty() {
         return true;
     }

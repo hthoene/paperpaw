@@ -39,6 +39,14 @@ pub(crate) struct IoState {
 }
 
 impl Kernel {
+    /// Wi-Fi as plugins see it (state, the networks last found, whether a
+    /// scan runs, whether the network is wanted or busy), for a shell that
+    /// tells its own host services of it (`core.device`, ops 8 and 9). `None`
+    /// where the kernel is built without Wi-Fi.
+    pub fn wifi_model(&self) -> Option<&paperpaw_sdk::wifi::Wifi> {
+        self.shared.wifi.as_ref()
+    }
+
     /// What happened with Wi-Fi: plugins hear of it, and network work that
     /// waited goes on once there is a network.
     pub fn wifi_event(&mut self, now: Instant, event: WifiEvent) -> Effects {

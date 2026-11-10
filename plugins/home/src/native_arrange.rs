@@ -5,9 +5,11 @@
 //! as laid out and writes them with `native_pages::store` once an item is set
 //! down.
 //!
-//! Differences (`PORTING-7.md`): a widget's own size hint (`CellSpan::keep`) is
-//! not read; a widget is kept at least as high as it measured at the grid's
-//! width, and one cell wide at the least.
+//! A widget is kept at least as high as it can do with (`Sizes`: what it declared
+//! as its least rows, else what it measured at the grid's width), and one cell
+//! wide at the least, as in interface 6, whose resizing did not read the hint's
+//! least width or square either (only the size an item gets when added or placed
+//! does).
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     native::Error,

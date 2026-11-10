@@ -48,6 +48,68 @@ pub fn label(
     } else {
         crate::text::copy(text)?
     };
+    push_run(paint, font, text, size, x, area, color, clip)
+}
+
+/// [`label`] in an interface that may run right to left: laid out as for
+/// left to right in `outer` (`x`, `area` and `clip` as then), then, where
+/// `rtl` says so, mirrored in `outer` ([`crate::Style::flip_x`]): the run
+/// starts as far from the right edge as it would have from the left one.
+///
+/// # Errors
+/// [`Error::NoMemory`] or a refused font reply.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one measured text run and its target geometry"
+)]
+pub fn label_in(
+    paint: &mut Vec<Paint>,
+    font: &Font<'_>,
+    rtl: bool,
+    outer: Rect,
+    text: &str,
+    size: f32,
+    x: f32,
+    area: Rect,
+    color: Color,
+    clip: Option<Rect>,
+) -> Result<(), Error> {
+    if !rtl {
+        return label(paint, font, text, size, x, area, color, clip);
+    }
+    let room = f32::from(area.x) + f32::from(area.width) - x;
+    let text = if room > 0.0 && font.measure_text(size, text)? > room + 1.0 {
+        fit(font, size, text, room)?
+    } else {
+        crate::text::copy(text)?
+    };
+    let wide = font.measure_text(size, &text)?;
+    push_run(
+        paint,
+        font,
+        text,
+        size,
+        crate::style::flip_span(true, outer, x, wide),
+        crate::style::flip_rect(true, outer, area),
+        color,
+        clip.map(|clip| crate::style::flip_rect(true, outer, clip)),
+    )
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one measured text run and its target geometry"
+)]
+fn push_run(
+    paint: &mut Vec<Paint>,
+    font: &Font<'_>,
+    text: String,
+    size: f32,
+    x: f32,
+    area: Rect,
+    color: Color,
+    clip: Option<Rect>,
+) -> Result<(), Error> {
     let (ascent, descent, _) = crate::geometry::line_metrics(font, size)?;
     let baseline = i32::from(area.y)
         .saturating_add(((f32::from(area.height) + ascent - descent) / 2.0) as i32);

@@ -178,7 +178,9 @@ fn editing_begins_and_back_ends_it_without_changing_the_page() {
         // Ended: back no longer means "done", the tools run again.
         if device.input.touch {
             app.tap_on("Library");
-            assert_eq!(app.screen(), "files.browser");
+            // The library is the native `files` plugin's slot filler, which these
+            // kernel tests do not register: the slot shows its placeholder.
+            assert_eq!(app.screen(), "core.placeholder");
         }
     }
 }
@@ -404,11 +406,11 @@ fn a_tool_is_added_into_the_first_free_cell() {
         choose(&mut app, "Tools");
         // Those on the page already are not offered.
         assert!(!app.shows("Library"), "{}", app.described());
-        choose(&mut app, "Catalogs");
+        choose(&mut app, "News");
         assert_eq!(app.screen(), HOME, "{}", app.described());
         let added = page(&app, 1)
             .split(", ")
-            .find(|i| i.starts_with("tool:opds"))
+            .find(|i| i.starts_with("tool:news"))
             .map(String::from);
         assert_eq!(
             added.as_deref().and_then(|i| i.split(' ').nth(1)),
@@ -416,7 +418,7 @@ fn a_tool_is_added_into_the_first_free_cell() {
             "{}",
             page(&app, 1)
         );
-        assert!(app.shows("Catalogs"), "{}", app.described());
+        assert!(app.shows("News"), "{}", app.described());
     }
 }
 
@@ -483,7 +485,7 @@ fn a_full_page_says_there_is_no_room() {
     edit(&mut app);
     open_add(&mut app);
     choose(&mut app, "Tools");
-    choose(&mut app, "Catalogs");
+    choose(&mut app, "News");
     // Told (a notice), the list stays for another choice.
     assert_eq!(app.screen(), "home.add-widget");
     assert_eq!(page(&app, 1), before);

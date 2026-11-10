@@ -100,6 +100,9 @@ All query ops: `effect` `query`, `feature` null, `bound` `none`, `max_input` 256
   ask for a group or menu of a plugin that is not installed.
 - [D] `setting`, `plugin`, `preset` and `setup_step` with an unknown key: `ERR_NOT_FOUND`.
 - [D] `stack` (screen ids on the stack, owner, guarded) belongs to UIX, not here.
+- [D] `bindings` with an empty `scope` walks every layer in the byte order of the layer id, and
+  the inputs of one layer in the order of their names, so a cursor and a re-read under one
+  generation agree. A layer or input name over a row's cap is left out of the walk.
 
 ### 2.3 Authority (what a reply shows)
 
@@ -212,11 +215,11 @@ Field meanings:
   "has instances"; `ui.md` section 5.2), bit 1 private, bit 2 square; `cells` the widget's
   `widget.spec.cells` as declared (size and least size, draft 29); `previews` its
   `widget.spec.previews` (the settings group it previews, `ui.md` section 5.2), empty for none
-  (draft 32): a settings page lists the widgets whose `previews` is its group. With `reg_query.flags`
-  bit 0 op 19 lists those that preview `scope` in its order (the host's own, then declarations by
-  plugin slot, a plugin's own by name), and a page shows the last. Interface 6 took the last added;
-  where two plugins preview one group the shown one may differ (accepted for 1.0: no first-party
-  group has two).
+  (draft 32): a settings page lists the widgets whose `previews` is its group. With
+  `reg_query.flags` bit 0 op 19 lists those that preview `scope` in its order (the host's own,
+  then declarations by plugin slot, a plugin's own by name), and a page shows the last. Interface
+  6 took the last added; where two plugins preview one group the shown one may differ (accepted
+  for 1.0: no first-party group has two).
 - `reg_status` (1059, after the UIX rows 1041-1058): `kind` 0 item, 1 line; `flags` bit 0 drawn
   by its owner (always 1 for a line, 0 for an item: a reader tests one bit instead of `kind`),
   bit 1 private; `priority` 0-255 (items; 0 for lines); `size` an item's
@@ -302,21 +305,26 @@ These change the user's configuration of the whole device, so they need the D1 f
   `action` binds nothing (interface 6 `NOTHING`); `flags` bit 0 (`reset`) returns the input to the
   declared and preset bindings. Saved in the user's `paperpaw.ini`, in effect after the callback.
 - [D] **The escape is a host-fixed chord, not a table check.** Holding Power (8 s, the chord no
-  input filter sees, `stages-services.md` section 1.3) always opens the main menu with "reset
-  keys" on top, on every device (Android: the system back long-press or its equivalent). No
-  binding, layer, condition, declaration or filter can take it: `bind_key` or `key.bind` naming it
-  is `ERR_DENIED`. As a second line, the host refuses (`ERR_DENIED`) a `bind_key` batch, and drops
-  at admission a `key.bind`, that would leave the **global** layer without an input to the main
-  menu. Screen layers, conditions and declarations can still shadow it; the chord is the guarantee.
-  **Device gate (owner):** on the X4 and X4 Pro, holding Power for 8 s must not end in a hardware
-  power-off or reset before the host sees it; if it does, the escape takes another chord before the
-  freeze.
+  input filter sees, `stages-services.md` section 1.3) always opens the main menu with "reset keys"
+  on top, on every device (Android: the system back long-press or its equivalent). No binding,
+  layer, condition, declaration or filter can take it: it has no input name, and the host checks the
+  hold before the key map and every filter (`long.power` is the ordinary long press and stays
+  bindable, as do chords with Power). As a second line, the host refuses (`ERR_DENIED`) a `bind_key`
+  batch that would leave the **global** layer without an input to the main menu, and drops from the
+  key map, as it builds it, a global `key.bind` row that would replace or unbind the last such input
+  (the row stays its plugin's; nothing is refused, #815). Screen layers, conditions and declarations
+  can still shadow it; the chord is the guarantee. **Device gate (owner):** on the X4 and X4 Pro,
+  holding Power for 8 s must not end in a hardware power-off or reset before the host sees it; if it
+  does, the escape takes another chord before the freeze.
 - [D] `bind_slot`: binds `slot` to `screen`; empty `screen` returns to the default. The screen must
   be declared and offered for that slot, else `ERR_INVALID`.
 - [D] `set_plugin_enabled`: switches a plugin on or off; it takes effect at the next start
   (`reg_plugin` flag `restart needed`). Switching off a plugin another enabled plugin requires,
   or the submitter itself, is `ERR_DENIED`. A built-in the host needs (the settings editor while
   it is the only one) is `ERR_DENIED`.
+- [D] **The id `core` is the host's own** (reserved: no card, bundle, linked or native plugin may
+  take it, #857). `set_plugin_enabled`, `request_plugins` and `answer_plugin` naming it are
+  `ERR_DENIED` for the whole batch.
 
 ### 4.3 Presets
 

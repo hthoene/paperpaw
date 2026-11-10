@@ -2,10 +2,9 @@
 //! (`ui.widget_measure`) at the grid's width, in cells. The same arithmetic as
 //! the interface-6 `Geometry::size_of`; the host call is the plugin's.
 //!
-//! TODO (Kernel, draft 29): a widget's least width and its square hint
-//! (`CellSpan::min_w`, `square`) have no ABI field yet, so a widget is kept one
-//! cell wide at the least and may be made any shape (`PORTING-7.md`,
-//! `KERNEL-cell-hints`).
+//! A widget that declared its cells (`widget.spec.cells`, with its least size and
+//! whether it stays square) is not measured: `native_source::declared` has its
+//! size, as interface 6 does.
 use paperpaw_sdk::{
     native::{
         Error, Host,
