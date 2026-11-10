@@ -91,6 +91,7 @@ fn the_main_menu_lists_its_entries_on_both_devices() {
 }
 
 #[test]
+#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
 fn every_entry_of_the_main_menu_opens_what_it_says() {
     let expected = [
         ("Quick panel", "menu.panel"),
@@ -265,6 +266,7 @@ fn a_choice_of_two_in_a_menu_switches_in_place() {
 }
 
 #[test]
+#[ignore = "re-enable at native activation (#228, todo 380): needs the interface-6 Settings, removed here (held until activation)"]
 fn a_choice_of_more_opens_its_list_and_the_value_chosen_is_kept() {
     for device in DEVICES {
         let mut app = App::new(device, storage("[menus]\ncore.main = core.week-start\n"));
