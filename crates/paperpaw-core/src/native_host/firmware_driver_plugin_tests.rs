@@ -4,7 +4,8 @@
 use super::*;
 use crate::native_host::firmware_install::KIND_CHECK;
 use crate::native_host::plugin_job::{
-    Finished, KIND_INSTALL, KIND_REMOVAL, PluginFacts, reason as job_reason,
+    Answer, Finished, KIND_INSTALL, KIND_REMOVAL, PluginFacts, PluginQuestion, Relation,
+    USES_SHOWN, Uses, reason as job_reason,
 };
 use crate::native_host::plugin_jobs::PluginJobs;
 use paperpaw_native::{
@@ -71,6 +72,9 @@ pub(crate) struct Script {
     seen: Rc<Seen>,
     must_finish: bool,
     keep: bool,
+    /// Asks the user once and ends with the answer's reason.
+    asks: bool,
+    answered: Option<Answer>,
 }
 
 impl PluginJob for Script {
@@ -85,13 +89,22 @@ impl PluginJob for Script {
     }
     fn step(&mut self, _: &JobEnv<'_>) -> JobStep {
         self.seen.steps.set(self.seen.steps.get() + 1);
+        if self.asks {
+            return match self.answered {
+                None => JobStep::Ask(question(self.owner, self.request)),
+                Some(Answer::Yes) => JobStep::Done(Finished::refused(job_reason::OK)),
+                Some(_) => JobStep::Done(Finished::refused(3)),
+            };
+        }
         if self.seen.steps.get() >= self.steps {
             JobStep::Done(Finished::checked(self.done.reason, self.done.facts))
         } else {
             JobStep::More
         }
     }
-    fn answer(&mut self, _: crate::native_host::plugin_job::Answer) {}
+    fn answer(&mut self, answer: Answer) {
+        self.answered = Some(answer);
+    }
     fn abort(&mut self, reason: u8) {
         self.seen.aborted.set(Some(reason));
     }
@@ -109,6 +122,26 @@ impl Drop for Script {
     }
 }
 
+fn question(owner: u64, request: u32) -> PluginQuestion {
+    PluginQuestion {
+        owner,
+        request,
+        kind: KIND_INSTALL,
+        id: Text::new("dials"),
+        name: Text::new("Dials"),
+        version: Text::new("1.0.0"),
+        signer: Text::new(""),
+        key: None,
+        sideload: false,
+        relation: Relation::Newer,
+        uses: Uses {
+            keys: [Text::new(""); USES_SHOWN],
+            count: 0,
+            more: false,
+        },
+    }
+}
+
 fn check_job(owner: u64, request: u32, steps: u32) -> (PluginJobs, Rc<Seen>) {
     let seen = Rc::new(Seen::default());
     let job = Script {
@@ -120,6 +153,8 @@ fn check_job(owner: u64, request: u32, steps: u32) -> (PluginJobs, Rc<Seen>) {
         seen: Rc::clone(&seen),
         must_finish: false,
         keep: false,
+        asks: false,
+        answered: None,
     };
     (PluginJobs::Script(job), seen)
 }
@@ -134,6 +169,8 @@ fn job_of_kind(owner: u64, request: u32, kind: u32) -> PluginJobs {
         seen: Rc::default(),
         must_finish: false,
         keep: false,
+        asks: false,
+        answered: None,
     })
 }
 
@@ -155,6 +192,8 @@ fn install_job(
         seen: Rc::clone(&seen),
         must_finish,
         keep,
+        asks: false,
+        answered: None,
     };
     (PluginJobs::Script(job), seen)
 }
@@ -290,6 +329,8 @@ fn a_refused_plugin_check_leaves_its_reason_and_no_facts() {
         seen: Rc::default(),
         must_finish: false,
         keep: false,
+        asks: false,
+        answered: None,
     }))
     .unwrap();
     assert!(matches!(run(&mut d), Event::Ended(o) if o.reason == job_reason::UNSIGNED));
@@ -422,7 +463,12 @@ fn a_sender_that_stops_leaves_a_confirmed_install_running_untold() {
     // Not aborted, no entry for its sender, still running.
     assert_eq!(seen.aborted.get(), None);
     assert!(!d.holds(1, 1));
+    // A stop does not step it (it may take long): the pump does.
     d.finish_stopped(&NoStorage, &Names);
+    assert_eq!(seen.steps.get(), 1);
+    for now in (300..2_000).step_by(100) {
+        d.pump(&NoStorage, &Names, now);
+    }
     assert_eq!(seen.steps.get(), 3);
     assert!(seen.dropped.get());
     // Nobody is told, nothing is kept for it, and the queue is free.
@@ -430,6 +476,48 @@ fn a_sender_that_stops_leaves_a_confirmed_install_running_untold() {
     assert_eq!(d.kept(1, KIND_INSTALL), None);
     assert!(!d.has_work(0));
     d.submit_plugin(job_of_kind(2, 1, KIND_INSTALL)).unwrap();
+}
+
+#[test]
+fn a_stop_after_the_sender_stopped_leaves_no_stale_mark_for_the_next_job() {
+    // The sender stops (the job runs on, untold); then everything stops and
+    // the job, which may be abandoned, goes: nothing is told for it, and the
+    // next job's end is told as any.
+    let mut d = driver(true);
+    let (job, seen) = install_job(1, 1, 9, false, true);
+    d.submit_plugin(job).unwrap();
+    d.pump(&NoStorage, &Names, 100);
+    d.pump(&NoStorage, &Names, 200);
+    d.sender_stopped(1);
+    d.abort_all();
+    assert_eq!(seen.aborted.get(), Some(20));
+    assert!(seen.dropped.get());
+    assert!(d.take_ready().is_none(), "nobody is told for the orphan");
+    assert_eq!(d.waiting(), 0);
+    let (next, _) = check_job(2, 1, 1);
+    d.submit_plugin(next).unwrap();
+    assert!(matches!(run(&mut d), Event::Ended(o) if o.owner == 2 && o.reason == 0));
+    assert_eq!(d.take_ready().map(|o| o.owner), Some(2));
+    assert_eq!(d.waiting(), 0);
+}
+
+#[test]
+fn a_stop_keeps_the_untold_mark_of_a_job_that_must_finish() {
+    // Its sender stopped (`Some(false)`), then a stop: the job must finish,
+    // and still nobody is told (the mark is not overwritten with "told").
+    let mut d = driver(true);
+    let (job, seen) = install_job(1, 1, 5, true, false);
+    d.submit_plugin(job).unwrap();
+    d.pump(&NoStorage, &Names, 100);
+    d.pump(&NoStorage, &Names, 200);
+    d.sender_stopped(1);
+    d.abort_all();
+    d.finish_stopped(&NoStorage, &Names);
+    assert_eq!(seen.steps.get(), 5);
+    assert!(seen.dropped.get());
+    assert!(d.take_ready().is_none());
+    assert_eq!(d.waiting(), 0);
+    assert!(!d.has_work(0));
 }
 
 #[test]
@@ -442,4 +530,31 @@ fn a_sender_that_stops_takes_an_install_that_may_be_abandoned() {
     assert_eq!(seen.aborted.get(), Some(20));
     assert!(seen.dropped.get());
     assert!(!d.has_work(0));
+}
+
+#[test]
+fn a_question_the_host_cannot_ask_yet_is_a_dismissal_never_a_yes() {
+    // The confirmation of a plugin install is wired with the install
+    // (B2c-2b): until then the host answers "dismissed" at once.
+    let mut d = driver(true);
+    let seen = Rc::new(Seen::default());
+    d.submit_plugin(PluginJobs::Script(Script {
+        owner: 1,
+        request: 1,
+        kind: KIND_INSTALL,
+        steps: 1,
+        done: Finished::refused(job_reason::OK),
+        seen: Rc::clone(&seen),
+        must_finish: false,
+        keep: false,
+        asks: true,
+        answered: None,
+    }))
+    .unwrap();
+    let ended = run(&mut d);
+    assert!(
+        matches!(ended, Event::Ended(o) if (o.owner, o.kind, o.reason) == (1, KIND_INSTALL, 3))
+    );
+    assert_eq!(seen.steps.get(), 2, "asked, then ended with the answer");
+    assert!(seen.dropped.get());
 }

@@ -926,12 +926,18 @@ impl Driver {
             && let Some(at) = self.plugin_at(owner, request)
         {
             self.plugin_jobs[at].abort(STOPPED);
+            // A job whose sender stopped already (`Some(false)`) has no entry
+            // and nobody to tell: that stays so.
+            let orphan = self.finishing == Some(false);
             if self.plugin_jobs[at].must_finish() {
                 self.running = Some((owner, request));
-                self.finishing = Some(true);
+                self.finishing.get_or_insert(true);
             } else {
                 self.plugin_jobs.remove(at);
-                running = Some(Queued::Plugin { owner, request });
+                self.finishing = None;
+                if !orphan {
+                    running = Some(Queued::Plugin { owner, request });
+                }
             }
         }
         // The waiting jobs go with their queue entries, below.
@@ -983,11 +989,16 @@ impl Driver {
     }
 
     /// After [`Self::abort_all`] or [`Self::sender_stopped`]: steps a plugin
-    /// job that must finish (or runs on without its sender) on, at most
-    /// [`FINISH_STEPS`] steps; what is left is stepped by the pump.
+    /// job that must finish on, at most [`FINISH_STEPS`] steps; what is left
+    /// (and a job that merely runs on without its sender, which may take
+    /// long) is stepped by the pump.
     pub(crate) fn finish_stopped(&mut self, storage: &dyn Storage, built_ins: &dyn BuiltIns) {
         for _ in 0..FINISH_STEPS {
-            if self.finishing.is_none() || self.running.is_none() {
+            let must = self
+                .running
+                .and_then(|(owner, request)| self.plugin_at(owner, request))
+                .is_some_and(|at| self.finishing.is_some() && self.plugin_jobs[at].must_finish());
+            if !must {
                 break;
             }
             self.plugin_step(storage, built_ins);
