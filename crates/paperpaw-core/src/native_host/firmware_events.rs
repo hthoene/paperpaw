@@ -84,6 +84,7 @@ impl Kernel {
         }
         self.firmware_wire(&driver);
         self.native_outbox_run();
+        self.feed_install_grants(&driver);
         {
             let Ok(mut driver) = driver.try_borrow_mut() else {
                 return true;
@@ -112,6 +113,7 @@ impl Kernel {
         &mut self,
         driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
     ) {
+        self.feed_install_grants(driver);
         let Ok(mut driver) = driver.try_borrow_mut() else {
             return;
         };

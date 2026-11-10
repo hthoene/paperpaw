@@ -229,6 +229,16 @@ impl NativeInstances {
         self.pool.as_ref()?.owners().ok()
     }
 
+    /// The plugin id of the enabled owner `key`; `None` for an owner that is
+    /// unknown or stopped, or while the directory is busy.
+    pub(crate) fn id_of(&self, key: u64) -> Option<alloc::string::String> {
+        let mut found = None;
+        self.directory()?
+            .with_id(key, &mut |id| found = Some(alloc::string::String::from(id)))
+            .ok()?;
+        found
+    }
+
     /// How many owner-directory updates were skipped since the last call.
     pub(crate) fn take_directory_missed(&self) -> u32 {
         self.directory()

@@ -342,6 +342,30 @@ impl Driver {
         self.grants = Some(grants);
     }
 
+    /// The plugins that have a plugin job here, each once.
+    pub(crate) fn plugin_owners(&self) -> Vec<u64> {
+        let mut owners: Vec<u64> = Vec::new();
+        for job in &self.plugin_jobs {
+            if !owners.contains(&job.owner()) {
+                owners.push(job.owner());
+            }
+        }
+        owners
+    }
+
+    /// Replaces the trusted-installer grants by the host's present reading
+    /// (see [`super::install_grants`]): the owners in `granted`, no others.
+    pub(crate) fn feed_install_grants(&mut self, granted: Vec<u64>) {
+        self.grants = Some(Box::new(super::install_grants::Granted(granted)));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_granted(&self, owner: u64) -> bool {
+        self.grants
+            .as_ref()
+            .is_some_and(|grants| grants.granted(owner))
+    }
+
     /// The question the running plugin job waits on, for the host to show
     /// (`None` when none waits). Answered by [`Self::answer_plugin`].
     pub(crate) fn plugin_question(&self) -> Option<&PluginQuestion> {
