@@ -120,7 +120,7 @@ input(state: pointer, token: u32, input: bytes) -> i32
 | Tag | Record | Fields |
 | --- | --- | --- |
 | 38 | `event.screen_shown` | `now_ms: u64`, `screen: str 128` (full id), `width: u32`, `height: u32` |
-| 39 | `event.action_run` | `now_ms: u64`, `action: str 128` (full id), optional `flags: u32` (draft 34) |
+| 39 | `event.action_run` | `now_ms: u64`, `action: str 128` (full id), optional `flags: u32` |
 | 40 | `input.key` | `now_ms: u64`, `key: str 32`, `state: u32` (0 press, 1 release, 2 repeat) |
 | 41 | `input.pointer` | `now_ms: u64`, `x: i32`, `y: i32`, `phase: u32` (0 down, 1 move, 2 up, 3 cancel), optional `contact: u32` |
 | 42 | `input.gesture` | `now_ms: u64`, `kind: u32` (0 tap, 1 long press, 2-5 swipe left/right/up/down), `x: i32`, `y: i32` |
@@ -135,7 +135,7 @@ input(state: pointer, token: u32, input: bytes) -> i32
   with `done`, confirms it. Text longer than 1,024 bytes comes in several events, cut between
   characters, `done` only on the last. It needs no subscription: `registration.event` naming 109
   refuses the batch (`ERR_UNSUPPORTED`), as for 82 (`ui.md` section 3.2). Other `flags` bits are 0 (decoders refuse them).
-  `text` carries `"secret": true` (draft 30): it may be a password, so the generated record's
+  `text` carries `"secret": true`: it may be a password, so the generated record's
   `Debug` shows neither the text nor its length, and the SDK's `TypedText` shows only its length.
 - [D] Tag families: `event` 32-39 and `input` 40-43, each with a growth block (section 8).
 - [D] `event.action_run.flags` bit 0 `background` (draft 34, interface 6 `!Env::reader`): the

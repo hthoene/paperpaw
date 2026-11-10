@@ -15,18 +15,13 @@ trusted base (the PR's base, or the commit before a push):
 - a frozen interface keeps its reference bytes and file set exactly, and never
   becomes a draft again;
 - a draft (`DRAFT`, never 0) stays, moves to the next draft (exactly one more) or
-  is frozen, never back and never skipping one. At the same draft only
-  additions pass: `interface.txt` stays byte-equal to the base, every
-  reference file of the base is still there with all its lines in their order,
-  and files and lines may be added. A line in `shared.list` and `table.sig` (and,
-  within each kind, in `lang.list` and `i18n.list`) is added at the end only: a
-  line slipped in before shifts the slots plugins were built against; the pins
-  of `crate-pins.list` are a set (any order). A change
-  plugins rely on takes the next draft;
-- every raise, every step to another draft and every addition is named:
-  `abi/interface-<N>/blessings.txt` keeps the base's lines as they were
-  (checked every time, also where nothing else changed) and gains at least one,
-  and its last line names the candidate's draft.
+  is frozen, never back and never skipping one. At a draft any reference change
+  passes, unnamed: there is one interface 7 until 1.0 (owner decision
+  2026-11-10), and the pull request that changes what plugins see carries the
+  files `tools/interface.py` and the SDK's bless write;
+- a raise and a freeze are named: `abi/interface-<N>/blessings.txt` keeps the
+  base's lines as they were (checked every time) and gains at least one, and
+  its last line names the candidate's draft (0 for the freeze).
 
 A blessing line is `<draft> <what changed> (#<ticket or PR>)`, with draft 0
 for the freeze; lines that
@@ -118,66 +113,6 @@ def summary_values(text):
     return int(found[0]), draft
 
 
-# Lists whose line order is an index plugins were built against (the table
-# of shared functions and its signatures: a line's place is its slot): at the
-# same draft they only grow at the end. The language and message lists are
-# indexed within each kind, the first word of the line.
-ORDERED = {DIRECTORY + '/shared.list', DIRECTORY + '/table.sig'}
-ORDERED_BY_KIND = {DIRECTORY + '/lang.list', DIRECTORY + '/i18n.list'}
-# A set, as the SDK interface test reads it: no index, so only the pins count.
-UNORDERED = {DIRECTORY + '/crate-pins.list'}
-
-
-def kind(line):
-    words = line.split(None, 1)
-    return words[0] if words else b''
-
-
-def by_kind(lines):
-    groups = {}
-    for line in lines:
-        groups.setdefault(kind(line), []).append(line)
-    return groups
-
-
-def kept(name, old, new):
-    """Whether `new` holds every line of `old` and nothing slipped in before
-    the end of it. In a set (the pins of crates) every old line is still
-    there, in any order. In an ordered list `old` is a prefix of `new`, in a
-    list indexed by kind it is within each kind; elsewhere the lines of `old`
-    are all there, in the same order."""
-    if name in UNORDERED:
-        return set(old) <= set(new)
-    if name in ORDERED:
-        return new[:len(old)] == old
-    if name in ORDERED_BY_KIND:
-        now = by_kind(new)
-        return all(now.get(one, [])[:len(lines)] == lines for one, lines in by_kind(old).items())
-    lines = iter(new)
-    return all(line in lines for line in old)
-
-
-def additions_only(root, base, trusted, current):
-    """At the same draft only additions pass (the next draft takes any other
-    change): `interface.txt` is byte-equal to the base's, every reference
-    file of the base is still there with all its lines in order. Says
-    whether files or lines were added."""
-    if (root / SUMMARY).read_bytes() != git(root, 'show', base + ':' + SUMMARY):
-        raise ValueError(f'{SUMMARY} must stay as it is at the same draft; a change takes the next draft')
-    added = bool(current - trusted)
-    for name in sorted(trusted - {SUMMARY}):
-        if name not in current:
-            raise ValueError(f'{name} is gone; a removal takes the next draft')
-        old = git(root, 'show', base + ':' + name).splitlines()
-        new = (root / name).read_bytes().splitlines()
-        if not kept(name, old, new):
-            raise ValueError(f'{name} lost or changed a line, or a line slipped in before the end of '
-                             'a list plugins index into; at the same draft only additions at the '
-                             'end pass, a change takes the next draft')
-        added = added or len(new) > len(old)
-    return added
-
-
 def history(root, base, interface, raised=False):
     """`blessings.txt`'s entries now (None where there is no file) and in the
     base; refuses a rewrite of the base's, a removal, and (`raised`) a base
@@ -254,13 +189,13 @@ def check(root, base):
         if changed(root, base, trusted, current):
             raise ValueError(f'frozen interface-{interface} reference changed; only a raise changes it')
         return f'{len(trusted)} frozen interface-{interface} reference files match trusted base {base}'
+    if draft == 0:
+        count = named(interface, now, before, draft)
+        return f'interface {interface} draft {base_draft} moved to frozen, named ({count})'
     if draft != base_draft:
-        count = named(interface, now, before, draft)
-        step = 'frozen' if draft == 0 else f'the next draft {draft}'
-        return f'interface {interface} draft {base_draft} moved to {step}, named ({count})'
-    if additions_only(root, base, trusted, current):
-        count = named(interface, now, before, draft)
-        return f'interface {interface} draft {draft}: additions named ({count})'
+        return f'interface {interface} draft {base_draft} moved to the next draft {draft}'
+    if changed(root, base, trusted, current):
+        return f'interface {interface} draft {draft}: reference files changed in place (one interface 7)'
     return f'{len(trusted)} interface-{interface} draft-{draft} reference files match trusted base {base}'
 
 

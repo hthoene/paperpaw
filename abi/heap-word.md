@@ -296,8 +296,8 @@ typedef struct PpHeap {
   `.ppn` header says where the word is, and hosted loaders look it up by name. The ppn5 `flags` bit
   and `heap_at` field are Firmware's header reader (`paperpaw-native` `header5`).
 - SDK: `native_plugin!` defines the word and installs the global allocator and panic handler; a
-  plugin that wants no heap opts out. Shape change (new export and table), so the next draft, one
-  blessing line, CHANGELOG.
+  plugin that wants no heap opts out. Shape change (new export and table): the PR carries the
+  regenerated interface files and a changelog fragment.
 - Tests: allocator door equivalence (alloc through the table, free through slot 1, and back); null
   outside a frame; frame restore after an error return and after nested dispatch; budget refusal per
   plugin; teardown frees and counts leftovers; the leak rule keeps blocks; X4 loader refusals for each
