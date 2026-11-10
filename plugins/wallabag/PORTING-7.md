@@ -111,6 +111,9 @@ action stays one (`wallabag.fetch`, "Fetch articles"), as in Beta 3: `event.acti
   for the plugin) or a missing work service costs that fetch and does not fail the callback; a refused
   allocation is `NoMemory`.
 
+A rule's run (or a due work) while a fetch is under way changes nothing: `fetch` returns at once for a
+running fetch, and the work that was declared is then spent (the next rule run declares it again).
+
 No difference from Beta 3. **Stacked on #885** (the flag is not on integration before it merges; the PR
 carries the draft-35 `abi.def` change with it, so merge after it). The metadata lists `core.work`; tests:
 `tests/native_work_flow.rs` (scripted `core.work`, both origins), `tests/abi7_declarations.rs`.
