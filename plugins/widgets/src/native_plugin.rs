@@ -10,7 +10,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, DrawPurpose, Input},
         commands::CommandSender,
-        events::{AnswerOutcome, Answered, Event, Incoming, kinds},
+        events::{AnswerOutcome, Answered, BookKind, Event, Incoming, kinds},
         fonts::{Font, FontRole},
         image::ImageStyle,
         registrations,
@@ -32,6 +32,8 @@ mod image {
 
 /// The callback token of the minute tick, as declared.
 const TICK: u32 = crate::declarations::TICK;
+/// The callback token of the reading events, as declared.
+const READING: u32 = crate::declarations::READING;
 /// The target of a widget whose tap opens its settings.
 const SETTINGS_TARGET: u32 = 1;
 /// The slot the settings fill.
@@ -86,6 +88,10 @@ pub struct NativeWidgets {
     favourites: crate::native_favourites::Cache,
     series: crate::native_series::Cache,
     next: crate::native_next::Cache,
+    /// The book being read, for the progress and reading widgets.
+    current: crate::native_current::Cache,
+    /// The page, chapter and speed of the book read last.
+    recorder: crate::native_recorder::Recorder,
 }
 
 impl NativeWidgets {
@@ -152,7 +158,11 @@ impl NativeWidgets {
                 if matches!(tap, Some(Tap::Books | Tap::Next)) {
                     let cx = Cx::open(host, &item.widget)?;
                     let area = frame_to_area(rect);
-                    let targets = if item.token == crate::native_next::TOKEN {
+                    let targets = if item.token == crate::native_reading::TOKEN {
+                        crate::native_reading::targets_with(&cx, area, &mut self.current)?
+                    } else if item.token == crate::native_progress::TOKEN {
+                        crate::native_progress::targets_with(&cx, area, &mut self.current)?
+                    } else if item.token == crate::native_next::TOKEN {
                         crate::native_next::targets_with(&cx, area, &mut self.next)?
                     } else if item.token == crate::native_favourites::TOKEN {
                         crate::native_favourites::targets_with(&cx, area, &mut self.favourites)?
@@ -225,6 +235,8 @@ impl NativeWidgets {
                 crate::native_todo::shows_with(host, &item.widget, &self.todo)
             } else if item.token == crate::native_quote::TOKEN {
                 crate::native_quote::shows_with(host, &item.widget, &self.showings)
+            } else if item.token == crate::native_reading::TOKEN {
+                crate::native_reading::shows_with(host, &item.widget, &self.recorder)
             } else if item.token == crate::native_highlight::TOKEN {
                 crate::native_highlight::shows_with(
                     host,
@@ -288,7 +300,7 @@ impl Plugin for NativeWidgets {
         incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall, kinds::Tick, kinds::Answered)
+        let Some(event) = read_event!(incoming; kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall, kinds::Tick, kinds::Answered, kinds::PageTurned, kinds::BookOpened, kinds::BookClosed, kinds::Suspend, kinds::Stopping)
         else {
             return Ok(());
         };
@@ -316,6 +328,21 @@ impl Plugin for NativeWidgets {
                 ..
             } => self.stage(host, payload, reply),
             Event::Tick { .. } if token == TICK => self.tick(host),
+            Event::PageTurned(view) if token == READING => self.recorder.reading(host, &view, true),
+            Event::Book {
+                kind: BookKind::Opened,
+                reading,
+                ..
+            } if token == READING => self.recorder.reading(host, &reading, false),
+            Event::Book {
+                kind: BookKind::Closed,
+                reading,
+                ..
+            } if token == READING => self.recorder.closed(host, &reading),
+            Event::Suspend { .. } | Event::Stopping { .. } if token == READING => {
+                self.recorder.save(host);
+                Ok(())
+            }
             Event::Answered { answer, .. } => self.answered(host, answer),
             Event::ActionRun {
                 action: native_todo_screen::OPEN_ACTION,
@@ -362,7 +389,13 @@ impl Plugin for NativeWidgets {
                 paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.height)),
             );
             let mut out = Vec::new();
-            if item.token == crate::native_next::TOKEN {
+            if item.token == crate::native_reading::TOKEN {
+                let kept = (&mut self.current, &mut pictures, &mut self.recorder);
+                crate::native_reading::draw_with(&mut cx, &mut out, area, kept)?;
+            } else if item.token == crate::native_progress::TOKEN {
+                let kept = (&mut self.current, &mut pictures);
+                crate::native_progress::draw_with(&mut cx, &mut out, area, kept)?;
+            } else if item.token == crate::native_next::TOKEN {
                 let kept = (&mut self.next, &mut pictures);
                 crate::native_next::draw_with(&mut cx, &mut out, area, kept)?;
             } else if item.token == crate::native_favourites::TOKEN {
@@ -462,7 +495,14 @@ impl Plugin for NativeWidgets {
                 CommandSender::new(host, &mut scratch).run_action("core.library")?;
                 return Ok(Handled::Yes);
             }
-            let Some(book) = crate::native_next::book(host, &item.widget, &mut self.next)? else {
+            let book = if item.token == crate::native_progress::TOKEN
+                || item.token == crate::native_reading::TOKEN
+            {
+                crate::native_progress::book(host, &mut self.current)?
+            } else {
+                crate::native_next::book(host, &item.widget, &mut self.next)?
+            };
+            let Some(book) = book else {
                 return Ok(Handled::No);
             };
             crate::native_books::open_book(host, book)?;

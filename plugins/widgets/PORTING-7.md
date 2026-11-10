@@ -71,12 +71,25 @@ interface-7 port uses it, none builds its own.
   lately and never opened), so the interface-6 files `seen.bits` and `newest.txt` are gone and the
   first run after porting finds no "newest" backlog; the chance picks among the first page of the
   unread books (at most 32) the day's lowest scores, the first whose file is on the card.
+- Book progress (`native_progress`, token 119; shares `native_block` with Next up and `native_current` with
+  Reading): the book being read is the one the library lists as opened last whose file is on the card
+  (read once per catalog generation, up to 8 candidates). Styles: cover beside a ring, ring round a small
+  cover, ring alone, bar below the title; where the place is too small for a ring the percentage stands
+  alone or beside the title. A tap opens the book, or the library where none was read.
+- Now reading (`native_reading` and `native_recorder`, token 120): cover, title, author, a bar and the page
+  and percentage ("Page 34 of 210 · 16 %", else "34/210 · 16 %", else "34/210"), the time left at one's
+  speed and the chapter, giving way in the order time left, heading, author, bar, chapter, page. The page,
+  the pages, the chapter and the speed are recorded from the reading events (book opened, page turned,
+  book closed, suspend, stopping; one subscription token, 2) in `reading.ini` of the plugin's data
+  folder (the file of interface 6 is read as it is). Differences: the pages left in the chapter (and
+  the time they take) are gone, because the reading position of interface 7 carries no chapter end
+  (the setting `chapter-left` is dropped; its texts leave with the interface-6 pack); the chapter's
+  title stays on one line, shortened, where interface 6 broke it in several; the title is set in the
+  space the other parts leave. Host acceptance (the reading events delivered to this plugin, H1/H3) is pending.
 
 ## Not ported yet (explicit)
 
-The words family's picture and logo widgets (Port D) and `progress` and `reading` of the
-books family (they draw book covers; the image slots 36/37 and the SDK facade are on integration, so
-they are not waiting for the host). The interface-6 pack stays in `src/` until every widget is ported; then the last
+The words family's picture and logo widgets (Port D). The interface-6 pack stays in `src/` until every widget is ported; then the last
 commit deletes it, its app wiring and its tests together (no shim).
 Ported from the words family so far: greeting (by time of day) and
 note (tap asks for a text with `core.ui`; host acceptance pending H1/H2/H4).

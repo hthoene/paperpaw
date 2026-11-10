@@ -22,7 +22,7 @@ pub enum Tap {
     TurnQuote,
     /// Each book on show is a target that opens it.
     Books,
-    /// The book chosen opens, or the library where there is none.
+    /// The book chosen (or being read) opens, or the library where there is none.
     Next,
     /// It opens the book of the highlight shown at its place.
     OpenHighlight,
@@ -165,6 +165,20 @@ static NEXT: Behaviour = Behaviour {
     tap: Tap::Next,
 };
 
+static PROGRESS: Behaviour = Behaviour {
+    height: crate::native_progress::height,
+    draw: crate::native_progress::draw,
+    shows: crate::native_current::shows,
+    tap: Tap::Next,
+};
+
+static READING: Behaviour = Behaviour {
+    height: crate::native_reading::height,
+    draw: crate::native_reading::draw,
+    shows: crate::native_current::shows,
+    tap: Tap::Next,
+};
+
 static HIGHLIGHT: Behaviour = Behaviour {
     height: crate::native_highlight::height,
     draw: crate::native_highlight::draw,
@@ -176,6 +190,8 @@ static HIGHLIGHT: Behaviour = Behaviour {
 #[must_use]
 pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
     match token {
+        120 => Some(&READING),
+        119 => Some(&PROGRESS),
         118 => Some(&NEXT),
         117 => Some(&SERIES),
         116 => Some(&FAVOURITES),

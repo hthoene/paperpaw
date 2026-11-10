@@ -10,6 +10,8 @@ use paperpaw_ui_kit::widget::options::{FACES, declare_all, shared_look};
 
 /// The callback token of the minute tick.
 pub const TICK: u32 = 1;
+/// The callback token of the reading events, which the reading widget records.
+pub const READING: u32 = 2;
 /// The callback token of the to-do list's screen.
 pub const TODO_SCREEN: u32 = 10;
 /// The callback token of the action that opens it.
@@ -364,6 +366,48 @@ const NEXT_OPTIONS: &[Opt] = &[
     Opt::Part("cover", "widgets.books.part.cover", true),
     Opt::Part("author", "widgets.books.part.author", true),
     Opt::Part("series", "widgets.books.part.series", true),
+];
+
+const PROGRESS_OPTIONS: &[Opt] = &[
+    Opt::Size("core.size.medium", false),
+    Opt::Choice(
+        "style",
+        "widgets.books.setting.style",
+        &[
+            "widgets.progress.beside",
+            "widgets.progress.round",
+            "widgets.progress.ring",
+            "widgets.progress.bar",
+        ],
+        "widgets.progress.beside",
+        "widgets.progress.style.help",
+    ),
+    Opt::Choice(
+        "thickness",
+        "widgets.books.setting.thickness",
+        &[
+            "widgets.books.thin",
+            "widgets.books.medium",
+            "widgets.books.thick",
+        ],
+        "widgets.books.medium",
+        "widgets.progress.thickness.help",
+    ),
+    Opt::Part("cover", "widgets.books.part.cover", true),
+    Opt::Part("title", "widgets.books.part.title", true),
+    Opt::Part("author", "widgets.books.part.author", true),
+    Opt::Part("caption", "widgets.books.part.caption", false),
+];
+
+const READING_OPTIONS: &[Opt] = &[
+    Opt::Size("core.size.medium", false),
+    Opt::Part("caption", "widgets.books.part.caption", true),
+    Opt::Part("cover", "widgets.books.part.cover", true),
+    Opt::Part("author", "widgets.books.part.author", true),
+    Opt::Part("pages", "widgets.books.part.pages", true),
+    Opt::Part("bar", "widgets.books.part.bar", true),
+    Opt::Part("left", "widgets.books.part.left", true),
+    Opt::Part("chapter", "widgets.books.part.chapter", true),
 ];
 
 const MOON_OPTIONS: &[Opt] = &[
@@ -784,6 +828,24 @@ pub const WIDGETS: &[Def] = &[
         look_last: false,
         options: NEXT_OPTIONS,
     },
+    Def {
+        name: "progress",
+        token: 119,
+        category: category::BOOKS,
+        live: false,
+        align: "core.align.center",
+        look_last: false,
+        options: PROGRESS_OPTIONS,
+    },
+    Def {
+        name: "reading",
+        token: 120,
+        category: category::BOOKS,
+        live: false,
+        align: "core.align.left",
+        look_last: false,
+        options: READING_OPTIONS,
+    },
 ];
 
 /// The widgets and their settings groups and settings.
@@ -832,6 +894,15 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::Tick, TICK)?;
+    for kind in [
+        EventKind::BookOpened,
+        EventKind::PageTurned,
+        EventKind::BookClosed,
+        EventKind::Suspend,
+        EventKind::Stopping,
+    ] {
+        d.subscribe_event(kind, READING)?;
+    }
     d.submit()?;
     Ok(())
 }

@@ -5,6 +5,7 @@
 //! The books are the library's. Which books are new the catalog says itself
 //! (`Show::New`: added lately and never opened), so the widget keeps no files.
 //! The choice is kept for the catalog's generation, the pick and the day.
+use crate::native_block::{self as block, Block};
 use crate::native_books::{buffers, with_library};
 use crate::native_highlight::mix;
 use crate::native_shelf::{BOOK_TARGET, cover_size, draw_cover};
@@ -22,10 +23,7 @@ use paperpaw_ui_kit::{
     Paint,
     covers::{Covered, Pictures, cover},
     geometry, mem, paint, text,
-    widget::{
-        Cx, Look,
-        text::{Wrapped, line as one_line},
-    },
+    widget::Cx,
 };
 
 /// The callback token of the widget as declared.
@@ -396,120 +394,29 @@ fn lay_out(
     })
 }
 
-/// The lines of text of a book that show, in their order: the caption, the
-/// title (as large as the setting says, in as many lines as fit), the author
-/// and the series. Each is `(size, text, faint)`; the title is wrapped.
-struct Lines {
-    caption: Option<String>,
-    author: Option<String>,
-    series: Option<String>,
-}
-
-fn lines(cx: &mut Cx<'_>, book: &Row) -> Result<Lines, Error> {
-    let caption = if cx.settings.shows("caption")? {
+/// What the widget says of a book: the caption, the title, the author and the
+/// series, as the settings show them.
+fn block_of(cx: &mut Cx<'_>, book: &Row) -> Result<Block, Error> {
+    let lead = if cx.settings.shows("caption")? {
         Some(cx.tr("widgets.next.caption")?)
     } else {
         None
     };
-    let author = if cx.settings.shows("author")? && !book.author.is_empty() {
-        Some(text::copy(&book.author)?)
-    } else {
-        None
-    };
-    let series = if cx.settings.shows("series")? {
-        Some(series_text(cx, book)?).filter(|text| !text.is_empty())
-    } else {
-        None
-    };
-    Ok(Lines {
-        caption,
-        author,
-        series,
+    let mut notes = Vec::new();
+    if cx.settings.shows("author")? && !book.author.is_empty() {
+        mem::push(&mut notes, text::copy(&book.author)?)?;
+    }
+    if cx.settings.shows("series")? {
+        let series = series_text(cx, book)?;
+        if !series.is_empty() {
+            mem::push(&mut notes, series)?;
+        }
+    }
+    Ok(Block {
+        lead,
+        title: Some(text::copy(&book.title)?),
+        notes,
     })
-}
-
-/// The title and the small lines in the middle of `room`: the small lines that
-/// do not fit are left out, the series first, then the author, then the caption.
-fn draw_text(
-    cx: &mut Cx<'_>,
-    out: &mut Vec<Paint>,
-    look: &Look,
-    room: Rect,
-    (book, lines): (&Row, &Lines),
-) -> Result<(), Error> {
-    let (small, title_max, gap) = {
-        let style = cx.style();
-        (style.small, cx.settings.size()?.text(style), style.gap / 2)
-    };
-    let row = geometry::line_px(&cx.font, small)?;
-    let align = cx.settings.align()?;
-    let mut shown: [Option<&str>; 3] = [
-        lines.caption.as_deref(),
-        lines.author.as_deref(),
-        lines.series.as_deref(),
-    ];
-    // The title gets what the small lines leave it, at least a few words' room.
-    let least_title = geometry::line_px(&cx.font, small)?.saturating_mul(2);
-    let step = row.saturating_add(gap);
-    loop {
-        let taken = shown
-            .iter()
-            .flatten()
-            .count()
-            .try_into()
-            .map_or(u16::MAX, |n: u16| n.saturating_mul(step));
-        if room.height.saturating_sub(taken) >= least_title {
-            break;
-        }
-        // The series, the author, the caption: the last that shows goes first.
-        match shown.iter_mut().rev().find(|line| line.is_some()) {
-            Some(line) => *line = None,
-            None => break,
-        }
-    }
-    let count = shown.iter().flatten().count();
-    let taken = u16::try_from(count)
-        .unwrap_or(u16::MAX)
-        .saturating_mul(step);
-    let title_room = room.height.saturating_sub(taken);
-    let title = Wrapped::fitting(
-        &cx.font,
-        &book.title,
-        (title_max, small),
-        (room.width, title_room),
-        true,
-    )?;
-    let title_h = title.height(&cx.font)?;
-    let total = title_h.saturating_add(taken);
-    let mut y = room.y.saturating_add(room.height.saturating_sub(total) / 2);
-    let at = |y: u16, height: u16| Rect::new(room.x, y, room.width, height);
-    if let Some(caption) = shown[0] {
-        one_line(
-            out,
-            &cx.font,
-            at(y, row),
-            align,
-            (small, small),
-            caption,
-            look.faint,
-        )?;
-        y = y.saturating_add(step);
-    }
-    title.draw(out, &cx.font, at(y, title_h), align, look.ink)?;
-    y = y.saturating_add(title_h).saturating_add(gap);
-    for line in shown.iter().skip(1).flatten() {
-        one_line(
-            out,
-            &cx.font,
-            at(y, row),
-            align,
-            (small, small),
-            line,
-            look.faint,
-        )?;
-        y = y.saturating_add(step);
-    }
-    Ok(())
 }
 
 /// Draws the widget in `area`; the cover the host draws goes into `pictures`.
@@ -543,22 +450,20 @@ pub fn draw_with(
         Covered::Ready(ready) => Some((ready.width, ready.height)),
         _ => None,
     };
-    let lines = lines(cx, book)?;
+    let block = block_of(cx, book)?;
+    let title_size = cx.settings.size()?.text(cx.style());
     let least =
         u16::try_from((u32::from(cx.snapshot.display_dpi()) * 50).div_ceil(254)).unwrap_or(0);
-    // The text's height where the cover is above it: the title in two lines.
-    let small_rows = geometry::line_px(&cx.font, cx.style().small)?
-        .saturating_mul(1 + u16::from(lines.author.is_some()) + u16::from(lines.series.is_some()));
-    let text_h = geometry::line_px(&cx.font, cx.style().title)?
-        .saturating_mul(2)
-        .saturating_add(small_rows)
-        .min(look.area.height / 2);
+    // The text's height where the cover is above it: what fits in half the place.
+    let half = look.area.height / 2;
+    let text_h = block::height(cx, &block, (look.area.width, half), title_size)?;
     let laid = lay_out(cx, look.area, shape, (text_h, least.max(24)))?;
     if let Some(at) = laid.cover {
         draw_cover(cx, out, pictures, &look, at, (&book.title, covered))?;
     }
     if let Some(room) = laid.text {
-        draw_text(cx, out, &look, room, (book, &lines))?;
+        let align = cx.settings.align()?;
+        block::draw(cx, out, &look, (room, align), (&block, title_size))?;
     }
     Ok(())
 }
