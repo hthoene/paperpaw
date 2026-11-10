@@ -265,6 +265,7 @@ pub(crate) mod image_service;
     dead_code,
     reason = "wired by HostWiring::library; the write half is todo 307"
 )]
+pub(crate) mod lib_edits;
 pub(crate) mod lib_host;
 pub(crate) mod lib_moves_carry;
 pub(crate) mod lib_moves_host;

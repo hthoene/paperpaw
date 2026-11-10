@@ -72,7 +72,7 @@ x\tfrom a later build\n";
 #[test]
 fn a_version_2_file_is_converted_with_ids_by_place_and_a_generation_of_3() {
     let storage = MemoryStorage::new().with(&file(), V2);
-    let info = try_info(&storage, BOOK).unwrap();
+    let info = try_info(&storage, &file()).unwrap();
     assert_eq!(
         (info.version, info.generation, info.next_id, info.rows),
         (2, 1, 3, 2)
@@ -81,7 +81,7 @@ fn a_version_2_file_is_converted_with_ids_by_place_and_a_generation_of_3() {
         drop: vec![],
         news: vec![(3, Locator::new(2, 0), "added")],
     };
-    let generation = rewrite(&storage, BOOK, TMP, (&info, 1), &mut plan).unwrap();
+    let generation = rewrite(&storage, &file(), TMP, (&info, 1), &mut plan).unwrap();
     assert_eq!(generation, 3);
     let after = text(&storage);
     assert!(
@@ -99,7 +99,7 @@ fn a_version_2_file_is_converted_with_ids_by_place_and_a_generation_of_3() {
         ]
     );
     assert!(storage.read_at(TMP, 0, &mut [0; 1]).is_err());
-    let again = try_info(&storage, BOOK).unwrap();
+    let again = try_info(&storage, &file()).unwrap();
     assert_eq!((again.version, again.generation, again.next_id), (3, 3, 4));
 }
 
@@ -110,14 +110,14 @@ h\t1\t10\t1\t20\t5\t100\t200\t\t\t\tone\t\t1\t\n\
 h\t2\t0\t2\t5\t5\t100\t200\t\t\t\ttwo\t\t4\tk\n\
 junk line\n";
     let storage = MemoryStorage::new().with(&file(), v3);
-    let info = try_info(&storage, BOOK).unwrap();
+    let info = try_info(&storage, &file()).unwrap();
     assert_eq!((info.version, info.generation, info.next_id), (3, 7, 5));
     let mut plan = Plan {
         drop: vec![1],
         news: vec![],
     };
     assert_eq!(
-        rewrite(&storage, BOOK, TMP, (&info, 0), &mut plan).unwrap(),
+        rewrite(&storage, &file(), TMP, (&info, 0), &mut plan).unwrap(),
         8
     );
     assert_eq!(
@@ -129,7 +129,7 @@ junk line\n";
 #[test]
 fn a_missing_file_is_created_at_generation_3_and_a_failed_write_changes_nothing() {
     let storage = MemoryStorage::new();
-    let info = try_info(&storage, BOOK).unwrap();
+    let info = try_info(&storage, &file()).unwrap();
     assert_eq!(
         (info.version, info.generation, info.next_id, info.rows),
         (1, 1, 1, 0)
@@ -139,20 +139,20 @@ fn a_missing_file_is_created_at_generation_3_and_a_failed_write_changes_nothing(
         news: vec![(1, Locator::new(1, 1), "x")],
     };
     assert_eq!(
-        rewrite(&storage, BOOK, TMP, (&info, 1), &mut plan).unwrap(),
+        rewrite(&storage, &file(), TMP, (&info, 1), &mut plan).unwrap(),
         3
     );
     assert_eq!(rows(&storage), vec![(1, 1, 1, "x".into())]);
     let before = text(&storage);
     // A row that is not a line the reader takes: nothing is changed.
-    let info = try_info(&storage, BOOK).unwrap();
+    let info = try_info(&storage, &file()).unwrap();
     let long = "y".repeat(LINE_MAX);
     let leaked: &'static str = alloc::boxed::Box::leak(long.into_boxed_str());
     let mut plan = Plan {
         drop: vec![],
         news: vec![(2, Locator::new(9, 9), leaked)],
     };
-    let error = rewrite(&storage, BOOK, TMP, (&info, 1), &mut plan).unwrap_err();
+    let error = rewrite(&storage, &file(), TMP, (&info, 1), &mut plan).unwrap_err();
     assert_eq!(error, Error::Storage(StorageError::TooLarge));
     assert_eq!(text(&storage), before);
     assert!(!storage.exists(TMP));
@@ -209,5 +209,11 @@ fn a_row_is_one_line_and_reads_back_whole() {
 #[test]
 fn a_file_of_a_later_version_is_not_written_over() {
     let storage = MemoryStorage::new().with(&file(), "# format 9\nh\t1\n");
-    assert!(matches!(try_info(&storage, BOOK), Err(Error::Newer(9))));
+    assert!(matches!(try_info(&storage, &file()), Err(Error::Newer(9))));
+}
+
+#[test]
+fn the_file_of_a_key_is_the_file_of_the_path() {
+    let key = u64::from_str_radix(&crate::library::key(BOOK), 16).unwrap();
+    assert_eq!(file_of_key(key).unwrap(), file());
 }

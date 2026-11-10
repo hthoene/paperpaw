@@ -287,6 +287,8 @@ fn begin(
     };
     let book_id = host.resolve_book(book)?;
     let id = table.begin(who.owner, book_id, head.annotation_generation, now)?;
+    // A plugin's receipt lives until its next `edit_begin` (`library.md` 2.2).
+    host.receipts_ended(who.owner);
     encode(
         &Record::ServiceLibTransaction(wire::ServiceLibTransaction { transaction: id }),
         out,

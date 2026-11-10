@@ -23,7 +23,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::ops::ControlFlow;
 
-use super::read::{Captured, file_of, head_of, parse_line};
+use super::read::{Captured, head_of, parse_line};
 use super::{
     FILE_VERSION, KEY_MAX, Kind, LINE_MAX, Window, Windows, letter, next_generation, one_line,
     stored_note,
@@ -46,7 +46,7 @@ pub struct Info {
     pub rows: u32,
 }
 
-/// What a row of the old file is, for [`Edits::existing`].
+/// What a row of the old file is, for [`Edits::keeps`].
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
 pub struct Existing<'a> {
@@ -121,19 +121,32 @@ pub trait Edits {
     ) -> Result<bool, Error>;
 }
 
-/// The numbers of the book's file as a write starts from them.
+/// The annotation file of the book whose key is `key` ([`crate::library::key`]
+/// as a number): the file [`super::file`] names for its path, without the path.
+///
+/// # Errors
+/// [`Error::OutOfMemory`].
+pub fn file_of_key(key: u64) -> Result<String, Error> {
+    let mut name = String::new();
+    name.try_reserve_exact(crate::data::DIR.len() + "/annotations/".len() + 16 + ".txt".len())
+        .map_err(|_| Error::OutOfMemory)?;
+    use core::fmt::Write;
+    let _ = write!(name, "{}/annotations/{key:016x}.txt", crate::data::DIR);
+    Ok(name)
+}
+
+/// The numbers of the annotation file `file` as a write starts from them.
 ///
 /// # Errors
 /// [`Error::Newer`] for a later version; the storage's.
-pub fn try_info(storage: &dyn Storage, book: &str) -> Result<Info, Error> {
-    let file = file_of(book)?;
-    let head = head_of(storage, &file)?;
+pub fn try_info(storage: &dyn Storage, file: &str) -> Result<Info, Error> {
+    let head = head_of(storage, file)?;
     let mut rows = 0_u32;
     let mut next_id = None;
     let mut max_id = 0_u32;
     let mut scratch = [0_u8; 0];
     let keys = Windows::new();
-    each_line(storage, &file, &mut |line| {
+    each_line(storage, file, &mut |line| {
         if let Some(n) = line.strip_prefix(b"# next-id ") {
             next_id = core::str::from_utf8(n)
                 .ok()
@@ -155,6 +168,47 @@ pub fn try_info(storage: &dyn Storage, book: &str) -> Result<Info, Error> {
         generation: head.generation,
         next_id,
         rows,
+    })
+}
+
+/// Calls `visit` with each row of the annotation file `file`, in file order
+/// (the id of a row of an older version is its place), with the key it has.
+///
+/// # Errors
+/// [`Error::Newer`]; the storage's; [`Error::OutOfMemory`].
+pub fn each_existing(
+    storage: &dyn Storage,
+    file: &str,
+    visit: &mut dyn FnMut(&Existing<'_>) -> Result<(), Error>,
+) -> Result<(), Error> {
+    let head = head_of(storage, file)?;
+    let windows = Windows::new().key(Window::new(0, KEY_MAX as u32 + 1));
+    let mut scratch = Vec::new();
+    scratch
+        .try_reserve_exact(KEY_MAX + 1)
+        .map_err(|_| Error::OutOfMemory)?;
+    scratch.resize(KEY_MAX + 1, 0);
+    let mut place = 0_u32;
+    each_line(storage, file, &mut |line| {
+        if let Some(row) = parse_line(line, head.version, &windows, &mut scratch) {
+            place = place.saturating_add(1);
+            let key = if head.version >= FILE_VERSION {
+                row.slots[2].part(&scratch).text
+            } else {
+                ""
+            };
+            visit(&Existing {
+                id: if head.version >= FILE_VERSION {
+                    row.id
+                } else {
+                    place
+                },
+                start: row.start,
+                end: row.end,
+                key,
+            })?;
+        }
+        Ok(ControlFlow::Continue(()))
     })
 }
 
@@ -240,12 +294,13 @@ fn convert_windows() -> Windows {
         .xpointers(Window::new(0, 1024), Window::new(0, 1024))
 }
 
+/// What a line of the file is given to.
+type LineVisit<'a> = dyn FnMut(&[u8]) -> Result<ControlFlow<()>, Error> + 'a;
+/// Where the bytes of a line over [`LINE_MAX`] go (`None`: its end).
+type LongSink<'a> = dyn FnMut(Option<&[u8]>) -> Result<(), Error> + 'a;
+
 /// [`lines`] without a use for the lines that are too long.
-fn each_line(
-    storage: &dyn Storage,
-    file: &str,
-    visit: &mut dyn FnMut(&[u8]) -> Result<ControlFlow<()>, Error>,
-) -> Result<(), Error> {
+fn each_line(storage: &dyn Storage, file: &str, visit: &mut LineVisit<'_>) -> Result<(), Error> {
     let mut sink = |_: Option<&[u8]>| Ok(());
     lines(storage, file, visit, &mut sink)
 }
@@ -256,8 +311,8 @@ fn each_line(
 fn lines(
     storage: &dyn Storage,
     file: &str,
-    visit: &mut dyn FnMut(&[u8]) -> Result<ControlFlow<()>, Error>,
-    long: &mut dyn FnMut(Option<&[u8]>) -> Result<(), Error>,
+    visit: &mut LineVisit<'_>,
+    long: &mut LongSink<'_>,
 ) -> Result<(), Error> {
     let mut line = Vec::new();
     line.try_reserve_exact(LINE_MAX + 1)
@@ -349,7 +404,7 @@ impl Out<'_> {
     }
 }
 
-/// Rewrites the annotations of `book` as version 3 into `tmp` and renames it
+/// Rewrites the annotation file `file` as version 3 into `tmp` and renames it
 /// over the file: the old rows in file order, those `edits` drops left out,
 /// its new rows merged in by their place. `adds` is how many ids the new
 /// rows take from `info.next_id` on (the header says `next-id` before any
@@ -361,17 +416,16 @@ impl Out<'_> {
 /// [`Error::OutOfMemory`]; what `edits` gives.
 pub fn rewrite(
     storage: &dyn Storage,
-    book: &str,
+    file: &str,
     tmp: &str,
     (info, adds): (&Info, u32),
     edits: &mut dyn Edits,
 ) -> Result<u32, Error> {
-    let file = file_of(book)?;
     storage.remove(tmp)?;
-    let made = merge(storage, &file, tmp, (info, adds), edits);
+    let made = merge(storage, file, tmp, (info, adds), edits);
     let done = made.and_then(|generation| {
         storage.sync().ok();
-        storage.rename(tmp, &file)?;
+        storage.rename(tmp, file)?;
         Ok(generation)
     });
     if done.is_err() {

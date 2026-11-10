@@ -11,10 +11,12 @@
 //! where one of those names also exists), as `core.files` decides it
 //! ([`excluded_on`]; it over-refuses where it cannot tell).
 use super::files_service::Access;
+use super::lib_edits::LibEdits;
 use super::lib_moves_service::LibraryMoves;
 use super::lib_reads::{CatalogEnv, CatalogReads};
 use super::lib_service::{
-    BookRef, FieldKind, LibExcluded, LibQuery, LibWrite, One, Rows, StoredPosition,
+    BookId, BookRef, Caller, CommitRequest, Committed, FieldKind, LibExcluded, LibQuery, LibWrite,
+    One, Rows, StageItem, StoredPosition, Transactions,
 };
 use super::registrations::{self as wire};
 use super::storage_files::excluded_on;
@@ -29,6 +31,8 @@ pub(crate) struct LibraryHost {
     /// The library's move job, where `core.files` is wired too: a book it
     /// carries is in use.
     moves: Option<Rc<LibraryMoves>>,
+    /// The staged annotation transactions (ops 17 to 21 and 26).
+    edits: LibEdits,
 }
 
 impl LibraryHost {
@@ -38,7 +42,8 @@ impl LibraryHost {
         moves: Option<Rc<LibraryMoves>>,
     ) -> Self {
         Self {
-            reads: CatalogReads::new(storage.clone(), env),
+            reads: CatalogReads::new(storage.clone(), env.clone()),
+            edits: LibEdits::new(storage.clone(), env),
             storage,
             moves,
         }
@@ -149,6 +154,53 @@ impl LibWrite for LibraryHost {
 
     fn field_kind(&self, field: &str) -> Result<FieldKind, i32> {
         self.reads.field_kind(field)
+    }
+
+    /// The book's key is its identity for a transaction. A book the move job
+    /// holds is `ERR_BUSY`: the carry would put the old annotations over the
+    /// new ones. (A move cannot start while a transaction is open on the
+    /// book: the service refuses it, so the commit needs no such check.)
+    fn resolve_book(&self, book: BookRef<'_>) -> Result<BookId, i32> {
+        self.reads.path_of(book, |path| {
+            if self.in_use(path) {
+                return Err(paperpaw_native::host_glue::ERR_BUSY);
+            }
+            self.edits.book_id(path)
+        })
+    }
+
+    fn now_ms(&self) -> u64 {
+        self.edits.now_ms()
+    }
+
+    fn transactions(&self) -> Option<&Transactions> {
+        self.edits.transactions()
+    }
+
+    fn stage(&self, transaction: u32, item: &StageItem<'_>) -> Result<(), i32> {
+        self.edits.stage_item(transaction, item)
+    }
+
+    fn abort_staged(&self, transaction: u32) {
+        self.edits.abort_staged(transaction);
+    }
+
+    fn commit(&self, request: &CommitRequest) -> Result<Committed, i32> {
+        self.edits.commit(request)
+    }
+
+    fn receipt(
+        &self,
+        who: &Caller<'_>,
+        transaction: u32,
+        cursor: u32,
+        visit: &mut dyn FnMut(wire::Record<'_>) -> core::ops::ControlFlow<()>,
+    ) -> Result<RowsEnd, i32> {
+        self.edits.receipt(who.owner, transaction, cursor, visit)
+    }
+
+    fn receipts_ended(&self, owner: u64) {
+        self.edits.receipts_ended(owner);
     }
 
     /// A field is part of the book's details, which a move carries: a book the

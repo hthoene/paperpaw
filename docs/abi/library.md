@@ -346,6 +346,15 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   card until the plugin's next `edit_begin`, 10 minutes, or
   the plugin stops (`ERR_NOT_FOUND` after). A plugin advances its own sync state only after a commit
   answered `OK`.
+- [D] **What the host checks at the commit, beyond the above:** an `id` named by two edits of one
+  transaction, a `client_key` named by two adds or upserts of it, and an `add` (action 0) whose
+  `client_key` the book already has are `ERR_INVALID` (a repeated import uses upsert); an `upsert`
+  whose key the book has replaces that annotation and keeps its id (receipt `action` 3). A row is
+  one line of the file (`annotations.rs` reads lines of at most 8 KiB): an annotation whose text,
+  note, key and XPointers make a longer line is `ERR_NO_SPACE`. The host checks nothing about a
+  range in sections: it does not know the book's sections. A book the library's move job holds is
+  `ERR_BUSY` at `edit_begin`. The new rows are written in reading order (by start, then end), the
+  old rows keep the file's order. Receipts are not kept across a restart.
 - [D] **End of a transaction:** `edit_commit` on a live transaction of the caller ends it whatever
   it answers: `OK`, a refusal of the book (`ERR_STATE`, `ERR_NOT_FOUND`, `ERR_INVALID`), parts that
   did not arrive whole, or a reply too small for `lib_committed`. Nothing of a refused commit is

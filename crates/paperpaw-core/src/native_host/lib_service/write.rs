@@ -118,6 +118,9 @@ pub(crate) trait LibWrite {
     fn now_ms(&self) -> u64 {
         0
     }
+    /// The receipts of `owner`'s committed transactions end: it begins a new
+    /// one, or it stopped. Default: none kept.
+    fn receipts_ended(&self, _owner: u64) {}
     /// The open transactions; `None` where the host has none.
     fn transactions(&self) -> Option<&Transactions> {
         None
