@@ -115,8 +115,16 @@ the host are ignored cases in `tests/acceptance_pending.rs`.
   so `make` goes on when it answers `Unsupported`, and the widgets show the change at their next
   measure).
 - Differences from interface 6, on purpose: the day and the hour come from the host's snapshot
-  and clock; the random note stays for an hour or until the index or the widget's settings change
+  and clock; within one instance the random note stays for an hour or until the index or the widget's settings change
   (interface 6 kept it while the widget lasted); the heading is drawn by the kit's caption.
+  The lines are kept per instance and an instance lives as long as its placement is shown, so a
+  new instance (a home visit) reads the index again and the random note changes on every home
+  visit; interface 6 kept the lines across instances by placement, so the random note stayed for
+  an hour across visits. This is deliberate.
+- Every widget subscribes `event.setting_changed` for every setting, so each widget refreshes on any
+  setting change (not only its own).
+- X4 timing gate (not measured): the index re-read on each new instance (each home visit) and on each
+  measure after a change; `tag_counts` on a big vault.
 - Not measured: the widgets' frames on the X4 (the packer reports none over 2,048 B), the time of
   a measure on a vault of thousands of notes (the *Recent* window reads the whole index file), no
   scripted-host test of the stage and the draw yet (the model under them is pinned by
