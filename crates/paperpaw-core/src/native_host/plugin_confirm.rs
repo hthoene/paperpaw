@@ -8,64 +8,110 @@
 use super::firmware_confirm::{Texts, clean, fingerprint, open_params};
 use super::plugin_job::{KIND_REMOVAL, PluginQuestion, Relation};
 use crate::Kernel;
-use alloc::{rc::Rc, string::String, vec::Vec};
+use alloc::{rc::Rc, string::String};
 use core::cell::RefCell;
 use paperpaw_i18n::Arg;
 
-/// The confirmation's words for `question`, asked by the plugin `asker`.
+/// `text` as an owned string, or `None` where the heap cannot take it.
+fn own(text: &str) -> Option<String> {
+    let mut owned = String::new();
+    owned.try_reserve_exact(text.len()).ok()?;
+    owned.push_str(text);
+    Some(owned)
+}
+
+/// Adds `line` to `body` on a line of its own.
+fn add(body: &mut String, line: &str) -> Option<()> {
+    body.try_reserve(line.len() + 1).ok()?;
+    if !body.is_empty() {
+        body.push('\n');
+    }
+    body.push_str(line);
+    Some(())
+}
+
+/// The `uses.*` keys shown, comma separated, and "…" where more were declared.
+fn uses_list(question: &PluginQuestion) -> Option<String> {
+    let shown = usize::from(question.uses.count).min(question.uses.keys.len());
+    let mut list = String::new();
+    for (at, key) in question.uses.keys[..shown].iter().enumerate() {
+        let key = clean(key.as_str());
+        list.try_reserve(key.len() + 2).ok()?;
+        if at > 0 {
+            list.push_str(", ");
+        }
+        list.push_str(&key);
+    }
+    if question.uses.more {
+        list.try_reserve(4).ok()?;
+        list.push_str(", …");
+    }
+    Some(list)
+}
+
+/// The confirmation's words for `question`, asked by the plugin `asker`; the
+/// text is built with fallible allocation (at most a few hundred bytes), and
+/// `None` where the heap cannot take it: the question is then not asked, which
+/// is a dismissal.
 pub(crate) fn texts(
     i18n: &paperpaw_i18n::Translator,
     asker: &str,
     question: &PluginQuestion,
-) -> Texts {
+) -> Option<Texts> {
     let removal = question.kind == KIND_REMOVAL;
-    let mut lines: Vec<String> = Vec::new();
-    lines.push(i18n.format(
-        "core.firmware.asked-by",
-        &[("name", Arg::Str(&clean(asker)))],
-    ));
-    lines.push(i18n.format(
-        "core.plugin.what",
-        &[
-            ("name", Arg::Str(&clean(question.name.as_str()))),
-            ("version", Arg::Str(&clean(question.version.as_str()))),
-            ("id", Arg::Str(&clean(question.id.as_str()))),
-        ],
-    ));
-    if !removal {
+    let mut body = String::new();
+    add(
+        &mut body,
+        &i18n.format(
+            "core.firmware.asked-by",
+            &[("name", Arg::Str(&clean(asker)))],
+        ),
+    )?;
+    add(
+        &mut body,
+        &i18n.format(
+            "core.plugin.what",
+            &[
+                ("name", Arg::Str(&clean(question.name.as_str()))),
+                ("version", Arg::Str(&clean(question.version.as_str()))),
+                ("id", Arg::Str(&clean(question.id.as_str()))),
+            ],
+        ),
+    )?;
+    if removal {
+        add(&mut body, i18n.tr("core.plugin.remove-data"))?;
+    } else {
         if !question.signer.as_str().is_empty() {
-            lines.push(i18n.format(
-                "core.firmware.signed",
-                &[("key", Arg::Str(&clean(question.signer.as_str())))],
-            ));
+            add(
+                &mut body,
+                &i18n.format(
+                    "core.firmware.signed",
+                    &[("key", Arg::Str(&clean(question.signer.as_str())))],
+                ),
+            )?;
         } else if let Some(key) = &question.key {
-            lines.push(i18n.format(
-                "core.firmware.other-key",
-                &[("fingerprint", Arg::Str(&fingerprint(key)))],
-            ));
+            add(
+                &mut body,
+                &i18n.format(
+                    "core.firmware.other-key",
+                    &[("fingerprint", Arg::Str(&fingerprint(key)))],
+                ),
+            )?;
         } else {
-            lines.push(String::from(i18n.tr("core.firmware.unsigned")));
+            add(&mut body, i18n.tr("core.firmware.unsigned"))?;
         }
         if question.sideload {
-            lines.push(String::from(i18n.tr("core.plugin.sideload")));
+            add(&mut body, i18n.tr("core.plugin.sideload"))?;
         }
         if question.relation != Relation::Newer {
-            lines.push(String::from(i18n.tr("core.firmware.older")));
+            add(&mut body, i18n.tr("core.firmware.older"))?;
         }
-        let shown = usize::from(question.uses.count).min(question.uses.keys.len());
-        if shown > 0 {
-            let keys: Vec<&str> = question.uses.keys[..shown]
-                .iter()
-                .map(|key| key.as_str())
-                .collect();
-            let more = if question.uses.more { ", …" } else { "" };
-            lines.push(i18n.format(
-                "core.plugin.uses",
-                &[(
-                    "keys",
-                    Arg::Str(&alloc::format!("{}{more}", clean(&keys.join(", ")))),
-                )],
-            ));
+        let keys = uses_list(question)?;
+        if !keys.is_empty() {
+            add(
+                &mut body,
+                &i18n.format("core.plugin.uses", &[("keys", Arg::Str(&keys))]),
+            )?;
         }
     }
     let (title, yes) = if removal {
@@ -73,12 +119,17 @@ pub(crate) fn texts(
     } else {
         ("core.plugin.title", "core.plugin.yes")
     };
-    Texts {
-        title: String::from(i18n.tr(title)),
-        body: lines.join("\n"),
-        yes: String::from(i18n.tr(yes)),
-        no: String::from(i18n.tr("core.firmware.no")),
-    }
+    Some(Texts {
+        title: own(i18n.tr(title))?,
+        body,
+        yes: own(i18n.tr(yes))?,
+        no: own(i18n.tr("core.firmware.no"))?,
+        data: if removal {
+            Some(own(i18n.tr("core.plugin.yes.remove-data"))?)
+        } else {
+            None
+        },
+    })
 }
 
 impl Kernel {
@@ -106,7 +157,11 @@ impl Kernel {
         }
         let nonce = u128::from_le_bytes(bytes);
         let asker = self.firmware_asker_name(question.owner);
-        let said = texts(&self.shared.translator, &asker, question);
+        let Some(said) = texts(&self.shared.translator, &asker, question) else {
+            // No memory for the words: not asked, so not a yes.
+            dismiss(driver);
+            return true;
+        };
         let params = open_params(&said, nonce);
         let before = self.stack.len();
         self.open(super::firmware_confirm::SCREEN, None, &params);

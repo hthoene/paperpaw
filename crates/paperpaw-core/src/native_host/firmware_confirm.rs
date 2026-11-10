@@ -42,6 +42,7 @@ const TITLE: &str = "title";
 const TEXT: &str = "text";
 const YES_WORD: &str = "yes";
 const NO_WORD: &str = "no";
+const DATA_WORD: &str = "data";
 const ANSWER: &str = "answer";
 /// Input within this long of being shown is dropped (`device.md` 5.0).
 const GUARD_MS: u64 = 500;
@@ -55,6 +56,8 @@ pub(crate) struct Texts {
     pub(crate) body: String,
     pub(crate) yes: String,
     pub(crate) no: String,
+    /// A second yes, in the middle (a plugin removal's "with its data").
+    pub(crate) data: Option<String>,
 }
 
 /// `text` with what could forge a line or a sign in the dialog (control
@@ -134,12 +137,12 @@ pub(crate) fn texts(i18n: &paperpaw_i18n::Translator, asker: &str, ask: &Ask) ->
         body: lines.join("\n"),
         yes: String::from(i18n.tr(yes)),
         no: String::from(i18n.tr("core.firmware.no")),
+        data: None,
     }
 }
 
 /// The buttons, in their order.
 pub(super) const YES: usize = 0;
-const NO: usize = 1;
 
 /// The confirmation screen; see the [module documentation](self).
 pub(crate) struct HostConfirm {
@@ -147,7 +150,9 @@ pub(crate) struct HostConfirm {
     dialog: Dialog,
     focus: usize,
     nonce: String,
-    labels: [String; 2],
+    /// The buttons in their order: yes, [yes with data,] no. The focus starts
+    /// on the last, *No*.
+    labels: Vec<String>,
     /// When it was shown: the input guard and the timeout count from here.
     shown: Option<Instant>,
     /// It has answered (or ended as dismissed): nothing is told twice.
@@ -160,8 +165,12 @@ impl HostConfirm {
         let style = UiStyle::new(env);
         let get = |key| params.get(key).unwrap_or("");
         let text: Vec<&str> = get(TEXT).split('\n').collect();
-        let labels = [String::from(get(YES_WORD)), String::from(get(NO_WORD))];
-        let buttons = [labels[YES].as_str(), labels[NO].as_str()];
+        let mut labels = Vec::from([String::from(get(YES_WORD))]);
+        if let Some(data) = params.get(DATA_WORD) {
+            labels.push(String::from(data));
+        }
+        labels.push(String::from(get(NO_WORD)));
+        let buttons: Vec<&str> = labels.iter().map(String::as_str).collect();
         let mut dialog = Dialog::new(env, &style, get(TITLE), &text, &buttons);
         let room = env.device().display.height.saturating_sub(dialog.height());
         dialog.place(room / 2);
@@ -169,7 +178,7 @@ impl HostConfirm {
             style,
             dialog,
             // Focus starts on No.
-            focus: NO,
+            focus: labels.len() - 1,
             nonce: String::from(get(NONCE)),
             labels,
             shown: None,
@@ -183,6 +192,18 @@ impl HostConfirm {
             .is_some_and(|at| env.now().0.saturating_sub(at.0) >= GUARD_MS)
     }
 
+    /// What pressing the button `at` answers: the first is a yes, a middle one
+    /// a yes with the data, the last a no.
+    fn answer_of(&self, at: usize) -> Answer {
+        if at == YES {
+            Answer::Yes
+        } else if at + 1 == self.labels.len() {
+            Answer::No
+        } else {
+            Answer::YesAndData
+        }
+    }
+
     /// Tells the kernel the answer, once, and closes.
     fn finish(&mut self, answer: Answer, cx: &mut Cx<'_, '_>) {
         if self.done {
@@ -192,6 +213,7 @@ impl HostConfirm {
         let code = match answer {
             Answer::Yes => "yes",
             Answer::No => "no",
+            Answer::YesAndData => "yes-data",
             Answer::Dismissed => "dismissed",
         };
         cx.command(Command::Emit(
@@ -271,11 +293,7 @@ impl Screen for HostConfirm {
             return Handled::Yes;
         }
         if *action == actions::CONFIRM {
-            let answer = if self.focus == YES {
-                Answer::Yes
-            } else {
-                Answer::No
-            };
+            let answer = self.answer_of(self.focus);
             self.finish(answer, cx);
             return Handled::Yes;
         }
@@ -331,12 +349,11 @@ impl Screen for HostConfirm {
             return Handled::Yes;
         }
         // A touch counts only inside its own buttons.
-        if gesture.kind == GestureKind::Tap {
-            match self.dialog.hit(gesture.start) {
-                Some(YES) => self.finish(Answer::Yes, cx),
-                Some(_) => self.finish(Answer::No, cx),
-                None => {}
-            }
+        if gesture.kind == GestureKind::Tap
+            && let Some(at) = self.dialog.hit(gesture.start)
+        {
+            let answer = self.answer_of(at);
+            self.finish(answer, cx);
         }
         Handled::Yes
     }
@@ -344,12 +361,16 @@ impl Screen for HostConfirm {
 
 /// The params the kernel opens the screen with.
 pub(crate) fn open_params(texts: &Texts, nonce: u128) -> Params {
-    Params::new()
+    let params = Params::new()
         .with(NONCE, nonce.to_string())
         .with(TITLE, texts.title.clone())
         .with(TEXT, texts.body.clone())
         .with(YES_WORD, texts.yes.clone())
-        .with(NO_WORD, texts.no.clone())
+        .with(NO_WORD, texts.no.clone());
+    match &texts.data {
+        Some(data) => params.with(DATA_WORD, data.clone()),
+        None => params,
+    }
 }
 
 /// What an answer event says: the nonce and the answer.
@@ -361,6 +382,7 @@ pub(crate) fn read_answer(event: &Id, params: &Params) -> Option<(u128, Answer)>
     let answer = match params.get(ANSWER)? {
         "yes" => Answer::Yes,
         "no" => Answer::No,
+        "yes-data" => Answer::YesAndData,
         "dismissed" => Answer::Dismissed,
         _ => return None,
     };

@@ -114,6 +114,8 @@ fn drive_with(
         match job.step(&env) {
             JobStep::More => {}
             JobStep::Wait => panic!("waited with no question"),
+            JobStep::Unload(_) => panic!("an install closes no plugin"),
+            JobStep::Forget(_) => panic!("an install forgets nothing"),
             JobStep::Ask(question) => {
                 // The harness's own allocation is not the job's.
                 let armed = FAIL_NTH.with(|n| n.replace(0));
@@ -809,6 +811,8 @@ fn an_allocation_that_fails_ends_the_install_without_a_panic_or_a_half_install()
                 }
                 match step {
                     JobStep::More | JobStep::Wait => {}
+                    JobStep::Unload(_) => panic!("an install closes no plugin"),
+                    JobStep::Forget(_) => panic!("an install forgets nothing"),
                     JobStep::Ask(_) => job.answer(Answer::Yes),
                     JobStep::Done(done) => return Some(done),
                 }
