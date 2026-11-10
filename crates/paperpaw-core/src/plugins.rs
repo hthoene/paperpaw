@@ -797,6 +797,21 @@ impl Kernel {
         }
     }
 
+    /// Forgets the declaration cap `plugin` was refused at: it is tried again
+    /// or gone.
+    pub(crate) fn forget_refusal(&self, plugin: &Id) {
+        if let Some(declared) = self.shared.registry.native_declarations.as_ref() {
+            declared.clear_refusal(plugin.as_str());
+        }
+    }
+
+    /// As [`Self::forget_refusal`], giving `plugin` back for the caller's
+    /// own use.
+    pub(crate) fn begin_try(&self, plugin: &Id) -> Id {
+        self.forget_refusal(plugin);
+        plugin.clone()
+    }
+
     /// Removes a data plugin while running (see
     /// [`Command::RemovePlugin`](paperpaw_sdk::Command::RemovePlugin)).
     pub(crate) fn remove_plugin(&mut self, id: &Id) {
@@ -825,6 +840,9 @@ impl Kernel {
     /// until [`plugins_changed`](Self::plugins_changed) finds it no longer
     /// offered.
     pub(crate) fn unload_plugin(&mut self, id: &Id) -> bool {
+        // A removed plugin leaves no refusal behind to take a place of the
+        // few the host keeps.
+        self.forget_refusal(id);
         let native_key = self.shared.native_instances.find(id.as_str());
         let _bump = crate::native_host::registry_generation::BumpOnExit::new(
             &self.shared.registry_generation,
