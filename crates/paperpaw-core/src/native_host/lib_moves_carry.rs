@@ -43,9 +43,10 @@ use paperpaw_sdk::{
     readers,
 };
 
-/// Pieces of a replaced book's data one call removes (see
-/// [`book_data_steps::remove_data`]).
-const DISCARD_PIECES: u32 = 4;
+/// Pieces of removals (a replaced book's data, the document caches of old
+/// keys: see [`book_data_steps::remove_data_within`]) one step of the carry
+/// makes in all, whatever the number of books in it: at most 8 x 64 entries.
+const STEP_PIECES: u32 = 8;
 
 /// A step's view of the catalog.
 pub(crate) struct EnvCarry<'a> {
@@ -135,7 +136,7 @@ impl<'a> EnvCarry<'a> {
     /// One book to its new key: details, cover, place among the recently
     /// opened and the favourites, and what plugins keep by its path. A `.bak`
     /// sibling goes too. What the host keeps for the document (`.paperpaw/cache/
-    /// <old key>/`, a stamp that names the key) is not renamed: it is removed,
+    /// <old key>/`, a folder named by the key) is not renamed: it is removed,
     /// a bounded piece at a time, and made again at the next open.
     ///
     /// `Progress::More`: the document cache of the old key is not all gone: the
@@ -145,16 +146,15 @@ impl<'a> EnvCarry<'a> {
     /// `ERR_NO_MEMORY` or the card's status from the details' or the data's
     /// move (`library::try_moved`): the step is repeated (idempotent) and goes
     /// on from what is moved.
-    fn carry_one(&self, old: &str, new: &str) -> Result<Progress, i32> {
-        library::try_moved(self.storage, old, new).map_err(status)?;
+    fn carry_one(&self, old: &str, new: &str, budget: &mut u32) -> Result<Progress, i32> {
+        moved_status(library::try_moved(self.storage, old, new))?;
         book_data_steps::move_data(self.storage, self.book_data, old, new)?;
-        let mut progress = book_data_steps::remove_doc_cache(self.storage, old, DISCARD_PIECES)?;
+        let mut progress = book_data_steps::remove_doc_cache(self.storage, old, budget)?;
         let (old_bak, new_bak) = (format!("{old}.bak"), format!("{new}.bak"));
         if self.storage.exists(&new_bak) {
-            library::try_moved(self.storage, &old_bak, &new_bak).map_err(status)?;
+            moved_status(library::try_moved(self.storage, &old_bak, &new_bak))?;
             book_data_steps::move_data(self.storage, self.book_data, &old_bak, &new_bak)?;
-            if book_data_steps::remove_doc_cache(self.storage, &old_bak, DISCARD_PIECES)?
-                == Progress::More
+            if book_data_steps::remove_doc_cache(self.storage, &old_bak, budget)? == Progress::More
             {
                 progress = Progress::More;
             }
@@ -191,9 +191,19 @@ impl<'a> EnvCarry<'a> {
     }
 }
 
+/// A card status of a catalog step: one the card refuses for good (a name it
+/// cannot make, a damaged entry) is left as it is, as for the data, instead of
+/// holding the move for ever; the others repeat the step.
+fn moved_status(result: Result<(), paperpaw_platform::StorageError>) -> Result<(), i32> {
+    match result {
+        Err(error) if !book_data_steps::permanent(error) => Err(status(error)),
+        _ => Ok(()),
+    }
+}
+
 impl MoveCarry for EnvCarry<'_> {
     fn discard(&self, to: &str) -> Result<bool, i32> {
-        library::try_removed(self.storage, to).map_err(status)?;
+        moved_status(library::try_removed(self.storage, to))?;
         // One bounded piece budget a call: while the book still has data the
         // step answers `false` and runs again (nothing is recorded as
         // discarded until it is all gone, and the repeat finds what is left).
@@ -206,8 +216,10 @@ impl MoveCarry for EnvCarry<'_> {
         match phase {
             Phase::Books(cursor) => {
                 let (books, more) = self.window(false, to, cursor)?;
+                let mut budget = STEP_PIECES;
                 for (done, book) in books.iter().enumerate() {
-                    if self.carry_one(&Self::old_path(from, to, book), book)? == Progress::More {
+                    let old = Self::old_path(from, to, book);
+                    if self.carry_one(&old, book, &mut budget)? == Progress::More {
                         // The books before it are carried: on from this one.
                         return Ok(Phase::Books(cursor + done as u64));
                     }
@@ -237,12 +249,13 @@ impl MoveCarry for EnvCarry<'_> {
                     return Ok(Phase::Done);
                 }
                 let (books, more) = self.window(true, to, cursor)?;
+                let mut budget = STEP_PIECES;
                 for (done, book) in books.iter().enumerate() {
                     // Carried once more: a book the first pass missed (a file
                     // added from outside shifted its place) is caught here;
                     // for one already carried it changes nothing.
                     let old = Self::old_path(from, to, book);
-                    if self.carry_one(&old, book)? == Progress::More {
+                    if self.carry_one(&old, book, &mut budget)? == Progress::More {
                         return Ok(Phase::Events(cursor + done as u64));
                     }
                     self.send(events::BOOK_MOVED.emit(events::BookMoved::new(old, book.clone())))?;
@@ -258,11 +271,15 @@ impl MoveCarry for EnvCarry<'_> {
     }
 
     fn carry_book(&self, from: &str, to: &str, book: &str) -> Result<(), i32> {
-        // A reader that opens the book needs it all carried: it retries.
-        match self.carry_one(&Self::old_path(from, to, book), book.trim_matches('/'))? {
-            Progress::Done => Ok(()),
-            Progress::More => Err(ERR_BUSY),
-        }
+        // The old key's document cache that is left is not the reader's
+        // concern: the Books phase finishes removing it.
+        let mut budget = STEP_PIECES;
+        self.carry_one(
+            &Self::old_path(from, to, book),
+            book.trim_matches('/'),
+            &mut budget,
+        )
+        .map(|_| ())
     }
 }
 
