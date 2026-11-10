@@ -3978,6 +3978,21 @@ impl<'a> paperpaw_sdk::native::device::WifiNetwork<'a>
 pub const fn paperpaw_sdk::native::device::WifiNetwork<'a>::signal(self) -> i32
 pub const fn paperpaw_sdk::native::device::WifiNetwork<'a>::ssid(self) -> &'a str
 pub mod paperpaw_sdk::native::document
+#[non_exhaustive] pub enum paperpaw_sdk::native::document::BlockRecord<'a>
+pub paperpaw_sdk::native::document::BlockRecord::Cell(paperpaw_sdk::native::document::BlockCell)
+pub paperpaw_sdk::native::document::BlockRecord::Columns(&'a [u8])
+pub paperpaw_sdk::native::document::BlockRecord::Head(paperpaw_sdk::native::document::BlockHead<'a>)
+pub paperpaw_sdk::native::document::BlockRecord::Image(paperpaw_sdk::native::document::BlockImage)
+pub paperpaw_sdk::native::document::BlockRecord::InlineLang(&'a str)
+pub paperpaw_sdk::native::document::BlockRecord::Map(paperpaw_sdk::native::document::BlockMap)
+pub paperpaw_sdk::native::document::BlockRecord::Ruby(paperpaw_sdk::native::document::BlockRuby<'a>)
+pub paperpaw_sdk::native::document::BlockRecord::Run(paperpaw_sdk::native::document::BlockRun)
+pub paperpaw_sdk::native::document::BlockRecord::Text(&'a str)
+#[non_exhaustive] pub enum paperpaw_sdk::native::document::LinkKind
+pub paperpaw_sdk::native::document::LinkKind::External
+pub paperpaw_sdk::native::document::LinkKind::Footnote
+pub paperpaw_sdk::native::document::LinkKind::Internal
+pub paperpaw_sdk::native::document::LinkKind::Other(u32)
 #[non_exhaustive] pub enum paperpaw_sdk::native::document::Preparation
 pub paperpaw_sdk::native::document::Preparation::Failed
 pub paperpaw_sdk::native::document::Preparation::Preparing
@@ -3986,12 +4001,95 @@ pub paperpaw_sdk::native::document::Preparation::Ready
 pub paperpaw_sdk::native::document::Root::Data = 0
 pub paperpaw_sdk::native::document::Root::Handed = 5
 pub paperpaw_sdk::native::document::Root::Library = 1
+#[non_exhaustive] pub struct paperpaw_sdk::native::document::BlockCell(_)
+impl paperpaw_sdk::native::document::BlockCell
+pub fn paperpaw_sdk::native::document::BlockCell::align(&self) -> paperpaw_document::Align
+pub const fn paperpaw_sdk::native::document::BlockCell::end(&self) -> u32
+pub const fn paperpaw_sdk::native::document::BlockCell::rows(&self) -> u32
+pub const fn paperpaw_sdk::native::document::BlockCell::span(&self) -> u32
+pub const fn paperpaw_sdk::native::document::BlockCell::vertical(&self) -> paperpaw_document::table::VerticalAlign
+pub const fn paperpaw_sdk::native::document::BlockCell::width(&self) -> u32
+pub struct paperpaw_sdk::native::document::BlockCursor
+impl paperpaw_sdk::native::document::BlockCursor
+pub const fn paperpaw_sdk::native::document::BlockCursor::start() -> Self
+pub struct paperpaw_sdk::native::document::BlockFragment<'a>
+impl<'a> paperpaw_sdk::native::document::BlockFragment<'a>
+pub const fn paperpaw_sdk::native::document::BlockFragment<'a>::continuation(&self) -> core::option::Option<paperpaw_sdk::native::document::BlockCursor>
+pub const fn paperpaw_sdk::native::document::BlockFragment<'a>::is_empty(&self) -> bool
+pub const fn paperpaw_sdk::native::document::BlockFragment<'a>::is_first(&self) -> bool
+pub const fn paperpaw_sdk::native::document::BlockFragment<'a>::last_in_section(&self) -> bool
+pub const fn paperpaw_sdk::native::document::BlockFragment<'a>::len(&self) -> usize
+pub const fn paperpaw_sdk::native::document::BlockFragment<'a>::next_block(&self) -> core::option::Option<u32>
+pub fn paperpaw_sdk::native::document::BlockFragment<'a>::records(&self) -> impl core::iter::traits::iterator::Iterator<Item = paperpaw_sdk::native::document::BlockRecord<'a>> + use<'a>
+#[non_exhaustive] pub struct paperpaw_sdk::native::document::BlockHead<'a>(_)
+impl<'a> paperpaw_sdk::native::document::BlockHead<'a>
+pub fn paperpaw_sdk::native::document::BlockHead<'a>::align(&self) -> paperpaw_document::Align
+pub const fn paperpaw_sdk::native::document::BlockHead<'a>::continued(&self) -> bool
+pub const fn paperpaw_sdk::native::document::BlockHead<'a>::continues(&self) -> bool
+pub fn paperpaw_sdk::native::document::BlockHead<'a>::direction(&self) -> paperpaw_lang::Direction
+pub const fn paperpaw_sdk::native::document::BlockHead<'a>::drop_cap(&self) -> u32
+pub const fn paperpaw_sdk::native::document::BlockHead<'a>::end(&self) -> u32
+pub const fn paperpaw_sdk::native::document::BlockHead<'a>::first_row(&self) -> bool
+pub const fn paperpaw_sdk::native::document::BlockHead<'a>::header_row(&self) -> bool
+pub const fn paperpaw_sdk::native::document::BlockHead<'a>::indent(&self) -> core::option::Option<i32>
+pub fn paperpaw_sdk::native::document::BlockHead<'a>::kind(&self) -> paperpaw_document::BlockKind
+pub const fn paperpaw_sdk::native::document::BlockHead<'a>::lang(&self) -> &'a str
+pub const fn paperpaw_sdk::native::document::BlockHead<'a>::last_row(&self) -> bool
+pub const fn paperpaw_sdk::native::document::BlockHead<'a>::line_height(&self) -> core::option::Option<u32>
+pub const fn paperpaw_sdk::native::document::BlockHead<'a>::margins(&self) -> (u32, u32)
+pub const fn paperpaw_sdk::native::document::BlockHead<'a>::size(&self) -> core::option::Option<u32>
+pub const fn paperpaw_sdk::native::document::BlockHead<'a>::space(&self) -> core::option::Option<u32>
+pub const fn paperpaw_sdk::native::document::BlockHead<'a>::start(&self) -> u32
+pub const fn paperpaw_sdk::native::document::BlockHead<'a>::text_bytes(&self) -> u32
+pub fn paperpaw_sdk::native::document::BlockHead<'a>::writing_mode(&self) -> paperpaw_lang::WritingMode
+#[non_exhaustive] pub struct paperpaw_sdk::native::document::BlockImage(_)
+impl paperpaw_sdk::native::document::BlockImage
+pub const fn paperpaw_sdk::native::document::BlockImage::colour(&self) -> bool
+pub const fn paperpaw_sdk::native::document::BlockImage::height(&self) -> u32
+pub const fn paperpaw_sdk::native::document::BlockImage::image(&self) -> u32
+pub const fn paperpaw_sdk::native::document::BlockImage::index(&self) -> u32
+pub const fn paperpaw_sdk::native::document::BlockImage::pending(&self) -> bool
+pub const fn paperpaw_sdk::native::document::BlockImage::width(&self) -> u32
+#[non_exhaustive] pub struct paperpaw_sdk::native::document::BlockMap(_)
+impl paperpaw_sdk::native::document::BlockMap
+pub const fn paperpaw_sdk::native::document::BlockMap::source(&self) -> u32
+pub const fn paperpaw_sdk::native::document::BlockMap::text(&self) -> u32
+#[non_exhaustive] pub struct paperpaw_sdk::native::document::BlockRuby<'a>(_)
+impl<'a> paperpaw_sdk::native::document::BlockRuby<'a>
+pub const fn paperpaw_sdk::native::document::BlockRuby<'a>::end(&self) -> u32
+pub fn paperpaw_sdk::native::document::BlockRuby<'a>::kind(&self) -> paperpaw_document::AnnotationKind
+pub const fn paperpaw_sdk::native::document::BlockRuby<'a>::size(&self) -> u32
+pub const fn paperpaw_sdk::native::document::BlockRuby<'a>::start(&self) -> u32
+pub const fn paperpaw_sdk::native::document::BlockRuby<'a>::text(&self) -> &'a str
+#[non_exhaustive] pub struct paperpaw_sdk::native::document::BlockRun(_)
+impl paperpaw_sdk::native::document::BlockRun
+pub const fn paperpaw_sdk::native::document::BlockRun::end(&self) -> u32
+pub const fn paperpaw_sdk::native::document::BlockRun::start(&self) -> u32
+pub const fn paperpaw_sdk::native::document::BlockRun::style(&self) -> paperpaw_document::TextStyle
+pub struct paperpaw_sdk::native::document::DocCursor
+impl paperpaw_sdk::native::document::DocCursor
+pub const fn paperpaw_sdk::native::document::DocCursor::start() -> Self
 pub struct paperpaw_sdk::native::document::DocId(_)
+pub struct paperpaw_sdk::native::document::DocPage<'a, T>
+impl<'a, T> paperpaw_sdk::native::document::DocPage<'a, T>
+pub const fn paperpaw_sdk::native::document::DocPage<'a, T>::end(&self) -> paperpaw_sdk::native::document::DocPageEnd
+pub const fn paperpaw_sdk::native::document::DocPage<'a, T>::is_empty(&self) -> bool
+pub const fn paperpaw_sdk::native::document::DocPage<'a, T>::len(&self) -> usize
+pub fn paperpaw_sdk::native::document::DocPage<'a, T>::rows(&self) -> impl core::iter::traits::iterator::Iterator<Item = T> + use<'a, T>
+impl<T> core::fmt::Debug for paperpaw_sdk::native::document::DocPage<'_, T>
+pub fn paperpaw_sdk::native::document::DocPage<'_, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct paperpaw_sdk::native::document::DocPageEnd
+impl paperpaw_sdk::native::document::DocPageEnd
+pub const fn paperpaw_sdk::native::document::DocPageEnd::next(self) -> core::option::Option<paperpaw_sdk::native::document::DocCursor>
+pub const fn paperpaw_sdk::native::document::DocPageEnd::total(self) -> u32
 #[non_exhaustive] pub struct paperpaw_sdk::native::document::DocPosition
 pub paperpaw_sdk::native::document::DocPosition::offset: u32
 pub paperpaw_sdk::native::document::DocPosition::section: u32
 impl paperpaw_sdk::native::document::DocPosition
 pub const fn paperpaw_sdk::native::document::DocPosition::new(u32, u32) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::document::DocSpan
+impl paperpaw_sdk::native::document::DocSpan
+pub const fn paperpaw_sdk::native::document::DocSpan::new(u32, core::ops::range::Range<u32>) -> Self
 pub struct paperpaw_sdk::native::document::DocState<'a>(_)
 impl<'a> paperpaw_sdk::native::document::DocState<'a>
 pub const fn paperpaw_sdk::native::document::DocState<'a>::cache_made_now(&self) -> bool
@@ -4022,6 +4120,8 @@ pub const fn paperpaw_sdk::native::document::DocTextQuery::subject(u32) -> Self
 pub const fn paperpaw_sdk::native::document::DocTextQuery::title() -> Self
 pub struct paperpaw_sdk::native::document::Documents
 impl paperpaw_sdk::native::document::Documents
+pub fn paperpaw_sdk::native::document::Documents::block_at<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, paperpaw_sdk::native::document::DocPosition, paperpaw_sdk::native::document::BlockCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::BlockFragment<'a>, paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::document::Documents
 pub fn paperpaw_sdk::native::document::Documents::close(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::document::Documents::locate(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, &str, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::DocPosition, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::document::Documents::open(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<Self, paperpaw_sdk::native::Error>
@@ -4032,6 +4132,11 @@ pub fn paperpaw_sdk::native::document::Documents::xpointer<'a>(&self, &paperpaw_
 impl paperpaw_sdk::native::document::Documents
 pub fn paperpaw_sdk::native::document::Documents::format_for<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::Root, &str, bool, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::Format<'a>, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::document::Documents::formats<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::FormatCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::FormatPage<'a>, paperpaw_sdk::native::Error>
+impl paperpaw_sdk::native::document::Documents
+pub fn paperpaw_sdk::native::document::Documents::link_target(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, &str, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::DocPosition, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::document::Documents::links<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, paperpaw_sdk::native::document::DocSpan, paperpaw_sdk::native::document::DocCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::DocPage<'a, paperpaw_sdk::native::document::Link<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::document::Documents::toc<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, paperpaw_sdk::native::document::DocCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::DocPage<'a, paperpaw_sdk::native::document::TocEntry<'a>>, paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::document::Documents::toc_target(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, u32, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::DocPosition, paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::document::Documents
 pub fn paperpaw_sdk::native::document::Documents::metadata<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::Metadata<'a>, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::document::Documents::text<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, paperpaw_sdk::native::document::DocTextQuery, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::DocTextPart<'a>, paperpaw_sdk::native::Error>
@@ -4056,6 +4161,12 @@ pub struct paperpaw_sdk::native::document::FormatPageEnd
 impl paperpaw_sdk::native::document::FormatPageEnd
 pub const fn paperpaw_sdk::native::document::FormatPageEnd::next(self) -> core::option::Option<paperpaw_sdk::native::document::FormatCursor>
 pub const fn paperpaw_sdk::native::document::FormatPageEnd::total(self) -> u32
+#[non_exhaustive] pub struct paperpaw_sdk::native::document::Link<'a>(_)
+impl<'a> paperpaw_sdk::native::document::Link<'a>
+pub const fn paperpaw_sdk::native::document::Link<'a>::end(&self) -> u32
+pub const fn paperpaw_sdk::native::document::Link<'a>::href(&self) -> &'a str
+pub const fn paperpaw_sdk::native::document::Link<'a>::kind(&self) -> paperpaw_sdk::native::document::LinkKind
+pub const fn paperpaw_sdk::native::document::Link<'a>::start(&self) -> u32
 pub struct paperpaw_sdk::native::document::Metadata<'a>(_)
 impl<'a> paperpaw_sdk::native::document::Metadata<'a>
 pub const fn paperpaw_sdk::native::document::Metadata<'a>::authors(&self) -> u32
@@ -4102,6 +4213,14 @@ pub struct paperpaw_sdk::native::document::ReaderPageEnd
 impl paperpaw_sdk::native::document::ReaderPageEnd
 pub const fn paperpaw_sdk::native::document::ReaderPageEnd::next(self) -> core::option::Option<paperpaw_sdk::native::document::ReaderCursor>
 pub const fn paperpaw_sdk::native::document::ReaderPageEnd::total(self) -> u32
+#[non_exhaustive] pub struct paperpaw_sdk::native::document::TocEntry<'a>(_)
+impl<'a> paperpaw_sdk::native::document::TocEntry<'a>
+pub const fn paperpaw_sdk::native::document::TocEntry<'a>::approximate(&self) -> bool
+pub const fn paperpaw_sdk::native::document::TocEntry<'a>::index(&self) -> u32
+pub const fn paperpaw_sdk::native::document::TocEntry<'a>::level(&self) -> u32
+pub const fn paperpaw_sdk::native::document::TocEntry<'a>::position(&self) -> paperpaw_sdk::native::document::DocPosition
+pub const fn paperpaw_sdk::native::document::TocEntry<'a>::title(&self) -> &'a str
+pub const fn paperpaw_sdk::native::document::TocEntry<'a>::title_cut(&self) -> bool
 pub const paperpaw_sdk::native::document::MAX_OPTIONS: usize
 pub mod paperpaw_sdk::native::events
 pub mod paperpaw_sdk::native::events::kinds
