@@ -46,6 +46,7 @@ impl PluginJob for PluginJobs {
     fn kind(&self) -> u32 {
         each!(self, job => job.kind())
     }
+    #[inline(never)]
     fn step(&mut self, env: &JobEnv<'_>) -> JobStep {
         each!(self, job => job.step(env))
     }

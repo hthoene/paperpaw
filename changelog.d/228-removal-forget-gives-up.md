@@ -1,0 +1,2 @@
+### Fixed
+- A plugin removal with its data whose secrets the host cannot forget no longer keeps its journal, and with it every later install, waiting for ever: after three starts in a row the removal is finished without forgetting. Its id is kept in `plugins/.unforgotten` (at most 8): the host tries again at every start, a plugin of that id is not installed until it has forgotten the secrets, and the user is told, naming the plugin (en/de). The grants of a removed plugin are all forgotten, whatever came of its secrets, not the first eight.
