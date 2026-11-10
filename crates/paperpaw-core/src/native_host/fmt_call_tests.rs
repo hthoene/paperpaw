@@ -78,6 +78,8 @@ fn call(op: u32) -> FormatCall<'static> {
         conversion: 0x1122_3344_5566_7788,
         text: "",
         options: Options::NONE,
+        css_root: 0,
+        css_path: "",
     };
     call.op = op;
     call
@@ -106,8 +108,10 @@ fn go_sized(
     let k = kernel();
     let env = k.shared.env(paperpaw_platform::Instant(0));
     let stage = Stage {
-        registry: &h.registry,
-        env: &env,
+        route: &Registry {
+            registry: &h.registry,
+            env: &env,
+        },
         images,
     };
     let mut out = vec![0_u8; size];
@@ -336,8 +340,10 @@ fn the_formats_own_failures_pass_through() {
     let k = kernel();
     let env = k.shared.env(paperpaw_platform::Instant(0));
     let stage = Stage {
-        registry: &h.registry,
-        env: &env,
+        route: &Registry {
+            registry: &h.registry,
+            env: &env,
+        },
         images: &images(Ok(None)),
     };
     let mut out = vec![0_u8; 4096];
@@ -427,8 +433,10 @@ fn sniff_says_yes_or_not_mine_and_close_never_fails() {
         let env = k.shared.env(paperpaw_platform::Instant(0));
         let mapper = images(Ok(None));
         let stage = Stage {
-            registry: &h.registry,
-            env: &env,
+            route: &Registry {
+                registry: &h.registry,
+                env: &env,
+            },
             images: &mapper,
         };
         let mut out = vec![0_u8; 4096];

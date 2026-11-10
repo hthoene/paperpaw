@@ -168,7 +168,16 @@ esp_bootloader_esp_idf::esp_app_desc!(
 /// Bluetooth takes of the same memory for good, and less the X4's arena
 /// for plugins' hot code, which the heap gets once plugins are loaded as
 /// far as they did not take it (`native::HOT_ARENA_LEN`).
-const HEAP_SIZE: usize = (192 - BLUETOOTH_KB) * 1024 - native::HOT_ARENA_LEN;
+const HEAP_SIZE: usize = (192 - BLUETOOTH_KB - S3_BAND_KB) * 1024 - native::HOT_ARENA_LEN;
+/// The ESP32-S3's band at the stack's end and its reserve, in KB, where
+/// interface-7 plugins are built in (`ppn5`): the stack grows by as much (the
+/// heap gives it, `build.rs` checks the stack's size). 16 KB: 14,336 bytes of
+/// reserve and the band's 2,048 (`paperpaw_x4::s3_band::SPARE`).
+const S3_BAND_KB: usize = if cfg!(all(target_arch = "xtensa", feature = "ppn5")) {
+    (paperpaw_x4::s3_band::SPARE / 1024) as usize
+} else {
+    0
+};
 /// Bluetooth's fixed share of the internal RAM, in KB, as measured: its
 /// controller's code in IRAM (20.6 KB) and statics (4.4 KB). The stack,
 /// after them, would lose it: the heap gives it back (`build.rs` checks

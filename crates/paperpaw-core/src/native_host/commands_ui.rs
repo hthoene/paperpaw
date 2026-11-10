@@ -446,9 +446,18 @@ impl crate::Kernel {
             let Some(index) = self.stack.iter().position(|active| {
                 active.serial == change.instance && active.id.namespace() == owner.as_str()
             }) else {
-                self.warn_runtime("native screen policy dropped: its screen is gone");
+                self.warn_runtime(if change.ready {
+                    "native screen_ready dropped: its screen is gone"
+                } else {
+                    "native screen policy dropped: its screen is gone"
+                });
                 continue;
             };
+            if change.ready {
+                // Not a policy: the screen says it is ready (ui.md 7).
+                self.native_command_ready(index);
+                continue;
+            }
             let turns_on = change.flags & POLICY_GUARDS != 0 && !self.stack[index].guards();
             if turns_on
                 && crate::native_host::ui_guard::guard_on_allowed(

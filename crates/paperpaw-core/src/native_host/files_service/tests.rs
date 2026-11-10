@@ -685,6 +685,10 @@ pub(super) fn with<R>(
                     kind,
                     opened,
                     document: 1,
+                    cache: "",
+                    css: "",
+                    cache_cap: 0,
+                    quota: None,
                 },
             )
             .unwrap()
