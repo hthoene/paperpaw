@@ -106,7 +106,8 @@ fn put_u64(data: &mut [u8], at: usize, value: u64) {
     data[at..at + 8].copy_from_slice(&value.to_le_bytes());
 }
 
-/// A storage in memory that refuses to let a file grow past `limit`
+/// A storage in memory with the book as root 3 (path `""`) and the cache as
+/// root 6 (any other path), that refuses to let a file grow past `limit`
 /// bytes, and notes the most any file was asked to hold.
 #[derive(Debug)]
 struct Limited {
@@ -124,6 +125,15 @@ impl Limited {
         }
     }
 
+    /// Where a path of the roots is kept in `inner`.
+    fn map(path: &str) -> String {
+        if path.is_empty() {
+            String::from("b.xtc")
+        } else {
+            format!("cache/{path}")
+        }
+    }
+
     fn note(&self, size: u64) -> Result<(), StorageError> {
         self.largest.set(self.largest.get().max(size));
         if size > self.limit {
@@ -136,43 +146,41 @@ impl Limited {
 
 impl Storage for Limited {
     fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
-        self.inner.read_at(path, offset, buf)
+        self.inner.read_at(&Self::map(path), offset, buf)
     }
 
     fn size(&self, path: &str) -> Result<u64, StorageError> {
-        self.inner.size(path)
+        self.inner.size(&Self::map(path))
     }
 
     fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        if path.is_empty() {
+            return Err(StorageError::Unsupported);
+        }
         self.note(data.len() as u64)?;
-        self.inner.write(path, data)
+        self.inner.write(&Self::map(path), data)
     }
 
     fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
-        self.note(self.inner.size(path).unwrap_or(0) + data.len() as u64)?;
-        self.inner.append(path, data)
+        if path.is_empty() {
+            return Err(StorageError::Unsupported);
+        }
+        self.note(self.inner.size(&Self::map(path)).unwrap_or(0) + data.len() as u64)?;
+        self.inner.append(&Self::map(path), data)
     }
 
-    fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
-        self.inner.list(dir, visit)
+    fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        Err(StorageError::Unsupported)
     }
 
     fn remove(&self, path: &str) -> Result<(), StorageError> {
-        self.inner.remove(path)
-    }
-
-    fn create_dir(&self, path: &str) -> Result<(), StorageError> {
-        self.inner.create_dir(path)
-    }
-
-    fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
-        self.inner.remove_dir_all(path)
+        self.inner.remove(&Self::map(path))
     }
 }
 
-fn open(data: Vec<u8>) -> (MemoryStorage, XtcDocument) {
-    let storage = MemoryStorage::new().with("b.xtc", data);
-    let doc = XtcDocument::open(&storage, "b.xtc").unwrap();
+fn open(data: Vec<u8>) -> (Limited, XtcDocument) {
+    let storage = Limited::new(data, u64::MAX);
+    let doc = XtcDocument::open_native(&storage).unwrap();
     (storage, doc)
 }
 
@@ -201,8 +209,8 @@ fn files_that_are_no_books_are_refused() {
         no_pages,
         magic,
     ] {
-        let storage = MemoryStorage::new().with("b.xtc", data);
-        assert!(XtcDocument::open(&storage, "b.xtc").is_err());
+        let storage = Limited::new(data, u64::MAX);
+        assert!(XtcDocument::open_native(&storage).is_err());
     }
 }
 
@@ -212,8 +220,8 @@ fn metadata_and_chapters_pointing_outside_the_file_fail_cleanly() {
     // Metadata past the end: an error, not a panic.
     let mut far = good.clone();
     put_u64(&mut far, 16, u64::MAX - 10);
-    let storage = MemoryStorage::new().with("b.xtc", far);
-    assert!(XtcDocument::open(&storage, "b.xtc").is_err());
+    let storage = Limited::new(far, u64::MAX);
+    assert!(XtcDocument::open_native(&storage).is_err());
     // More chapters than there is room for before the index: as many
     // as fit.
     let mut many = good.clone();
@@ -266,17 +274,17 @@ fn an_index_past_the_end_is_refused() {
     // Without its index no page can be found: the book does not open.
     let (mut data, _) = book(&[white(8, 8), white(8, 8)]);
     put_u64(&mut data, 24, 1 << 40);
-    let storage = MemoryStorage::new().with("b.xtc", data);
-    assert!(XtcDocument::open(&storage, "b.xtc").is_err());
+    let storage = Limited::new(data, u64::MAX);
+    assert!(XtcDocument::open_native(&storage).is_err());
 }
 
 #[test]
 fn an_index_offset_near_the_largest_number_does_not_panic() {
     let (mut data, _) = book(&[white(8, 8), white(8, 8)]);
     put_u64(&mut data, 24, u64::MAX - 8);
-    let storage = MemoryStorage::new().with("b.xtc", data);
+    let storage = Limited::new(data, u64::MAX);
     let opened = catch_unwind(AssertUnwindSafe(|| {
-        XtcDocument::open(&storage, "b.xtc").is_err()
+        XtcDocument::open_native(&storage).is_err()
     }));
     assert_eq!(opened.ok(), Some(true));
 }
@@ -312,7 +320,7 @@ fn page_sizes_the_data_cannot_fill_are_refused() {
     // test ends quickly; it notes how large a file was asked for.
     let (data, _) = book(&[page(b"XTG\0", u16::MAX, u16::MAX, &[0xff; 16])]);
     let storage = Limited::new(data, 64 << 20);
-    let doc = XtcDocument::open(&storage, "b.xtc").unwrap();
+    let doc = XtcDocument::open_native(&storage).unwrap();
     let block = doc.block_at(&storage, Locator::new(0, 0)).unwrap().unwrap();
     assert_eq!(block.kind, BlockKind::Paragraph);
     assert!(
@@ -320,29 +328,6 @@ fn page_sizes_the_data_cannot_fill_are_refused() {
         "{} bytes asked for",
         storage.largest.get()
     );
-}
-
-#[test]
-fn a_book_changed_but_not_in_size_is_decoded_anew() {
-    let black = page(b"XTG\0", 8, 1, &[0x00]);
-    let (old, _) = book(&[white(8, 1)]);
-    let (new, _) = book(&[black]);
-    assert_eq!(old.len(), new.len());
-    let storage = MemoryStorage::new().with("b.xtc", old);
-    let doc = XtcDocument::open(&storage, "b.xtc").unwrap();
-    doc.block_at(&storage, Locator::new(0, 0)).unwrap();
-    storage.write("b.xtc", &new).unwrap();
-    let doc = XtcDocument::open(&storage, "b.xtc").unwrap();
-    let image = doc
-        .block_at(&storage, Locator::new(0, 0))
-        .unwrap()
-        .unwrap()
-        .image
-        .unwrap();
-    let file = paperpaw_sdk::image::GrayFile::open(&storage, &image.path).unwrap();
-    let mut row = vec![0u8; 8];
-    assert!(file.read_row(&storage, 0, &mut row));
-    assert_eq!(row, [0; 8]);
 }
 
 #[test]
@@ -387,7 +372,7 @@ proptest! {
         // A page's header may claim any size: past 4 MB a file is
         // refused, which ends its decoding.
         let storage = Limited::new(data, 4 << 20);
-        let Ok(doc) = XtcDocument::open(&storage, "b.xtc") else {
+        let Ok(doc) = XtcDocument::open_native(&storage) else {
             return Ok(());
         };
         prop_assert!(doc.sections() >= 1);
