@@ -712,6 +712,9 @@ pub fn changed(book: &str) -> Command {
 }
 
 mod read;
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+pub mod write;
 pub use read::{
     FILE_VERSION, Head, KEY_MAX, LINE_MAX, Part, Row, Window, Windows, generation_of, is_row,
     next_generation, try_head, try_rows,
