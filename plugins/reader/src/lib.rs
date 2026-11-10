@@ -62,6 +62,10 @@ pub mod native_state;
 mod native_tests;
 pub mod native_typeset;
 pub mod native_view;
+pub mod native_links;
+pub mod native_marking;
+pub mod native_selection;
+pub mod native_wordbox;
 pub mod native_words;
 
 /// The codec of the reader's own stage schemas (`stages/*.def`, made by
