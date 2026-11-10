@@ -24,13 +24,14 @@ const CASES: [Case; 3] = [
         golden: None,
         blocked_by: &["H2"],
     },
-    // Every font's name and the sample sentence drawn in the font's own face,
-    // from a sample pack downloaded at run time: fonts are declared in the
-    // plugin's metadata (`resource.font_face`), none can be loaded later.
+    // The sample sentence on a font's page drawn in the font's own face, from a
+    // sample pack downloaded to the data folder (`Font::acquire_data`). The
+    // path, characters and address are tested without a host (`native_sample`);
+    // the drawing needs a hosted run with a catalog and the network.
     Case {
         name: "fonts-browser-samples",
         golden: None,
-        blocked_by: &["FONT-runtime"],
+        blocked_by: &["H1", "H4"],
     },
 ];
 
@@ -57,7 +58,7 @@ fn fonts_browser_install() {
 }
 
 #[test]
-#[ignore = "BLOCKED FONT-runtime: no host path to draw with a font loaded at run time"]
+#[ignore = "BLOCKED H1/H4: native screens and input are not qualified, no hosted run with a catalog"]
 fn fonts_browser_samples() {
     CASES[2].refuse().unwrap();
 }

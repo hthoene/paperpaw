@@ -62,12 +62,39 @@ interface-7 port uses it, none builds its own.
   X4 list (unmeasured): the favourites read each of up to 24 books with `library.book` when the
   catalog's generation changes (once per generation, not per draw); two Series widgets with
   different names share one cache, so each draw of one re-reads the library for its own series.
+- Next up (`native_next`, token 118): the book to read next by the reader's pick (the next book of the
+  series of the book being read that was not begun, the newest new book, or an unread one by chance,
+  another each day), its cover (left where the place is wide, else above the text, left out where
+  too small), the caption, title (as large as the size setting allows, wrapped), author and series
+  where they fit (the series, then the author, then the caption go first). A tap opens the book, or the
+  library where there is none. Differences: which books are new is the catalog's (`Show::New`: added
+  lately and never opened), so the interface-6 files `seen.bits` and `newest.txt` are gone and the
+  first run after porting finds no "newest" backlog; the chance picks among the first page of the
+  unread books (at most 32) the day's lowest scores, the first whose file is on the card. The series pick
+  skips a book once it is opened (the catalog's `opened()`), where Beta 3 counted a book as begun only with
+  a progress above 0.
+- Book progress (`native_progress`, token 119; shares `native_block` with Next up and `native_current` with
+  Reading): the book being read is the one the library lists as opened last whose file is on the card
+  (read once per catalog generation, up to 8 candidates). Styles: cover beside a ring, ring round a small
+  cover, ring alone, bar below the title; where the place is too small for a ring the percentage stands
+  alone or beside the title. A tap opens the book, or the library where none was read.
+- Now reading (`native_reading` and `native_recorder`, token 120): cover, title, author, a bar and the page
+  and percentage ("Page 34 of 210 · 16 %", else "34/210 · 16 %", else "34/210"), the time left at one's
+  speed and the chapter, giving way in the order time left, heading, author, bar, chapter, page. The page,
+  the pages, the chapter and the speed are recorded from the reading events (book opened, page turned,
+  book closed, suspend, stopping; one subscription token, 2) in `reading.ini` of the plugin's data
+  folder (the file of interface 6 is read as it is). Differences: the pages left in the chapter (and
+  the time they take) are not shown yet, because the reading position of interface 7 carries no chapter
+  end: pending on Kernel's `chapter_left` field of `ReadingView`. The setting `chapter-left` stays declared
+  (it does nothing for now) and its texts stay in the catalogs, so the line comes back without a settings change; the chapter's
+  title stays on one line, shortened, where interface 6 broke it in several; the title is set in the
+  space the other parts leave. The plugin is woken on every page turn (it subscribes to the reading events to record
+  them): put it on the X4 page-turn timing list (unmeasured). If Kernel's `chapter_left` (todo 446) misses
+  1.0, drop the inert `chapter-left` setting. Host acceptance (the reading events delivered to this plugin, H1/H3) is pending.
 
 ## Not ported yet (explicit)
 
-The words family's picture widget (Port D) and `progress`, `reading` and `next` of the
-books family (they draw book covers; the image slots 36/37 and the SDK facade are on integration, so
-they are not waiting for the host). The interface-6 pack stays in `src/` until every widget is ported; then the last
+The words family's picture widget (Port D). The interface-6 pack stays in `src/` until every widget is ported; then the last
 commit deletes it, its app wiring and its tests together (no shim).
 Ported from the words family so far: greeting (by time of day) and
 note (tap asks for a text with `core.ui`; host acceptance pending H1/H2/H4).
