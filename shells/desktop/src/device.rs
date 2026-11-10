@@ -251,9 +251,10 @@ pub struct Device {
     /// (`--abi7-dev-loader`): none by default. Kept, not applied (S2).
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     abi7: crate::native_runtime::DevPlugins,
-    /// The clock and network `core.work` reads, written by [`Device::now`].
-    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
-    work_view: Rc<crate::linked::DeviceView>,
+    /// What the linked native plugins are registered with (the card's second
+    /// handle, the clock and network `core.work` reads, written by
+    /// [`Device::now`]): kept for every restart.
+    linked: LinkedInputs,
 }
 
 /// What the registration of the linked native plugins is given besides the
@@ -380,8 +381,7 @@ impl Device {
             wifi_online: WIFI_ONLINE.load(std::sync::atomic::Ordering::Relaxed),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             abi7: crate::native_runtime::DevPlugins::default(),
-            #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
-            work_view: linked.view.clone(),
+            linked,
             asleep: false,
             rotation,
             wall: None,
@@ -427,7 +427,8 @@ impl Device {
             Clock::Simulated(ms) => Instant(ms),
         };
         #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
-        self.work_view
+        self.linked
+            .view
             .set(now.0, !self.profile.wifi || self.wifi.is_online());
         now
     }
@@ -999,6 +1000,7 @@ impl Device {
             storage,
             self.rotation,
             self.add,
+            &self.linked,
         ) {
             Ok(new) => {
                 let kernel = &mut self.kernel;
