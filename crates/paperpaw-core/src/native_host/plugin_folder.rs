@@ -14,11 +14,20 @@
 //!   or more than [`DIRS_MAX`] folders end it with reason 4.
 //! * **Bytes** are the sum of the sizes of the files, which is what lands
 //!   on the card.
-//! * **The manifest** is read whole (at most [`MANIFEST_MAX`] bytes, one
-//!   fallible reservation) and its `[plugin]` section read as the loader does.
+//! * **The manifest** is read whole into the job's I/O buffer (at most
+//!   [`MANIFEST_MAX`] bytes, the buffer's size) and its `[plugin]` section read
+//!   as the loader does.
+//! * **Names** follow `install::is_safe_path`, the rule of interface 6's
+//!   local install: a dot file (`._x`, `.DS_Store`) or an unsafe name in the
+//!   folder ends it with reason 4, as it did there.
+//! * **Links** (a desktop shell's symlinks) are not told apart here: a shell
+//!   lists what a card holds. The desktop rule of #786 R1 applies before the
+//!   desktop shell serves installs.
 use alloc::{string::String, vec::Vec};
 use paperpaw_platform::{Storage, StorageError, firmware::Text};
 use paperpaw_sdk::{Version, install, native::CODE_FILES};
+
+use super::files_service::same_fold;
 
 use super::plugin_job::{ID_MAX, NAME_MAX, VERSION_MAX, reason};
 
@@ -53,6 +62,9 @@ pub(crate) enum Walked {
     Refused(u8),
 }
 
+/// The longest name of [`CODE_FILES`] (15 bytes) with room to spare.
+const CODE_NAME_MAX: usize = 16;
+
 /// The walk over one source folder.
 pub(crate) struct Walk {
     root: String,
@@ -61,6 +73,9 @@ pub(crate) struct Walk {
     at: usize,
     place: u64,
     found: Found,
+    /// The name the top-level code file has on the card (a FAT lists the
+    /// case it was stored in, which may not be the one of [`CODE_FILES`]).
+    code_name: Text<CODE_NAME_MAX>,
 }
 
 impl Walk {
@@ -81,6 +96,7 @@ impl Walk {
             dirs,
             at: 0,
             place: 0,
+            code_name: Text::new(""),
             found: Found {
                 files: 0,
                 bytes: 0,
@@ -97,6 +113,38 @@ impl Walk {
 
     pub(crate) fn root(&self) -> &str {
         &self.root
+    }
+
+    /// The code file's name as the card lists it.
+    pub(crate) fn code_name(&self) -> &str {
+        self.code_name.as_str()
+    }
+
+    /// Takes over what one listed piece found and moves on.
+    fn settle(
+        &mut self,
+        next: Option<u64>,
+        found: Found,
+        code_name: Option<Text<CODE_NAME_MAX>>,
+        subdirs: Vec<String>,
+    ) -> Walked {
+        self.found = found;
+        if let Some(name) = code_name {
+            self.code_name = name;
+        }
+        self.dirs.extend(subdirs);
+        match next {
+            Some(place) => self.place = place,
+            None => {
+                self.at += 1;
+                self.place = 0;
+            }
+        }
+        if self.at >= self.dirs.len() {
+            Walked::Done(self.found)
+        } else {
+            Walked::More
+        }
     }
 
     /// One piece of the folder being listed.
@@ -119,6 +167,7 @@ impl Walk {
         let mut failed: Option<u8> = None;
         let mut subdirs: Vec<String> = Vec::new();
         let mut found = self.found;
+        let mut code_name = None;
         let top = rel.is_empty();
         let known = self.dirs.len();
         let listed = storage.list_from(&path, self.place, &mut |entry| {
@@ -155,15 +204,20 @@ impl Walk {
                 failed = Some(reason::DAMAGED);
                 return false;
             }
-            if top && entry.name == "plugin.ini" {
+            // FAT finds a name whatever its case, so does this.
+            if top && same_fold(entry.name, "plugin.ini") {
                 found.manifest = true;
             }
-            if top && let Some(index) = CODE_FILES.iter().position(|code| *code == entry.name) {
+            if top
+                && let Some(index) = CODE_FILES
+                    .iter()
+                    .position(|code| same_fold(code, entry.name))
+            {
                 // `code.ppn` is the one this device reads; it wins.
-                found.code = match found.code {
-                    Some(0) => Some(0),
-                    _ => Some(index),
-                };
+                if found.code != Some(0) {
+                    found.code = Some(index);
+                    code_name = Some(Text::new(entry.name));
+                }
             }
             true
         });
@@ -171,22 +225,7 @@ impl Walk {
             return Walked::Refused(reason);
         }
         match listed {
-            Ok(next) => {
-                self.found = found;
-                self.dirs.extend(subdirs);
-                match next {
-                    Some(place) => self.place = place,
-                    None => {
-                        self.at += 1;
-                        self.place = 0;
-                    }
-                }
-                if self.at >= self.dirs.len() {
-                    Walked::Done(self.found)
-                } else {
-                    Walked::More
-                }
-            }
+            Ok(next) => self.settle(next, found, code_name, subdirs),
             // A path that names nothing, or a file: not a plugin folder.
             Err(StorageError::NotFound | StorageError::InvalidPath) => {
                 Walked::Refused(reason::DAMAGED)
@@ -194,6 +233,15 @@ impl Walk {
             Err(StorageError::OutOfMemory) => Walked::Refused(reason::OTHER),
             Err(_) => Walked::Refused(reason::CARD),
         }
+    }
+}
+
+/// The reason a card error ends with: no memory is 1, not a card error.
+fn card_reason(error: StorageError) -> u8 {
+    match error {
+        StorageError::OutOfMemory => reason::OTHER,
+        StorageError::NotFound => reason::DAMAGED,
+        _ => reason::CARD,
     }
 }
 
@@ -218,32 +266,28 @@ pub(crate) fn read_manifest(
     storage: &dyn Storage,
     root: &str,
     folder: &str,
+    buf: &mut [u8],
 ) -> Result<Manifest, u8> {
     let mut path = String::new();
     path.try_reserve_exact(root.len() + 11)
         .map_err(|_| reason::OTHER)?;
     path.push_str(root);
     path.push_str("/plugin.ini");
-    let size = storage.size(&path).map_err(|error| match error {
-        StorageError::NotFound => reason::DAMAGED,
-        _ => reason::CARD,
-    })?;
+    let size = storage.size(&path).map_err(card_reason)?;
     if size > MANIFEST_MAX as u64 {
         return Err(reason::DAMAGED);
     }
-    let mut data: Vec<u8> = Vec::new();
-    data.try_reserve_exact(size as usize)
-        .map_err(|_| reason::OTHER)?;
-    data.resize(size as usize, 0);
+    // Read into the job's buffer: no second 4 KiB beside it.
+    let data = buf.get_mut(..size as usize).ok_or(reason::OTHER)?;
     let mut at = 0;
     while at < data.len() {
         match storage.read_at(&path, at as u64, &mut data[at..]) {
             Ok(0) => return Err(reason::CARD),
             Ok(n) => at += n,
-            Err(_) => return Err(reason::CARD),
+            Err(error) => return Err(card_reason(error)),
         }
     }
-    let source = core::str::from_utf8(&data).map_err(|_| reason::DAMAGED)?;
+    let source = core::str::from_utf8(data).map_err(|_| reason::DAMAGED)?;
     let (mut id, mut name, mut version) = (None, None, None);
     for entry in paperpaw_config::parse(source) {
         let entry = entry.map_err(|_| reason::DAMAGED)?;
