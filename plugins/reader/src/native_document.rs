@@ -30,6 +30,10 @@ pub const REPLY_BYTES: usize = 4096;
 /// What one step of reading a block ended in.
 #[derive(Debug)]
 #[non_exhaustive]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "made once per block and moved out at once; a box would be an infallible allocation"
+)]
 pub enum Next {
     /// The block goes on: ask again with this cursor.
     More(BlockCursor),
