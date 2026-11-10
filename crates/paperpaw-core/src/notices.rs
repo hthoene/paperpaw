@@ -1,7 +1,8 @@
 //! The notices that wait (`docs/abi/ui.md` section 7, "Messages"): a notice
 //! is shown one at a time, over any screen, and never over a guarding
 //! instance; those that come meanwhile wait in the order they came, at most
-//! four (two on the X4), the oldest dropped when one more comes.
+//! four (two on the X4), the oldest dropped when one more comes. Without a
+//! guard a new notice replaces the one on screen.
 use alloc::collections::VecDeque;
 use alloc::string::String;
 use paperpaw_platform::MemoryClass;
