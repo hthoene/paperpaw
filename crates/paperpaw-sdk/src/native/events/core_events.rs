@@ -28,6 +28,7 @@ macro_rules! book {
             chapter: $r.chapter,
             page: $r.page,
             pages: $r.pages,
+            chapter_left: $r.chapter_left,
         }
         .validate()?;
         let kind = BookKind::$kind;

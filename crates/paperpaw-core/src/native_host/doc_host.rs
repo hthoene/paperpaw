@@ -63,6 +63,8 @@ const FOLDER: u32 = 1 << 2;
 /// What an open document's reader hold needs to be given back.
 struct Book {
     document: u32,
+    /// The root the book was opened on (1: a book of the library).
+    root: u32,
     /// The path as the host named it to the in-use table (root 1: the card
     /// path); empty when the book is not held.
     ///
@@ -142,6 +144,8 @@ pub(crate) struct DocState {
     /// event whose owner does not run stays queued without asking again, so
     /// an idle device is not woken for it.
     fresh: Cell<bool>,
+    /// The reading session and the events it raises (`doc_reading.rs`).
+    reading: super::doc_reading::Reading,
 }
 
 /// Nothing is drawn from a format's picture yet: it is left out.
@@ -191,6 +195,7 @@ impl DocState {
             storage: None,
             cache_cap: limits.cache_bytes(),
             fresh: Cell::new(false),
+            reading: super::doc_reading::Reading::new(),
         })
     }
 
@@ -274,6 +279,7 @@ impl DocState {
         }
         books.push(Book {
             document,
+            root,
             path: copy,
             held,
             maker: 0,
@@ -282,7 +288,10 @@ impl DocState {
         Ok(())
     }
 
-    fn reader_closed(&self, document: u32) {
+    /// The document ended at `now_ms`: its reading session (if it had one)
+    /// ends, and the reader hold is given back.
+    fn reader_closed_at(&self, document: u32, now_ms: u64) {
+        self.reading.document_ended(now_ms, document);
         let Ok(mut books) = self.books.try_borrow_mut() else {
             return;
         };
@@ -392,7 +401,7 @@ macro_rules! frameless {
             self.state().next_event(owner, out)
         }
         fn events_waiting(&self) -> bool {
-            self.state().fresh.get()
+            self.state().fresh.get() || self.state().reading.waiting()
         }
         fn set_now(&self, now_ms: u64) {
             // The pass that takes the events starts here: what was raised
@@ -400,8 +409,11 @@ macro_rules! frameless {
             self.state().fresh.set(false);
             self.state().now.set(now_ms);
         }
-        fn reader_closed(&self, document: u32) {
-            self.state().reader_closed(document);
+        fn take_reading_edge(&self) -> Option<super::doc_reading::Edge> {
+            self.state().reading.take_edge()
+        }
+        fn reading_sleep(&self, now_ms: u64) {
+            self.state().reading.sleep(now_ms);
         }
         fn handed_maker(&self, document: u32, maker: u64) {
             if let Ok(mut books) = self.state().books.try_borrow_mut()
@@ -457,6 +469,10 @@ impl super::doc_service::DocHost for DocState {
     fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
         self.hold_book(document, root, path, None)
     }
+    fn reader_closed(&self, document: u32) {
+        // Without a frame the pump's clock stamps the close of a session.
+        self.reader_closed_at(document, self.now.get());
+    }
     fn root_access(&self, _root: u32) -> Result<(), i32> {
         Err(ERR_UNSUPPORTED)
     }
@@ -505,6 +521,14 @@ struct Bound<'a> {
 }
 
 impl Bound<'_> {
+    /// The kernel's clock now, milliseconds (the pump's where the frame has
+    /// no environment).
+    fn clock(&self) -> u64 {
+        self.frame
+            .kernel_env()
+            .map_or_else(|| self.state.now.get(), |env| env.now().millis())
+    }
+
     fn state(&self) -> &DocState {
         self.state
     }
@@ -822,6 +846,17 @@ impl Bound<'_> {
         Err(ERR_NOT_FOUND)
     }
 
+    /// Whether the caller's plugin declares a reading app.
+    fn declares_reader(&self) -> bool {
+        let mut declares = false;
+        let _ = self.frame.with_declarations(&mut |any| {
+            if let Some(store) = any.downcast_ref::<super::declaration_store::DeclarationStore>() {
+                store.each_reader(&mut |reader| declares |= reader.plugin == self.who.plugin);
+            }
+        });
+        declares
+    }
+
     fn translate_format<'r>(&'r self, row: Record<'r>) -> Record<'r> {
         match row {
             Record::ServiceDocFormat(format) => Record::ServiceDocFormat(wire::ServiceDocFormat {
@@ -841,6 +876,28 @@ impl super::doc_service::DocHost for Bound<'_> {
     fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
         self.state
             .hold_book(document, root, path, Some(self.who.plugin))
+    }
+    fn reader_closed(&self, document: u32) {
+        self.state.reader_closed_at(document, self.clock());
+    }
+    fn reading_report(
+        &self,
+        document: &Document,
+        report: &wire::ServiceDocReport<'_>,
+    ) -> Result<(), i32> {
+        // Only a book of the library that its opener, a reading app (it
+        // declares a `reader.spec`) on top of the screen stack, reports drives
+        // the session (`document.md` 2.4). Which of its screens is on top is
+        // not told by the stack rows.
+        let books = self.state.books.try_borrow().map_err(|_| ERR_BUSY)?;
+        let book = books.iter().find(|book| book.document == document.id);
+        let library = book.is_some_and(|book| book.root == 1) && !document.background;
+        let facts = super::doc_reading::Facts {
+            document: document.id,
+            counts: library && self.declares_reader() && self.shows_screen(document.owner),
+            path: book.map_or("", |book| book.path.as_str()),
+        };
+        self.state.reading.report(self.clock(), &facts, report)
     }
 
     fn root_access(&self, root: u32) -> Result<(), i32> {

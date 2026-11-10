@@ -30,6 +30,9 @@ impl Kernel {
     /// Tells the plugins whose Wi-Fi requests ended. `true` while something is
     /// left to tell right now (another pass); a plugin that could not be
     /// called is tried again at [`Self::native_wifi_due`].
+    // Its own frame: the pump keeps the services' passes apart, so that no
+    // frame adds their locals (the firmware's frame limit for host code).
+    #[inline(never)]
     pub(crate) fn native_wifi_pump(&mut self) -> bool {
         let table = alloc::rc::Rc::clone(&self.radio_requests);
         let now = self.now.millis();

@@ -30,6 +30,7 @@ use paperpaw_native::host_glue::{
 
 mod args;
 mod check;
+mod report;
 mod table;
 #[allow(unused_imports, reason = "the shell builds the table with its limits")]
 pub(crate) use args::ROOT_HANDED;
@@ -242,6 +243,25 @@ pub(crate) trait DocHost {
     fn shows_screen(&self, _owner: u64) -> bool {
         false
     }
+    /// The reading session (`document.md` 2.4): a checked report of
+    /// `document`'s reader. `ERR_UNSUPPORTED` where the host keeps none.
+    ///
+    /// # Errors
+    /// `ERR_NO_MEMORY`, `ERR_BUSY` (see `Reading::report`).
+    fn reading_report(
+        &self,
+        _document: &Document,
+        _report: &wire::ServiceDocReport<'_>,
+    ) -> Result<(), i32> {
+        Err(ERR_UNSUPPORTED)
+    }
+    /// The oldest event of the reading session for the kernel's pump.
+    fn take_reading_edge(&self) -> Option<super::doc_reading::Edge> {
+        None
+    }
+    /// The device goes to sleep or off: a book that is open is closed with
+    /// reason 1 (`core-events.md` 3.2).
+    fn reading_sleep(&self, _now_ms: u64) {}
     /// Turn a format's picture into the opener's image id (`document.md`
     /// 5): `Some(id)`, or `Some(0)` where all ids are out and none is drawn
     /// (`in_block` only; else `ERR_BUSY`), or `None` for a picture that fails
@@ -452,6 +472,19 @@ impl DocHost for Cx<'_> {
     fn shows_screen(&self, owner: u64) -> bool {
         self.host.shows_screen(owner)
     }
+    fn reading_report(
+        &self,
+        document: &Document,
+        report: &wire::ServiceDocReport<'_>,
+    ) -> Result<(), i32> {
+        self.host.reading_report(document, report)
+    }
+    fn take_reading_edge(&self) -> Option<super::doc_reading::Edge> {
+        self.host.take_reading_edge()
+    }
+    fn reading_sleep(&self, now_ms: u64) {
+        self.host.reading_sleep(now_ms);
+    }
     fn map_image(
         &self,
         document: &Document,
@@ -513,6 +546,7 @@ mod op {
     pub(super) const FORMATS: u32 = 19;
     pub(super) const FORMAT_FOR: u32 = 20;
     pub(super) const READERS: u32 = 21;
+    pub(super) const REPORT: u32 = 22;
 }
 
 /// The `core.document` backend.
@@ -538,6 +572,7 @@ pub(crate) fn backend(
             op::FORMATS => formats(host, input, usize::from(op.reply_rows.max(64)), out),
             op::READERS => readers(host, input, usize::from(op.reply_rows.max(64)), out),
             op::FORMAT_FOR => format_for(host, input, out),
+            op::REPORT => report::report(host, input, out),
             op::META..=op::PROGRESS => read(host, op, input, out),
             _ => Err(ERR_UNSUPPORTED),
         };
@@ -970,6 +1005,7 @@ fn verify(
         Check::Meta => {
             let meta: wire::ServiceDocMeta<'_> = check::only(bytes)?;
             check::meta(&meta)?;
+            host.table().set_sections(document.id, meta.sections);
         }
         Check::Text {
             kind,

@@ -437,13 +437,14 @@ impl Kernel {
         !self.from_guard && self.guard().is_some()
     }
 
-    /// Shows the notice held while a screen guarded the device, once none
-    /// does.
+    /// Shows the waiting notices in turn: the oldest once no screen guards
+    /// the device and no notice shows, the next when that one is over.
     pub(crate) fn release_held_notice(&mut self) {
-        if self.guard().is_none()
-            && let Some(text) = self.held_notice.take()
-        {
-            self.notify(text);
+        while self.guard().is_none() && self.notice.is_none() {
+            let Some(text) = self.waiting_notices.pop() else {
+                return;
+            };
+            self.show_notice(text);
         }
     }
 
@@ -464,12 +465,20 @@ impl Kernel {
     }
 
     /// Shows `text` with the screen bound to the notice slot until the
-    /// notice time is over.
+    /// notice time is over, in place of the one that shows. It waits (at most
+    /// 4 waiting, 2 on the X4, the oldest dropped) while a screen guards the
+    /// device and its command is not the guard's own, and behind notices that
+    /// wait: those held while a screen guarded show one after the other.
     pub(crate) fn notify(&mut self, text: String) {
-        if self.held_by_guard() {
-            self.held_notice = Some(text);
+        if self.held_by_guard() || !self.waiting_notices.is_empty() {
+            self.waiting_notices.push(text);
             return;
         }
+        self.show_notice(text);
+    }
+
+    /// Puts `text` on the screen of the notice slot now.
+    fn show_notice(&mut self, text: String) {
         let Some(id) = self
             .shared
             .registry
@@ -1081,7 +1090,11 @@ impl Kernel {
         let trusted = self.guard().is_some_and(|guard| {
             index == guard || (index > guard && self.stack.get(index).is_some_and(|s| s.by_guard))
         });
+        // What the screen's callbacks need for their command stage (a native
+        // screen's), asked of the kernel before it is borrowed.
+        let armed = self.arm_screen_stage(index);
         let Some(active) = self.stack.get_mut(index) else {
+            self.disarm_screen_stage(armed);
             self.output.redraw = earlier;
             return Handled::No;
         };
@@ -1097,6 +1110,9 @@ impl Kernel {
             .with_params(&self.action_params);
         let handled = f(active.screen.as_mut(), &mut cx);
         drop(running);
+        if let (Some(before), Some(stage)) = (armed, self.shared.native_instances.screen_stage()) {
+            stage.restore(before);
+        }
         // A part it asked to draw again is in its own coordinates.
         let own = mem::replace(&mut self.output.redraw_area, asked_area);
         if let Some(own) = own.map(|own| chrome::on_screen(own, area)) {
