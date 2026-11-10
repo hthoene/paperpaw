@@ -27,6 +27,10 @@ struct BuilderParts {
     /// of buttons come from their own settings at the end.
     caps: Capabilities,
     firmware: Option<Firmware>,
+    /// The device's firmware install and check steps (`device.md` 5.1, 5.3).
+    firmware_host: Option<Box<dyn paperpaw_platform::firmware::FirmwareHost>>,
+    /// What plugin checks, installs and removals compare a plugin with.
+    plugin_host: Option<crate::native_host::plugin_job::PluginHost>,
     code: Option<crate::code_plugin::CodePlugins>,
     /// What the firmware takes, told once an update on trial is kept
     /// ([`KernelBuilder::native_after_trial`]).
@@ -47,6 +51,7 @@ struct BuilderParts {
     font_dirs: Vec<String>,
     catalog_device: Option<&'static str>,
     random: paperpaw_sdk::random::Random,
+    device_log: Option<fn(&str)>,
     memory: paperpaw_sdk::memory::Memory,
     started: paperpaw_sdk::power::Start,
     slept_for: Option<core::time::Duration>,
@@ -81,6 +86,43 @@ impl KernelBuilder {
     pub fn plugin_off(mut self, plugin: impl Plugin + 'static) -> Self {
         self.0.off.push(String::from(plugin.manifest().id.as_str()));
         self.plugin(plugin)
+    }
+
+    /// The device's firmware: what installs and checks a firmware image
+    /// (`device.md` 5.1, 5.3). Without it every firmware command of a plugin
+    /// is `ERR_UNSUPPORTED`; with it a firmware request is accepted whole at
+    /// submit, queued and driven one bounded step at a time from the main
+    /// loop (`Kernel::native_firmware_pump`).
+    #[must_use]
+    pub fn firmware_host(
+        mut self,
+        host: Box<dyn paperpaw_platform::firmware::FirmwareHost>,
+    ) -> Self {
+        self.0.firmware_host = Some(host);
+        self
+    }
+
+    /// What the device tells plugin jobs about itself (`device.md` 5.1, 5.2):
+    /// what its loader reads (`loader`), what it offers a plugin's metadata
+    /// (`offered`) and the signing keys it knows by name (`signers`; every
+    /// other key is shown by its fingerprint). `signers` lists PaperPaw's own
+    /// keys only: a plugin check reports "signed by PaperPaw" (`dev_check`
+    /// flag bit 3) for any key that has a name here. Without it (and without
+    /// [`Self::firmware_host`], whose queue plugin jobs share) `check_file` of
+    /// kind 0 is `ERR_UNSUPPORTED`.
+    #[must_use]
+    pub fn plugin_host(
+        mut self,
+        loader: paperpaw_native::header5::Host,
+        offered: paperpaw_native::metadata::Host<'static>,
+        signers: &'static [(&'static str, [u8; 32])],
+    ) -> Self {
+        self.0.plugin_host = Some(crate::native_host::plugin_job::PluginHost {
+            loader,
+            offered,
+            signers,
+        });
+        self
     }
 
     /// Key bindings specific to the device (e.g. its physical buttons).
@@ -212,6 +254,16 @@ impl KernelBuilder {
     /// by browser).
     pub fn random(mut self, fill: fn(&mut [u8]) -> bool) -> Self {
         self.0.random = paperpaw_sdk::random::Random::new(fill);
+        self
+    }
+
+    /// Where the host's own diagnostics go: `sink` gets one line at a time
+    /// (at most 120 bytes, plugin ids and numbers only, never plugin text,
+    /// paths or secrets). Without one the lines are dropped: nothing is
+    /// formatted and nothing fails. A line may come at any time the kernel
+    /// runs, so `sink` must be quick and must not call the kernel.
+    pub fn device_log(mut self, sink: fn(&str)) -> Self {
+        self.0.device_log = Some(sink);
         self
     }
 
@@ -609,6 +661,10 @@ impl BuilderParts {
             shared: Shared {
                 native_events: None,
                 native_instances: crate::native_host::native_instances::NativeInstances::default(),
+                native_input: crate::native_host::ui_input::InputFilters::new(),
+                native_filters: None,
+                native_input_refused: false,
+                native_depth: None,
                 registry: Registry::default(),
                 meter,
                 device: self.device,
@@ -617,6 +673,7 @@ impl BuilderParts {
                 fonts: Fonts::new(self.glyph_cache)
                     .with_pack_limits(paperpaw_sdk::PackLimits::for_memory(self.device.memory)),
                 stack_rows: alloc::rc::Rc::new(Default::default()),
+                key_guard_warned: Default::default(),
                 font_removals: alloc::rc::Rc::new(
                     crate::native_host::font_removals::FontRemovals::new(),
                 ),
@@ -671,6 +728,7 @@ impl BuilderParts {
                 catalog_device: self.catalog_device,
                 secrets: Default::default(),
                 random: self.random,
+                device_log: crate::native_host::device_log::DeviceLog::new(self.device_log),
                 memory: self.memory,
                 started: self.started,
                 slept_for: self.slept_for,
@@ -771,6 +829,18 @@ impl BuilderParts {
             native_tick_at: None,
             last_user_input: None,
             radio_requests: alloc::rc::Rc::default(),
+            firmware: self.firmware_host.take().map(|host| {
+                let mut driver = crate::native_host::firmware_driver::Driver::new(
+                    host,
+                    alloc::rc::Rc::new(core::cell::RefCell::new(
+                        crate::native_host::firmware_install::FirmwareInstall::new(),
+                    )),
+                );
+                if let Some(plugins) = self.plugin_host.take() {
+                    driver.set_plugin_host(plugins);
+                }
+                alloc::rc::Rc::new(core::cell::RefCell::new(driver))
+            }),
             shown_since: Instant(0),
             scope: None,
             screens_changed: false,
@@ -1066,6 +1136,8 @@ impl Kernel {
             glyph_cache: DEFAULT_GLYPH_CACHE,
             caps: Capabilities::default(),
             firmware: None,
+            firmware_host: None,
+            plugin_host: None,
             code: None,
             after_trial: None,
             safe_mode: None,
@@ -1083,6 +1155,7 @@ impl Kernel {
             font_dirs: Vec::new(),
             catalog_device: None,
             random: paperpaw_sdk::random::Random::NONE,
+            device_log: None,
             memory: paperpaw_sdk::memory::Memory::NONE,
             started: paperpaw_sdk::power::Start::Unknown,
             slept_for: None,

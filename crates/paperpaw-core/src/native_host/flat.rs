@@ -11,7 +11,7 @@ use core::{fmt, pin::Pin};
 use paperpaw_sdk::{Env, Id, Manifest, Params, Plugin, RegisterError, Registrar, Version};
 
 #[path = "flat/page.rs"]
-mod page;
+pub(super) mod page;
 
 /// Why one registered event could not be delivered. The shell logs the failure.
 #[non_exhaustive]
@@ -116,6 +116,12 @@ impl FlatDepth {
         &self.0
     }
 
+    /// Whether `other` is this very counter (one device has one).
+    #[must_use]
+    pub(crate) fn is_same_counter(&self, other: &Self) -> bool {
+        core::ptr::eq(self.as_depth(), other.as_depth())
+    }
+
     /// Retain the budget without allocating; None means count overflow.
     #[must_use]
     pub fn try_clone(&self) -> Option<Self> {
@@ -203,6 +209,7 @@ impl FlatPlugin {
                 stack_rows: Rc::clone(&host.stack_rows),
                 font_removals: Rc::clone(&host.font_removals),
                 registry_generation: Rc::clone(&host.registry_generation),
+                log: host.log,
             },
         })
     }
@@ -265,6 +272,7 @@ impl Plugin for FlatPlugin {
                 stack_rows: Rc::clone(&self.host.stack_rows),
                 font_removals: Rc::clone(&self.host.font_removals),
                 registry_generation: Rc::clone(&self.host.registry_generation),
+                log: self.host.log,
             };
             let handler: Option<paperpaw_sdk::EventHandler> = shared::try_box(
                 move |env: &Env<'_>, params: &Params, _: &mut paperpaw_sdk::Commands| {
@@ -371,9 +379,11 @@ fn invoke(
         stack_rows: &host.stack_rows,
         font_removals: &host.font_removals,
         registry_generation: &host.registry_generation,
+        log: host.log,
         usage: env.usage(),
         plugins: env.plugins(),
         work: env.work(),
+        ui: None,
     };
     let status = instance
         .environment()

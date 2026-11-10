@@ -229,6 +229,12 @@ impl Session {
             .collect()
     }
 
+    /// The callbacks the host dropped so far as (token, status), e.g. a draw whose service
+    /// answered `State`: the reason a frame stays blank.
+    pub fn dropped(&self) -> Vec<(u32, i32)> {
+        self.installed.dropped()
+    }
+
     fn draw(&mut self) {
         let frame = &mut self.frame;
         self.installed.kernel().render(&mut |top, view| {

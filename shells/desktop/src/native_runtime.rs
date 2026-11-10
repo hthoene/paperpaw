@@ -25,6 +25,17 @@ mod wire {
     include!(concat!(env!("OUT_DIR"), "/metadata.rs"));
 }
 
+/// The profile this shell hosts (the reviewed Linux x86-64 one), as the
+/// kernel's admission of a linked plugin names it (`crate::linked`).
+#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+pub(crate) fn host_profile() -> paperpaw_native::metadata::Profile<'static> {
+    paperpaw_native::metadata::Profile {
+        target: core::str::from_utf8(wire::PROFILE).unwrap_or(""),
+        entry_layout: wire::PROFILE_ENTRY_LAYOUT as u16,
+        entry_bytes: wire::PROFILE_ENTRY_BYTES as u16,
+    }
+}
+
 /// Refusal before factory invocation, or a failed factory result.
 #[derive(Debug, PartialEq, Eq)]
 pub enum RuntimeError {
@@ -331,6 +342,7 @@ unsafe fn checked_library(
     })
 }
 
+mod admit;
 mod plugin_output;
 
 // Separate from both CodeLoader and the process-owned inactive load path.
@@ -340,7 +352,7 @@ mod plugin_output;
 )]
 mod owned;
 
-pub(crate) use owned::dev::load_flat_with_resources;
+pub(crate) use owned::dev::admission;
 /// The developer switch's loader for interface-7 plugins (assignment #772),
 /// off unless `--abi7-dev-loader` or `PAPERPAW_ABI7_DEV_LOADER=1` says so.
 pub use owned::dev::{DevPlugins, Kind, Refusal, classify, enabled, set_enabled};

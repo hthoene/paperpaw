@@ -54,12 +54,31 @@ read); what interface 6 took from `OpenOptions` is `image_fit`, `cover_fit` and
 `color`, which are the open's `image_side`, `cover_side` and `flags` bit 1. So
 the plugin is not blocked on #385.
 
-## Gaps for the later declaration and host work
+## Native entry (slice 2)
 
-- `Declarations::format` (extensions `mobi`, `azw`, `azw3`, a sniff, `prepared` (the cache is made by
-  op 3), not whole pages) and the
-  `NATIVE_ENTRY`/`.ppn` are not written here (Plugin Engineer's declarations PR);
-  no `.ppn` size is measurable yet.
+`declarations.rs` (`formats`: `format-mobi.mobi`, extensions `mobi`, `azw` and `azw3`, flags `prepared` and
+`sniffs`, not `whole_pages`), `build.rs` (batches built into the image), `src/native_plugin.rs` (`NativeMobi`:
+`make` submits the declaration; `event` answers a `core.format` stage call of its token with
+`MobiProvider::call` over `HostIo`, encoded in place through `Reply::write_with`), `src/native_entry.rs`
+(`NATIVE_ENTRY`, features `linked` and `native-entry`), `native/metadata*` (heap, registrations, storage size,
+read, write, append and remove; no service, no feature; regenerate with `python3 tools/abi-metadata.py --schema
+abi/abi.def --input native/metadata.json --bytes native/metadata.bin --json native/metadata.inspected.json`,
+likewise `metadata.host.*`). Tests: `tests/native_declarations.rs`, `native_linked_entry.rs`,
+`hosted_construction.rs` (the host checks the declaration and refuses it as `Unsupported` until Core #944
+admits formats; the positive case is ignored with that name). `tools/plugin-files7` builds it as a file.
+Built as for format-txt (PR #611) and format-xtc (PR #612).
+
+## Removal step (one sweep, with the reader port and Core #944)
+
+Status: **not complete** (the interface-6 form is still beside the native one; nothing registers both in a
+shipped build: `NativeMobi` is not in `paperpaw_app::NATIVE_PLUGINS` yet). Remove together:
+1. `MobiFormat` and its `Plugin` impl (`FORMAT`, `add_book_cache`, `add_format` with its `sniff`, the `HOW`
+   table kept for the manifest), `MobiDocument` and `document::opener`, and the interface-6 `done` stamp;
+2. the app's `install_with` line (`offered(.., MobiFormat)`) and the other plugins' tests that register it;
+3. list `NativeMobi` in `NATIVE_PLUGINS` and `tools/plugin-files7/complete.txt`.
+
+## Gaps for the later host work
+
 - The host's `fmt.call` adapter and the activation of format providers (#417, #944)
   are not wired: until they are, nothing calls this provider and the
   `provider_pending` cases stay ignored.

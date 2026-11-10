@@ -304,6 +304,11 @@ impl Kernel {
             // messages. Make room before on_show or another command translates.
             self.forget_read_messages_if_full();
             if self.output.commands.is_empty() {
+                // The makers of widgets dropped meanwhile hear of it; what
+                // they stage is the next round's.
+                if self.deliver_widget_drops() {
+                    continue;
+                }
                 // All done: the screen on top now is told it shows, if it
                 // changed; what that asks for runs too.
                 if !mem::take(&mut self.show_pending) {
@@ -446,6 +451,9 @@ impl Kernel {
                 self.usb_drive = self.shared.caps.has(paperpaw_sdk::Capability::USB_DRIVE);
                 if self.usb_drive {
                     self.free_count.pause_for_usb();
+                    // The card goes to the computer: nothing reads it for a
+                    // check or a write any more.
+                    self.firmware_suspend();
                 }
             }
             Command::KeepAwake(hold) => self.keep_awake(hold),
@@ -588,6 +596,8 @@ impl Kernel {
         if self.bluetooth_answer(event, params) {
             return;
         }
+        // (The firmware confirmation's answer is not an event anyone can
+        // send: `with_screen` takes it from the confirmation screen alone.)
         // A page turned, also by itself, is use.
         if *event == events::PAGE_TURNED {
             self.last_activity = self.now;
@@ -641,6 +651,9 @@ impl Kernel {
                 &mut self.works,
             );
         }
+        // The native plugins that subscribed to a kernel event (tick, the
+        // lifecycle, the page turned), queued in their one order.
+        self.native_core_event(event, params, &hears);
         if refused_secret {
             self.warn_runtime("a plugin asked what only the settings editor may; not done");
         }
@@ -713,6 +726,9 @@ impl Kernel {
             let reserved = Reserved::of(&self.shared.settings, &self.shared.registry);
             vet_reserved(&mut self.output.commands, from, plugin.as_str(), &reserved);
         }
+        self.native_core_event(event, params, &|plugin| {
+            owners.iter().any(|owner| owner == plugin)
+        });
         let keys: Vec<_> = screens.iter().map(|&i| self.stack[i].serial).collect();
         for key in keys {
             // Each where it is now: one may have closed meanwhile.

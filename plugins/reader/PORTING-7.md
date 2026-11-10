@@ -69,3 +69,63 @@ relative to the data folder).
   native annotations screen calls `native_notes::run(host, ROOT_FILES, path, title)` after its
   write, and the event goes with the interface-6 code at activation. readwise and joplin (Port E)
   subscribe to the stage. The metadata of the reader is unchanged.
+
+## The stage `reader.word-looked-up@1`
+
+- Replaces the event `core.word-looked-up` (`core-events.md` 5; asked for by the vocabulary port):
+  schema `stages/reader.word-looked-up@1.def`, input `word.looked`: `word` str 1,024, `sentence` str 512,
+  `path` str 512 (the book's file; never cut, a longer path is refused with `NoSpace`, the stage is not
+  run), `section` u32, `offset` u32, then optional `language` str 35 (dropped when longer) and `title`
+  str 256; reply `word.done` with an optional `status` the reader ignores; at most 8 subscribers.
+- `native_words::run` asks every subscriber once and reads nothing of what they answer or fail with;
+  the lookup is the user's. Declared in `declarations::stages` (host admission and the codec's bounds
+  are tested).
+- `native_words::announce` is the one place a lookup becomes a stage run (a test records one run with the
+  right payload: word, sentence, path, section, offset, language, title; a path over 512 bytes is refused and
+  nothing runs; `tests/native_words_alloc.rs` refuses every allocation of the input); `run` does it with the
+  host's stage and gives every refusal back for the caller to ignore.
+- Not wired yet: the native reader has no selection flow, and the interface-6 reader screen
+  (`screen/selecting.rs`) cannot run a stage, so it still emits `core.word-looked-up`. That emitter stays
+  until vocabulary (Port D) and readwise/joplin (Port E) subscribe to the stage; the native selection flow
+  calls `native_words::run` with the same seven values (`reader-word-looked-up-run` in
+  `tests/acceptance_pending.rs`, blocked on the stage host #828 and the flow).
+
+## The stage `reader.filter@1`
+
+- Replaces the interface-6 text filters (`add_text_filter`): schema `stages/reader.filter@1.def` (Kernel
+  approved; input `filter.ask`: language str 16, format str 32, `image_only` 0/1; reply `filter.rules`
+  (signature u64, bold 0/1, pictures 0..2, caption word str 96) then at most 32 `filter.pair`; at most
+  4 subscribers, 3,840 bytes).
+- Kernel's design: no host hook. The reader asks each subscriber once per book open, setting change or
+  subscriber change; a reply that is invalid is dropped whole; the rules are applied to a whole block with
+  `Block::try_transform` after the `core.document` block and before layout, subscribers in order (a dropped
+  picture is not seen by later ones); the layout cache key folds in each subscriber's signature (in order),
+  plugin id and version.
+- Done here: the schema, the generated codec, the declaration and the test that holds the declared bounds to
+  the codec. **Not done:** asking the subscribers and applying the rules (the native reader screens).
+- Limits that meet: 32 pairs of 96 + 96 bytes (and the flag) are about 6.4 KiB, more than the 3,840-byte
+  reply, so a setting at its maximum cannot be answered whole. The reply is refused by the encoder, and
+  the subscriber (aids) must validate its setting against the reply size (named there as a settings
+  validation); the reader drops a reply that is invalid whole.
+
+
+## The native entry (slice 2)
+
+- `NATIVE_ENTRY` (feature `linked`; `native-entry` for the packed form), `src/native_plugin.rs`,
+  `build.rs` (the batches of `declarations.rs` built into the image: settings, screens, navigation
+  with the six `slot.offer`s, keys, hold keys, events, stages) and `native/metadata*` (regenerate with
+  `python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json --bytes
+  native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.host.*`).
+- `make` submits six groups. **Not the events** (start, a book moved): the host's event admission
+  (`native_host/events.rs` `is_event_tag`) lacks `event.book_moved`, and the registration is refused
+  as a whole (`Factory(-1)`, found by `tests/hosted_construction.rs`); they are in the image and go
+  in once the host admits it; an opened screen draws nothing
+  (`Error::State`). **The plugin is not in `paperpaw_app::NATIVE_PLUGINS`**: with no view the
+  screens it offers would be empty. The views come next: the annotations screen (model in
+  `native_annotations.rs`), then TOC, skim, search, footnote and the reading screen with the
+  document host.
+- Still undeclared: the slice-1 list (status places, the sample widget, the reading app, screen hints,
+  first-run help, the setup step). `tests/hosted_construction.rs` runs `make` in the registered scope
+  of the kernel's native host.
+- Metadata asks `core.ui` and no features yet; it grows with the views (storage for the last book,
+  `core.library` for annotations, `core.files` for the export).

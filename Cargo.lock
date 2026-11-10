@@ -1534,12 +1534,11 @@ version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-about",
  "paperpaw-plugin-aids",
  "paperpaw-plugin-bluetooth",
- "paperpaw-plugin-browser",
- "paperpaw-plugin-calibre",
  "paperpaw-plugin-dictionary",
  "paperpaw-plugin-file-manager",
  "paperpaw-plugin-files",
@@ -1563,7 +1562,6 @@ dependencies = [
  "paperpaw-plugin-picture-home",
  "paperpaw-plugin-plugin-manager",
  "paperpaw-plugin-power",
- "paperpaw-plugin-read-later-cloud",
  "paperpaw-plugin-reader",
  "paperpaw-plugin-settings",
  "paperpaw-plugin-setup",
@@ -1621,6 +1619,7 @@ dependencies = [
 name = "paperpaw-default-packs"
 version = "0.6.0-beta.3"
 dependencies = [
+ "paperpaw-core",
  "paperpaw-hyphen",
  "paperpaw-hyphenation-packs",
  "paperpaw-platform",
@@ -1903,8 +1902,6 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-format-epub",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
  "proptest",
@@ -2036,7 +2033,9 @@ dependencies = [
 name = "paperpaw-plugin-format-mobi"
 version = "1.0.3"
 dependencies = [
+ "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-sdk",
  "proptest",
 ]
@@ -2087,6 +2086,7 @@ dependencies = [
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
  "proptest",
@@ -2259,9 +2259,7 @@ dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
  "paperpaw-native",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-format-epub",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
  "proptest",
@@ -2321,8 +2319,11 @@ version = "1.0.4"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
@@ -2332,6 +2333,7 @@ version = "1.0.10"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-format-epub",
@@ -2497,11 +2499,9 @@ name = "paperpaw-plugin-update"
 version = "1.0.7"
 dependencies = [
  "paperpaw-core",
- "paperpaw-digest",
  "paperpaw-i18n",
  "paperpaw-native",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
  "paperpaw-update",
@@ -2518,6 +2518,7 @@ dependencies = [
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-home",
  "paperpaw-plugin-sleep",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-sqlite",
  "paperpaw-ui-kit",
@@ -2801,7 +2802,6 @@ dependencies = [
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-update",
  "paperpaw-sdk",
  "paperpaw-update",
  "smoltcp",

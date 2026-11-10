@@ -20,6 +20,12 @@ use paperpaw_sdk::usage::PluginUsage;
 /// What the kernel's own work counts as.
 pub(crate) const CORE: &str = "core";
 
+/// Places made for the plugins running at once when the meter is built, so
+/// entering one allocates nothing: the kernel's own work, a screen, and the
+/// calls inside it (at most [`crate::abi7::calls::MAX_LIVE`] more) fit many
+/// times over.
+const RUNNING_ROOM: usize = 16;
+
 pub(crate) struct Meter {
     clock: Option<fn() -> u64>,
     generation: Cell<u32>,
@@ -27,7 +33,8 @@ pub(crate) struct Meter {
     /// `Env::plugin_usage`, the one copy kept.
     pub(crate) table: RefCell<Vec<PluginUsage>>,
     /// The plugins whose code runs, the innermost last, with when it began
-    /// (or went on after an inner one), in microseconds.
+    /// (or went on after an inner one), in microseconds. Made with
+    /// [`RUNNING_ROOM`] places.
     running: RefCell<Vec<(usize, u64)>>,
     /// `Storage::sync` calls by plugin, in the order of `table` (kept
     /// apart: `PluginUsage` is a published type).
@@ -55,7 +62,7 @@ impl Meter {
             clock,
             generation: Cell::new(0),
             table: RefCell::new(Vec::new()),
-            running: RefCell::new(Vec::new()),
+            running: RefCell::new(Vec::with_capacity(RUNNING_ROOM)),
             syncs: RefCell::new(Vec::new()),
         });
         meter.index(CORE);
@@ -158,6 +165,14 @@ impl Meter {
         let mut table = self.table.borrow_mut();
         table[index].calls = table[index].calls.saturating_add(1);
         Running(self.clone())
+    }
+
+    /// As [`Self::enter`], unless `plugin`'s code runs now already: a top-level
+    /// callback entered it, and a nested call of the same plugin is still it.
+    /// For the dispatch paths a screen's own callbacks share with nested calls.
+    pub(crate) fn enter_unless_running(self: &Rc<Self>, plugin: &str) -> Option<Running> {
+        use paperpaw_sdk::secrets::Running as _;
+        (!self.runs(plugin)).then(|| self.enter(plugin))
     }
 
     fn leave(&self) {
@@ -386,6 +401,23 @@ mod tests {
 
     fn clock() -> u64 {
         NOW.load(Ordering::Relaxed)
+    }
+
+    #[test]
+    fn entering_unless_running_looks_only_at_the_innermost_and_allocates_nothing() {
+        let meter = Meter::new(Some(clock));
+        let room = meter.running.borrow().capacity();
+        assert!(room >= RUNNING_ROOM);
+        let outer = meter.enter("reader");
+        let inner = meter.enter("stats");
+        // `reader` is lower on the stack, not running now: it is entered.
+        let again = meter.enter_unless_running("reader");
+        assert!(again.is_some());
+        assert!(meter.enter_unless_running("reader").is_none());
+        drop(again);
+        assert!(meter.enter_unless_running("stats").is_none());
+        drop((inner, outer));
+        assert_eq!(meter.running.borrow().capacity(), room);
     }
 
     #[test]

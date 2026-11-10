@@ -14,7 +14,6 @@ mod hosted;
 fn construct() -> Result<(), String> {
     hosted::try_construct(
         paperpaw_plugin_format_images::NATIVE_ENTRY.entry(),
-        include_bytes!("../native/metadata.host.bin"),
         "format-images",
         &[],
     )

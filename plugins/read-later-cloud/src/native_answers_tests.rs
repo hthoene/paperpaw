@@ -1,16 +1,15 @@
-//! The native readers of Reader's answers (`native_answers`) against the
-//! interface-6 ones (`answers.rs`): equal on the same text at any piece size,
-//! refusing instead of aborting when memory runs short; and the caps and the
-//! spent copier of `native_read_later`.
+//! The native readers of Reader's answers (`native_answers`): each text read
+//! as interface 6 read it (the results are pinned, taken from the interface-6
+//! reader when it was still here), at any piece size, refusing instead of
+//! aborting when memory runs short; and the caps and the spent copier of
+//! `native_read_later`.
 use crate::fail_alloc::sweep;
 use crate::native_answers::{Answer, Asked, FIELD_CAP, Listed};
 use crate::native_read_later::{self as native, ARTICLES_CAP, FINISHED_CAP, MAX_ANSWER, MAX_LIST};
-use crate::{MAX_ARTICLE_ANSWER, MAX_LIST as OLD_LIST, answers, data};
 use alloc::format;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use paperpaw_sdk::MemoryStorage;
 use paperpaw_sdk::native::Error;
 
 fn list(items: &[(&str, &str)]) -> String {
@@ -27,10 +26,6 @@ fn list(items: &[(&str, &str)]) -> String {
     out
 }
 
-fn old_listed(text: &str, max: usize) -> Option<Vec<(String, String)>> {
-    answers::listed(&MemoryStorage::new().with("a.json", text), "a.json", max)
-}
-
 fn pieces(text: &str, size: usize, max: usize) -> Option<Vec<(String, String)>> {
     let mut reading = Listed::new(max);
     for piece in text.as_bytes().chunks(size) {
@@ -42,13 +37,13 @@ fn pieces(text: &str, size: usize, max: usize) -> Option<Vec<(String, String)>> 
         .map(|l| l.into_iter().map(|e| (e.id, e.title)).collect())
 }
 
-#[test]
-fn the_list_is_read_as_before() {
+/// The texts of the list's tests.
+pub(crate) fn list_texts() -> Vec<String> {
     let many: Vec<(String, String)> = (0..30)
         .map(|i| (format!("a{i}"), format!("Article {i}")))
         .collect();
     let many: Vec<(&str, &str)> = many.iter().map(|(a, b)| (&a[..], &b[..])).collect();
-    let texts = [
+    vec![
         list(&[]),
         list(&[
             ("01gm6ceb0", "Slow \\\"news\\\""),
@@ -66,19 +61,51 @@ fn the_list_is_read_as_before() {
         String::from("<!DOCTYPE html><html><body>Down</body></html>"),
         String::from(r#"{"results":[{"title":"t","id":"c1","id":"c2"}]}"#),
         String::new(),
-    ];
-    for text in &texts {
-        for max in [0, 1, 20] {
-            assert_eq!(
-                old_listed(text, max),
-                pieces(text, 2048, max),
-                "{max} {text:?}"
-            );
-            for size in [1, 3, 64] {
+    ]
+}
+
+/// What each text of [`list_texts`] gives for the most 0, 1 and 20 (the
+/// `Debug` of the articles, `None` for an answer that is not a whole list).
+const LISTED: [&str; 27] = [
+    "Some([])",
+    "Some([])",
+    "Some([])",
+    "Some([])",
+    "Some([(\"01gm6ceb0\", \"Slow \\\"news\\\"\")])",
+    "Some([(\"01gm6ceb0\", \"Slow \\\"news\\\"\"), (\"01gm6cec1\", \"Zwei ä\")])",
+    "Some([])",
+    "Some([(\"ok1\", \"Fine\")])",
+    "Some([(\"ok1\", \"Fine\")])",
+    "Some([])",
+    "Some([(\"a0\", \"Article 0\")])",
+    "Some([(\"a0\", \"Article 0\"), (\"a1\", \"Article 1\"), (\"a2\", \"Article 2\"), (\"a3\", \"Article 3\"), (\"a4\", \"Article 4\"), (\"a5\", \"Article 5\"), (\"a6\", \"Article 6\"), (\"a7\", \"Article 7\"), (\"a8\", \"Article 8\"), (\"a9\", \"Article 9\"), (\"a10\", \"Article 10\"), (\"a11\", \"Article 11\"), (\"a12\", \"Article 12\"), (\"a13\", \"Article 13\"), (\"a14\", \"Article 14\"), (\"a15\", \"Article 15\"), (\"a16\", \"Article 16\"), (\"a17\", \"Article 17\"), (\"a18\", \"Article 18\"), (\"a19\", \"Article 19\")])",
+    "None",
+    "None",
+    "None",
+    "None",
+    "None",
+    "None",
+    "None",
+    "None",
+    "None",
+    "Some([])",
+    "Some([(\"c2\", \"t\")])",
+    "Some([(\"c2\", \"t\")])",
+    "None",
+    "None",
+    "None",
+];
+
+#[test]
+fn the_list_is_read_as_before() {
+    let texts = list_texts();
+    for (t, text) in texts.iter().enumerate() {
+        for (m, max) in [0, 1, 20].into_iter().enumerate() {
+            for size in [2048, 1, 3, 64] {
                 assert_eq!(
-                    old_listed(text, max),
-                    pieces(text, size, max),
-                    "{size} {text:?}"
+                    format!("{:?}", pieces(text, size, max)),
+                    LISTED[t * 3 + m],
+                    "{max} {size} {text:?}"
                 );
             }
         }
@@ -86,55 +113,78 @@ fn the_list_is_read_as_before() {
     assert_eq!(pieces(&texts[3], 64, 20).unwrap().len(), 20);
 }
 
-#[test]
-fn the_asked_article_is_read_as_before() {
+/// The texts of the asked article's tests.
+pub(crate) fn asked_texts() -> Vec<String> {
     let body = |location: &str| {
         format!(
             r#"{{"count":1,"results":[{{"id":"a1","location":"{location}","author":"Jo","html_content":"{}"}}]}}"#,
             "x".repeat(20_000)
         )
     };
-    let archive = body("archive");
-    for text in [
-        archive.as_str(),
-        r#"{"count":0,"results":[]}"#,
-        "<html>Login</html>",
-        r#"{"results":[{"id":"a1""#,
-        r#"{"results":[{"id":"a1","location":"later"},{"id":"a2","location":"new"}]}"#,
-        r#"{"results":[{"location":"new","author":"Ä","id":"a1"}]}"#,
-        "",
-    ] {
-        for id in ["a1", "a2", ""] {
-            let storage = MemoryStorage::new().with("a.json", text);
-            let old = answers::asked(&storage, "a.json", id);
-            let same = |new: Option<Answer>| {
-                new.map(|a| match a {
-                    Answer::Gone => answers::Answer::Gone,
-                    Answer::Known { location, author } => {
-                        answers::Answer::Known { location, author }
-                    }
-                })
-            };
+    vec![
+        body("archive"),
+        String::from(r#"{"count":0,"results":[]}"#),
+        String::from("<html>Login</html>"),
+        String::from(r#"{"results":[{"id":"a1""#),
+        String::from(
+            r#"{"results":[{"id":"a1","location":"later"},{"id":"a2","location":"new"}]}"#,
+        ),
+        String::from(r#"{"results":[{"location":"new","author":"Ä","id":"a1"}]}"#),
+        String::new(),
+    ]
+}
+
+/// What each text of [`asked_texts`] gives for the ids `a1`, `a2` and none.
+const ASKED: [&str; 21] = [
+    "Some(Known { location: \"archive\", author: \"Jo\" })",
+    "None",
+    "None",
+    "Some(Gone)",
+    "Some(Gone)",
+    "Some(Gone)",
+    "None",
+    "None",
+    "None",
+    "None",
+    "None",
+    "None",
+    "Some(Known { location: \"later\", author: \"\" })",
+    "None",
+    "None",
+    "Some(Known { location: \"new\", author: \"Ä\" })",
+    "None",
+    "None",
+    "None",
+    "None",
+    "None",
+];
+
+#[test]
+fn the_asked_article_is_read_as_before() {
+    for (t, text) in asked_texts().iter().enumerate() {
+        for (i, id) in ["a1", "a2", ""].into_iter().enumerate() {
+            let expected = ASKED[t * 3 + i];
             assert_eq!(
-                old,
-                same(Asked::read(id, text.as_bytes()).unwrap()),
+                format!("{:?}", Asked::read(id, text.as_bytes()).unwrap()),
+                expected,
                 "{id} {text:.60}"
             );
             let mut reading = Asked::new(id);
             for piece in text.as_bytes().chunks(5) {
                 reading.feed(piece).unwrap();
             }
-            assert_eq!(old, same(reading.finish().unwrap()), "{id} {text:.60}");
+            assert_eq!(
+                format!("{:?}", reading.finish().unwrap()),
+                expected,
+                "{id} {text:.60}"
+            );
         }
     }
 }
 
 #[test]
 fn the_read_caps_are_those_of_interface_6() {
-    assert_eq!(
-        (MAX_LIST as u64, MAX_ANSWER as u64),
-        (OLD_LIST, MAX_ARTICLE_ANSWER)
-    );
+    assert_eq!((MAX_LIST, MAX_ANSWER), (512 * 1024, 4 * 1024 * 1024));
     assert_eq!((ARTICLES_CAP, FINISHED_CAP), (64 * 1024, 16 * 1024));
     // The lists: over the cap is an error, not an empty list, so the file
     // is not written over what it holds; at the cap it is read.
@@ -147,15 +197,11 @@ fn the_read_caps_are_those_of_interface_6() {
     );
     let over = at_cap + "\n";
     assert_eq!(native::articles(&over).err(), Some(Error::NoSpace));
-    assert!(
-        crate::articles(&MemoryStorage::new().with(&data("articles.txt"), over.as_str())).is_err()
-    );
     let ids = "abc\n".repeat(FINISHED_CAP / 4);
     assert_eq!(native::finished(&ids).unwrap().len(), FINISHED_CAP / 4);
     assert_eq!(native::finished(&(ids + "\n")).err(), Some(Error::NoSpace));
     let marked = "\u{feff}a\tx\n";
-    let old = crate::articles(&MemoryStorage::new().with(&data("articles.txt"), marked)).unwrap();
-    assert_eq!(old.len(), native::articles(marked).unwrap().len());
+    assert_eq!(native::articles(marked).unwrap().len(), 1);
     // The answers: by the file's size before, and by the bytes fed.
     assert!(native::fits(MAX_ANSWER as u64, MAX_ANSWER).is_ok());
     assert_eq!(
