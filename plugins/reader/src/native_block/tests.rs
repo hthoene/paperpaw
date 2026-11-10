@@ -20,6 +20,7 @@ fn head(text_bytes: u32) -> Head<'static> {
         lang: "fr",
         drop_cap: 3,
         text_bytes,
+        row: (false, false, false),
     }
 }
 
@@ -66,17 +67,68 @@ fn fragments_join_into_one_block() {
 }
 
 #[test]
-fn a_picture_or_a_table_row_reads_as_a_paragraph() {
+fn a_picture_or_a_table_row_without_its_records_reads_as_a_paragraph() {
     for kind in [BlockKind::Image, BlockKind::TableRow] {
         let mut h = head(2);
         h.kind = kind;
         let block = join(&[&[Piece::Head(h), Piece::Text("ab")]]).unwrap();
         assert_eq!(block.kind, BlockKind::Paragraph);
+        assert!(block.image.is_none() && block.table.is_none());
     }
     let mut h = head(1);
     h.kind = BlockKind::Heading(2);
     let block = join(&[&[Piece::Head(h), Piece::Text("a")]]).unwrap();
     assert_eq!(block.kind, BlockKind::Heading(2));
+}
+
+#[test]
+fn a_picture_block_carries_the_hosts_handle_and_size() {
+    let mut h = head(0);
+    h.kind = BlockKind::Image;
+    let block = join(&[&[Piece::Head(h), Piece::Image(12, 640, 480)]]).unwrap();
+    assert_eq!(block.kind, BlockKind::Image);
+    let image = block.image.unwrap();
+    assert_eq!(
+        (image.path.as_str(), image.width, image.height),
+        ("12", 640, 480)
+    );
+}
+
+#[test]
+fn a_table_row_carries_its_cells_and_weights_and_refuses_unsound_ones() {
+    let cell = |end| Piece::Cell(end, 1, 1, Align::Start, VerticalAlign::Top);
+    let mut h = head(4);
+    h.kind = BlockKind::TableRow;
+    h.row = (true, true, false);
+    let pieces = [
+        Piece::Head(h.clone()),
+        Piece::Text("abcd"),
+        Piece::Columns(alloc::vec![1, 3]),
+        cell(2),
+        cell(4),
+    ];
+    let block = join(&[&pieces]).unwrap();
+    assert_eq!(block.kind, BlockKind::TableRow);
+    let row = block.table.unwrap();
+    assert_eq!(row.cells.len(), 2);
+    assert_eq!(&*row.columns, &[1, 3]);
+    assert!(row.header && row.first && !row.last);
+    // A cell going back, or past the text, makes it a paragraph.
+    for ends in [[3, 2], [2, 9]] {
+        let pieces = [
+            Piece::Head(h.clone()),
+            Piece::Text("abcd"),
+            cell(ends[0]),
+            cell(ends[1]),
+        ];
+        let block = join(&[&pieces]).unwrap();
+        assert_eq!(block.kind, BlockKind::Paragraph);
+        assert!(block.table.is_none());
+    }
+    // More cells than a row may have are refused.
+    let mut many = alloc::vec![Piece::Head(h), Piece::Text("abcd")];
+    many.extend((0..17).map(|_| cell(4)));
+    assert_eq!(join(&[&many]), Err(Error::NoSpace));
 }
 
 #[test]

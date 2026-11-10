@@ -21,6 +21,7 @@ fn head() -> Head<'static> {
         lang: "",
         drop_cap: 0,
         text_bytes: 2,
+        row: (false, false, false),
     }
 }
 
