@@ -371,3 +371,28 @@ relative to the data folder).
   the library's preview (512 bytes), not whole (`annotation_text` would read it whole: the export uses the preview, as
   Beta 3's snippet was short too). Editing a note, deleting one and the bookmark toggle are not in this screen (Beta 3 had none
   here); `reader.toggle-bookmark` belongs to the reading screen.
+## Search (native model, `native_search.rs`)
+
+- Host-free: the text looked for (trimmed, compared by lower case, whole characters, hits do not overlap,
+  walked in place without collecting a block's characters), the snippet round a hit (24 characters before,
+  48 after, marks `…`, white space as spaces) and its cut to the row (`with_hit`, over a `Measure` the screen
+  backs with the font), the hits kept (100 at most, in the order of the book; more are counted as "100+"),
+  and the background scan, `Search::step`, that reads 24 blocks of a book (`Blocks`, backed by
+  `core.document` with the filters of the page applied) and keeps their hits. Allocation is fallible and
+  tested refused in turn; a block whose hits could not all be kept is read again and none is kept twice.
+- The text looked for counts its first 32 characters (`MAX_NEEDLE`), so a snippet is at most 24 + 32 + 48
+  characters and the 100 hits stay under about 41 KB even in four-byte characters (typically 10–20 KB); this
+  worst case belongs on the X4 list when the screen lands. A step that fails with an error other than the
+  three that end a section (e.g. `NoSpace` on a block over the caps) leaves the scan where it was, and a
+  screen that gets the same error again must end the search with a notice, not step for ever; as `step`
+  does not return `first_new` after an error, the screen compares `hits().len()` before and after.
+- Differences from interface 6, on purpose: a query longer than 32 characters is cut to them (so the text looked for
+  can match more than was typed): the screen limits what can be typed to 32 characters, or shows the cut, so that
+  the header never counts hits for text the user did not type; a block that cannot be read is skipped as an end of the section
+  only for `NotFound`, `Invalid` and `Denied` (a refused allocation stops the step and is not taken for the
+  end of the book); the matches are an iterator (interface 6 collected them); the hit's place is the
+  `native_open::Place` the document host counts with.
+- **Not yet: the screen.** It needs the document's block, progress and section ops (`core.document`, #2223),
+  the font measures (`Measure`), the timer (`core.work`) that drives `step` (interface 6 woke itself every
+  2 ms), the list, and, to choose a hit, going back and to the place with the match marked (the successor of
+  `core.goto`, not declared yet). Choosing a hit is `Search::target`: where the match begins and ends.
