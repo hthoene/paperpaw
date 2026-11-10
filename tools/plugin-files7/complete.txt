@@ -9,6 +9,7 @@ calibre
 end-of-book
 file-manager
 files
+format-docx
 joplin
 keys
 menu-editor

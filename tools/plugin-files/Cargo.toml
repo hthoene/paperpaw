@@ -53,12 +53,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "format-docx"
-path = "src/bin/format-docx.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "format-images"
 path = "src/bin/format-images.rs"
 test = false
@@ -82,7 +76,6 @@ paperpaw-plugin-aids = { path = "../../plugins/aids" }
 paperpaw-plugin-notes-vault = { path = "../../plugins/notes-vault" }
 paperpaw-plugin-picture-home = { path = "../../plugins/picture-home" }
 paperpaw-plugin-format-mobi = { path = "../../plugins/format-mobi" }
-paperpaw-plugin-format-docx = { path = "../../plugins/format-docx" }
 paperpaw-plugin-format-images = { path = "../../plugins/format-images" }
 paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser" }
 paperpaw-plugin-mail = { path = "../../plugins/mail" }

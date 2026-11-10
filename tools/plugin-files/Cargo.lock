@@ -122,7 +122,6 @@ version = "0.0.0"
 dependencies = [
  "paperpaw-plugin-aids",
  "paperpaw-plugin-fonts-browser",
- "paperpaw-plugin-format-docx",
  "paperpaw-plugin-format-images",
  "paperpaw-plugin-format-mobi",
  "paperpaw-plugin-mail",
@@ -140,13 +139,6 @@ version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
-]
-
-[[package]]
-name = "paperpaw-plugin-format-docx"
-version = "1.0.3"
-dependencies = [
- "paperpaw-sdk",
 ]
 
 [[package]]

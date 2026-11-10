@@ -30,7 +30,6 @@ store-plugins = [
     "dep:paperpaw-plugin-notes-vault",
     "dep:paperpaw-plugin-picture-home",
     "dep:paperpaw-plugin-format-mobi",
-    "dep:paperpaw-plugin-format-docx",
     "dep:paperpaw-plugin-format-images",
     "dep:paperpaw-plugin-mail",
 ]
@@ -51,6 +50,7 @@ native-linked = [
     "dep:paperpaw-plugin-bluetooth",
     "dep:paperpaw-plugin-file-manager",
     "dep:paperpaw-plugin-files",
+    "dep:paperpaw-plugin-format-docx",
     "dep:paperpaw-plugin-help",
     "dep:paperpaw-plugin-lock",
     "dep:paperpaw-plugin-opds",
@@ -64,6 +64,7 @@ native-linked = [
     "paperpaw-plugin-power/linked",
     "paperpaw-plugin-file-manager/linked",
     "paperpaw-plugin-files/linked",
+    "paperpaw-plugin-format-docx/linked",
     "paperpaw-plugin-keyboard/linked",
     "paperpaw-plugin-lock/linked",
     "paperpaw-plugin-menu/linked",
