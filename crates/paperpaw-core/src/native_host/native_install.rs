@@ -288,8 +288,12 @@ impl crate::Kernel {
             // With `uses.network` its network settings and policy (never a
             // refusal: a failure warns).
             self.admit_native_network(&owner, networked);
-            // What a power cut left of it in the services is cleaned up.
-            self.native_services_owner_started(key);
+            // What a power cut left of it in the services is cleaned up: only
+            // for a plugin that can use them (`uses.network` covers `core.net`
+            // and the sockets), so a plain plugin's start costs no card lookup.
+            if networked {
+                self.native_services_owner_started(key);
+            }
         }
         result
     }
