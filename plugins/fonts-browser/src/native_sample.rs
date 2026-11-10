@@ -37,11 +37,20 @@ const MAX_CHARS: usize = 512;
 /// # Errors
 /// `NoMemory`, and `Invalid` where the path would be too long.
 pub fn path(id: &str, version: &str, language: &str) -> Result<String, Error> {
-    let version = version.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '.');
+    let version = version
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '.');
     let language = language.chars().filter(char::is_ascii_alphanumeric);
     // The length first: catalog strings may be of any size, and nothing is
     // pushed before they are known to fit (digits of the size: at most 10).
-    let total = DIR.len() + 1 + id.len() + 1 + version.clone().count() + 1 + 10 + 1
+    let total = DIR.len()
+        + 1
+        + id.len()
+        + 1
+        + version.clone().count()
+        + 1
+        + 10
+        + 1
         + language.clone().count()
         + ".ppfp".len();
     if total > MAX_PATH || id.contains(['/', '\\']) || id.contains("..") {
