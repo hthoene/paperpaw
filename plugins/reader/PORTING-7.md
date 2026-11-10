@@ -320,12 +320,18 @@ relative to the data folder).
   reader is in (`current_of_table`, exact targets by op 8 where the host's place is approximate) and says
   `reader.no-toc` / `reader.preparing` / `reader.error` where there is nothing to list.
 - A choice (tap, press) goes to the entry's exact place in the reading screen below (`View::go_to`: the
-  page left is kept to turn back to; the place is reported and written as a turn's) and closes the
+  page left is kept to turn back to; the place is written as a turn's and reported to the host when the
+  reading screen is shown again, as the host drops the report of a screen below the top) and closes the
   screen. Both screens are this plugin's, so no hand-over carries the place back.
 - **Not yet:** the headings found by scanning blocks where the book's table has at most one entry
   (`native_toc`'s model: the scan, the kept copy `headings.txt`, the "Finding the chapters" screen), the
   chapter of the page for the status line and the report, next/previous chapter actions, and the
   skim screen (R6b). The hosted end-to-end test waits for a document host in the harness.
+- The screen reads the reading screen's document (`View::doc_id`), never opening a second one: the X4 holds
+  one open document per plugin. **X4 gates (Port Reviewer 2):** a list of 500 entries holds its titles twice
+  (the entries and the items), about 100-190 KB of the 256 KiB heap (pieces or a paged read if it does not
+  fit); finding the focus asks `toc_target` once per approximate entry of the current section; a
+  `read_handover` error is "no book".
 
 ## Reflow (view slice R8a, Port E)
 
@@ -336,5 +342,11 @@ relative to the data folder).
 - `event.setting_changed` (token 8 in `declarations::events`; a host that does not admit it answers
   `Unsupported` and the next draw's key check shows the change): a layout setting calls `View::reflow` (page
   laid out again, the place reported to the host anew), an ink setting only `View::repaint`.
+- The layout settings are listed by id (`native_pages::affects_layout`: font size, line and word spacing,
+  margins, justify, `core.reading-font`, `core.hyphenate`, `core.hyphen-min-left/right`; an empty key, "read all
+  settings again", too); the ink settings are `core.font-weight`, `core.smooth-text` and the `core.text-*` ones.
+  `core.publisher-styles` is applied when the book opens (`open_book`), so a change of it takes effect when the
+  book is opened again, not by a reflow. X4 list: every setting change wakes the plugin, and the page is laid
+  out in the event callback.
 - **Not yet:** the pictures, tables, underline and strike-through of the page drawing (R1c/R1d), hands-free and
   auto-turn, read-aloud. Unmeasured: the time of a reflow on the X4 and the heap of laying out twice.
