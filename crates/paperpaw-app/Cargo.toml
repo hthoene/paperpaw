@@ -58,6 +58,7 @@ native-linked = [
     "dep:paperpaw-plugin-plugin-manager",
     "dep:paperpaw-plugin-power",
     "dep:paperpaw-plugin-setup",
+    "dep:paperpaw-plugin-update",
     "paperpaw-plugin-about/linked",
     "paperpaw-plugin-bluetooth/linked",
     "paperpaw-plugin-help/linked",
@@ -71,6 +72,7 @@ native-linked = [
     "paperpaw-plugin-opds/linked",
     "paperpaw-plugin-settings/linked",
     "paperpaw-plugin-setup/linked",
+    "paperpaw-plugin-update/linked",
 ]
 
 [build-dependencies]
@@ -113,7 +115,7 @@ paperpaw-plugin-help = { workspace = true, optional = true }
 paperpaw-plugin-plugin-manager = { workspace = true, optional = true }
 paperpaw-plugin-power = { workspace = true, optional = true }
 paperpaw-plugin-mail = { workspace = true, optional = true }
-paperpaw-plugin-update.workspace = true
+paperpaw-plugin-update = { workspace = true, optional = true }
 paperpaw-plugin-news = { workspace = true, optional = true }
 paperpaw-plugin-reader.workspace = true
 paperpaw-plugin-settings.workspace = true
