@@ -110,10 +110,11 @@ pub fn chapter(
             }
             let at = row.position();
             let mut start = (at.section, at.offset);
-            if row.approximate() && at.section == from.0 {
-                if let Ok(exact) = docs.toc_target(host, id, row.index(), &mut ask, &mut reply) {
-                    start = (exact.section, exact.offset);
-                }
+            if row.approximate()
+                && at.section == from.0
+                && let Ok(exact) = docs.toc_target(host, id, row.index(), &mut ask, &mut reply)
+            {
+                start = (exact.section, exact.offset);
             }
             best = choose(
                 best.into_iter().chain(core::iter::once(start)),
