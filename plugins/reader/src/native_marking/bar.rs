@@ -10,6 +10,9 @@ use paperpaw_sdk::{
 };
 use paperpaw_ui_kit::{Chips, Messages, Style, paint::Paint};
 
+/// Most items a bar holds.
+pub const MAX_ITEMS: usize = 4;
+
 /// What a button of the bar does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -79,6 +82,9 @@ impl Bar {
             width.saturating_sub(2 * style.margin),
             height.saturating_sub(2 * style.margin),
         );
+        if items.len() > MAX_ITEMS {
+            return Err(Error::NoSpace);
+        }
         let mut messages = Messages::new()?;
         let mut labels: Vec<String> = Vec::new();
         labels
@@ -87,8 +93,11 @@ impl Bar {
         for item in items {
             labels.push(messages.copy(host, item.key())?);
         }
-        let shown: Vec<&str> = labels.iter().map(String::as_str).collect();
-        let chips = Chips::new(font, style, finger, inner, &shown)?;
+        let mut shown = [""; MAX_ITEMS];
+        for (slot, label) in shown.iter_mut().zip(&labels) {
+            *slot = label.as_str();
+        }
+        let chips = Chips::new(font, style, finger, inner, &shown[..labels.len()])?;
         let mut kept = Vec::new();
         kept.try_reserve_exact(items.len())
             .map_err(|_| Error::NoMemory)?;

@@ -371,12 +371,15 @@ impl View {
         &mut self,
         host: &Host<'_>,
         (docs, library): (&Documents, Option<&Library>),
+        ui: Option<&Ui>,
         input: &Input<'_>,
     ) -> Result<Handled, Error> {
         let Body::Open(open) = &mut self.body else {
             return Ok(Handled::No);
         };
-        let moved = match open.mark(host, docs, input)? {
+        let marked = open.mark(host, (docs, ui), input)?;
+        let choosing = matches!(marked, Outcome::Turn { .. });
+        let moved = match marked {
             Outcome::Handled | Outcome::Redraw => return Ok(Handled::Yes),
             Outcome::Jump { section, offset } => {
                 open.jump((section, offset));
@@ -390,6 +393,10 @@ impl View {
                 Turn::Previous => open.previous(host, docs)?,
             },
         };
+        // A turn that did not move (the last page) leaves the link focus where it was.
+        if choosing && !moved {
+            open.marking.stay();
+        }
         if moved {
             open.unsaved = true;
             open.turned = true;
@@ -594,7 +601,7 @@ impl Open {
     fn mark(
         &mut self,
         host: &Host<'_>,
-        docs: &Documents,
+        (docs, ui): (&Documents, Option<&Ui>),
         input: &Input<'_>,
     ) -> Result<Outcome, Error> {
         if self.page.is_none() {
@@ -611,6 +618,10 @@ impl Open {
             area,
         )
         .doc(DocRef::new(docs, self.id, self.sections, self.whole_pages));
+        let ctx = match ui {
+            Some(ui) => ctx.ui(ui),
+            None => ctx,
+        };
         self.marking.input(host, &ctx, input)
     }
 

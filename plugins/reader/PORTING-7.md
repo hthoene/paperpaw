@@ -317,3 +317,7 @@ relative to the data folder).
 - Tests: movement and bar (`native_selection/moves_tests.rs`), word boxes with the allocation sweep,
   links (`native_links/tests.rs`), the marking (`native_marking/tests.rs`). Not tested without the host: a
   hosted touch flow over a real book (waits for the hosted harness, as the reading screen).
+- The marking never opens a `core.ui` handle: the plugin's held one is in `Ctx` (copy, lookup, links and
+  the note use it). Out-of-memory in the frames of a selection leaves the rest of the frames out. **X4 list:**
+  up to 2,048 words per page (~100 KB worst case), 16 KiB of copied text, two service buffers per open, and
+  `line_boxes` is quadratic in the words (measure at activation).

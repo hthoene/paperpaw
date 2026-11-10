@@ -121,7 +121,13 @@ pub fn line_boxes(words: &[WordBox], picked: impl Fn(usize) -> bool) -> Vec<Rect
             Some(last) if after.is_some_and(|p| drawn_together(words, p, index, &picked)) => {
                 *last = last.union(&word.area);
             }
-            _ => boxes.push(word.area),
+            _ => {
+                // Out of memory leaves the rest of the frames out: the words stay chosen.
+                if boxes.try_reserve(1).is_err() {
+                    break;
+                }
+                boxes.push(word.area);
+            }
         }
         previous = Some(index);
     }

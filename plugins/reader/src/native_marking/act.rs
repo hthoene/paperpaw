@@ -62,8 +62,7 @@ pub fn sentence(words: &[WordBox], lo: usize, hi: usize) -> Result<String, Error
 }
 
 /// Copies `text` to the clipboard, in parts.
-pub fn copy(host: &Host<'_>, text: &str) -> Result<(), Error> {
-    let ui = Ui::open(host)?;
+pub fn copy(host: &Host<'_>, ui: &Ui, text: &str) -> Result<(), Error> {
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
     let mut offset = 0usize;
     loop {
@@ -113,7 +112,8 @@ pub fn look_up(
         Param::new("language", ctx.language)?,
     ];
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-    let handover = Ui::open(host)?.handover(host, &params, &mut input, &mut out)?;
+    let ui = ctx.ui.ok_or(Error::State)?;
+    let handover = ui.handover(host, &params, &mut input, &mut out)?;
     let mut scratch = [0; 256];
     CommandSender::new(host, &mut scratch).open(Open::slot("core.lookup")?.handover(handover))?;
     let sentence = sentence(ctx.words, lo, hi)?;

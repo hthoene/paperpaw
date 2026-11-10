@@ -17,6 +17,7 @@ use paperpaw_sdk::{
         commands::{CommandSender, RedrawMode},
         fonts::{Font, FontRole},
         snapshot::{self, Snapshot},
+        ui::Ui,
     },
     reading::WordBox,
 };
@@ -57,6 +58,9 @@ pub struct Ctx<'a> {
     pub area: native_pages::Box,
     /// When the input was, on the event clock (milliseconds).
     pub now_ms: u64,
+    /// The plugin's `core.ui` handle, for the clipboard and the screens opened
+    /// (one is held for the plugin: none is opened here, none leaks).
+    pub ui: Option<&'a Ui>,
 }
 
 impl<'a> Ctx<'a> {
@@ -79,7 +83,15 @@ impl<'a> Ctx<'a> {
             doc: None,
             area,
             now_ms: 0,
+            ui: None,
         }
+    }
+
+    /// With the plugin's `core.ui` handle.
+    #[must_use]
+    pub const fn ui(mut self, ui: &'a Ui) -> Self {
+        self.ui = Some(ui);
+        self
     }
 
     /// With the book the page is of, so its links are read.
@@ -160,6 +172,12 @@ impl Marking {
         self.selection = None;
         self.on = None;
         self.links = None;
+    }
+
+    /// The turn that was asked for did not move the page (the last one): the
+    /// focus stays on the link it was on.
+    pub fn stay(&mut self) {
+        self.enter = None;
     }
 
     /// Whether text is chosen.
@@ -389,7 +407,7 @@ impl Marking {
             }
             Item::Copy => {
                 let text = act::text_of(ctx.words, lo, hi)?;
-                act::copy(host, &text)?;
+                act::copy(host, ctx.ui.ok_or(Error::State)?, &text)?;
                 Ok(self.set(ctx, None))
             }
             Item::Extend => Ok(self.set(

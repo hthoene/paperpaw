@@ -21,7 +21,7 @@ use paperpaw_ui_kit::{
 };
 
 use super::{Ctx, Marking, Outcome, frame_words};
-use crate::native_links::{self, PageLink, is_external, label_of, link_of, note_like};
+use crate::native_links::{self, PageLink, is_external, label_of, link_index_of, note_like};
 
 /// The setting that says whether notes are shown over the page or gone to.
 const FOOTNOTES: &str = "core.footnotes";
@@ -108,13 +108,10 @@ impl Marking {
                 }
             },
             "core.confirm" => {
-                let link = focus.and_then(|i| self.links_of(host, ctx).ok()?.get(i).cloned());
+                self.links_of(host, ctx)?;
                 self.linking = None;
-                match link {
-                    Some(link) => {
-                        let label = label_of(ctx.words, &link)?;
-                        self.follow(host, ctx, &link, &label)
-                    }
+                match focus {
+                    Some(i) => self.follow(host, ctx, i),
                     None => Ok(Outcome::Redraw),
                 }
             }
@@ -147,12 +144,9 @@ impl Marking {
         let Some(word) = word.and_then(|w| ctx.words.get(w)) else {
             return Ok(None);
         };
-        let link = link_of(self.links_of(host, ctx)?, word).cloned();
-        match link {
-            Some(link) => {
-                let label = label_of(ctx.words, &link)?;
-                Ok(Some(self.follow(host, ctx, &link, &label)?))
-            }
+        let at = link_index_of(self.links_of(host, ctx)?, word);
+        match at {
+            Some(i) => Ok(Some(self.follow(host, ctx, i)?)),
             None => Ok(None),
         }
     }
@@ -160,28 +154,31 @@ impl Marking {
     /// Opens a link: a note over the page where it looks like one and the reader
     /// shows notes that way; else a place in the book (the page is remembered for
     /// *Back*), or the web.
-    fn follow(
-        &mut self,
-        host: &Host<'_>,
-        ctx: &Ctx<'_>,
-        link: &PageLink,
-        label: &str,
-    ) -> Result<Outcome, Error> {
-        let href = link.href.as_str();
+    fn follow(&mut self, host: &Host<'_>, ctx: &Ctx<'_>, index: usize) -> Result<Outcome, Error> {
+        let Some(link) = self.links.as_ref().and_then(|(_, links)| links.get(index)) else {
+            return Ok(Outcome::Handled);
+        };
+        let (href, ui) = (link.href.as_str(), ctx.ui.ok_or(Error::State)?);
         let Some(doc) = ctx.doc else {
             return Ok(Outcome::Handled);
         };
+        let label = label_of(ctx.words, link)?;
+        // An address too long to hand over is not followed (the input is taken).
         if link.kind == LinkKind::External || is_external(href) {
-            open_web(host, href, ctx.now_ms)?;
-            return Ok(Outcome::Handled);
+            return match open_web(host, ui, href, ctx.now_ms) {
+                Ok(()) | Err(Error::NoSpace) => Ok(Outcome::Handled),
+                Err(error) => Err(error),
+            };
         }
         let popup = setting_text(host, FOOTNOTES).is_ok_and(|v| v == FOOTNOTES_POPUP);
         if popup
-            && (link.kind == LinkKind::Footnote || note_like(label))
+            && (link.kind == LinkKind::Footnote || note_like(&label))
             && let Some(note) = native_links::note_text(host, &doc, href)?
         {
-            open_note(host, &note, ctx.path, href)?;
-            return Ok(Outcome::Handled);
+            return match open_note(host, ui, &note, ctx.path, href) {
+                Ok(()) | Err(Error::NoSpace) => Ok(Outcome::Handled),
+                Err(error) => Err(error),
+            };
         }
         let Some(target) = native_links::target_of(host, &doc, href)? else {
             return Ok(Outcome::Handled);
@@ -260,8 +257,8 @@ impl Marking {
                 }
                 None => focus,
             };
-            let link = focus.and_then(|i| self.links.as_ref()?.1.get(i)).cloned();
-            if let Some(link) = &link {
+            let link = focus.and_then(|i| self.links.as_ref()?.1.get(i));
+            if let Some(link) = link {
                 frame_words(ops, style, ctx.words, |i| {
                     ctx.words.get(i).is_some_and(|w| {
                         w.start.section == link.section
@@ -270,7 +267,7 @@ impl Marking {
                     })
                 })?;
             }
-            link_bar(ops, host, font, style, display, link.as_ref())?;
+            link_bar(ops, host, font, style, display, link)?;
         }
         if let Some((chips, _)) =
             back_chip(host, ctx, font)?.filter(|_| self.returns.offered_on(ctx.page_start))
@@ -365,13 +362,13 @@ fn link_bar(
 /// Opens the web page in the browser (`core.browser`): told apart by the time, so
 /// a page asked for again is loaded again, not the open browser brought forward.
 /// Where no browser is there, nothing happens.
-fn open_web(host: &Host<'_>, href: &str, now_ms: u64) -> Result<(), Error> {
+fn open_web(host: &Host<'_>, ui: &Ui, href: &str, now_ms: u64) -> Result<(), Error> {
     let mut id = String::new();
     id.try_reserve(20).map_err(|_| Error::NoMemory)?;
     push_number(&mut id, now_ms);
     let params = [Param::new("url", href)?, Param::new("id", &id)?];
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-    let handover = Ui::open(host)?.handover(host, &params, &mut input, &mut out)?;
+    let handover = ui.handover(host, &params, &mut input, &mut out)?;
     let mut scratch = [0; 256];
     match CommandSender::new(host, &mut scratch)
         .open(Open::slot("core.browser")?.handover(handover))
@@ -382,14 +379,14 @@ fn open_web(host: &Host<'_>, href: &str, now_ms: u64) -> Result<(), Error> {
 }
 
 /// Opens the note over the page (`core.footnote`).
-fn open_note(host: &Host<'_>, note: &str, path: &str, url: &str) -> Result<(), Error> {
+fn open_note(host: &Host<'_>, ui: &Ui, note: &str, path: &str, url: &str) -> Result<(), Error> {
     let params = [
         Param::new("text", note)?,
         Param::new("path", path)?,
         Param::new("url", url)?,
     ];
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-    let handover = Ui::open(host)?.handover(host, &params, &mut input, &mut out)?;
+    let handover = ui.handover(host, &params, &mut input, &mut out)?;
     let mut scratch = [0; 256];
     CommandSender::new(host, &mut scratch).open(Open::slot("core.footnote")?.handover(handover))
 }

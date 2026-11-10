@@ -63,7 +63,7 @@ pub fn word_boxes<M: Measure>(
                 match words.last_mut() {
                     Some(last) if joined => {
                         push_str(&mut last.text, part)?;
-                        last.area.width = (x + width) as u16 - last.area.x;
+                        last.area.width = ((x + width) as u16).saturating_sub(last.area.x);
                     }
                     _ => {
                         if words.len() >= MAX_WORDS {

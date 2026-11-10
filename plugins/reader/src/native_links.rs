@@ -156,6 +156,14 @@ pub fn link_of<'a>(links: &'a [PageLink], word: &WordBox) -> Option<&'a PageLink
     })
 }
 
+/// The place in `links` of the one a word is in (as [`link_of`]).
+#[must_use]
+pub fn link_index_of(links: &[PageLink], word: &WordBox) -> Option<usize> {
+    links.iter().position(|l| {
+        word.start.section == l.section && word.end.offset > l.start && word.start.offset < l.end
+    })
+}
+
 /// The text of `link` on the page: the parts of its words inside it (a note mark
 /// is often part of a word, as in `source¹`).
 ///
@@ -167,7 +175,10 @@ pub fn label_of(words: &[WordBox], link: &PageLink) -> Result<String, Error> {
         w.start.section == link.section && w.end.offset > link.start && w.start.offset < link.end
     }) {
         let from = link.start.saturating_sub(word.start.offset) as usize;
-        let to = (link.end.min(word.end.offset) - word.start.offset) as usize;
+        let to = link
+            .end
+            .min(word.end.offset)
+            .saturating_sub(word.start.offset) as usize;
         let part = word.text.get(from..to).unwrap_or(&word.text);
         label
             .try_reserve(part.len() + 1)
@@ -287,10 +298,10 @@ impl Returns {
     /// # Errors
     /// `NoMemory`.
     pub fn followed(&mut self, from: Locator) -> Result<(), Error> {
+        self.places.try_reserve(1).map_err(|_| Error::NoMemory)?;
         if self.places.len() >= RETURNS {
             self.places.remove(0);
         }
-        self.places.try_reserve(1).map_err(|_| Error::NoMemory)?;
         self.places.push(from);
         Ok(())
     }

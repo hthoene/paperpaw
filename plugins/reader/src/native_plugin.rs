@@ -257,7 +257,12 @@ impl Plugin for NativeReader {
         }
         let (handled, turned) = match (self.screens.top(token), &self.docs) {
             (Some(view), Some(docs)) => {
-                let handled = view.input(host, (docs, self.library.as_ref()), &input)?;
+                let handled = view.input(
+                    host,
+                    (docs, self.library.as_ref()),
+                    self.ui.as_ref(),
+                    &input,
+                )?;
                 (handled, view.take_turned())
             }
             _ => return Ok(Handled::No),

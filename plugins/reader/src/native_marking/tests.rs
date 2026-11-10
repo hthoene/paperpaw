@@ -1,4 +1,7 @@
-//! Host-free parts of the marking; the host paths are in `tests/`.
+//! Host-free parts of the marking. The host paths (choose, bar, look up, copy,
+//! follow, *Back*) need a book on a document host: they are the ignored cases
+//! `reader-selection-host-flow` and `reader-link-follow-back` in
+//! `tests/acceptance_pending.rs`.
 use super::*;
 use paperpaw_sdk::Rect;
 
