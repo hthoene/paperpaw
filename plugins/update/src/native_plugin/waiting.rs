@@ -368,7 +368,8 @@ impl NativeUpdate {
             storage::remove(host, Root::Data, OFFER).ok();
             return Ok(false);
         }
-        let before = record.clone();
+        // The text it is kept as: a copy that can fail (no clone of its strings).
+        let before = record.to_text()?;
         self.still(host, &mut record.holding)?;
         if record.holding.is_empty() {
             clear(host);
@@ -378,7 +379,7 @@ impl NativeUpdate {
         if due {
             self.ask_again(host, 0, DAY_MS)?;
         }
-        if made || record != before {
+        if made || record.to_text()? != before {
             write_record(host, &record)?;
         }
         Ok(open)
