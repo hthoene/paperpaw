@@ -494,9 +494,10 @@ Tags 1564-1592 and 1595 follow UIX's approved commands (1547-1558, 1561-1563) an
     start no longer reads the setup as declared; no, dismissed or 10 minutes end it with
     `install_done` kind 1, reason 2 or 3, changing nothing.
   - **Mode 0 does not ask and does not restart** (it is the safe direction, and a plugin must not
-    restart the device by it): it writes `dual-boot = auto`, takes effect at the next start, and
-    ends with reason 0. A plugin that wants it now asks the user to restart (its own question,
-    then `command.restart`, `uses.power`).
+    restart the device by it): it writes `dual-boot = auto` and ends with reason 0. It protects at
+    once (Senior R4): from the write on, the host treats the setup as declared until the next
+    start (`dev_firmware.flags` bit 0 set, `install_firmware` reason 19), and that start detects
+    again.
   - **Order and failure:** the host reads `paperpaw.ini` whole (a file it cannot read whole, or
     over its size, ends with reason 16 and nothing is written), sets `dual-boot` in the last
     `[firmware]` section (adding the section if there is none, the rest of the file as it was),
