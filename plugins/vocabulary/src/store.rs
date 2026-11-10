@@ -36,6 +36,10 @@ impl Changes {
 
     /// The words changed (by [`add`] or [`remove`], whether or not they
     /// could write all).
+    #[allow(
+        dead_code,
+        reason = "BLOCKED reader decorations: the words' writers tell the marks when the stage exists (PORTING-7.md); the tests use it"
+    )]
     pub(crate) fn changed(&self) {
         self.0.set(self.0.get().wrapping_add(1));
     }

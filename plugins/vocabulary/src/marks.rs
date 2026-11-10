@@ -1,60 +1,34 @@
-//! Words being learnt, marked where they occur in books: a decorator
-//! (ADR 0021) finds the words of the list on each page, in the book's
-//! language, and marks them in the role `vocabulary.learning`; a tap on
-//! one looks it up.
-//!
-//! The words are read from the file only when they changed, into a
-//! [`WordSet`] for the language of the book being read. Whether they did
-//! is known without reading anything ([`store::changes`]): readers ask
-//! as they draw a page.
+//! Words being learnt, marked where they occur in books: **BLOCKED on the
+//! reader's decorations stage** (`reader.decorations@1`, Plugin Engineer's;
+//! see `PORTING-7.md`). What is ready is what needs no host: the words of the
+//! list in the language of the book being read, read from the file only when
+//! the words changed (a signature, [`Changes`]), and the language a word was
+//! kept in, for the lookup a tap on a marked word makes. The stage's
+//! subscription that turns a page's words into marks (role
+//! `vocabulary.learning`) and the tap's hand-off (`core.lookup`, #352) are
+//! added when those stages exist.
 
 use alloc::string::{String, ToString};
-use alloc::vec::Vec;
-use core::cell::RefCell;
-
-use paperpaw_sdk::builtin::{events, params, slots};
-use paperpaw_sdk::decorations::{Decorated, DecoratorSpec, PageText};
+use paperpaw_sdk::Storage;
 use paperpaw_sdk::words::{WordSet, fold};
-use paperpaw_sdk::{Command, Commands, Env, Id, Params, Storage};
 
 use crate::store::{self, Changes};
-use crate::{LEARNING, MARK};
-
-/// The decorator.
-pub(crate) const DECORATOR: Id = Id::new_static("vocabulary.words");
-
-/// The words of a language, as they were after a number of changes.
-pub(crate) type Cache = RefCell<Option<(u64, String, WordSet)>>;
-
-/// The decorator, switched by [`MARK`], hearing taps.
-pub(crate) fn decorator(changes: &Changes) -> DecoratorSpec {
-    let cache: Cache = RefCell::new(None);
-    let (marks, signed) = (changes.clone(), changes.clone());
-    DecoratorSpec::new(DECORATOR, "vocabulary.decorator", move |env, page| {
-        decorate(&cache, env.storage(), page, &marks)
-    })
-    .switch(&MARK)
-    .taps()
-    .signature(move |_| signature(&signed))
-}
 
 /// What the marks depend on: the changes made to the words.
 pub(crate) fn signature(changes: &Changes) -> u64 {
     u64::from(changes.count())
 }
 
-/// The marks of `page`: the words of the list in its language.
-pub(crate) fn decorate(
-    cache: &Cache,
+/// The words of the list for a book in `language`, read again only when the
+/// list changed or the language is another.
+pub(crate) fn words<'a>(
+    cache: &'a mut Option<(u64, String, WordSet)>,
     storage: &dyn Storage,
-    page: &PageText<'_>,
+    language: &str,
     changes: &Changes,
-) -> Vec<Decorated> {
-    let Ok(mut cache) = cache.try_borrow_mut() else {
-        return Vec::new();
-    };
+) -> Option<&'a WordSet> {
     let signature = signature(changes);
-    let language = primary(page.language);
+    let language = primary(language);
     let fresh = matches!(
         &*cache,
         Some((s, kept, _)) if *s == signature && kept.eq_ignore_ascii_case(language)
@@ -65,10 +39,7 @@ pub(crate) fn decorate(
         let words = words_in(storage, language);
         *cache = Some((signature, language.to_string(), words));
     }
-    match &*cache {
-        Some((_, _, words)) => words.decorate(page.words, &LEARNING),
-        None => Vec::new(),
-    }
+    cache.as_ref().map(|(_, _, words)| words)
 }
 
 /// The language without its region: `en-GB` is `en`.
@@ -100,23 +71,6 @@ fn words_in(storage: &dyn Storage, language: &str) -> WordSet {
     WordSet::new(words.lines())
 }
 
-/// A tap on a marked word: looks it up, in the language it was kept in.
-pub(crate) fn tapped(env: &Env<'_>, tapped: &events::DecorationTapped, out: &mut Commands) {
-    if tapped.decorator != DECORATOR {
-        return;
-    }
-    let word = tapped.text.trim_matches(|c: char| !c.is_alphanumeric());
-    if word.is_empty() {
-        return;
-    }
-    out.push(Command::OpenSlot(
-        slots::LOOKUP,
-        Params::new()
-            .with(params::WORD, word.to_string())
-            .with(params::LANGUAGE, language_of(env.storage(), word)),
-    ));
-}
-
 /// The language `word` was last kept in; empty where it is not in the
 /// list.
 fn language_of(storage: &dyn Storage, word: &str) -> String {
@@ -137,82 +91,46 @@ fn language_of(storage: &dyn Storage, word: &str) -> String {
 mod tests {
     use super::*;
     use paperpaw_sdk::MemoryStorage;
-    use paperpaw_sdk::decorations::PageWord;
-    use paperpaw_sdk::document::Locator;
 
     const WORDS: &str = "Rabbit\ten\t1\t10\tbooks/alice.txt\tAlice\tThe White Rabbit.\n\
                          white rabbit\ten-GB\t1\t10\tbooks/alice.txt\tAlice\t\n\
                          Hase\tde\t1\t10\tbooks/hase.txt\tHase\t\n\
                          Hatter\t\t1\t10\tbooks/alice.txt\tAlice\t\n";
 
-    fn words<'a>(texts: &[&'a str]) -> Vec<PageWord<'a>> {
-        texts
-            .iter()
-            .enumerate()
-            .map(|(n, text)| {
-                PageWord::new(
-                    text,
-                    Locator::new(0, n as u32 * 10),
-                    Locator::new(0, n as u32 * 10 + text.len() as u32),
-                )
-            })
-            .collect()
-    }
-
-    fn page<'a>(language: &'a str, words: &'a [PageWord<'a>]) -> PageText<'a> {
-        PageText::new("books/alice.txt", language, words)
+    #[test]
+    fn the_words_of_the_list_in_the_books_language() {
+        let storage = MemoryStorage::new().with(store::file(), WORDS);
+        let changes = Changes::default();
+        let mut cache = None;
+        let set = words(&mut cache, &storage, "EN", &changes).unwrap();
+        assert!(set.contains("rabbit") && set.contains("white rabbit"));
+        // A word of no known language belongs to every book.
+        assert!(set.contains("hatter"));
+        assert!(!set.contains("hase"));
     }
 
     #[test]
-    fn marks_the_words_of_the_list() {
+    fn words_of_other_languages_are_skipped_and_an_unknown_language_has_all() {
         let storage = MemoryStorage::new().with(store::file(), WORDS);
-        let cache = Cache::default();
         let changes = Changes::default();
-        let text = words(&[
-            "The",
-            "White",
-            "Rabbit,",
-            "the",
-            "rabbit",
-            "and",
-            "(Hatter).",
-        ]);
-        let marks = decorate(&cache, &storage, &page("EN", &text), &changes);
-        let ranges: Vec<_> = marks.iter().map(|m| (m.start, m.end)).collect();
-        assert_eq!(
-            ranges,
-            [
-                (text[1].start, text[2].end),
-                (text[4].start, text[4].end),
-                (text[6].start, text[6].end),
-            ]
+        let mut cache = None;
+        let set = words(&mut cache, &storage, "de", &changes).unwrap();
+        assert!(set.contains("hase") && set.contains("hatter"));
+        assert!(!set.contains("rabbit"));
+        let all = words(&mut cache, &storage, "", &changes).unwrap();
+        assert!(all.contains("hase") && all.contains("rabbit"));
+    }
+
+    #[test]
+    fn the_list_is_read_again_when_it_changed() {
+        let storage = MemoryStorage::new().with(store::file(), WORDS);
+        let changes = Changes::default();
+        let mut cache = None;
+        assert!(
+            !words(&mut cache, &storage, "en", &changes)
+                .unwrap()
+                .contains("quire")
         );
-        assert!(marks.iter().all(|m| m.role == LEARNING));
-    }
-
-    #[test]
-    fn skips_words_of_other_languages() {
-        let storage = MemoryStorage::new().with(store::file(), WORDS);
-        let cache = Cache::default();
-        let changes = Changes::default();
-        let text = words(&["Der", "Hase", "und", "das", "Rabbit"]);
-        let marks = decorate(&cache, &storage, &page("de", &text), &changes);
-        assert_eq!(marks.len(), 1);
-        assert_eq!(marks[0].start, text[1].start);
-        // A book of no known language marks every word.
-        assert_eq!(
-            decorate(&cache, &storage, &page("", &text), &changes).len(),
-            2
-        );
-    }
-
-    #[test]
-    fn reads_the_list_again_when_it_changed() {
-        let storage = MemoryStorage::new().with(store::file(), WORDS);
-        let cache = Cache::default();
-        let changes = Changes::default();
-        let text = words(&["a", "quire", "of", "ink"]);
-        assert!(decorate(&cache, &storage, &page("en", &text), &changes).is_empty());
         let before = signature(&changes);
         let quire = store::Word {
             word: "quire".to_string(),
@@ -220,11 +138,18 @@ mod tests {
             ..store::Word::default()
         };
         store::add(&storage, &quire).unwrap();
+        // Nothing told of the change: the set read before is kept.
+        assert!(
+            !words(&mut cache, &storage, "en", &changes)
+                .unwrap()
+                .contains("quire")
+        );
         changes.changed();
         assert_ne!(signature(&changes), before);
-        assert_eq!(
-            decorate(&cache, &storage, &page("en", &text), &changes).len(),
-            1
+        assert!(
+            words(&mut cache, &storage, "en", &changes)
+                .unwrap()
+                .contains("quire")
         );
     }
 

@@ -1,9 +1,7 @@
 screen menu.list
 Text "Start reading"
 Text "Choose a book from your library."
-Row "Vocabulary" (focused)
-Row "Flash cards"
-Row "Notes vault"
+Row "Notes vault" (focused)
 Row "News"
 Row "Catalogs"
 Row "Wi-Fi transfer"

@@ -172,7 +172,7 @@ fn a_store_plugin_switched_off_before_stays_off() {
         .with(".paperpaw/plugins/setup/done", "")
         .with(
             "paperpaw.ini",
-            "[core]\nlanguage = en\n\n[plugins]\nvocabulary = off\n",
+            "[core]\nlanguage = en\n\n[plugins]\ncalibre = off\n",
         );
     let ran_before = paperpaw_app::ran_before(&storage);
     let kernel = paperpaw_app::install_with(
@@ -189,7 +189,7 @@ fn a_store_plugin_switched_off_before_stays_off() {
         state(paperpaw_app::STORE_PLUGINS[0]),
         Some(PluginState::Running)
     );
-    assert_eq!(state("vocabulary"), Some(PluginState::Off));
+    assert_eq!(state("calibre"), Some(PluginState::Off));
     // Off as it always shipped.
     assert_eq!(state("browser"), Some(PluginState::Off));
 }

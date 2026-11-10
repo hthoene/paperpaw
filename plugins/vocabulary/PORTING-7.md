@@ -1,8 +1,23 @@
-# Vocabulary on interface 7 (partly ported)
+# Vocabulary on interface 7
 
-Status: **not complete.** The interface-6 plugin (registration, screens, widget, marks,
-flash cards, phone page, sync, apkg) is still in place. It is removed in the PR that finishes
-the port.
+Status: **not complete.** The plugin is the native plugin only: the interface-6 plugin (`Vocabulary` with its
+registration, the list, flash cards, review, widget, sleep card, phone page and card-file screens, the decorator, and
+their integration tests `tests/cards.rs`, `collecting.rs`, `widgets.rs`, `settings_parity.rs`, its registration in `paperpaw-app` and its
+store-file builder in `tools/plugin-files`; `plugins.txt` keeps a comment line) is gone. It stays out of
+`complete.txt` (Manager's ruling) because Beta 3 parity is not there yet; three items are **BLOCKED** on hosts:
+
+- **BLOCKED reader decorations:** the words being learnt are not marked in books. Beta 3's decorator
+  (`vocabulary.words`, role `vocabulary.learning`, switched by `vocabulary.mark`) and its tap hand-off were interface 6.
+  `marks.rs` keeps what needs no host (the words of the list in the book's language, read again only when the list
+  changed, and the language a word was kept in) behind the reader's stage `reader.decorations@1`; Vocabulary subscribes
+  when it exists (Kernel ruling, todo 334: parity stays). The setting `vocabulary.mark` and its menu item return with that stage (not declared on interface 7 yet; the draw test's marked-words scenario returns with it).
+- **BLOCKED core.lookup (#352):** a tap on a word of the list does not look it up again, and the mark's tap has nothing to
+  look up with; the list offers *Go to the book* and *Delete*.
+- **Menus:** the Tools menu rows *Vocabulary* and *Flash cards* came from the interface-6 registration; they return with the host registry menus PR (the `tools` golden was blessed without them).
+- **BLOCKED right-to-left:** Arabic screens are not mirrored (see *Right-to-left* below).
+
+The words looked up reach the plugin only through the stage `reader.word-looked-up@1` (see *Ported: the words looked up*):
+the interface-6 event handler is gone with the interface-6 reader.
 
 ## Ported: the words' data layer (`src/store.rs`, `src/lines.rs`, `src/files.rs`)
 
@@ -72,14 +87,6 @@ the port.
 - `alloc_refusal_tests.rs` sweeps `detect`, `each`, `scan` in steps, a Windows-1252 file and
   `plain`.
 
-## Interim: interface-6 callers
-
-`lib.rs` and `widget.rs` (still interface 6) call the Result API with `unwrap_or(0)` /
-`unwrap_or_default()`: on a read error (or a refused allocation) they show an empty list or
-a count of 0, where they used to show what was read so far. Nothing is written from that view
-(`add`/`remove` read the list themselves and never write anew from a partial read). The
-native screens replace these callers.
-
 ## Ported: the sync of card files (`sync.rs`, host-free over `Storage`)
 
 - The folder listing, the ledger (`sources.txt`, read line by line, written in pieces through
@@ -135,17 +142,14 @@ native screens replace these callers.
   native word-looked-up path is not defined; the dictionary port, #425, is where it will come from).
   The flash cards' action, entry and screens are declared (next section).
 
-## Not ported yet (follow-ups; each is an ignored case in `tests/acceptance_pending.rs`)
+## Not ported yet (BLOCKED, each an ignored case in `tests/acceptance_pending.rs`)
 
-- `sdcard`, `sdmenu`, `phone` (they still use `format!`, `collect`,
-  `to_lowercase`; `fsrs.rs` is pure and needs nothing). Next slices.
-- The rest of the native shell: the scan action, events and help.
-- The sleep card: done, see *Ported: the sleep card* below.
-- The widgets: done, see *Ported: the home widgets* below.
 - The dictionary hand-off (tap a word) on `core.lookup` (#352, draft 23).
-- Marks in books (`marks.rs`): **waits for the reader's decorations stage** (`reader.decorations@1`, to be defined with the reader port by Plugin Engineer; Kernel ruling, todo 334: parity stays, nothing is lost). The mark logic (which words, which role) stays ready behind it; Vocabulary subscribes when the stage exists.
-- Phone page: done, see *Ported: Edit with your phone* below.
-- Card-folder files: done, see *Ported: the card files* below.
+- Marks in books (`marks.rs`): **waits for the reader's decorations stage** (`reader.decorations@1`, to be defined with the
+  reader port by Plugin Engineer; Kernel ruling, todo 334: parity stays, nothing is lost). The model is ready behind it.
+- Right-to-left mirroring of what the plugin draws itself.
+- Everything else of Beta 3 is native: the list, flash cards, review, widgets, sleep card, phone page and card files, see
+  the sections below.
 
 ## Ported: the flash cards' first screen as a view (`native_decks.rs`, `native_words.rs`)
 
@@ -295,9 +299,8 @@ takes the kit's helpers (and, where it keeps its own keys, swaps left and right 
   nothing where `vocabulary.collect` is off, and with `vocabulary.cards-from-lookups` a card is queued for the deck
   *Looked up*. A word that could not be kept tells the reader (*The word could not be kept…*), as before. Tested in
   `native_collect_tests.rs`, also with every allocation refused.
-- **The interface-6 handler of `core.word-looked-up` stays** until the interface-6 plugin goes (the interface-6 reader
-  still fires that event, and the native reader does not run the stage yet, so removing it now would collect nothing);
-  the marks, the interface-6 list and `tests/collecting.rs` use it. It goes with the interface-6 removal.
+- The interface-6 handler of `core.word-looked-up` is gone with the interface-6 plugin; until the native reader runs the stage nothing is
+  collected on a host that has only the native reader (the emitter is merged, the reader's view is Plugin Engineer's).
 - Not run against a host (hosted construction): that the reader's call reaches `word_looked_up`.
 
 ## Ported: the home widgets (`native_widgets.rs`, `native_widget_word.rs`, `native_widget_saved.rs`, `native_widget_due.rs`)
@@ -315,7 +318,7 @@ takes the kit's helpers (and, where it keeps its own keys, swaps left and right 
   makes the widget, not at each reading of the words.
 - Not proved here: measuring and drawing a widget on a scripted host (`tests/acceptance_pending.rs`, hosted
   construction #944). The declarations and the made/dropped events are tested (`tests/declarations.rs`,
-  `tests/scripted_widgets.rs`). The interface-6 widgets (`widget.rs`) go with the interface-6 removal.
+  `tests/scripted_widgets.rs`). The interface-6 widgets (`widget.rs`) are removed.
 
 ## Ported: the sleep card (`native_sleep_card.rs`, `declarations.rs` `navigation`)
 
