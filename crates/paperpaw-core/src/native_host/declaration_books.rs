@@ -55,7 +55,7 @@ pub(crate) struct BookBadgeDecl<'a, 'b> {
 
 impl DeclarationStore {
     /// Every book field of every live plugin, the plugin loaded first first, a
-    /// plugin's own in its index order. The visitor must not invoke plugins
+    /// plugin's own in name-hash order (the index's, not declaration order). The visitor must not invoke plugins
     /// or reenter the store.
     pub(crate) fn each_book_field(&self, visit: &mut dyn FnMut(&BookFieldDecl<'_, '_>)) {
         self.each_in_load_order(Kind::BookField, &mut |owner, plugin, record| {
@@ -69,8 +69,9 @@ impl DeclarationStore {
         });
     }
 
-    /// Every book badge of every live plugin, in the same order (the order
-    /// the views show them in: two at most).
+    /// Every book badge of every live plugin, in the same order. The order
+    /// the views show badges in (two at most) is not defined yet
+    /// (`library.md`); a plugin that reloads moves to the end.
     pub(crate) fn each_book_badge(&self, visit: &mut dyn FnMut(&BookBadgeDecl<'_, '_>)) {
         self.each_in_load_order(Kind::BookBadge, &mut |owner, plugin, record| {
             if let Record::BookBadgeSpec(spec) = record {
@@ -88,22 +89,15 @@ impl DeclarationStore {
     /// The owner that may write it is the plugin in `id`, as the host stamps
     /// the declaring plugin (`library.md` op 23: own fields only).
     pub(crate) fn book_field(&self, id: &str) -> Option<bool> {
-        let mut from = 0;
-        while let Some(dot) = id[from..].find('.') {
-            let at = from + dot;
-            let (plugin, name) = (&id[..at], &id[at + 1..]);
-            from = at + 1;
-            let mut found = None;
-            self.find(plugin, Kind::BookField, name, &mut |record| {
-                if let Record::BookFieldSpec(spec) = record {
-                    found = Some(spec.flags & FIELD_IN_CATALOG != 0);
-                }
-            });
-            if found.is_some() {
-                return found;
+        // A plugin id has no dot: the first one ends it.
+        let (plugin, name) = id.split_once('.')?;
+        let mut found = None;
+        self.find(plugin, Kind::BookField, name, &mut |record| {
+            if let Record::BookFieldSpec(spec) = record {
+                found = Some(spec.flags & FIELD_IN_CATALOG != 0);
             }
-        }
-        None
+        });
+        found
     }
 }
 
