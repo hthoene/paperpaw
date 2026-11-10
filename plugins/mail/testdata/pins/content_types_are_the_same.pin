@@ -1,0 +1,88 @@
+"None"	"text/plain"
+"None charset"	None
+"None boundary"	None
+"None name"	None
+"None filename"	None
+"None x"	None
+"None c"	None
+"None b"	None
+"Some(\"\")"	"text/plain"
+"Some(\"\") charset"	None
+"Some(\"\") boundary"	None
+"Some(\"\") name"	None
+"Some(\"\") filename"	None
+"Some(\"\") x"	None
+"Some(\"\") c"	None
+"Some(\"\") b"	None
+"Some(\"text/plain\")"	"text/plain"
+"Some(\"text/plain\") charset"	None
+"Some(\"text/plain\") boundary"	None
+"Some(\"text/plain\") name"	None
+"Some(\"text/plain\") filename"	None
+"Some(\"text/plain\") x"	None
+"Some(\"text/plain\") c"	None
+"Some(\"text/plain\") b"	None
+"Some(\"TEXT/HTML; Charset=\\\"UTF-8\\\"\")"	"text/html"
+"Some(\"TEXT/HTML; Charset=\\\"UTF-8\\\"\") charset"	Some("UTF-8")
+"Some(\"TEXT/HTML; Charset=\\\"UTF-8\\\"\") boundary"	None
+"Some(\"TEXT/HTML; Charset=\\\"UTF-8\\\"\") name"	None
+"Some(\"TEXT/HTML; Charset=\\\"UTF-8\\\"\") filename"	None
+"Some(\"TEXT/HTML; Charset=\\\"UTF-8\\\"\") x"	None
+"Some(\"TEXT/HTML; Charset=\\\"UTF-8\\\"\") c"	None
+"Some(\"TEXT/HTML; Charset=\\\"UTF-8\\\"\") b"	None
+"Some(\"multipart/mixed; boundary=\\\"a;b\\\"; x=y\")"	"multipart/mixed"
+"Some(\"multipart/mixed; boundary=\\\"a;b\\\"; x=y\") charset"	None
+"Some(\"multipart/mixed; boundary=\\\"a;b\\\"; x=y\") boundary"	Some("a;b")
+"Some(\"multipart/mixed; boundary=\\\"a;b\\\"; x=y\") name"	None
+"Some(\"multipart/mixed; boundary=\\\"a;b\\\"; x=y\") filename"	None
+"Some(\"multipart/mixed; boundary=\\\"a;b\\\"; x=y\") x"	Some("y")
+"Some(\"multipart/mixed; boundary=\\\"a;b\\\"; x=y\") c"	None
+"Some(\"multipart/mixed; boundary=\\\"a;b\\\"; x=y\") b"	None
+"Some(\"application/octet-stream; name*=utf-8''%C3%A4.bin\")"	"application/octet-stream"
+"Some(\"application/octet-stream; name*=utf-8''%C3%A4.bin\") charset"	None
+"Some(\"application/octet-stream; name*=utf-8''%C3%A4.bin\") boundary"	None
+"Some(\"application/octet-stream; name*=utf-8''%C3%A4.bin\") name"	Some("ä.bin")
+"Some(\"application/octet-stream; name*=utf-8''%C3%A4.bin\") filename"	None
+"Some(\"application/octet-stream; name*=utf-8''%C3%A4.bin\") x"	None
+"Some(\"application/octet-stream; name*=utf-8''%C3%A4.bin\") c"	None
+"Some(\"application/octet-stream; name*=utf-8''%C3%A4.bin\") b"	None
+"Some(\"attachment; filename*0=\\\"long\\\"; filename*1=\\\"name\\\"\")"	"text/plain"
+"Some(\"attachment; filename*0=\\\"long\\\"; filename*1=\\\"name\\\"\") charset"	None
+"Some(\"attachment; filename*0=\\\"long\\\"; filename*1=\\\"name\\\"\") boundary"	None
+"Some(\"attachment; filename*0=\\\"long\\\"; filename*1=\\\"name\\\"\") name"	None
+"Some(\"attachment; filename*0=\\\"long\\\"; filename*1=\\\"name\\\"\") filename"	Some("longname")
+"Some(\"attachment; filename*0=\\\"long\\\"; filename*1=\\\"name\\\"\") x"	None
+"Some(\"attachment; filename*0=\\\"long\\\"; filename*1=\\\"name\\\"\") c"	None
+"Some(\"attachment; filename*0=\\\"long\\\"; filename*1=\\\"name\\\"\") b"	None
+"Some(\"a; b; c=; =d\")"	"text/plain"
+"Some(\"a; b; c=; =d\") charset"	None
+"Some(\"a; b; c=; =d\") boundary"	None
+"Some(\"a; b; c=; =d\") name"	None
+"Some(\"a; b; c=; =d\") filename"	None
+"Some(\"a; b; c=; =d\") x"	None
+"Some(\"a; b; c=; =d\") c"	Some("")
+"Some(\"a; b; c=; =d\") b"	None
+"Some(\";;;\")"	"text/plain"
+"Some(\";;;\") charset"	None
+"Some(\";;;\") boundary"	None
+"Some(\";;;\") name"	None
+"Some(\";;;\") filename"	None
+"Some(\";;;\") x"	None
+"Some(\";;;\") c"	None
+"Some(\";;;\") b"	None
+"Some(\"text/plain; charset\")"	"text/plain"
+"Some(\"text/plain; charset\") charset"	None
+"Some(\"text/plain; charset\") boundary"	None
+"Some(\"text/plain; charset\") name"	None
+"Some(\"text/plain; charset\") filename"	None
+"Some(\"text/plain; charset\") x"	None
+"Some(\"text/plain; charset\") c"	None
+"Some(\"text/plain; charset\") b"	None
+"Some(\"text/plain; name*=%zz\")"	"text/plain"
+"Some(\"text/plain; name*=%zz\") charset"	None
+"Some(\"text/plain; name*=%zz\") boundary"	None
+"Some(\"text/plain; name*=%zz\") name"	Some("%zz")
+"Some(\"text/plain; name*=%zz\") filename"	None
+"Some(\"text/plain; name*=%zz\") x"	None
+"Some(\"text/plain; name*=%zz\") c"	None
+"Some(\"text/plain; name*=%zz\") b"	None

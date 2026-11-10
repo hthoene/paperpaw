@@ -321,19 +321,14 @@ fn the_index_is_written_and_read_the_same() {
     let mut pin = pin::Pin::new("the_index_is_written_and_read_the_same");
     let new_storage = MemoryStorage::new();
     let rows: Vec<(u32, String)> = (0..70)
-        .map(|n| (n, format!("subject {n}\twith tab")))
+        .map(|n| (n, format!("subject {n} with spaces")))
         .collect();
     let new_rows: Vec<new_store::Row> = rows
         .iter()
-        .map(|(uid, subject)| new_store::Row {
-            uid: *uid,
-            flags: "S".into(),
-            date: 5,
-            size: 6,
-            from: "A".into(),
-            from_address: "a@x".into(),
-            subject: subject.clone(),
-            message_id: "<m>".into(),
+        .map(|(uid, subject)| {
+            new_store::Row::parse(&format!("{uid}\tS\t5\t6\tA\ta@x\t{subject}\t<m>"))
+                .unwrap()
+                .unwrap()
         })
         .collect();
     new_store::write_index(&new_storage, "i.txt", &new_rows).unwrap();
@@ -362,13 +357,7 @@ fn the_index_is_written_and_read_the_same() {
 #[test]
 fn counts_and_folders_are_kept_the_same() {
     let mut pin = pin::Pin::new("counts_and_folders_are_kept_the_same");
-    let counts = new_store::Counts {
-        messages: 12,
-        unseen: 3,
-        uid_validity: 987_654_321_012,
-        checked: 1_700_000_000,
-    };
-    let storage = MemoryStorage::new().with("c.txt", counts.line().unwrap());
+    let storage = MemoryStorage::new().with("c.txt", "12\t3\t987654321012\t1700000000\n");
     let new = new_store::Counts::read(&storage, "c.txt").unwrap();
     pin.check("", &(new.line().unwrap()));
     assert_eq!(new_store::Counts::read(&storage, "none.txt"), None);

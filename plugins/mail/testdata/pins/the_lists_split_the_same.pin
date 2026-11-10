@@ -1,0 +1,8 @@
+"\"\""	[]
+"\"bob@example.org\""	["bob@example.org"]
+"\"\\\"Doe, Jane\\\" <jane@example.org>; bob@example.org\""	["\"Doe, Jane\" <jane@example.org>", "bob@example.org"]
+"\"BOB@example.org, bob@example.org\""	["BOB@example.org", "bob@example.org"]
+"\"not an address\""	["not an address"]
+"\"a@b.org,c@d.org;e@f.org\""	["a@b.org", "c@d.org", "e@f.org"]
+"\"Jürgen <j@example.org>\""	["Jürgen <j@example.org>"]
+"\"<x@y.org>, ,\""	["<x@y.org>"]

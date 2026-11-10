@@ -1,0 +1,123 @@
+"\"\""	"None"
+"\"\""	"[]"
+"\"\""	None
+"\"A1 OK LOGIN completed\""	"Some(Tagged { tag: \"A1\", status: Ok, text: \"LOGIN completed\" })"
+"\"A1 OK LOGIN completed\""	"[Atom(\"A1\"), Atom(\"OK\"), Atom(\"LOGIN\"), Atom(\"completed\")]"
+"\"A1 OK LOGIN completed\""	None
+"\"a2 no [AUTHENTICATIONFAILED] Invalid credentials\""	"Some(Tagged { tag: \"a2\", status: No, text: \"[AUTHENTICATIONFAILED] Invalid credentials\" })"
+"\"a2 no [AUTHENTICATIONFAILED] Invalid credentials\""	"[Atom(\"a2\"), Atom(\"no\"), Atom(\"[AUTHENTICATIONFAILED]\"), Atom(\"Invalid\"), Atom(\"credentials\")]"
+"\"a2 no [AUTHENTICATIONFAILED] Invalid credentials\""	None
+"\"A3 BAD Command unknown\""	"Some(Tagged { tag: \"A3\", status: Bad, text: \"Command unknown\" })"
+"\"A3 BAD Command unknown\""	"[Atom(\"A3\"), Atom(\"BAD\"), Atom(\"Command\"), Atom(\"unknown\")]"
+"\"A3 BAD Command unknown\""	None
+"\"A4 MAYBE what\""	"None"
+"\"A4 MAYBE what\""	"[Atom(\"A4\"), Atom(\"MAYBE\"), Atom(\"what\")]"
+"\"A4 MAYBE what\""	None
+"\"A5\""	"None"
+"\"A5\""	"[Atom(\"A5\")]"
+"\"A5\""	None
+"\"+ go ahead\""	"Some(Continue(\"go ahead\"))"
+"\"+ go ahead\""	"[Atom(\"+\"), Atom(\"go\"), Atom(\"ahead\")]"
+"\"+ go ahead\""	None
+"\"+\""	"Some(Continue(\"\"))"
+"\"+\""	"[Atom(\"+\")]"
+"\"+\""	None
+"\"* CAPABILITY IMAP4rev1 STARTTLS AUTH=PLAIN LITERAL+ idle\""	"Some(Untagged(Capability([\"IMAP4rev1\", \"STARTTLS\", \"AUTH=PLAIN\", \"LITERAL+\", \"idle\"])))"
+"\"* CAPABILITY IMAP4rev1 STARTTLS AUTH=PLAIN LITERAL+ idle\""	"[Atom(\"*\"), Atom(\"CAPABILITY\"), Atom(\"IMAP4rev1\"), Atom(\"STARTTLS\"), Atom(\"AUTH=PLAIN\"), Atom(\"LITERAL+\"), Atom(\"idle\")]"
+"\"* CAPABILITY IMAP4rev1 STARTTLS AUTH=PLAIN LITERAL+ idle\""	None
+"\"* LIST (\\\\HasNoChildren \\\\Trash) \\\"/\\\" \\\"Deleted Items\\\"\""	"Some(Untagged(List { flags: [\"\\\\HasNoChildren\", \"\\\\Trash\"], delimiter: Some('/'), name: \"Deleted Items\" }))"
+"\"* LIST (\\\\HasNoChildren \\\\Trash) \\\"/\\\" \\\"Deleted Items\\\"\""	"[Atom(\"*\"), Atom(\"LIST\"), List([Atom(\"\\\\HasNoChildren\"), Atom(\"\\\\Trash\")]), Quoted(\"/\"), Quoted(\"Deleted Items\")]"
+"\"* LIST (\\\\HasNoChildren \\\\Trash) \\\"/\\\" \\\"Deleted Items\\\"\""	None
+"\"* LSUB () \\\".\\\" INBOX\""	"Some(Untagged(List { flags: [], delimiter: Some('.'), name: \"INBOX\" }))"
+"\"* LSUB () \\\".\\\" INBOX\""	"[Atom(\"*\"), Atom(\"LSUB\"), List([]), Quoted(\".\"), Atom(\"INBOX\")]"
+"\"* LSUB () \\\".\\\" INBOX\""	None
+"\"* LIST (\\\\Noselect) NIL INBOX\""	"Some(Untagged(List { flags: [\"\\\\Noselect\"], delimiter: None, name: \"INBOX\" }))"
+"\"* LIST (\\\\Noselect) NIL INBOX\""	"[Atom(\"*\"), Atom(\"LIST\"), List([Atom(\"\\\\Noselect\")]), Nil, Atom(\"INBOX\")]"
+"\"* LIST (\\\\Noselect) NIL INBOX\""	None
+"\"* LIST \\\\Bad\""	"Some(Untagged(Other))"
+"\"* LIST \\\\Bad\""	"[Atom(\"*\"), Atom(\"LIST\"), Atom(\"\\\\Bad\")]"
+"\"* LIST \\\\Bad\""	None
+"\"* 23 EXISTS\""	"Some(Untagged(Exists(23)))"
+"\"* 23 EXISTS\""	"[Atom(\"*\"), Atom(\"23\"), Atom(\"EXISTS\")]"
+"\"* 23 EXISTS\""	None
+"\"* 5 RECENT\""	"Some(Untagged(Other))"
+"\"* 5 RECENT\""	"[Atom(\"*\"), Atom(\"5\"), Atom(\"RECENT\")]"
+"\"* 5 RECENT\""	None
+"\"* 7 expunge\""	"Some(Untagged(Other))"
+"\"* 7 expunge\""	"[Atom(\"*\"), Atom(\"7\"), Atom(\"expunge\")]"
+"\"* 7 expunge\""	None
+"\"* SEARCH 2 84 882 x 7\""	"Some(Untagged(Search([2, 84, 882, 7])))"
+"\"* SEARCH 2 84 882 x 7\""	"[Atom(\"*\"), Atom(\"SEARCH\"), Atom(\"2\"), Atom(\"84\"), Atom(\"882\"), Atom(\"x\"), Atom(\"7\")]"
+"\"* SEARCH 2 84 882 x 7\""	None
+"\"* SEARCH\""	"Some(Untagged(Search([])))"
+"\"* SEARCH\""	"[Atom(\"*\"), Atom(\"SEARCH\")]"
+"\"* SEARCH\""	None
+"\"* STATUS \\\"INBOX\\\" (MESSAGES 231 UNSEEN 7 bad x)\""	"Some(Untagged(Status { name: \"INBOX\", items: [(\"MESSAGES\", 231), (\"UNSEEN\", 7)] }))"
+"\"* STATUS \\\"INBOX\\\" (MESSAGES 231 UNSEEN 7 bad x)\""	"[Atom(\"*\"), Atom(\"STATUS\"), Quoted(\"INBOX\"), List([Atom(\"MESSAGES\"), Atom(\"231\"), Atom(\"UNSEEN\"), Atom(\"7\"), Atom(\"bad\"), Atom(\"x\")])]"
+"\"* STATUS \\\"INBOX\\\" (MESSAGES 231 UNSEEN 7 bad x)\""	None
+"\"* STATUS INBOX\""	"Some(Untagged(Status { name: \"INBOX\", items: [] }))"
+"\"* STATUS INBOX\""	"[Atom(\"*\"), Atom(\"STATUS\"), Atom(\"INBOX\")]"
+"\"* STATUS INBOX\""	None
+"\"* BYE Server shutting down  \""	"Some(Untagged(Bye(\"Server shutting down\")))"
+"\"* BYE Server shutting down  \""	"[Atom(\"*\"), Atom(\"BYE\"), Atom(\"Server\"), Atom(\"shutting\"), Atom(\"down\")]"
+"\"* BYE Server shutting down  \""	None
+"\"* OK [UIDVALIDITY 3857529045] UIDs valid\""	"Some(Untagged(Code { code: \"UIDVALIDITY\", args: [\"3857529045\"] }))"
+"\"* OK [UIDVALIDITY 3857529045] UIDs valid\""	"[Atom(\"*\"), Atom(\"OK\"), Atom(\"[UIDVALIDITY 3857529045]\"), Atom(\"UIDs\"), Atom(\"valid\")]"
+"\"* OK [UIDVALIDITY 3857529045] UIDs valid\""	None
+"\"* ok [capability IMAP4rev1 IDLE] ready\""	"Some(Untagged(Code { code: \"CAPABILITY\", args: [\"IMAP4rev1\", \"IDLE\"] }))"
+"\"* ok [capability IMAP4rev1 IDLE] ready\""	"[Atom(\"*\"), Atom(\"ok\"), Atom(\"[capability IMAP4rev1 IDLE]\"), Atom(\"ready\")]"
+"\"* ok [capability IMAP4rev1 IDLE] ready\""	None
+"\"* PREAUTH [CAPABILITY X] hi\""	"Some(Untagged(Code { code: \"CAPABILITY\", args: [\"X\"] }))"
+"\"* PREAUTH [CAPABILITY X] hi\""	"[Atom(\"*\"), Atom(\"PREAUTH\"), Atom(\"[CAPABILITY X]\"), Atom(\"hi\")]"
+"\"* PREAUTH [CAPABILITY X] hi\""	None
+"\"* NO [ALERT] careful\""	"Some(Untagged(Code { code: \"ALERT\", args: [] }))"
+"\"* NO [ALERT] careful\""	"[Atom(\"*\"), Atom(\"NO\"), Atom(\"[ALERT]\"), Atom(\"careful\")]"
+"\"* NO [ALERT] careful\""	None
+"\"* OK no code here\""	"Some(Untagged(Other))"
+"\"* OK no code here\""	"[Atom(\"*\"), Atom(\"OK\"), Atom(\"no\"), Atom(\"code\"), Atom(\"here\")]"
+"\"* OK no code here\""	None
+"\"* OK [unclosed\""	"Some(Untagged(Other))"
+"\"* OK [unclosed\""	"[Atom(\"*\"), Atom(\"OK\"), Atom(\"[unclosed\")]"
+"\"* OK [unclosed\""	None
+"\"* FLAGS (\\\\Answered \\\\Flagged)\""	"Some(Untagged(Other))"
+"\"* FLAGS (\\\\Answered \\\\Flagged)\""	"[Atom(\"*\"), Atom(\"FLAGS\"), List([Atom(\"\\\\Answered\"), Atom(\"\\\\Flagged\")])]"
+"\"* FLAGS (\\\\Answered \\\\Flagged)\""	None
+"\"* 12 FETCH (UID 42 FLAGS (\\\\Seen \\\\Answered) RFC822.SIZE 1000 INTERNALDATE \\\"08-Nov-2026 10:00:00 +0100\\\")\""	#250:51ba4440c8767707
+"\"* 12 FETCH (UID 42 FLAGS (\\\\Seen \\\\Answered) RFC822.SIZE 1000 INTERNALDATE \\\"08-Nov-2026 10:00:00 +0100\\\")\""	#255:3add26682d6b0b56
+"\"* 12 FETCH (UID 42 FLAGS (\\\\Seen \\\\Answered) RFC822.SIZE 1000 INTERNALDATE \\\"08-Nov-2026 10:00:00 +0100\\\")\""	None
+"\"* 3 FETCH (BODY[HEADER.FIELDS (FROM TO)] {342}\""	"Some(Untagged(Fetch { sequence: 3, items: [Atom(\"BODY[HEADER.FIELDS (FROM TO)]\"), Literal(342)] }))"
+"\"* 3 FETCH (BODY[HEADER.FIELDS (FROM TO)] {342}\""	"[Atom(\"*\"), Atom(\"3\"), Atom(\"FETCH\"), List([Atom(\"BODY[HEADER.FIELDS (FROM TO)]\"), Literal(342)])]"
+"\"* 3 FETCH (BODY[HEADER.FIELDS (FROM TO)] {342}\""	Some(342)
+"\"* 3 fetch (UID 9 BODY[] {1024+}\""	"Some(Untagged(Fetch { sequence: 3, items: [Atom(\"UID\"), Atom(\"9\"), Atom(\"BODY[]\"), Literal(1024)] }))"
+"\"* 3 fetch (UID 9 BODY[] {1024+}\""	"[Atom(\"*\"), Atom(\"3\"), Atom(\"fetch\"), List([Atom(\"UID\"), Atom(\"9\"), Atom(\"BODY[]\"), Literal(1024)])]"
+"\"* 3 fetch (UID 9 BODY[] {1024+}\""	Some(1024)
+"\"* 4 FETCH NIL\""	"Some(Untagged(Fetch { sequence: 4, items: [] }))"
+"\"* 4 FETCH NIL\""	"[Atom(\"*\"), Atom(\"4\"), Atom(\"FETCH\"), Nil]"
+"\"* 4 FETCH NIL\""	None
+"\"* 4 FETCH\""	"Some(Untagged(Fetch { sequence: 4, items: [] }))"
+"\"* 4 FETCH\""	"[Atom(\"*\"), Atom(\"4\"), Atom(\"FETCH\")]"
+"\"* 4 FETCH\""	None
+"\"* 4 FETCH (((((((deep)))))))\""	"Some(Untagged(Fetch { sequence: 4, items: [List([List([List([List([List([Atom(\"deep\")])])])])])] }))"
+"\"* 4 FETCH (((((((deep)))))))\""	"[Atom(\"*\"), Atom(\"4\"), Atom(\"FETCH\"), List([List([List([List([List([List([Atom(\"deep\")])])])])])])]"
+"\"* 4 FETCH (((((((deep)))))))\""	None
+"\"* 1 FETCH (UID 1 \\\"quo\\\\\\\"ted\\\\\\\\ \\\" nil NIL {12} {} {x} { 3} ) )\""	#169:73a58740b7340bb9
+"\"* 1 FETCH (UID 1 \\\"quo\\\\\\\"ted\\\\\\\\ \\\" nil NIL {12} {} {x} { 3} ) )\""	#174:7216e0c99abaa13e
+"\"* 1 FETCH (UID 1 \\\"quo\\\\\\\"ted\\\\\\\\ \\\" nil NIL {12} {} {x} { 3} ) )\""	None
+"\"* 1 FETCH (\\\"open quote\""	"Some(Untagged(Fetch { sequence: 1, items: [Quoted(\"open quote\")] }))"
+"\"* 1 FETCH (\\\"open quote\""	"[Atom(\"*\"), Atom(\"1\"), Atom(\"FETCH\"), List([Quoted(\"open quote\")])]"
+"\"* 1 FETCH (\\\"open quote\""	None
+"\"* 1 FETCH (UID ä世 café)\""	"Some(Untagged(Fetch { sequence: 1, items: [Atom(\"UID\"), Atom(\"ä世\"), Atom(\"café\")] }))"
+"\"* 1 FETCH (UID ä世 café)\""	"[Atom(\"*\"), Atom(\"1\"), Atom(\"FETCH\"), List([Atom(\"UID\"), Atom(\"ä世\"), Atom(\"café\")])]"
+"\"* 1 FETCH (UID ä世 café)\""	None
+"\"* LIST () \\\"/\\\" &AOQ-bc\""	"Some(Untagged(List { flags: [], delimiter: Some('/'), name: \"&AOQ-bc\" }))"
+"\"* LIST () \\\"/\\\" &AOQ-bc\""	"[Atom(\"*\"), Atom(\"LIST\"), List([]), Quoted(\"/\"), Atom(\"&AOQ-bc\")]"
+"\"* LIST () \\\"/\\\" &AOQ-bc\""	None
+"\"garbage with spaces\""	"None"
+"\"garbage with spaces\""	"[Atom(\"garbage\"), Atom(\"with\"), Atom(\"spaces\")]"
+"\"garbage with spaces\""	None
+"\"* \""	"None"
+"\"* \""	"[Atom(\"*\")]"
+"\"* \""	None
+"\"*\""	"None"
+"\"*\""	"[Atom(\"*\")]"
+"\"*\""	None

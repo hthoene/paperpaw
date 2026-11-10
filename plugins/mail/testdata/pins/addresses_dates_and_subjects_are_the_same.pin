@@ -1,0 +1,116 @@
+""	0
+"ada@example.org"	1
+"ada@example.org"	("", "ada@example.org", "ada@example.org")
+"Ada Lovelace <ada@example.org>"	1
+"Ada Lovelace <ada@example.org>"	("Ada Lovelace", "ada@example.org", "Ada Lovelace")
+"\"Doe, John\" <john@example.org>, bob@example.org (Bob)"	2
+"\"Doe, John\" <john@example.org>, bob@example.org (Bob)"	("Doe, John", "john@example.org", "Doe, John")
+"\"Doe, John\" <john@example.org>, bob@example.org (Bob)"	("Bob", "bob@example.org", "Bob")
+"a@b, ,c@d,"	2
+"a@b, ,c@d,"	("", "a@b", "a@b")
+"a@b, ,c@d,"	("", "c@d", "c@d")
+"<>"	0
+"(nested (comment)) a@b"	1
+"(nested (comment)) a@b"	("nested comment", "a@b", "nested comment")
+"\"unterminated <a@b>"	1
+"\"unterminated <a@b>"	("unterminated", "a@b", "unterminated")
+"Group: a@b, c@d;"	2
+"Group: a@b, c@d;"	("", "a@b", "a@b")
+"Group: a@b, c@d;"	("", "c@d", "c@d")
+"no address, nobody"	0
+"=?utf-8?B?w6TDtsO8?= <x@y>"	1
+"=?utf-8?B?w6TDtsO8?= <x@y>"	("=?utf-8?B?w6TDtsO8?=", "x@y", "=?utf-8?B?w6TDtsO8?=")
+"Tue, 3 Nov 2026 09:15:00 +0100"	Some(1793693700)
+"3 Nov 2026 09:15 -0500"	Some(1793715300)
+"Thu, 1 Jan 1970 00:00:00 +0000"	Some(0)
+"Mon, 29 Feb 2016 23:59:59 GMT"	Some(1456790399)
+"Fri, 31 Dec 1999 23:59:60 +0000 (CET)"	Some(946684800)
+"Sat, 4 Jul 76 12:00:00 UT"	Some(205329600)
+"garbage"	None
+""	None
+"99 Foo 1"	None
+"1 Jan 2026"	Some(1767225600)
+""	"Re: "
+"Hello"	"Re: Hello"
+"Re: Hello"	"Re: Hello"
+"RE: Re: Hello"	"RE: Re: Hello"
+"AW: Hello"	"Re: AW: Hello"
+"re:hello"	"re:hello"
+"Fwd: Re: x"	"Re: Fwd: Re: x"
+-1000000	(-768, 2, 4)
+-1	(1969, 12, 31)
+0	(1970, 1, 1)
+1	(1970, 1, 2)
+18000	(2019, 4, 14)
+2932896	(9999, 12, 31)
+""	""
+""	""
+""	""
+""	""
+""	""
+""	""
+""	""
+""	""
+""	""
+""	""
+""	""
+""	""
+""	""
+""	""
+""	""
+""	""
+""	""
+""	""
+""	"s"
+""	"s"
+""	"sh"
+""	"sh"
+""	"sho"
+""	"sho"
+""	"shor"
+""	"shor"
+""	"short"
+""	"short"
+""	"short"
+""	"short"
+""	"short"
+""	"short"
+""	""
+""	""
+""	"c"
+""	"c"
+""	"ca"
+""	"ca"
+""	"caf"
+""	"caf"
+""	"caf"
+""	"caf"
+""	"café"
+""	"café"
+""	"café café"
+""	"café café"
+""	"café café"
+""	"café café"
+""	""
+""	""
+""	"x"
+""	"x"
+""	"xx"
+""	"xx"
+""	"xxx"
+""	"xxx"
+""	"xxxx"
+""	"xxxx"
+""	"xxxxx"
+""	"xxxxx"
+""	"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+""	"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+""	#1002:1ef34865b2af37c5
+""	#1002:1ef34865b2af37c5
+"0"	""
+"3"	""
+"6"	""
+"12"	"<é@x>"
+"20"	"<3@x> <4@x> <é@x>"
+"40"	"<1@x> <2@x> <3@x> <4@x> <é@x>"
+"100"	"<1@x> <2@x> <3@x> <4@x> <é@x>"

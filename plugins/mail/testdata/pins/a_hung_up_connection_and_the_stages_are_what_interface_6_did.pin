@@ -1,0 +1,6 @@
+"stages: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Folders)", "Stage(Headers)", "Stage(Message)", "Stage(Updating)", "Done"]
+"stages: lines sent"	#407:dd4b97bff169bfce
+"stages: closed"	true
+"stages: TLS switches"	0
+"stages: files"	#627:44d4effeee1880a0
+"hung up"	["Stage(Connecting)", "Stage(LoggingIn)", "Failed(Network(Lost))"]

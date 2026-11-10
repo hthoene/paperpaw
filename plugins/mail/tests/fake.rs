@@ -270,9 +270,10 @@ impl Fake {
         if self.auth == Auth::PlainWait {
             self.auth = Auth::None;
             let tag = self.pending_tag.clone();
-            let expect = paperpaw_plugin_mail::codec::base64_line(
+            let expect = paperpaw_plugin_mail::native_model::codec::base64_line(
                 format!("\0{}\0{}", self.script.user, self.script.password).as_bytes(),
-            );
+            )
+            .unwrap();
             if line == expect {
                 self.say(&format!("{tag} OK authenticated\r\n"));
             } else {
@@ -298,9 +299,10 @@ impl Fake {
                 self.pending_tag = tag;
                 self.say("+ \r\n");
             } else {
-                let expect = paperpaw_plugin_mail::codec::base64_line(
+                let expect = paperpaw_plugin_mail::native_model::codec::base64_line(
                     format!("\0{}\0{}", self.script.user, self.script.password).as_bytes(),
-                );
+                )
+                .unwrap_or_default();
                 if arg == expect {
                     self.say(&format!("{tag} OK authenticated\r\n"));
                 } else {
@@ -413,7 +415,7 @@ impl Fake {
             }
             Auth::LoginPass => {
                 self.auth = Auth::None;
-                let pw = paperpaw_plugin_mail::codec::base64_line(self.script.password.as_bytes());
+                let pw = paperpaw_plugin_mail::native_model::codec::base64_line(self.script.password.as_bytes()).unwrap();
                 self.say(if line == pw {
                     "235 ok\r\n"
                 } else {
@@ -445,9 +447,10 @@ impl Fake {
             self.say("220 go ahead\r\n");
             self.starttls_pending = true;
         } else if upper.starts_with("AUTH PLAIN ") {
-            let expect = paperpaw_plugin_mail::codec::base64_line(
+            let expect = paperpaw_plugin_mail::native_model::codec::base64_line(
                 format!("\0{}\0{}", self.script.user, self.script.password).as_bytes(),
-            );
+            )
+            .unwrap();
             self.say(if line[11..] == expect {
                 "235 ok\r\n"
             } else {

@@ -1,0 +1,161 @@
+"\"\""	#448:4c688337fb27fe38
+"\"\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	""
+""	false
+"read \"\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	""
+""	[]
+"\"Subject: only headers\""	#506:92356ac6f601d91c
+"\"Subject: only headers\""	"From: \nTo: \nCc: \nSubject: only headers\nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	""
+""	false
+"read \"Subject: only headers\""	"From: \nTo: \nCc: \nSubject: only headers\nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	""
+""	[]
+"\"Subject: x\\n\\nplain body\\nsecond line\\n\""	#561:de3561069dbe5e73
+"\"Subject: x\\n\\nplain body\\nsecond line\\n\""	"From: \nTo: \nCc: \nSubject: x\nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"plain body\nsecond line\n"
+""	false
+"read \"Subject: x\\n\\nplain body\\nsecond line\\n\""	"From: \nTo: \nCc: \nSubject: x\nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"plain body\nsecond line\n"
+""	[]
+#271:56ad815da07b150c	#892:07a5406da3287b3d
+#271:56ad815da07b150c	#207:87180647fc99a8ca
+""	"Hello\n"
+""	false
+#276:bbefaa86ea96031e	#207:87180647fc99a8ca
+""	"Hello\n"
+""	[]
+"\"Content-Type: text/html\\n\\n<p>Hello &amp; <b>welcome</b></p><p>Second</p>\\n\""	#562:edfaf174182b5843
+"\"Content-Type: text/html\\n\\n<p>Hello &amp; <b>welcome</b></p><p>Second</p>\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"Hello & welcome\n\nSecond\n\n"
+""	false
+"read \"Content-Type: text/html\\n\\n<p>Hello &amp; <b>welcome</b></p><p>Second</p>\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"Hello & welcome\n\nSecond\n\n"
+""	[]
+"\"Content-Type: text/plain; charset=iso-8859-1\\nContent-Transfer-Encoding: quoted-printable\\n\\ncaf=E9 au lait=\\n et plus\\n\""	#549:e186407077c31e50
+"\"Content-Type: text/plain; charset=iso-8859-1\\nContent-Transfer-Encoding: quoted-printable\\n\\ncaf=E9 au lait=\\n et plus\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"café au lait et plus\n"
+""	false
+"read \"Content-Type: text/plain; charset=iso-8859-1\\nContent-Transfer-Encoding: quoted-printable\\n\\ncaf=E9 au lait=\\n et plus\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"café au lait et plus\n"
+""	[]
+"\"Content-Type: text/plain\\nContent-Transfer-Encoding: base64\\n\\naGVsbG8gd29ybGQ=\\n\""	#502:b2ad90b261f645e1
+"\"Content-Type: text/plain\\nContent-Transfer-Encoding: base64\\n\\naGVsbG8gd29ybGQ=\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"hello world"
+""	false
+"read \"Content-Type: text/plain\\nContent-Transfer-Encoding: base64\\n\\naGVsbG8gd29ybGQ=\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"hello world"
+""	[]
+#168:5f249c0f97f5fc26	#476:ba348e68ae0b1438
+#168:5f249c0f97f5fc26	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"plain\n"
+""	false
+#173:b60870aec721718c	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"plain\n"
+""	[]
+"\"Content-Type: multipart/alternative; boundary=b\\n\\n--b\\nContent-Type: text/html\\n\\n<p>html</p>\\n--b\\nContent-Type: text/plain\\n\\nplain\\n--b--\\n\""	#512:5286affb1331303e
+"\"Content-Type: multipart/alternative; boundary=b\\n\\n--b\\nContent-Type: text/html\\n\\n<p>html</p>\\n--b\\nContent-Type: text/plain\\n\\nplain\\n--b--\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"html\n\n\n\nplain\n"
+""	false
+#165:35abbf83539cf8d0	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"html\n\n\n\nplain\n"
+""	[]
+#274:b5195de8c1c41521	#677:fcdc6ab65ea12796
+#274:b5195de8c1c41521	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: a.pdf (application/pdf) (no name) (image/png)\nTruncated: 0\n\n"
+""	"body\n"
+""	false
+#279:e94bbf54a4cf46bf	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: a.pdf (application/pdf) (no name) (image/png)\nTruncated: 0\n\n"
+""	"body\n"
+""	["a.pdf (application/pdf) (no name) (image/png)"]
+#240:cf03d64155229fed	#494:9f52257a735372d9
+#240:cf03d64155229fed	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"one\n\n\ntwo\n"
+""	false
+#245:a95860c9d6c58ccb	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"one\n\n\ntwo\n"
+""	[]
+"\"Content-Type: multipart/mixed; boundary=m\\n\\n--m\\nContent-Type: text/plain\\n\\none\\n--m\\nContent-Type: text/plain\\n\\ntwo\\n--m--\\nepilogue\\n\""	#494:9f52257a735372d9
+"\"Content-Type: multipart/mixed; boundary=m\\n\\n--m\\nContent-Type: text/plain\\n\\none\\n--m\\nContent-Type: text/plain\\n\\ntwo\\n--m--\\nepilogue\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"one\n\n\ntwo\n"
+""	false
+#161:f3a38103f206cf61	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"one\n\n\ntwo\n"
+""	[]
+"\"Content-Type: multipart/mixed\\n\\nno boundary\\n\""	#448:4c688337fb27fe38
+"\"Content-Type: multipart/mixed\\n\\nno boundary\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	""
+""	false
+"read \"Content-Type: multipart/mixed\\n\\nno boundary\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	""
+""	[]
+"\"Content-Type: multipart/mixed; boundary=m\\n\\n--m\\nContent-Type: text/plain\\n\\nnever closed\\n\""	#510:760f7ba1e101e590
+"\"Content-Type: multipart/mixed; boundary=m\\n\\n--m\\nContent-Type: text/plain\\n\\nnever closed\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"never closed\n"
+""	false
+"read \"Content-Type: multipart/mixed; boundary=m\\n\\n--m\\nContent-Type: text/plain\\n\\nnever closed\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"never closed\n"
+""	[]
+"\"Content-Disposition: attachment; filename=x.txt\\nContent-Type: text/plain\\n\\nbody of attachment\\n\""	#532:3719259c0df21bcb
+"\"Content-Disposition: attachment; filename=x.txt\\nContent-Type: text/plain\\n\\nbody of attachment\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: x.txt (text/plain)\nTruncated: 0\n\n"
+""	""
+""	false
+"read \"Content-Disposition: attachment; filename=x.txt\\nContent-Type: text/plain\\n\\nbody of attachment\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: x.txt (text/plain)\nTruncated: 0\n\n"
+""	""
+""	["x.txt (text/plain)"]
+"\"Content-Type: text/plain; charset=utf-8\\n\\näöü 世界 😀\\n\""	#540:7bd4da651af3a723
+"\"Content-Type: text/plain; charset=utf-8\\n\\näöü 世界 😀\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"äöü 世界 😀\n"
+""	false
+"read \"Content-Type: text/plain; charset=utf-8\\n\\näöü 世界 😀\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"äöü 世界 😀\n"
+""	[]
+"\"Content-Type: text/plain; charset=koi8-r\\n\\nÿþ\\n\""	#497:92f6a80b1acf4775
+"\"Content-Type: text/plain; charset=koi8-r\\n\\nÿþ\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"ц©ц╬\n"
+""	false
+"read \"Content-Type: text/plain; charset=koi8-r\\n\\nÿþ\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"ц©ц╬\n"
+""	[]
+"\"Content-Type: text/html\\n\\n<style>p{x}</style><script>a<b</script><!-- c --><p>x</p>\\n\""	#461:ed61b3de031ec771
+"\"Content-Type: text/html\\n\\n<style>p{x}</style><script>a<b</script><!-- c --><p>x</p>\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"x\n\n"
+""	false
+"read \"Content-Type: text/html\\n\\n<style>p{x}</style><script>a<b</script><!-- c --><p>x</p>\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"x\n\n"
+""	[]
+"\"Subject: folded\\n header\\n\\nbody\""	#534:71311e848647b312
+"\"Subject: folded\\n header\\n\\nbody\""	"From: \nTo: \nCc: \nSubject: folded header\nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"body\n"
+""	false
+"read \"Subject: folded\\n header\\n\\nbody\""	"From: \nTo: \nCc: \nSubject: folded header\nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"body\n"
+""	[]
+"\"no colon here\\n\\nbody\""	#471:fd6a5f80057669cc
+"\"no colon here\\n\\nbody\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"body\n"
+""	false
+"read \"no colon here\\n\\nbody\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"body\n"
+""	[]
+"\"\\n\\n\\n\""	#456:77a978e8b2c80398
+"\"\\n\\n\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"\n\n"
+""	false
+"read \"\\n\\n\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"\n\n"
+""	[]
+"\"--b\\n--b--\\n\""	#448:4c688337fb27fe38
+"\"--b\\n--b--\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	""
+""	false
+"read \"--b\\n--b--\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	""
+""	[]
+"\"Content-Type: text/html\\n\\n<p>x</p>\\n\""	#461:ed61b3de031ec771
+"\"Content-Type: text/html\\n\\n<p>x</p>\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"x\n\n"
+""	false
+"read \"Content-Type: text/html\\n\\n<p>x</p>\\n\""	"From: \nTo: \nCc: \nSubject: \nDate: 0\nMessage-ID: \nReferences: \nReply-To: \nAttachments: \nTruncated: 0\n\n"
+""	"x\n\n"
+""	[]

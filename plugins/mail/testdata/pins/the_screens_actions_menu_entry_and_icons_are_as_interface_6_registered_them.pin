@@ -1,0 +1,4 @@
+"screens"	[("mail.boxes", "mail.title", true), ("mail.list", "mail.title", false), ("mail.read", "mail.title", false), ("mail.compose", "mail.write", true)]
+"actions"	[("mail.open", "mail.title"), ("mail.write", "mail.write")]
+"menu entries"	[("core.tools", "mail.open", 47)]
+"icons"	[("mail.open", "inbox"), ("mail.write", "pencil")]

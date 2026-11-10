@@ -1,0 +1,35 @@
+"sasl: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Folders)", "Stage(Headers)", "Done"]
+"sasl: lines sent"	["m1 CAPABILITY", "m2 AUTHENTICATE PLAIN AGFkYQBzZWNyZXQ=", "m3 LIST \"\" \"*\"", "m4 SELECT \"INBOX\"", "m5 LOGOUT"]
+"sasl: closed"	true
+"sasl: TLS switches"	0
+"sasl: files"	#333:7ba7081aa08a76ef
+"login: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Folders)", "Stage(Headers)", "Done"]
+"login: lines sent"	["m1 CAPABILITY", "m2 LOGIN \"ada\" \"secret\"", "m3 LIST \"\" \"*\"", "m4 SELECT \"INBOX\"", "m5 LOGOUT"]
+"login: closed"	true
+"login: TLS switches"	0
+"login: files"	#333:7ba7081aa08a76ef
+"disabled: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Failed(Unsafe)"]
+"disabled: lines sent"	["m1 CAPABILITY"]
+"disabled: closed"	true
+"disabled: TLS switches"	0
+"disabled: files"	[("folders", None), ("index", None), ("status", None), ("raw", None)]
+"wrong password: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Failed(Login(\"[AUTHENTICATIONFAILED] bad credentials\"))"]
+"wrong password: lines sent"	["m1 CAPABILITY", "m2 AUTHENTICATE PLAIN", "AGFkYQBzZWNyZXQ="]
+"wrong password: closed"	true
+"wrong password: TLS switches"	0
+"wrong password: files"	[("folders", None), ("index", None), ("status", None), ("raw", None)]
+"untrusted: events"	["Stage(Connecting)", "Untrusted(UnknownIssuer)"]
+"untrusted: lines sent"	[]
+"untrusted: closed"	true
+"untrusted: TLS switches"	0
+"untrusted: files"	[("folders", None), ("index", None), ("status", None), ("raw", None)]
+"no clock: events"	["Stage(Connecting)", "Failed(ClockNotSet)"]
+"no clock: lines sent"	[]
+"no clock: closed"	true
+"no clock: TLS switches"	0
+"no clock: files"	[("folders", None), ("index", None), ("status", None), ("raw", None)]
+"empty: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Folders)", "Stage(Headers)", "Done"]
+"empty: lines sent"	["m1 CAPABILITY", "m2 AUTHENTICATE PLAIN", "AGFkYQBzZWNyZXQ=", "m3 LIST \"\" \"*\"", "m4 SELECT \"INBOX\"", "m5 LOGOUT"]
+"empty: closed"	true
+"empty: TLS switches"	0
+"empty: files"	#333:7ba7081aa08a76ef
