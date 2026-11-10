@@ -69,6 +69,7 @@ pub(crate) struct PendingAsks {
     unmatched: u32,
     /// When the last log line was due (`None`: none yet).
     last_log: Option<u64>,
+    /// The same for the full-table line.
     last_full_log: Option<u64>,
 }
 
