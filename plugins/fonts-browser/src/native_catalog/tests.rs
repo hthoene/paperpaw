@@ -47,9 +47,8 @@ fn read(json: &[u8], outlines: bool) -> Vec<Font> {
 /// the font's line and the files it keeps (`plugin.ini` first, then the
 /// `pack`s or `outline`s of the fixture), and the size they add up to.
 fn expected(id: &str, pack: &str, files: usize) -> String {
-    let mut out = format!(
-        "{id}\tFont {id}\tsans\tA\tOFL-1.1\t1.0\t2\thttps://fonts.example/{id}/sample"
-    );
+    let mut out =
+        format!("{id}\tFont {id}\tsans\tA\tOFL-1.1\t1.0\t2\thttps://fonts.example/{id}/sample");
     for k in 0..files {
         let path = if k == 0 {
             String::from("plugin.ini")
