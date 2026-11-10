@@ -29,7 +29,7 @@ use paperpaw_sdk::{
         library::Library,
         settings::{self, SettingValue},
         snapshot::{self, Snapshot},
-        ui::{HandoverId, Notify, Ui},
+        ui::{HandoverId, Notify, Open as NavOpen, Param, Ui},
     },
 };
 use paperpaw_ui_kit::{
@@ -67,6 +67,15 @@ enum When {
     Closing,
 }
 
+/// The root as a hand-over writes it.
+const fn root_code(root: Root) -> &'static str {
+    match root {
+        Root::Data => "0",
+        Root::Handed => "5",
+        _ => "1",
+    }
+}
+
 /// An open book and the page on show.
 #[derive(Debug)]
 struct Open {
@@ -80,6 +89,8 @@ struct Open {
     trail: Trail,
     /// The book's path, for its saved place.
     path: String,
+    /// The root the book was opened on, as a hand-over writes it.
+    root: &'static str,
     /// The conversion the open document's places belong to.
     conversion: u64,
     /// The sections' lengths, for progress; none where the book has too many.
@@ -109,15 +120,24 @@ pub struct View {
 
 /// The hand-over's values, as far as the screen reads them.
 #[derive(Debug, Default)]
-struct Handover {
-    path: String,
-    root: Option<String>,
-    section: Option<String>,
-    offset: Option<String>,
+pub(crate) struct Handover {
+    pub(crate) path: String,
+    pub(crate) root: Option<String>,
+    pub(crate) section: Option<String>,
+    pub(crate) offset: Option<String>,
     page: Option<String>,
 }
 
 impl Handover {
+    /// The root the book is opened on (the library's unless the hand-over says).
+    pub(crate) fn root(&self) -> Root {
+        match self.root.as_deref() {
+            Some("0") => Root::Data,
+            Some("5") => Root::Handed,
+            _ => Root::Library,
+        }
+    }
+
     fn get(&self, key: &str) -> Option<&str> {
         match key {
             native_open::SECTION => self.section.as_deref(),
@@ -128,7 +148,11 @@ impl Handover {
     }
 }
 
-fn read_handover(host: &Host<'_>, ui: &Ui, handover: HandoverId) -> Result<Handover, Error> {
+pub(crate) fn read_handover(
+    host: &Host<'_>,
+    ui: &Ui,
+    handover: HandoverId,
+) -> Result<Handover, Error> {
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
     let mut found = Handover::default();
     for param in ui.params(host, handover, &mut input, &mut out)? {
@@ -166,11 +190,7 @@ impl View {
             return Ok(Self::message("reader.no-book"));
         }
         let (mut input, mut out) = (buffer(256)?, buffer(4096)?);
-        let root = match found.root.as_deref() {
-            Some("0") => Root::Data,
-            Some("5") => Root::Handed,
-            _ => Root::Library,
-        };
+        let root = found.root();
         let book = OpenBook::new(&found.path).root(root).publisher_styles();
         let state = match docs.open_book(host, &book, &mut input, &mut out) {
             Ok(state) => (
@@ -234,6 +254,7 @@ impl View {
             at,
             page: None,
             trail: Trail::new(),
+            root: root_code(root),
             path: found.path,
             conversion,
             progress,
@@ -319,6 +340,70 @@ impl View {
         }
     }
 
+    /// Opens the table of contents of the book on show.
+    fn show_toc(&self, host: &Host<'_>, ui: &Ui) -> Result<Handled, Error> {
+        let Some(params) = self.toc_params() else {
+            return Ok(Handled::No);
+        };
+        let [(k0, v0), (k1, v1), (k2, v2), (k3, v3)] = &params;
+        let list = [
+            Param::new(k0, v0)?,
+            Param::new(k1, v1)?,
+            Param::new(k2, v2)?,
+            Param::new(k3, v3)?,
+        ];
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let handover = ui.handover(host, &list, &mut input, &mut out)?;
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch)
+            .open(NavOpen::screen("reader.toc")?.handover(handover))?;
+        Ok(Handled::Yes)
+    }
+
+    /// Goes to `place` (a jump from the table of contents): the page before is
+    /// kept to turn back to, the place is reported and written as any turn's.
+    ///
+    /// # Errors
+    /// `NoMemory`, and the host's refusal to redraw.
+    pub fn go_to(
+        &mut self,
+        host: &Host<'_>,
+        docs: &Documents,
+        place: (u32, u32),
+    ) -> Result<(), Error> {
+        let Body::Open(open) = &mut self.body else {
+            return Ok(());
+        };
+        if place.0 >= open.sections || place == open.at {
+            return Ok(());
+        }
+        open.trail.push(open.at)?;
+        open.at = place;
+        open.page = None;
+        open.unsaved = true;
+        open.turned = true;
+        open.announce(host, docs);
+        let mut scratch = [0; 64];
+        CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Full)?;
+        Ok(())
+    }
+
+    /// The hand-over params of the table of contents of this book: where the
+    /// book is and where the reader is in it. `None` where no book is open.
+    #[must_use]
+    pub fn toc_params(&self) -> Option<[(&'static str, String); 4]> {
+        let Body::Open(open) = &self.body else {
+            return None;
+        };
+        let place = |n: u32| text::copy(text::decimal_u64(u64::from(n), &mut [0; 20])).ok();
+        Some([
+            ("path", text::copy(&open.path).ok()?),
+            ("root", text::copy(open.root).ok()?),
+            ("section", place(open.at.0)?),
+            ("offset", place(open.at.1)?),
+        ])
+    }
+
     /// Closes the document of the screen.
     pub fn close(&mut self, host: &Host<'_>, (docs, library): (&Documents, Option<&Library>)) {
         if let Body::Open(open) = &mut self.body {
@@ -335,9 +420,18 @@ impl View {
     pub fn input(
         &mut self,
         host: &Host<'_>,
-        (docs, library): (&Documents, Option<&Library>),
+        (docs, library, ui): (&Documents, Option<&Library>, &Ui),
         input: &Input<'_>,
     ) -> Result<Handled, Error> {
+        if matches!(
+            input,
+            Input::Action {
+                action: "reader.show-toc",
+                ..
+            }
+        ) {
+            return self.show_toc(host, ui);
+        }
         let Body::Open(open) = &mut self.body else {
             return Ok(Handled::No);
         };

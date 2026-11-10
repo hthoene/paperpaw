@@ -310,3 +310,19 @@ relative to the data folder).
   memory writes no mark; a refused write of the copy stays best effort. `kept_text` builds the whole
   text in one `String` (about 70 KB at the limit): its size on the X4 is on the measurement list
   (pieces through a sink if it does not fit).
+
+## The table-of-contents screen (view slice R6a, `native_toc_view.rs`)
+
+- The action `reader.show-toc` (menu, key) opens the screen `reader.toc` with a hand-over of the book
+  on show (`path`, `root`, `section`, `offset`). The screen opens the book itself (its own document, closed
+  with the screen), lists the book's own table (`core.document` op 7, at most 500 entries, titles cleaned
+  and cut as `native_toc::title_of`, indented by level down to the 4th), puts the focus on the chapter the
+  reader is in (`current_of_table`, exact targets by op 8 where the host's place is approximate) and says
+  `reader.no-toc` / `reader.preparing` / `reader.error` where there is nothing to list.
+- A choice (tap, press) goes to the entry's exact place in the reading screen below (`View::go_to`: the
+  page left is kept to turn back to; the place is reported and written as a turn's) and closes the
+  screen. Both screens are this plugin's, so no hand-over carries the place back.
+- **Not yet:** the headings found by scanning blocks where the book's table has at most one entry
+  (`native_toc`'s model: the scan, the kept copy `headings.txt`, the "Finding the chapters" screen), the
+  chapter of the page for the status line and the report, next/previous chapter actions, and the
+  skim screen (R6b). The hosted end-to-end test waits for a document host in the harness.

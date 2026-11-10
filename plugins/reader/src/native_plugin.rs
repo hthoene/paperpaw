@@ -6,7 +6,8 @@
 //! (`PORTING-7.md`). What the reader decides without a host is in the
 //! `native_*` models, tested without one.
 use crate::{
-    declarations::{SCREEN, STOPPING, SUSPEND, WORK_DUE},
+    declarations::{SCREEN, STOPPING, SUSPEND, TOC, WORK_DUE},
+    native_toc_view::{Outcome, TocView},
     native_view::View,
 };
 use paperpaw_sdk::{
@@ -14,6 +15,7 @@ use paperpaw_sdk::{
     native::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
+        commands::CommandSender,
         document::Documents,
         events::{Event, Incoming, kinds},
         library::Library,
@@ -58,6 +60,7 @@ pub struct NativeReader {
     /// The host has no work for the reader: not asked again.
     no_work: bool,
     screens: Screens<View>,
+    tocs: Screens<TocView>,
 }
 
 impl NativeReader {
@@ -83,6 +86,54 @@ impl NativeReader {
         };
         let view = View::open(host, ui, (docs, self.library.as_ref()), handover)?;
         self.screens.open(instance, view)
+    }
+
+    /// The table of contents opened: its book is opened with it.
+    fn open_toc(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
+    ) -> Result<(), Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        if self.docs.is_none() {
+            self.docs = Some(Documents::open(host)?);
+        }
+        let (Some(ui), Some(docs)) = (&self.ui, &self.docs) else {
+            return Err(Error::State);
+        };
+        let view = TocView::open(host, ui, docs, handover)?;
+        self.tocs.open(instance, view)
+    }
+
+    /// The table of contents closed: its document is given back.
+    fn close_toc(&mut self, host: &Host<'_>, instance: paperpaw_sdk::native::ui::Instance) {
+        if let (Some(view), Some(docs)) = (self.tocs.get(instance), &self.docs) {
+            view.close(host, docs);
+        }
+        self.tocs.close(instance);
+    }
+
+    /// An input of the table of contents; a choice goes to the reading screen
+    /// below and closes this one.
+    fn toc_input(&mut self, host: &Host<'_>, input: &Input<'_>) -> Result<Handled, Error> {
+        let (Some(view), Some(docs)) = (self.tocs.top(TOC), &self.docs) else {
+            return Ok(Handled::No);
+        };
+        let (handled, outcome) = view.input(host, docs, input)?;
+        if let Outcome::Go(place) = outcome {
+            if let (Some(reading), Some(docs)) = (self.screens.top(SCREEN), &self.docs) {
+                reading.go_to(host, docs, (place.section, place.offset))?;
+                if reading.take_turned() {
+                    self.start_quiet(host);
+                }
+            }
+            let mut scratch = [0; 64];
+            CommandSender::new(host, &mut scratch).back()?;
+        }
+        Ok(handled)
     }
 
     /// Writes the place of every reading screen not saved.
@@ -161,17 +212,29 @@ impl Plugin for NativeReader {
                 self.save_now(host);
                 Ok(())
             }
-            // Only the reading screen has a view yet (`PORTING-7.md`).
-            _ if token != SCREEN => Ok(()),
+            // The reading screen and the table of contents have views; the
+            // other screens come with their slices (`PORTING-7.md`).
             Event::ScreenOpened {
                 instance, handover, ..
-            } => self.open(host, instance, handover),
+            } => match token {
+                SCREEN => self.open(host, instance, handover),
+                TOC => self.open_toc(host, instance, handover),
+                _ => Ok(()),
+            },
             Event::ScreenShown {
                 instance: Some(instance),
                 ..
-            } => self.screens.shown(SCREEN, instance),
+            } => match token {
+                SCREEN => self.screens.shown(SCREEN, instance),
+                TOC => self.tocs.shown(TOC, instance),
+                _ => Ok(()),
+            },
             Event::ScreenClosed { instance, .. } => {
-                self.close(host, instance);
+                match token {
+                    SCREEN => self.close(host, instance),
+                    TOC => self.close_toc(host, instance),
+                    _ => {}
+                }
                 Ok(())
             }
             _ => Ok(()),
@@ -179,6 +242,10 @@ impl Plugin for NativeReader {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        if token == TOC {
+            let view = self.tocs.top(token).ok_or(Error::State)?;
+            return view.draw(host, &mut frame);
+        }
         let (Some(view), Some(docs)) = (self.screens.top(token), &self.docs) else {
             return Err(Error::State);
         };
@@ -186,9 +253,12 @@ impl Plugin for NativeReader {
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
-        let (handled, turned) = match (self.screens.top(token), &self.docs) {
-            (Some(view), Some(docs)) => {
-                let handled = view.input(host, (docs, self.library.as_ref()), &input)?;
+        if token == TOC {
+            return self.toc_input(host, &input);
+        }
+        let (handled, turned) = match (self.screens.top(token), &self.docs, &self.ui) {
+            (Some(view), Some(docs), Some(ui)) => {
+                let handled = view.input(host, (docs, self.library.as_ref(), ui), &input)?;
                 (handled, view.take_turned())
             }
             _ => return Ok(Handled::No),
