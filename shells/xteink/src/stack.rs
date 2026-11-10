@@ -115,7 +115,10 @@ pub fn handler_use(entry: usize, breakpoint: bool) -> Option<(Option<u32>, u32)>
     }
     let (left, _) = left();
     let left = to_u32(left);
+    #[cfg(not(target_arch = "xtensa"))]
     let trap = paperpaw_x4::stack_note::is_band_trap(breakpoint, entry, end, start);
+    #[cfg(target_arch = "xtensa")]
+    let trap = paperpaw_x4::stack_note::is_band_trap_s3(breakpoint, entry, end, start);
     Some((
         trap.then(|| paperpaw_x4::stack_note::handler_depth(entry, end, left)),
         left,
@@ -151,7 +154,6 @@ const TRIGGER: u32 = 2;
 
 /// Whether the band is armed now: the plugins of interface 7 run only
 /// where it is (`native::load_file` refuses them otherwise).
-#[cfg(target_arch = "riscv32")]
 static ARMED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
 /// Set when a re-arm found the trigger taken after the band had been armed.
@@ -182,15 +184,11 @@ pub fn native_loaded() {
     not(any(target_arch = "riscv32", feature = "ppn5")),
     allow(
         dead_code,
-        reason = "the Xtensa chips have no band and, without ppn5, no caller"
+        reason = "the Xtensa chips arm a band only with ppn5, which is its only caller"
     )
 )]
 pub fn band_armed() -> bool {
-    // The Xtensa chips have no band.
-    #[cfg(target_arch = "riscv32")]
-    return ARMED.load(core::sync::atomic::Ordering::Relaxed);
-    #[cfg(not(target_arch = "riscv32"))]
-    false
+    ARMED.load(core::sync::atomic::Ordering::Relaxed)
 }
 
 /// Sets the CPU's data trigger to fire before any store into the band
@@ -277,20 +275,209 @@ pub fn arm_band() {
     }
 }
 
-/// No band on the Xtensa chips.
-#[cfg(not(target_arch = "riscv32"))]
+/// The ESP32-S3's band, the debug assistant's region monitor
+/// (`paperpaw_x4::s3_band`, `abi/heap-word.md` section 6): the registers
+/// behind the arming routine, the interrupt that ends in the crash slot, and
+/// the store's address for the blame.
+#[cfg(all(target_arch = "xtensa", feature = "ppn5"))]
+mod s3 {
+    use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
+    use esp_hal::interrupt::bind_handler;
+    use esp_hal::peripherals::{ASSIST_DEBUG, Interrupt};
+    use paperpaw_x4::s3_band::Monitor;
+
+    /// The core that runs plugin calls: the first. (The second core runs no
+    /// PaperPaw code; if it ever does, its monitor is armed the same way.)
+    const CORE: usize = 0;
+
+    /// The address of the store that reached the band, kept for the crash
+    /// slot's blame (0 before one did).
+    static HIT: AtomicU32 = AtomicU32::new(0);
+    /// Set once the interrupt's handler is bound.
+    static BOUND: AtomicBool = AtomicBool::new(false);
+
+    /// The registers of the first core's DRAM0 area 0.
+    pub struct Regs(ASSIST_DEBUG<'static>);
+
+    impl Regs {
+        pub fn new() -> Self {
+            // SAFETY: the debug assistant is not given to anything else in
+            // this firmware (esp-hal's driver of it is not used); the arming
+            // routine and the band's handler are its only users, never at once
+            // (the handler stops the monitor first).
+            Self(unsafe { ASSIST_DEBUG::steal() })
+        }
+
+        /// The program counter of the store the monitor saw last.
+        pub fn store_pc(&self) -> u32 {
+            self.0
+                .register_block()
+                .cpu(CORE)
+                .area_pc()
+                .read()
+                .area_pc()
+                .bits()
+        }
+    }
+
+    impl Monitor for Regs {
+        fn set_bounds(&mut self, min: u32, max: u32) {
+            let cpu = self.0.register_block().cpu(CORE);
+            cpu.area_dram0_0_min()
+                .write(|w| unsafe { w.area_dram0_0_min().bits(min) });
+            cpu.area_dram0_0_max()
+                .write(|w| unsafe { w.area_dram0_0_max().bits(max) });
+        }
+        fn bounds(&self) -> (u32, u32) {
+            let cpu = self.0.register_block().cpu(CORE);
+            (
+                cpu.area_dram0_0_min().read().area_dram0_0_min().bits(),
+                cpu.area_dram0_0_max().read().area_dram0_0_max().bits(),
+            )
+        }
+        fn set_write(&mut self, on: bool) {
+            self.0
+                .register_block()
+                .cpu(CORE)
+                .montr_ena()
+                .modify(|_, w| w.area_dram0_0_wr_ena().bit(on));
+        }
+        fn write_enabled(&self) -> bool {
+            self.0
+                .register_block()
+                .cpu(CORE)
+                .montr_ena()
+                .read()
+                .area_dram0_0_wr_ena()
+                .bit_is_set()
+        }
+        fn set_interrupt(&mut self, on: bool) {
+            self.0
+                .register_block()
+                .cpu(CORE)
+                .intr_ena()
+                .modify(|_, w| w.area_dram0_0_wr_intr_ena().bit(on));
+        }
+        fn interrupt_enabled(&self) -> bool {
+            self.0
+                .register_block()
+                .cpu(CORE)
+                .intr_ena()
+                .read()
+                .area_dram0_0_wr_intr_ena()
+                .bit_is_set()
+        }
+        fn raw(&self) -> bool {
+            self.0
+                .register_block()
+                .cpu(CORE)
+                .intr_raw()
+                .read()
+                .area_dram0_0_wr_raw()
+                .bit_is_set()
+        }
+        fn clear_raw(&mut self) {
+            self.0
+                .register_block()
+                .cpu(CORE)
+                .intr_clr()
+                .write(|w| w.area_dram0_0_wr_clr().set_bit());
+        }
+        fn probe_store(&mut self, at: u32) {
+            // SAFETY: `at` is the band's first word, spare stack the paint
+            // filled at start (`paint`) and nothing uses: it already holds
+            // what is written.
+            unsafe { (at as *mut u32).write_volatile(super::PAINT) };
+        }
+    }
+
+    /// The monitor's interrupt, at the highest level esp-hal lets Rust handle.
+    /// The store that reached the band completed a few instructions before
+    /// (the band is spare stack: it harmed nothing). The monitor is stopped
+    /// first, so that nothing cuts off the panic that follows; the panic is
+    /// blamed on the code that stored (`crash.rs`, [`hit`]).
+    #[esp_hal::handler(priority = esp_hal::interrupt::Priority::Priority3)]
+    fn band_interrupt() {
+        let mut regs = Regs::new();
+        paperpaw_x4::s3_band::stop(&mut regs);
+        HIT.store(regs.store_pc(), Ordering::Relaxed);
+        panic!("the stack's band was reached");
+    }
+
+    /// Binds the interrupt's handler once. The monitor's own interrupt enable
+    /// stays off until the arming routine's self-test has passed.
+    pub fn bind() {
+        if !BOUND.swap(true, Ordering::Relaxed) {
+            bind_handler(Interrupt::ASSIST_DEBUG, band_interrupt);
+        }
+    }
+
+    /// The program counter of the store that reached the band, if one did.
+    pub fn hit() -> Option<u32> {
+        Some(HIT.load(Ordering::Relaxed)).filter(|pc| *pc != 0)
+    }
+}
+
+/// The program counter of the store that reached the band (the ESP32-S3's
+/// band interrupt), for the crash slot's blame: the code that stored is the
+/// one that overflowed.
+#[cfg(all(target_arch = "xtensa", feature = "ppn5"))]
+pub fn band_hit() -> Option<u32> {
+    s3::hit()
+}
+
+/// The ESP32-S3's band is armed with `ppn5` only (the interface-7 plugins);
+/// elsewhere there is none.
+#[cfg(not(all(target_arch = "xtensa", feature = "ppn5")))]
+pub fn band_hit() -> Option<u32> {
+    None
+}
+
+/// Arms the ESP32-S3's band (`paperpaw_x4::s3_band::arm`): the debug
+/// assistant's region monitor over the band at the stack's end, with its
+/// self-test. Called at start and after every light sleep (the monitor's
+/// registers are the chip's: a sleep may not keep them). Where it does not
+/// arm, nothing is left running and [`band_armed`] says no. Never a panic.
+#[cfg(all(target_arch = "xtensa", feature = "ppn5"))]
+pub fn arm_band() {
+    let end = core::ptr::addr_of!(_stack_end) as u32;
+    let top = core::ptr::addr_of!(_stack_start) as u32;
+    let Some(start) = paperpaw_x4::s3_band::band(end, top) else {
+        ARMED.store(false, core::sync::atomic::Ordering::Relaxed);
+        return;
+    };
+    s3::bind();
+    let mut regs = s3::Regs::new();
+    // Interrupts off: the self-test's store and the raw bit it reads must not
+    // meet a task switch that arms or reads the monitor in between (nothing
+    // else does, but the loop is short).
+    let armed = critical_section::with(|_| paperpaw_x4::s3_band::arm(&mut regs, start));
+    let was = band_armed();
+    ARMED.store(armed.is_ok(), core::sync::atomic::Ordering::Relaxed);
+    if let Err(why) = armed
+        && was
+    {
+        log::warn!("stack: the S3's band did not re-arm ({why:?})");
+        LOST.store(true, core::sync::atomic::Ordering::Relaxed);
+        lost_with_native_plugins();
+    }
+}
+
+/// No band on the Xtensa chips without `ppn5`.
+#[cfg(all(target_arch = "xtensa", not(feature = "ppn5")))]
 pub fn arm_band() {}
 
 /// Says in the log, once the log runs, whether the band is armed: the
-/// start arms it before the log exists. The Xtensa chips have no band
-/// and no native plugins: nothing to say.
+/// start arms it before the log exists. The Xtensa chips without `ppn5` have
+/// no band and no native plugins: nothing to say.
 pub fn report_band() {
-    #[cfg(target_arch = "riscv32")]
+    #[cfg(any(target_arch = "riscv32", all(target_arch = "xtensa", feature = "ppn5")))]
     if band_armed() {
         log::info!("stack: the band at the stack's end is armed");
     } else {
         log::warn!(
-            "stack: the band at the stack's end is NOT armed (trigger {TRIGGER} busy or no \
+            "stack: the band at the stack's end is NOT armed (no trigger or monitor free, or no \
              room): plugins with native code are not run"
         );
     }
