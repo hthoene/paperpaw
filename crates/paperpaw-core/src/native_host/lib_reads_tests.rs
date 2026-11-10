@@ -39,6 +39,10 @@ impl CatalogEnv for Env {
             _ => None,
         }
     }
+    /// Plugins keep data for book E only.
+    fn book_data_kept(&self, path: &str) -> Result<bool, i32> {
+        Ok(path == "books/e.epub")
+    }
 }
 
 /// Five books: A (a favourite, 40 % by the log), B (long title, tags and

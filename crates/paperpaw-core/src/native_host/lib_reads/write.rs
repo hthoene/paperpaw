@@ -2,7 +2,7 @@
 //! `provide`, the positions (op 14) and `set_field` (op 23). The contract's rules (flags, texts,
 //! the position policy) are the service's; this maps what it has checked to
 //! the card.
-use super::{CatalogReads, field, position};
+use super::{CatalogReads, delete, field, position};
 use crate::native_host::lib_service::{BookRef, FieldKind, LibWrite, StoredPosition};
 use crate::native_host::registrations as wire;
 
@@ -34,5 +34,9 @@ impl LibWrite for CatalogReads {
 
     fn set_field(&self, book: BookRef<'_>, name: &str, value: &str) -> Result<(), i32> {
         self.set_field_unless(book, name, value, &|_| false)
+    }
+
+    fn can_delete(&self, path: &str) -> (i32, u32) {
+        delete::can_delete(self, path)
     }
 }
