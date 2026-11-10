@@ -17,8 +17,9 @@ pub const STEP_BLOCKS: usize = 60;
 pub const MAX_TITLE: usize = 120;
 /// Deepest level shown (a heading's level below the highest one found).
 pub const MAX_LEVEL: u8 = 4;
-/// Largest kept copy of the headings read back.
-pub const MAX_KEPT: usize = 256 * 1024;
+/// Largest kept copy of the headings read back (500 headings of 120 characters
+/// and their numbers fit; a larger file is not one this model wrote).
+pub const MAX_KEPT: usize = 80 * 1024;
 
 /// A place in a book.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -138,6 +139,9 @@ fn push(out: &mut String, args: core::fmt::Arguments<'_>) -> Result<(), Error> {
 /// # Errors
 /// [`Error::NoMemory`].
 pub fn kept_headings(text: &str, size: u64) -> Result<Option<Vec<Entry>>, Error> {
+    if text.len() > MAX_KEPT {
+        return Ok(None);
+    }
     let mut lines = text.lines();
     let Some(first) = lines.next() else {
         return Ok(None);

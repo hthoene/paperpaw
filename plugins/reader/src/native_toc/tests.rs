@@ -140,3 +140,12 @@ fn every_allocation_may_be_refused() {
         Ok(())
     });
 }
+
+#[test]
+fn a_kept_copy_over_the_cap_is_not_read() {
+    let mut text = String::from("size 1\n");
+    while text.len() <= MAX_KEPT {
+        text.push_str("0\t0\t0\tx\n");
+    }
+    assert_eq!(kept_headings(&text, 1).unwrap(), None);
+}

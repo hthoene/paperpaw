@@ -119,3 +119,8 @@ relative to the data folder).
 - **Not yet: the screen.** It needs the block and table-of-contents ops of `core.document` in the SDK
   (Services, #2223), the storage for the kept copy, and the native reader entry (#954). Choosing an
   entry goes back and goes to the place through `core.goto`'s successor, which is not declared yet.
+- Review remarks (PR #958), for the screen: the kept copy is read up to `MAX_KEPT` (80 KiB, as
+  500 headings of 120 characters need) and written only after a complete scan; a scan that ran out of
+  memory writes no mark; a refused write of the copy stays best effort. `kept_text` builds the whole
+  text in one `String` (about 70 KB at the limit): its size on the X4 is on the measurement list
+  (pieces through a sink if it does not fit).
