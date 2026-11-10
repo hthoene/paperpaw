@@ -69,8 +69,8 @@ the plugin is not blocked on #385.
 read, write, append and remove; no service, no feature; regenerate with `python3 tools/abi-metadata.py --schema
 abi/abi.def --input native/metadata.json --bytes native/metadata.bin --json native/metadata.inspected.json`,
 likewise `metadata.host.*`). Tests: `tests/native_declarations.rs`, `native_linked_entry.rs`,
-`hosted_construction.rs` (the host checks the declaration and refuses it as `Unsupported` until Core #944
-admits formats; the positive case is ignored with that name). `tools/plugin-files7` builds it as a file.
+`hosted_construction.rs` (the host checks the declaration and admits the format; the plugin is constructed
+in a real registered scope). `tools/plugin-files7` builds it as a file.
 Built as for format-txt (PR #611) and format-xtc (PR #612).
 
 ## Removal step (done)
