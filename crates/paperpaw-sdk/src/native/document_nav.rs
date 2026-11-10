@@ -261,7 +261,8 @@ impl DocSpan {
     }
 }
 
-/// One section of a document: its number and its length for progress.
+/// One section of a document: its number and its length for progress. Unknown
+/// row flags are ignored, so a later host may add some.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct SectionEntry(wire::ServiceDocSection);
@@ -277,8 +278,8 @@ impl SectionEntry {
     pub const fn index(&self) -> u32 {
         self.0.index
     }
-    /// The section's length in source units, for progress. Unknown row flags are
-    /// ignored, so a later host may add some.
+    /// The section's length in source units, for progress. Add the lengths of
+    /// several sections in `u64`: a `u32` sum can wrap.
     #[must_use]
     pub const fn length(&self) -> u32 {
         self.0.length
@@ -293,9 +294,8 @@ impl SectionEntry {
 impl Documents {
     /// List the sections (op 5) with their lengths, in bounded pages; continue
     /// with the cursor of [`DocPage::end`]. The reader adds the lengths up to
-    /// compute progress (the format's own progress, op 17, is not wrapped here
-    /// yet). `input` is 256
-    /// bytes; `out` 4,096.
+    /// compute progress. The format's own progress (op 17) has no wrapper in
+    /// this SDK. `input` is 256 bytes; `out` 4,096.
     ///
     /// # Errors
     /// Invalid for a malformed page; State for a cursor whose list changed (start
