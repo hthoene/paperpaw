@@ -58,6 +58,7 @@ mod gestures;
 mod hints;
 mod hyphen_feed;
 mod input;
+mod input_filters;
 mod io;
 mod key_guard;
 mod keymap;
@@ -294,6 +295,8 @@ pub struct Kernel {
     /// Shared with the DEV command stages and their outputs, which give back
     /// reservations an unapplied batch leaves.
     radio_requests: alloc::rc::Rc<core::cell::RefCell<native_host::radio_requests::RadioRequests>>,
+    /// Firmware requests, queue and pump; none without a firmware host.
+    firmware: Option<alloc::rc::Rc<core::cell::RefCell<native_host::firmware_driver::Driver>>>,
     /// Since when the screen on top has been counted as shown.
     shown_since: Instant,
     /// The active settings scope: a book's own settings.
@@ -529,7 +532,7 @@ impl Kernel {
                 let long = InputKey::LongButton(Cow::Borrowed(name));
                 let at_once = self.resolve(&long).is_none() && !self.takes_buttons();
                 if let Some(recognized) = self.input.recognizer.button(name, state, now, at_once) {
-                    self.recognized(recognized);
+                    self.recognized_filtered(recognized);
                 }
             }
             InputEvent::Pointer(pointer) => self.pointer(pointer),
@@ -542,77 +545,6 @@ impl Kernel {
         self.run_commands();
         self.speak_focus();
         self.finish()
-    }
-
-    /// `event` after the native filters and then the interface-6 ones, or the
-    /// effects of an input one of them took, cancelled or ran an action for.
-    fn filtered(&mut self, now: Instant, event: InputEvent) -> Result<InputEvent, Effects> {
-        let event = self.native_filtered(now, event)?;
-        self.legacy_filtered(now, event)
-    }
-
-    /// The interface-6 filters: while a screen guards the device, or a PIN or
-    /// a password is entered, only those of its plugin.
-    fn legacy_filtered(&mut self, now: Instant, event: InputEvent) -> Result<InputEvent, Effects> {
-        let (verdict, delivered) = {
-            let asking = self.secret_owner();
-            let env = self.shared.env(now);
-            self.shared
-                .input_filters
-                .filter_of(&env, &event, asking.as_deref())
-        };
-        let event = match verdict {
-            InputVerdict::Take => {
-                // Taken from the recognizers that follow the finger too.
-                if let InputEvent::Pointer(p) = delivered {
-                    self.recognizers_lose(&p);
-                }
-                return Err(self.finish());
-            }
-            InputVerdict::Run(action) => {
-                self.dispatch(action);
-                self.run_commands();
-                return Err(self.finish());
-            }
-            InputVerdict::Cancel => {
-                self.cancel_input(&delivered);
-                self.run_commands();
-                return Err(self.finish());
-            }
-            InputVerdict::Replace(other) => other,
-            _ => event,
-        };
-        Ok(event)
-    }
-
-    /// What the native input filters made of `event`: the input to go on with
-    /// (as it was, or replaced), or the effects of one that was taken,
-    /// cancelled or turned into an action.
-    fn native_filtered(&mut self, now: Instant, event: InputEvent) -> Result<InputEvent, Effects> {
-        use native_host::input_chain::Native;
-        match self.native_input(now, &event) {
-            Native::Pass => Ok(event),
-            Native::Replaced(other) => Ok(other),
-            Native::Taken => {
-                if let InputEvent::Pointer(p) = event {
-                    self.recognizers_lose(&p);
-                }
-                Err(self.finish())
-            }
-            Native::Cancelled => {
-                self.cancel_input(&event);
-                self.run_commands();
-                Err(self.finish())
-            }
-            Native::Run(action) => match Id::parse(&action) {
-                Ok(action) => {
-                    self.dispatch(action);
-                    self.run_commands();
-                    Err(self.finish())
-                }
-                Err(_) => Ok(event),
-            },
-        }
     }
 
     /// `event` with the page buttons the other way round while reading,
@@ -909,7 +841,7 @@ impl Kernel {
         for recognized in self.input.recognizer.tick(now, &thresholds) {
             // A press held long enough: the reader's input too.
             self.shared.reader = true;
-            self.recognized(recognized);
+            self.recognized_filtered(recognized);
         }
         if self
             .input
@@ -1233,9 +1165,9 @@ impl Kernel {
         self.shared.usage.sleeps = self.shared.usage.sleeps.saturating_add(1);
         self.output.commands.push(events::SUSPEND.emit(()));
         self.bluetooth_suspend();
+        self.firmware_suspend();
         let effects = self.finish();
-        // Asleep, no word is hyphenated: the tables open give their heap
-        // back (and the card may be another on waking).
+        // Asleep, no word is hyphenated: open tables give their heap back.
         self.shared.hyphenation.close_tables();
         self.keep_timing();
         // What plugins saved, and what storage kept back, written.

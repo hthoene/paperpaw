@@ -177,3 +177,7 @@ does so for what it draws (`Style::rtl`, read from `core.language`: header, list
 chips, the sheet's pager; `Style::flip`, `flip_x` and `text::label_in` for the rest). What this plugin
 draws itself is not mirrored yet, so its screens are left to right in those parts for `ar` until it
 takes the kit's helpers (and, where it keeps its own keys, swaps left and right as `Chips::step` does).
+
+## Widgets and the settings pages
+
+The widgets are declared without `previews` (Kernel ruling, #228, as in Beta 3): they are offered in the Add picker, and a settings page does not show a sample of the widget. A preview-only widget would add one later.

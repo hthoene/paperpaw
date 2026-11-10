@@ -6,7 +6,7 @@
 //! No type here is a wire record or a foreign callback signature.
 
 use crate::abi7::{calls, lifecycle};
-use alloc::boxed::Box;
+use alloc::{boxed::Box, vec::Vec};
 use core::{cell::Cell, fmt, mem::ManuallyDrop, ops::Deref, pin::Pin};
 pub use lifecycle::{Teardown, TeardownStep};
 
@@ -32,12 +32,64 @@ pub(crate) mod work_sched;
 #[path = "native_host/work_service.rs"]
 mod work_service;
 
+#[path = "native_host/firmware_confirm.rs"]
+#[allow(
+    dead_code,
+    reason = "the pump opens it once a shell wires the firmware host; tests do today"
+)]
+pub(crate) mod firmware_confirm;
+#[path = "native_host/firmware_driver.rs"]
+#[allow(
+    dead_code,
+    reason = "the firmware commands and the kernel's pump wire it (slice B2a-2); tests do today"
+)]
+pub(crate) mod firmware_driver;
+#[path = "native_host/firmware_events.rs"]
+#[allow(
+    dead_code,
+    reason = "the shell's main loop calls the pump (slice B2a-2 wiring); tests do today"
+)]
+mod firmware_events;
 #[path = "native_host/firmware_install.rs"]
 #[allow(
     dead_code,
     reason = "the command arms and the pump (slice B) drive the machine; tests do today"
 )]
 pub(crate) mod firmware_install;
+
+#[path = "native_host/plugin_check.rs"]
+#[allow(
+    dead_code,
+    reason = "the queue's plugin seam wires the job (slice B2c-1 wiring after Core's queue enum); tests do today"
+)]
+pub(crate) mod plugin_check;
+#[path = "native_host/plugin_folder.rs"]
+#[allow(dead_code, reason = "the plugin jobs use it; see plugin_check")]
+pub(crate) mod plugin_folder;
+#[path = "native_host/plugin_install.rs"]
+#[allow(
+    dead_code,
+    reason = "the queue's plugin seam wires it; see plugin_check"
+)]
+pub(crate) mod plugin_install;
+#[path = "native_host/plugin_job.rs"]
+#[allow(
+    dead_code,
+    reason = "the queue's plugin seam wires it; see plugin_check"
+)]
+pub(crate) mod plugin_job;
+#[path = "native_host/plugin_rules.rs"]
+#[allow(dead_code, reason = "the install job applies it; see plugin_check")]
+pub(crate) mod plugin_rules;
+#[path = "native_host/plugin_swap.rs"]
+#[allow(
+    dead_code,
+    reason = "the install job runs it and the start replays it; see plugin_check"
+)]
+pub(crate) mod plugin_swap;
+#[path = "native_host/plugin_trust.rs"]
+#[allow(dead_code, reason = "the plugin jobs use it; see plugin_check")]
+pub(crate) mod plugin_trust;
 
 #[path = "native_host/secrets_file.rs"]
 pub(crate) mod secrets_file;
@@ -55,6 +107,9 @@ pub mod host_slot;
 #[path = "native_host/ui_service.rs"]
 pub(crate) mod ui_service;
 pub use ui_service::check_ask;
+
+#[path = "native_host/ui_hints.rs"]
+pub(crate) mod ui_hints;
 
 #[path = "native_host/ui_stack_op.rs"]
 pub(crate) mod ui_stack_op;
@@ -225,9 +280,13 @@ mod storage_files;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
 mod widget_events;
+mod wifi_events;
 mod work_pump;
 
-const REGISTRATIONS: usize = 8;
+/// The most callback registrations (event subscriptions and draws) one
+/// plugin makes over the whole construction. Records live in a `Vec` grown
+/// per batch, so the heap cost is what the plugin registered.
+const REGISTRATIONS: usize = 32;
 
 /// Callback-scoped drawing for host-owned plugin contexts.
 #[path = "native_host/canvas.rs"]
@@ -632,8 +691,7 @@ impl<C, M> HostOwner<C, M> {
         Ok(Construction {
             owner: self,
             plugin_id,
-            records: core::array::from_fn(|_| None),
-            len: 0,
+            records: Vec::new(),
             declarations: Declarations::default(),
             raw: raw_declarations::RawDeclarations::default(),
             failure: None,
@@ -719,8 +777,7 @@ impl<C, M> HostOwner<C, M> {
 pub struct Construction<'a, C, M, T> {
     owner: Pin<&'a HostOwner<C, M>>,
     plugin_id: &'a str,
-    records: [Option<T>; REGISTRATIONS],
-    len: usize,
+    records: Vec<T>,
     declarations: Declarations,
     raw: raw_declarations::RawDeclarations,
     failure: Option<Error>,
@@ -783,22 +840,27 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
 
     /// Stage a validated host record, returning it untouched on refusal.
     /// Generic T is not a wire schema; decoding and retained-byte limits apply
-    /// before calling this method. Eight records is an experimental count cap.
+    /// before calling this method. 32 records is the count cap per plugin.
     ///
     /// # Errors
-    /// Returns Capacity with the unchanged record if all eight slots are filled,
-    /// or the already latched failure if this transaction was rejected.
+    /// Returns Capacity with the unchanged record if all 32 slots are filled,
+    /// Memory (latched, record returned) if the room for it cannot be
+    /// allocated, or the already latched failure if this transaction was
+    /// rejected.
     pub fn stage(&mut self, record: T) -> Result<(), (Error, T)> {
         self.submitted = true;
         if let Some(error) = self.failure {
             return Err((error, record));
         }
-        if self.len == REGISTRATIONS {
+        if self.records.len() == REGISTRATIONS {
             self.failure = Some(Error::Capacity);
             return Err((Error::Capacity, record));
         }
-        self.records[self.len] = Some(record);
-        self.len += 1;
+        if self.records.try_reserve_exact(1).is_err() {
+            self.failure = Some(Error::Memory);
+            return Err((Error::Memory, record));
+        }
+        self.records.push(record);
         Ok(())
     }
 
@@ -868,8 +930,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     fn publish(mut self, teardown: Teardown<C>) -> Result<RegistrationBatch<'a, C, M, T>, Error> {
         let lease = CallbackLease(self.owner.inner().activate_leased(teardown)?);
         Ok(RegistrationBatch {
-            records: core::mem::replace(&mut self.records, core::array::from_fn(|_| None)),
-            len: self.len,
+            records: core::mem::take(&mut self.records),
             declarations: core::mem::take(&mut self.declarations),
             raw: core::mem::take(&mut self.raw),
             _image: core::marker::PhantomData,
@@ -887,7 +948,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// Stage a decoded, mixed batch: its callback registrations (converted by
     /// `convert`) and its declarations, all or nothing for the batch.
     /// Capacity for both is checked before either is changed. A refusal latches
-    /// the transaction: Capacity when the eight callback slots, a declaration
+    /// the transaction: Capacity when the 32 callback slots, a declaration
     /// count or the byte budget would overflow, Memory when an allocation fails,
     /// Invalid for any other declaration refusal.
     ///
@@ -932,9 +993,13 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
             .iter()
             .filter(|record| matches!(record, Record::Registration(_)))
             .count();
-        if self.len + tokens > REGISTRATIONS {
+        if self.records.len() + tokens > REGISTRATIONS {
             return Err(ERR_NO_SPACE);
         }
+        // Room for the records first: a refusal here changes nothing staged.
+        self.records
+            .try_reserve_exact(tokens)
+            .map_err(|_| ERR_NO_MEMORY)?;
         declarations::validate_batch(self.plugin_id, batch)?;
         let raw = self
             .raw
@@ -955,11 +1020,9 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         }
         self.raw.commit(raw);
         for record in batch.iter() {
-            if let (Record::Registration(registration), Some(slot)) =
-                (record, self.records.get_mut(self.len))
-            {
-                *slot = Some(convert(registration));
-                self.len += 1;
+            if let Record::Registration(registration) = record {
+                // The room was reserved above; the cap was checked there too.
+                self.records.push(convert(registration));
             }
         }
         Ok(())
@@ -971,10 +1034,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     }
 
     fn clear(&mut self) {
-        for record in &mut self.records {
-            drop(record.take());
-        }
-        self.len = 0;
+        self.records.clear();
     }
 }
 
@@ -991,8 +1051,7 @@ impl<C, M, T> Drop for Construction<'_, C, M, T> {
 /// their own leases and must be cancelled before owner teardown.
 #[non_exhaustive]
 pub struct RegistrationBatch<'a, C, M, T> {
-    records: [Option<T>; REGISTRATIONS],
-    len: usize,
+    records: Vec<T>,
     declarations: Declarations,
     raw: raw_declarations::RawDeclarations,
     _image: core::marker::PhantomData<&'a [u8]>,
@@ -1007,7 +1066,6 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
     {
         RegistrationBatch {
             records: self.records,
-            len: self.len,
             declarations: self.declarations,
             raw: self.raw,
             _image: core::marker::PhantomData,
@@ -1018,14 +1076,14 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
 
     /// Number of published host records.
     #[must_use]
-    pub const fn len(&self) -> usize {
-        self.len
+    pub fn len(&self) -> usize {
+        self.records.len()
     }
 
     /// Whether this batch contains no records.
     #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.len == 0
+    pub fn is_empty(&self) -> bool {
+        self.records.is_empty()
     }
 
     // The draft-4 bridge consumes these snapshots together with Declarations.
@@ -1064,11 +1122,7 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
         depth: &DispatchDepth,
         callback: impl FnOnce(Pin<&C>, &T) -> R,
     ) -> Result<R, Error> {
-        let record = self
-            .records
-            .get(index)
-            .and_then(Option::as_ref)
-            .ok_or(Error::State)?;
+        let record = self.records.get(index).ok_or(Error::State)?;
         self.lease
             .dispatch(depth, |context| callback(context, record))
     }
@@ -1110,7 +1164,7 @@ impl<C, M> fmt::Debug for HostOwner<C, M> {
 impl<C, M, T> fmt::Debug for Construction<'_, C, M, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Construction")
-            .field("len", &self.len)
+            .field("len", &self.records.len())
             .field("declarations", &self.declarations)
             .field("failure", &self.failure)
             .finish_non_exhaustive()
@@ -1120,7 +1174,7 @@ impl<C, M, T> fmt::Debug for Construction<'_, C, M, T> {
 impl<C, M, T> fmt::Debug for RegistrationBatch<'_, C, M, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RegistrationBatch")
-            .field("len", &self.len)
+            .field("len", &self.records.len())
             .finish_non_exhaustive()
     }
 }
