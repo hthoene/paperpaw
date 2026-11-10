@@ -380,6 +380,8 @@ fn registry_and_preview_bits_are_held_while_all_sixteen_edges_are_held() {
     for at in 0..16 {
         assert_eq!(edge_time(queue.take().unwrap()), at);
     }
+    // The refused edge left the reread bit, which came first.
+    assert!(matches!(queue.take(), Some(Ready::Reread)));
     assert!(matches!(queue.take(), Some(Ready::Registry(0x8000_0000))));
     assert!(matches!(
         queue.take(),
