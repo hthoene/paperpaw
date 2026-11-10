@@ -462,7 +462,7 @@ mod native_ui_directory;
 mod widget_drops;
 
 #[path = "native_host/native_enable.rs"]
-mod native_enable;
+pub mod native_enable;
 #[path = "native_host/native_install.rs"]
 mod native_install;
 mod native_resources;
