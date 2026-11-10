@@ -75,6 +75,7 @@ fn fixtures() -> Vec<Vec<u8>> {
             Record::EventActionRun(EventActionRun {
                 now_ms: 42,
                 action: "fixture.run",
+                flags: 0,
             }),
             Record::EventRegistryChanged(EventRegistryChanged {
                 now_ms: 42,
