@@ -149,3 +149,13 @@ relative to the data folder).
   cut silently. The view always advances past a block, also when its end is not after its start or when
   reading it failed (the next place is the block's end, else one further), or a page could repeat for
   ever. A checkpoint's text index is not checked against the text length (the layout clamps it).
+
+## The document adapter (view slice R1b, `native_document.rs`)
+
+- `HostDocument` implements the layout's `Document` over `Documents::block_at` for the length of one
+  callback (it holds the callback's host); its read buffers (256 B ask, 4,096 B reply) are on the heap,
+  made once. `read_block` joins the fragments, reads a block that changed again from its start (three
+  times at most) and refuses one of more than 64 fragments; a section's end (`NotFound`) is `None`.
+- Gaps: `section_len` is 0 (progress needs op 5 of the SDK facade); no table of contents or links
+  through it yet (the facade has them: the TOC and links slices); the hosted end-to-end test of
+  `block_at` (the host's real `core.document` with a format) comes with the view.
