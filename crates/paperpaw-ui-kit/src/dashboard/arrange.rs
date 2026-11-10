@@ -10,6 +10,7 @@
 //! wide at the least, as in interface 6, whose resizing did not read the hint's
 //! least width or square either (only the size an item gets when added or placed
 //! does).
+use crate::{mem::push, text::copy};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Point,
@@ -19,7 +20,6 @@ use paperpaw_sdk::{
         grid::{self, Cells, Geometry},
     },
 };
-use paperpaw_ui_kit::{mem::push, text::copy};
 
 use super::grid::{Item, What};
 

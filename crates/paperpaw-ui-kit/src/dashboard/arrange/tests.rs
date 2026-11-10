@@ -90,16 +90,11 @@ fn removing_leaves_the_others_and_resets_a_placement_only() {
 }
 
 #[test]
-fn the_options_are_move_resize_remove_and_cancel_with_their_words() {
+fn the_options_are_move_resize_remove_and_cancel_with_the_cancel_word_left_to_the_plugin() {
     let keys: Vec<&str> = CHOICES.iter().map(|(_, key)| *key).collect();
     assert_eq!(
         keys,
-        [
-            "core.grid.move",
-            "core.grid.resize",
-            "core.grid.remove",
-            "home.edit.cancel"
-        ]
+        ["core.grid.move", "core.grid.resize", "core.grid.remove", ""]
     );
     let with: Vec<&str> = choices(true).iter().map(|(_, key)| *key).collect();
     assert_eq!(
@@ -109,7 +104,7 @@ fn the_options_are_move_resize_remove_and_cancel_with_their_words() {
             "core.grid.resize",
             "core.grid.settings",
             "core.grid.remove",
-            "home.edit.cancel"
+            ""
         ]
     );
     assert_eq!(choices(false).len(), 4);
