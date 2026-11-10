@@ -124,6 +124,7 @@ impl<'a> CommandStage<'a> {
     /// fit (at most 8 actions per instance, counting what is staged) and takes
     /// the room for them ahead; nothing is listed on a refusal. On a device
     /// without a row of hints they do nothing.
+    #[inline(never)]
     pub(super) fn reserve_hints(&mut self, batch: &CommandBatch<'_>) -> Result<(), i32> {
         let Some((labels, true)) = self.ui.as_ref().and_then(|ui| ui.labels) else {
             return Ok(());
@@ -186,6 +187,7 @@ impl<'a> CommandStage<'a> {
         Ok(())
     }
 
+    #[inline(never)]
     pub(super) fn validate_open_budget(&self, batch: &CommandBatch<'_>) -> Result<(), i32> {
         let Some(ui) = &self.ui else {
             return Ok(());
@@ -295,6 +297,7 @@ impl<'a> CommandStage<'a> {
         }
     }
 
+    #[inline(never)]
     pub(super) fn owned_ui(&self, command: WireCommand<'_>) -> Result<Command, i32> {
         match command {
             WireCommand::OpenScreen { screen } => {

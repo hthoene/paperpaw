@@ -142,6 +142,7 @@ impl<'a> CommandStage<'a> {
 
     /// The item-state records of `batch`, checked and copied; their bytes
     /// are the second part of the answer.
+    #[inline(never)]
     pub(super) fn validate_item_states(
         &self,
         batch: &super::CommandBatch<'_>,

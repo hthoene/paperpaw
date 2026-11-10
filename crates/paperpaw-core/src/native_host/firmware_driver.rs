@@ -913,7 +913,8 @@ impl Driver {
         self.plugin_unload = None;
         self.plugin_forget = None;
         let after = self.plugin_jobs[at].after();
-        self.plugin_jobs.remove(at);
+        // In place: `remove` would hand the job over on this frame.
+        drop(self.plugin_jobs.drain(at..=at));
         self.dual_after(after);
         self.running = None;
         if self.finishing.take() == Some(false) {
@@ -1243,7 +1244,8 @@ impl Driver {
                 self.running = Some((owner, request));
                 self.finishing.get_or_insert(true);
             } else {
-                self.plugin_jobs.remove(at);
+                // In place: `remove` would hand the job over on this frame.
+                drop(self.plugin_jobs.drain(at..=at));
                 self.finishing = None;
                 if !orphan {
                     running = Some(Queued::Plugin { owner, request });
@@ -1353,7 +1355,8 @@ impl Driver {
             if keep || self.plugin_jobs[at].must_finish() {
                 self.finishing = Some(false);
             } else {
-                self.plugin_jobs.remove(at);
+                // In place: `remove` would hand the job over on this frame.
+                drop(self.plugin_jobs.drain(at..=at));
                 self.running = None;
             }
         }

@@ -350,6 +350,8 @@ impl NativeUpdate {
                 self.waiting_none(host);
             }
         }
+        // The *New* mark follows the offer kept.
+        tolerate(Self::mark_new(host))?;
         // Where nobody reads (a question asked in the background), the offer
         // waits on the page.
         if offer.is_some() {
@@ -499,6 +501,7 @@ impl NativeUpdate {
             return self.download_failed(host);
         }
         storage::remove(host, Root::Data, OFFER).ok();
+        tolerate(Self::mark_new(host))?;
         tolerate(self.waiting_done(host))?;
         let builds = loading.builds;
         if !builds.is_empty() {
