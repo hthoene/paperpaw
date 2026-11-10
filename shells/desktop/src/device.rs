@@ -339,6 +339,10 @@ impl Device {
     ) -> Result<Self, KernelError> {
         budget::set_limit(profile.heap_budget);
         let config = user_config.as_deref();
+        #[cfg_attr(
+            not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")),
+            allow(clippy::let_unit_value, reason = "nothing is linked without the feature")
+        )]
         let linked = linked_inputs(&library, simulated_time);
         let mut kernel = build_kernel(profile, config, card, Rotation::Deg0, add, &linked)?;
         // Turned by the settings: built again for the turned size.
