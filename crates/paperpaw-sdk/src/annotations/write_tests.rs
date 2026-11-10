@@ -1,6 +1,7 @@
 use super::*;
 use crate::MemoryStorage;
 use crate::annotations::{self, try_rows};
+use alloc::format;
 use alloc::string::ToString;
 use alloc::vec;
 
@@ -216,4 +217,80 @@ fn a_file_of_a_later_version_is_not_written_over() {
 fn the_file_of_a_key_is_the_file_of_the_path() {
     let key = u64::from_str_radix(&crate::library::key(BOOK), 16).unwrap();
     assert_eq!(file_of_key(key).unwrap(), file());
+}
+
+const ROW: &str = "h\t1\t10\t1\t20\t5\t100\t200\t\t\t\tone\t\t1\t\n";
+
+fn nothing() -> Plan {
+    Plan {
+        drop: vec![],
+        news: vec![],
+    }
+}
+
+#[test]
+fn a_line_longer_than_the_reader_takes_is_kept_unchanged_by_every_rewrite() {
+    let junk = "j".repeat(LINE_MAX * 2 + 5);
+    let v3 = format!("# format 3\n# next-id 2\n# generation 3\n{junk}\n{ROW}");
+    let storage = MemoryStorage::new().with(&file(), v3.as_str());
+    for generation in [4, 5] {
+        let info = try_info(&storage, &file()).unwrap();
+        let got = rewrite(&storage, &file(), TMP, (&info, 0), &mut nothing()).unwrap();
+        assert_eq!(got, generation);
+        let after = text(&storage);
+        assert_eq!(
+            after,
+            format!("# format 3\n# next-id 2\n# generation {generation}\n{junk}\n{ROW}")
+        );
+        assert!(!after.contains("\n\n"));
+    }
+}
+
+#[test]
+fn an_unterminated_last_line_gets_one_newline_before_a_new_row() {
+    let v3 = format!("# format 3\n# next-id 2\n# generation 3\n{ROW}junk");
+    let storage = MemoryStorage::new().with(&file(), v3.as_str());
+    let info = try_info(&storage, &file()).unwrap();
+    let mut plan = Plan {
+        drop: vec![],
+        news: vec![(2, Locator::new(9, 0), "late")],
+    };
+    rewrite(&storage, &file(), TMP, (&info, 1), &mut plan).unwrap();
+    let after = text(&storage);
+    assert!(after.contains("junk\nh\t"), "{after}");
+    assert!(
+        !after.contains("\n\n") && !after.contains("junkh"),
+        "{after}"
+    );
+    let info = try_info(&storage, &file()).unwrap();
+    rewrite(&storage, &file(), TMP, (&info, 0), &mut nothing()).unwrap();
+    assert!(text(&storage).ends_with('\n'));
+}
+
+#[test]
+fn a_stale_tmp_file_is_not_appended_to() {
+    let v3 = format!("# format 3\n# next-id 2\n# generation 3\n{ROW}");
+    let storage = MemoryStorage::new()
+        .with(&file(), v3.as_str())
+        .with(TMP, "STALE\nh\tbroken\n");
+    let info = try_info(&storage, &file()).unwrap();
+    rewrite(&storage, &file(), TMP, (&info, 0), &mut nothing()).unwrap();
+    assert_eq!(
+        text(&storage),
+        format!("# format 3\n# next-id 2\n# generation 4\n{ROW}")
+    );
+    assert!(!storage.exists(TMP));
+}
+
+#[test]
+fn the_generation_wraps_past_the_top_to_2_never_0_or_1() {
+    let v3 = format!("# format 3\n# next-id 2\n# generation {}\n{ROW}", u32::MAX);
+    let storage = MemoryStorage::new().with(&file(), v3.as_str());
+    let info = try_info(&storage, &file()).unwrap();
+    assert_eq!(generation_after(&info), 2);
+    assert_eq!(
+        rewrite(&storage, &file(), TMP, (&info, 0), &mut nothing()).unwrap(),
+        2
+    );
+    assert!(text(&storage).starts_with("# format 3\n# next-id 2\n# generation 2\n"));
 }

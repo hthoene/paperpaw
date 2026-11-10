@@ -337,7 +337,7 @@ fn lines(
                 piece
             };
             if over {
-                long(Some(piece))?;
+                long(Some(body))?;
                 if ended {
                     long(None)?;
                     over = false;
@@ -347,7 +347,7 @@ fn lines(
             if line.len() + body.len() > LINE_MAX {
                 over = true;
                 long(Some(&line))?;
-                long(Some(piece))?;
+                long(Some(body))?;
                 line.clear();
                 if ended {
                     long(None)?;
@@ -492,7 +492,7 @@ fn merge(
             out.borrow_mut().line(line)?;
             return Ok(ControlFlow::Continue(()));
         };
-        place += 1;
+        place = place.saturating_add(1);
         let id = if convert { place } else { row.id };
         let key = if convert {
             ""
