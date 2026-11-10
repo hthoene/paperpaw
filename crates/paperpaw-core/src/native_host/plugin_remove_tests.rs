@@ -146,6 +146,7 @@ fn nothing_left_over(card: &dyn Storage) {
         ".paperpaw/plugins/.removing-dials",
         "plugins/.journal",
         "plugins/.journal.tmp",
+        plugin_swap::TRIES,
     ] {
         assert!(
             !is_there(card, path) && card.size(path).is_err(),
@@ -591,6 +592,67 @@ fn a_forget_that_fails_ends_the_job_and_the_first_pass_after_start_finishes_it()
     assert!(!is_there(&card, "plugins/dials"));
     nothing_left_over(&card);
     neighbours_intact(&card);
+}
+
+/// A removal with its data whose forget failed in the live job: the data is
+/// moved aside and the journal waits.
+fn stopped_at_a_failed_forget(card: &MemoryStorage) {
+    let host = host();
+    let mut remove = job();
+    loop {
+        let env = JobEnv {
+            storage: card,
+            host: &host,
+            built_ins: &Names,
+            granted: false,
+        };
+        match remove.step(&env) {
+            JobStep::More | JobStep::Wait => {}
+            JobStep::Ask(_) => remove.answer(Answer::YesAndData),
+            JobStep::Unload(_) => remove.unloaded(),
+            JobStep::Forget(_) => remove.forgotten(false),
+            JobStep::Done(_) => break,
+        }
+    }
+    assert!(card_is_ready_to_forget(card));
+}
+
+#[test]
+fn a_host_that_cannot_forget_does_not_hold_the_journal_for_ever() {
+    let card = card();
+    stopped_at_a_failed_forget(&card);
+    // Two starts in a row at which the host cannot: the journal stays.
+    for tried in 1..plugin_swap::FORGET_TRIES {
+        let done = plugin_swap::resume(&card, &mut |_| false);
+        assert_eq!(done, Replayed::Failed(reason::CARD), "{tried}");
+        assert!(card.exists(plugin_swap::JOURNAL));
+    }
+    // The next one ends the waiting: the plugin is out, its secrets stay
+    // (that is told), the journal and its count are gone.
+    let done = plugin_swap::resume(&card, &mut |_| false);
+    assert!(matches!(done, Replayed::Unforgotten { .. }), "{done:?}");
+    assert!(!card.exists(plugin_swap::JOURNAL));
+    assert!(!card.exists(plugin_swap::TRIES));
+    crate::native_host::plugin_start::sweep(&card);
+    nothing_left_over(&card);
+    neighbours_intact(&card);
+}
+
+#[test]
+fn a_host_that_forgets_at_a_later_start_resets_the_count() {
+    let card = card();
+    stopped_at_a_failed_forget(&card);
+    assert_eq!(
+        plugin_swap::resume(&card, &mut |_| false),
+        Replayed::Failed(reason::CARD)
+    );
+    assert!(card.exists(plugin_swap::TRIES));
+    let done = plugin_swap::resume(&card, &mut |id| id == "dials");
+    assert!(
+        matches!(done, Replayed::Removed { data: true, .. }),
+        "{done:?}"
+    );
+    assert!(!card.exists(plugin_swap::TRIES));
 }
 
 #[test]

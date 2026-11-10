@@ -33,7 +33,10 @@ pub(crate) fn replay_at_start(storage: &dyn Storage, say: &mut dyn FnMut(String)
         let _ = storage.remove(TMP);
     }
     match replay(storage) {
-        Replayed::Nothing | Replayed::Finished { .. } | Replayed::Removed { .. } => {}
+        Replayed::Nothing
+        | Replayed::Finished { .. }
+        | Replayed::Removed { .. }
+        | Replayed::Unforgotten { .. } => {}
         Replayed::Forgetting => return true,
         Replayed::SetAside => say(String::from(
             "plugins/.journal could not be finished: set aside as .journal.bad, no plugin was changed by it",
