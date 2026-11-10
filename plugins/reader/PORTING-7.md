@@ -108,3 +108,14 @@ relative to the data folder).
   the subscriber (aids) must validate its setting against the reply size (named there as a settings
   validation); the reader drops a reply that is invalid whole.
 
+
+## Table of contents (native model, `native_toc.rs`)
+
+- Host-free: headings as entries (title cleaned and cut at 120 characters, levels from the highest,
+  at most 500), the kept copy `headings.txt` (form of interface 6, valid while the book file keeps its
+  size), preferring the headings when the book's own table has at most one entry, the focus on the
+  chapter of a place, the scan's step past a block and the `section`/`offset` parameters. Allocation
+  is fallible and tested refused in turn.
+- **Not yet: the screen.** It needs the block and table-of-contents ops of `core.document` in the SDK
+  (Services, #2223), the storage for the kept copy, and the native reader entry (#954). Choosing an
+  entry goes back and goes to the place through `core.goto`'s successor, which is not declared yet.

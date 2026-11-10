@@ -44,6 +44,7 @@ pub mod native_open;
 pub mod native_state;
 #[cfg(test)]
 mod native_tests;
+pub mod native_toc;
 pub mod native_words;
 
 /// The codec of the reader's own stage schemas (`stages/*.def`, made by
