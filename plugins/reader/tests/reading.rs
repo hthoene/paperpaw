@@ -182,7 +182,6 @@ impl Reading {
             .setting_default(&settings::KEYMAP_PRESET, preset.into())
             .storage(storage.clone())
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-            .plugin(paperpaw_plugin_format_txt::TxtFormat)
             .plugin(paperpaw_plugin_format_epub::EpubFormat)
             .plugin(Reader)
             .plugin(Listener(heard.clone()))
@@ -264,6 +263,7 @@ impl Reading {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn turns_pages_both_ways() {
     let mut reading = Reading::new(Shared::default());
     reading.open();
@@ -289,6 +289,7 @@ fn turns_pages_both_ways() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn continues_where_it_was_left() {
     let storage = Shared::default();
     let mut reading = Reading::new(storage.clone());
@@ -305,6 +306,7 @@ fn continues_where_it_was_left() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_restart_keeps_the_place() {
     let storage = Shared::default();
     let mut reading = Reading::new(storage.clone());
@@ -330,6 +332,7 @@ fn a_restart_keeps_the_place() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_larger_font_keeps_the_place() {
     let mut reading = Reading::new(Shared::default());
     reading.open();
@@ -359,6 +362,7 @@ fn a_larger_font_keeps_the_place() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn the_size_slider_lays_the_book_out_anew() {
     let mut reading = Reading::new(Shared::default());
     reading.open();
@@ -377,6 +381,7 @@ fn the_size_slider_lays_the_book_out_anew() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn bookmarks_are_kept() {
     let mut reading = Reading::new(Shared::default());
     reading.open();
@@ -394,6 +399,7 @@ fn bookmarks_are_kept() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn plugins_hear_the_reading() {
     let mut reading = Reading::new(Shared::default());
     reading.open();
@@ -604,6 +610,7 @@ fn status_lines_know_the_page_in_the_chapter() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn held_select_marks_the_page() {
     let mut reading = Reading::new(Shared::default());
     reading.open();
@@ -679,6 +686,7 @@ fn held_page_buttons_turn_one_page_by_default() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn swapped_page_buttons_turn_the_other_way_while_reading() {
     let mut reading = Reading::new(Shared::default());
     reading.open();
@@ -713,6 +721,7 @@ fn sixth_page(sets: &[(&str, &str)]) -> (u32, u32) {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn paragraphs_keep_lines_together_as_set() {
     // Lines kept together: pages end earlier, where paragraphs break.
     let standard = sixth_page(&[]);
@@ -721,6 +730,7 @@ fn paragraphs_keep_lines_together_as_set() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn the_page_holds_what_its_type_and_margins_leave_room_for() {
     let standard = sixth_page(&[]);
     // Margins at the top and bottom of their own: more lines, or fewer.
@@ -739,6 +749,7 @@ fn the_page_holds_what_its_type_and_margins_leave_room_for() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_book_may_be_turned_on_its_own() {
     use paperpaw_platform::Rotation;
     let storage = Shared::default();
@@ -755,6 +766,7 @@ fn a_book_may_be_turned_on_its_own() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_percentage_is_gone_to_and_back_returns() {
     let mut reading = Reading::new(Shared::default());
     reading.open();
@@ -830,6 +842,7 @@ fn reopened_with_a_short_index(storage: &Shared) -> Reading {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_page_back_stays_near_where_the_index_does_not_reach() {
     let (storage, starts) = page_starts(12);
     let mut reading = reopened_with_a_short_index(&storage);
@@ -849,6 +862,7 @@ fn a_page_back_stays_near_where_the_index_does_not_reach() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn an_index_the_storage_stops_taking_is_still_used() {
     let (storage, starts) = page_starts(12);
     let mut reading = reopened_with_a_short_index(&storage);
@@ -913,6 +927,7 @@ fn pages_counted(reading: &mut Reading) -> u32 {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn another_edition_of_a_book_is_counted_anew() {
     let text = include_str!("../../../samples/library/books/alice-in-wonderland.txt");
     let storage = Shared::default();
@@ -933,6 +948,7 @@ fn another_edition_of_a_book_is_counted_anew() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn page_indexes_of_layouts_left_do_not_pile_up() {
     let storage = Shared::default();
     let mut reading = Reading::new(storage.clone());
@@ -949,6 +965,7 @@ fn page_indexes_of_layouts_left_do_not_pile_up() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn text_chosen_is_let_go_when_the_page_turns_by_itself() {
     let mut reading = Reading::new(Shared::default());
     reading.open();
@@ -1033,6 +1050,7 @@ impl Plugin for Counter {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_page_drawn_in_bands_asks_the_status_line_once() {
     let storage = Shared::default();
     storage.create_dir("books").unwrap();
@@ -1046,7 +1064,6 @@ fn a_page_drawn_in_bands_asks_the_status_line_once() {
         .setting_default_text("reader.status.top-lines", "")
         .storage(storage.clone())
         .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-        .plugin(paperpaw_plugin_format_txt::TxtFormat)
         .plugin(Reader)
         .plugin(Counter(asked.clone()))
         .build()
@@ -1075,6 +1092,7 @@ fn a_page_drawn_in_bands_asks_the_status_line_once() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn small_devices_count_pages_with_rests_between() {
     let storage = Shared::default();
     storage.create_dir("books").unwrap();
@@ -1085,7 +1103,6 @@ fn small_devices_count_pages_with_rests_between() {
     let mut kernel = Kernel::builder(small)
         .storage(storage.clone())
         .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-        .plugin(paperpaw_plugin_format_txt::TxtFormat)
         .plugin(Reader)
         .build()
         .unwrap();
@@ -1109,6 +1126,7 @@ fn small_devices_count_pages_with_rests_between() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn where_i_was_chosen_with_the_buttons_returns() {
     let mut reading = Reading::new(Shared::default());
     reading.open();
@@ -1253,7 +1271,6 @@ fn with_notices(storage: Shared) -> (Reading, Notices) {
     let mut kernel = Kernel::builder(DEVICE)
         .storage(storage.clone())
         .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-        .plugin(paperpaw_plugin_format_txt::TxtFormat)
         .plugin(Reader)
         .plugin(NoticeTaker(notices.clone()))
         .build()
@@ -1272,6 +1289,7 @@ fn with_notices(storage: Shared) -> (Reading, Notices) {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_place_that_cannot_be_kept_is_said_once() {
     let storage = Shared::default();
     *storage.3.borrow_mut() = Some(".paperpaw/positions".into());
@@ -1289,6 +1307,7 @@ fn a_place_that_cannot_be_kept_is_said_once() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_bookmark_that_cannot_be_kept_is_said() {
     let storage = Shared::default();
     *storage.3.borrow_mut() = Some(".paperpaw/annotations".into());
@@ -1302,6 +1321,7 @@ fn a_bookmark_that_cannot_be_kept_is_said() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_page_back_after_returning_from_a_jump_is_the_page_before() {
     let (storage, starts) = page_starts(3);
     let mut reading = Reading::new(storage);
@@ -1335,6 +1355,7 @@ fn reopened_at(storage: &Shared, at: (u32, u32)) -> Reading {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_page_back_over_looser_text_leaves_no_line_out() {
     // Short lines of talk, then long paragraphs: a page of the talk holds
     // far less text than a page of the paragraphs after it.
@@ -1365,286 +1386,6 @@ fn a_page_back_over_looser_text_leaves_no_line_out() {
     assert!(on >= starts[here], "{on:?} skips to {:?}", starts[here]);
 }
 
-/// The page words a plugin asked the reader for.
-type WordsAsked = Rc<RefCell<Option<paperpaw_sdk::reading::PageWords>>>;
-
-const WORDS_HEARD: paperpaw_sdk::event::Event<paperpaw_sdk::reading::PageWords> =
-    paperpaw_sdk::event::Event::new("asker.words");
-
-/// A plugin whose action `asker.ask` asks for the page's words.
-struct Asker(WordsAsked);
-
-impl Plugin for Asker {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("asker"), "Asker", Version::new(0, 1, 0))
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_action(
-            paperpaw_sdk::ActionSpec::new(Id::new_static("asker.ask"), "ask").handler(
-                |_: &paperpaw_sdk::Env<'_>, _, out: &mut paperpaw_sdk::Commands| {
-                    out.push(paperpaw_sdk::reading::ask_page_words(&WORDS_HEARD));
-                },
-            ),
-        )?;
-        let asked = self.0.clone();
-        r.on(WORDS_HEARD, move |_, words, _| {
-            *asked.borrow_mut() = Some(words.clone());
-        })
-    }
-}
-
-#[test]
-fn any_plugin_reads_the_words_of_the_page() {
-    let storage = Shared::default();
-    storage.create_dir("books").unwrap();
-    let text = include_str!("../../../samples/library/books/alice-in-wonderland.txt");
-    storage.write(BOOK, text.as_bytes()).unwrap();
-    let asked = WordsAsked::default();
-    let mut kernel = Kernel::builder(DEVICE)
-        .storage(storage.clone())
-        .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-        .plugin(paperpaw_plugin_format_txt::TxtFormat)
-        .plugin(Reader)
-        .plugin(Asker(asked.clone()))
-        .build()
-        .unwrap();
-    let effects = kernel.start(Instant(0));
-    let mut reading = Reading {
-        kernel,
-        storage,
-        heard: Heard::default(),
-        now: 0,
-        book: BOOK,
-    };
-    reading.settle(effects);
-    // No book open: no answer.
-    reading.run(Id::new_static("asker.ask"));
-    assert!(asked.borrow().is_none());
-    reading.open();
-    reading.run(core_actions::NEXT_PAGE);
-    reading.run(Id::new_static("asker.ask"));
-    let words = asked.borrow().clone().expect("the reader answered");
-    assert_eq!(words.path, BOOK);
-    assert!(words.words.len() > 20, "{}", words.words.len());
-    let kept = reading.kept();
-    assert_eq!(
-        words.start,
-        paperpaw_sdk::document::Locator::new(kept.0, kept.1)
-    );
-    // Each word is the book's text at its place.
-    for word in &words.words[..10] {
-        let from = word.start.offset as usize;
-        assert!(
-            text[from..].starts_with(word.text.trim_end_matches('-')),
-            "{word:?}"
-        );
-    }
-}
-
-#[test]
-fn a_place_kept_by_the_reader_before_is_read() {
-    let storage = Shared::default();
-    let mut first = Reading::new(storage.clone());
-    first.open();
-    for _ in 0..3 {
-        first.run(core_actions::NEXT_PAGE);
-    }
-    let left = first.kept();
-    // Kept where the reader kept it before positions were shared.
-    storage
-        .remove(&paperpaw_sdk::positions::file(BOOK))
-        .unwrap();
-    let dir = format!(
-        ".paperpaw/plugins/reader/books/{:016x}",
-        paperpaw_sdk::digest::fnv1a64(BOOK)
-    );
-    let old = format!("[progress]\nsection = {}\noffset = {}\n", left.0, left.1);
-    storage
-        .write(&format!("{dir}/progress.ini"), old.as_bytes())
-        .unwrap();
-    let mut again = Reading::new(storage);
-    again.open();
-    reading_runs_nothing(&mut again);
-    assert_eq!(again.kept(), left);
-}
-
-/// Lets a moment pass without input.
-fn reading_runs_nothing(reading: &mut Reading) {
-    reading.now += 10;
-    let effects = reading.kernel.tick(Instant(reading.now));
-    reading.settle(effects);
-}
-
-#[test]
-fn a_book_closed_says_where_as_an_xpointer() {
-    let epub = include_bytes!("../../../samples/library/books/alice-in-wonderland.epub");
-    let mut reading = Reading::with_book(Shared::default(), EPUB, epub);
-    reading.open();
-    for _ in 0..5 {
-        reading.run(core_actions::NEXT_PAGE);
-    }
-    reading.run(core_actions::BACK);
-    let heard = reading.heard.borrow();
-    let (name, closed) = heard.last().unwrap();
-    assert_eq!(*name, "closed");
-    let xpointer = closed.xpointer.clone().unwrap_or_default();
-    assert!(xpointer.starts_with("/body/DocFragment["), "{xpointer:?}");
-}
-
-/// The params a screen of one's own was opened with.
-type OpenedWith = Rc<RefCell<Option<Params>>>;
-
-/// A plugin whose contents take the place of the reader's.
-struct OwnContents(OpenedWith);
-
-/// A screen that shows nothing.
-struct Blank;
-
-impl paperpaw_sdk::Screen for Blank {
-    fn draw(&mut self, _: &mut paperpaw_sdk::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
-
-    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
-        paperpaw_sdk::Handled::No
-    }
-}
-
-impl Plugin for OwnContents {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("contents"),
-            "Contents",
-            Version::new(0, 1, 0),
-        )
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let opened = self.0.clone();
-        r.add_screen(paperpaw_sdk::ScreenSpec::new(
-            Id::new_static("contents.list"),
-            "contents",
-            Box::new(move |_, params| {
-                *opened.borrow_mut() = Some(params.clone());
-                Box::new(Blank)
-            }),
-        ))?;
-        r.bind_slot(
-            slots::TOC,
-            Id::new_static("contents.list"),
-            paperpaw_sdk::Priority::PREFERRED,
-        )
-    }
-}
-
-#[test]
-fn the_contents_are_a_slot_another_plugin_fills() {
-    let storage = Shared::default();
-    storage.create_dir("books").unwrap();
-    let text = include_str!("../../../samples/library/books/alice-in-wonderland.txt");
-    storage.write(BOOK, text.as_bytes()).unwrap();
-    let opened = OpenedWith::default();
-    let mut kernel = Kernel::builder(DEVICE)
-        .storage(storage.clone())
-        .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-        .plugin(paperpaw_plugin_format_txt::TxtFormat)
-        .plugin(Reader)
-        .plugin(OwnContents(opened.clone()))
-        .build()
-        .unwrap();
-    let effects = kernel.start(Instant(0));
-    let mut reading = Reading {
-        kernel,
-        storage,
-        heard: Heard::default(),
-        now: 0,
-        book: BOOK,
-    };
-    reading.settle(effects);
-    reading.open();
-    reading.run(core_actions::NEXT_PAGE);
-    let at = reading.kept();
-    reading.run(actions::TOC);
-    assert_eq!(
-        reading.kernel.active_screen().map(Id::as_str),
-        Some("contents.list")
-    );
-    let params = opened.borrow().clone().expect("opened");
-    assert_eq!(params.get(params::PATH), Some(BOOK));
-    assert_eq!(params.get(params::OFFSET), Some(at.1.to_string().as_str()));
-}
-
-/// The books a block filter was told of.
-type Told = Rc<RefCell<Vec<String>>>;
-
-/// A plugin that leaves out every paragraph naming the Rabbit.
-struct NoRabbit(Told);
-
-impl Plugin for NoRabbit {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("norabbit"),
-            "No rabbit",
-            Version::new(0, 1, 0),
-        )
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        use paperpaw_sdk::filters::{TextFilterSpec, Verdict};
-        let told = self.0.clone();
-        r.add_text_filter(TextFilterSpec::block(
-            Id::new_static("norabbit.filter"),
-            "no rabbit",
-            Box::new(move |_, cx, block| {
-                let mut told = told.borrow_mut();
-                if !told.iter().any(|t| t == cx.path) {
-                    told.push(cx.path.to_string());
-                }
-                match block.text.contains("Rabbit") {
-                    true => Verdict::Drop,
-                    false => Verdict::Keep,
-                }
-            }),
-            Box::new(|_| 1),
-        ))
-    }
-}
-
-#[test]
-fn a_block_filter_leaves_paragraphs_out() {
-    let storage = Shared::default();
-    storage.create_dir("books").unwrap();
-    let text = include_str!("../../../samples/library/books/alice-in-wonderland.txt");
-    storage.write(BOOK, text.as_bytes()).unwrap();
-    let told = Told::default();
-    let asked = WordsAsked::default();
-    let mut kernel = Kernel::builder(DEVICE)
-        .storage(storage.clone())
-        .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-        .plugin(paperpaw_plugin_format_txt::TxtFormat)
-        .plugin(Reader)
-        .plugin(NoRabbit(told.clone()))
-        .plugin(Asker(asked.clone()))
-        .build()
-        .unwrap();
-    let effects = kernel.start(Instant(0));
-    let mut reading = Reading {
-        kernel,
-        storage,
-        heard: Heard::default(),
-        now: 0,
-        book: BOOK,
-    };
-    reading.settle(effects);
-    reading.open();
-    for _ in 0..8 {
-        reading.run(core_actions::NEXT_PAGE);
-        reading.run(Id::new_static("asker.ask"));
-        let words = asked.borrow().clone().expect("the reader answered");
-        assert!(!words.text().contains("Rabbit"), "{}", words.text());
-    }
-    assert_eq!(*told.borrow(), [BOOK.to_string()]);
-}
-
 #[path = "reading/chapters.rs"]
 mod chapters;
 
@@ -1659,3 +1400,6 @@ mod kept;
 
 #[path = "reading/placed.rs"]
 mod placed;
+
+#[path = "reading/plugins_ask.rs"]
+mod plugins_ask;

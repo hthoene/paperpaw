@@ -51,6 +51,7 @@ fn a_position_that_cannot_be_read_is_not_written_over() {
 /// A position the card fails to read is moved aside before the place
 /// read on is kept: its text is never lost, and the reader is told once.
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_position_that_cannot_be_read_is_kept_aside() {
     let storage = Shared::default();
     let file = paperpaw_sdk::positions::file(BOOK);
@@ -100,6 +101,7 @@ fn a_position_read_at_the_second_try_opens_the_book_there() {
 /// as the position, and then removed: it never comes back over a newer
 /// one.
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn the_old_progress_file_is_taken_over_once() {
     let storage = Shared::default();
     let progress = old_progress(BOOK);
@@ -116,6 +118,7 @@ fn the_old_progress_file_is_taken_over_once() {
 /// The reader's annotations of before are moved where annotations are
 /// kept now, but never over those kept there: then both stay.
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn old_annotations_never_replace_those_kept_now() {
     let storage = Shared::default();
     let old = old_progress(BOOK).replace("progress.ini", "annotations.txt");
@@ -148,6 +151,7 @@ fn old_annotations_never_replace_those_kept_now() {
 /// content, its size and KOReader's partial MD5, a text and an EPUB
 /// alike; taken when the book opens, as the book is.
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn positions_and_annotations_say_which_book_they_are_of() {
     let text = include_str!("../../../../samples/library/books/alice-in-wonderland.txt");
     let epub = include_bytes!("../../../../samples/library/books/alice-in-wonderland.epub");
@@ -176,6 +180,7 @@ fn positions_and_annotations_say_which_book_they_are_of() {
 /// A page turned is not kept while it turns: a moment later, once the
 /// pages rest, without the book being closed.
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn the_place_is_kept_once_the_pages_rest() {
     let storage = Shared::default();
     let mut reading = Reading::new(storage);

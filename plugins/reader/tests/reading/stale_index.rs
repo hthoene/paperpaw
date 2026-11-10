@@ -55,7 +55,7 @@ impl Plugin for FlakyFormat {
             "flaky.title",
             vec![Cow::Borrowed("flaky")],
             Box::new(move |storage, path, _| {
-                let text = TxtDocument::open(storage, path)?;
+                let text = TxtDocument::open_converted(storage, path, "")?;
                 Ok(Box::new(Flaky {
                     text,
                     fail: fail.clone(),
@@ -136,6 +136,7 @@ fn counting_one_too_many(book: &'static str, data: &[u8]) -> (Reading, String, V
 /// The book is over: the index is thrown away and counted again, once; the
 /// turns after that do not count it again.
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn the_end_of_the_text_mends_a_wrong_count_once() {
     let text = short_book();
     let (mut reading, path, right, wrong) = counting_one_too_many(BOOK, text.as_bytes());

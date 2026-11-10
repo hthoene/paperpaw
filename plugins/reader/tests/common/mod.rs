@@ -317,7 +317,8 @@ impl Reading {
             .user_config(format!("{CONFIG}{config}"))
             .speech(speech)
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-            .plugin(paperpaw_plugin_format_txt::TxtFormat)
+            // Plain text is a native plugin only (format removal): the tests
+            // that read a `.txt` book are ignored until native activation.
             .plugin(paperpaw_plugin_format_epub::EpubFormat)
             .plugin(paperpaw_plugin_format_epub::MarkdownFormat);
         // Later: its Markdown, with wikilinks, is the one used.

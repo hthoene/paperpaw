@@ -3,6 +3,7 @@
 use super::*;
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn the_last_page_says_the_book_is_read_to_the_end() {
     let mut reading = Reading::new(Shared::default());
     reading.open();

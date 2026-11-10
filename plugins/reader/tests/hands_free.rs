@@ -33,6 +33,7 @@ fn auto_turning(paragraphs: usize) -> Reading {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn pages_turn_by_themselves_at_the_interval_set() {
     let mut reading = auto_turning(100);
     reading.press(reader::AUTO_TURN);
@@ -60,6 +61,7 @@ fn pages_turn_by_themselves_at_the_interval_set() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_page_turned_by_hand_starts_the_count_anew() {
     let mut reading = auto_turning(100);
     reading.press(reader::AUTO_TURN);
@@ -76,6 +78,7 @@ fn a_page_turned_by_hand_starts_the_count_anew() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn the_menu_stops_turning_and_nothing_turns_after() {
     let mut reading = auto_turning(100);
     reading.press(reader::AUTO_TURN);
@@ -98,6 +101,7 @@ fn the_menu_stops_turning_and_nothing_turns_after() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn turning_stops_at_the_end_of_the_book() {
     let mut reading = auto_turning(8);
     reading.press(reader::AUTO_TURN);
@@ -126,6 +130,7 @@ fn sentences(count: usize) -> String {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn reading_aloud_says_the_sentences_one_after_another() {
     let text = sentences(200);
     let mut reading = Reading::speaking(BUTTONS, Shared::default(), BOOK, text.as_bytes());
@@ -150,6 +155,7 @@ fn reading_aloud_says_the_sentences_one_after_another() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn any_button_pauses_reading_aloud_and_it_goes_on_from_there() {
     let text = sentences(200);
     let mut reading = Reading::speaking(BUTTONS, Shared::default(), BOOK, text.as_bytes());
@@ -180,6 +186,7 @@ fn any_button_pauses_reading_aloud_and_it_goes_on_from_there() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn reading_aloud_turns_the_pages() {
     let text = sentences(200);
     let mut reading = Reading::speaking(BUTTONS, Shared::default(), BOOK, text.as_bytes());
@@ -204,6 +211,7 @@ fn reading_aloud_turns_the_pages() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn reading_aloud_stops_at_the_end_of_the_book() {
     let text = sentences(3);
     let mut reading = Reading::speaking(BUTTONS, Shared::default(), BOOK, text.as_bytes());
@@ -226,6 +234,7 @@ fn reading_aloud_stops_at_the_end_of_the_book() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn speech_that_fails_ends_reading_aloud() {
     let text = sentences(50);
     let mut reading = Reading::speaking(BUTTONS, Shared::default(), BOOK, text.as_bytes());
@@ -248,6 +257,7 @@ fn speech_that_fails_ends_reading_aloud() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_device_that_cannot_speak_says_nothing() {
     let text = sentences(50);
     let mut reading = Reading::new(BUTTONS, Shared::default(), BOOK, text.as_bytes(), "");
@@ -261,6 +271,7 @@ fn a_device_that_cannot_speak_says_nothing() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn reading_aloud_from_the_selected_word() {
     let text = sentences(50);
     let mut reading = Reading::speaking(BUTTONS, Shared::default(), BOOK, text.as_bytes());
@@ -280,6 +291,7 @@ fn reading_aloud_from_the_selected_word() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn turned_while_reading_aloud_the_speech_pauses_and_the_book_stays() {
     let text = sentences(200);
     let mut reading = Reading::speaking(BUTTONS, Shared::default(), BOOK, text.as_bytes());

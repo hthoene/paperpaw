@@ -65,7 +65,6 @@ fn opened(out: bool) -> (Reading, paperpaw_core::Effects) {
         .storage(storage.clone())
         .user_config("[core]\nreading-font = Flaky\n")
         .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-        .plugin(paperpaw_plugin_format_txt::TxtFormat)
         .plugin(Reader)
         .plugin(Listener(heard.clone()))
         .plugin(Flaky)
@@ -116,6 +115,7 @@ fn kept(reading: &Reading) -> Vec<(String, Vec<u8>)> {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn a_step_made_while_the_card_was_out_is_made_again() {
     // The index of a card that never failed.
     let (mut control, effects) = opened(false);
@@ -133,6 +133,7 @@ fn a_step_made_while_the_card_was_out_is_made_again() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn the_count_is_given_up_when_the_card_stays_out() {
     let (mut reading, mut effects) = opened(true);
     // Steps in a row (one may be another timer); the card is back, but

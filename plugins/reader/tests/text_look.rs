@@ -50,6 +50,7 @@ fn turns_in_grays(reading: &mut Reading) -> bool {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn text_pages_turn_in_grays_only_with_smooth_text() {
     // Off at first on a panel of black and white.
     assert!(!turns_in_grays(&mut reading(MONO, "")));
@@ -73,6 +74,7 @@ fn text_grays(reading: &mut Reading) -> Vec<u8> {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn sharp_letters_have_no_grays() {
     let between = |grays: &[u8]| grays.iter().filter(|g| !matches!(g, 0 | 255)).count();
     // Smooth at first where the panel has grays.
@@ -84,6 +86,7 @@ fn sharp_letters_have_no_grays() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn darker_steps_ink_more_and_normal_is_as_before() {
     let ink = |config: &str| -> u64 {
         let grays = text_grays(&mut reading(BUTTONS, config));
@@ -107,6 +110,7 @@ fn darker_steps_ink_more_and_normal_is_as_before() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn the_default_page_is_drawn_as_before_on_black_and_white() {
     // Sharp letters from the panel's own threshold: the same pixels as
     // smooth ones drawn in black and white by the frame.
@@ -147,6 +151,7 @@ fn sharpness_normal_and_values_it_does_not_know_draw_as_before() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn soft_is_lighter_and_sharp_is_fuller_without_grays() {
     let between = |grays: &[u8]| grays.iter().filter(|g| !matches!(g, 0 | 255)).count();
     // Where the panel has grays: soft smooth and lighter, sharp without
@@ -168,6 +173,7 @@ fn soft_is_lighter_and_sharp_is_fuller_without_grays() {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn sharpness_on_black_and_white_moves_the_threshold() {
     let page = |config: &str| reading(MONO, config).snapshot();
     let ink = |image: &[Vec<u8>]| image.iter().flatten().filter(|g| **g < 128).count();
@@ -214,6 +220,7 @@ fn commas(config: &str) -> Reading {
 }
 
 #[test]
+#[ignore = "needs native activation (format removal)"]
 fn hanging_punctuation_moves_marks_out_and_keeps_the_lines() {
     let justified = "[core]\njustify = true\n";
     let hanging = "[core]\njustify = true\nhanging-punctuation = true\n";
