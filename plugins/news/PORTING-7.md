@@ -1,8 +1,8 @@
-# Interface-7 port (slice 5: the shelf and the list of feeds; the widget and the removal of interface 6 follow)
+# Interface-7 port (slice 5: the shelf, the list of feeds and the headlines widget; the removal of interface 6 follows)
 
-Version 1.0.10. Partial: the list of feeds and the library import are native now; the headlines widget
-is not, and the interface-6 `News` and everything of it stays until the host activates native plugins
-(then it goes together, no shim). `tools/plugin-files7` builds and packs the native file for the X4;
+Version 1.0.10. Partial: the list of feeds, the library import and the headlines widget are native now; the
+interface-6 `News` and everything of it stays until the host activates native plugins (then it goes
+together, no shim). `tools/plugin-files7` builds and packs the native file for the X4;
 it is not in `complete.txt` (a partial port). The page's read buffer is on the heap (a 2 KiB array
 made the frame 2,368 bytes, over the packer's limit of 2,048).
 
@@ -99,8 +99,18 @@ made the frame 2,368 bytes, over the packer's limit of 2,048).
   imported by this plugin): the new one then takes a free name beside it (not measured on a real card).
 - Not measured: the heap peak of the screen on the X4 with many feeds, the time of `books.txt` and
   `headlines.txt` reads on each opened feed, the library import of a 64 KiB page.
-- The plugin is not listed as complete and is not in the app yet: the widget (slice B) and the removal of
-  interface 6 (slice C) follow.
+- The headlines widget (`src/native_widgets.rs`, `declarations::widgets`): the group `news.widget.headlines`
+  and its fourteen settings in the order of Beta 3 (compared with the interface-6 registration by
+  `tests/abi7_declarations.rs`), no `.previews`. The host makes an instance per placement; the plugin reads
+  `headlines.txt` when the widget is measured and drawn (a headline whose book is gone is left out), a tap
+  on a headline opens its book in `core.reader`, a tap on the empty widget opens the list. A fetch's end and
+  a changed `news.widget.*` setting (`event.setting_changed`, token 21; a host that does not admit it yet
+  answers `Unsupported` and the widget shows the change at its next measure) tell the instances to ask again.
+  Differences: the rule between headlines is a plain light gray line (interface 6 dithered it); the kit lays
+  the lines out (`label`, `wrap`, `caption`), so a line may break at another place than the old `Wrapped`.
+  Not measured: the widget's frames on the X4 and its draw time with eight headlines of two lines.
+- The plugin is not listed as complete and is not in the app yet: the removal of interface 6 (slice C,
+  held until native activation) follows.
 - An article's text is cut by the device's memory class (`core.device` op 1 `dev_device.class`,
   read once at the first finished request, `native_plugin::text_cap`): 64 KiB (`MAX_TEXT`) on a
   medium or large device as in interface 6, 8 KiB (`MAX_TEXT_SMALL`) on a small one (the X4: the
