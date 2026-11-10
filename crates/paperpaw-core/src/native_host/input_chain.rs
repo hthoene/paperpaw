@@ -369,6 +369,7 @@ pub(crate) fn run_chain(
 /// [`run_chain`] for `record`, an input as the stage's record. `event` is the
 /// input it stands for (what a replace changes: a gesture stands for the
 /// finger that made it).
+#[inline(never)] // own frame: the input buffers stay out of the caller's (X4 frame band)
 pub(crate) fn run_record(
     chain: &mut InputFilters,
     runner: &mut dyn FilterRunner,
@@ -477,6 +478,7 @@ impl crate::Kernel {
         native
     }
 
+    #[inline(never)] // own frame: the input buffers stay out of the caller's (X4 frame band)
     fn native_input_run(
         &self,
         chain: &mut InputFilters,
