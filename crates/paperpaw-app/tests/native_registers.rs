@@ -35,7 +35,7 @@ fn where_the_store_installs_them_none_is_linked() {
 #[test]
 fn built_in_and_on_the_store_plugins_register_except_the_ones_shipped_off() {
     for id in STORE_PLUGINS {
-        let shipped_off = id == "mail" || id == "picture-home";
+        let shipped_off = matches!(id, "mail" | "notes-vault" | "picture-home");
         assert_eq!(
             native_registers(id, StorePlugins::On, &[]),
             !shipped_off,
@@ -61,6 +61,24 @@ fn mail_is_off_until_the_reader_switches_it_on() {
             &["[plugins]\nmail = on\n", "[plugins]\nmail = off\n"]
         ));
     }
+}
+
+#[test]
+fn notes_vault_is_off_by_default_and_on_when_switched_on() {
+    assert!(!native_registers("notes-vault", StorePlugins::On, &[]));
+    assert!(native_registers(
+        "notes-vault",
+        StorePlugins::On,
+        &["[plugins]\nnotes-vault = on\n"]
+    ));
+    assert!(!native_registers(
+        "notes-vault",
+        StorePlugins::On,
+        &[
+            "[plugins]\nnotes-vault = on\n",
+            "[plugins]\nnotes-vault = off\n"
+        ]
+    ));
 }
 
 #[test]

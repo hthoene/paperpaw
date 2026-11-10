@@ -190,8 +190,9 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
 /// the store offers keeps the state it shipped in. A plugin of
 /// [`STORE_PLUGINS`] registers only where `store` offers it (`Left`: the store
 /// installs it, as a file), is not shipped off and is not switched off, or is
-/// switched on in the configuration. Shipped off: Mail always (as `store` says
-/// anything built in), Picture home where `store` is `On` (it takes the place
+/// switched on in the configuration. Shipped off (Beta 3's default, owner's
+/// ruling for the flip): Mail always (whatever `store` says is built in), and
+/// where `store` is `On` also Notes vault and Picture home (it takes the place
 /// of the home screen). Every other plugin registers. `configs` are the
 /// configuration files' texts (`[plugins]`: `id = on` or `id = off`, in any of
 /// them, an off wins over the shipped state as in [`install_with`]).
@@ -217,7 +218,7 @@ pub fn native_registers(id: &str, store: StorePlugins<'_>, configs: &[&str]) -> 
     let shipped_on = match store {
         StorePlugins::Left => return false,
         #[cfg(feature = "store-plugins")]
-        StorePlugins::On => id != "mail" && id != "picture-home",
+        StorePlugins::On => !matches!(id, "mail" | "notes-vault" | "picture-home"),
         #[cfg(feature = "store-plugins")]
         StorePlugins::Off(on) => id != "mail" && on(id),
         #[allow(unreachable_patterns)]
