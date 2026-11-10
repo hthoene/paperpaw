@@ -5,7 +5,7 @@ fn the_size_steps_by_points_within_the_range() {
     assert_eq!(stepped(12, 1), 13);
     assert_eq!(stepped(12, -1), 11);
     assert_eq!(stepped(6, -1), 6);
-    assert_eq!(stepped(72, 1), 72);
+    assert_eq!(stepped(72, 1), 40);
     assert_eq!(stepped(40, 1), 40);
     assert_eq!(stepped(i64::MAX, 1), 40);
     assert_eq!(stepped(i64::MIN, -1), 6);
