@@ -157,8 +157,24 @@ pub(super) fn stored(
     })
 }
 
+/// The fingerprint a reader keeps in the file (`book = <size> <md5>`), as
+/// written; `None` where the file has none or is no text (it is replaced).
+fn kept_fingerprint(data: &[u8]) -> Option<&str> {
+    let source = core::str::from_utf8(paperpaw_sdk::files::without_bom(data)).ok()?;
+    config::parse(source)
+        .filter_map(Result::ok)
+        .find(|entry| entry.section == "position" && entry.key == "book")
+        .map(|entry| entry.value.raw().trim())
+        .filter(|raw| library::Fingerprint::parse(raw).is_some())
+}
+
 /// Op 14's `write_position`: the whole file written atomically (the card's
 /// `write`); the book's fingerprint, which a reader keeps in it, stays.
+///
+/// A file this cannot read as text (a hand-edited or damaged one) is
+/// replaced by the new place: the reader is at a new place anyway. A read
+/// that fails (`ERR_IO`, memory) writes nothing, so a card that stumbles does
+/// not cost the fingerprint.
 pub(super) fn write(
     reads: &CatalogReads,
     book: BookRef<'_>,
@@ -166,12 +182,8 @@ pub(super) fn write(
     from_sync: bool,
 ) -> Result<(), i32> {
     reads.with_path(book, |path| {
-        let fingerprint = positions::book(&*reads.storage, path);
-        let text = render(
-            at,
-            from_sync,
-            fingerprint.as_ref().map(library::Fingerprint::text),
-        )?;
+        let old = text(&*reads.storage, path)?;
+        let text = render(at, from_sync, old.as_deref().and_then(kept_fingerprint))?;
         let _ = reads.storage.create_dir(positions::DIR);
         reads
             .storage
@@ -186,22 +198,66 @@ pub(super) fn write(
     })
 }
 
+/// How `config::quote` writes `value` and how long: whether it is quoted, and
+/// the bytes of what it writes between the quotes (or the value itself).
+fn quoted_size(value: &str) -> (bool, usize) {
+    let plain = !value.is_empty()
+        && value.trim() == value
+        && !value.starts_with('"')
+        && !value.contains(['\n', '\r']);
+    if plain {
+        return (false, value.len());
+    }
+    let body = value
+        .chars()
+        .map(|c| match c {
+            '"' | '\\' | '\n' | '\t' => 2,
+            '\r' => 0,
+            c => c.len_utf8(),
+        })
+        .sum();
+    (true, body)
+}
+
+/// `value` as `config::quote` writes it, into room already reserved.
+fn push_quoted(text: &mut String, value: &str, quoted: bool) {
+    if !quoted {
+        text.push_str(value);
+        return;
+    }
+    text.push('"');
+    for c in value.chars() {
+        match c {
+            '"' => text.push_str("\\\""),
+            '\\' => text.push_str("\\\\"),
+            '\n' => text.push_str("\\n"),
+            '\t' => text.push_str("\\t"),
+            '\r' => {}
+            c => text.push(c),
+        }
+    }
+    text.push('"');
+}
+
 /// The file's text for a position, built fallibly with integers only (the
-/// percent is the tenth the file keeps).
+/// percent is the tenth the file keeps) in one reservation. The XPointer is
+/// as long as the SDK reads back (`positions::XPOINTER_MAX`) as it is
+/// written, escapes included: a longer one is `ERR_INVALID`, never stored to
+/// be read back as none.
 fn render(
     at: &wire::ServiceLibPosition<'_>,
     from_sync: bool,
-    fingerprint: Option<String>,
+    fingerprint: Option<&str>,
 ) -> Result<String, i32> {
     let xpointer = (at.flags & HAS_XPOINTER != 0).then_some(at.xpointer);
-    if xpointer.is_some_and(|x| x.is_empty() || x.len() > positions::XPOINTER_MAX) {
+    let (quoted, written) = xpointer.map_or((false, 0), quoted_size);
+    if xpointer.is_some_and(|x| x.is_empty() || written > positions::XPOINTER_MAX) {
         return Err(ERR_INVALID);
     }
-    let quoted = xpointer.map(config::quote);
-    let fingerprint_len = fingerprint.as_ref().map_or(0, String::len);
     let mut text = String::new();
-    // The numbers, the keys and the sync mark are under 256 bytes.
-    text.try_reserve_exact(256 + quoted.as_ref().map_or(0, |q| q.len()) + fingerprint_len)
+    // The numbers, the keys and the sync mark are under 256 bytes; the
+    // XPointer adds its quotes.
+    text.try_reserve_exact(256 + written + 2 + fingerprint.map_or(0, str::len))
         .map_err(|_| ERR_NO_MEMORY)?;
     let tenths = (at.progress_ppm.min(1_000_000) + 500) / 1_000;
     let _ = write!(
@@ -215,8 +271,10 @@ fn render(
     if at.flags & HAS_CONVERSION != 0 {
         let _ = writeln!(text, "conversion = {:016x}", at.conversion);
     }
-    if let Some(quoted) = quoted {
-        let _ = writeln!(text, "xpointer = {quoted}");
+    if let Some(xpointer) = xpointer {
+        text.push_str("xpointer = ");
+        push_quoted(&mut text, xpointer, quoted);
+        text.push('\n');
     }
     if at.updated != 0 {
         let _ = writeln!(text, "updated = {}", at.updated);
@@ -228,7 +286,9 @@ fn render(
         text.push_str("sync = 1\n");
     }
     if let Some(fingerprint) = fingerprint {
-        let _ = writeln!(text, "book = {fingerprint}");
+        text.push_str("book = ");
+        text.push_str(fingerprint);
+        text.push('\n');
     }
     Ok(text)
 }

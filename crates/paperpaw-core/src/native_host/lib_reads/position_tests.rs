@@ -6,7 +6,9 @@ extern crate std;
 use super::super::tests::card;
 use super::*;
 use crate::native_host::lib_service::{LibQuery, LibWrite};
+use alloc::rc::Rc;
 use paperpaw_sdk::document::Locator;
+use std::format;
 
 const A: BookRef<'static> = BookRef::Path("books/a.epub");
 
@@ -188,4 +190,153 @@ fn a_record_the_file_cannot_hold_is_refused_before_anything_is_written() {
         card.storage.size(&positions::file("books/a.epub")).is_err(),
         "nothing was written"
     );
+}
+
+/// A card whose position files cannot be read while `broken` is set.
+struct Flaky(Rc<paperpaw_sdk::MemoryStorage>, core::cell::Cell<bool>);
+impl Storage for Flaky {
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        if self.1.get() && path.starts_with(positions::DIR) {
+            return Err(StorageError::Io);
+        }
+        self.0.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        if self.1.get() && path.starts_with(positions::DIR) {
+            return Err(StorageError::Io);
+        }
+        self.0.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.0.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.0.append(path, data)
+    }
+    fn list(
+        &self,
+        dir: &str,
+        visit: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+    ) -> Result<(), StorageError> {
+        self.0.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), StorageError> {
+        self.0.remove(path)
+    }
+}
+
+#[test]
+fn a_card_that_stumbles_on_the_file_writes_nothing_and_costs_no_fingerprint() {
+    let card = card();
+    let fingerprint =
+        library::Fingerprint::parse("482133 0b6e8f2a6c1d4e5f8a9b0c1d2e3f4a5b").unwrap();
+    positions::save_with_book(
+        &*card.storage,
+        "books/a.epub",
+        &positions::Position::new(Locator::new(1, 1), 1.0),
+        Some(&fingerprint),
+    )
+    .unwrap();
+    let flaky = Rc::new(Flaky(card.storage.clone(), core::cell::Cell::new(true)));
+    let reads = CatalogReads::new(flaky.clone(), card.env.clone());
+    assert_eq!(
+        reads.write_position(A, &place(0b010, ""), false),
+        Err(ERR_IO)
+    );
+    // The file is as it was, fingerprint and all.
+    flaky.1.set(false);
+    assert_eq!(
+        positions::book(&*card.storage, "books/a.epub").map(|f| f.text()),
+        Some(fingerprint.text())
+    );
+    assert_eq!(
+        positions::load(&*card.storage, "books/a.epub").map(|p| p.at),
+        Some(Locator::new(1, 1))
+    );
+}
+
+#[test]
+fn a_file_that_is_no_text_is_replaced_by_the_new_place() {
+    let card = card();
+    let reads = card.reads();
+    card.storage
+        .write(&positions::file("books/a.epub"), &[0xff, 0xfe, 0x00, 0x80])
+        .unwrap();
+    reads.write_position(A, &place(0b010, ""), false).unwrap();
+    assert_eq!(
+        read_back(&reads, A),
+        [7, 1234, 415_000, 255, 1_760_000_000, 0, 0b010]
+    );
+}
+
+#[test]
+fn the_xpointer_limit_counts_the_bytes_as_written_with_their_escapes() {
+    let card = card();
+    let reads = card.reads();
+    let read_xpointer = |reads: &CatalogReads| {
+        let mut got = None;
+        reads
+            .position(A, &mut |record| {
+                let Record::ServiceLibPosition(p) = record else {
+                    panic!("a position")
+                };
+                got = Some(String::from(p.xpointer));
+            })
+            .unwrap();
+        got.unwrap()
+    };
+    // 512 quotes are written as 1,024 bytes: the limit, read back whole.
+    let at_limit = "\"".repeat(512);
+    let at = wire::ServiceLibPosition {
+        xpointer: &at_limit,
+        ..place(0b001, "")
+    };
+    reads.write_position(A, &at, false).unwrap();
+    assert_eq!(read_xpointer(&reads), at_limit);
+    // 1,024 plain bytes are the limit too. A value that starts with a quote
+    // is quoted: a quote and 1,023 bytes are 1,025 once escaped, and 513
+    // quotes are 1,026: refused, not written to be read back as none.
+    let plain = "x".repeat(1024);
+    let at = wire::ServiceLibPosition {
+        xpointer: &plain,
+        ..place(0b001, "")
+    };
+    reads.write_position(A, &at, false).unwrap();
+    assert_eq!(read_xpointer(&reads), plain);
+    let over = format!("\"{}", "x".repeat(1023));
+    let at = wire::ServiceLibPosition {
+        xpointer: &over,
+        ..place(0b001, "")
+    };
+    assert_eq!(reads.write_position(A, &at, false), Err(ERR_INVALID));
+    let over = "\"".repeat(513);
+    let at = wire::ServiceLibPosition {
+        xpointer: &over,
+        ..place(0b001, "")
+    };
+    assert_eq!(reads.write_position(A, &at, false), Err(ERR_INVALID));
+    // The refused writes left the last good place.
+    assert_eq!(read_xpointer(&reads), plain);
+}
+
+#[test]
+fn the_quoting_is_what_config_quote_writes() {
+    for value in [
+        "plain",
+        " lead",
+        "trail ",
+        "\"q\"",
+        "a\\b",
+        "line\nbreak",
+        "t\tab",
+        "cr\r\n",
+        "é€",
+        "x\"y",
+    ] {
+        let (quoted, body) = quoted_size(value);
+        let mut text = String::new();
+        push_quoted(&mut text, value, quoted);
+        assert_eq!(text, config::quote(value), "{value:?}");
+        assert_eq!(text.len(), body + if quoted { 2 } else { 0 }, "{value:?}");
+    }
 }
