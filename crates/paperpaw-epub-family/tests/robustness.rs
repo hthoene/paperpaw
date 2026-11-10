@@ -14,7 +14,7 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-use paperpaw_plugin_format_epub::EpubDocument;
+use paperpaw_epub_family::EpubDocument;
 use paperpaw_sdk::MemoryStorage;
 use paperpaw_sdk::document::{Document, Locator};
 use paperpaw_sdk::zip::ZipArchive;
@@ -279,7 +279,7 @@ const MARKDOWN: &str = "# Title\n\nSome *text* and **more** with `code`.\n\n\
 
 #[test]
 fn damaged_fictionbooks_web_pages_and_markdown_fail_cleanly() {
-    use paperpaw_plugin_format_epub::{Fb2Document, HtmlDocument, MarkdownDocument};
+    use paperpaw_epub_family::{Fb2Document, HtmlDocument, MarkdownDocument};
     let iterations: u64 = std::env::var("PAPERPAW_FUZZ_ITERATIONS")
         .ok()
         .and_then(|n| n.parse().ok())

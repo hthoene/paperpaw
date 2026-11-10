@@ -13,7 +13,7 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-use paperpaw_plugin_format_epub::{CbzDocument, cbz_provider};
+use paperpaw_epub_family::{CbzDocument, cbz_provider};
 use paperpaw_sdk::document::{BlockKind, Document, Locator};
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::stage_schemas::core_format_v1 as stage;
@@ -78,7 +78,7 @@ fn call(op: u32, f: impl FnOnce(&mut stage::FmtCall<'static>)) -> Vec<u8> {
 }
 
 fn run(
-    p: &mut paperpaw_plugin_format_epub::provider::FormatProvider,
+    p: &mut paperpaw_epub_family::provider::FormatProvider,
     io: &dyn Storage,
     input: &[u8],
 ) -> Result<Vec<u8>, Error> {
@@ -106,7 +106,7 @@ fn comic() -> Vec<u8> {
         .build()
 }
 
-fn opened() -> (paperpaw_plugin_format_epub::provider::FormatProvider, Roots) {
+fn opened() -> (paperpaw_epub_family::provider::FormatProvider, Roots) {
     let io = Roots::new("c.cbz", &comic());
     let mut p = cbz_provider();
     let reply = run(&mut p, &io, &call(2, |c| c.text = "c.cbz")).unwrap();

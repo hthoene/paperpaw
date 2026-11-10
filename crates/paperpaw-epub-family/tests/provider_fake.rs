@@ -9,7 +9,7 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-use paperpaw_plugin_format_epub::provider::FormatProvider;
+use paperpaw_epub_family::provider::FormatProvider;
 use paperpaw_sdk::document::{
     Annotation, AnnotationKind, Block, BlockKind, Document, DocumentError, ImageRef, Locator,
     Metadata,

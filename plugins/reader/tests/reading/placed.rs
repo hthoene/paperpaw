@@ -3,7 +3,7 @@
 //! XPointers, as the position is.
 
 use super::*;
-use paperpaw_plugin_format_epub::EpubDocument;
+use paperpaw_epub_family::EpubDocument;
 use paperpaw_sdk::annotations::{self, Annotation, Mark};
 use paperpaw_sdk::document::{Block, Document, Locator};
 use paperpaw_zip::testing::ZipBuilder;

@@ -16,7 +16,7 @@ use std::cell::Cell;
 
 mod common;
 
-use paperpaw_plugin_format_epub::{
+use paperpaw_epub_family::{
     CbzDocument, EpubDocument, Fb2Document, HtmlDocument, MarkdownDocument,
 };
 use paperpaw_sdk::document::{Block, Document, DocumentError, Locator};

@@ -12,7 +12,7 @@
 mod common;
 
 use common::{Recording, blocks, text, words};
-use paperpaw_plugin_format_epub::Fb2Document;
+use paperpaw_epub_family::Fb2Document;
 use paperpaw_sdk::MemoryStorage;
 use paperpaw_sdk::document::{BlockKind, Document, DocumentError, Locator};
 use paperpaw_zip::testing::ZipBuilder;

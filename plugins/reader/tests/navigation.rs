@@ -616,7 +616,7 @@ fn the_list_of_marks_leads_to_them_and_exports_them() {
 /// book's styles or without.
 fn epub_text_at(storage: &Shared, path: &str, styles: bool, at: (u32, u32), n: usize) -> String {
     use paperpaw_sdk::document::Document;
-    let book = paperpaw_plugin_format_epub::EpubDocument::open_with(storage, path, styles).unwrap();
+    let book = paperpaw_epub_family::EpubDocument::open_with(storage, path, styles).unwrap();
     let block = book
         .block_at(storage, Locator::new(at.0, at.1))
         .unwrap()

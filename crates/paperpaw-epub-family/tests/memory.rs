@@ -14,7 +14,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use common::book;
-use paperpaw_plugin_format_epub::EpubDocument;
+use paperpaw_epub_family::EpubDocument;
 use paperpaw_sdk::MemoryStorage;
 use paperpaw_sdk::document::{Document, Locator};
 

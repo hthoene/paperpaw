@@ -4,8 +4,8 @@
 //! format and the home widgets are later slices (`PORTING-7.md`).
 use alloc::string::String;
 
-use paperpaw_plugin_format_epub::NativeIo;
-use paperpaw_plugin_format_epub::provider::FormatProvider;
+use paperpaw_epub_family::NativeIo;
+use paperpaw_epub_family::provider::FormatProvider;
 use paperpaw_sdk::Handled;
 use paperpaw_sdk::native::callbacks::{DrawFrame, DrawPurpose, Input};
 use paperpaw_sdk::native::commands::{CommandSender, RedrawMode};

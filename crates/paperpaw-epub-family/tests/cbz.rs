@@ -11,7 +11,7 @@
 mod common;
 
 use common::Recording;
-use paperpaw_plugin_format_epub::CbzDocument;
+use paperpaw_epub_family::CbzDocument;
 use paperpaw_sdk::MemoryStorage;
 use paperpaw_sdk::document::{BlockKind, Document, DocumentError, Locator};
 use paperpaw_zip::testing::ZipBuilder;

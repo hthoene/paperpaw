@@ -11,7 +11,7 @@
 mod common;
 
 use common::{blocks, text, words};
-use paperpaw_plugin_format_epub::{HtmlDocument, MarkdownDocument};
+use paperpaw_epub_family::{HtmlDocument, MarkdownDocument};
 use paperpaw_sdk::document::{BlockKind, Document, Locator};
 use paperpaw_sdk::{MemoryStorage, Storage};
 

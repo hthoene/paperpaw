@@ -318,8 +318,8 @@ impl Reading {
             .speech(speech)
             .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
             .plugin(paperpaw_plugin_format_txt::TxtFormat)
-            .plugin(paperpaw_plugin_format_epub::EpubFormat)
-            .plugin(paperpaw_plugin_format_epub::MarkdownFormat);
+            .plugin(paperpaw_epub_family::EpubFormat)
+            .plugin(paperpaw_epub_family::MarkdownFormat);
         // Later: its Markdown, with wikilinks, is the one used.
         let builder = if vault {
             builder.plugin(paperpaw_plugin_notes_vault::NotesVault)

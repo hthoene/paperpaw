@@ -1,6 +1,6 @@
 [package]
-name = "paperpaw-plugin-format-epub"
-description = "PaperPaw EPUB 2/3 support: streaming conversion, table of contents, metadata"
+name = "paperpaw-epub-family"
+description = "The shared conversion of the EPUB, HTML, FictionBook, Markdown and comic book format plugins (no plugin of its own)"
 version = "1.0.5"
 edition.workspace = true
 rust-version.workspace = true

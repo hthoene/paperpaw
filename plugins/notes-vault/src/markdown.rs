@@ -16,7 +16,7 @@ use alloc::vec::Vec;
 use paperpaw_sdk::Storage;
 use paperpaw_sdk::document::{Block, Document, DocumentError, Link, Locator, Metadata, TocEntry};
 
-use paperpaw_plugin_format_epub::HtmlDocument;
+use paperpaw_epub_family::HtmlDocument;
 
 use crate::PLUGIN;
 use crate::fallible::{self, TryExtend, TryPush, TryPushStr};

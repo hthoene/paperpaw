@@ -127,3 +127,24 @@ impl Storage for NativeIo<'_, '_> {
         storage::remove(self.host, root, name).map_err(storage_error)
     }
 }
+
+/// Answers one `core.format` call of `provider` over the roots of the call
+/// `host` belongs to: what each native plugin of this family does in its
+/// `event`. The cache folder the parsers use is copied fallibly.
+///
+/// # Errors
+/// What [`FormatProvider::call`](crate::provider::FormatProvider::call) says;
+/// `NoMemory` where the folder's name cannot be copied.
+pub fn serve(
+    provider: &mut crate::provider::FormatProvider,
+    host: &Host<'_>,
+    input: &[u8],
+    out: &mut [u8],
+) -> Result<usize, Error> {
+    let mut prefix = String::new();
+    prefix
+        .try_reserve_exact(provider.cache().len())
+        .map_err(|_| Error::NoMemory)?;
+    prefix.push_str(provider.cache());
+    provider.call(&NativeIo::new(host, prefix), input, out)
+}

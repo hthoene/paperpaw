@@ -98,7 +98,7 @@ fn the_first_walk_writes_next_to_nothing_of_the_books_formats() {
     let mut kernel = Kernel::builder(DEVICE)
         .storage(card)
         .setting_default(&settings::LIBRARY_FOLDER, "books".into())
-        .plugin(paperpaw_plugin_format_epub::EpubFormat)
+        .plugin(paperpaw_epub_family::EpubFormat)
         .plugin(Walker)
         .build()
         .unwrap();
@@ -132,7 +132,7 @@ fn the_first_walk_writes_next_to_nothing_of_the_books_formats() {
     let mut kernel = Kernel::builder(DEVICE)
         .storage(card)
         .setting_default(&settings::LIBRARY_FOLDER, "books".into())
-        .plugin(paperpaw_plugin_format_epub::EpubFormat)
+        .plugin(paperpaw_epub_family::EpubFormat)
         .plugin(Walker)
         .build()
         .unwrap();

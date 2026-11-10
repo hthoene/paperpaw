@@ -7,7 +7,7 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-use paperpaw_plugin_format_epub::{EpubDocument, Fb2Document, HtmlDocument, MarkdownDocument};
+use paperpaw_epub_family::{EpubDocument, Fb2Document, HtmlDocument, MarkdownDocument};
 use paperpaw_sdk::document::{BlockKind, Document, Locator};
 use paperpaw_sdk::{MemoryStorage, OpenOptions, Storage};
 use paperpaw_zip::testing::ZipBuilder;

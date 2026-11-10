@@ -164,17 +164,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-epub-family"
+version = "1.0.5"
+dependencies = [
+ "miniz_oxide",
+ "paperpaw-sdk",
+]
+
+[[package]]
 name = "paperpaw-fuzz"
 version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
  "paperpaw-config",
+ "paperpaw-epub-family",
  "paperpaw-http",
  "paperpaw-hyphen",
  "paperpaw-i18n",
  "paperpaw-image",
  "paperpaw-json",
- "paperpaw-plugin-format-epub",
  "paperpaw-plugin-format-txt",
  "paperpaw-plugin-format-xtc",
  "paperpaw-plugin-koreader",
@@ -251,14 +259,6 @@ dependencies = [
 [[package]]
 name = "paperpaw-platform"
 version = "0.6.0-beta.3"
-
-[[package]]
-name = "paperpaw-plugin-format-epub"
-version = "1.0.5"
-dependencies = [
- "miniz_oxide",
- "paperpaw-sdk",
-]
 
 [[package]]
 name = "paperpaw-plugin-format-txt"

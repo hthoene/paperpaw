@@ -10,7 +10,7 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-use paperpaw_plugin_format_epub::{Fb2Document, fb2_provider};
+use paperpaw_epub_family::{Fb2Document, fb2_provider};
 use paperpaw_sdk::document::{BlockKind, Document, Locator};
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::stage_schemas::core_format_v1 as stage;
@@ -74,7 +74,7 @@ fn call(op: u32, f: impl FnOnce(&mut stage::FmtCall<'static>)) -> Vec<u8> {
 }
 
 fn run(
-    p: &mut paperpaw_plugin_format_epub::provider::FormatProvider,
+    p: &mut paperpaw_epub_family::provider::FormatProvider,
     io: &dyn Storage,
     input: &[u8],
 ) -> Result<Vec<u8>, Error> {
@@ -104,7 +104,7 @@ type Joined = (
 
 /// One block of the provider, joined from its fragments: text, runs, maps.
 fn block(
-    p: &mut paperpaw_plugin_format_epub::provider::FormatProvider,
+    p: &mut paperpaw_epub_family::provider::FormatProvider,
     io: &dyn Storage,
     offset: u32,
 ) -> Result<Joined, Error> {
@@ -141,7 +141,7 @@ fn block(
 /// The header row of a block's first fragment: kind, level, flags, align,
 /// indent, space, size, margins, line height, direction, writing mode, drop cap.
 fn header(
-    p: &mut paperpaw_plugin_format_epub::provider::FormatProvider,
+    p: &mut paperpaw_epub_family::provider::FormatProvider,
     io: &dyn Storage,
     offset: u32,
 ) -> [i64; 13] {

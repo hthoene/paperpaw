@@ -12,7 +12,7 @@
 mod common;
 
 use common::{blocks, book};
-use paperpaw_plugin_format_epub::EpubDocument;
+use paperpaw_epub_family::EpubDocument;
 use paperpaw_sdk::document::Document;
 use paperpaw_sdk::{MemoryStorage, Storage};
 

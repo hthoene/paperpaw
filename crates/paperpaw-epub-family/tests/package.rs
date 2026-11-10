@@ -13,7 +13,7 @@
 mod common;
 
 use common::{Recording, blocks, container, opf, text, words, xhtml, zip};
-use paperpaw_plugin_format_epub::EpubDocument;
+use paperpaw_epub_family::EpubDocument;
 use paperpaw_sdk::MemoryStorage;
 use paperpaw_sdk::document::{Document, DocumentError, Locator};
 

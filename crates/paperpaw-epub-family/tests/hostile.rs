@@ -13,7 +13,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 
-use paperpaw_plugin_format_epub::{EpubDocument, Fb2Document, HtmlDocument, MarkdownDocument};
+use paperpaw_epub_family::{EpubDocument, Fb2Document, HtmlDocument, MarkdownDocument};
 use paperpaw_sdk::document::{Align, Document, Locator};
 use paperpaw_sdk::{DirEntry, MemoryStorage, Storage, StorageError};
 use paperpaw_zip::testing::ZipBuilder;
@@ -716,7 +716,7 @@ fn a_comic_page_or_cover_that_cannot_be_decoded_is_tried_once() {
         .stored("1.jpg", b"\xff\xd8\xff\xe0 not really a picture".to_vec())
         .build();
     let card = Card::new("book.cbz", zip);
-    let doc = paperpaw_plugin_format_epub::CbzDocument::open(&card, "book.cbz").unwrap();
+    let doc = paperpaw_epub_family::CbzDocument::open(&card, "book.cbz").unwrap();
     assert!(
         doc.block_at(&card, Locator::START)
             .unwrap()
@@ -799,7 +799,7 @@ fn the_first_pages_of_a_long_comic_are_kept_and_not_held_in_memory() {
         zip = zip.stored(&format!("p{i:05}.jpg"), b"not a picture".to_vec());
     }
     let card = Card::new("book.cbz", zip.build());
-    let doc = paperpaw_plugin_format_epub::CbzDocument::open(&card, "book.cbz").unwrap();
+    let doc = paperpaw_epub_family::CbzDocument::open(&card, "book.cbz").unwrap();
     assert_eq!(doc.sections(), 5000);
     // Pages that cannot be shown are named.
     let first = doc.block_at(&card, Locator::START).unwrap().unwrap();
@@ -808,7 +808,7 @@ fn the_first_pages_of_a_long_comic_are_kept_and_not_held_in_memory() {
     assert_eq!(last.text, "p04999.jpg");
     // Opened again, the order is read from the cache, not made again.
     let (again, heap) =
-        peak(|| paperpaw_plugin_format_epub::CbzDocument::open(&card, "book.cbz").unwrap());
+        peak(|| paperpaw_epub_family::CbzDocument::open(&card, "book.cbz").unwrap());
     assert!(heap < 64 * 1024, "{heap} bytes at once");
     assert_eq!(again.sections(), 5000);
 }

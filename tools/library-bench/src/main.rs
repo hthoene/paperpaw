@@ -396,7 +396,7 @@ fn main() -> Result<(), String> {
     let mut kernel = Kernel::builder(DEVICE)
         .storage(card)
         .setting_default(&settings::LIBRARY_FOLDER, "books".into())
-        .plugin(paperpaw_plugin_format_epub::EpubFormat)
+        .plugin(paperpaw_epub_family::EpubFormat)
         .plugin(Bench { more, walks })
         .build()
         .map_err(|e| format!("{e:?}"))?;

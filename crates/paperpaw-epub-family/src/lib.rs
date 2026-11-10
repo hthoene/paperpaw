@@ -54,7 +54,7 @@ pub use document::EpubDocument;
 pub use fb2::Fb2Document;
 pub use html::HtmlDocument;
 pub use markdown::MarkdownDocument;
-pub use native_io::NativeIo;
+pub use native_io::{NativeIo, serve};
 pub use providers::{cbz_provider, epub_provider, fb2_provider, html_provider, markdown_provider};
 
 pub const PLUGIN: Id = Id::new_static("format-epub");
@@ -88,24 +88,42 @@ fn manifest(
 
 /// How each works, by language (see `Manifest::how`).
 static EPUB_HOW: [(&str, &str); 2] = [
-    ("en", include_str!("../how/format-epub/en.txt")),
-    ("de", include_str!("../how/format-epub/de.txt")),
+    (
+        "en",
+        include_str!("../../../plugins/format-epub/how/en.txt"),
+    ),
+    (
+        "de",
+        include_str!("../../../plugins/format-epub/how/de.txt"),
+    ),
 ];
 static HTML_HOW: [(&str, &str); 2] = [
-    ("en", include_str!("../how/format-html/en.txt")),
-    ("de", include_str!("../how/format-html/de.txt")),
+    (
+        "en",
+        include_str!("../../../plugins/format-html/how/en.txt"),
+    ),
+    (
+        "de",
+        include_str!("../../../plugins/format-html/how/de.txt"),
+    ),
 ];
 static FB2_HOW: [(&str, &str); 2] = [
-    ("en", include_str!("../how/format-fb2/en.txt")),
-    ("de", include_str!("../how/format-fb2/de.txt")),
+    ("en", include_str!("../../../plugins/format-fb2/how/en.txt")),
+    ("de", include_str!("../../../plugins/format-fb2/how/de.txt")),
 ];
 static MARKDOWN_HOW: [(&str, &str); 2] = [
-    ("en", include_str!("../how/format-markdown/en.txt")),
-    ("de", include_str!("../how/format-markdown/de.txt")),
+    (
+        "en",
+        include_str!("../../../plugins/format-markdown/how/en.txt"),
+    ),
+    (
+        "de",
+        include_str!("../../../plugins/format-markdown/how/de.txt"),
+    ),
 ];
 static CBZ_HOW: [(&str, &str); 2] = [
-    ("en", include_str!("../how/format-cbz/en.txt")),
-    ("de", include_str!("../how/format-cbz/de.txt")),
+    ("en", include_str!("../../../plugins/format-cbz/how/en.txt")),
+    ("de", include_str!("../../../plugins/format-cbz/how/de.txt")),
 ];
 
 /// EPUB books. HTML, FictionBook, Markdown and comic books are plugins of
@@ -147,8 +165,12 @@ impl Plugin for EpubFormat {
             }))
             .sniff(is_epub),
         )?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/en.ini")))?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/de.ini")))?;
+        r.add_translations(Cow::Borrowed(include_str!(
+            "../../../plugins/format-epub/i18n/en.ini"
+        )))?;
+        r.add_translations(Cow::Borrowed(include_str!(
+            "../../../plugins/format-epub/i18n/de.ini"
+        )))?;
         Ok(())
     }
 }
@@ -184,8 +206,12 @@ impl Plugin for HtmlFormat {
                     .map(|d| Box::new(d) as Box<dyn Document>)
             }),
         ))?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/html/en.ini")))?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/html/de.ini")))?;
+        r.add_translations(Cow::Borrowed(include_str!(
+            "../../../plugins/format-html/i18n/en.ini"
+        )))?;
+        r.add_translations(Cow::Borrowed(include_str!(
+            "../../../plugins/format-html/i18n/de.ini"
+        )))?;
         Ok(())
     }
 }
@@ -216,8 +242,12 @@ impl Plugin for Fb2Format {
                     .map(|d| Box::new(d) as Box<dyn Document>)
             }),
         ))?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/fb2/en.ini")))?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/fb2/de.ini")))?;
+        r.add_translations(Cow::Borrowed(include_str!(
+            "../../../plugins/format-fb2/i18n/en.ini"
+        )))?;
+        r.add_translations(Cow::Borrowed(include_str!(
+            "../../../plugins/format-fb2/i18n/de.ini"
+        )))?;
         Ok(())
     }
 }
@@ -248,8 +278,12 @@ impl Plugin for MarkdownFormat {
                     .map(|d| Box::new(d) as Box<dyn Document>)
             }),
         ))?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/markdown/en.ini")))?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/markdown/de.ini")))?;
+        r.add_translations(Cow::Borrowed(include_str!(
+            "../../../plugins/format-markdown/i18n/en.ini"
+        )))?;
+        r.add_translations(Cow::Borrowed(include_str!(
+            "../../../plugins/format-markdown/i18n/de.ini"
+        )))?;
         Ok(())
     }
 }
@@ -280,8 +314,12 @@ impl Plugin for CbzFormat {
                     .map(|d| Box::new(d) as Box<dyn Document>)
             }),
         ))?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/cbz/en.ini")))?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/cbz/de.ini")))?;
+        r.add_translations(Cow::Borrowed(include_str!(
+            "../../../plugins/format-cbz/i18n/en.ini"
+        )))?;
+        r.add_translations(Cow::Borrowed(include_str!(
+            "../../../plugins/format-cbz/i18n/de.ini"
+        )))?;
         Ok(())
     }
 }
@@ -374,24 +412,24 @@ mod tests {
     fn translations_are_complete() {
         for (en, de) in [
             (
-                include_str!("../i18n/en.ini"),
-                include_str!("../i18n/de.ini"),
+                include_str!("../../../plugins/format-epub/i18n/en.ini"),
+                include_str!("../../../plugins/format-epub/i18n/de.ini"),
             ),
             (
-                include_str!("../i18n/html/en.ini"),
-                include_str!("../i18n/html/de.ini"),
+                include_str!("../../../plugins/format-html/i18n/en.ini"),
+                include_str!("../../../plugins/format-html/i18n/de.ini"),
             ),
             (
-                include_str!("../i18n/fb2/en.ini"),
-                include_str!("../i18n/fb2/de.ini"),
+                include_str!("../../../plugins/format-fb2/i18n/en.ini"),
+                include_str!("../../../plugins/format-fb2/i18n/de.ini"),
             ),
             (
-                include_str!("../i18n/markdown/en.ini"),
-                include_str!("../i18n/markdown/de.ini"),
+                include_str!("../../../plugins/format-markdown/i18n/en.ini"),
+                include_str!("../../../plugins/format-markdown/i18n/de.ini"),
             ),
             (
-                include_str!("../i18n/cbz/en.ini"),
-                include_str!("../i18n/cbz/de.ini"),
+                include_str!("../../../plugins/format-cbz/i18n/en.ini"),
+                include_str!("../../../plugins/format-cbz/i18n/de.ini"),
             ),
         ] {
             let (en, de) = (Catalog::parse(en).unwrap(), Catalog::parse(de).unwrap());

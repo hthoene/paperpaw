@@ -46,7 +46,12 @@ members = [
     "plugins/format-docx",
     "plugins/format-images",
     "plugins/format-txt",
+    "crates/paperpaw-epub-family",
     "plugins/format-epub",
+    "plugins/format-html",
+    "plugins/format-fb2",
+    "plugins/format-markdown",
+    "plugins/format-cbz",
     "plugins/format-xtc",
     "plugins/reader",
     "plugins/files",
@@ -205,7 +210,12 @@ paperpaw-plugin-home = { path = "plugins/home", version = "1.0.2" }
 paperpaw-plugin-settings = { path = "plugins/settings", version = "1.0.2" }
 paperpaw-plugin-files = { path = "plugins/files", version = "1.0.3" }
 paperpaw-plugin-reader = { path = "plugins/reader", version = "1.0.3" }
-paperpaw-plugin-format-epub = { path = "plugins/format-epub", version = "1.0.3" }
+paperpaw-epub-family = { path = "crates/paperpaw-epub-family", version = "1.0.5" }
+paperpaw-plugin-format-epub = { path = "plugins/format-epub", version = "1.0.5" }
+paperpaw-plugin-format-html = { path = "plugins/format-html", version = "1.0.5" }
+paperpaw-plugin-format-fb2 = { path = "plugins/format-fb2", version = "1.0.5" }
+paperpaw-plugin-format-markdown = { path = "plugins/format-markdown", version = "1.0.5" }
+paperpaw-plugin-format-cbz = { path = "plugins/format-cbz", version = "1.0.5" }
 paperpaw-plugin-format-txt = { path = "plugins/format-txt", version = "1.0.1" }
 paperpaw-plugin-format-xtc = { path = "plugins/format-xtc", version = "1.0.1" }
 paperpaw-plugin-fonts-default = { path = "plugins/fonts-default", version = "1.0.1", default-features = false }
