@@ -276,6 +276,20 @@ fn a_changed_grid_moves_what_has_no_room_to_the_next_page() {
 }
 
 #[test]
+fn a_changed_grid_writes_each_layout_fitted_to_its_own_grid() {
+    let fake = Fake::new(&["a.b 0/0 2x1, c.d 2/0 2x1, e.f 0/1 2x1, home.tools"]);
+    let tight = Geometry::of(Rect::new(0, 0, 400, 100), 4, 1, 0);
+    let roomy = Geometry::of(Rect::new(0, 0, 400, 300), 4, 3, 0);
+    // The upright pages overflow and are written (two pages); the layout on
+    // its side is derived, so it has nothing to write.
+    let writes = refit(&fake, &tight, &roomy).unwrap();
+    assert_eq!(writes.len(), 2, "{writes:?}");
+    assert!(writes.iter().all(|w| matches!(w, Write::Set { .. })));
+    // Nothing moves on a grid that holds them: nothing is written.
+    assert!(refit(&fake, &roomy, &roomy).unwrap().is_empty());
+}
+
+#[test]
 fn refused_allocations_end_in_no_memory_and_recover() {
     let fake = Fake::new(&["a.b 0/0 4x1, c.d 0/1 2x1, home.tools", "e.f 0/0 2x1"]);
     let g = Geometry::of(Rect::new(0, 0, 600, 300), 6, 3, 0);
@@ -287,6 +301,7 @@ fn refused_allocations_end_in_no_memory_and_recover() {
     sweep(|| store(&fake, 0, &items, Some(&g)).map(|w| w.len()));
     sweep(|| reflow(&fake, &small, false).map(|p| p.map(|p| p.len())));
     sweep(|| holds(&fake, "x.y"));
+    sweep(|| refit(&fake, &small, &g).map(|w| w.len()));
     sweep(|| reset_wide(&fake).map(|w| w.len()));
     let what = What::Widget("n.w".to_string());
     sweep(|| add_to_other(&fake, true, 0, what.try_clone()?, &g).map(|w| w.len()));

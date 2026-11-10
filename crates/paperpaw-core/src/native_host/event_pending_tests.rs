@@ -180,18 +180,10 @@ fn producer_reports_every_unrepresentable_edge_and_never_truncates_old() {
 fn pending_unsupported_events_do_not_enable_admission() {
     // 64 and the hints 70-74 have their delivery (`setting_events`), 86 its own
     // (`widget_events`), and 75 and 76 are the registry's hints (`registry_changed` keeps
-    // its bits, `hint` takes 70-74 and 76); the book events 65-67 register (nothing queues them:
-    // they are no hints); 68 and 69 have no producer yet.
-    for tag in [64, 65, 66, 67]
-        .into_iter()
-        .chain(70..=74)
-        .chain(75..=76)
-        .chain(86..=86)
-    {
+    // its bits, `hint` takes 70-74 and 76); the book events 65-69 register (nothing queues
+    // them: they are no hints).
+    for tag in (64..=76).chain(86..=86) {
         assert!(super::super::events::is_event_tag(tag));
-    }
-    for tag in 68..=69 {
-        assert!(!super::super::events::is_event_tag(tag));
     }
     let budget = EventBudget::try_new().unwrap();
     let mut queue = budget.pending().unwrap();

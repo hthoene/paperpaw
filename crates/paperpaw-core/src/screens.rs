@@ -47,6 +47,12 @@ pub(crate) struct ActiveScreen {
     /// How it shows where the screen is wide ([`Screen::pane`]), as it
     /// said when it was made.
     pub(crate) pane: paperpaw_sdk::Pane,
+    /// `event.screen_ready` (87) was raised for this instance, or it will not
+    /// be (`screen_ready`): at most once an instance.
+    pub(crate) ready: bool,
+    /// A draw of this instance happened since it was opened and 87 is yet to
+    /// be raised for it (the pass after the draw raises it).
+    pub(crate) drawn: bool,
 }
 
 /// The policy bits `command.screen_policy` sets: `guards` (1), `secret` (4),
@@ -142,6 +148,10 @@ impl Kernel {
 
     /// Opens screen `id` with `params` on top, for `slot` if it was bound
     /// to one.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one line over the limit with the two ready flags; split it when it is next changed"
+    )]
     pub(crate) fn open(&mut self, id: Id, slot: Option<Id>, params: &Params) {
         if !self.screen_stack_has_room() || !self.require_screen_keys(1) {
             return;
@@ -235,6 +245,8 @@ impl Kernel {
             by_guard: self.guard().is_some() && self.from_guard_own,
             policy: None,
             pane,
+            ready: false,
+            drawn: false,
         };
         // Opened by another while a screen guards the device: it waits
         // below the guard, hidden.
@@ -1109,6 +1121,25 @@ impl Kernel {
             self.output.commands.remove(at);
             if asked == key {
                 self.set_key_layer(key, layer);
+            }
+        }
+        // The firmware confirmation's answer comes from that screen alone:
+        // taken here, out of its own commands, so no event another sends
+        // (with the nonce guessed or not) is ever taken for it.
+        if self.stack[index].id == crate::native_host::firmware_confirm::SCREEN {
+            let mut at = given;
+            while at < self.output.commands.len() {
+                let Command::Emit(event, params) = &self.output.commands[at] else {
+                    at += 1;
+                    continue;
+                };
+                if *event != crate::native_host::firmware_confirm::ANSWERED {
+                    at += 1;
+                    continue;
+                }
+                let params = params.clone();
+                self.output.commands.remove(at);
+                self.firmware_answer(&params);
             }
         }
         // The commands of a guarding screen, or of one above it, open

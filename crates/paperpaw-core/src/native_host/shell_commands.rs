@@ -44,6 +44,7 @@ impl crate::Shared {
             usage: &self.usage,
             plugins: &self.plugins,
             work: &self.work_states,
+            log: self.device_log,
             ui: None,
         }
     }
