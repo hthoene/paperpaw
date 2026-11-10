@@ -24,7 +24,7 @@ pub(crate) struct CommandTarget {
 }
 
 /// `event.registry_changed.what` bit 0: menus and the item states they show.
-use super::REGISTRY_MENUS;
+use crate::native_host::REGISTRY_MENUS;
 
 impl crate::Shared {
     /// The frame a command-staging callback runs with: no callback, instance,
