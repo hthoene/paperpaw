@@ -58,6 +58,8 @@ pub struct HostWiring {
     ui: Option<bool>,
     /// `core.document`: the memory class and the screen's long side.
     documents: Option<(paperpaw_platform::MemoryClass, u32)>,
+    /// `core.lookup`.
+    lookup: bool,
     secrets: Option<SecretsInputs>,
     work: Option<WorkInputs>,
 }
@@ -72,6 +74,7 @@ impl core::fmt::Debug for HostWiring {
             .field("sockets", &self.sockets.is_some())
             .field("ui", &self.ui.is_some())
             .field("documents", &self.documents.is_some())
+            .field("lookup", &self.lookup)
             .field("secrets", &self.secrets.is_some())
             .field("work", &self.work.is_some())
             .finish()
@@ -176,6 +179,16 @@ impl HostWiring {
         screen_long_side: u32,
     ) -> Self {
         self.documents = Some((memory, screen_long_side));
+        self
+    }
+
+    /// `core.lookup`: the dictionary, wikipedia and translate providers the
+    /// plugins declared (`docs/abi/document.md` 7). The host reads them from
+    /// the declarations, calls them in load order and keeps nothing; the shell
+    /// names nothing.
+    #[must_use]
+    pub fn lookup(mut self) -> Self {
+        self.lookup = true;
         self
     }
 
@@ -355,6 +368,7 @@ impl HostResources {
                 && (hosts.files().is_some()
                     || !(hosts.busy_sources().complete() || wiring.documents.is_some())))
             || (wiring.documents.is_some() && hosts.documents().is_some())
+            || (wiring.lookup && hosts.lookup().is_some())
             || (wiring.device.is_some() && hosts.device().is_some())
             || (wiring.net.is_some() && hosts.net().is_some())
             || (wiring.sockets.is_some() && hosts.sockets().is_some())
@@ -424,6 +438,12 @@ impl HostResources {
             // The reader's open book is a source of `core.files` from now on.
             hosts.register_reader_book_reporting()?;
             hosts.wire_documents(Rc::new(state))?;
+        }
+        if wiring.lookup {
+            hosts.wire_lookup(
+                Rc::new(super::lookup_service::Providers),
+                super::device_log::DeviceLog::default(),
+            )?;
         }
         if let Some(storage) = wiring.files {
             // The library's move job, a busy source `core.files` needs and
