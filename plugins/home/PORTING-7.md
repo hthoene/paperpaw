@@ -492,9 +492,14 @@ card, shelf and status line visible on the home screen and in the gallery) is ba
 - **Contract mismatch found (Kernel told):** Core answers an own widget with instance 0; the SDK's
   `Ui::widget_make` rejects instance 0 (`Instance` is non-zero) as `Invalid`. Home does not meet it
   (it never calls op 4 for its own ids) but another plugin that owns widgets would.
-- A cover still being made is drawn at the next minute (the dashboard redraws on the tick); an own
-  widget has no instance to say `command.widget_changed` for, so the "waiting" flag of such a
-  cover is not read.
+- **Behaviour (differs from a widget made for another plugin's screen):** a cover still being made
+  is drawn at the **next minute tick** (the dashboard redraws on it); an own widget has no instance
+  to say `command.widget_changed` for, so the "waiting" flag of such a cover is not read.
+- A widget that fails to draw is left out and the rest of the page shows, except for `NoMemory`,
+  which fails the screen's draw (`compose_each`), so a cell is never left blank for want of memory.
+- **X4 list:** the heavy draws now run inside the dashboard's own draw callback: the status line
+  (about 17 KiB) and the recent shelf (about 13 KiB), plus the dashboard's cells and paint lists, are
+  one combined peak that is to be measured on the device, not the sum of two callbacks.
 - Not covered without a real host: the drawing of own widgets on the dashboard and in the gallery
   (the scripted host has no screen stack); the status line widget composes its values inside the
   screen's draw as it does inside a widget's draw.
