@@ -85,6 +85,7 @@ fn every_declared_widget_has_a_distinct_token_a_behaviour_and_a_group() {
     // The tick, the screen and its action are not a widget's token.
     for other in [
         declarations::TICK,
+        declarations::READING,
         declarations::TODO_SCREEN,
         declarations::TODO_OPEN,
     ] {

@@ -288,11 +288,13 @@ mod tests {
 
     #[test]
     fn a_file_of_interface_six_is_understood() {
-        let text = "[reading]\npath = /a.epub\npage = 5\npages = 100\nchapter-left = 4\nseconds = 60\nturned = 12\n";
-        let read = Position::parse(text).unwrap();
-        assert_eq!(read.page, Some(5));
-        assert_eq!(read.pages, Some(100));
-        assert_eq!(read.turned, 12);
+        let read = Position::parse(include_str!("../testdata/reading.ini.v1")).unwrap();
+        assert_eq!(read.path, "books/a.epub");
+        assert_eq!((read.page, read.pages), (Some(34), Some(210)));
+        assert_eq!((read.seconds, read.turned), (600, 20));
+        // The chapter's end of interface 6 is not read.
+        let old = Position::parse("[reading]\npath = /a.epub\nchapter-left = 4\n").unwrap();
+        assert_eq!(old.path, "/a.epub");
     }
 
     #[test]

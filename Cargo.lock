@@ -1679,7 +1679,6 @@ dependencies = [
  "paperpaw-plugin-transfer",
  "paperpaw-plugin-update",
  "paperpaw-plugin-vocabulary",
- "paperpaw-plugin-widgets",
  "paperpaw-plugin-wifi",
  "paperpaw-sdk",
 ]
@@ -2677,12 +2676,9 @@ name = "paperpaw-plugin-widgets"
 version = "1.0.9"
 dependencies = [
  "paperpaw-core",
- "paperpaw-graphics",
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-home",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
  "proptest",

@@ -1,4 +1,15 @@
-# Interface-7 port (in progress)
+# Interface-7 port (native only; the blocked cases wait for host pieces)
+
+Version 1.0.9 (Beta 3: 1.0.7, so no further bump). Status: complete in code. Native only: the interface-6 pack
+(`books`, `time`, `words`, `showings`, the `Widgets` plugin and its drawing, refusal and property tests, and
+`tests/{drawing,books,words,todo,declarations,settings_parity,todo_declarations}.rs`) is gone (no shim, #228);
+the comparisons with it are pinned values or acceptance cases (`tests/acceptance_pending.rs`, H1/H3). `HOW`
+and `CATALOGS` (en/de) are the statics the host publishes at admission. Not linked into the app (it is no longer
+in `paperpaw_app::STORE_PLUGINS`) and listed in `tools/plugin-files7/complete.txt`. Lost with the interface-6
+tests, until the host draws native widgets: the drawing sweep (every widget at every cell size, every setting
+value, hostile files), the golden of the settings batches (`testdata/declarations.bin.v1`, which pinned the
+interface-6 registration) and the settings-parity comparison; each setting is declared once in
+`declarations.rs` and checked by `tests/abi7_declarations.rs`.
 
 Native plugin: `src/native_plugin.rs` (`NativeWidgets`): the host makes an
 instance when a screen shows a widget (`event.widget_made`), asks for its
@@ -94,10 +105,7 @@ interface-7 port uses it, none builds its own.
 
 ## Not ported yet (explicit)
 
-The interface-6 pack stays in `src/` until every widget is ported; then the last
-commit deletes it, its app wiring and its tests together (no shim).
-Ported from the words family so far: greeting (by time of day) and
-note (tap asks for a text with `core.ui`; host acceptance pending H1/H2/H4).
+Nothing: every widget of the pack is native and the interface-6 code is gone.
 
 ## Gaps and differences
 
