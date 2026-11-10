@@ -56,16 +56,16 @@ impl Plugin for NativeReader {
         Ok(())
     }
 
-    fn draw(
-        &mut self,
-        _host: &Host<'_>,
-        _token: u32,
-        _frame: DrawFrame<'_>,
-    ) -> Result<(), Error> {
+    fn draw(&mut self, _host: &Host<'_>, _token: u32, _frame: DrawFrame<'_>) -> Result<(), Error> {
         Err(Error::State)
     }
 
-    fn input(&mut self, _host: &Host<'_>, _token: u32, _input: Input<'_>) -> Result<Handled, Error> {
+    fn input(
+        &mut self,
+        _host: &Host<'_>,
+        _token: u32,
+        _input: Input<'_>,
+    ) -> Result<Handled, Error> {
         Ok(Handled::No)
     }
 }
