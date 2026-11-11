@@ -144,6 +144,9 @@ struct Seal {
     key: u8,
     seals: bool,
     nonce: Cell<u8>,
+    /// The random numbers are weak now: a seal is `ERR_STATE` (the X4 with
+    /// its radio off).
+    weak: Rc<Cell<bool>>,
 }
 
 impl Seal {
@@ -152,6 +155,7 @@ impl Seal {
             key,
             seals: true,
             nonce: Cell::new(1),
+            weak: Rc::new(Cell::new(false)),
         }
     }
     fn tag(&self, aad: &[u8], body: &[u8]) -> [u8; 16] {
@@ -168,6 +172,9 @@ impl Sealer for Seal {
         self.seals
     }
     fn seal(&self, aad: &[u8], plain: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+        if self.weak.get() {
+            return Err(ERR_STATE);
+        }
         let nonce = [self.nonce.replace(self.nonce.get().wrapping_add(1)); 12];
         let total = 12 + plain.len() + 16;
         let out = out.get_mut(..total).ok_or(ERR_NO_SPACE)?;
@@ -751,6 +758,29 @@ fn a_failed_upgrade_leaves_the_veiled_lines_as_they_are() {
         v.host.card.fail_rename.set(false);
         assert_eq!(v.services().upgrade(), Ok(true));
         assert!(text(&v.host.card.file()).contains("s1:"));
+    });
+}
+
+#[test]
+fn an_upgrade_with_weak_numbers_changes_nothing_and_says_so_until_they_are_strong() {
+    let old = interface6(&[("mail.password", "mail.password", false, "old-pw")]);
+    let seal = Seal::new(9);
+    let weak = seal.weak.clone();
+    with_host(host(seal), true, |v| {
+        v.host.card.put(file::FILE, &old);
+        // A power cut left a part of a rewrite: it is no file of ours.
+        v.host.card.put(file::TEMP, b"mail.password\t\t\ts1:00");
+        weak.set(true);
+        // At start, the radio off: nothing sealed, the shell tries again.
+        assert_eq!(v.services().upgrade(), Err(ERR_STATE));
+        assert_eq!(v.host.card.file(), old);
+        assert_eq!(v.get("mail", "password").unwrap().0, "old-pw");
+        // The radio on: sealed, and the value reads as before.
+        weak.set(false);
+        assert_eq!(v.services().upgrade(), Ok(true));
+        assert!(text(&v.host.card.file()).contains("s1:"));
+        assert_eq!(v.get("mail", "password").unwrap().0, "old-pw");
+        assert_eq!(v.services().upgrade(), Ok(false), "once");
     });
 }
 

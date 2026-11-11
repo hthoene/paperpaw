@@ -230,12 +230,17 @@ fn core_work_is_wired_once_and_its_view_is_made_of_the_shell_the_kernel_and_the_
 #[test]
 fn core_secrets_is_wired_once_and_the_shell_keeps_its_lifecycle_calls() {
     let resources = HostResources::try_new().unwrap();
-    let wired = resources
+    let mut wired = resources
         .wire(HostWiring::new().secrets(SecretsInputs::new(storage(), Rc::new(Keyed))))
         .unwrap();
     assert!(resources.hosts().secrets().is_some());
     // No file yet: nothing to upgrade.
     assert_eq!(wired.secrets().unwrap().upgrade(), Ok(false));
+    // A shell may keep it past the wiring (the X4 upgrades again once its
+    // random numbers are strong); it is taken once.
+    let kept = wired.take_secrets().unwrap();
+    assert_eq!(kept.upgrade(), Ok(false));
+    assert!(wired.take_secrets().is_none() && wired.secrets().is_none());
     let again = resources.wire(
         HostWiring::new()
             .secrets(SecretsInputs::new(storage(), Rc::new(Keyed)))

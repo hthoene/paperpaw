@@ -406,6 +406,13 @@ impl WiredHosts {
         self.secrets.as_ref()
     }
 
+    /// Takes what the shell calls outside a plugin's call, if `core.secrets`
+    /// was wired, for a shell that keeps it past the wiring (the X4 seals
+    /// interface 6's values once its random numbers are strong).
+    pub fn take_secrets(&mut self) -> Option<SecretsLifecycle> {
+        self.secrets.take()
+    }
+
     /// Whether `core.ui` was asked for and not wired because its store could
     /// not be allocated (the other families are wired): the shell says so.
     #[must_use]
