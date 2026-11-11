@@ -43,6 +43,8 @@ pub(crate) struct ScreenEffects {
         Option<super::commands::ItemRoom>,
     ),
     pub(crate) presets: Vec<alloc::boxed::Box<str>>,
+    /// The answers to plugin requests (`commands_answers.rs`).
+    pub(crate) answers: Vec<super::plugin_requests::Answer>,
     pub(crate) hints: Vec<super::hint_labels::HintSet>,
     /// The widgets it said changed (their makers hear of it from the pump).
     pub(crate) widgets: Vec<u32>,
@@ -53,6 +55,7 @@ impl ScreenEffects {
         self.policies.is_empty()
             && self.item_states.0.is_empty()
             && self.presets.is_empty()
+            && self.answers.is_empty()
             && self.hints.is_empty()
             && self.widgets.is_empty()
     }
@@ -169,6 +172,11 @@ impl crate::Kernel {
             .with_widgets(instances.ui_services(), owner);
             stage.set_images_held(self.image_held(owner));
             stage.set_speech_held(self.io.speech.owned_texts(id.as_str()));
+            stage.set_requests_open(
+                self.native_requests_open(),
+                self.native_requests_open_by(id.as_str()),
+            );
+            stage.set_answer_view(self.native_answer_view(owner));
             // A run's callback is quiet (`work.md` section 2).
             stage.set_quiet(
                 instances
@@ -183,6 +191,7 @@ impl crate::Kernel {
                 // failed borrow is a host fault: the callback fails
                 // (`ERR_BUSY`, as in the shell path) and its batch is dropped.
                 let widgets = stage.take_widget_changes();
+                let answers = stage.take_answers();
                 let marked = match instances.ui_services() {
                     Some(ui) if !widgets.is_empty() => ui.widgets_changed(owner, &widgets),
                     _ => Ok(()),
@@ -192,8 +201,15 @@ impl crate::Kernel {
                     None
                 } else {
                     let (commands, redraw, _hop) = stage.into_ui_output();
-                    (!commands.is_empty() || redraw.is_some() || !images.is_empty())
-                        .then_some(Staged::new(owner, commands, redraw, images))
+                    (!commands.is_empty()
+                        || redraw.is_some()
+                        || !images.is_empty()
+                        || !answers.is_empty())
+                    .then(|| {
+                        let mut staged = Staged::new(owner, commands, redraw, images);
+                        staged.screen.answers = answers;
+                        staged
+                    })
                 }
             } else {
                 // An error drops the whole batch with the stage.
