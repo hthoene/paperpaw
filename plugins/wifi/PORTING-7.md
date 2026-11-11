@@ -200,6 +200,22 @@ becomes "complete, native only" and the plugin joins `tools/plugin-files7/comple
   volatile wipe, not a copy per plugin). `Step::Join` carries the password in a `Password`, so the
   buffer is wiped when the shell has built the `wifi_join` command from it and drops the step.
 
+## Memory parity, open items (review of #1112)
+
+- **Eager Networks rows.** ui-kit's `ItemList` has no lazy mode, so the Networks
+  rows are built from the scan when the view opens (about 8 KiB at 64 networks,
+  estimated from the code, not measured); Beta 3 built rows lazily. Follow-up: a lazy
+  row source for `ItemList` in ui-kit (owner: Plugin Engineer, who owns ui-kit),
+  then Wi-Fi switches to it. Measure at 64 networks with the emulator
+  `--heap-report` once native delivery of the radio events (Services #1123) is in a
+  train.
+- **A refused rebuild** in `reread` leaves a hidden Page or Networks view empty until
+  the next event (it never panics; the view is rebuilt on the next scan or status
+  event).
+- **Per-event reads.** `event.stack_changed` reads the radio (two 4 KiB buffers) even
+  when the radio is off; status changes read the idle setting at each battery percent.
+  Both are short-lived; to narrow after the heap measurement if they show.
+
 ## The phone setup served (slice 6, `src/native_plugin/phone.rs`)
 
 - The screen `wifi.phone` opens the own network (`Own::draw` from a fully random `core.secrets`
