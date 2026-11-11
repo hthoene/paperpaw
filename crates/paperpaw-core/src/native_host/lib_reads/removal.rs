@@ -12,21 +12,25 @@
 //!   imported it.
 //!
 //! Plugins' book data and the document caches are the job's own.
-use super::{fail, importer, kept_file, position, storage_status};
+use super::{carry_status, importer, kept_file, position};
 use paperpaw_platform::Storage;
 use paperpaw_sdk::{library, library::catalog};
 
 /// The folder of the annotation files (`paperpaw_sdk::annotations::file`).
 const ANNOTATIONS: &str = ".paperpaw/annotations";
 
-/// The catalog line, details, cover and lists of the book at `path`.
+/// The catalog line, details, cover and lists of the book at `path`. A list
+/// that cannot be read fails the step with `ERR_INVALID` (after the rest is
+/// forgotten). Both parts always run, so that a damaged catalog does not keep
+/// the details of the book on the card; the first error is the answer.
 pub(crate) fn details(storage: &dyn Storage, path: &str) -> Result<(), i32> {
-    catalog::forget(storage, path).map_err(storage_status)?;
+    let forgot = catalog::forget(storage, path).map_err(carry_status);
     // The SDK's one implementation, with its errors: the details (and the
     // fields), the cover (and the old names of both) and the two lists. A
     // card error is the answer, so that the step is repeated: details left
     // behind would be inherited by a later book at the same path.
-    library::try_deleted(storage, path).map_err(fail)
+    let removed = library::try_removed(storage, path).map_err(carry_status);
+    forgot.and(removed)
 }
 
 /// The position, annotations and importer record of the book at `path`.
@@ -34,10 +38,10 @@ pub(crate) fn marks(storage: &dyn Storage, path: &str) -> Result<(), i32> {
     // A file that is not there is not an error (`Storage::remove`).
     storage
         .remove(&position::file(path)?)
-        .map_err(storage_status)?;
+        .map_err(carry_status)?;
     storage
         .remove(&kept_file(ANNOTATIONS, path)?)
-        .map_err(storage_status)?;
+        .map_err(carry_status)?;
     importer::remove(storage, path)
 }
 

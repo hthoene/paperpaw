@@ -495,29 +495,6 @@ fn try_edit_list(
     Ok(storage.write(file, &data)?)
 }
 
-/// [`removed`](super::removed) for the host (a delete), with the errors
-/// left in: forgets the book at `path`: its details (and with them its
-/// fields), its cover (and the old places of both), and its place among the
-/// books opened last and the favourites. Everything is removed or the card's
-/// error is the answer, for the caller to repeat; what is not there is not an
-/// error. A list that cannot be read is left as it is and is the error.
-///
-/// # Errors
-/// [`Error::OutOfMemory`]; the storage's error where a file cannot be removed
-/// or a list cannot be read or written.
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub fn try_deleted(storage: &dyn Storage, path: &str) -> Result<(), Error> {
-    storage.remove(&try_book_file(path).map_err(|_| Error::OutOfMemory)?)?;
-    storage.remove(&try_old_book_file(path).map_err(|_| Error::OutOfMemory)?)?;
-    storage.remove(&super::cover_file(path))?;
-    storage.remove(&super::old_cover_variant_file(path, ""))?;
-    let file = try_list_file("opened.txt")?;
-    try_edit_list(storage, &file, super::MAX_OPENED, path, false)?;
-    let file = try_list_file("favourites.txt")?;
-    try_edit_list(storage, &file, super::MAX_FAVOURITES, path, false)
-}
-
 /// `core.library` op 8 `set_status` for the host, with the errors left in:
 /// both masks applied together (bit 0 finished, 1 favourite, 2 opened), the
 /// same changes as [`set_finished`](super::set_finished) and

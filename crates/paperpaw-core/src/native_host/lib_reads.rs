@@ -346,6 +346,19 @@ fn storage_status(error: StorageError) -> i32 {
     }
 }
 
+/// The status of a step of a delete or an import that the journal repeats:
+/// data that cannot be read (`InvalidData`: a list of a newer version,
+/// damaged) is `ERR_INVALID`, a final code, as no retry changes it; every other
+/// error is the card's, as `core.storage` says it (a full card is `ERR_FULL`,
+/// which passes when room is made, so the step repeats; `TooLarge` is the
+/// permanent `ERR_NO_SPACE`). Files' `lib_jobs::carry_status` is the same map.
+pub(super) fn carry_status(error: StorageError) -> i32 {
+    match error {
+        StorageError::InvalidData => ERR_INVALID,
+        other => super::storage::status(other),
+    }
+}
+
 /// The catalog's file, reserved fallibly.
 fn catalog_file() -> Result<String, i32> {
     const NAME: &str = "catalog.txt";

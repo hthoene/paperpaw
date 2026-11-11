@@ -172,3 +172,37 @@ fn a_plugin_declares_four_reading_apps_and_the_fifth_is_invalid() {
         (Err(ERR_INVALID), Some(Cap::of(Cap::READERS, 4)))
     );
 }
+
+fn provider(name: &str) -> Record<'_> {
+    Record::LookupSpec(crate::native_host::registrations::LookupSpec {
+        name,
+        title: "Title",
+        languages: "en",
+        flags: 0,
+        token: 3,
+    })
+}
+
+#[test]
+fn a_plugin_declares_eight_lookup_providers_and_the_ninth_is_invalid() {
+    let names = ["a", "b", "c", "d", "e", "f", "g", "h", "i"];
+    let rows: Vec<Record<'_>> = names.iter().map(|n| provider(n)).collect();
+    assert_eq!(finish(&[&rows[..4], &rows[4..8]]), Ok(()));
+    // The ninth refuses the whole set, over any number of batches: problem
+    // 18, arg 8.
+    assert_eq!(
+        refused(&[&rows[..4], &rows[4..8], &rows[8..]]),
+        (Err(ERR_INVALID), Some(Cap::of(Cap::LOOKUPS, 8)))
+    );
+    assert_eq!(refused(&[&rows[..4]]).1, None);
+}
+
+#[test]
+fn a_provider_name_is_declared_once_per_plugin() {
+    assert_eq!(finish(&[&[provider("a"), provider("a")]]), Err(ERR_INVALID));
+    assert_eq!(
+        finish(&[&[provider("a")], &[provider("a")]]),
+        Err(ERR_INVALID)
+    );
+    assert_eq!(finish(&[&[provider("a"), provider("b")]]), Ok(()));
+}

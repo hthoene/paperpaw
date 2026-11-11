@@ -33,8 +33,8 @@ pub(crate) struct LibraryHost {
     /// carries is in use.
     moves: Option<Rc<LibraryMoves>>,
     /// Every source of paths in use (`core.files`' own): a book open in a
-    /// document, the reader's, a transfer's. A delete or an import over it is
-    /// `ERR_BUSY`. Without it only the move job counts.
+    /// document, the reader's, a transfer's. A delete, an import or a move over
+    /// it is `ERR_BUSY`. Without it only the move job counts.
     sources: Option<Rc<BusySources>>,
 }
 
@@ -52,7 +52,8 @@ impl LibraryHost {
         }
     }
 
-    /// The host's sources of paths in use, asked by `delete` and `import`.
+    /// The host's sources of paths in use, asked by `delete`, `import` and
+    /// `move_book`.
     pub(crate) fn with_busy_sources(mut self, sources: Rc<BusySources>) -> Self {
         self.sources = Some(sources);
         self
@@ -153,7 +154,7 @@ impl LibQuery for LibraryHost {
 }
 
 /// The writes the catalog on the card backs: `provide` (op 24), the positions
-/// (ops 13/14's write half) and `set_field` (op 23). Every other op keeps its
+/// (ops 13/14's write half), `set_field` (op 23) and `move` (op 11). Every other op keeps its
 /// default (`ERR_UNSUPPORTED`) until the rest of the write half exists
 /// (todo 307).
 impl LibWrite for LibraryHost {
@@ -250,6 +251,26 @@ impl LibWrite for LibraryHost {
         moves.begin_import(&planned.from, &planned.to, who.plugin, planned.replace)?;
         visit(&planned.to);
         Ok(())
+    }
+
+    /// A move of the book or folder at `from` to `to` (root 1 both), the
+    /// card's journalled move (Files'); the catalog, the book's data and the
+    /// reader's assignments follow from the pump. A name a document, the
+    /// reader, a transfer or the move job holds is `ERR_BUSY`, and nothing is
+    /// written then. Without the move job the host has none: `ERR_UNSUPPORTED`.
+    fn move_book(&self, from: &str, to: &str, replace: bool) -> Result<(), i32> {
+        let Some(moves) = &self.moves else {
+            return Err(ERR_UNSUPPORTED);
+        };
+        let held = |path: &str| {
+            self.sources
+                .as_ref()
+                .is_some_and(|all| all.busy(&*self.storage, path, Access::Rename))
+        };
+        if held(from) || held(to) {
+            return Err(ERR_BUSY);
+        }
+        moves.begin(from, to, replace)
     }
 
     /// Op 9's preflight: the card's, read-only (a book, gone, what is kept).

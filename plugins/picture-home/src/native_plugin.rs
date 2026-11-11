@@ -10,7 +10,7 @@
 //! interface-6 home screen of this plugin is the one the app has
 //! (`PORTING-7.md`).
 use crate::{
-    declarations::{ADD, DASHBOARD, PICK, STATUS_ITEMS},
+    declarations::{ADD, DASHBOARD, PICK, STATUS_ITEMS, TICK},
     native_add_screen::{self as add_screen, AddScreen},
     native_backdrop_host,
     native_dashboard::Dashboard,
@@ -112,6 +112,7 @@ impl Plugin for NativePictureHome {
             .iter()
             .chain(image::SCREENS)
             .chain(image::NAVIGATION)
+            .chain(image::EVENTS)
         {
             registrations::submit(host, batch)?;
         }
@@ -122,11 +123,11 @@ impl Plugin for NativePictureHome {
     fn event(
         &mut self,
         host: &Host<'_>,
-        _token: u32,
+        token: u32,
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::ImageReady)
+        let Some(event) = read_event!(incoming; kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::ImageReady, kinds::Tick)
         else {
             return Ok(());
         };
@@ -167,6 +168,11 @@ impl Plugin for NativePictureHome {
                 ..
             } => self.adds.shown(ADD, instance),
             Event::ImageReady(ready) => self.image_ready(host, &ready),
+            // The minute tick: for the dashboard that shows, its bar.
+            Event::Tick { now_ms, .. } if token == TICK => match self.dashboards.top(DASHBOARD) {
+                Some(dashboard) => dashboard.tick(host, now_ms),
+                None => Ok(()),
+            },
             Event::ScreenClosed { instance, .. } => {
                 if let Some(dashboard) = self.dashboards.get(instance) {
                     dashboard.close(host);

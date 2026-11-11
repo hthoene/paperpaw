@@ -15,9 +15,12 @@ use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_STATE};
 mod choice;
 #[path = "dialogs/confirm.rs"]
 mod confirm;
+#[path = "dialogs/confirm_box.rs"]
+mod confirm_box;
 
 pub(crate) use choice::Choice;
 pub(crate) use confirm::Confirm;
+pub(crate) use confirm_box::{ConfirmBox, Touch};
 
 /// The question of a request, copied out of the store to make its dialog:
 /// the lines as the asker wrote them (no split on commas, equal lines kept).

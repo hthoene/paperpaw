@@ -292,6 +292,10 @@ fn linked_inputs(library: &Library, simulated: bool) -> LinkedInputs {
         view: Rc::default(),
         simulated,
         net: Rc::default(),
+        card: library
+            .open()
+            .ok()
+            .map(|card| Rc::new(card) as Rc<dyn Storage>),
     }
 }
 #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]

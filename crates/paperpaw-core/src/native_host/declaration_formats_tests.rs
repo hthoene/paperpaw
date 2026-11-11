@@ -5,7 +5,7 @@ extern crate std;
 use super::super::{Allocations, DeclarationStore, ImageOwner, PendingDeclarations};
 use super::*;
 use crate::native_host::declaration_checks::Cap;
-use crate::native_host::registrations::{REGISTRATION_MAX_BYTES, records_encode};
+use crate::native_host::registrations::{LookupSpec, REGISTRATION_MAX_BYTES, records_encode};
 use alloc::{format, rc::Rc, string::String, vec, vec::Vec};
 use core::cell::Cell;
 use paperpaw_native::host_glue::ERR_FULL;
@@ -58,6 +58,22 @@ fn reader<'a>(name: &'a str) -> Record<'a> {
         formats: "",
         flags: 0,
     })
+}
+
+fn lookup<'a>(name: &'a str) -> Record<'a> {
+    Record::LookupSpec(LookupSpec {
+        name,
+        title: "Title",
+        languages: "en",
+        flags: 0,
+        token: 3,
+    })
+}
+
+fn providers(store: &DeclarationStore) -> Vec<(u64, String)> {
+    let mut found = Vec::new();
+    store.each_lookup(&mut |l| found.push((l.owner, format!("{}.{}", l.plugin, l.spec.name))));
+    found
 }
 
 fn batch(records: &[Record<'_>]) -> Vec<u8> {
@@ -225,4 +241,80 @@ fn sixteen_reading_apps_fit_the_device_and_the_seventeenth_is_full() {
     );
     store.remove_host_owner(2);
     install(&mut store, &plugins[4], &[batch(&[reader("z")])]).unwrap();
+}
+
+#[test]
+fn lookup_providers_are_listed_in_load_order_and_go_with_their_plugin() {
+    let (dict, wiki) = (plugin("dict", 1), plugin("wiki", 2));
+    let mut store = DeclarationStore::default();
+    install(
+        &mut store,
+        &wiki,
+        &[batch(&[lookup("wiki"), lookup("trans")])],
+    )
+    .unwrap();
+    install(&mut store, &dict, &[batch(&[lookup("main")])]).unwrap();
+    assert_eq!(
+        providers(&store),
+        [
+            (2, "wiki.wiki".into()),
+            (2, "wiki.trans".into()),
+            (1, "dict.main".into())
+        ]
+    );
+    wiki.live.set(false);
+    assert_eq!(providers(&store), [(1, "dict.main".into())]);
+    store.remove_host_owner(2);
+    assert_eq!(providers(&store).len(), 1);
+}
+
+#[test]
+fn a_plugins_providers_are_listed_in_the_order_it_declared_them() {
+    // The index is in hash order: only the declaration order is the plugin's.
+    let names = ["zeta", "alpha", "mid", "beta", "omega", "chi"];
+    let rows: Vec<Record<'_>> = names.iter().map(|n| lookup(n)).collect();
+    let mut store = DeclarationStore::default();
+    install(
+        &mut store,
+        &plugin("dict", 1),
+        &[batch(&rows[..3]), batch(&rows[3..])],
+    )
+    .unwrap();
+    let listed: Vec<String> = providers(&store).into_iter().map(|p| p.1).collect();
+    let wanted: Vec<String> = names.iter().map(|n| format!("dict.{n}")).collect();
+    assert_eq!(listed, wanted);
+}
+
+#[test]
+fn the_same_provider_name_in_two_plugins_is_allowed() {
+    let mut store = DeclarationStore::default();
+    install(&mut store, &plugin("p0", 1), &[batch(&[lookup("a")])]).unwrap();
+    install(&mut store, &plugin("p1", 2), &[batch(&[lookup("a")])]).unwrap();
+    assert_eq!(providers(&store), [(1, "p0.a".into()), (2, "p1.a".into())]);
+}
+
+#[test]
+fn thirty_two_providers_fit_the_device_and_the_thirty_third_is_full() {
+    const NAMES: [&str; 8] = ["a", "b", "c", "d", "e", "f", "g", "h"];
+    let ids = ["p0", "p1", "p2", "p3", "p4"];
+    let mut store = DeclarationStore::default();
+    let plugins: Vec<Rc<Plugin>> = ids
+        .iter()
+        .enumerate()
+        .map(|(n, id)| plugin(id, n as u64 + 1))
+        .collect();
+    for p in plugins.iter().take(4) {
+        let rows: Vec<Record<'_>> = NAMES.iter().map(|n| lookup(n)).collect();
+        install(&mut store, p, &[batch(&rows[..4]), batch(&rows[4..])]).unwrap();
+    }
+    assert_eq!(providers(&store).len(), 32);
+    // Refused at the device's cap: problem 18, arg 32.
+    assert_eq!(
+        install_capped(&mut store, &plugins[4], &[batch(&[lookup("z")])]),
+        (Err(ERR_FULL), Some(Cap::of(Cap::LOOKUPS, 32)))
+    );
+    assert_eq!(providers(&store).len(), 32);
+    store.remove_host_owner(2);
+    install(&mut store, &plugins[4], &[batch(&[lookup("z")])]).unwrap();
+    assert_eq!(providers(&store).len(), 25);
 }

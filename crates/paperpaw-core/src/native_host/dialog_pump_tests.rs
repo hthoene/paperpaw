@@ -717,3 +717,30 @@ fn a_second_answer_is_not_logged_as_refused() {
             .all(|warning| !warning.message.contains("was not taken"))
     );
 }
+
+/// A text op 18 committed goes out to the shell (`Io::Copy`); with no memory
+/// for the copy it is skipped and the log says so.
+#[test]
+fn a_committed_clipboard_text_is_copied_out_or_the_log_says_why_not() {
+    let mut w = world(Ok(OK));
+    w.store.bind_clipboard(&w.kernel.shared.clipboard);
+    let who = crate::native_host::ui_store::Stamp::new(w.owner, 1).unwrap();
+    w.store.clipboard_write(who, 0, "copied", true).unwrap();
+    w.kernel.clipboard_copy_out();
+    assert_eq!(
+        w.kernel.io.clipboard.take_copied().as_deref(),
+        Some("copied")
+    );
+    // The next commit finds no memory for its copy.
+    w.store.clipboard_write(who, 0, "lost", true).unwrap();
+    crate::native_host::shell::tests::FAIL_NTH.with(|n| n.set(1));
+    w.kernel.clipboard_copy_out();
+    crate::native_host::shell::tests::FAIL_NTH.with(|n| n.set(0));
+    assert!(w.kernel.io.clipboard.take_copied().is_none());
+    assert!(
+        w.kernel
+            .take_warnings()
+            .iter()
+            .any(|warning| warning.message.contains("could not be copied out"))
+    );
+}

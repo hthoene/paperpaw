@@ -51,6 +51,14 @@ use super::plugin_rules::{Pins, ROTATIONS_MAX, Rotation};
 pub(crate) const JOURNAL: &str = "plugins/.journal";
 pub(crate) const TMP: &str = "plugins/.journal.tmp";
 pub(crate) const BAD: &str = "plugins/.journal.bad";
+/// One byte for each start at which the host could not forget a removed
+/// plugin's secrets: [`FORGET_TRIES`] of them end the waiting.
+/// The count is appended, so a card without room for one byte (full) never gives
+/// up: the removal waits on until there is room, as every install does.
+pub(crate) const TRIES: &str = "plugins/.journal.tries";
+/// Starts a removal waits for the host to forget what it holds of the plugin
+/// before it is finished without (the secrets stay, the user is told).
+pub(crate) const FORGET_TRIES: u64 = 3;
 const MAGIC: [u8; 4] = *b"PPIJ";
 const VERSION: u8 = 1;
 /// The longest record: the fixed part, the id, the keys, the rotations, the checksum.
@@ -680,6 +688,9 @@ pub(crate) enum Replayed {
     /// A removal stopped where the host must forget what it holds of the plugin
     /// (its secrets and grants); the journal stays, [`resume`] finishes it.
     Forgetting,
+    /// A removal finished after the host failed [`FORGET_TRIES`] starts in a
+    /// row to forget the plugin's secrets and grants: they stay on the card.
+    Unforgotten { id: Text<ID_MAX> },
     /// A journal this host does not read, or can never finish, was set aside.
     SetAside,
     /// Stopped with this reason; the journal stays for the next start.
@@ -728,11 +739,25 @@ pub(crate) fn replay(storage: &dyn Storage) -> Replayed {
 /// host's help: `forget` forgets the plugin's secrets and grants (`false`: it
 /// could not, the journal stays for the next start). Nothing else is touched.
 pub(crate) fn resume(storage: &dyn Storage, forget: &mut dyn FnMut(&str) -> bool) -> Replayed {
-    match read(storage) {
+    let done = match read(storage) {
         Ok(Found::Removal(removal)) => replay_removal(storage, &removal, Some(forget)),
         Ok(_) => Replayed::Nothing,
         Err(why) => Replayed::Failed(why),
+    };
+    // The count belongs to the journal that is gone.
+    if matches!(
+        done,
+        Replayed::Removed { .. } | Replayed::Unforgotten { .. }
+    ) {
+        let _ = storage.remove(TRIES);
     }
+    done
+}
+
+/// Counts a start at which the host could not forget; `true` once
+/// [`FORGET_TRIES`] are counted. A card that cannot count never gives up.
+fn tired_of_waiting(storage: &dyn Storage) -> bool {
+    storage.append(TRIES, b"x").is_ok() && storage.size(TRIES).is_ok_and(|n| n >= FORGET_TRIES)
 }
 
 #[inline(never)]
@@ -745,10 +770,14 @@ fn replay_removal(
     let Some(mut removing) = Removing::new(*removal) else {
         return Replayed::Failed(reason::OTHER);
     };
+    let mut unforgotten = false;
     for _ in 0..16 {
         match removing.step(storage) {
             // The journal is gone: what is left is cleaned by the sweep, in
             // bounded pieces.
+            RemoveStep::More if removing.settled() && unforgotten => {
+                return Replayed::Unforgotten { id: removal.id };
+            }
             RemoveStep::More if removing.settled() => {
                 return Replayed::Removed {
                     id: removal.id,
@@ -759,8 +788,20 @@ fn replay_removal(
             // No host at the start: the journal stays for the first pass.
             RemoveStep::Forget => match forget.as_mut() {
                 None => return Replayed::Forgetting,
-                Some(forget) => removing.forgotten(forget(removal.id.as_str())),
+                Some(forget) => {
+                    let ok = forget(removal.id.as_str());
+                    // A host that fails start after start must not keep every
+                    // later install waiting behind this journal.
+                    // ...but not before the secrets that stay are on the list
+                    // (`plugin_unforgotten`): they are retried at every start,
+                    // and the id is refused for an install until they are gone.
+                    unforgotten = !ok
+                        && tired_of_waiting(storage)
+                        && super::plugin_unforgotten::add(storage, removal.id.as_str());
+                    removing.forgotten(ok || unforgotten);
+                }
             },
+            RemoveStep::Done if unforgotten => return Replayed::Unforgotten { id: removal.id },
             RemoveStep::Done => {
                 return Replayed::Removed {
                     id: removal.id,

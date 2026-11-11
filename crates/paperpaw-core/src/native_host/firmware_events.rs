@@ -35,6 +35,8 @@ const RECORD_BYTES: usize = 128;
 const PER_PASS: usize = 4;
 /// How long a plugin that could not be called is left alone.
 const RETRY_MS: u64 = 1_000;
+/// Most grants of one plugin a removal forgets (a grant kind each).
+const GRANTS_MAX: usize = 256;
 
 /// No built-ins are known (no device host wired): none are named.
 struct NoBuiltIns;
@@ -116,7 +118,8 @@ impl Kernel {
     /// secrets (`core.secrets`, where wired) and its grants
     /// (`core.grant.<kind>.<id>`, decisions 124, 126 and 131), so a reinstall of
     /// the id does not regain what the user granted the old one. Safe to repeat.
-    /// `false`: the secrets could not be forgotten (the journal stays).
+    /// `false`: the secrets could not be forgotten (the journal stays, or the id
+    /// goes on the list of `plugin_unforgotten`); the grants are gone either way.
     pub(crate) fn forget_removed(&mut self, plugin: &str) -> bool {
         let secrets = self
             .shared
@@ -124,29 +127,56 @@ impl Kernel {
             .hosts()
             .and_then(|hosts| hosts.secrets())
             .map(|secrets| alloc::rc::Rc::clone(&secrets.host));
-        let forgot =
-            secrets.is_none_or(|host| super::secrets_service::forget_owner(&*host, plugin).is_ok());
-        if forgot {
-            self.forget_grants(plugin);
-        }
+        self.forget_removed_by(plugin, || {
+            secrets.is_none_or(|host| super::secrets_service::forget_owner(&*host, plugin).is_ok())
+        })
+    }
+
+    /// The retry of an id on the list of `plugin_unforgotten`: as
+    /// [`Self::forget_removed`], but a missing secrets host is **no** success
+    /// (the id was listed because a host failed; its secrets are still there).
+    pub(crate) fn forget_listed(&mut self, plugin: &str) -> bool {
+        let secrets = self
+            .shared
+            .native_instances
+            .hosts()
+            .and_then(|hosts| hosts.secrets())
+            .map(|secrets| alloc::rc::Rc::clone(&secrets.host));
+        self.forget_removed_by(plugin, || {
+            secrets.is_some_and(|host| super::secrets_service::forget_owner(&*host, plugin).is_ok())
+        })
+    }
+
+    /// [`Self::forget_removed`] with the secrets' part given: the grants go
+    /// whatever `forget_secrets` says (a grant left would let a later plugin of
+    /// the id skip the install question).
+    pub(crate) fn forget_removed_by(
+        &mut self,
+        plugin: &str,
+        forget_secrets: impl FnOnce() -> bool,
+    ) -> bool {
+        let forgot = forget_secrets();
+        self.forget_grants(plugin);
         forgot
     }
 
     /// The grants of `plugin`: only values that were set are reset (the file
     /// and the event follow [`Kernel::reset_setting`]).
     pub(crate) fn forget_grants(&mut self, plugin: &str) {
-        let mut set: alloc::vec::Vec<paperpaw_sdk::Id> = alloc::vec::Vec::new();
-        for spec in self.shared.settings.specs() {
-            let id = spec.id.as_str();
-            let is_its = id
-                .strip_prefix("core.grant.")
-                .and_then(|rest| rest.split_once('.'))
-                .is_some_and(|(_, owner)| owner == plugin);
-            if is_its && self.shared.settings.is_set(id) && set.len() < 8 {
-                set.push(spec.id.clone());
-            }
-        }
-        for id in set {
+        // One at a time, so that no list is kept and none is left out. A
+        // grant that stays set (a refused reset) ends the loop by the bound.
+        for _ in 0..GRANTS_MAX {
+            let next = self.shared.settings.specs().find_map(|spec| {
+                let id = spec.id.as_str();
+                let is_its = id
+                    .strip_prefix("core.grant.")
+                    .and_then(|rest| rest.split_once('.'))
+                    .is_some_and(|(_, owner)| owner == plugin);
+                (is_its && self.shared.settings.is_set(id)).then(|| spec.id.clone())
+            });
+            let Some(id) = next else {
+                return;
+            };
             self.reset_setting(&id);
         }
     }
@@ -177,10 +207,33 @@ impl Kernel {
         }
         let storage = self.shared.storage.clone();
         let done = super::plugin_swap::resume(storage.as_ref(), &mut |id| self.forget_removed(id));
-        if let super::plugin_swap::Replayed::Failed(why) = done {
-            self.warn_runtime(alloc::format!(
-                "plugins/.journal not finished (reason {why}): tried again at the next start"
-            ));
+        match done {
+            super::plugin_swap::Replayed::Failed(why) => {
+                self.warn_runtime(alloc::format!(
+                    "plugins/.journal not finished (reason {why}): tried again at the next start"
+                ));
+            }
+            super::plugin_swap::Replayed::Unforgotten { id } => {
+                self.warn_runtime(alloc::format!(
+                    "removal of {} finished without forgetting its secrets: the host failed {} starts; the id is kept in plugins/.unforgotten",
+                    id.as_str(),
+                    super::plugin_swap::FORGET_TRIES
+                ));
+                let text = self.shared.translator.format(
+                    "core.plugin.unforgotten",
+                    &[(
+                        "id",
+                        paperpaw_i18n::Arg::Str(&super::firmware_confirm::clean(id.as_str())),
+                    )],
+                );
+                self.notify(text);
+            }
+            // Earlier removals whose secrets stayed: one try each at a start.
+            _ => {
+                super::plugin_unforgotten::retry(storage.as_ref(), &mut |id| {
+                    self.forget_listed(id)
+                });
+            }
         }
     }
 

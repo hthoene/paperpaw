@@ -216,7 +216,12 @@ impl PluginInstall {
             Err(why) => return self.end(storage, why),
         };
         let id = manifest.id.as_str();
-        if id == "core" || env.built_ins.index_of(id).is_some() {
+        // A removed plugin whose secrets the host could not forget: its id is
+        // not free until it has (`plugin_unforgotten`).
+        if id == "core"
+            || env.built_ins.index_of(id).is_some()
+            || super::plugin_unforgotten::has(storage, id)
+        {
             return self.end(storage, reason::ID_TAKEN);
         }
         let (Some(stage), Some(target)) =

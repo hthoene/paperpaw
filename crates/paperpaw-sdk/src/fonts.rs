@@ -10,6 +10,8 @@ use paperpaw_platform::Color;
 use paperpaw_text::sfnt::FontInfo;
 use paperpaw_text::{Font, GlyphCache, LineMetrics, PackLimits};
 
+#[cfg(any(test, feature = "kernel"))]
+pub use storage::{OpenError, open_file};
 use storage::{Stored, read_font};
 
 use crate::builtin::fonts as roles;

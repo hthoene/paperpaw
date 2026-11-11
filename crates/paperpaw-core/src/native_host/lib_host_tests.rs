@@ -5,7 +5,8 @@ extern crate std;
 use super::*;
 use crate::native_host::lib_reads::tests::card;
 use crate::native_host::registrations::Record;
-use paperpaw_native::host_glue::{ERR_STATE, ERR_UNSUPPORTED};
+use crate::native_host::storage_files::{BusyKind, BusySource};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED};
 
 fn host() -> LibraryHost {
     let card = card();
@@ -235,10 +236,10 @@ fn a_delete_goes_to_the_journalled_job_hides_the_book_and_a_busy_path_is_not_pas
     assert!(card.storage.size("books/a.epub").is_ok());
 }
 
-/// A source of paths in use that holds one book (a document open on it).
+/// A source that holds one path (a document, a transfer).
 struct Holds(&'static str);
 
-impl crate::native_host::storage_files::BusySource for Holds {
+impl BusySource for Holds {
     fn busy(&self, _: &dyn Storage, path: &str, _: Access) -> bool {
         path == self.0
     }
@@ -246,7 +247,6 @@ impl crate::native_host::storage_files::BusySource for Holds {
 
 #[test]
 fn a_book_another_source_holds_is_busy_for_delete_and_import() {
-    use crate::native_host::storage_files::BusyKind;
     let card = card();
     let sources = Rc::new(BusySources::default());
     sources
@@ -349,4 +349,75 @@ fn an_import_without_the_job_is_unsupported_and_a_missing_source_is_not_found() 
         host.import(&who, &request, &mut |_| {}),
         Err(paperpaw_native::host_glue::ERR_NOT_FOUND)
     );
+}
+
+/// A host with the move job and, if asked, a source that holds `held`.
+fn moving_host(held: Option<&'static str>) -> (LibraryHost, Rc<LibraryMoves>, Rc<dyn Storage>) {
+    let card = card();
+    let moves = Rc::new(LibraryMoves::new(card.storage.clone()));
+    let mut host = LibraryHost::new(card.storage.clone(), card.env.clone(), Some(moves.clone()));
+    if let Some(path) = held {
+        let sources = Rc::new(BusySources::default());
+        sources
+            .register(BusyKind::ReaderBook, Rc::new(Holds(path)))
+            .unwrap();
+        host = host.with_busy_sources(sources);
+    }
+    (host, moves, card.storage.clone())
+}
+
+#[test]
+fn a_move_renames_the_book_and_starts_the_job() {
+    let (host, moves, storage) = moving_host(None);
+    host.move_book("books/c.epub", "moved/c.epub", false)
+        .unwrap();
+    assert!(!storage.exists("books/c.epub"));
+    assert!(storage.exists("moved/c.epub"));
+    assert!(moves.moves().active());
+    // One job at a time.
+    assert_eq!(
+        host.move_book("books/a.epub", "moved/a.epub", false),
+        Err(ERR_BUSY)
+    );
+    assert!(storage.exists("books/a.epub"));
+}
+
+#[test]
+fn a_move_refuses_a_missing_book_and_an_existing_name_without_replace() {
+    let (host, moves, storage) = moving_host(None);
+    assert_eq!(
+        host.move_book("books/none.epub", "moved/none.epub", false),
+        Err(ERR_NOT_FOUND)
+    );
+    assert_eq!(
+        host.move_book("books/c.epub", "books/e.epub", false),
+        Err(ERR_STATE)
+    );
+    // Nothing moved, no job.
+    assert!(storage.exists("books/c.epub") && storage.exists("books/e.epub"));
+    assert!(!moves.moves().active());
+    // With replace the book takes the name.
+    host.move_book("books/c.epub", "books/e.epub", true)
+        .unwrap();
+    assert!(!storage.exists("books/c.epub"));
+}
+
+#[test]
+fn a_move_is_busy_for_a_name_a_source_holds_and_writes_nothing() {
+    for held in ["books/c.epub", "moved/c.epub"] {
+        let (host, moves, storage) = moving_host(Some(held));
+        assert_eq!(
+            host.move_book("books/c.epub", "moved/c.epub", false),
+            Err(ERR_BUSY),
+            "{held}"
+        );
+        assert!(storage.exists("books/c.epub"));
+        assert!(!storage.exists("moved/c.epub"));
+        assert!(!moves.moves().active());
+    }
+    // A name nobody holds is moved.
+    let (host, _, storage) = moving_host(Some("books/a.epub"));
+    host.move_book("books/c.epub", "moved/c.epub", false)
+        .unwrap();
+    assert!(storage.exists("moved/c.epub"));
 }

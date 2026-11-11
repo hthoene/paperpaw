@@ -27,6 +27,10 @@
 //!    kernel's first pass finishes the journal with the host
 //!    (`plugin_swap::resume`). Nothing is forgotten without the user's yes
 //!    with the data.
+//!    A host that fails at [`plugin_swap::FORGET_TRIES`] starts in a row does not
+//!    keep the journal (and so every later install) waiting for ever: the removal
+//!    is finished without forgetting, the secrets stay on the card, it is logged
+//!    and the user is told (`core.plugin.unforgotten`).
 //! 7. **Journal gone, then clean:** the journal is removed once the plugin is
 //!    out of its place and its secrets are forgotten; the moved folders
 //!    (`.removing-<id>`) are then removed **a bounded piece a step**

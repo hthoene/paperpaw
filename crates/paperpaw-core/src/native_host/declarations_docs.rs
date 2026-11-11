@@ -106,6 +106,9 @@ fn language(text: &str) -> Check {
     )
 }
 
+/// The longest `lookup.spec` name: what `lookup_entry.provider` holds.
+pub(crate) const LOOKUP_NAME_MAX_BYTES: usize = 64;
+
 /// The syntax of one `lookup.spec`.
 pub(crate) fn lookup_check(plugin_id: &str, spec: &LookupSpec<'_>) -> Check {
     let LookupSpec {
@@ -116,6 +119,8 @@ pub(crate) fn lookup_check(plugin_id: &str, spec: &LookupSpec<'_>) -> Check {
         token: _,
     } = spec;
     relative(plugin_id, name)?;
+    // `lookup_entry.provider` holds 64 bytes (`document.md` section 7).
+    ensure(name.len() <= LOOKUP_NAME_MAX_BYTES)?;
     ensure(!title.is_empty() && flags & !LOOKUP_FLAGS == 0)?;
     let mut count = 0;
     for text in lines(languages) {
