@@ -422,7 +422,7 @@ fn a_book_a_pending_delete_holds_is_not_listed_or_counted() {
     let mut rows = 0;
     let end = s
         .reads()
-        .query_hiding(&ask(), &|path| path == "books/00.epub", &mut |_| {
+        .query_hiding(&ask(), "", &|path| path == "books/00.epub", &mut |_| {
             rows += 1;
             ControlFlow::Continue(())
         })
