@@ -540,6 +540,15 @@ pub enum Event<'a> {
     /// it is told.
     #[non_exhaustive]
     LookupReady { now_ms: u64, provider: &'a str },
+    /// The host ended a document this plugin opened (`core.document`): every later
+    /// call on it is `Error::Cancelled`. Close it
+    /// ([`Documents::close`](super::document::Documents::close)) to forget its id.
+    #[non_exhaustive]
+    DocumentClosed {
+        now_ms: u64,
+        document: super::document::DocId,
+        reason: super::document::DocClosedReason,
+    },
     /// A final answer or committed live update, readable in this callback.
     #[non_exhaustive]
     Answered { now_ms: u64, answer: Answered },

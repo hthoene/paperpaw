@@ -6,6 +6,7 @@ use super::{
 use crate::{
     native::{
         declare::settings_value as settings,
+        document::{DocClosedReason, DocId},
         image::ImageReady,
         net::{HttpDone, HttpProgress, ServedRequest, ServerEvent},
         settings::SettingValue,
@@ -217,6 +218,14 @@ event_fn!(lookup_ready, wire::EventLookupReady<'_>, |r| {
     Event::LookupReady {
         now_ms: r.now_ms,
         provider: r.provider,
+    }
+});
+
+event_fn!(document_closed, wire::EventDocumentClosed, |r| {
+    Event::DocumentClosed {
+        now_ms: r.now_ms,
+        document: DocId::named(r.document).ok_or(Error::Invalid)?,
+        reason: DocClosedReason::decode(r.reason),
     }
 });
 
