@@ -576,41 +576,17 @@ impl crate::Kernel {
             .map(paperpaw_platform::Instant)
     }
 
-    fn bind_native<S: Services + 'static, M: 'static>(
-        &mut self,
+    /// What a plugin declared, staged for its publication: the screens, offers,
+    /// actions, choices, settings and groups in the registry's staging and the
+    /// resources (fonts, hyphenation) as they are to be kept.
+    fn stage_owned(
+        &self,
+        owned: Vec<Owned>,
+        instance: &NativeLease,
         key: u64,
-        retained: Retained<S, M>,
-        depth: FlatDepth,
-        mapped: (
-            Vec<Owned>,
-            super::raw_declarations::RawDeclarations,
-            super::event_tags::EventTags,
-            &str,
-        ),
         owner: &Id,
-        report: fn(&S, u32, i32),
-    ) -> Result<(), shell::Error> {
-        let (owned, raw, events, folder) = mapped;
-        let mut flat_host = self.flat_host();
-        flat_host.directory = self
-            .shared
-            .registry
-            .native_declarations
-            .as_ref()
-            .map(|directory| directory.downgrade().ok_or(shell::Error::Allocation))
-            .transpose()?;
-        let instance = NativeLease::try_new(NativeDispatch::with_events(
-            retained,
-            depth,
-            flat_host,
-            report,
-            self.shared
-                .native_instances
-                .identity(key)
-                .map_err(shell::Error::Status)?,
-            events,
-        ))
-        .map_err(shell::Error::Status)?;
+        folder: &str,
+    ) -> Result<(crate::registry::Staging, super::native_resources::Resources), shell::Error> {
         let mut staging = crate::registry::Staging::default();
         let mut resources = super::native_resources::Resources::default();
         for value in owned {
@@ -666,6 +642,45 @@ impl crate::Kernel {
                     .map_err(shell::Error::Status)?,
             }
         }
+        Ok((staging, resources))
+    }
+
+    fn bind_native<S: Services + 'static, M: 'static>(
+        &mut self,
+        key: u64,
+        retained: Retained<S, M>,
+        depth: FlatDepth,
+        mapped: (
+            Vec<Owned>,
+            super::raw_declarations::RawDeclarations,
+            super::event_tags::EventTags,
+            &str,
+        ),
+        owner: &Id,
+        report: fn(&S, u32, i32),
+    ) -> Result<(), shell::Error> {
+        let (owned, raw, events, folder) = mapped;
+        let mut flat_host = self.flat_host();
+        flat_host.directory = self
+            .shared
+            .registry
+            .native_declarations
+            .as_ref()
+            .map(|directory| directory.downgrade().ok_or(shell::Error::Allocation))
+            .transpose()?;
+        let instance = NativeLease::try_new(NativeDispatch::with_events(
+            retained,
+            depth,
+            flat_host,
+            report,
+            self.shared
+                .native_instances
+                .identity(key)
+                .map_err(shell::Error::Status)?,
+            events,
+        ))
+        .map_err(shell::Error::Status)?;
+        let (staging, resources) = self.stage_owned(owned, &instance, key, owner, folder)?;
         self.shared
             .native_instances
             .install(key, instance.try_clone().map_err(shell::Error::Status)?)
