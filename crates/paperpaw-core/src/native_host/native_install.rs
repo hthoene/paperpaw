@@ -20,9 +20,11 @@ enum Owned {
     Screen(Callback),
     Action(Callback),
     Setting(paperpaw_sdk::SettingSpec),
-    /// A setting equal to entry `.1` of the plugin's table `.0` in the
-    /// program: no copy of it is kept (`fixed_settings`).
-    FixedSetting(&'static [paperpaw_sdk::SettingSpec], usize),
+    /// The settings equal to entries `.1` to `.2` (not including) of the
+    /// plugin's table `.0` in the program: no copy of them is kept
+    /// (`fixed_settings`). A run, so that a pack of hundreds takes one place
+    /// in the list, not one of a spec's size for each.
+    FixedSettings(&'static [paperpaw_sdk::SettingSpec], usize, usize),
     Group(paperpaw_sdk::SettingGroupSpec),
     Resource(super::native_resources::Resource),
     /// A screen the plugin offers for a slot (`slot.offer`).
@@ -607,10 +609,12 @@ impl crate::Kernel {
                         .native(owner, Contribution::Setting(spec))
                         .map_err(shell::Error::Status)?;
                 }
-                Owned::FixedSetting(list, at) => {
-                    staging
-                        .native_fixed(list, at)
-                        .map_err(shell::Error::Status)?;
+                Owned::FixedSettings(list, first, end) => {
+                    for at in first..end {
+                        staging
+                            .native_fixed(list, at)
+                            .map_err(shell::Error::Status)?;
+                    }
                 }
                 Owned::Group(group) => {
                     let group = paperpaw_sdk::SettingGroup::from_boxed(boxed(group)?);
@@ -840,8 +844,16 @@ fn map_declarations(
                     // kept, and the copy made here goes at once.
                     if let Some(at) = super::fixed_settings::find(fixed, spec, cursor) {
                         cursor = at + 1;
-                        value = Owned::FixedSetting(fixed, at);
+                        value = Owned::FixedSettings(fixed, at, at + 1);
                     }
+                }
+                if let (Owned::FixedSettings(_, first, end), Some(Owned::FixedSettings(_, _, last))) =
+                    (&value, owned.last_mut())
+                    && *last == *first
+                {
+                    // The next entry of the table: the run goes on.
+                    *last = *end;
+                    return Ok(());
                 }
                 owned.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
                 owned.push(value);
@@ -885,8 +897,11 @@ pub(super) fn settings_paths(
     let (_, owned, _, _) = map_declarations(view, fixed)?;
     let kept = owned
         .iter()
-        .filter(|value| matches!(value, Owned::FixedSetting(..)))
-        .count();
+        .map(|value| match value {
+            Owned::FixedSettings(_, first, end) => end - first,
+            _ => 0,
+        })
+        .sum();
     let copied = owned
         .iter()
         .filter(|value| matches!(value, Owned::Setting(_)))
