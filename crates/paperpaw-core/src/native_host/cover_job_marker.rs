@@ -43,12 +43,13 @@ pub(super) fn clear(storage: &dyn Storage) {
 /// The key a marker left from before names, 0 for none (or a file that is
 /// not one), and removes the file.
 pub(super) fn take(storage: &dyn Storage) -> u64 {
-    if !storage.exists(FILE) {
+    let Ok(size) = storage.size(FILE) else {
         return 0;
-    }
+    };
     let mut text = [0_u8; LEN];
+    // Exactly the 16 digits the host wrote; any other file names no book.
     let key = match storage.read_at(FILE, 0, &mut text) {
-        Ok(LEN) => text.iter().try_fold(0_u64, |key, &digit| {
+        Ok(LEN) if size == LEN as u64 => text.iter().try_fold(0_u64, |key, &digit| {
             char::from(digit)
                 .to_digit(16)
                 .map(|nibble| (key << 4) | u64::from(nibble))

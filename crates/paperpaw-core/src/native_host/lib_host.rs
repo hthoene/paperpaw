@@ -256,6 +256,12 @@ impl LibQuery for LibraryHost {
             // Preparing (DOCX, MOBI): the book is the cover job, or waits for
             // it; `cover_job_ended` raises bit 6 when the job has ended.
             Ok(lib_cover::Covered::Queued) => Err(ERR_BUSY),
+            // The card does not take the job's marker: no cover, and not
+            // asked for again (the failure ring), or a screen would loop.
+            Ok(lib_cover::Covered::Failed) => {
+                self.remember_failed(lib_cover::path_key(&path));
+                Err(ERR_NOT_FOUND)
+            }
             Ok(lib_cover::Covered::Done) => {
                 self.cover_retries.set(0);
                 Ok(())

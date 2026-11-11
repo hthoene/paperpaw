@@ -251,7 +251,9 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   image ids end) and its opener gets `event.document_closed` with `reason` 4 `needed`; later calls
   on its id are `ERR_CANCELLED`. The shown book itself is never taken. Only when no document can
   be taken (the opener's own cap) is the `open` `ERR_FULL`. An index build that lost its place
-  starts again later (the library's walk tries it again).
+  starts again later (the library's walk tries it again). The host's own background job (covers,
+  book details) is no opener: it takes one device-wide place but no opener's cap, is the first
+  document a book to show takes, gets no `document_closed`, and starts again later.
 
 ### 2.2 Metadata
 

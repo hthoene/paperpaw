@@ -35,7 +35,9 @@ mod report;
 mod table;
 #[allow(unused_imports, reason = "the shell builds the table with its limits")]
 pub(crate) use args::ROOT_HANDED;
-pub(crate) use table::{Document, DocumentTable, FAILED, FormatRef, Limits, PREPARING, READY};
+pub(crate) use table::{
+    Document, DocumentTable, FAILED, FormatRef, HOST_JOB, Limits, PREPARING, READY,
+};
 
 /// Operations of `core.format` the host calls (`document.md` 3).
 pub(crate) mod fmt {
@@ -272,6 +274,9 @@ pub(crate) trait DocHost {
         _route: &dyn super::fmt_call::Route,
     ) {
     }
+    /// The device sleeps inside a callback, where the job cannot be ended: it
+    /// ends at the pump's next look (`cover_job_pump`).
+    fn cover_job_suspend_later(&self) {}
     /// Whether a cover job exists (the pump asks before it makes a route).
     fn cover_job_active(&self) -> bool {
         false
@@ -281,14 +286,31 @@ pub(crate) trait DocHost {
     fn cover_jobs_allowed(&self) -> bool {
         true
     }
-    /// A `cover` asked for a job before [`DocHost::cover_jobs_allowed`]: it is
-    /// remembered, and `allow_cover_jobs` says so once.
+    /// A `cover` asked for a job where none may begin (before
+    /// [`DocHost::cover_jobs_allowed`], or while a book is open for reading):
+    /// it is remembered, and [`DocHost::cover_jobs_released`] says when to ask
+    /// again.
     fn cover_job_held_back(&self) {}
-    /// The kernel's start has returned: jobs may begin. Says whether a `cover`
-    /// was held back (the library then raises bit 6, for it is asked again) and
-    /// the key of the book a marker left from before names (`cover_job_marker`).
-    fn allow_cover_jobs(&self) -> JobsAllowed {
-        JobsAllowed::default()
+    /// The cover job was displaced by an open (its place was needed): held
+    /// back as above, and for a quiet moment longer, so that what displaced it
+    /// is done before it starts again from the beginning (a cache is whole or
+    /// not used: nothing of the job's work is kept).
+    fn cover_job_displaced(&self) {}
+    /// The key of a book whose job was displaced too often in a row (0: none):
+    /// the library counts it as failed (no cover until the next start).
+    fn cover_job_given_up(&self) -> u64 {
+        0
+    }
+    /// Whether a held-back job may begin again now: allowed, no book open for
+    /// reading, no job, and the quiet moment over. Said once; the library then
+    /// raises bit 6 (the screens ask again).
+    fn cover_jobs_released(&self) -> bool {
+        false
+    }
+    /// The kernel's start has returned: jobs may begin. The key of the book a
+    /// marker left from before names (`cover_job_marker`), 0 for none.
+    fn allow_cover_jobs(&self) -> u64 {
+        0
     }
     /// A job for the book at `path` is about to begin: its marker is written
     /// (`cover_job_marker`). An error: the job does not begin.
@@ -388,16 +410,6 @@ pub(crate) trait DocHost {
         sniff: bool,
         visit: &mut dyn FnMut(Record<'_>),
     ) -> Result<(), i32>;
-}
-
-/// What the start of the kernel finds about the cover job
-/// (`DocHost::allow_cover_jobs`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct JobsAllowed {
-    /// A `cover` asked for a job before jobs were allowed.
-    pub(crate) held_back: bool,
-    /// The key of the book whose job a reset ended (0: none).
-    pub(crate) left: u64,
 }
 
 /// What one look at the library's cover job found.
@@ -513,6 +525,9 @@ pub(crate) fn end_by_host(host: &dyn DocHost, id: u32, reason: u32) -> Result<()
 /// `close` (image ids end, the format gets op 4, the reader is released) and
 /// its opener hears reason 4 `needed`.
 fn taken(host: &dyn DocHost, document: &Document) {
+    if document.cover_job {
+        host.cover_job_displaced();
+    }
     host.end_images(document);
     if !document.format_gone {
         host.close_format(document);
@@ -625,6 +640,9 @@ impl DocHost for Cx<'_> {
     }
     fn cover_job_held_back(&self) {
         self.host.cover_job_held_back();
+    }
+    fn cover_job_displaced(&self) {
+        self.host.cover_job_displaced();
     }
     fn cover_job_guard(&self, path: &str) -> Result<(), i32> {
         self.host.cover_job_guard(path)

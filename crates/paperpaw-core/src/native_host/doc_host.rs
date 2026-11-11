@@ -143,8 +143,23 @@ pub(crate) struct DocState {
     jobs_allowed: Cell<bool>,
     /// The cover job's marker is on the card (`cover_job_marker`).
     job_guarded: Cell<bool>,
-    /// A `cover` asked for a job before that (`allow_cover_jobs`).
+    /// A `cover` asked for a job where none may begin (before that, or with a
+    /// book open for reading), or the job was displaced: it begins again when
+    /// released (`cover_jobs_released`).
     job_held_back: Cell<bool>,
+    /// Not before this time (the kernel's clock, ms): what displaced the job
+    /// is done by then.
+    job_resume_at: Cell<u64>,
+    /// The key of the book of the job that runs (or ran last).
+    job_key: Cell<u64>,
+    /// The book the job was displaced for last, and how many times in a row;
+    /// at [`DISPLACED_MAX`] the book is given up until the next start.
+    job_displaced: Cell<(u64, u8)>,
+    /// The book given up (0: none), for the library's failure ring.
+    job_given_up: Cell<u64>,
+    /// The job is to end at the next pump pass (a suspend that came inside a
+    /// callback).
+    job_suspend: Cell<bool>,
     /// The card, for the first bytes a file is told by (`with_storage`).
     storage: Option<Rc<dyn Storage>>,
     /// The most bytes one document's cache may hold.
@@ -173,6 +188,13 @@ pub(crate) struct DocState {
     /// The reading session and the events it raises (`doc_reading.rs`).
     reading: super::doc_reading::Reading,
 }
+
+/// How long after a displacement (a book to show, a ready cover) the job waits
+/// before it begins again.
+const RESUME_AFTER_MS: u64 = 2_000;
+/// A job displaced this many times in a row for the same book is not started
+/// again until the next start.
+const DISPLACED_MAX: u8 = 3;
 
 /// Nothing is drawn from a format's picture yet: it is left out.
 struct NoImages;
@@ -254,6 +276,11 @@ impl DocState {
             jobs_allowed: Cell::new(false),
             job_guarded: Cell::new(false),
             job_held_back: Cell::new(false),
+            job_resume_at: Cell::new(0),
+            job_key: Cell::new(0),
+            job_displaced: Cell::new((0, 0)),
+            job_given_up: Cell::new(0),
+            job_suspend: Cell::new(false),
             storage: None,
             cache_cap: limits.cache_bytes(),
             last_prepared: Cell::new(0),
@@ -542,6 +569,21 @@ macro_rules! frameless {
         fn reading_sleep(&self, now_ms: u64) {
             self.state().reading.sleep(now_ms);
         }
+        fn cover_jobs_allowed(&self) -> bool {
+            self.state().jobs_allowed.get()
+        }
+        fn cover_job_held_back(&self) {
+            self.state().job_held_back.set(true);
+        }
+        fn cover_job_displaced(&self) {
+            self.state().displaced();
+        }
+        fn cover_job_guard(&self, path: &str) -> Result<(), i32> {
+            self.state().guard(path)
+        }
+        fn cover_job_unguard(&self) {
+            self.state().unguard();
+        }
         fn handed_maker(&self, document: u32, maker: u64) {
             if let Ok(mut books) = self.state().books.try_borrow_mut()
                 && let Some(book) = books.iter_mut().find(|book| book.document == document)
@@ -645,31 +687,30 @@ impl super::doc_service::DocHost for DocState {
     fn only_cover_job_preparing(&self) -> bool {
         self.table.only_cover_job_preparing()
     }
-    fn cover_jobs_allowed(&self) -> bool {
-        self.jobs_allowed.get()
+    fn cover_job_suspend_later(&self) {
+        self.job_suspend.set(true);
     }
-    fn cover_job_held_back(&self) {
-        self.job_held_back.set(true);
+    fn cover_job_given_up(&self) -> u64 {
+        self.job_given_up.replace(0)
     }
-    fn allow_cover_jobs(&self) -> super::doc_service::JobsAllowed {
-        self.jobs_allowed.set(true);
-        super::doc_service::JobsAllowed {
-            held_back: self.job_held_back.replace(false),
-            // A marker from before: the reset happened in that book's job.
-            left: self
-                .storage
-                .as_deref()
-                .map_or(0, super::cover_job_marker::take),
+    fn cover_jobs_released(&self) -> bool {
+        if !self.job_held_back.get()
+            || !self.jobs_allowed.get()
+            || self.now.get() < self.job_resume_at.get()
+            || self.table.cover_job().is_some()
+            || self.table.reading_besides(0)
+        {
+            return false;
         }
+        self.job_held_back.set(false);
+        true
     }
-    fn cover_job_guard(&self, path: &str) -> Result<(), i32> {
-        let storage = self.storage.as_deref().ok_or(ERR_NOT_FOUND)?;
-        super::cover_job_marker::write(storage, super::lib_cover::path_key(path))?;
-        self.job_guarded.set(true);
-        Ok(())
-    }
-    fn cover_job_unguard(&self) {
-        self.unguard();
+    fn allow_cover_jobs(&self) -> u64 {
+        self.jobs_allowed.set(true);
+        // A marker from before: the reset happened in that book's job.
+        self.storage
+            .as_deref()
+            .map_or(0, super::cover_job_marker::take)
     }
     fn cover_job_abort(
         &self,

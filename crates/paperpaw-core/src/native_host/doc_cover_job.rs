@@ -22,7 +22,7 @@ use crate::native_host::{
     host_services::HostServices,
 };
 use alloc::vec::Vec;
-use paperpaw_native::host_glue::{ERR_IO, ERR_NO_MEMORY};
+use paperpaw_native::host_glue::{ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND};
 
 /// The steps in a row that could not be made (the format is not started, no
 /// memory for the buffer) after which the job's book counts as failed: only
@@ -54,6 +54,38 @@ impl DocState {
         })
     }
 
+    /// The cover job was displaced (`DocHost::cover_job_displaced`).
+    pub(super) fn displaced(&self) {
+        let key = self.job_key.get();
+        let (last, times) = self.job_displaced.get();
+        let times = if last == key {
+            times.saturating_add(1)
+        } else {
+            1
+        };
+        self.job_displaced.set((key, times));
+        if times >= super::DISPLACED_MAX {
+            // Displaced again and again: its conversion would start over
+            // for ever. No cover for it until the next start.
+            self.job_given_up.set(key);
+            return;
+        }
+        self.job_held_back.set(true);
+        self.job_resume_at
+            .set(self.now.get().saturating_add(super::RESUME_AFTER_MS));
+    }
+
+    /// Writes the marker for the job of the book at `path`
+    /// (`DocHost::cover_job_guard`).
+    pub(super) fn guard(&self, path: &str) -> Result<(), i32> {
+        let storage = self.storage.as_deref().ok_or(ERR_NOT_FOUND)?;
+        let key = crate::native_host::lib_cover::path_key(path);
+        crate::native_host::cover_job_marker::write(storage, key)?;
+        self.job_key.set(key);
+        self.job_guarded.set(true);
+        Ok(())
+    }
+
     /// The job has left the table, however it did: its marker goes.
     pub(super) fn unguard(&self) {
         if self.job_guarded.replace(false)
@@ -66,6 +98,12 @@ impl DocState {
     /// One look at the cover job; ends it when it is ready or failed.
     #[inline(never)]
     pub(super) fn cover_job_next(&self, hosts: &HostServices, route: &dyn Route) -> JobStep {
+        // A sleep that came inside a callback: the job ends now, and nothing
+        // restarts it.
+        if self.job_suspend.replace(false) {
+            self.cover_job_end(hosts, route);
+            return JobStep::None;
+        }
         let Some(job) = self.table.cover_job() else {
             // A job that an open took the place of: its marker is left.
             self.unguard();
@@ -92,6 +130,8 @@ impl DocState {
         };
         self.end_job(hosts, route, &document);
         self.unguard();
+        // It came to an end by itself: displacements are not in a row.
+        self.job_displaced.set((0, 0));
         JobStep::Ended {
             ready: job.state == READY,
             key,

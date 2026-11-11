@@ -48,6 +48,9 @@ pub(crate) enum Covered {
     /// The book is preparing (`doc_cover_job`): `ERR_BUSY` now, and
     /// `library_changed` bit 6 when the job has ended.
     Queued,
+    /// The book's job could not begin (the card does not take its marker): it
+    /// has no cover, and is not asked for again until the next start.
+    Failed,
 }
 
 /// A key of a book's path, for what the host remembers of a book without its
@@ -82,6 +85,7 @@ pub(crate) fn make(
             Ok(Covered::Done)
         }
         cover::Made::Queued => Ok(Covered::Queued),
+        cover::Made::Failed => Ok(Covered::Failed),
     }
 }
 

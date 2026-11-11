@@ -20,6 +20,17 @@ impl crate::Kernel {
         let Some(documents) = hosts.documents() else {
             return;
         };
+        // A job held back (the start, a book open for reading, a displacement)
+        // may begin again: the screens are told to ask again (bit 6).
+        if let Some(library) = hosts.library() {
+            let given_up = documents.0.cover_job_given_up();
+            if given_up != 0 {
+                library.0.cover_job_left(given_up);
+            }
+            if documents.0.cover_jobs_released() {
+                library.0.cover_jobs_began();
+            }
+        }
         if !documents.0.cover_job_active() {
             return;
         }
@@ -56,27 +67,22 @@ impl crate::Kernel {
         effects
     }
 
-    /// The kernel's start has returned: cover jobs may begin from now on. A
-    /// `cover` held back until now gets its bit 6 (it asks again).
+    /// The kernel's start has returned: cover jobs may begin from now on.
     fn native_cover_jobs_allowed(&mut self) {
         let instances = &self.shared.native_instances;
         let Some(hosts) = instances.hosts() else {
             return;
         };
-        let allowed = hosts
+        let left = hosts
             .documents()
-            .map(|documents| documents.0.allow_cover_jobs())
-            .unwrap_or_default();
-        let Some(library) = hosts.library() else {
-            return;
-        };
+            .map_or(0, |documents| documents.0.allow_cover_jobs());
         // The book a reset ended the job of counts as failed (no cover job
-        // for it), before anything asks for its cover again.
-        if allowed.left != 0 {
-            library.0.cover_job_left(allowed.left);
-        }
-        if allowed.held_back {
-            library.0.cover_jobs_began();
+        // for it), before anything asks for its cover again. A `cover` held
+        // back until now is released by the pump's next look.
+        if left != 0
+            && let Some(library) = hosts.library()
+        {
+            library.0.cover_job_left(left);
         }
     }
 }
@@ -94,6 +100,11 @@ impl crate::Kernel {
             return;
         };
         if !documents.0.cover_job_active() {
+            return;
+        }
+        // Not inside a callback: the job ends at the pump's next look.
+        if instances.depth() != 0 {
+            documents.0.cover_job_suspend_later();
             return;
         }
         let env = self.shared.env(self.now);

@@ -4,7 +4,7 @@
 //! and cleaned up when the host closed it.
 use super::*;
 use crate::native_host::{
-    doc_service::{FAILED, JobStep, JobsAllowed, PREPARING, READY},
+    doc_service::{FAILED, JobStep, PREPARING, READY},
     fmt_call::FrameRoute,
     lib_cover::path_key,
 };
@@ -53,14 +53,103 @@ fn ops(w: &World<'_>) -> Vec<u32> {
 }
 
 #[test]
-fn jobs_may_begin_only_after_the_start_and_say_if_one_was_held_back() {
+fn jobs_may_begin_only_after_the_start_and_a_held_back_one_is_released_once() {
     world(|w| {
         assert!(!w.state.cover_jobs_allowed());
-        assert_eq!(w.state.allow_cover_jobs(), JobsAllowed::default());
+        assert!(!w.state.cover_jobs_released(), "nothing held back");
+        w.state.cover_job_held_back();
+        assert!(!w.state.cover_jobs_released(), "not before the start");
+        assert_eq!(w.state.allow_cover_jobs(), 0);
         assert!(w.state.cover_jobs_allowed());
-        w.state.job_held_back.set(true);
-        assert!(w.state.allow_cover_jobs().held_back);
-        assert!(!w.state.allow_cover_jobs().held_back, "said once");
+        assert!(w.state.cover_jobs_released());
+        assert!(!w.state.cover_jobs_released(), "said once");
+    });
+}
+
+#[test]
+fn a_job_held_back_waits_for_the_reader_and_a_displacement_for_a_quiet_moment() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.state.allow_cover_jobs();
+        w.state.now.set(10_000);
+        // A book is open for reading: not released until it has closed.
+        *w.reply.borrow_mut() = Ok(fmt_state(READY, 0, 0));
+        let reader = w.open(1, "books/r.epub").unwrap();
+        w.state.cover_job_held_back();
+        assert!(!w.state.cover_jobs_released(), "a book is open");
+        w.state.table.close(OPENER, reader).unwrap();
+        assert!(w.state.cover_jobs_released());
+        // Displaced: held back for the quiet moment too.
+        w.state.cover_job_displaced();
+        assert!(!w.state.cover_jobs_released(), "not yet");
+        w.state.now.set(10_000 + 1_999);
+        assert!(!w.state.cover_jobs_released(), "not yet");
+        w.state.now.set(10_000 + 2_000);
+        assert!(w.state.cover_jobs_released());
+        assert!(!w.state.cover_jobs_released(), "said once");
+    });
+}
+
+#[test]
+fn a_job_displaced_three_times_in_a_row_for_one_book_is_given_up() {
+    world(|w| {
+        w.state.allow_cover_jobs();
+        w.state.job_key.set(5);
+        for time in [0_u64, 10_000] {
+            w.state.now.set(time);
+            w.state.cover_job_displaced();
+            assert_eq!(w.state.cover_job_given_up(), 0);
+            w.state.now.set(time + 2_000);
+            assert!(w.state.cover_jobs_released(), "starts again");
+        }
+        // Another book is not the same run.
+        w.state.job_key.set(6);
+        w.state.cover_job_displaced();
+        assert_eq!(w.state.cover_job_given_up(), 0);
+        assert!(w.state.job_held_back.replace(false));
+        w.state.job_key.set(5);
+        w.state.cover_job_displaced();
+        w.state.cover_job_displaced();
+        assert!(w.state.job_held_back.replace(false));
+        w.state.cover_job_displaced();
+        // The third in a row: not started again, and the book is named for
+        // the library's ring, once.
+        assert!(!w.state.job_held_back.get());
+        assert_eq!(w.state.cover_job_given_up(), 5);
+        assert_eq!(w.state.cover_job_given_up(), 0);
+    });
+}
+
+#[test]
+fn the_job_is_the_hosts_own_no_openers() {
+    use crate::native_host::doc_service::HOST_JOB;
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        let document = job(w, "books/a.epub");
+        let row = w.state.table.cover_job().unwrap();
+        assert_eq!(row.owner, HOST_JOB);
+        assert!(
+            w.state.table.lease(OPENER, document).is_err(),
+            "not the opener's any more"
+        );
+        // No event for the host's own job when it is taken.
+        let taken = w.state.table.take_cover_job().unwrap();
+        w.state.table.raise_closed(&taken, 4);
+        assert_eq!(w.state.table.take_closed(HOST_JOB, |_| Ok(1)), Ok(None));
+    });
+}
+
+#[test]
+fn a_sleep_inside_a_callback_ends_the_job_at_the_next_look() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        job(w, "books/a.epub");
+        w.state.cover_job_guard("books/a.epub").unwrap();
+        w.state.cover_job_suspend_later();
+        assert_eq!(look(w), JobStep::None);
+        assert!(w.state.table.cover_job().is_none(), "ended");
+        assert_eq!(marker(w), None);
+        assert!(!w.state.cover_jobs_released(), "not restarted");
     });
 }
 
@@ -116,16 +205,22 @@ fn a_marker_left_from_before_names_its_book_once_at_the_start() {
         w.card
             .write(".paperpaw/cover-job.txt", b"00000000000000ff")
             .unwrap();
-        let allowed = w.state.allow_cover_jobs();
-        assert_eq!(allowed.left, 0xff);
+        assert_eq!(w.state.allow_cover_jobs(), 0xff);
         assert_eq!(marker(w), None, "removed");
-        assert_eq!(w.state.allow_cover_jobs().left, 0);
-        // A file that is not a marker names no book, and is removed too.
-        w.card
-            .write(".paperpaw/cover-job.txt", b"nonsense")
-            .unwrap();
-        assert_eq!(w.state.allow_cover_jobs().left, 0);
-        assert_eq!(marker(w), None);
+        assert_eq!(w.state.allow_cover_jobs(), 0);
+        // A file that is not a marker names no book, and is removed too:
+        // too short, too long, not hexadecimal, empty.
+        for bad in [
+            &b"nonsense"[..],
+            b"00000000000000ff0",
+            b"zzzzzzzzzzzzzzzz",
+            b"00000000000000f",
+            b"",
+        ] {
+            w.card.write(".paperpaw/cover-job.txt", bad).unwrap();
+            assert_eq!(w.state.allow_cover_jobs(), 0, "{bad:?}");
+            assert_eq!(marker(w), None, "{bad:?} removed");
+        }
     });
 }
 
@@ -209,20 +304,22 @@ fn an_open_that_is_not_the_librarys_takes_the_job_first() {
         *w.reply.borrow_mut() = Ok(fmt_state(READY, 0, 0));
         w.open(1, "books/b.epub").unwrap();
         assert!(w.state.table.cover_job().is_none());
+        // The job was the host's, never the opener's.
         assert_eq!(
             w.state.table.lease(OPENER, document),
-            Err(paperpaw_native::host_glue::ERR_CANCELLED)
+            Err(paperpaw_native::host_glue::ERR_NOT_FOUND)
         );
         assert_eq!(look(w), JobStep::None);
-        // The opener hears reason 4 (needed) for it.
+        // The host's own job has no opener to hear reason 4 (needed).
         let mut out = [0_u8; 64];
-        let length = w.state.next_event(OPENER, &mut out).unwrap().unwrap();
-        match crate::native_host::codec::decode_any_single(&out[..length]).unwrap() {
-            Record::EventDocumentClosed(event) => {
-                assert_eq!((event.document, event.reason), (document, 4));
-            }
-            other => panic!("{other:?}"),
-        }
+        assert_eq!(w.state.next_event(OPENER, &mut out), Ok(None));
+        assert_eq!(
+            w.state
+                .next_event(crate::native_host::doc_service::HOST_JOB, &mut out),
+            Ok(None)
+        );
+        // It is held back: it starts again after the quiet moment.
+        assert!(w.state.job_held_back.get());
     });
 }
 
@@ -266,7 +363,7 @@ fn no_step_is_made_while_a_book_is_open_for_reading() {
         assert!(!w.state.preparing(), "nothing asks the pump to run");
         w.state.table.close(OPENER + 1, reading).unwrap();
         assert!(w.state.preparing(), "the book closed: the job goes on");
-        assert!(w.state.table.lease(OPENER, document).is_ok());
+        assert_eq!(w.state.table.cover_job().map(|job| job.id), Some(document));
     });
 }
 
