@@ -34,9 +34,7 @@ mod report;
 mod table;
 #[allow(unused_imports, reason = "the shell builds the table with its limits")]
 pub(crate) use args::ROOT_HANDED;
-pub(crate) use table::{
-    Document, DocumentTable, FAILED, FormatRef, Limits, PREPARING, READY, STALL_CAP,
-};
+pub(crate) use table::{Document, DocumentTable, FAILED, FormatRef, Limits, PREPARING, READY};
 
 /// Operations of `core.format` the host calls (`document.md` 3).
 pub(crate) mod fmt {

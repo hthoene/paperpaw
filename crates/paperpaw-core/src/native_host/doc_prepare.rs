@@ -162,6 +162,7 @@ impl DocState {
                 .iter()
                 .find(|book| book.document == document)
                 .and_then(|book| book.cache.as_ref())
+                // A finished cache found at the open keeps its stamp.
                 .filter(|cache| !cache.finished)
             else {
                 return;
