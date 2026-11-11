@@ -507,7 +507,7 @@ const paperpaw_sdk::native::CODE_FILES: &[&str] = &[ "code.ppn", "code.so", "cod
 const paperpaw_sdk::native::DRAFT: u16 = 36u16
 const paperpaw_sdk::native::FINGERPRINT: paperpaw_sdk::native::Fingerprint = Fingerprint::of(INTERFACE, { let mut hash = layout::Fnv::new()
 const paperpaw_sdk::native::INTERFACE: u16 = 7u16
-const paperpaw_sdk::native::LAYOUT: u64 = 14_624_794_190_512_990_983u64
+const paperpaw_sdk::native::LAYOUT: u64 = 16_025_388_238_509_219_055u64
 const paperpaw_sdk::native::TOOLCHAIN: &str = if cfg!(target_arch = "riscv32") { "rustc 1.99.0, riscv32imc-unknown-none-elf" } else if cfg!(target_arch = "xtensa") { "esp 1.97.0.0, xtensa-esp32s3-none-elf" } else { "the compiler of PaperPaw's release, for this computer" }
 const paperpaw_sdk::native::binding::heap::ABORT_ALLOCATION: i32 = 2i32
 const paperpaw_sdk::native::binding::heap::ABORT_MESSAGE_BYTES: usize = 96usize
@@ -2318,7 +2318,7 @@ const paperpaw_sdk::work::params::REFUSED: &str = "refused"
 const paperpaw_sdk::work::params::RETRY: &str = "retry"
 const paperpaw_sdk::work::params::WHY: &str = "work-why"
 const paperpaw_sdk::work::params::WORK: &str = "work"
-enum paperpaw_sdk::action::Action<'a> { Spec(0: &'a paperpaw_sdk::action::ActionSpec), Fixed(0: &'static paperpaw_sdk::action::FixedAction) }
+enum paperpaw_sdk::action::Action<'a> { Spec(0: &'a paperpaw_sdk::action::ActionSpec), Fixed(0: &'static paperpaw_sdk::action::FixedAction), Native(0: &'a paperpaw_sdk::action::NativeAction) }
 enum paperpaw_sdk::action::ActionHint { Title, Label(0: alloc::borrow::Cow<'static, str>), Icon(0: &'static str), Hidden, Other(0: &'static str) }
 enum paperpaw_sdk::annotations::Kind { Bookmark, Highlight, Other(0: u16) }
 enum paperpaw_sdk::bluetooth::Access { Open, Encrypted, Authenticated }
@@ -2589,8 +2589,9 @@ enum paperpaw_sdk::work::WorkState { Waiting { due: core::option::Option<paperpa
 struct paperpaw_sdk::action::ActionExtra { description: core::option::Option<alloc::borrow::Cow<'static, str>>, keywords: core::option::Option<alloc::borrow::Cow<'static, str>>, sealed: bool }
 struct paperpaw_sdk::action::ActionOverride { action: paperpaw_sdk::id::Id, handler: paperpaw_sdk::action::ActionHandler, priority: paperpaw_sdk::plugin::Priority }
 struct paperpaw_sdk::action::ActionSpec { id: paperpaw_sdk::id::Id, title: alloc::borrow::Cow<'static, str>, handler: core::option::Option<paperpaw_sdk::action::ActionHandler>, hint: paperpaw_sdk::action::ActionHint, extra: core::option::Option<alloc::boxed::Box<paperpaw_sdk::action::ActionExtra>> }
-struct paperpaw_sdk::action::Actions { specs: alloc::vec::Vec<paperpaw_sdk::action::ActionSpec>, fixed: alloc::vec::Vec<&'static paperpaw_sdk::action::FixedAction>, overrides: alloc::vec::Vec<(paperpaw_sdk::id::Id, paperpaw_sdk::plugin::Priority, paperpaw_sdk::id::Id, paperpaw_sdk::action::ActionHandler)> }
+struct paperpaw_sdk::action::Actions { specs: alloc::vec::Vec<paperpaw_sdk::action::ActionSpec>, fixed: alloc::vec::Vec<&'static paperpaw_sdk::action::FixedAction>, native: alloc::vec::Vec<paperpaw_sdk::action::NativeAction>, overrides: alloc::vec::Vec<(paperpaw_sdk::id::Id, paperpaw_sdk::plugin::Priority, paperpaw_sdk::id::Id, paperpaw_sdk::action::ActionHandler)> }
 struct paperpaw_sdk::action::FixedAction { id: paperpaw_sdk::id::Id, title: &'static str, handler: core::option::Option<paperpaw_sdk::action::FixedHandler>, hint: paperpaw_sdk::action::ActionHint, description: core::option::Option<&'static str>, keywords: core::option::Option<&'static str>, sealed: bool }
+struct paperpaw_sdk::action::NativeAction { id: paperpaw_sdk::id::Id, title: alloc::borrow::Cow<'static, str>, owner: u64, token: u32 }
 struct paperpaw_sdk::action::ObserverSpec { id: paperpaw_sdk::id::Id, observer: paperpaw_sdk::action::Observer }
 struct paperpaw_sdk::annotations::Annotation { mark: paperpaw_sdk::annotations::Mark, percent: u8, created: i64, updated: i64, text: alloc::string::String, note: alloc::string::String }
 struct paperpaw_sdk::annotations::Mark { kind: paperpaw_sdk::annotations::Kind, start: paperpaw_document::Locator, end: paperpaw_document::Locator, noted: bool }

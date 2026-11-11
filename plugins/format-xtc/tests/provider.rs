@@ -176,6 +176,14 @@ fn open(p: &mut XtcProvider, io: &dyn Storage) -> (u32, i32, u32) {
     (s.state, s.status, s.flags)
 }
 
+/// Whether `end` closes the last page of a list, after checking what `document.md`
+/// section 3 asks of a list end: bit 0 the only flag, and a generation that is never 0.
+fn last_page(end: &stage::FmtEnd) -> bool {
+    assert_eq!(end.generation, 1, "never 0");
+    assert_eq!(end.flags & !1, 0, "bit 0 is the only flag of a list");
+    end.flags & 1 == 1
+}
+
 #[test]
 fn a_book_opens_with_whole_pages_and_chapters_and_reads_like_interface_6() {
     let (data, _) = book(&pages());
@@ -188,7 +196,9 @@ fn a_book_opens_with_whole_pages_and_chapters_and_reads_like_interface_6() {
     let reply = run(&mut p, &io, &call(7, 1, |_| {})).unwrap();
     let r = rows(&reply);
     assert_eq!(r.len(), 6);
-    assert!(matches!(r[5], stage::Record::FmtEnd(e) if e.total == 5 && e.flags == 0));
+    assert!(
+        matches!(r[5], stage::Record::FmtEnd(e) if e.total == 5 && e.flags == 1 && e.generation == 1)
+    );
     // Blocks and pictures, page by page, equal in size and in pixels.
     for page in 0..5u32 {
         let expected = old
@@ -263,7 +273,7 @@ fn long_lists_come_in_pages() {
             seen += r.len() - 1;
             assert!(rows_per_page == 0 || r.len() - 1 <= rows_per_page);
             assert_eq!(end.total, 150);
-            if end.flags & 2 == 0 {
+            if last_page(&end) {
                 break;
             }
             assert!(end.next > cursor);
@@ -328,7 +338,7 @@ fn sniffing_and_refusals() {
     for op in [14, 16] {
         let reply = run(&mut p, &io, &call(op, 1, |_| {})).unwrap();
         assert!(
-            matches!(rows(&reply)[..], [stage::Record::FmtEnd(e)] if e.total == 0),
+            matches!(rows(&reply)[..], [stage::Record::FmtEnd(e)] if e.total == 0 && e.flags == 1 && e.generation == 1),
             "op {op}"
         );
     }

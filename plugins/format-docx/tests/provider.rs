@@ -170,6 +170,14 @@ fn compare(
     (count, images)
 }
 
+/// Whether `end` closes the last page of a list, after checking what `document.md`
+/// section 3 asks of a list end: bit 0 the only flag, and a generation that is never 0.
+fn last_page(end: &stage::FmtEnd) -> bool {
+    assert_eq!(end.generation, 1, "never 0");
+    assert_eq!(end.flags & !1, 0, "bit 0 is the only flag of a list");
+    end.flags & 1 == 1
+}
+
 #[test]
 fn a_document_is_prepared_and_reads_like_interface_6() {
     let data = docx(&rich_body());
@@ -322,7 +330,9 @@ fn contents_links_and_metadata(
     let reply = run(p, io, &call(7, 1, |_| {})).unwrap();
     let r = rows(&reply);
     assert!(matches!(r[0], stage::Record::FmtSection(s) if s.length == old.section_len(0)));
-    assert!(matches!(r[1], stage::Record::FmtEnd(e) if e.total == 1 && e.flags == 0));
+    assert!(
+        matches!(r[1], stage::Record::FmtEnd(e) if e.total == 1 && e.flags == 1 && e.generation == 1)
+    );
 }
 
 #[test]
@@ -405,7 +415,7 @@ fn long_lists_and_blocks_come_in_pages_and_fragments() {
             assert_eq!(t.title, format!("Chapter {}", seen + n));
         }
         seen += r.len() - 1;
-        if end.flags & 2 == 0 {
+        if last_page(&end) {
             break;
         }
         cursor = end.next;
@@ -448,7 +458,7 @@ fn long_lists_and_blocks_come_in_pages_and_fragments() {
             urls.push((l.start, l.end, l.href.to_string()));
         }
         pages += 1;
-        if end.flags & 2 == 0 {
+        if last_page(&end) {
             break;
         }
         cursor = end.next;
@@ -472,7 +482,14 @@ fn the_ops_a_word_document_has_no_answer_to() {
         assert_eq!(run(&mut p, &io, &call(op, 1, |_| {})), Err(Error::NotFound));
     }
     let reply = run(&mut p, &io, &call(16, 1, |_| {})).unwrap();
-    assert!(matches!(rows(&reply)[..], [stage::Record::FmtEnd(e)] if e.total == 0));
+    assert!(
+        matches!(rows(&reply)[..], [stage::Record::FmtEnd(e)] if e.total == 0 && e.flags == 1 && e.generation == 1)
+    );
+    // The links of a later section: an empty list, still ended as the last page.
+    let reply = run(&mut p, &io, &call(14, 1, |c| c.section = 1)).unwrap();
+    assert!(
+        matches!(rows(&reply)[..], [stage::Record::FmtEnd(e)] if e.total == 0 && e.flags == 1 && e.generation == 1)
+    );
     for op in [19, 20, 99] {
         assert_eq!(
             run(&mut p, &io, &call(op, 1, |_| {})),

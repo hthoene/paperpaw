@@ -365,7 +365,7 @@ fn every_allocation_of_a_query_refuses_cleanly() {
             sweep_to(
                 |reads, seen| {
                     let (mut rows, mut keys) = (0_u64, 0_u64);
-                    let end = reads.query(&ask(cursor, sort, words), &mut |record| {
+                    let end = reads.query(&ask(cursor, sort, words), "", &mut |record| {
                         let Record::ServiceLibEntry(e) = record else {
                             panic!()
                         };
@@ -428,7 +428,7 @@ fn the_heap_one_query_holds_at_its_most_is_the_window_and_one_line() {
     let run = |sort, cursor| {
         peak(
             |r| {
-                r.query(&ask(sort, cursor), &mut |_| {
+                r.query(&ask(sort, cursor), "", &mut |_| {
                     core::ops::ControlFlow::Continue(())
                 })
                 .unwrap();
@@ -440,4 +440,59 @@ fn the_heap_one_query_holds_at_its_most_is_the_window_and_one_line() {
     std::eprintln!("QUERY HEAP PEAKS (title, recent, title from 100): {peaks:?}");
     // The window of 32 slots (64 bytes and two short strings each) and a line.
     assert!(peaks.iter().all(|&peak| peak <= 8_192), "{peaks:?}");
+}
+
+/// The heap of one `fields` page: the book's details as Beta 3 read them too
+/// (`library::book`, the one reader: the file, ≤ 16 KiB, and the book made of
+/// it) and the order of its fields. A book of a few short fields, and one of
+/// 12 values of 1 KiB, the details near their cap.
+#[test]
+fn the_heap_of_one_fields_page_is_the_details_read_once() {
+    use paperpaw_sdk::MemoryStorage;
+    let run = |count: usize, value: usize| {
+        reset(NORMAL);
+        let storage = std::rc::Rc::new(
+            MemoryStorage::new()
+                .with(
+                    ".paperpaw/library/catalog.txt",
+                    "\tcatalog\t2\t1\nbooks/a.epub\tAnn\tA\t\t\t\t\t\t1\t\t10\n",
+                )
+                .with("books/a.epub", std::vec![1_u8; 10]),
+        );
+        for n in 0..count {
+            let text = "v".repeat(value);
+            paperpaw_sdk::library::try_set_field(
+                &*storage,
+                "books/a.epub",
+                &std::format!("plugin-{n}.field"),
+                &text,
+            )
+            .unwrap();
+        }
+        let card = Card {
+            storage,
+            env: card().env,
+            a: 0,
+            b: 0,
+            c: 0,
+            d: 0,
+            e: 0,
+        };
+        peak(
+            |r| {
+                r.fields(BookRef::Path("books/a.epub"), 0, 0, &mut |_| {
+                    core::ops::ControlFlow::Continue(())
+                })
+                .unwrap();
+            },
+            &card,
+        )
+    };
+    let peaks = [run(4, 24), run(12, 1024)];
+    std::eprintln!("FIELDS HEAP PEAKS (4 short, 12 of 1 KiB): {peaks:?}");
+    // The details file and the book made of it, at most twice the cap.
+    assert!(
+        peaks.iter().all(|&peak| peak <= 2 * 16 * 1024 + 4096),
+        "{peaks:?}"
+    );
 }
