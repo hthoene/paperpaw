@@ -81,7 +81,7 @@ pub fn snippet(text: &str) -> Result<String, Error> {
 /// Whether two stretches share a place (a stretch of no length shares none).
 #[must_use]
 pub fn overlaps(a: &Span, b: &Span) -> bool {
-    a.start < b.end && b.start < a.end
+    a.start < a.end && b.start < b.end && a.start < b.end && b.start < a.end
 }
 
 /// The highlights of the book at `book` that overlap `span`, in the conversion

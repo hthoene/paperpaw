@@ -590,7 +590,9 @@ impl View {
             && start.0 < open.sections
             && start < end
         {
-            open.marks.found(open.at, native_marks::Span {
+            open.marks.found(
+                open.at,
+                native_marks::Span {
                     start,
                     end,
                     noted: false,

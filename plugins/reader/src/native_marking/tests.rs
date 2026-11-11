@@ -78,7 +78,11 @@ fn mark(start: u32, end: u32, noted: bool) -> crate::native_marks::Span {
 
 #[test]
 fn the_bar_is_named_by_the_highlight_the_chosen_words_overlap() {
-    let page = [placed("one", 0, 3), placed("two", 4, 7), placed("six", 20, 23)];
+    let page = [
+        placed("one", 0, 3),
+        placed("two", 4, 7),
+        placed("six", 20, 23),
+    ];
     let held = [mark(5, 10, true), mark(30, 40, false)];
     let ctx = Ctx::new(Locator::START, &page, "", "", "", BOX).book(Book {
         highlights: &held,
