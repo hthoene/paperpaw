@@ -911,6 +911,7 @@ impl LibQuery for Fake {
         who: &Caller<'_>,
         book: BookRef<'_>,
         side: u32,
+        _cx: &crate::native_host::lib_cover::CoverCx<'_>,
         visit: One<'_>,
     ) -> Result<(), i32> {
         self.note(std::format!(

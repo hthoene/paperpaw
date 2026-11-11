@@ -11,6 +11,7 @@
 //! where one of those names also exists), as `core.files` decides it
 //! ([`excluded_on`]; it over-refuses where it cannot tell).
 use super::lib_changed::{self, Changes};
+use super::lib_cover::{self, CoverCx};
 use super::lib_edits::LibEdits;
 use super::lib_import::plan;
 use super::lib_moves_service::LibraryMoves;
@@ -150,6 +151,22 @@ impl LibQuery for LibraryHost {
     fn book_key(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         self.visible(book)?;
         self.reads.book_key(book, visit)
+    }
+    /// The cover is made by `core.document` from the book's format, in the
+    /// caller's frame (`lib_cover`).
+    fn cover(
+        &self,
+        who: &Caller<'_>,
+        book: BookRef<'_>,
+        side: u32,
+        cx: &CoverCx<'_>,
+        visit: One<'_>,
+    ) -> Result<(), i32> {
+        self.visible(book)?;
+        // The path is copied out of the catalog read: the format call takes
+        // the frame, not a borrow of the catalog.
+        let path = self.reads.path_of(book, lib_cover::owned)?;
+        lib_cover::make(cx, who, &path, side, visit)
     }
     fn position(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         self.visible(book)?;

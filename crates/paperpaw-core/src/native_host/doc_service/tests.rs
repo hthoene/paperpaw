@@ -26,6 +26,8 @@ pub(crate) const FORMAT_OWNER: u64 = 99;
 
 #[path = "tests/blocks.rs"]
 mod blocks;
+#[path = "tests/cover.rs"]
+mod cover;
 #[path = "tests/lists.rs"]
 mod lists;
 #[path = "tests/reader.rs"]
@@ -60,6 +62,8 @@ pub(crate) struct Fake {
     table: DocumentTable,
     /// What the format answers next.
     pub(crate) answer: RefCell<Vec<u8>>,
+    /// Answers (or statuses) to give, oldest first, before `answer` is used.
+    pub(crate) queue: RefCell<Vec<Result<Vec<u8>, i32>>>,
     pub(crate) fails: Cell<Option<i32>>,
     /// (op, document, cursor, generation, flags, index, image_side, cover_side)
     pub(crate) calls: RefCell<Vec<[u32; 8]>>,
@@ -95,6 +99,7 @@ impl Fake {
         Rc::new(Self {
             table: DocumentTable::try_new(limits).unwrap(),
             answer: RefCell::new(Vec::new()),
+            queue: RefCell::new(Vec::new()),
             fails: Cell::new(None),
             calls: RefCell::new(Vec::new()),
             texts: RefCell::new(Vec::new()),
@@ -175,6 +180,17 @@ impl DocHost for Fake {
         }
         if let Some(error) = self.fails.get() {
             return Err(error);
+        }
+        let queued = {
+            let mut queue = self.queue.borrow_mut();
+            (!queue.is_empty()).then(|| queue.remove(0))
+        };
+        if let Some(queued) = queued {
+            let bytes = queued?;
+            out.get_mut(..bytes.len())
+                .ok_or(ERR_NO_SPACE)?
+                .copy_from_slice(&bytes);
+            return Ok(bytes.len());
         }
         let answer = self.answer.borrow();
         out.get_mut(..answer.len())

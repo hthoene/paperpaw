@@ -267,6 +267,7 @@ pub(crate) mod image_pump;
 )]
 pub(crate) mod image_service;
 pub(crate) mod lib_changed;
+pub(crate) mod lib_cover;
 #[allow(
     dead_code,
     reason = "wired by HostWiring::library; the write half is todo 307"
