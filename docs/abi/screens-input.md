@@ -188,6 +188,7 @@ input(state: pointer, token: u32, input: bytes) -> i32
 | 57 | `command.run_action` | `action: str 128` (full id) |
 | 58 | `command.redraw` | `mode: u32` (0 redraw only, 1 fast, 2 partial, 3 full) |
 | 59 | `command.close_screen` | (no fields: closes the plugin's own top screen) |
+| 1596 | `command.redraw_area` | `mode: u32` (as `redraw`), `x: i32`, `y: i32`, `width: u32`, `height: u32` |
 
 - [D] The four records are part of the generated command codec (`commands_wire`, slot 15) beside
   `command.set_setting`: ids are nonempty UTF-8 of at most 128 bytes (`ERR_INVALID` empty,
@@ -199,6 +200,23 @@ input(state: pointer, token: u32, input: bytes) -> i32
   stamped by the host, never read from the record.
 - [D] `redraw` and `close_screen` act on the submitting plugin's screen on top; outside its own
   screen they are `ERR_STATE` (whole batch refused).
+- [D] `redraw_area` (interface 6 `Cx::request_redraw_area`, #252) draws again only a rectangle of
+  the plugin's screen on top: in screen pixels, as the draw callback's `rect`, clipped to the
+  screen's region (a rectangle outside it draws nothing; an empty one draws nothing and is `OK`).
+  The rules of `redraw` hold: `mode` above 3 `ERR_INVALID`, outside its own screen `ERR_STATE`,
+  in a work run's callback as `redraw`. Each rectangle is drawn on its own and the refresh weighs
+  what they cover, not the rectangle around them, so a few pictures filled in after a page's text
+  are no page turn: they count towards the periodic full refresh only when they cover half the
+  screen or more (`refresh.rs`). Modes of `redraw` and `redraw_area` in one callback merge to the
+  strongest. A callback keeps at most 8 rectangles, and every further one joins the 8th (the
+  rectangle around both): never an error.
+- [D] **Follow-up.** Rectangles asked for in the same callback as a `redraw` are drawn in the
+  frame **after** the whole screen: first the whole screen, then, as soon as that frame is drawn
+  (the host wakes for it), only the rectangles, weighed as above. So a reader draws a page's text
+  with empty boxes of the pictures' size, and fills the boxes in the next frame, without the page
+  flashing: it asks for both when it turns or opens the page (a `draw` callback submits nothing,
+  `commands.md` 1). A newer follow-up replaces one still waiting; one whose screen is no longer
+  on top is dropped. The plugin's `draw` decides what the rectangles show (its own state).
 - [D] Order: a batch is validated whole, then queued; queued commands run after the callback
   returns, in submit order, batches in order. Several `redraw` in one callback merge to the
   strongest mode.

@@ -5,6 +5,7 @@
 mod catalog_job;
 mod clean_up;
 mod finishing;
+mod placeholder;
 mod reading;
 mod widget_settings;
 
@@ -16,14 +17,14 @@ use alloc::vec::Vec;
 use catalog_job::{CatalogJob, make_library_folder, waits};
 use clean_up::{ask_clean_up, register_clean_up};
 use paperpaw_sdk::builtin::{
-    actions, events, fonts, group_sections, groups, keymap_presets, menus, params, screens,
-    settings, settings_page, slots, status_items,
+    actions, events, group_sections, groups, keymap_presets, menus, params, screens, settings,
+    settings_page, slots, status_items,
 };
 use paperpaw_sdk::library;
 use paperpaw_sdk::time::{self, AUTO, CLOCK_12H, CLOCK_24H, TIME_ZONES};
 use paperpaw_sdk::widgets::{self, Drawn, WidgetSpec};
 use paperpaw_sdk::{
-    ActionHint, Canvas, Color, Command, Commands, Cx, Env, FixedAction, FixedScreen, Handled, Id,
+    ActionHint, Canvas, Command, Commands, Cx, Env, FixedAction, FixedScreen, Handled, Id,
     Manifest, MenuEntry, Params, Plugin, Priority, RegisterError, Registrar, Screen, SettingExtra,
     SettingGroupSpec, SettingKind, SettingSpec, SettingValue, SlotSpec, StatusItemSpec,
     StatusValue,
@@ -832,8 +833,8 @@ fn register_screens(r: &mut Registrar) -> Result<(), RegisterError> {
         FixedScreen::new(screens::CONFIRM, "core.confirm.screen", |env, params| {
             Box::new(paperpaw_sdk::ui::confirm::Confirm::new(env, params))
         }),
-        FixedScreen::new(screens::PLACEHOLDER, "core.screen.placeholder", |_, _| {
-            Box::new(PlaceholderScreen)
+        FixedScreen::new(screens::PLACEHOLDER, placeholder::TEXT, |_, _| {
+            Box::new(placeholder::PlaceholderScreen)
         }),
         FixedScreen::new(
             screens::FINISHING_UPDATE,
@@ -1745,41 +1746,6 @@ fn register_keymaps_and_setup(r: &mut Registrar) -> Result<(), RegisterError> {
     )?;
     crate::core_texts::add(r)?;
     Ok(())
-}
-
-/// Shown when no plugin provides a screen for a slot.
-#[derive(Debug)]
-struct PlaceholderScreen;
-
-impl Screen for PlaceholderScreen {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
-        let area = canvas.clip();
-        let margin = env.metrics().mm(4);
-        let line = env.metrics().tenth_mm(5);
-        let (w, h) = (u32::from(area.width), u32::from(area.height));
-        let inner_w = w.saturating_sub(2 * margin);
-        let inner_h = h.saturating_sub(2 * margin);
-        canvas.stroke_rect(
-            margin as i32,
-            margin as i32,
-            inner_w,
-            inner_h,
-            line,
-            Color::BLACK,
-        );
-        if let Some(font) = env.fonts().role(fonts::UI.as_str()) {
-            let size = env.metrics().pt(14.0);
-            let text = env.i18n().tr("core.screen.placeholder");
-            let width = font.measure(size, text);
-            let x = (w as f32 - width) / 2.0;
-            let baseline = (h / 2) as i32 + (size / 3.0) as i32;
-            font.draw(canvas, size, x, baseline, text, Color::BLACK);
-        }
-    }
-
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
-        Handled::No
-    }
 }
 
 /// Where a screenshot goes: `Screenshots` beside the library folder,

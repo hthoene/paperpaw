@@ -482,7 +482,7 @@ impl Kernel {
             let text = String::from(self.shared.translator.tr(trouble.key()));
             self.output.commands.push(Command::Notify(text));
         }
-        self.finish()
+        self.finish_started()
     }
 
     /// Handles an input event.

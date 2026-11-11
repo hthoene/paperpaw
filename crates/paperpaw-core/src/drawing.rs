@@ -40,6 +40,9 @@ pub(crate) struct FrameState {
     pub(crate) deferred: Option<Rect>,
     /// Refreshes deferred in a row (see [`MAX_DEFERS`]).
     pub(crate) defers: u8,
+    /// Areas a native screen asked for with the whole screen, drawn in the
+    /// frame after it (`commands_redraw.rs`).
+    pub(crate) followup: Option<crate::native_host::commands::Followup>,
 }
 
 /// Refreshes deferred in a row at most: the next is made whatever the

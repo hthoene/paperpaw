@@ -42,6 +42,10 @@ impl<'a> UiContext<'a> {
 pub(crate) struct Redraw {
     pub(crate) screen: ScreenKey,
     pub(crate) mode: Option<RefreshMode>,
+    /// The whole screen (`command.redraw`), else only `areas`
+    /// (`command.redraw_area`, `commands_redraw.rs`).
+    pub(crate) whole: bool,
+    pub(crate) areas: Vec<super::Area>,
 }
 
 impl<'a> CommandStage<'a> {
@@ -223,14 +227,15 @@ impl<'a> CommandStage<'a> {
     /// UI callers drain this form so redraw-only never becomes a refresh.
     pub(crate) fn into_ui_output(mut self) -> (Vec<Command>, Option<Redraw>, u8) {
         let screen = self.ui.as_ref().and_then(|ui| ui.screen);
-        let redraw = self.redraw.zip(screen).map(|(mode, screen)| Redraw {
+        let whole = self.redraw.is_some();
+        let areas = core::mem::take(&mut self.areas);
+        let mode = self.redraw.max(areas.mode);
+        let redraw = mode.zip(screen).map(|(mode, screen)| Redraw {
             screen,
-            mode: match mode {
-                1 => Some(RefreshMode::Fast),
-                2 => Some(RefreshMode::Partial),
-                3 => Some(RefreshMode::Full),
-                _ => None,
-            },
+            mode: super::redraw::refresh_mode(mode),
+            whole,
+            // With the whole screen: drawn in the frame after it.
+            areas: areas.list,
         });
         (
             core::mem::take(&mut self.staged),
@@ -275,6 +280,7 @@ impl<'a> CommandStage<'a> {
                 Ok(action.len())
             }
             WireCommand::Redraw { .. } | WireCommand::CloseScreen => self.own_top().map(|_| 0),
+            WireCommand::RedrawArea { mode, .. } => self.validate_redraw_area(mode),
             command if super::nav::is_nav(&command) => self.validate_nav(command),
             WireCommand::SetHint {
                 action,
@@ -654,9 +660,23 @@ impl crate::Kernel {
                 self.warn_runtime("native redraw dropped: its screen is no longer on top");
                 return;
             }
+            if !redraw.whole {
+                // Each area on its own, now.
+                self.redraw_areas(&redraw.areas, redraw.mode);
+                return;
+            }
             match redraw.mode {
                 Some(mode) => self.apply(Command::Redraw(mode)),
                 None => self.output.redraw = true,
+            }
+            // Areas asked for with it: in the frame after (a newer one
+            // replaces a follow-up still waiting).
+            if !redraw.areas.is_empty() {
+                self.frame.followup = Some(super::Followup {
+                    screen: redraw.screen,
+                    mode: redraw.mode,
+                    areas: redraw.areas,
+                });
             }
         }
     }
@@ -981,6 +1001,122 @@ mod tests {
         assert_eq!(submit(&mut stage, &[WireCommand::Redraw { mode: 0 }]), OK);
     }
     #[test]
+    fn an_area_redraw_marks_only_its_areas_weighed_one_by_one() {
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        let owner = Id::new_static("probe");
+        let key = ScreenKey::new(7);
+        kernel.shared.stack.push(paperpaw_sdk::StackEntry::new(
+            Id::new_static("probe.screen"),
+            None,
+            false,
+            key,
+        ));
+        let content = kernel.content();
+        let (a, b) = (
+            paperpaw_platform::Rect::new(content.x + 2, content.y + 3, 10, 8),
+            paperpaw_platform::Rect::new(content.x + 40, content.y + 30, 20, 15),
+        );
+        let area = |r: paperpaw_platform::Rect| {
+            super::super::Area::new(
+                i32::from(r.x),
+                i32::from(r.y),
+                u32::from(r.width),
+                u32::from(r.height),
+            )
+            .unwrap()
+        };
+        // One far outside the screen marks nothing.
+        let outside = super::super::Area::new(-500, -500, 100, 100).unwrap();
+        kernel.frame.pending = None;
+        kernel.frame.pending_weight = 0;
+        kernel.output.redraw = false;
+        kernel.output.refresh = None;
+        kernel.drain_native_ui(
+            &owner,
+            Vec::new(),
+            Some(Redraw {
+                screen: key,
+                mode: Some(RefreshMode::Partial),
+                whole: false,
+                areas: alloc::vec![area(a), area(b), outside],
+            }),
+        );
+        assert!(!kernel.output.redraw, "not the whole screen");
+        assert_eq!(kernel.output.refresh, Some(RefreshMode::Partial));
+        assert_eq!(kernel.frame.pending, Some(a.union(&b)));
+        // What the refresh weighs: the two areas, not the rectangle around them.
+        assert_eq!(kernel.frame.pending_weight, 10 * 8 + 20 * 15);
+    }
+
+    #[test]
+    fn areas_asked_with_the_whole_screen_follow_in_the_next_frame() {
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        let owner = Id::new_static("probe");
+        let key = ScreenKey::new(7);
+        kernel.shared.stack.push(paperpaw_sdk::StackEntry::new(
+            Id::new_static("probe.screen"),
+            None,
+            false,
+            key,
+        ));
+        let content = kernel.content();
+        let picture = paperpaw_platform::Rect::new(content.x + 5, content.y + 10, 30, 20);
+        let area = super::super::Area::new(
+            i32::from(picture.x),
+            i32::from(picture.y),
+            u32::from(picture.width),
+            u32::from(picture.height),
+        )
+        .unwrap();
+        let redraw = |areas| Redraw {
+            screen: key,
+            mode: Some(RefreshMode::Partial),
+            whole: true,
+            areas,
+        };
+        kernel.output.redraw = false;
+        kernel.drain_native_ui(&owner, Vec::new(), Some(redraw(alloc::vec![area])));
+        // The page first; the picture waits, and the shell is to come back.
+        assert!(kernel.output.redraw);
+        assert!(kernel.frame.followup.is_some());
+        assert_eq!(kernel.followup_due(true), Some(kernel.now));
+        kernel.run_followup();
+        assert!(
+            kernel.frame.followup.is_some(),
+            "not before the page is drawn"
+        );
+        // The page was drawn: only the picture now, weighed alone.
+        kernel.output.redraw = false;
+        kernel.output.refresh = None;
+        kernel.frame.pending = None;
+        kernel.frame.unrendered = None;
+        kernel.frame.pending_weight = 0;
+        kernel.run_followup();
+        assert_eq!(kernel.frame.pending, Some(picture));
+        assert_eq!(kernel.frame.pending_weight, 30 * 20);
+        assert_eq!(kernel.output.refresh, Some(RefreshMode::Partial));
+        assert_eq!(
+            (kernel.frame.followup.is_none(), kernel.followup_due(false)),
+            (true, None)
+        );
+        // A follow-up whose screen left the top is dropped.
+        kernel.drain_native_ui(&owner, Vec::new(), Some(redraw(alloc::vec![area])));
+        kernel.output.redraw = false;
+        kernel.frame.pending = None;
+        kernel.frame.unrendered = None;
+        kernel.shared.stack.clear();
+        kernel.run_followup();
+        assert_eq!(
+            (kernel.frame.followup.is_none(), kernel.frame.pending),
+            (true, None)
+        );
+    }
+
+    #[test]
     fn redraw_only_preserves_refresh_and_stale_instance_effects_are_dropped() {
         let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
             .build()
@@ -1001,6 +1137,8 @@ mod tests {
             Some(Redraw {
                 screen: key,
                 mode: None,
+                whole: true,
+                areas: Vec::new(),
             }),
         );
         assert!(kernel.output.redraw);
@@ -1023,6 +1161,8 @@ mod tests {
             Some(Redraw {
                 screen: key,
                 mode: Some(RefreshMode::Full),
+                whole: true,
+                areas: Vec::new(),
             }),
         );
         assert!(!kernel.output.redraw);
