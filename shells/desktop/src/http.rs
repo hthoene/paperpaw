@@ -166,7 +166,7 @@ impl Http {
             // Nothing was ever asked: nothing can come, and the wait is
             // still the caller's to spend.
             (None, Some(wait)) => {
-                thread::sleep(wait);
+                std::thread::sleep(wait);
                 None
             }
             (None, None) => None,
