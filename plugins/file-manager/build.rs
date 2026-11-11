@@ -72,7 +72,12 @@ fn main() -> Result<(), String> {
         return Err("bytes left after the last batch of the golden".into());
     }
     let table =
-        paperpaw_sdk::native::declare::fixed_settings_source("file-manager", "SETTINGS", &batches)?;
+        paperpaw_sdk::native::declare::fixed_settings_source("file-manager", "SETTINGS", &batches)?
+            + &paperpaw_sdk::native::declare::fixed_groups_source(
+                "file-manager",
+                "GROUPS",
+                &batches,
+            )?;
     std::fs::write(out.join("file_manager_settings.rs"), table)
         .map_err(|error| format!("write settings table: {error}"))?;
     std::fs::write(out.join("file_manager_declarations.rs"), source)

@@ -44,7 +44,7 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
         let unmatched: Vec<_> = kernel
             .take_warnings()
             .into_iter()
-            .filter(|warning| format!("{warning:?}").contains("settings table does not match"))
+            .filter(|warning| format!("{warning:?}").contains("table does not match"))
             .collect();
         assert!(unmatched.is_empty(), "{unmatched:?}");
     }
@@ -65,8 +65,19 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
     with_settings.push("aids");
     for id in with_settings {
         assert!(
-            !paperpaw_app::fixed_settings(id).is_empty(),
+            !paperpaw_app::fixed_tables(id).settings.is_empty(),
             "{id} has no table"
+        );
+    }
+    // The plugins that declare setting groups have their table of them (an
+    // empty or stale one only costs memory, silently).
+    let mut with_groups = vec!["bluetooth", "keyboard", "lock", "power"];
+    #[cfg(feature = "native-linked-store")]
+    with_groups.push("widgets");
+    for id in with_groups {
+        assert!(
+            !paperpaw_app::fixed_tables(id).groups.is_empty(),
+            "{id} has no table of groups"
         );
     }
 }
