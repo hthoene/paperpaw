@@ -277,6 +277,15 @@ fn an_interface_6_plugin_cannot_forge_an_ending_or_stop_anothers_speech() {
         &mut out, 0, "evil", &reserved
     ));
     assert!(out.is_empty());
+    // ... also those of a plugin exempt from the guarded-settings checks.
+    let mut out = alloc::vec![forged(super::SPOKEN), forged(super::STOP)];
+    assert!(crate::commands::vet_reserved(
+        &mut out,
+        0,
+        crate::meter::CORE,
+        &reserved
+    ));
+    assert!(out.is_empty());
     // ... and on the event bus they are no events of the speech at all.
     for id in [super::SPOKEN, super::STOP] {
         let params = Params::new()

@@ -1169,32 +1169,34 @@ pub(crate) fn vet_reserved(
     let before = out.len();
     let mut index = 0;
     out.retain(|command| {
+        // The host's own speech replies and stop request: only a native
+        // plugin's command stage makes them, or `event.spoken` could be
+        // forged for another plugin; no plugin is exempt, the settings
+        // editor included.
+        let host_speech = matches!(command, Command::Speak(speech)
+            if native_speech::is_reply(speech.reply()) || native_speech::is_stop(speech.reply()));
         let refused = index >= from
-            && !editor
-            && match command {
-                Command::SetSecret(change) => change.id.split('.').next() != Some(owner),
-                Command::SetSetting(id, _) | Command::ResetSetting(id) => guarded(id),
-                // Text typed for another plugin's secret or guarded
-                // setting, or asked for: the kernel would set it.
-                command if !keyboard && typed_for(command).is_some() => {
-                    typed_for(command).flatten().is_none_or(|params| {
-                        params
-                            .get(paperpaw_sdk::builtin::params::ID)
-                            .is_some_and(|id| foreign(id, kept))
-                    })
-                }
-                // The sleep screen shows over the lock; the settings
-                // editor has these rights.
-                Command::BindSlot(slot, _) => *slot == slots::SLEEP || *slot == slots::SETTINGS,
-                // The host's own speech replies and stop request: only a
-                // native plugin's command stage makes them, or `event.spoken`
-                // could be forged for another plugin.
-                Command::Speak(speech) => {
-                    native_speech::is_reply(speech.reply())
-                        || native_speech::is_stop(speech.reply())
-                }
-                _ => false,
-            };
+            && (host_speech
+                || !editor
+                    && match command {
+                        Command::SetSecret(change) => change.id.split('.').next() != Some(owner),
+                        Command::SetSetting(id, _) | Command::ResetSetting(id) => guarded(id),
+                        // Text typed for another plugin's secret or guarded
+                        // setting, or asked for: the kernel would set it.
+                        command if !keyboard && typed_for(command).is_some() => {
+                            typed_for(command).flatten().is_none_or(|params| {
+                                params
+                                    .get(paperpaw_sdk::builtin::params::ID)
+                                    .is_some_and(|id| foreign(id, kept))
+                            })
+                        }
+                        // The sleep screen shows over the lock; the settings
+                        // editor has these rights.
+                        Command::BindSlot(slot, _) => {
+                            *slot == slots::SLEEP || *slot == slots::SETTINGS
+                        }
+                        _ => false,
+                    });
         index += 1;
         !refused
     });

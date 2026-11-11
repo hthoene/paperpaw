@@ -107,8 +107,9 @@ pub(crate) fn stop(owner: &Id) -> Result<Command, i32> {
 
 impl Kernel {
     /// Queues `event.spoken` for the submitters of the texts that ended since
-    /// the last pass (to each alone), from the kernel's own list. `true` is
-    /// never answered: the queues are told by the pump after this.
+    /// the last pass (to each alone), from the kernel's own list. Returns
+    /// `false` always: the event is queued here, not answered at once, and the
+    /// event pump after this tells the queues.
     pub(crate) fn native_speech_pump(&mut self) -> bool {
         let ended = self.io.speech.take_ended();
         let now_ms = self.now.millis();
