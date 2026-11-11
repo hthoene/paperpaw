@@ -245,6 +245,7 @@ impl Loader {
         let Some(facts) = wire.facts()? else {
             // Nothing is asked of a library that does not know the device, and
             // the start says so instead of loading for ever.
+            wire.cancel(LIST_TOKEN);
             self.list = None;
             self.trouble = Trouble::Unsupported;
             return Ok(());
