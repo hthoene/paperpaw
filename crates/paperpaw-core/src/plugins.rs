@@ -192,7 +192,7 @@ impl Kernel {
         reason = "longer than the limit from before it was set; split it when it is next changed"
     )]
     pub(crate) fn merge(&mut self, plugin: &Id, mut staging: Staging) -> Result<(), RegisterError> {
-        for setting in staging.settings.iter().map(registry::Staged::spec) {
+        for setting in staging.settings.iter().flat_map(registry::Staged::specs) {
             if self.shared.settings.get(setting.id.as_str()).is_some() {
                 return Err(RegisterError::Duplicate {
                     id: setting.id.clone(),
@@ -242,10 +242,7 @@ impl Kernel {
         }
         for setting in staging.settings.drain(..) {
             // Cannot fail: checked above.
-            let _ = match setting {
-                registry::Staged::Owned(spec) => self.shared.settings.define(*spec),
-                registry::Staged::Fixed(list, at) => self.shared.settings.define_fixed(list, at),
-            };
+            let _ = setting.define_in(&mut self.shared.settings);
         }
         for source in staging.keymaps.drain(..) {
             // Validated by the registrar.

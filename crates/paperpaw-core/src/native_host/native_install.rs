@@ -611,7 +611,7 @@ impl crate::Kernel {
                         .map_err(shell::Error::Status)?;
                 }
                 Owned::FixedSettings(list, entries) => staging
-                    .native_fixed_entries(list, &entries)
+                    .native_fixed_entries(list, entries)
                     .map_err(shell::Error::Status)?,
                 Owned::Group(group) => {
                     let group = paperpaw_sdk::SettingGroup::from_boxed(group);
@@ -698,7 +698,11 @@ impl crate::Kernel {
         let _bump = crate::native_host::registry_generation::BumpOnExit::new(
             &self.shared.registry_generation,
         );
-        for spec in staging.settings.iter().map(crate::registry::Staged::spec) {
+        for spec in staging
+            .settings
+            .iter()
+            .flat_map(crate::registry::Staged::specs)
+        {
             if self.shared.settings.get(spec.id.as_str()).is_some() {
                 return Err(duplicate(&spec.id));
             }
@@ -757,12 +761,7 @@ impl crate::Kernel {
         for setting in staging.settings.drain(..) {
             // Checked above (no duplicate, a default that fits, a place
             // and the room); an error here would be a mistake in those.
-            match setting {
-                crate::registry::Staged::Owned(spec) => self.shared.settings.define(*spec),
-                crate::registry::Staged::Fixed(list, at) => {
-                    self.shared.settings.define_fixed(list, at)
-                }
-            }?;
+            setting.define_in(&mut self.shared.settings)?;
         }
         for group in staging.setting_groups.drain(..) {
             self.shared.settings.add_group(group)?;
