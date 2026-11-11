@@ -26,6 +26,8 @@ pub mod declarations;
 mod fetch;
 mod letters;
 mod list;
+#[doc(hidden)]
+pub mod native_ask;
 mod native_entry;
 #[doc(hidden)]
 pub mod native_index;
