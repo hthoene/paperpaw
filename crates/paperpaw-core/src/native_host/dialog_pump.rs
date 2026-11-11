@@ -151,6 +151,56 @@ impl crate::Kernel {
         more
     }
 
+    /// Asks a text question as a plugin's `ui.ask` does, for the tools and
+    /// tests that open the keyboard without a plugin that asks: the request
+    /// is the keyboard plugin's own (its answer goes back to it, which takes
+    /// no notice), and the dialog opens in the keyboard slot with the params
+    /// `core.request` and `core.kind`, from the pump below. `secret` asks for
+    /// a secret text. Nothing of the stack's admission (the guard's rules)
+    /// is applied.
+    ///
+    /// # Errors
+    /// Why not: no native keyboard serves the slot, no `ui` service is
+    /// wired, or the question was not taken (memory, the limits).
+    pub fn stage_text_question(
+        &mut self,
+        now: paperpaw_platform::Instant,
+        title: &str,
+        secret: bool,
+    ) -> Result<crate::Effects, &'static str> {
+        let _running = self.shared.meter.enter(crate::meter::CORE);
+        let owner = self
+            .shared
+            .registry
+            .resolve_slot(KEYBOARD.as_str())
+            .map(Id::namespace)
+            .and_then(|plugin| self.shared.native_instances.key_of(plugin))
+            .ok_or("no native keyboard serves the keyboard slot")?;
+        let store = self
+            .shared
+            .native_instances
+            .ui_services()
+            .and_then(|ui| ui.store.try_clone())
+            .ok_or("no ui service is wired")?;
+        let who = super::ui_store::Stamp::new(owner, 1).map_err(|_| "no stamp")?;
+        let question = super::ui_requests::Question {
+            kind: 0,
+            flags: if secret { 1 << 2 } else { 0 },
+            remote: false,
+            title,
+            text: "",
+            choices: "",
+        };
+        store
+            .ask(who, None, &question, secret, None, true)
+            .map_err(|_| "the question was not taken")?;
+        self.shared.reader = true;
+        self.now = now;
+        self.last_activity = now;
+        // The pump of the finish opens the dialog.
+        Ok(self.finish())
+    }
+
     /// A text op 18 committed goes out to the system (`Io::Copy`); with no
     /// memory for the copy it is skipped and the log says so.
     fn clipboard_copy_out(&mut self) {

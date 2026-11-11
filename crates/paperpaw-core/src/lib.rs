@@ -1056,6 +1056,14 @@ impl Kernel {
         self.finish()
     }
 
+    /// The screen bound to [`slots::KEYBOARD`], if one is: what a tool
+    /// opens with [`Self::stage_text_question`], not with a bare
+    /// [`Self::open_screen`] (a native keyboard needs the question).
+    #[must_use]
+    pub fn keyboard_screen(&self) -> Option<&Id> {
+        self.shared.registry.resolve_slot(slots::KEYBOARD.as_str())
+    }
+
     /// Types `text` into the text field shown, as if on its keys, and
     /// confirms it with `done` ([`events::TYPE_TEXT`]): for a shell's
     /// remote control or keys of a keyboard. `None` where no text field
