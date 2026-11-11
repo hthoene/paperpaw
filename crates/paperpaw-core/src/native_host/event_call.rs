@@ -172,7 +172,10 @@ impl crate::Kernel {
             .with_widgets(instances.ui_services(), owner);
             stage.set_images_held(self.image_held(owner));
             stage.set_speech_held(self.io.speech.owned_texts(id.as_str()));
-            stage.set_requests_open(self.native_requests_open());
+            stage.set_requests_open(
+                self.native_requests_open(),
+                self.native_requests_open_by(id.as_str()),
+            );
             stage.set_answer_view(self.native_answer_view(owner));
             // A run's callback is quiet (`work.md` section 2).
             stage.set_quiet(

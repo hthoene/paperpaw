@@ -26,6 +26,7 @@ impl Kernel {
             images_held: self.image_held(owner_key),
             speech_held: self.io.speech.owned_texts(owner),
             requests_open: self.native_requests_open(),
+            own_requests: self.native_requests_open_by(owner),
             answers: self.native_answer_view(owner_key),
         }
     }

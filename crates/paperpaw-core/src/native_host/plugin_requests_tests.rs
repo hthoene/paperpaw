@@ -9,7 +9,7 @@ use crate::native_host::{
     commands::{CommandStage, WireCommand, commands_decode, commands_encode},
     native_instances::{NativeInstance, NativeLease},
     native_screen::Dispatch,
-    plugin_requests::{MAX_OPEN, OUTCOME_FAILED},
+    plugin_requests::{MAX_OPEN, MAX_PER_PLUGIN, OUTCOME_FAILED},
     registrations as wire,
 };
 use alloc::{rc::Rc, string::String, vec::Vec};
@@ -215,24 +215,45 @@ fn an_interface_6_requester_keeps_its_own_path() {
 }
 
 #[test]
-fn the_fifth_open_request_finds_no_room_and_is_answered_failed() {
+fn the_open_requests_are_four_device_wide_and_the_fifth_is_answered_failed() {
     let mut w = world(true);
-    for at in 0..=MAX_OPEN {
-        w.request("req", &[&alloc::format!("plugin{at}")]);
+    // Four plugins' requests are open (none of `req`'s two).
+    for (by, at) in [("req", 0), ("store", 1), ("store", 2), ("other", 3)] {
+        w.request(by, &[&alloc::format!("plugin{at}")]);
     }
     assert_eq!(w.kernel.native_requests_open(), MAX_OPEN);
-    assert_eq!(w.told[1].borrow().len(), MAX_OPEN);
+    // Another of `req` finds no room: answered `failed` at once, request
+    // number 0.
+    w.request("req", &["plugin4"]);
+    assert_eq!(w.kernel.native_requests_open(), MAX_OPEN);
     assert_eq!(
         *w.told[0].borrow(),
         [(
             wire::EVENT_PLUGIN_ANSWERED_TAG,
             0,
-            alloc::format!("plugin{MAX_OPEN}:{OUTCOME_FAILED}")
+            alloc::format!("plugin4:{OUTCOME_FAILED}")
         )]
     );
 }
 
-fn stage_statuses(open: usize, batches: &[&[&str]]) -> Vec<i32> {
+#[test]
+fn one_plugin_cannot_hold_every_slot() {
+    let mut w = world(true);
+    for at in 0..=MAX_PER_PLUGIN {
+        w.request("req", &[&alloc::format!("plugin{at}")]);
+    }
+    // The third of `req` is answered `failed`; another plugin still has room.
+    assert_eq!(w.kernel.native_requests_open(), MAX_PER_PLUGIN);
+    assert_eq!(w.kernel.native_requests_open_by("req"), MAX_PER_PLUGIN);
+    assert_eq!(
+        w.told[0].borrow().last().unwrap().2,
+        alloc::format!("plugin{MAX_PER_PLUGIN}:{OUTCOME_FAILED}")
+    );
+    w.request("other", &["news"]);
+    assert_eq!(w.kernel.native_requests_open(), MAX_PER_PLUGIN + 1);
+}
+
+fn stage_statuses(open: usize, own: usize, batches: &[&[&str]]) -> Vec<i32> {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
@@ -240,7 +261,7 @@ fn stage_statuses(open: usize, batches: &[&[&str]]) -> Vec<i32> {
     let owner = Id::new_static("req");
     let mut stage =
         CommandStage::new(&owner, env.settings(), None, 16, 8192).with_ui(&env, None, 0, 100);
-    stage.set_requests_open(open);
+    stage.set_requests_open(open, own);
     batches
         .iter()
         .map(|batch| {
@@ -257,12 +278,16 @@ fn stage_statuses(open: usize, batches: &[&[&str]]) -> Vec<i32> {
 
 #[test]
 fn the_stage_refuses_a_bad_id_and_a_request_beyond_four_open() {
-    assert_eq!(stage_statuses(0, &[&["dictionary\nnews"]]), [OK]);
-    assert_eq!(stage_statuses(0, &[&["Bad Id!"]]), [ERR_INVALID]);
-    // Three open: one more fits, the next does not (also staged ones count).
-    assert_eq!(stage_statuses(3, &[&["a1"], &["a2"]]), [OK, ERR_FULL]);
+    assert_eq!(stage_statuses(0, 0, &[&["dictionary\nnews"]]), [OK]);
+    assert_eq!(stage_statuses(0, 0, &[&["Bad Id!"]]), [ERR_INVALID]);
+    // Three open (other plugins'): one more fits, the next does not (also
+    // staged ones count).
+    assert_eq!(stage_statuses(3, 0, &[&["a1"], &["a2"]]), [OK, ERR_FULL]);
+    // A plugin's own two are all it gets, whatever is open besides.
+    assert_eq!(stage_statuses(2, 2, &[&["a1"]]), [ERR_FULL]);
+    assert_eq!(stage_statuses(2, 1, &[&["a1"], &["a2"]]), [OK, ERR_FULL]);
     assert_eq!(
-        stage_statuses(0, &[&["a1", "a2", "a3", "a4", "a5"]]),
+        stage_statuses(0, 0, &[&["a1", "a2", "a3", "a4", "a5"]]),
         [ERR_FULL]
     );
 }

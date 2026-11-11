@@ -354,22 +354,28 @@ impl<'a> CommandStage<'a> {
         Ok(())
     }
 
-    /// At most `plugin_requests::MAX_OPEN` requests are open device-wide:
+    /// At most `plugin_requests::MAX_OPEN` requests are open device-wide, and
+    /// `MAX_PER_PLUGIN` per plugin:
     /// another is `ERR_FULL` at submit, the batch refused whole (what is staged
     /// already and what the batch holds count with the kernel's own).
     pub(super) fn validate_plugin_requests(&self, batch: &CommandBatch<'_>) -> Result<(), i32> {
-        let mut open = self.requests_open
-            + self
-                .staged
-                .iter()
-                .filter(|command| matches!(command, Command::RequestPlugins { .. }))
-                .count();
+        use crate::native_host::plugin_requests::{MAX_OPEN, MAX_PER_PLUGIN};
+        let staged = self
+            .staged
+            .iter()
+            .filter(|command| matches!(command, Command::RequestPlugins { .. }))
+            .count();
+        let mut open = self.requests_open + staged;
+        let mut own = usize::from(self.own_requests) + staged;
         for command in batch.iter() {
             if matches!(command, WireCommand::RequestPlugins { .. }) {
-                if open >= crate::native_host::plugin_requests::MAX_OPEN {
+                // Device-wide, and per plugin so that one cannot hold every
+                // slot: `ERR_FULL`, the batch refused whole.
+                if open >= MAX_OPEN || own >= MAX_PER_PLUGIN {
                     return Err(ERR_FULL);
                 }
                 open += 1;
+                own += 1;
             }
         }
         Ok(())

@@ -10,8 +10,8 @@
 //!
 //! * **Lazy.** The table of open requests is an empty `Vec` until the first
 //!   request: a device that never asks costs nothing.
-//! * **Bounded.** At most [`MAX_OPEN`] requests are open device-wide (`ERR_FULL`
-//!   at submit beyond), each at most 16 ids of at most 64 bytes; every copy is
+//! * **Bounded.** At most [`MAX_OPEN`] requests are open device-wide and
+//!   [`MAX_PER_PLUGIN`] per plugin (`ERR_FULL` at submit beyond), each at most 16 ids of at most 64 bytes; every copy is
 //!   a fallible allocation.
 //! * **Ids already on the device are dropped**; with none left nothing is
 //!   sent. With no installer able to answer, every id is answered `failed` at
@@ -35,13 +35,18 @@ use paperpaw_sdk::Id;
 
 /// The most requests open device-wide.
 pub(crate) const MAX_OPEN: usize = 4;
+/// The most requests one plugin has open: one plugin cannot take every slot
+/// (`ERR_FULL` for it beyond, the others' requests still have room).
+pub(crate) const MAX_PER_PLUGIN: usize = 2;
 /// `event.plugin_answered.outcome`: the plugin was installed.
 pub(crate) const OUTCOME_INSTALLED: u32 = 0;
 /// `event.plugin_answered.outcome`: the plugin could not be had.
 pub(crate) const OUTCOME_FAILED: u32 = 2;
 /// The last outcome the host knows (3, not found); any other is `ERR_INVALID`.
 pub(crate) const OUTCOME_LAST: u32 = 3;
-/// How many open ids a stage can tell apart (see [`AnswerView`]).
+/// How many open ids a stage can tell apart (see [`AnswerView`]). Beyond
+/// it a stale answer still gets no effect (the apply step checks the table
+/// exactly and drops it) but is not refused with `ERR_STATE` at submit.
 const VIEW_IDS: usize = 16;
 
 /// One id of a request and whether it was answered.
@@ -152,6 +157,14 @@ impl PluginRequests {
         self.open.len()
     }
 
+    /// How many requests `by` has open.
+    pub(crate) fn open_by(&self, by: &str) -> usize {
+        self.open
+            .iter()
+            .filter(|request| request.by() == by)
+            .count()
+    }
+
     /// The next request number (never 0, none that is open).
     fn number(&mut self) -> u32 {
         loop {
@@ -172,7 +185,7 @@ impl PluginRequests {
     /// # Errors
     /// `ERR_FULL` with [`MAX_OPEN`] open, `ERR_NO_MEMORY`.
     pub(crate) fn begin(&mut self, by: &str, plugins: &[Id]) -> Result<u32, i32> {
-        if self.open.len() >= MAX_OPEN {
+        if self.open.len() >= MAX_OPEN || self.open_by(by) >= MAX_PER_PLUGIN {
             return Err(ERR_FULL);
         }
         let mut ids = Vec::new();
@@ -275,6 +288,15 @@ impl Kernel {
             .map_or(0, |table| table.open_count())
     }
 
+    /// How many plugin requests the plugin `by` has open.
+    pub(crate) fn native_requests_open_by(&self, by: &str) -> usize {
+        self.shared
+            .native_instances
+            .plugin_requests
+            .try_borrow()
+            .map_or(0, |table| table.open_by(by))
+    }
+
     /// What a stage of `owner_key` may know of the requests
     /// (see [`AnswerView`]); nothing is allocated, and nothing is read for a
     /// plugin that may not answer.
@@ -297,7 +319,8 @@ impl Kernel {
     }
 
     /// Whether a running native plugin that declared `uses.install` heard of
-    /// requests (subscribed to 77): one that may answer.
+    /// requests (subscribed to 77): one that may answer. A plugin that
+    /// subscribes late counts from then on.
     fn native_installer_listening(&self) -> bool {
         let instances = &self.shared.native_instances;
         let mut n = 0;

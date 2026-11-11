@@ -37,6 +37,8 @@ pub(crate) struct StageInputs {
     pub(crate) speech_held: usize,
     /// Plugin requests open device-wide.
     pub(crate) requests_open: usize,
+    /// How many of them the plugin itself made.
+    pub(crate) own_requests: usize,
     /// What the table of requests held, and whether the plugin may answer.
     pub(crate) answers: super::plugin_requests::AnswerView,
 }
@@ -178,7 +180,7 @@ pub(crate) fn build_stage<'a>(parts: StageParts<'a>) -> CommandStage<'a> {
     .with_widgets(ui, owner_key);
     stage.set_images_held(inputs.images_held);
     stage.set_speech_held(inputs.speech_held);
-    stage.set_requests_open(inputs.requests_open);
+    stage.set_requests_open(inputs.requests_open, inputs.own_requests);
     stage.set_answer_view(inputs.answers);
     if let Some(directory) = directory {
         stage = stage.with_item_states(super::commands::ItemAdmit { directory });
@@ -279,6 +281,7 @@ mod tests {
             images_held: 0,
             speech_held: 0,
             requests_open: 0,
+            own_requests: 0,
             answers: crate::native_host::plugin_requests::AnswerView::default(),
         };
         assert!(queue.inputs().is_none());

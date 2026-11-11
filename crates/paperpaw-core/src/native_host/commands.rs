@@ -143,6 +143,9 @@ pub struct CommandStage<'a> {
     speech_held: usize,
     /// Plugin requests open device-wide (`plugin_requests.rs`).
     requests_open: usize,
+    /// How many of them are this plugin's (at most [`super::plugin_requests::MAX_PER_PLUGIN`]
+    /// may be open).
+    own_requests: u8,
     /// What the kernel knows of the plugin requests and of the submitter's
     /// right to answer them (`commands_answers.rs`).
     answer_view: super::plugin_requests::AnswerView,
@@ -203,6 +206,7 @@ impl<'a> CommandStage<'a> {
             images_held: 0,
             speech_held: 0,
             requests_open: 0,
+            own_requests: 0,
             answer_view: super::plugin_requests::AnswerView::default(),
             staged_answers: Vec::new(),
             staged_images: Vec::new(),
@@ -242,8 +246,9 @@ impl<'a> CommandStage<'a> {
     }
 
     /// The plugin requests open device-wide.
-    pub(crate) fn set_requests_open(&mut self, open: usize) {
+    pub(crate) fn set_requests_open(&mut self, open: usize, own: usize) {
         self.requests_open = open;
+        self.own_requests = u8::try_from(own).unwrap_or(u8::MAX);
     }
 
     /// The texts of the plugin that the kernel's speech holds.
