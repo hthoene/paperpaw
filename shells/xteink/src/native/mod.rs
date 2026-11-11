@@ -593,8 +593,8 @@ impl CodeLoader for Loader {
         storage: &alloc::rc::Rc<dyn Storage>,
     ) -> Option<paperpaw_core::native_host::HyphenTables> {
         use alloc::rc::Rc;
-        use paperpaw_core::native_host::shell_wiring::{Rng, SecretsInputs};
         use paperpaw_core::native_host::HostWiring;
+        use paperpaw_core::native_host::shell_wiring::{Rng, SecretsInputs};
         let random: Rc<dyn Rng> = Rc::new(crate::secrets::ChipRandom);
         let sealer = Rc::new(crate::secrets::DeviceSealer::new(
             self.flash.clone(),
@@ -612,13 +612,11 @@ impl CodeLoader for Loader {
         // what is wired, so nothing is recorded wrongly.
         // `core.ui` was wired when the table of handles was made (before any
         // plugin loaded); `text.hyphenate` needs the card, which only comes here.
-        let wired = match resources
-            .as_ref()?
-            .wire(
-                HostWiring::new()
-                    .hyphenation(storage.clone())
-                    .secrets(secrets),
-            ) {
+        let wired = match resources.as_ref()?.wire(
+            HostWiring::new()
+                .hyphenation(storage.clone())
+                .secrets(secrets),
+        ) {
             Ok(wired) => wired,
             Err(status) => {
                 warn!("native: text.hyphenate and core.secrets not wired ({status})");
