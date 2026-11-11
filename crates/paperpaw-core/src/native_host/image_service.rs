@@ -78,6 +78,18 @@ fn is_reserved(name: &str, reserved: &str) -> bool {
         && name[stem.len() + 1..].iter().all(u8::is_ascii_digit)
 }
 
+/// Whether a picture that is not decoded yet may still be named to the opener
+/// without an id: a cache path of root 6 that fits, and a size a decoded
+/// document image can have (each side 1 to [`DOC_SIDE_MAX`]: the format plans
+/// it at the size it will decode to, so the reader's box is exact). Nothing is
+/// read: the file comes with op 16.
+fn pending_ok(cache: &str, image: &super::stages_wire::core_format_v1::FmtImage<'_>) -> bool {
+    cache_path_ok(image.path)
+        && cache.len().saturating_add(1 + image.path.len()) <= PATH_MAX
+        && (1..=DOC_SIDE_MAX).contains(&image.width)
+        && (1..=DOC_SIDE_MAX).contains(&image.height)
+}
+
 /// A cache path of root 6 (`document.md` 5): the storage grammar (relative,
 /// no `.` or `..` segment, `\`, `:`, control characters, empty segments,
 /// names FAT or Windows take for another), and not the host's `.complete`
@@ -480,7 +492,9 @@ impl ImageTable {
     /// `doc_image.flags` bit 1; bit 0 there is colour as `image.info` says it
     /// (the cache file's header, and `screen_colour`: never on a screen
     /// without colour); other bits of the record are dropped. The id is the
-    /// host's.
+    /// host's. A picture not decoded yet whose file is not there (or not
+    /// vouched for) still comes, without an id (`image` 0), so the opener
+    /// can ask op 16 for it by `index`.
     ///
     /// # Errors
     /// As [`ImageTable::map_document`].
@@ -512,11 +526,18 @@ impl ImageTable {
             in_block,
             screen_colour,
         )?;
-        Ok(mapped.map(|(image, colour)| wire::ServiceDocImage {
-            image,
-            flags: doc.flags | u32::from(colour),
-            ..doc
-        }))
+        Ok(match mapped {
+            Some((image, colour)) => Some(wire::ServiceDocImage {
+                image,
+                flags: doc.flags | u32::from(colour),
+                ..doc
+            }),
+            // Not decoded yet: there is no cache file to vouch for it, so no id
+            // (`image` 0); the opener asks op 16 by `index`, and that answer,
+            // decoded, is checked as any other (`document.md` 5).
+            None if image.flags & 1 != 0 && pending_ok(cache, image) => Some(doc),
+            None => None,
+        })
     }
 
     /// `image_release`, or a reader giving a document image up.

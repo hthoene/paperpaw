@@ -716,6 +716,56 @@ fn a_fmt_image_record_becomes_the_openers_doc_image() {
     );
 }
 
+#[test]
+fn a_picture_not_decoded_yet_comes_without_an_id_and_its_index() {
+    use super::super::stages_wire::core_format_v1::FmtImage;
+    let t = ImageTable::new();
+    // No cache file yet: the format decodes it when the opener asks (op 16).
+    let storage = MemoryStorage::new();
+    let pending = FmtImage::new("img/12.gray", 12, 300, 200, 1);
+    let edge = FmtImage::new("img/13.gray", 13, 1_600, 1, 1);
+    assert!(matches!(
+        t.map_fmt_image(&storage, A, 7, CACHE, &edge, true, true),
+        Ok(Some(doc)) if doc.image == 0 && doc.width == 1_600
+    ));
+    assert_eq!(
+        t.map_fmt_image(&storage, A, 7, CACHE, &pending, true, true),
+        Ok(Some(wire::ServiceDocImage {
+            image: 0,
+            index: 12,
+            width: 300,
+            height: 200,
+            flags: 0b10,
+        }))
+    );
+    // Nothing was handed out for it.
+    assert!(t.info(A, 1).is_err());
+    // A decoded picture whose file is not there is still left out.
+    let decoded = FmtImage::new("img/12.gray", 12, 300, 200, 0);
+    assert_eq!(
+        t.map_fmt_image(&storage, A, 7, CACHE, &decoded, true, true),
+        Ok(None)
+    );
+    // A pending one is still checked for what can be checked without the
+    // file: the path and a size a document image can have (1 to 1,600).
+    for (n, bad) in [
+        FmtImage::new("../x.gray", 12, 300, 200, 1),
+        FmtImage::new(".host/x.gray", 12, 300, 200, 1),
+        FmtImage::new("img/12.gray", 12, 0, 200, 1),
+        FmtImage::new("img/12.gray", 12, 300, 1_601, 1),
+        FmtImage::new("img/12.gray", 12, u32::MAX, 200, 1),
+    ]
+    .iter()
+    .enumerate()
+    {
+        assert_eq!(
+            t.map_fmt_image(&storage, A, 7, CACHE, bad, true, true),
+            Ok(None),
+            "case {n}"
+        );
+    }
+}
+
 /// A card whose reads stop working after a number of them.
 struct Flaky {
     inner: MemoryStorage,
