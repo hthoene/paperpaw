@@ -535,7 +535,7 @@ impl UiStore {
             return Err(ERR_NO_SPACE);
         }
         self.insert(
-            params,
+            params.iter().copied(),
             State::Made {
                 owner: who.owner,
                 epoch: who.epoch,
@@ -556,7 +556,7 @@ impl UiStore {
     /// As [`Self::handover_make`].
     pub(crate) fn handover_dialog(&self, request: &str, kind: &str) -> Result<u32, i32> {
         self.insert(
-            &[
+            [
                 Param {
                     key: "core.request",
                     value: request,
@@ -565,7 +565,8 @@ impl UiStore {
                     key: "core.kind",
                     value: kind,
                 },
-            ],
+            ]
+            .into_iter(),
             // `batch` is a number no `claim` makes (they count up from 0), so
             // that no plugin's rollback frees it.
             State::Claimed {
@@ -577,18 +578,127 @@ impl UiStore {
         )
     }
 
+    /// The hand-over of the host's own for a native screen opened without
+    /// one: by `Kernel::open` with interface-6 `Params` (a shell's script or
+    /// request, an interface-6 plugin, the kernel), never for a native
+    /// plugin's `command.open` (that one names its own, or none). Its params
+    /// are those of `params` a plugin's op 16 could name (other keys, and a key
+    /// again, are left out), under op 16's caps; `text` (interface 6
+    /// `params::TEXT`) is also its text (op 10), and stays a param only where
+    /// it fits those caps. Made **claimed** by the host as
+    /// [`Self::handover_dialog`]'s, so the stack's `attach` gives it to the
+    /// instance (freed when it closes) and [`Self::release`] frees it where it
+    /// does not open; but under the plugins' limits, never in the room kept
+    /// for the host's dialogs.
+    ///
+    /// # Errors
+    /// `ERR_NO_SPACE` when the params beyond `text` exceed op 16's caps;
+    /// `ERR_FULL` when the plugins' table or params are full; `ERR_NO_MEMORY`.
+    /// Nothing is kept then. A text the device cannot keep (longer than a
+    /// hand-over's, or past the texts' memory: on the X4 about 2 KiB) is left
+    /// out, the params kept.
+    pub(crate) fn handover_params(&self, params: &[Param<'_>]) -> Result<u32, i32> {
+        // Interface 6 names the long text so; it is also the hand-over's text.
+        const TEXT: &str = "text";
+        if params.len() > 2 * PARAMS_MAX {
+            return Err(ERR_NO_SPACE);
+        }
+        let named = |at: usize, param: &Param<'_>| {
+            key_fine(param.key)
+                && !param.key.starts_with("core.")
+                && !params[..at].iter().any(|before| before.key == param.key)
+        };
+        let others = params
+            .iter()
+            .enumerate()
+            .filter(move |(at, param)| param.key != TEXT && named(*at, param))
+            .map(|(_, param)| *param);
+        let (count, content) = others
+            .clone()
+            .fold((0_usize, 0_usize), |(count, bytes), param| {
+                (count + 1, bytes + param.key.len() + param.value.len())
+            });
+        if count > PARAMS_MAX || content > PARAM_BYTES_MAX {
+            return Err(ERR_NO_SPACE);
+        }
+        let text = params
+            .iter()
+            .find(|param| param.key == TEXT)
+            .map_or("", |param| param.value);
+        let as_param = !text.is_empty()
+            && count < PARAMS_MAX
+            && content + TEXT.len() + text.len() <= PARAM_BYTES_MAX;
+        let text_param = as_param.then_some(Param {
+            key: TEXT,
+            value: text,
+        });
+        let id = self.insert(
+            others.chain(text_param),
+            State::Claimed {
+                owner: HOST_OWNER,
+                batch: u64::MAX,
+            },
+            // Under the plugins' limits: the room kept beyond them is the
+            // host's dialogs' alone, so that they never fail (#1137 R1).
+            (0, 0),
+            NO_MAKER,
+        )?;
+        // A text the device has no room for (the X4 keeps 2 KiB of texts) is
+        // left out; the params are kept.
+        if !text.is_empty() && text.len() <= TEXT_MAX {
+            self.host_text(id, text.as_bytes());
+        }
+        Ok(id)
+    }
+
+    /// The host's own text of its hand-over `id`, in parts as op 9 writes
+    /// them, committed, in one borrow; where a part is refused the text is
+    /// left out whole (its memory given back) and `false` comes back.
+    fn host_text(&self, id: u32, text: &[u8]) -> bool {
+        let Ok(mut inner) = self.inner() else {
+            return false;
+        };
+        let Some(at) = Self::position(&inner, id) else {
+            return false;
+        };
+        let rules = WriteRules {
+            slots_free: Self::text_slots(&inner) < self.limits.texts,
+            memory_cap: self.limits.text_memory,
+            text_cap: TEXT_MAX,
+        };
+        let Inner {
+            entries,
+            text_memory,
+            ..
+        } = &mut *inner;
+        let kept = &mut entries[at].text;
+        let mut offset = 0;
+        for part in text.chunks(PART_MAX) {
+            let last = offset + part.len() == text.len();
+            if write_part(kept, text_memory, &rules, offset, part, last).is_err() {
+                *text_memory -= kept.charged.min(*text_memory);
+                *kept = Text::default();
+                return false;
+            }
+            offset += part.len();
+        }
+        true
+    }
+
     /// Keeps a hand-over of `params` (checked) in `state`, `room` (hand-overs,
     /// bytes) beyond the limits allowed.
-    fn insert(
+    fn insert<'p>(
         &self,
-        params: &[Param<'_>],
+        params: impl Iterator<Item = Param<'p>> + Clone,
         state: State,
         room: (usize, usize),
         passed_on: u64,
     ) -> Result<u32, i32> {
         // Encode once into a block of exactly the size.
         let mut framed = 0_usize;
-        for param in params {
+        let mut count = 0_u32;
+        for param in params.clone() {
+            count += 1;
             framed += codec::framed_len(&Record::ServiceUiParam(wire::ServiceUiParam {
                 key: param.key,
                 value: param.value,
@@ -624,7 +734,7 @@ impl UiStore {
             state,
             passed_on,
             params: block,
-            count: u32::try_from(params.len()).map_err(|_| ERR_INVALID)?,
+            count,
             text: Text::default(),
         });
         Ok(id)
