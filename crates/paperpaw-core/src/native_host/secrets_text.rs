@@ -183,6 +183,12 @@ fn kept<'a>(
 }
 
 /// Whether `previous` (the file as read) holds exactly `line`.
+///
+/// Known gap (Senior's nit): the line is the one `Secrets::encode` writes. An
+/// old line with a non-standard escape in its id or label is encoded
+/// differently from how it was read, so it does not match here and, with an
+/// id that cannot be sealed, would still fail a save. Very rare; no such line
+/// is written by this host.
 fn was_there(line: &str, previous: &str) -> bool {
     previous
         .lines()
