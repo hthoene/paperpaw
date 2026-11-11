@@ -662,7 +662,11 @@ impl NativeReader {
     /// The pages of the reading screen on top are counted in the background:
     /// a step now, then one after the other.
     fn start_count(&mut self, host: &Host<'_>) {
-        if self.screens.top(SCREEN).is_some_and(|view| view.counting()) {
+        if self
+            .screens
+            .top(SCREEN)
+            .is_some_and(|view| view.counting() || view.marks_due())
+        {
             self.declare_work(
                 host,
                 (native_index::WORK_KEY, WORK_DUE),
@@ -674,7 +678,11 @@ impl NativeReader {
     /// One step of the count of the pages; the next is declared while pages remain.
     fn count_step(&mut self, host: &Host<'_>) {
         let more = match (self.screens.top(SCREEN), &self.docs) {
-            (Some(view), Some(docs)) => view.count_step(host, docs),
+            (Some(view), Some(docs)) => {
+                // The first page's marks are asked here, after it is shown.
+                view.marks_step(host, docs);
+                view.count_step(host, docs)
+            }
             _ => None,
         };
         if let Some(delay) = more {

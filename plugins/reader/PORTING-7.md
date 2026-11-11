@@ -120,8 +120,12 @@ Declared (`declarations::stages`) and fired by the reading screen: `src/native_d
   buffers first (refused there before any buffer is looked at) and takes that as "no
   subscriber" for the book: nothing is encoded or allocated at a page turn on the X4.
 - **Asking whether anyone subscribed:** no call tells it, so the first fire of a book finds out;
-  with none (or no stages) the book is not asked again until the screen is back on top. That is
-  one encoded fire and one reply buffer a book, never one a page.
+  with none the book is not asked again until the screen is back on top (a plugin may have been
+  switched on). That is one encoded fire and one reply buffer a book, never one a page. A device
+  without stages is remembered for the session (Kernel: only a firmware update changes it).
+- **When (#248):** never in the open. A book's first page is asked in a step of the background
+  work after it is shown (the step that counts the pages; `View::marks_step`) and drawn again
+  only where it got marks; later pages at their first draw.
 - **Not yet:** the ink of a look (text in another colour; backgrounds, lines, struck lines and
   frames are drawn), choosing a mark that takes taps with the buttons (as links are), and a log
   line for marks dropped (counted in `Decorations::dropped`; the native SDK has no log).

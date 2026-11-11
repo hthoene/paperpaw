@@ -195,6 +195,12 @@ impl Decorations {
         })
     }
 
+    /// No mark was kept for the page.
+    #[must_use]
+    pub fn is_unmarked(&self) -> bool {
+        self.marks.is_empty()
+    }
+
     /// The page has no words to ask about.
     #[must_use]
     pub fn is_empty(&self) -> bool {

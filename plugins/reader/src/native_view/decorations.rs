@@ -2,6 +2,7 @@
 //! a page's marks asked once its words are made, drawn with it, and a tap
 //! on a mark that takes taps handed to the plugin whose mark it is.
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicBool, Ordering};
 use paperpaw_sdk::{
     Color, Handled,
     native::{
@@ -13,9 +14,10 @@ use paperpaw_sdk::{
     reading::WordBox,
 };
 
-use super::Open;
+use super::{Body, Open, View};
 use crate::native_decorations::{self as decorations, Decorations, Paint};
 use crate::stages::reader_decorations_v1 as stage;
+use paperpaw_sdk::native::document::Documents;
 
 impl Open {
     /// Asks the page's marks; made words are the page's (never fails the
@@ -23,7 +25,7 @@ impl Open {
     /// it is not asked again for this book until the screen is back on top.
     pub(super) fn decorate(&mut self, host: &Host<'_>) {
         self.decorations = None;
-        if self.undecorated {
+        if !self.ask_marks || self.undecorated || NO_STAGES.load(Ordering::Relaxed) {
             return;
         }
         match ask(host, &self.words, (&self.path, &self.language)) {
@@ -105,6 +107,47 @@ impl Open {
     }
 }
 
+impl View {
+    /// The first page of a book is asked only after it is shown, in a step
+    /// of the background work, never in the open (its buffers are freed by
+    /// then, #248).
+    #[must_use]
+    pub fn marks_due(&self) -> bool {
+        matches!(&self.body, Body::Open(open) if !open.ask_marks)
+    }
+
+    /// The step: the page on show is asked, and drawn again where it got marks.
+    pub fn marks_step(&mut self, host: &Host<'_>, docs: &Documents) {
+        let Body::Open(open) = &mut self.body else {
+            return;
+        };
+        if open.ask_marks {
+            return;
+        }
+        open.ask_marks = true;
+        if open.words.is_empty() {
+            return;
+        }
+        open.decorate(host);
+        if open
+            .decorations
+            .as_ref()
+            .is_some_and(|found| !found.is_unmarked())
+        {
+            open.redraw_page(
+                host,
+                docs,
+                paperpaw_sdk::native::commands::RedrawMode::Partial,
+            )
+            .ok();
+        }
+    }
+}
+
+/// The device runs no stages (the X4 until its stack gate): it will not
+/// change without a firmware update, so it is asked once a session.
+static NO_STAGES: AtomicBool = AtomicBool::new(false);
+
 /// The marks `words` are given, fired in whole runs; `None` where no plugin
 /// subscribed (or the device runs no stages yet).
 fn ask(
@@ -116,6 +159,7 @@ fn ask(
     // A device that runs no stages (the X4 until its stack gate) says so
     // before it looks at any buffer: nothing is encoded or taken there.
     if matches!(stage.run(&[], &mut []).next(), Err(Error::Unsupported)) {
+        NO_STAGES.store(true, Ordering::Relaxed);
         return Ok(None);
     }
     let mut found = Decorations::new(words)?;
@@ -141,7 +185,10 @@ fn ask(
                 }
                 Ok(None) => break,
                 // No stages on this device yet (the X4's stack gate).
-                Err(Error::Unsupported) if from == 0 => return Ok(None),
+                Err(Error::Unsupported) if from == 0 => {
+                    NO_STAGES.store(true, Ordering::Relaxed);
+                    return Ok(None);
+                }
                 // What the others answered stays.
                 Err(_) => break,
             }

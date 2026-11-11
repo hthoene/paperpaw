@@ -155,6 +155,8 @@ struct Open {
     decorations: Option<crate::native_decorations::Decorations>,
     /// No plugin marks this book's pages (asked again once back on top).
     undecorated: bool,
+    /// Pages are asked for marks: from the step after the first is shown.
+    ask_marks: bool,
 }
 
 /// One open reading screen.
@@ -384,6 +386,7 @@ impl View {
             status: native_status::State::default(),
             decorations: None,
             undecorated: false,
+            ask_marks: false,
         };
         open.begin(host, root == Root::Library);
         // The host's book events start here (`document.md` 2.4); a book whose
