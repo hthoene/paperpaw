@@ -481,6 +481,30 @@ fn plugins_sharing_the_devices_depth_counter_are_all_admitted_and_another_is_ref
     assert!(kernel.shared.native_instances.find("third").is_none());
 }
 
+/// Both admitted plugins' dispatches hold the kernel's one `FlatHost`: the
+/// kernel's handle plus one per plugin, no copy (#248).
+#[test]
+fn linked_plugins_dispatch_through_the_one_flat_host() {
+    let mut kernel = kernel();
+    let depth = FlatDepth::try_new().unwrap();
+    let host = shell_host(&[]);
+    let table = HostResources::try_new().unwrap();
+    for id in ["first", "second"] {
+        install_depth(
+            &mut kernel,
+            entry(|_| {}),
+            METADATA,
+            &host,
+            id,
+            table.try_clone().unwrap(),
+            &depth.try_clone().unwrap(),
+        )
+        .unwrap();
+    }
+    let shared = kernel.shared.native_instances.flat_host.as_ref().unwrap();
+    assert_eq!(shared.strong_count(), 3);
+}
+
 const NETWORK: &str = "uses.network";
 const NETWORK_WIRED: &[Feature<'static>] = &[Feature {
     key: NETWORK,

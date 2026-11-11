@@ -198,6 +198,7 @@ impl Download {
     ///
     /// # Errors
     /// `NoMemory`.
+    #[inline(never)]
     pub fn start(&mut self, wire: &mut dyn Wire, page: &Page) -> Result<Started, Error> {
         self.cancel(wire);
         if !is_package(&page.entry.id, &page.files) {
@@ -254,6 +255,7 @@ impl Download {
     ///
     /// # Errors
     /// `NoMemory`; the download is then stopped.
+    #[inline(never)]
     pub fn ended(&mut self, wire: &mut dyn Wire, done: &Done) -> Result<Step, Error> {
         if done.token != FILE_REQUEST || self.current != Some(done.id) {
             return Ok(self.step);
@@ -348,6 +350,7 @@ impl Download {
 
     /// Stops the download going on and forgets what it fetched; the answers of
     /// its requests are passed over.
+    #[inline(never)]
     pub fn cancel(&mut self, wire: &mut dyn Wire) {
         if self.current.take().is_some() {
             wire.cancel(FILE_REQUEST);

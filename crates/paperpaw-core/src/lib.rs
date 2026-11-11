@@ -362,6 +362,8 @@ pub struct Kernel {
     /// Values plugins offer among other plugins' choices, added once all
     /// are registered: `(plugin, setting, value)`.
     plugin_choices: Vec<(Id, Id, Cow<'static, str>)>,
+    /// The linked plugins' built-in catalogs are added ([`Kernel::claim_native_catalogs`]).
+    native_catalogs_added: bool,
     now: Instant,
     input: gestures::InputState,
     io: network::IoState,
@@ -480,7 +482,7 @@ impl Kernel {
             let text = String::from(self.shared.translator.tr(trouble.key()));
             self.output.commands.push(Command::Notify(text));
         }
-        self.finish()
+        self.finish_started()
     }
 
     /// Handles an input event.
@@ -1137,6 +1139,7 @@ impl Kernel {
 
     /// Returns and clears the collected warnings.
     pub fn take_warnings(&mut self) -> Vec<Warning> {
+        self.report_event_failures();
         mem::take(&mut self.warnings)
     }
 

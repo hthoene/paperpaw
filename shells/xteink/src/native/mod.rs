@@ -239,6 +239,9 @@ pub struct Loader {
     /// told the code room when the loader is done.
     #[cfg(feature = "ppn5")]
     device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
+    /// `core.secrets`: sealed with the device key (`crate::secrets`).
+    #[cfg(feature = "ppn5")]
+    secrets: crate::secrets::Wiring,
 }
 
 /// The device-wide table of handles, one for the whole firmware: the code
@@ -294,6 +297,7 @@ impl Loader {
         place: Place,
         #[cfg(feature = "ppn5")] host_net: alloc::rc::Rc<crate::host_net::Bridge>,
         #[cfg(feature = "ppn5")] device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
+        #[cfg(feature = "ppn5")] secrets: crate::secrets::Wiring,
     ) -> Self {
         Self {
             place,
@@ -303,6 +307,8 @@ impl Loader {
             host_net,
             #[cfg(feature = "ppn5")]
             device,
+            #[cfg(feature = "ppn5")]
+            secrets,
         }
     }
 
@@ -597,16 +603,19 @@ impl CodeLoader for Loader {
         // what is wired, so nothing is recorded wrongly.
         // `core.ui` was wired when the table of handles was made (before any
         // plugin loaded); `text.hyphenate` needs the card, which only comes here.
-        let wired = match resources
-            .as_ref()?
-            .wire(HostWiring::new().hyphenation(storage.clone()))
-        {
+        // `core.secrets` with them: the card's file, sealed with the device key.
+        let mut wired = match resources.as_ref()?.wire(
+            HostWiring::new()
+                .hyphenation(storage.clone())
+                .secrets(self.secrets.inputs(storage)),
+        ) {
             Ok(wired) => wired,
             Err(status) => {
-                warn!("native: text.hyphenate not wired ({status})");
+                warn!("native: text.hyphenate and core.secrets not wired ({status})");
                 return None;
             }
         };
+        self.secrets.keep(&mut wired);
         // The table is borrowed no longer: `wire_sockets` takes it again.
         drop(resources);
         // This hook runs at the end of the kernel's build, before `Kernel::start`:

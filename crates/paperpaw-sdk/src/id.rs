@@ -311,6 +311,15 @@ impl Id {
     pub fn is_owned_by(&self, plugin: &Id) -> bool {
         self.namespace() == plugin.as_str()
     }
+
+    /// The id where it is kept in the program, `None` where it is a copy on
+    /// the heap: for checks that a host keeps what it can in the program
+    /// (#248).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn kept(&self) -> Option<&'static str> {
+        self.0.kept()
+    }
 }
 
 impl Borrow<str> for Id {
@@ -349,7 +358,7 @@ impl fmt::Debug for Id {
     }
 }
 
-const fn is_valid(id: &str) -> bool {
+pub(crate) const fn is_valid(id: &str) -> bool {
     let bytes = id.as_bytes();
     if bytes.is_empty() {
         return false;

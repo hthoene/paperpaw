@@ -69,7 +69,14 @@ impl Kernel {
             widgets,
         } = staged.screen;
         self.native_screen_policies(owner, owner_key, policies);
-        self.drain_native_ui(owner, staged.commands, staged.redraw);
+        let clock = self.dev_clock();
+        let host = super::commands::dev::DevHost {
+            clock: &clock,
+            stored: &super::commands::dev::NoStoredNetworks,
+        };
+        let output = (staged.commands, staged.redraw, staged.opens);
+        let dev = staged.dev.map(|dev| *dev).unwrap_or_default();
+        self.drain_native_batch(owner, output, dev, &host);
         // The picture requests it admitted, after the callback.
         self.native_images_apply(owner_key, staged.images);
         self.apply_item_states(owner, item_states);

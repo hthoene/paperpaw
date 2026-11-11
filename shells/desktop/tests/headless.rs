@@ -120,11 +120,14 @@ fn a_wrong_argument_leaves_the_default_library_alone() {
 }
 
 /// Runs `script` headless on `profile` in the library `library`, with
-/// `args` more.
+/// `args` more. The first-time hints are off, as they were for these tests
+/// on interface 6: in a fresh library they open over the first screen shown
+/// and, as on a device, take the next button (#2411).
 fn run_in(library: &Path, profile: &str, script: &str, args: &[&str]) -> Run {
     Command::new(env!("CARGO_BIN_EXE_paperpaw-emu"))
         .args(["--profile", profile, "--headless", "--library"])
         .arg(library)
+        .args(["--set", "help.show=false"])
         .args(["--script", script])
         .args(args)
         .output()
@@ -456,6 +459,43 @@ fn reading_aloud_speaks_passage_after_passage() {
         &[],
     );
     assert!(!silent.stderr.contains("speech ("), "{}", silent.stderr);
+}
+
+/// *Read aloud* at the start for a book opened for the first time and still
+/// prepared (a UTF-16 text the format converts first) is read once the book
+/// opens, in the UI language: a text names none (Beta 3).
+#[test]
+fn reading_aloud_waits_for_a_book_still_prepared() {
+    let library = library("speech-prepared");
+    let mut text = String::new();
+    for n in 0..200 {
+        text.push_str(&format!("Sentence {n} has a few words in it. "));
+    }
+    let mut bytes = vec![0xff, 0xfe];
+    bytes.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+    fs::write(library.join("books/sentences.txt"), bytes).unwrap();
+    let state = library.join(".paperpaw/plugins/reader");
+    fs::create_dir_all(&state).unwrap();
+    fs::write(
+        state.join("state.ini"),
+        "[reader]\nlast = books/sentences.txt\n",
+    )
+    .unwrap();
+    let aloud = run_in(
+        &library,
+        "boox-go-7",
+        "run:reader.read-aloud,wait:15000",
+        &["--set", "core.language=de"],
+    );
+    let _ = fs::remove_dir_all(&library);
+    assert!(aloud.ok, "{}", aloud.stderr);
+    assert_eq!(aloud.screen(), "reader.screen");
+    let spoken = aloud
+        .stderr
+        .lines()
+        .filter(|l| l.starts_with("speech (de, 100 %") && l.contains("Sentence"))
+        .count();
+    assert!(spoken >= 2, "{}", aloud.stderr);
 }
 
 /// A configuration file (`--config`) is read, and `--set` wins over it.

@@ -429,7 +429,7 @@ fn host_named(owner: &str, flags: u32) -> Hosted<Heap, ()> {
                 }
                 pool.as_ref().unwrap().try_clone().unwrap()
             }),
-            DeclaredServices::none(),
+            DeclaredServices::none().with_features(input_records::FEATURES.with(Cell::get)),
         )
     }
     .unwrap()

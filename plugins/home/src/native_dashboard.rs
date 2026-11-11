@@ -570,6 +570,23 @@ impl Dashboard {
         Ok((word, wide))
     }
 
+    /// Whether a page is held.
+    #[must_use]
+    pub const fn holds_page(&self) -> bool {
+        self.laid.is_some()
+    }
+
+    /// Another screen is over this one: the page, and the widgets made for it,
+    /// are let go and laid out again when it is shown (as it always is, shown
+    /// again). What a finger or the buttons are doing with the page keeps it.
+    pub fn cover(&mut self, host: &Host<'_>, ui: &Ui) {
+        if self.options.is_some() || self.moving.is_some() || self.drag.is_some() {
+            return;
+        }
+        self.drop_widgets(host, ui);
+        self.stale = true;
+    }
+
     /// The widgets of the page before are let go; a refusal is of no matter
     /// (the host drops them when the screen closes).
     fn drop_widgets(&mut self, host: &Host<'_>, ui: &Ui) {

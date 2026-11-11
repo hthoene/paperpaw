@@ -177,6 +177,8 @@ impl Plugin for NativeKeyboard {
         let view = self.screens.top(token).ok_or(Error::State)?;
         match view {
             View::Dialog(d) => {
+                // Nothing about the parts is queued where nobody asks.
+                d.style.describing = paint::asking(&mut frame);
                 let font = Font::acquire_role(host, FontRole::Ui)?;
                 let words = words(host, &d.board)?;
                 let mut ops = Vec::new();

@@ -73,7 +73,7 @@ fn kernel(device: DeviceInfo) -> Kernel {
         .storage(MemoryStorage::new())
         .frame_rows(192)
         .row_align(8)
-        .user_config("[core]\nlanguage = en\n");
+        .user_config("[help]\nshow = false\n[core]\nlanguage = en\n");
     let mut kernel = paperpaw_app::install(builder, paperpaw_app::Fonts::Packs)
         .plugin(X4)
         .build()

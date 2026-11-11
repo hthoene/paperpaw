@@ -3200,7 +3200,23 @@ pub paperpaw_sdk::native::callbacks::FrameRect::y: i32
 impl paperpaw_sdk::native::callbacks::FrameRect
 pub const fn paperpaw_sdk::native::callbacks::FrameRect::new(i32, i32, u32, u32) -> Self
 pub mod paperpaw_sdk::native::canvas
+#[non_exhaustive] pub enum paperpaw_sdk::native::canvas::PartRole
+pub paperpaw_sdk::native::canvas::PartRole::Button = 3
+pub paperpaw_sdk::native::canvas::PartRole::Check = 7
+pub paperpaw_sdk::native::canvas::PartRole::Dialog = 12
+pub paperpaw_sdk::native::canvas::PartRole::Field = 9
+pub paperpaw_sdk::native::canvas::PartRole::Heading = 1
+pub paperpaw_sdk::native::canvas::PartRole::Image = 10
+pub paperpaw_sdk::native::canvas::PartRole::Link = 11
+pub paperpaw_sdk::native::canvas::PartRole::Progress = 13
+pub paperpaw_sdk::native::canvas::PartRole::Radio = 8
+pub paperpaw_sdk::native::canvas::PartRole::Row = 2
+pub paperpaw_sdk::native::canvas::PartRole::Slider = 5
+pub paperpaw_sdk::native::canvas::PartRole::Switch = 4
+pub paperpaw_sdk::native::canvas::PartRole::Text = 6
 pub struct paperpaw_sdk::native::canvas::Canvas<'cb>
+impl paperpaw_sdk::native::canvas::Canvas<'_>
+pub fn paperpaw_sdk::native::canvas::Canvas<'_>::describe_part(&self, paperpaw_sdk::native::canvas::PartRole, &str, paperpaw_sdk::native::callbacks::FrameRect, paperpaw_sdk::native::canvas::PartFlags) -> core::result::Result<bool, paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::canvas::Canvas<'_>
 pub fn paperpaw_sdk::native::canvas::Canvas<'_>::draw_image(&self, paperpaw_sdk::native::image::ImageId, paperpaw_sdk::native::callbacks::FrameRect, paperpaw_sdk::native::image::ImageStyle) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl<'cb> paperpaw_sdk::native::canvas::Canvas<'cb>
@@ -3221,6 +3237,17 @@ pub fn paperpaw_sdk::native::canvas::ClipGuard<'_, '_>::drop(&mut self)
 impl<'cb> core::ops::deref::Deref for paperpaw_sdk::native::canvas::ClipGuard<'_, 'cb>
 pub type paperpaw_sdk::native::canvas::ClipGuard<'_, 'cb>::Target = paperpaw_sdk::native::canvas::Canvas<'cb>
 pub fn paperpaw_sdk::native::canvas::ClipGuard<'_, 'cb>::deref(&self) -> &Self::Target
+pub struct paperpaw_sdk::native::canvas::PartFlags(_)
+impl paperpaw_sdk::native::canvas::PartFlags
+pub const paperpaw_sdk::native::canvas::PartFlags::DISABLED: Self
+pub const paperpaw_sdk::native::canvas::PartFlags::FOCUSED: Self
+pub const paperpaw_sdk::native::canvas::PartFlags::NONE: Self
+pub const paperpaw_sdk::native::canvas::PartFlags::OFF: Self
+pub const paperpaw_sdk::native::canvas::PartFlags::ON: Self
+pub const fn paperpaw_sdk::native::canvas::PartFlags::bits(self) -> u32
+impl core::ops::bit::BitOr for paperpaw_sdk::native::canvas::PartFlags
+pub type paperpaw_sdk::native::canvas::PartFlags::Output = paperpaw_sdk::native::canvas::PartFlags
+pub fn paperpaw_sdk::native::canvas::PartFlags::bitor(self, Self) -> Self
 pub mod paperpaw_sdk::native::clock
 pub fn paperpaw_sdk::native::clock::micros(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<u64, paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::commands
@@ -3409,6 +3436,8 @@ pub paperpaw_sdk::native::declare::EventKind::BookOpened
 pub paperpaw_sdk::native::declare::EventKind::BookRemoved
 pub paperpaw_sdk::native::declare::EventKind::Broadcast
 pub paperpaw_sdk::native::declare::EventKind::ChargeChanged
+pub paperpaw_sdk::native::declare::EventKind::DocumentChanged
+pub paperpaw_sdk::native::declare::EventKind::DocumentClosed
 pub paperpaw_sdk::native::declare::EventKind::FirmwareChanged
 pub paperpaw_sdk::native::declare::EventKind::HttpDone
 pub paperpaw_sdk::native::declare::EventKind::HttpProgress
@@ -3529,6 +3558,8 @@ pub fn paperpaw_sdk::native::declare::Declarations<F>::slot_offer(&mut self, pap
 impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::lookup_provider(&mut self, paperpaw_sdk::native::declare::LookupProviderDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::reader(&mut self, paperpaw_sdk::native::declare::ReaderDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::register_draw(&mut self, u32) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::subscribe_event(&mut self, paperpaw_sdk::native::declare::EventKind, u32) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
@@ -3642,6 +3673,13 @@ pub paperpaw_sdk::native::declare::PresetValueDecl::preset: &'a str
 pub paperpaw_sdk::native::declare::PresetValueDecl::value: paperpaw_sdk::native::settings::SettingValue<'a>
 impl<'a> paperpaw_sdk::native::declare::PresetValueDecl<'a>
 pub const fn paperpaw_sdk::native::declare::PresetValueDecl<'a>::new(&'a str, &'a str, paperpaw_sdk::native::settings::SettingValue<'a>) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::declare::ReaderDecl<'a>
+pub paperpaw_sdk::native::declare::ReaderDecl::formats: &'a str
+pub paperpaw_sdk::native::declare::ReaderDecl::name: &'a str
+pub paperpaw_sdk::native::declare::ReaderDecl::screen: &'a str
+impl<'a> paperpaw_sdk::native::declare::ReaderDecl<'a>
+pub const fn paperpaw_sdk::native::declare::ReaderDecl<'a>::formats(self, &'a str) -> Self
+pub const fn paperpaw_sdk::native::declare::ReaderDecl<'a>::new(&'a str, &'a str) -> Self
 #[non_exhaustive] pub struct paperpaw_sdk::native::declare::ScreenDecl<'a>
 pub paperpaw_sdk::native::declare::ScreenDecl::full_refresh_on_open: bool
 pub paperpaw_sdk::native::declare::ScreenDecl::name: &'a str
@@ -3649,6 +3687,7 @@ pub paperpaw_sdk::native::declare::ScreenDecl::title: &'a str
 pub paperpaw_sdk::native::declare::ScreenDecl::token: u32
 impl paperpaw_sdk::native::declare::ScreenDecl<'_>
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::guards(self) -> Self
+pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::hints_hidden(self) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::holds_edges(self) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::instances(self, paperpaw_sdk::native::declare::Instances) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::overlay(self) -> Self
@@ -4028,6 +4067,11 @@ pub paperpaw_sdk::native::document::BlockRecord::Map(paperpaw_sdk::native::docum
 pub paperpaw_sdk::native::document::BlockRecord::Ruby(paperpaw_sdk::native::document::BlockRuby<'a>)
 pub paperpaw_sdk::native::document::BlockRecord::Run(paperpaw_sdk::native::document::BlockRun)
 pub paperpaw_sdk::native::document::BlockRecord::Text(&'a str)
+#[non_exhaustive] pub enum paperpaw_sdk::native::document::DocClosedReason
+pub paperpaw_sdk::native::document::DocClosedReason::BookGone
+pub paperpaw_sdk::native::document::DocClosedReason::CardRemoved
+pub paperpaw_sdk::native::document::DocClosedReason::FormatStopped
+pub paperpaw_sdk::native::document::DocClosedReason::Needed
 #[non_exhaustive] pub enum paperpaw_sdk::native::document::LinkKind
 pub paperpaw_sdk::native::document::LinkKind::External
 pub paperpaw_sdk::native::document::LinkKind::Footnote
@@ -4319,6 +4363,12 @@ pub const paperpaw_sdk::native::events::kinds::Broadcast::TAG: u32
 pub struct paperpaw_sdk::native::events::kinds::ChargeChanged
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ChargeChanged
 pub const paperpaw_sdk::native::events::kinds::ChargeChanged::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::DocumentChanged
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::DocumentChanged
+pub const paperpaw_sdk::native::events::kinds::DocumentChanged::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::DocumentClosed
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::DocumentClosed
+pub const paperpaw_sdk::native::events::kinds::DocumentClosed::TAG: u32
 pub struct paperpaw_sdk::native::events::kinds::FirmwareChanged
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::FirmwareChanged
 pub const paperpaw_sdk::native::events::kinds::FirmwareChanged::TAG: u32
@@ -4472,6 +4522,10 @@ impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events:
 pub const paperpaw_sdk::native::events::kinds::Broadcast::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ChargeChanged
 pub const paperpaw_sdk::native::events::kinds::ChargeChanged::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::DocumentChanged
+pub const paperpaw_sdk::native::events::kinds::DocumentChanged::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::DocumentClosed
+pub const paperpaw_sdk::native::events::kinds::DocumentClosed::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::FirmwareChanged
 pub const paperpaw_sdk::native::events::kinds::FirmwareChanged::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::HttpDone
@@ -4620,6 +4674,15 @@ pub paperpaw_sdk::native::events::Event::Broadcast(paperpaw_sdk::native::sockets
 #[non_exhaustive] pub paperpaw_sdk::native::events::Event::ChargeChanged
 pub paperpaw_sdk::native::events::Event::ChargeChanged::flags: paperpaw_sdk::native::events::ChargeFlags
 pub paperpaw_sdk::native::events::Event::ChargeChanged::now_ms: u64
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::DocumentChanged
+pub paperpaw_sdk::native::events::Event::DocumentChanged::document: paperpaw_sdk::native::document::DocId
+pub paperpaw_sdk::native::events::Event::DocumentChanged::now_ms: u64
+pub paperpaw_sdk::native::events::Event::DocumentChanged::progress_ppm: u32
+pub paperpaw_sdk::native::events::Event::DocumentChanged::state: paperpaw_sdk::native::document::Preparation
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::DocumentClosed
+pub paperpaw_sdk::native::events::Event::DocumentClosed::document: paperpaw_sdk::native::document::DocId
+pub paperpaw_sdk::native::events::Event::DocumentClosed::now_ms: u64
+pub paperpaw_sdk::native::events::Event::DocumentClosed::reason: paperpaw_sdk::native::document::DocClosedReason
 #[non_exhaustive] pub paperpaw_sdk::native::events::Event::FirmwareChanged
 pub paperpaw_sdk::native::events::Event::FirmwareChanged::now_ms: u64
 pub paperpaw_sdk::native::events::Event::FirmwareChanged::request: core::option::Option<paperpaw_sdk::native::device::DeviceRequest>
@@ -5133,6 +5196,7 @@ pub const fn paperpaw_sdk::native::image::ImageStyle::transparency(self, u8) -> 
 impl<'a> paperpaw_sdk::native::image::PrepareImage<'a>
 pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::colour(self) -> Self
 pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::new(paperpaw_sdk::native::image::PrepareRoot, &'a str, u32) -> Self
+pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::see_through(self) -> Self
 pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::side(self, u32) -> Self
 pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::tone(self, &'a [u8; 256]) -> Self
 pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::turn(self) -> Self
@@ -10287,6 +10351,7 @@ pub macro paperpaw_sdk::role_settings!
 pub macro paperpaw_sdk::service_type!
 #[non_exhaustive] pub enum paperpaw_sdk::Action<'a>
 pub paperpaw_sdk::Action::Fixed(&'static paperpaw_sdk::FixedAction)
+pub paperpaw_sdk::Action::Native(&'a paperpaw_sdk::NativeAction)
 pub paperpaw_sdk::Action::Spec(&'a paperpaw_sdk::ActionSpec)
 impl<'a> paperpaw_sdk::Action<'a>
 pub fn paperpaw_sdk::Action<'a>::description(self) -> core::option::Option<&'a str>
@@ -11366,6 +11431,7 @@ pub const fn paperpaw_sdk::Metrics::mm(&self, u32) -> u32
 pub const fn paperpaw_sdk::Metrics::new(u16) -> Self
 pub fn paperpaw_sdk::Metrics::pt(&self, f32) -> f32
 pub const fn paperpaw_sdk::Metrics::tenth_mm(&self, u32) -> u32
+pub struct paperpaw_sdk::NativeAction
 #[non_exhaustive] pub struct paperpaw_sdk::ObserverSpec
 pub paperpaw_sdk::ObserverSpec::id: paperpaw_sdk::Id
 pub paperpaw_sdk::ObserverSpec::observer: paperpaw_sdk::Observer

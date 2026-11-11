@@ -81,6 +81,8 @@ mod tests {
     use paperpaw_sdk::random::Random;
 
     static COUNT: AtomicUsize = AtomicUsize::new(0);
+    /// The tests share `COUNT`: one draws at a time (they run in parallel).
+    static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn byte(i: usize) -> u8 {
         (i as u8).wrapping_mul(97).wrapping_add(13)
@@ -95,6 +97,9 @@ mod tests {
             }
             true
         });
+        let _one = ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         COUNT.store(0, Ordering::SeqCst);
         let sdk = paperpaw_sdk::served::key(&random).unwrap();
         let mut at = 0;
@@ -120,6 +125,9 @@ mod tests {
             }
             true
         });
+        let _one = ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         COUNT.store(0, Ordering::SeqCst);
         let sdk = random.readable(15).unwrap();
         let mut at = 0;

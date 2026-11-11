@@ -26,6 +26,8 @@ pub(crate) const FORMAT_OWNER: u64 = 99;
 
 #[path = "tests/blocks.rs"]
 mod blocks;
+#[path = "tests/cover.rs"]
+mod cover;
 #[path = "tests/lists.rs"]
 mod lists;
 #[path = "tests/reader.rs"]
@@ -60,6 +62,8 @@ pub(crate) struct Fake {
     table: DocumentTable,
     /// What the format answers next.
     pub(crate) answer: RefCell<Vec<u8>>,
+    /// Answers (or statuses) to give, oldest first, before `answer` is used.
+    pub(crate) queue: RefCell<Vec<Result<Vec<u8>, i32>>>,
     pub(crate) fails: Cell<Option<i32>>,
     /// (op, document, cursor, generation, flags, index, image_side, cover_side)
     pub(crate) calls: RefCell<Vec<[u32; 8]>>,
@@ -68,6 +72,9 @@ pub(crate) struct Fake {
     pub(crate) roots: Cell<u32>,
     pub(crate) ended: RefCell<Vec<u32>>,
     pub(crate) images_ended: RefCell<Vec<u32>>,
+    /// Where the document's pictures really end (the production close path),
+    /// when a test wants it; else they are only recorded.
+    pub(crate) ending: Cell<Option<&'static crate::native_host::host_services::HostServices>>,
     /// The format plugin stops while the host is calling it (it crashed).
     pub(crate) stops_during_call: Cell<bool>,
     pub(crate) closed: RefCell<Vec<(u32, u32)>>,
@@ -89,12 +96,23 @@ pub(crate) struct Fake {
     pub(crate) reader_refuses: Cell<Option<i32>>,
     /// Bit `n` set: owner `n` shows a screen.
     pub(crate) shows: Cell<u64>,
+    /// The documents `picture_left_out` was called for, in order.
+    pub(crate) left_out: RefCell<Vec<u32>>,
+    /// The kernel's start has not returned: no cover job begins.
+    pub(crate) jobs_blocked: Cell<bool>,
+    /// A `cover` asked for a job while `jobs_blocked`.
+    pub(crate) held_back: Cell<bool>,
+    /// The cover job's marker cannot be written (`cover_job_guard`).
+    pub(crate) guard_fails: Cell<bool>,
+    /// The paths the marker was written for, and whether it was removed.
+    pub(crate) guarded: RefCell<Vec<std::string::String>>,
 }
 impl Fake {
     pub(crate) fn new(limits: Limits) -> Rc<Self> {
         Rc::new(Self {
             table: DocumentTable::try_new(limits).unwrap(),
             answer: RefCell::new(Vec::new()),
+            queue: RefCell::new(Vec::new()),
             fails: Cell::new(None),
             calls: RefCell::new(Vec::new()),
             texts: RefCell::new(Vec::new()),
@@ -102,6 +120,7 @@ impl Fake {
             roots: Cell::new(0b11),
             ended: RefCell::new(Vec::new()),
             images_ended: RefCell::new(Vec::new()),
+            ending: Cell::new(None),
             stops_during_call: Cell::new(false),
             closed: RefCell::new(Vec::new()),
             image: Cell::new(Some(Some(41))),
@@ -114,6 +133,11 @@ impl Fake {
             readers: RefCell::new(Vec::new()),
             released: RefCell::new(Vec::new()),
             reader_refuses: Cell::new(None),
+            left_out: RefCell::new(Vec::new()),
+            jobs_blocked: Cell::new(false),
+            held_back: Cell::new(false),
+            guard_fails: Cell::new(false),
+            guarded: RefCell::new(Vec::new()),
             shows: Cell::new(0),
         })
     }
@@ -176,6 +200,17 @@ impl DocHost for Fake {
         if let Some(error) = self.fails.get() {
             return Err(error);
         }
+        let queued = {
+            let mut queue = self.queue.borrow_mut();
+            (!queue.is_empty()).then(|| queue.remove(0))
+        };
+        if let Some(queued) = queued {
+            let bytes = queued?;
+            out.get_mut(..bytes.len())
+                .ok_or(ERR_NO_SPACE)?
+                .copy_from_slice(&bytes);
+            return Ok(bytes.len());
+        }
         let answer = self.answer.borrow();
         out.get_mut(..answer.len())
             .ok_or(ERR_NO_SPACE)?
@@ -187,6 +222,10 @@ impl DocHost for Fake {
     }
     fn end_images(&self, document: &Document) {
         self.images_ended.borrow_mut().push(document.id);
+        if let Some(hosts) = self.ending.get() {
+            // As the production host does: the document's pictures end now.
+            let _ = hosts.images().document_closed(document.id);
+        }
     }
     fn document_closed(&self, document: &Document, reason: u32) {
         self.closed.borrow_mut().push((document.id, reason));
@@ -205,6 +244,22 @@ impl DocHost for Fake {
     }
     fn shows_screen(&self, owner: u64) -> bool {
         self.shows.get() & (1 << owner) != 0
+    }
+    fn cover_jobs_allowed(&self) -> bool {
+        !self.jobs_blocked.get()
+    }
+    fn cover_job_guard(&self, path: &str) -> Result<(), i32> {
+        if self.guard_fails.get() {
+            return Err(ERR_IO);
+        }
+        self.guarded.borrow_mut().push(path.into());
+        Ok(())
+    }
+    fn cover_job_held_back(&self) {
+        self.held_back.set(true);
+    }
+    fn picture_left_out(&self, document: u32) {
+        self.left_out.borrow_mut().push(document);
     }
     fn map_image(&self, _: &Document, _: &Image, in_block: bool) -> Result<Option<u32>, i32> {
         match self.image.get() {
