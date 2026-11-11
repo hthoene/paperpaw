@@ -286,7 +286,7 @@ fn own_entries(host: &Host<'_>, word: &str, found: &mut Vec<Entry>) -> Result<us
 /// The bytes of definitions the panel reads at most, over all dictionaries.
 pub const BUDGET: usize = paperpaw_stardict::LOOKUP_BUDGET;
 
-/// [`own_entries`] over any listing and storage.
+/// The panel's reading of the own dictionaries over any listing and storage.
 ///
 /// # Errors
 /// `NoMemory` only.
