@@ -269,7 +269,10 @@ fn pictured(turns: &[Vec<Frame>]) -> Vec<usize> {
         if let Some(follow) = frames.get(1) {
             assert!(follow.area() < whole, "turn {}: {follow:?}", i + 1);
             // No band of the text's frame drew the picture: its box was
-            // empty after it, and the follow-up filled it.
+            // empty after it, and the follow-up filled it. The box is the
+            // region the follow-up refreshed (`effects.refresh()`): were that
+            // ever wider than the picture, it would hold text and this check
+            // would fail, rightly (the follow-up should refresh the box only).
             assert!(
                 first.blank(follow.region),
                 "turn {}: the picture was drawn with the text",
@@ -291,7 +294,7 @@ fn pictured(turns: &[Vec<Frame>]) -> Vec<usize> {
 }
 
 #[test]
-#[ignore = "needs native activation (#243): the reader of this build is the interface-6 one"]
+#[ignore = "needs native activation (#243: the reader of this build is the interface-6 one)"]
 fn small_pictures_follow_their_page_and_do_not_count_as_a_page() {
     let (_, turns) = turns(SMALL);
     let whole = whole();
@@ -330,20 +333,23 @@ fn small_pictures_follow_their_page_and_do_not_count_as_a_page() {
 /// A large picture is shown in grays on the X4, which its panel refreshes
 /// in full: still only the box, not the screen.
 #[test]
-#[ignore = "needs native activation (#243): the reader of this build is the interface-6 one"]
+#[ignore = "needs native activation (#243: the reader of this build is the interface-6 one)"]
 fn a_large_picture_refreshes_only_its_box() {
     let (opening, turns) = turns(LARGE);
     pictured(&turns);
     // The first page of the book has the cover's picture: shown text first
     // too, the picture's box after.
-    let n = opening.len();
-    assert!(n >= 2, "opening: {opening:?}");
-    let (page, follow) = (&opening[n - 2], &opening[n - 1]);
+    // The first page-sized frame followed by a smaller one: later wake-ups
+    // (the clock, a hint) may show more frames after it.
+    let whole = whole();
+    let pair = opening
+        .windows(2)
+        .find(|pair| pair[0].area() * 2 >= whole && pair[1].area() < whole);
+    let Some([page, follow]) = pair else {
+        panic!("no page followed by its pictures' box: {opening:?}");
+    };
     assert!(
-        page.area() * 2 >= whole()
-            && follow.area() < whole()
-            && page.blank(follow.region)
-            && !follow.blank(follow.region),
+        page.blank(follow.region) && !follow.blank(follow.region),
         "opening: {opening:?}"
     );
 }
