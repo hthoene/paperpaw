@@ -699,6 +699,10 @@ pub struct ExFatFs<D> {
     freed_dirs: alloc::vec::Vec<Run>,
     /// More directory clusters were freed than `freed_dirs` holds.
     freed_any: bool,
+    /// Modified for PaperPaw: a journal bootstrap began writing and has not
+    /// verifiably published. `sync` keeps `VolumeDirty`, so the next mount
+    /// still refuses another allocation; see `bootstrap_intent`.
+    pub(super) intent_uncertain: bool,
 }
 
 impl<D> fmt::Debug for ExFatFs<D> {
@@ -777,6 +781,7 @@ impl<D: BlockDevice> ExFatFs<D> {
             tag_bits: tag_bits(heap_end),
             freed_dirs: alloc::vec::Vec::new(),
             freed_any: false,
+            intent_uncertain: false,
         })
     }
 
@@ -3496,6 +3501,10 @@ impl<D: BlockDevice> ExFatFs<D> {
     /// A read-only volume is not written: `sync` fails with
     /// [`ErrorKind::ReadOnly`] when a refused write left pending sizes, or
     /// what an interrupted operation left, unwritten, and succeeds otherwise.
+    ///
+    /// Modified for PaperPaw: after a journal bootstrap failed before it
+    /// verifiably published, `sync` writes and flushes as usual but leaves
+    /// `VolumeDirty` set (see [`Self::intent_uncertain`]).
     #[cfg_attr(feature = "tracing", tracing::instrument(target = "hadris::exfat", level = "trace", skip_all))]
     pub async fn sync(&mut self) -> FsResult<(), D::Error> {
         if self.read_only {
@@ -3522,6 +3531,11 @@ impl<D: BlockDevice> ExFatFs<D> {
             let written = exio::write_percent_in_use(&mut self.dev, &mut self.block, &mut self.vol).await;
             self.note_refusal(&written);
             written?;
+        }
+        // Modified for PaperPaw: an unpublished journal bootstrap may have
+        // left an allocation; `VolumeDirty` is its only durable retry guard.
+        if self.intent_uncertain {
+            return self.flush_device().await;
         }
         let cleared = exio::clear_dirty(&mut self.dev, &mut self.block, &mut self.vol).await;
         self.note_refusal(&cleared);

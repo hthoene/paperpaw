@@ -292,3 +292,198 @@ fn lookup_and_manifest_read_failures_never_authorize_creation() {
     assert!(checked > 0);
     eprintln!("bootstrap one-shot read failures checked: {checked}");
 }
+
+/// Free clusters as a fresh, read-only use of the driver counts them.
+fn free_clusters(bytes: &Bytes) -> u64 {
+    driver(bytes.clone()).statfs().unwrap().free_blocks()
+}
+
+fn dirty(bytes: &Bytes) -> bool {
+    bytes.0.borrow()[106] & 2 != 0
+}
+
+#[derive(Default)]
+struct WriteFault {
+    writes: usize,
+    fail: Option<usize>,
+    hit: bool,
+}
+
+/// Fails exactly one block write, then behaves like the card again.
+struct OneShotWrite {
+    bytes: Bytes,
+    fault: Rc<RefCell<WriteFault>>,
+}
+
+impl Blocks for OneShotWrite {
+    fn read_block(
+        &mut self,
+        index: u32,
+        block: &mut [u8; 512],
+    ) -> Result<(), paperpaw_fat::DiskError> {
+        self.bytes.read_block(index, block)
+    }
+
+    fn write_block(
+        &mut self,
+        index: u32,
+        block: &[u8; 512],
+    ) -> Result<(), paperpaw_fat::DiskError> {
+        let mut state = self.fault.borrow_mut();
+        let write = state.writes;
+        state.writes += 1;
+        if state.fail == Some(write) {
+            state.hit = true;
+            return Err(paperpaw_fat::DiskError);
+        }
+        drop(state);
+        self.bytes.write_block(index, block)
+    }
+
+    fn blocks(&mut self) -> Result<u32, paperpaw_fat::DiskError> {
+        self.bytes.blocks()
+    }
+}
+
+/// Senior B1: a one-shot write error during bootstrap, then a successful
+/// ordinary `sync`, must not clear the only durable retry guard; neither a
+/// retry in the same mount nor after remounting may allocate a second extent.
+#[test]
+fn a_failed_bootstrap_keeps_its_retry_guard_through_sync_and_remount() {
+    let bytes = exfat_card();
+    let card = exfat(&bytes);
+    card.write("kept.txt", b"safe content").unwrap();
+    card.sync().unwrap();
+    drop(card);
+    assert!(!dirty(&bytes));
+    let initial = bytes.0.borrow().clone();
+    let free_before = free_clusters(&bytes);
+    let extent = free_before - {
+        let fresh = Bytes(Rc::new(RefCell::new(initial.clone())));
+        driver(fresh.clone()).bootstrap_intent(1).unwrap();
+        free_clusters(&fresh)
+    };
+    assert!(extent > 0);
+    let mut checked = 0;
+    let mut guarded = 0;
+    for fail in 0..1000 {
+        let copy = Bytes(Rc::new(RefCell::new(initial.clone())));
+        let fault = Rc::new(RefCell::new(WriteFault {
+            fail: Some(fail),
+            ..WriteFault::default()
+        }));
+        let mut fs = driver(OneShotWrite {
+            bytes: copy.clone(),
+            fault: fault.clone(),
+        });
+        let first = fs.bootstrap_intent(123);
+        if !fault.borrow().hit {
+            assert!(first.is_ok(), "write {fail}: {first:?}");
+            assert!(!fs.intent_uncertain());
+            break;
+        }
+        assert!(first.is_err(), "write failure {fail} reported success");
+        // The ordinary sync may now succeed: the failed block is retried.
+        let _ = fs.sync();
+        let retry = fs.bootstrap_intent(456);
+        let verified = retry.is_ok();
+        if verified {
+            assert!(!fs.intent_uncertain(), "write {fail}");
+        } else {
+            assert!(fs.intent_uncertain(), "write {fail}");
+            let _ = fs.sync();
+        }
+        drop(fs);
+        // Only an unverified attempt keeps the guard on the card.
+        // A write failure before anything reached the card leaves it as it
+        // was: then nothing needs guarding.
+        let untouched = !verified && *copy.0.borrow() == initial;
+        if !verified && !untouched {
+            assert!(dirty(&copy), "write {fail}: sync cleared the retry guard");
+            guarded += 1;
+        }
+        // At most the one 8 KiB extent was taken, by every path.
+        let lost = free_before - free_clusters(&copy);
+        assert!(lost <= extent, "write {fail}: {lost} > {extent} clusters");
+        for _ in 0..3 {
+            let before = copy.0.borrow().clone();
+            let mut fs = driver(copy.clone());
+            match fs.bootstrap_intent(789) {
+                // Only an untouched card may get its first journal now.
+                Ok(_) => assert!(
+                    verified || untouched,
+                    "write {fail}: remount allocated anew"
+                ),
+                Err(_) => {
+                    assert!(!verified && !untouched, "write {fail}");
+                    drop(fs);
+                    assert_eq!(*copy.0.borrow(), before, "write {fail}");
+                }
+            }
+        }
+        assert!(free_before - free_clusters(&copy) <= extent);
+        assert_eq!(read(&exfat(&copy), "kept.txt"), b"safe content");
+        checked += 1;
+        assert!(fail < 999, "fault sweep must reach the completed bootstrap");
+    }
+    assert!(checked > 0 && guarded > 0);
+    eprintln!("bootstrap one-shot write failures checked: {checked}, guarded: {guarded}");
+}
+
+/// Senior B2: a free run early in the root must not hide a later
+/// checksum-damaged reserved-name set.
+#[test]
+fn a_damaged_reserved_name_after_a_free_run_refuses_without_writes() {
+    let bytes = exfat_card();
+    let card = exfat(&bytes);
+    card.write("gap.txt", b"to be removed").unwrap();
+    card.write("kept.txt", b"safe content").unwrap();
+    card.write(INTENT_FILE, b"foreign").unwrap();
+    card.remove("gap.txt").unwrap();
+    card.sync().unwrap();
+    drop(card);
+    let name: Vec<u8> = INTENT_FILE
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    {
+        let mut data = bytes.0.borrow_mut();
+        let text = data
+            .windows(name.len())
+            .position(|bytes| bytes == name)
+            .unwrap();
+        let primary = text - 66;
+        assert_eq!(
+            &data[primary..primary + 65]
+                .iter()
+                .step_by(32)
+                .copied()
+                .collect::<Vec<_>>(),
+            &[0x85, 0xc0, 0xc1]
+        );
+        // Move the set into a later deleted three-entry run of the same
+        // block and delete it where it was, so a free run comes first.
+        let block_end = primary / 512 * 512 + 512;
+        let later = (primary + 96..=block_end - 96)
+            .step_by(32)
+            .find(|&at| (0..3).all(|i| matches!(data[at + i * 32], 0x05 | 0x40 | 0x41)))
+            .expect("fixture needs a later deleted run in the block");
+        let set: Vec<u8> = data[primary..primary + 96].to_vec();
+        data[later..later + 96].copy_from_slice(&set);
+        for i in 0..3 {
+            data[primary + i * 32] &= 0x7f;
+        }
+        // Damage only the moved set's checksum.
+        data[later + 2] ^= 1;
+    }
+    assert!(!dirty(&bytes));
+    let before = bytes.0.borrow().clone();
+    let mut fs = driver(bytes.clone());
+    let result = fs.bootstrap_intent(456);
+    assert_eq!(
+        result.map(|_| ()).map_err(|e| e.kind()),
+        Err(hadris_fs::ErrorKind::Corrupt)
+    );
+    drop(fs);
+    assert_eq!(*bytes.0.borrow(), before);
+}

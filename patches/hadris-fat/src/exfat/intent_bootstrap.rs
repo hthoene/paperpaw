@@ -33,12 +33,18 @@ impl<D: BlockDevice> ExFatFs<D> {
         let units = NameUnits::encode(INTENT_FILE)?;
         let mut found = Located::new();
         if self.find(self.root_start(), &units, &mut found).await? {
-            return self.verify_intent(&found.set).await;
+            let location = self.verify_intent(&found.set).await?;
+            // A verified publication ends an uncertain attempt of this mount;
+            // `sync` still flushes it all before it clears `VolumeDirty`.
+            self.intent_uncertain = false;
+            return Ok(location);
         }
         // The dirty flag is flushed before allocation. Without a verified
         // published journal, a dirty volume may hold an interrupted attempt.
         // Never allocate another extent on each retry or guess which to free.
-        if self.vol.flags() & raw::VOLUME_DIRTY != 0 {
+        // An attempt that failed during this mount latched the same refusal,
+        // and `sync` keeps the flag set for the next mount.
+        if self.intent_uncertain || self.vol.flags() & raw::VOLUME_DIRTY != 0 {
             return Err(hadris_fs::Error::new(ErrorKind::Corrupt,
                 "journal initialization uncertain; volume check required before retry"));
         }
@@ -73,6 +79,9 @@ impl<D: BlockDevice> ExFatFs<D> {
         // No filesystem handle creates or extends this file. Allocation and
         // initialized data are durable before any directory entry names it.
         self.writable()?;
+        // Latched before the first write; only a completed publication below
+        // or a later verification clears it.
+        self.intent_uncertain = true;
         exio::set_bits(&mut self.dev, &mut self.block, &mut self.vol, first, count, ClusterState::Used).await?;
         self.put(start, None, INTENT_FILE_BYTES).await?;
         self.put_bytes(start, &manifest).await?;
@@ -87,7 +96,15 @@ impl<D: BlockDevice> ExFatFs<D> {
         }
         self.put_entries(&at, &entries[..3]).await?;
         self.flush_device().await?;
+        self.intent_uncertain = false;
         Ok(JournalLocation { identity, entry: at[0] })
+    }
+
+    /// Whether a journal bootstrap of this mount failed before it verifiably
+    /// published. Until it is verified, `sync` leaves `VolumeDirty` set and
+    /// no further bootstrap allocates.
+    pub fn intent_uncertain(&self) -> bool {
+        self.intent_uncertain
     }
 
     fn intent_identity(&self, start: u64, epoch: u64) -> Identity {
@@ -133,13 +150,17 @@ impl<D: BlockDevice> ExFatFs<D> {
     }
 
     /// Finds existing free slots without extending or freeing a directory.
+    /// Scans the whole root up to its end marker first: a damaged
+    /// reserved-name set anywhere refuses, also after a usable free run.
     async fn intent_slots(&mut self) -> FsResult<([u64; 3], u32, Option<u32>), D::Error> {
         let mut walk = walk(self.root_start());
         let mut slot = 0;
         let mut end = None;
         let mut at = [0; 3];
         let mut run = 0;
+        let mut chosen = None;
         while let Some(offset) = self.slot_offset(&mut walk, slot).await? {
+            if end.is_some() && chosen.is_some() { break; }
             let mut entry = [0; ENTRY_SIZE];
             if end.is_none() { self.get_bytes(offset, &mut entry).await?; }
             if entry[0] == raw::ENTRY_END { end.get_or_insert(slot); }
@@ -156,10 +177,12 @@ impl<D: BlockDevice> ExFatFs<D> {
                 }
             }
             if entry[0] & raw::IN_USE == 0 {
-                if run > 0 && (offset != at[run-1] + 32 || offset / 512 != at[0] / 512) { run = 0; }
-                at[run] = offset;
-                run += 1;
-                if run == 3 { return Ok((at, slot - 2, end)); }
+                if chosen.is_none() {
+                    if run > 0 && (offset != at[run-1] + 32 || offset / 512 != at[0] / 512) { run = 0; }
+                    at[run] = offset;
+                    run += 1;
+                    if run == 3 { chosen = Some(slot - 2); }
+                }
             } else {
                 run = 0;
                 // Preserve an ambiguous primary's entire claimed set.
@@ -169,7 +192,11 @@ impl<D: BlockDevice> ExFatFs<D> {
             }
             slot += 1;
         }
-        Err(ErrorKind::NoSpace.into())
+        match chosen {
+            // Skipped end-marker slots only matter before the chosen run.
+            Some(chosen) => Ok((at, chosen, end.filter(|&end| end < chosen))),
+            None => Err(ErrorKind::NoSpace.into()),
+        }
     }
 
     async fn intent_free_run(&mut self, count: u32) -> FsResult<u32, D::Error> {
