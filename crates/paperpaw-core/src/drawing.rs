@@ -43,6 +43,9 @@ pub(crate) struct FrameState {
     /// Areas a native screen asked for with the whole screen, drawn in the
     /// frame after it (`commands_redraw.rs`).
     pub(crate) followup: Option<crate::native_host::commands::Followup>,
+    /// The screen whose follow-up the frame to draw is (its draws are marked,
+    /// also when it is drawn again for the panel).
+    pub(crate) followup_frame: Option<paperpaw_sdk::ScreenKey>,
 }
 
 /// Refreshes deferred in a row at most: the next is made whatever the
@@ -183,6 +186,9 @@ impl Kernel {
         let Some(region) = self.frame.unrendered.take() else {
             return;
         };
+        self.shared
+            .stack_rows
+            .set_followup(self.frame.followup_frame);
         // The kernel's, but for the screens' own drawing.
         let _running = self.shared.meter.enter(meter::CORE);
         let bounds = self.framebuffer.bounds();
@@ -253,6 +259,7 @@ impl Kernel {
             }
         }
         self.framebuffer.end_frame();
+        self.shared.stack_rows.set_followup(None);
         // Large pictures on the screen now: the next change of most of it
         // refreshes in full.
         let pictured = self.framebuffer.take_pictured();

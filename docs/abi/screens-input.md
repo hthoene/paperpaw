@@ -201,22 +201,31 @@ input(state: pointer, token: u32, input: bytes) -> i32
 - [D] `redraw` and `close_screen` act on the submitting plugin's screen on top; outside its own
   screen they are `ERR_STATE` (whole batch refused).
 - [D] `redraw_area` (interface 6 `Cx::request_redraw_area`, #252) draws again only a rectangle of
-  the plugin's screen on top: in screen pixels, as the draw callback's `rect`, clipped to the
-  screen's region (a rectangle outside it draws nothing; an empty one draws nothing and is `OK`).
+  the plugin's screen on top. `x` and `y` count from the top-left corner of the screen's region,
+  the `x`/`y` of its `draw.frame` (section 6): (0, 0) is that corner, whatever bars are shown. The
+  host places the rectangle where the region is when it draws it, so it stays right when bars
+  showed or hid since, and a screen knows enough before its first draw (its size comes with
+  `event.screen_shown`). What lies outside the region draws nothing (an empty rectangle draws
+  nothing and is `OK`).
   The rules of `redraw` hold: `mode` above 3 `ERR_INVALID`, outside its own screen `ERR_STATE`,
   in a work run's callback as `redraw`. Each rectangle is drawn on its own and the refresh weighs
   what they cover, not the rectangle around them, so a few pictures filled in after a page's text
   are no page turn: they count towards the periodic full refresh only when they cover half the
   screen or more (`refresh.rs`). Modes of `redraw` and `redraw_area` in one callback merge to the
   strongest. A callback keeps at most 8 rectangles, and every further one joins the 8th (the
-  rectangle around both): never an error.
+  rectangle around both): never an error. Rectangles that draw nothing (empty, or outside the
+  screen) ask for no refresh either. The count of user-interface refreshes towards their own
+  full refresh (`core.ui-full-refresh-interval`, #255) skips the reading screen on top, so a
+  reader's picture boxes are not counted there either.
 - [D] **Follow-up.** Rectangles asked for in the same callback as a `redraw` are drawn in the
   frame **after** the whole screen: first the whole screen, then, as soon as that frame is drawn
   (the host wakes for it), only the rectangles, weighed as above. So a reader draws a page's text
   with empty boxes of the pictures' size, and fills the boxes in the next frame, without the page
   flashing: it asks for both when it turns or opens the page (a `draw` callback submits nothing,
   `commands.md` 1). A newer follow-up replaces one still waiting; one whose screen is no longer
-  on top is dropped. The plugin's `draw` decides what the rectangles show (its own state).
+  on top is dropped (a screen shown again is drawn whole). The plugin's `draw` decides what the
+  rectangles show (its own state): the follow-up's draws have `draw.frame.id` bit 0 set (section
+  6), so a draw run once per band can tell the text frame's bands from the follow-up's.
 - [D] Order: a batch is validated whole, then queued; queued commands run after the callback
   returns, in submit order, batches in order. Several `redraw` in one callback merge to the
   strongest mode.
@@ -512,7 +521,9 @@ draw(state: pointer, token: u32, input: bytes) -> i32
 - [D] `purpose`: 0 screen, 1 page layer, 2 inserted block, 3 status item, 4 widget. Other values
   are reserved: a plugin that does not know the purpose draws nothing and returns 0.
 - [D] `id` and `payload` are defined by the owner of the purpose, for example the reader's insert
-  id. A screen gets `id = 0` and an empty payload.
+  id. A screen gets an empty payload and `id = 0`, but for bit 0: set on every draw of the frame
+  that draws the follow-up of its `redraw_area` rectangles (section 3), on each band of it and
+  when that frame is sent again (the X4 sends a frame twice). Other bits are 0.
 - [D] Drawing outside the clip is clipped by the canvas slots, not refused.
 
 ### 6.1 Telling what is drawn (slot 42, #243)

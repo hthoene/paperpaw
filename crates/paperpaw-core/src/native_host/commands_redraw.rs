@@ -16,24 +16,33 @@ use paperpaw_sdk::ScreenKey;
 /// Areas kept per callback; one more is joined into the last kept.
 pub(crate) const MAX_AREAS: usize = 8;
 
-/// An area as the plugin named it, in screen pixels (as `DrawFrame::rect`).
+/// `draw.frame.id` bit of a screen's draws in the follow-up of its areas.
+pub(crate) const FOLLOWUP_ID: u32 = 1;
+
+/// An area as the plugin named it, in pixels from the top-left corner of its
+/// screen's region (the `x`/`y` of its `draw.frame`), clipped to what a
+/// region can have (`0..=u16::MAX`, as a `Rect`): 8 bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Area {
-    x: i64,
-    y: i64,
-    right: i64,
-    bottom: i64,
+    x: u16,
+    y: u16,
+    right: u16,
+    bottom: u16,
 }
 
 impl Area {
-    /// None for an empty area: it redraws nothing.
+    /// None for an empty area, or one left of or above its region: it
+    /// redraws nothing.
     pub(crate) fn new(x: i32, y: i32, width: u32, height: u32) -> Option<Self> {
-        (width > 0 && height > 0).then(|| Self {
-            x: i64::from(x),
-            y: i64::from(y),
-            right: i64::from(x) + i64::from(width),
-            bottom: i64::from(y) + i64::from(height),
-        })
+        let clip = |at: i64| u16::try_from(at.clamp(0, i64::from(u16::MAX))).unwrap_or(u16::MAX);
+        let (left, top) = (i64::from(x), i64::from(y));
+        let area = Self {
+            x: clip(left),
+            y: clip(top),
+            right: clip(left + i64::from(width)),
+            bottom: clip(top + i64::from(height)),
+        };
+        (area.right > area.x && area.bottom > area.y).then_some(area)
     }
 
     fn union(self, other: Self) -> Self {
@@ -45,12 +54,14 @@ impl Area {
         }
     }
 
-    /// What of `region` it covers; none when it lies outside.
+    /// Where it is on the screen for `region`, as much of it as `region`
+    /// has; none when it lies outside. Placed where the region is now, so it
+    /// stays right when bars showed or hid since it was asked for.
     pub(crate) fn within(self, region: Rect) -> Option<Rect> {
-        let x = self.x.max(i64::from(region.x));
-        let y = self.y.max(i64::from(region.y));
-        let right = self.right.min(i64::from(region.right()));
-        let bottom = self.bottom.min(i64::from(region.bottom()));
+        let x = u32::from(region.x) + u32::from(self.x);
+        let y = u32::from(region.y) + u32::from(self.y);
+        let right = (u32::from(region.x) + u32::from(self.right)).min(region.right());
+        let bottom = (u32::from(region.y) + u32::from(self.bottom)).min(region.bottom());
         if right <= x || bottom <= y {
             return None;
         }
@@ -121,12 +132,15 @@ impl crate::Kernel {
             .len()
             .checked_sub(1)
             .map_or(self.content(), |top| self.region_of(top));
+        let mut drawn = false;
         for area in areas {
             if let Some(part) = area.within(region) {
                 self.invalidate(part);
+                drawn = true;
             }
         }
-        if let Some(mode) = mode {
+        // Nothing to draw asks for no refresh either.
+        if let Some(mode) = mode.filter(|_| drawn) {
             self.output.request_refresh(mode);
         }
     }
@@ -151,6 +165,7 @@ impl crate::Kernel {
             .is_some_and(|top| top.key == followup.screen)
         {
             self.redraw_areas(&followup.areas, followup.mode);
+            self.frame.followup_frame = Some(followup.screen);
         }
     }
 
@@ -225,16 +240,18 @@ mod tests {
 
     #[test]
     fn an_area_is_clipped_to_the_region_and_one_outside_is_nothing() {
+        // Below a bar 40 pixels high: the areas move with the region.
         let region = Rect::new(0, 40, 480, 720);
         assert_eq!(
             area(-10, 30, 100, 50).within(region),
-            Some(Rect::new(0, 40, 90, 40))
+            Some(Rect::new(0, 70, 90, 50))
         );
         assert_eq!(
             area(400, 700, 500, 500).within(region),
-            Some(Rect::new(400, 700, 80, 60))
+            Some(Rect::new(400, 740, 80, 20))
         );
-        assert_eq!(area(0, 0, 480, 40).within(region), None);
+        assert_eq!(area(0, 720, 480, 40).within(region), None);
+        assert_eq!(area(480, 0, 10, 10).within(region), None);
         assert_eq!(
             area(i32::MAX, i32::MAX, u32::MAX, u32::MAX).within(region),
             None
@@ -244,6 +261,9 @@ mod tests {
             Some(region)
         );
         assert_eq!(Area::new(5, 5, 0, 9), None);
+        // Wholly left of or above every screen: nothing.
+        assert_eq!(Area::new(-500, 10, 100, 100), None);
+        assert_eq!(core::mem::size_of::<Area>(), 8);
     }
 
     #[test]
@@ -258,5 +278,72 @@ mod tests {
         // An empty area asks for its mode and keeps nothing.
         areas.push(3, None);
         assert_eq!((areas.mode, areas.list.len()), (Some(3), MAX_AREAS));
+    }
+
+    #[test]
+    fn redraw_area_is_checked_as_redraw_and_allowed_in_a_work_run() {
+        use crate::abi7::commands_wire::{commands_decode, commands_encode};
+        use paperpaw_native::host_glue::{ERR_STATE, OK};
+        use paperpaw_sdk::Id;
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap_or_else(|_| unreachable!("the test device builds"));
+        let key = ScreenKey::new(7);
+        kernel.shared.stack.push(paperpaw_sdk::StackEntry::new(
+            Id::new_static("probe.screen"),
+            None,
+            false,
+            key,
+        ));
+        let (owner, foreign) = (Id::new_static("probe"), Id::new_static("other"));
+        // The stages borrow the kernel's settings: done before it changes.
+        let redraw = {
+            let env = kernel.shared.env(paperpaw_platform::Instant(0));
+            let budget = u32::MAX - kernel.next_serial;
+            // A macro, not a closure: the stage borrows the owner it is given.
+            macro_rules! stage {
+                ($who:expr) => {
+                    CommandStage::new($who, env.settings(), None, 8, 4096).with_ui(
+                        &env,
+                        Some(key),
+                        0,
+                        budget,
+                    )
+                };
+            }
+            let submit = |stage: &mut CommandStage<'_>, command: WireCommand<'_>| {
+                let mut bytes = [0; 64];
+                match commands_encode(&[command], &mut bytes) {
+                    Ok(len) => commands_decode(&bytes[..len]).map_or(i32::MIN, |b| stage.stage(&b)),
+                    Err(_) => i32::MIN,
+                }
+            };
+            let area = |mode, width| WireCommand::RedrawArea {
+                mode,
+                x: 1,
+                y: 2,
+                width,
+                height: 3,
+            };
+            let mut own = stage!(&owner);
+            assert_eq!(submit(&mut own, area(4, 3)), ERR_INVALID);
+            assert_eq!(submit(&mut own, area(2, 3)), OK);
+            // Not the plugin's own screen on top.
+            assert_eq!(submit(&mut stage!(&foreign), area(2, 3)), ERR_STATE);
+            // In a work run's callback as `redraw`; what shows nothing else is refused.
+            let mut run = stage!(&owner);
+            run.set_quiet(true);
+            assert_eq!(submit(&mut run, area(1, 3)), OK);
+            assert_eq!(submit(&mut run, WireCommand::CloseScreen), ERR_STATE);
+            assert_eq!(run.areas.list.len(), 1);
+            // An empty area with a mode: nothing dirty, so no refresh either.
+            let mut empty = stage!(&owner);
+            assert_eq!(submit(&mut empty, area(2, 0)), OK);
+            empty.into_ui_output().1
+        };
+        kernel.frame.pending = None;
+        kernel.output.refresh = None;
+        kernel.finish_native_redraw(&owner, redraw);
+        assert_eq!((kernel.frame.pending, kernel.output.refresh), (None, None));
     }
 }

@@ -43,7 +43,7 @@ pub(crate) use items::ItemAdmit;
     )
 )]
 pub(crate) use items::ItemRoom;
-pub(crate) use redraw::{Area, Followup};
+pub(crate) use redraw::{Area, FOLLOWUP_ID, Followup};
 
 #[path = "commands_answers.rs"]
 mod answers;

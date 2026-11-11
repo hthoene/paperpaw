@@ -60,6 +60,7 @@ impl Kernel {
             }
         }
         // Areas drawn after the frame before them (`command.redraw_area`).
+        self.frame.followup_frame = None;
         self.run_followup();
         if mem::take(&mut self.output.redraw)
             && let Some(top) = self.stack.len().checked_sub(1)

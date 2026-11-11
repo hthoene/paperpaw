@@ -49,6 +49,9 @@ pub(crate) struct StackRows {
     /// What the open instances relabel in the row of button hints
     /// (`command.set_hint`); an instance's labels go when it leaves the stack.
     labels: core::cell::RefCell<super::hint_labels::HintLabels>,
+    /// The screen whose `redraw_area` follow-up is being drawn: its draws
+    /// get `draw.frame.id` bit 0 (`commands_redraw.rs`).
+    followup: Cell<Option<paperpaw_sdk::ScreenKey>>,
 }
 impl Default for StackRows {
     fn default() -> Self {
@@ -63,6 +66,7 @@ impl Default for StackRows {
             cleanup_sweep: Cell::new(false),
             running: Cell::new((0, 0)),
             labels: core::cell::RefCell::default(),
+            followup: Cell::new(None),
         }
     }
 }
@@ -89,6 +93,17 @@ impl StackRows {
     #[cfg(test)]
     pub(crate) fn running(&self) -> (u64, u32) {
         self.running.get()
+    }
+
+    /// The frame drawn now is the follow-up of `screen`'s areas (none: no
+    /// screen's), set by the kernel around a frame.
+    pub(crate) fn set_followup(&self, screen: Option<paperpaw_sdk::ScreenKey>) {
+        self.followup.set(screen);
+    }
+
+    /// Whether the frame drawn now is the follow-up of `screen`'s areas.
+    pub(crate) fn is_followup(&self, screen: paperpaw_sdk::ScreenKey) -> bool {
+        self.followup.get() == Some(screen)
     }
 
     /// A callback of the screen `instance` of `owner` begins on the stack; the

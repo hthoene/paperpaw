@@ -143,14 +143,16 @@ impl<'cb, 'buf> CommandSender<'cb, 'buf> {
     }
 
     /// Stage a redraw and refresh request for part of this plugin's top
-    /// screen: `area` in screen pixels, as [`DrawFrame::rect`], clipped to
-    /// the screen. Several in one callback are drawn each on its own, so a
+    /// screen: `area` from the top-left corner of the screen's region (the
+    /// origin of [`DrawFrame::rect`], whatever bars show), clipped to
+    /// the region. Several in one callback are drawn each on its own, so a
     /// few pictures on a page refresh as small areas, not as a page turn;
     /// the modes merge to the strongest. An empty area redraws nothing.
     ///
     /// Asked for with a whole [`queue_redraw`](Self::queue_redraw) in the
     /// same callback, the areas are drawn in the frame after: a page's text
-    /// first, its pictures right after.
+    /// first, its pictures right after. That frame's draws have
+    /// [`DrawFrame::id`](super::callbacks::DrawFrame::id) bit 0 set.
     ///
     /// [`DrawFrame::rect`]: super::callbacks::DrawFrame::rect
     ///
