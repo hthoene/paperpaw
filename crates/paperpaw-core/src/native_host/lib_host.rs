@@ -131,9 +131,18 @@ impl LibQuery for LibraryHost {
     fn state(&self, visit: One<'_>) -> Result<(), i32> {
         self.reads.state(visit)
     }
-    fn query(&self, query: &wire::ServiceLibQuery<'_>, visit: Rows<'_>) -> Result<RowsEnd, i32> {
-        self.reads
-            .query_hiding(query, &|path| self.deleted(BookRef::Path(path)), visit)
+    fn query(
+        &self,
+        query: &wire::ServiceLibQuery<'_>,
+        archive: &str,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        self.reads.query_hiding(
+            query,
+            archive,
+            &|path| self.deleted(BookRef::Path(path)),
+            visit,
+        )
     }
     fn book(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         self.visible(book)?;

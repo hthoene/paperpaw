@@ -68,13 +68,18 @@ impl View<'_> {
 std::thread_local! {
     /// Whether the caller declared `uses.storage` (each test has its thread).
     pub(super) static STORAGE: core::cell::Cell<bool> = const { core::cell::Cell::new(true) };
+    /// The value of the `files.archive` setting the frame has ("" for none).
+    pub(super) static ARCHIVE: core::cell::Cell<&'static str> = const { core::cell::Cell::new("") };
 }
 
 /// Run `body` with a frame over `host`.
 pub(super) fn with<R>(host: Rc<dyn LibHost>, body: impl FnOnce(&View<'_>) -> R) -> R {
-    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .build()
-        .unwrap();
+    let mut builder = crate::Kernel::builder(crate::tests::DEVICE);
+    let archive = ARCHIVE.with(core::cell::Cell::get);
+    if !archive.is_empty() {
+        builder = builder.setting_default_text("files.archive", archive);
+    }
+    let kernel = builder.build().unwrap();
     let env = kernel.shared.env(Instant(0));
     let hosts = crate::native_host::host_services::HostServices::new();
     hosts.wire_library(host).unwrap();

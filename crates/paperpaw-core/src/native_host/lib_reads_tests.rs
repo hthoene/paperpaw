@@ -440,8 +440,13 @@ fn the_catalog_file_is_where_the_sdk_writes_it() {
 /// A whole `LibHost` for the service tests: the catalog reads, no writes.
 pub(crate) struct Host(pub(crate) CatalogReads);
 impl LibQuery for Host {
-    fn query(&self, query: &wire::ServiceLibQuery<'_>, visit: Rows<'_>) -> Result<RowsEnd, i32> {
-        self.0.query(query, visit)
+    fn query(
+        &self,
+        query: &wire::ServiceLibQuery<'_>,
+        archive: &str,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        self.0.query(query, archive, visit)
     }
     fn state(&self, visit: One<'_>) -> Result<(), i32> {
         self.0.state(visit)
