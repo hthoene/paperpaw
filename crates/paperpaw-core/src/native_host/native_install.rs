@@ -19,13 +19,15 @@ use paperpaw_sdk::{Contribution, Id, IdError, RegisterError};
 enum Owned {
     Screen(Callback),
     Action(Callback),
-    Setting(paperpaw_sdk::SettingSpec),
+    /// Boxed at once: a spec is large, and the list holds one place for each
+    /// declaration (the registration peak on the X4).
+    Setting(alloc::boxed::Box<paperpaw_sdk::SettingSpec>),
     /// The settings equal to entries `.1` to `.2` (not including) of the
     /// plugin's table `.0` in the program: no copy of them is kept
     /// (`fixed_settings`). A run, so that a pack of hundreds takes one place
     /// in the list, not one of a spec's size for each.
     FixedSettings(&'static [paperpaw_sdk::SettingSpec], usize, usize),
-    Group(paperpaw_sdk::SettingGroupSpec),
+    Group(alloc::boxed::Box<paperpaw_sdk::SettingGroupSpec>),
     Resource(super::native_resources::Resource),
     /// A screen the plugin offers for a slot (`slot.offer`).
     SlotOffer {
@@ -43,8 +45,12 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         | Record::SettingGroup(_) => match native_values::from_record(owner, record)? {
             Value::Screen(callback) => Ok(Some(Owned::Screen(callback))),
             Value::Action(callback) => Ok(Some(Owned::Action(callback))),
-            Value::Setting(spec) => Ok(Some(Owned::Setting(spec))),
-            Value::Group(group) => Ok(Some(Owned::Group(group))),
+            Value::Setting(spec) => Ok(Some(Owned::Setting(
+                super::shared::try_box(spec).ok_or(ERR_NO_MEMORY)?,
+            ))),
+            Value::Group(group) => Ok(Some(Owned::Group(
+                super::shared::try_box(group).ok_or(ERR_NO_MEMORY)?,
+            ))),
         },
         // The extras (section, editor, check) are presentation the settings
         // page reads from the declaration store; the store keeps the record.
@@ -604,7 +610,6 @@ impl crate::Kernel {
                         .map_err(shell::Error::Status)?;
                 }
                 Owned::Setting(spec) => {
-                    let spec = boxed(spec)?;
                     staging
                         .native(owner, Contribution::Setting(spec))
                         .map_err(shell::Error::Status)?;
@@ -617,7 +622,7 @@ impl crate::Kernel {
                     }
                 }
                 Owned::Group(group) => {
-                    let group = paperpaw_sdk::SettingGroup::from_boxed(boxed(group)?);
+                    let group = paperpaw_sdk::SettingGroup::from_boxed(group);
                     staging
                         .native(owner, Contribution::SettingGroup(group))
                         .map_err(shell::Error::Status)?;
