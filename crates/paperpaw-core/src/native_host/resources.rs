@@ -64,6 +64,8 @@ struct Table {
     services: ServiceRegistry,
     /// The wired views behind `core.document`, `core.library`, `core.lookup`.
     hosts: super::host_services::HostServices,
+    /// Who owns the plugin heap's blocks and the budget each may use.
+    heap: super::plugin_heap::HeapState,
 }
 
 /// Device-wide handle pool, shared by every hosted plugin on that device.
@@ -100,9 +102,22 @@ impl HostResources {
             blob_limits,
             services,
             hosts: super::host_services::HostServices::new(),
+            heap: super::plugin_heap::HeapState::new(),
         })
         .map(Self)
         .map_err(|_| FlatError::Allocation)
+    }
+
+    /// Sets the per-plugin heap budget (`named`: the shell named the limit
+    /// itself, which wins over the default of a memory class).
+    pub(crate) fn set_plugin_heap(&self, bytes: usize, named: bool) {
+        self.0.heap.set_limit(bytes, named);
+    }
+
+    /// The per-plugin heap budget now.
+    #[cfg(test)]
+    pub(crate) fn plugin_heap_limit(&self) -> usize {
+        self.0.heap.limit()
     }
 
     /// Retain this same device table without allocation.
@@ -137,10 +152,12 @@ impl HostResources {
         let table = self.0.try_clone().ok_or(ERR_NO_MEMORY)?;
         // Room for this owner's retirement is reserved now (see the queue).
         self.0.hosts.admit_owner()?;
+        let heap_owner = self.0.heap.admit().map_err(|()| ERR_NO_MEMORY)?;
         self.0.next_owner.set(next);
         Ok(OwnerResources {
             table,
             owner,
+            heap_owner,
             caller: None,
         })
     }
@@ -152,6 +169,8 @@ impl HostResources {
 pub struct OwnerResources {
     table: Shared<Table>,
     owner: u64,
+    /// This owner's place in the plugin heap's owner table.
+    heap_owner: u32,
     caller: Option<Id>,
 }
 
@@ -226,6 +245,11 @@ impl OwnerResources {
 
     pub(crate) fn owner_id(&self) -> u64 {
         self.owner
+    }
+
+    /// The plugin heap's accounting and this owner's place in it.
+    pub(crate) fn heap(&self) -> (&super::plugin_heap::HeapState, u32) {
+        (&self.table.heap, self.heap_owner)
     }
 
     /// The device's wired host views (a slot reaches its family here).

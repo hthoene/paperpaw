@@ -7,19 +7,24 @@
 //! links, annotations) is in `PORTING-7.md`.
 use crate::{
     native_actions,
+    native_chapter::{self, Chapter},
     native_document::HostDocument,
-    native_draw::{HostInk, draw_lines},
+    native_draw::{HostInk, draw_lines_marked},
+    native_index::Counter,
     native_links::DocRef,
     native_look::Look,
     native_marking::{Ctx, Marking, Outcome},
     native_open::{self, Place, Start},
     native_pages::{self, Reading, Trail, Turn},
     native_place::{self, Progress},
+    native_speech::Speaker,
+    native_status,
     native_typeset::{Faces, HostFonts},
     native_wordbox,
 };
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::ops::Range;
 use paperpaw_sdk::{
     Color, Handled, NoStorage,
     document::{DocumentError, Locator},
@@ -121,16 +126,32 @@ struct Open {
     report_due: bool,
     /// The book's title as a report carries it.
     title: String,
+    /// The book's language (a BCP 47 tag), empty where the format names none:
+    /// the voice reading aloud speaks it.
+    language: String,
+    /// The words of the page on show the sentence read aloud underlines.
+    mark: Option<Range<usize>>,
     /// The book was reported read to the end.
     finished: bool,
     /// A refused write has been said (once for a book).
     said: bool,
+    /// The count of the book's pages in this layout.
+    counter: Option<Counter>,
+    /// The device's memory class, once asked.
+    class: Option<paperpaw_sdk::native::device::DeviceClass>,
+    class_asked: bool,
+    /// The chapter of the page on show (its start, the next start, its title).
+    chapter: Option<Chapter>,
+    /// The status lines chosen at the top and the bottom.
+    status: native_status::State,
 }
 
 /// One open reading screen.
 #[derive(Debug)]
 pub struct View {
     body: Body,
+    /// Reading aloud, where the book is read aloud (`native_view/aloud.rs`).
+    speaker: Speaker,
 }
 
 /// The hand-over's values, as far as the screen reads them.
@@ -235,6 +256,7 @@ impl View {
                 meta.sections().max(1),
                 // The path stands for a title the format does not give.
                 text::copy(native_place::title_of(meta.title(), &found.path)),
+                text::copy(meta.language()),
             ),
             Err(Error::NoMemory) => {
                 Self::forget(host, docs, id);
@@ -245,8 +267,8 @@ impl View {
                 return Ok(Self::message("reader.error"));
             }
         };
-        let (sections, title) = sections;
-        let Ok(title) = title else {
+        let (sections, title, language) = sections;
+        let (Ok(title), Ok(language)) = (title, language) else {
             Self::forget(host, docs, id);
             return Err(Error::NoMemory);
         };
@@ -283,13 +305,24 @@ impl View {
             report_due: false,
             said: false,
             title,
+            language,
+            mark: None,
             finished: false,
+            counter: None,
+            class: None,
+            class_asked: false,
+            chapter: None,
+            status: native_status::State::default(),
         };
+        if let Ok(setup) = Setup::read(host) {
+            open.ensure_counter(host, &setup);
+        }
         // The host's book events start here (`document.md` 2.4); a book whose
         // first page cannot be laid out is told with its first draw.
         open.announce(host, docs);
         Ok(Self {
             body: Body::Open(open),
+            speaker: Speaker::new(0),
         })
     }
 
@@ -331,6 +364,7 @@ impl View {
     const fn message(key: &'static str) -> Self {
         Self {
             body: Body::Message(key),
+            speaker: Speaker::new(0),
         }
     }
 
@@ -351,10 +385,15 @@ impl View {
     /// # Errors
     /// The host's refusal to redraw.
     pub fn reflow(&mut self, host: &Host<'_>, docs: &Documents) -> Result<(), Error> {
+        // The words of the sentence read aloud are other ones now: it pauses.
+        self.pause_aloud(host, (docs, None), true);
         if let Body::Open(open) = &mut self.body {
             open.page = None;
             open.laid = None;
             open.trail.clear();
+            if let Ok(setup) = Setup::read(host) {
+                open.ensure_counter(host, &setup);
+            }
             open.announce(host, docs);
         }
         redraw(host, RedrawMode::Full)
@@ -491,6 +530,8 @@ impl View {
 
     /// Closes the document of the screen.
     pub fn close(&mut self, host: &Host<'_>, (docs, library): (&Documents, Option<&Library>)) {
+        // Nothing is read aloud from a book that is closed.
+        self.stop_aloud(host, (docs, library));
         if let Body::Open(open) = &mut self.body {
             open.save(host, library, When::Closing);
             Self::forget(host, docs, open.id);
@@ -532,6 +573,10 @@ impl View {
         (docs, library, ui): (&Documents, Option<&Library>, &Ui),
         input: &Input<'_>,
     ) -> Result<Handled, Error> {
+        // Any input pauses reading aloud, and "Read aloud" starts it.
+        if let Some(handled) = self.aloud_input(host, (docs, library), input) {
+            return handled;
+        }
         if matches!(
             input,
             Input::Action {
@@ -554,6 +599,9 @@ impl View {
         let Body::Open(open) = &mut self.body else {
             return Ok(Handled::No);
         };
+        if let Some(handled) = open.status_input(host, ui, input)? {
+            return Ok(handled);
+        }
         let marked = open.mark(host, (docs, Some(ui)), input)?;
         let choosing = matches!(marked, Outcome::Turn { .. });
         let moved = match marked {
@@ -575,12 +623,7 @@ impl View {
             open.marking.stay();
         }
         if moved {
-            open.unsaved = true;
-            open.turned = true;
-            open.save(host, library, When::Turn);
-            open.announce(host, docs);
-            let mut scratch = [0; 64];
-            CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
+            open.after_turn(host, (docs, library))?;
         }
         Ok(Handled::Yes)
     }
@@ -592,7 +635,7 @@ impl View {
     pub fn draw(
         &mut self,
         host: &Host<'_>,
-        docs: &Documents,
+        (docs, ui): (&Documents, Option<&Ui>),
         frame: &mut DrawFrame<'_>,
     ) -> Result<(), Error> {
         if !matches!(frame.purpose, DrawPurpose::Screen) {
@@ -600,7 +643,7 @@ impl View {
         }
         let key = match &mut self.body {
             Body::Message(key) => *key,
-            Body::Open(open) => match open.draw(host, docs, frame) {
+            Body::Open(open) => match open.draw(host, (docs, ui), frame) {
                 Ok(()) => return Ok(()),
                 Err(Error::NoMemory) => "reader.no-memory",
                 Err(Error::NotFound) => "reader.no-font",
@@ -623,6 +666,8 @@ struct LayoutKey {
 struct Setup {
     reading: Reading,
     display: Snapshot,
+    /// The room of the status lines (their size and places).
+    room: native_status::Room,
 }
 
 fn integer(host: &Host<'_>, key: &str) -> Result<i64, Error> {
@@ -643,6 +688,9 @@ fn flag(host: &Host<'_>, key: &str) -> Result<bool, Error> {
 
 impl Setup {
     fn read(host: &Host<'_>) -> Result<Self, Error> {
+        let display = snapshot::capture_snapshot(host)?;
+        let room = native_status::room(host, display.display_dpi())?;
+        let (top, bottom) = room.reserved();
         Ok(Self {
             reading: Reading::new(
                 integer(host, "core.font-size")?,
@@ -651,8 +699,10 @@ impl Setup {
                 integer(host, "core.margin")?,
                 integer(host, "core.margin-ends")?,
                 flag(host, "core.justify")?,
-            ),
-            display: snapshot::capture_snapshot(host)?,
+            )
+            .with_status(top, bottom),
+            display,
+            room,
         })
     }
 
@@ -713,18 +763,20 @@ impl Open {
         Ok(())
     }
 
-    /// Says once that the place could not be saved; after the screen closed
-    /// the device's message (`announce`) carries it, as nothing else would.
-    fn say_not_saved(&self, host: &Host<'_>, closing: bool) {
+    /// Says that the place could not be saved; after the screen closed the
+    /// device's message (`announce`) carries it, as nothing else would. Whether
+    /// the host took the notice: a quiet work run (the auto-turn's tick) is
+    /// refused one, and the next save tries again.
+    fn say_not_saved(&self, host: &Host<'_>, closing: bool) -> bool {
         let Ok(text) = Messages::new().and_then(|mut m| m.copy(host, "reader.not-saved")) else {
-            return;
+            return false;
         };
         let Ok(note) = Notify::new(&text) else {
-            return;
+            return false;
         };
         let note = if closing { note.announce() } else { note };
         let mut scratch = [0; 512];
-        CommandSender::new(host, &mut scratch).notify(note).ok();
+        CommandSender::new(host, &mut scratch).notify(note).is_ok()
     }
 
     /// Writes the place of the page on show if it is not saved: now unless
@@ -762,8 +814,7 @@ impl Open {
             self.unsaved = false;
             self.saved_at = now;
         } else if !self.said {
-            self.said = true;
-            self.say_not_saved(host, when == When::Closing);
+            self.said = self.say_not_saved(host, when == When::Closing);
         }
     }
 
@@ -771,9 +822,9 @@ impl Open {
     /// 2.4): the page on show, laid out here if it is not yet, its place and
     /// progress, and that the book is read to the end when this page ends it.
     /// The host raises the book events from it. A page that cannot be laid out,
-    /// or a refusal, is no report (the draw says what is wrong). No chapter, page
-    /// number or page count is told: the table of contents and the page index
-    /// come with their slices (`PORTING-7.md`).
+    /// or a refusal, is no report (the draw says what is wrong). The chapter and the
+    /// pages left in it come from `native_chapter`, the page numbers from the
+    /// count, once it is complete (`PORTING-7.md`).
     fn announce(&mut self, host: &Host<'_>, docs: &Documents) {
         let Ok(setup) = Setup::read(host) else {
             return;
@@ -806,6 +857,26 @@ impl Open {
         if at_end && !self.finished {
             report = report.finished();
         }
+        let numbers = self.page_numbers(host);
+        if let Some((page, pages)) = numbers {
+            report = report.pages(page, pages);
+        }
+        // The chapter of the page: asked of the table when the page leaves
+        // the one kept (`native_chapter`); no chapter where it cannot be had.
+        let at = self.at;
+        if !self.chapter.as_ref().is_some_and(|c| c.covers(at)) {
+            self.chapter = native_chapter::find(host, docs, self.id, at).ok();
+        }
+        let left = match (&self.chapter, numbers) {
+            (Some(chapter), Some(numbers)) => self.chapter_left(host, chapter, numbers),
+            _ => None,
+        };
+        if let Some(chapter) = &self.chapter {
+            report = report.chapter(chapter.title());
+        }
+        if let Some(left) = left {
+            report = report.chapter_left(left);
+        }
         let (Ok(mut input), Ok(mut out)) = (buffer(1024), buffer(64)) else {
             return;
         };
@@ -825,6 +896,7 @@ impl Open {
         if self.whole_pages {
             reading.margin = 0;
             reading.margin_ends = 0;
+            reading.status = (0, 0);
         }
         native_pages::content_box(
             setup.display.display_width(),
@@ -832,6 +904,20 @@ impl Open {
             setup.display.display_dpi(),
             &reading,
         )
+    }
+
+    /// The page on show was just changed by a turn: its place is to be saved,
+    /// the host is told, and the screen is drawn again.
+    fn after_turn(
+        &mut self,
+        host: &Host<'_>,
+        (docs, library): (&Documents, Option<&Library>),
+    ) -> Result<(), Error> {
+        self.unsaved = true;
+        self.turned = true;
+        self.save(host, library, When::Turn);
+        self.announce(host, docs);
+        redraw(host, RedrawMode::Partial)
     }
 
     /// What the marking makes of `input` on the page on show (nothing where the
@@ -950,12 +1036,26 @@ impl Open {
         setup: &Setup,
         start: (u32, u32),
     ) -> Result<Page, Error> {
+        self.lay_flagged(host, docs, setup, start)
+            .map(|(page, _)| page)
+    }
+
+    /// The page starting at `start`, and whether the host refused a font read
+    /// meanwhile (letters measured 0 wide: the page is not to be trusted).
+    fn lay_flagged(
+        &self,
+        host: &Host<'_>,
+        docs: &Documents,
+        setup: &Setup,
+        start: (u32, u32),
+    ) -> Result<(Page, bool), Error> {
         let area = self.area(setup).ok_or(Error::NoSpace)?;
         let fonts = HostFonts::acquire(host)?;
         let page =
             Faces::new(&fonts, setup.base(), setup.reading.spacing_factor()).and_then(|faces| {
                 let faces = faces.word_spacing(setup.reading.word_factor());
-                self.lay_with(host, docs, &faces, setup, start, area)
+                let page = self.lay_with(host, docs, &faces, setup, start, area)?;
+                Ok((page, faces.take_failed()))
             });
         let released = fonts.release();
         page.and_then(|page| released.map(|()| page))
@@ -984,13 +1084,13 @@ impl Open {
     fn draw(
         &mut self,
         host: &Host<'_>,
-        docs: &Documents,
+        (docs, ui): (&Documents, Option<&Ui>),
         frame: &mut DrawFrame<'_>,
     ) -> Result<(), Error> {
         let setup = Setup::read(host)?;
         let area = self.area(&setup).ok_or(Error::NoSpace)?;
         let fonts = HostFonts::acquire(host)?;
-        let drawn = self.draw_with(host, docs, frame, &setup, &fonts, area);
+        let drawn = self.draw_with(host, (docs, ui), frame, (&setup, &fonts, area));
         let released = fonts.release();
         drawn.and(released)
     }
@@ -998,11 +1098,9 @@ impl Open {
     fn draw_with(
         &mut self,
         host: &Host<'_>,
-        docs: &Documents,
+        (docs, ui): (&Documents, Option<&Ui>),
         frame: &mut DrawFrame<'_>,
-        setup: &Setup,
-        fonts: &HostFonts<'_>,
-        area: native_pages::Box,
+        (setup, fonts, area): (&Setup, &HostFonts<'_>, native_pages::Box),
     ) -> Result<(), Error> {
         let faces = Faces::new(fonts, setup.base(), setup.reading.spacing_factor())?
             .word_spacing(setup.reading.word_factor());
@@ -1033,7 +1131,8 @@ impl Open {
             rect.x as f32 + f32::from(area.x),
             rect.y as f32 + f32::from(area.y),
         );
-        draw_lines(&mut ink, &faces, page, origin)?;
+        draw_lines_marked(&mut ink, &faces, page, origin, self.mark.clone())?;
+        self.paint_status(host, ui, frame, (setup, &area))?;
         let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),
             &self.words,
@@ -1086,7 +1185,10 @@ fn say_with(
     paint::replay(frame, font, body.iter())
 }
 
+mod aloud;
+mod count;
 mod r3;
+mod status;
 
 #[cfg(test)]
 mod tests;

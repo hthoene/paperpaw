@@ -46,8 +46,26 @@ impl Settings {
         specs: usize,
         groups: usize,
     ) -> Result<(), alloc::collections::TryReserveError> {
-        self.specs.try_reserve(specs)?;
-        self.groups.try_reserve(groups)
+        self.specs.try_reserve(specs, 0)?;
+        self.groups.try_reserve_exact(groups)
+    }
+
+    /// [`Settings::try_reserve`] for `owned` settings made on the heap and
+    /// `fixed` kept in the program ([`Settings::define_fixed`]), which need
+    /// only their places in the indexes.
+    ///
+    /// # Errors
+    /// The heap refused the room (some may be kept).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn try_reserve_with_fixed(
+        &mut self,
+        owned: usize,
+        fixed: usize,
+        groups: usize,
+    ) -> Result<(), alloc::collections::TryReserveError> {
+        self.specs.try_reserve(owned, fixed)?;
+        self.groups.try_reserve_exact(groups)
     }
 
     /// Forgets the settings and groups of `plugin` (ids `<plugin>.…`) and the
