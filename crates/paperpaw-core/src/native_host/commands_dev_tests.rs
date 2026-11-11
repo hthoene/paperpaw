@@ -47,6 +47,18 @@ fn kernel() -> Kernel {
     kernel
 }
 
+/// [`kernel`] where the user chose no network manager (the default names
+/// `wifi`, which then needs no recent input).
+fn kernel_without_manager() -> Kernel {
+    let mut kernel = kernel();
+    kernel
+        .shared
+        .settings
+        .set(NETWORK_MANAGER, SettingValue::Text("".into()))
+        .unwrap();
+    kernel
+}
+
 fn join(request: u32, ssid: &str) -> WireCommand<'_> {
     WireCommand::WifiJoin {
         request,
@@ -454,7 +466,7 @@ fn unsupported_and_needs_user_end_at_once_without_touching_the_radio() {
     assert_eq!((request, done.status, done.reason), (1, ERR_UNSUPPORTED, 5));
     assert!(wifi_calls(&mut elsewhere).is_empty());
 
-    let mut kernel = kernel();
+    let mut kernel = kernel_without_manager();
     let stale = Clock(10_000, Some(7_000));
     assert_eq!(run(&mut kernel, &owner, &[join(1, "net")], &stale), OK);
     let (_, done) = outcome(&kernel, "wifi").unwrap();
@@ -474,7 +486,7 @@ fn unsupported_and_needs_user_end_at_once_without_touching_the_radio() {
 #[test]
 fn the_input_window_for_join_ends_after_2000_ms_inclusive() {
     for (since, honoured) in [(1_999, true), (2_000, true), (2_001, false)] {
-        let mut kernel = kernel();
+        let mut kernel = kernel_without_manager();
         let owner = Id::new_static("wifi");
         let clock = Clock(50_000, Some(50_000 - since));
         assert_eq!(run(&mut kernel, &owner, &[join(1, "net")], &clock), OK);
@@ -499,13 +511,7 @@ fn the_input_window_for_join_ends_after_2000_ms_inclusive() {
 fn a_stored_password_or_the_network_manager_needs_no_input_but_a_host_does() {
     let stale = Clock(100_000, Some(0));
     let owner = Id::new_static("wifi");
-    let mut kernel = kernel();
-    // The user chose no network manager (the default is `wifi`).
-    kernel
-        .shared
-        .settings
-        .set(NETWORK_MANAGER, SettingValue::Text("".into()))
-        .unwrap();
+    let mut kernel = kernel_without_manager();
     assert_eq!(run(&mut kernel, &owner, &[join(1, "home")], &stale), OK);
     assert_eq!(wifi_calls(&mut kernel).len(), 1, "stored password");
     assert_eq!(

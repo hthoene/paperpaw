@@ -91,28 +91,7 @@ impl Plugin for CorePlugin {
                 paperpaw_sdk::SettingValue::Text(Cow::Owned(String::from(text))),
             ));
         })?;
-        // Each plugin's network (its settings made by the kernel).
-        static NETWORK: SettingGroupSpec =
-            SettingGroupSpec::new(crate::work::NETWORK_GROUP, "core.group.network")
-                .order(87)
-                .within(groups::PLUGINS);
-        r.add_setting_group(&NETWORK)?;
-        static NETWORK_ICON: [(Id, &str); 1] = [(crate::work::NETWORK_GROUP, "world")];
-        r.add_icons(&NETWORK_ICON)?;
-        // The plugin that brings a network up when work or a plugin wants
-        // one (`event.network_wanted`/`idle` go to it alone): the Wi-Fi
-        // plugin, as in Beta 3. Where there is none by that id the events go
-        // nowhere; empty (or another id) is the user's choice, and a reset
-        // brings the default back.
-        static MANAGER: [paperpaw_sdk::SettingSpec; 1] = [paperpaw_sdk::SettingSpec::text(
-            crate::native_host::commands::dev::NETWORK_MANAGER,
-            "core.setting.network-manager",
-            "wifi",
-            crate::work::NETWORK_GROUP,
-        )
-        .advanced()
-        .description("core.setting.network-manager.help")];
-        r.add_settings(&MANAGER)?;
+        crate::work::register_network(r)?;
         Ok(())
     }
 }
