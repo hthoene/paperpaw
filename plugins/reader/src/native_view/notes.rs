@@ -8,8 +8,8 @@ use crate::native_marking::act::NoteAsk;
 use crate::native_marks::{Span, edit};
 
 impl Open {
-    /// The highlights read again from the library (a change was made). Where
-    /// the library cannot say, the ones held stay.
+    /// The highlights read again from the library (a change was made). The old list is freed
+    /// first.
     pub(super) fn reload_marks(
         &mut self,
         host: &Host<'_>,
@@ -18,6 +18,10 @@ impl Open {
         let Some(library) = library else {
             return Ok(());
         };
+        // The old list is freed before the new one is read, so the two are never
+        // held at once (up to 12 KiB each); where the read fails the page has no
+        // highlights until the next reading, not stale ones.
+        drop(self.marks.take());
         match native_marks::load(host, library, &self.path, self.conversion) {
             Ok(spans) => self.marks.replace(spans),
             Err(Error::NoMemory) => return Err(Error::NoMemory),

@@ -92,6 +92,12 @@ impl Marks {
         &self.highlights
     }
 
+    /// Gives up the highlights held (to free them before a new reading of the
+    /// library: the old list and the new one are not held at once).
+    pub fn take(&mut self) -> Vec<Span> {
+        core::mem::take(&mut self.highlights)
+    }
+
     /// Takes the highlights of a new reading of the library.
     pub fn replace(&mut self, highlights: Vec<Span>) {
         self.highlights = highlights;
