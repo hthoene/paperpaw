@@ -485,11 +485,24 @@ pub fn asked(
         Plan::SameOpen => Reply::Join,
         Plan::Ask { close_stale } => {
             if close_stale {
-                // What the closed dialog left: told *declined*, then closed.
-                if let Ok(Some(left)) = Request::open(storage) {
-                    stale = left.ids;
+                // What the closed dialog left: told *declined*, then closed. Where
+                // it cannot be read it is left on the card, its ids unanswered
+                // until the next ask can read it, and this ask is *failed*
+                // (nothing is shown over a request that was not answered).
+                match Request::open(storage) {
+                    Ok(left) => {
+                        if let Some(left) = left {
+                            stale = left.ids;
+                        }
+                        Request::close(storage);
+                    }
+                    Err(_) => {
+                        return Ok(Asked {
+                            stale,
+                            reply: Reply::AnswerAll(PluginOutcome::Failed),
+                        });
+                    }
                 }
-                Request::close(storage);
             }
             match offer(storage, say, index, by, wanted, online) {
                 Ok(Reply::Dialog(dialog)) => {
@@ -529,8 +542,8 @@ pub enum Decision {
     Download,
     /// *Not now*, or the dialog could not be shown.
     NotNow,
-    /// The dialog was closed without an answer: nothing is told (no download
-    /// starts); the next ask closes what it left.
+    /// The dialog was closed without an answer: no download starts and every
+    /// id of the request is answered *declined* (the request is closed).
     Ignore,
 }
 
