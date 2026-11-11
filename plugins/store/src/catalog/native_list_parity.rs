@@ -238,7 +238,7 @@ proptest! {
             official,
             provides: provides(on),
         };
-        let hooks = Hooks { author_of: &nothing, stopped: &none };
+        let hooks = Hooks { author_of: &nothing, stopped: &none, host_checks: false };
         let mut reader = ListReader::new(device, hooks);
         let mut new = Vec::new();
         for piece in text.as_bytes().chunks(chunk) {

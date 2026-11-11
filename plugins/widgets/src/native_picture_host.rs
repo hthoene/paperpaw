@@ -3,7 +3,7 @@
 //! back the pictures the host answers with, and tells the widget to draw again.
 //! What to choose and what an answer means is `native_picture`'s.
 use crate::native_picture::{self, Folder, Next, PATH_MAX, Refusal};
-use crate::native_plugin::NativeWidgets;
+use crate::native_plugin::State;
 use paperpaw_sdk::native::{
     Error, Host,
     commands::CommandSender,
@@ -57,7 +57,7 @@ fn release(host: &Host<'_>, image: ImageId) {
         .ok();
 }
 
-impl NativeWidgets {
+impl State {
     /// Tells the maker of widget `instance` that it shows something new.
     fn picture_changed(&self, host: &Host<'_>, instance: u32) {
         if let Some(item) = self

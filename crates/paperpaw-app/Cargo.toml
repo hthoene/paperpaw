@@ -118,7 +118,15 @@ paperpaw-plugin-files = { workspace = true, optional = true }
 paperpaw-plugin-fonts-default = { workspace = true, default-features = false }
 paperpaw-plugin-fonts-browser = { workspace = true, optional = true }
 paperpaw-plugin-store.workspace = true
+paperpaw-epub-family.workspace = true
+# The five plugins' crates, listed here for the plugin list and the catalog
+# indexes (build.rs); the interface-6 registrations come from the family
+# crate until the removals.
 paperpaw-plugin-format-epub.workspace = true
+paperpaw-plugin-format-html.workspace = true
+paperpaw-plugin-format-fb2.workspace = true
+paperpaw-plugin-format-markdown.workspace = true
+paperpaw-plugin-format-cbz.workspace = true
 paperpaw-plugin-format-txt.workspace = true
 paperpaw-plugin-format-xtc.workspace = true
 paperpaw-plugin-home.workspace = true

@@ -215,7 +215,8 @@ pub(super) fn scan(
         loop {
             let window = &buf.data[start..end];
             let Some(at) = window.iter().position(|byte| *byte == b'\n') else {
-                if window.len() >= LINE_MAX {
+                // No break yet in more than `LINE_MAX` bytes: a longer line.
+                if window.len() > LINE_MAX {
                     let piece = Piece::Opaque {
                         bytes: window,
                         end: false,
@@ -228,7 +229,9 @@ pub(super) fn scan(
                 }
                 break;
             };
-            let piece = if opaque || at >= LINE_MAX {
+            // `at` is the line's length without its break: `LINE_MAX` is
+            // still a line this host reads.
+            let piece = if opaque || at > LINE_MAX {
                 Piece::Opaque {
                     bytes: &window[..at],
                     end: true,

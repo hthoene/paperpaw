@@ -402,23 +402,24 @@ These change the user's configuration of the whole device, so they need the D1 f
   host-known submitter as `by`, to the plugins that subscribed to it and declare the install feature
   (`uses.install`, below: the plugins that may answer, the store among them); a plugin that
   subscribed without it does not hear it. With no such subscriber, every id is answered `failed` at
-  once and the request is not kept (its number is 0). A subscriber asks the user and answers each id
-  with `command.answer_plugin` (`outcome` 0 installed, 1 declined, 2 failed, 3 not found; the host
-  refuses other values with `ERR_INVALID`, and a consumer of event 78 treats an outcome it does not
-  know as `failed`, never as installed). Only a plugin that declares the install feature
-  (`uses.install`, DEV) may answer; any other gets `ERR_DENIED`, so a plugin that merely subscribes
-  can neither fake an install nor block the store. The refusal is for the whole batch, wherever the
-  command sits in it, and the host never falls back to "any subscriber" (DEV defines `uses.install`,
-  `device.md` 1). With no subscriber that declares it, every request is answered `failed` at once
-  (the no-subscriber rule above). The host checks that the request and the id are open (else
-  `ERR_STATE`; the first answer for an id wins), against the ids open when the callback began; with
-  more than 16 ids open device-wide that check may pass an answer for an id that is no longer open,
-  and the host then drops it when it applies the batch, without a status. It checks `installed`
-  itself: the id must be on the device now, else the answer is stored as `failed`. It raises
-  `plugin_answered` to the requester only. A request stays open until every id is answered, no
-  subscriber that may answer is left, or the device restarts; then the open ids are answered
-  `failed` by the host. A request whose requester stopped is dropped (nobody is left to hear its
-  answers).
+  once, under a real (nonzero) request number that the host keeps nowhere. Request number 0 marks
+  only the `failed` answers to a request the host could not take in, its table being full or busy. A
+  subscriber asks the user and answers each id with `command.answer_plugin` (`outcome` 0 installed,
+  1 declined, 2 failed, 3 not found; the host refuses other values with `ERR_INVALID`, and a
+  consumer of event 78 treats an outcome it does not know as `failed`, never as installed). Only a
+  plugin that declares the install feature (`uses.install`, DEV) may answer; any other gets
+  `ERR_DENIED`, so a plugin that merely subscribes can neither fake an install nor block the store.
+  The refusal is for the whole batch, wherever the command sits in it, and the host never falls back
+  to "any subscriber" (DEV defines `uses.install`, `device.md` 1). With no subscriber that declares
+  it, every request is answered `failed` at once (the no-subscriber rule above). The host checks
+  that the request and the id are open (else `ERR_STATE`; the first answer for an id wins), against
+  the ids open when the callback began; with more than 16 ids open device-wide that check may pass
+  an answer for an id that is no longer open, and the host then drops it when it applies the batch,
+  without a status. It checks `installed` itself: the id must be on the device now, else the answer
+  is stored as `failed`. It raises `plugin_answered` to the requester only. A request stays open
+  until every id is answered, no subscriber that may answer is left, or the device restarts; then
+  the open ids are answered `failed` by the host. A request whose requester stopped is dropped
+  (nobody is left to hear its answers).
 - [D] All four follow the EVT pending limits and drop rules (`core-events.md` section 3.3).
   `plugins_requested` and `plugin_answered` are edges and never coalesced; the two hints are.
 

@@ -91,7 +91,8 @@ fn main() -> Result<(), String> {
                 "vocabulary",
                 "GROUPS",
                 &batches,
-            )?;
+            )?
+            + &paperpaw_sdk::native::declare::fixed_ids_source("vocabulary", "IDS", &batches)?;
     std::fs::write(out.join("vocabulary_settings.rs"), table)
         .map_err(|error| format!("write settings table: {error}"))?;
     std::fs::write(out.join("vocabulary_declarations.rs"), source)

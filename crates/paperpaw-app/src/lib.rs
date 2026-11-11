@@ -140,7 +140,7 @@ pub const fn default_store() -> StorePlugins<'static> {
 ///
 /// The plugins the store offers as files too ([`STORE_PLUGINS`]) are in the
 /// list only with the feature `native-linked-store`; whether one registers is
-/// [`native_registers`]. Not in the list yet, because their ports are not
+/// [`native_default_on`]. Not in the list yet, because their ports are not
 /// finished (each one's `PORTING-7.md` says what is open) or the interface-6
 /// reader still reads books through their interface-6 forms: the formats (epub
 /// family, docx, images, mobi), sleep, dictionary, store, fonts-browser,
@@ -247,9 +247,21 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
     macro_rules! tables {
         ($plugin:ident) => {
             FixedTables::new($plugin::NATIVE_SETTINGS, $plugin::NATIVE_GROUPS)
+                .with_ids($plugin::NATIVE_IDS)
         };
     }
     match id {
+        "about" => tables!(paperpaw_plugin_about),
+        "files" => tables!(paperpaw_plugin_files),
+        "plugin-manager" => tables!(paperpaw_plugin_plugin_manager),
+        "setup" => tables!(paperpaw_plugin_setup),
+        "transfer" => tables!(paperpaw_plugin_transfer),
+        "update" => tables!(paperpaw_plugin_update),
+        "wifi" => tables!(paperpaw_plugin_wifi),
+        #[cfg(feature = "native-linked-store")]
+        "mail" => tables!(paperpaw_plugin_mail),
+        #[cfg(feature = "native-linked-store")]
+        "notes-vault" => tables!(paperpaw_plugin_notes_vault),
         "bluetooth" => tables!(paperpaw_plugin_bluetooth),
         "file-manager" => tables!(paperpaw_plugin_file_manager),
         "help" => tables!(paperpaw_plugin_help),
@@ -406,7 +418,7 @@ fn list(
 
 /// The translation catalogs plugin `id` brings built in, as the texts of its
 /// `i18n/<language>.ini` files (a linked native plugin has no code file to
-/// carry them: `screens-input.md` [D]). Empty for a plugin with none.
+/// carry them: `screens-input.md` \[D\]). Empty for a plugin with none.
 #[cfg(feature = "native-linked")]
 #[must_use]
 pub fn native_catalogs(id: &str) -> &'static [&'static str] {
@@ -496,15 +508,15 @@ pub fn install_with(
             .plugin(paperpaw_plugin_format_xtc::XtcFormat);
     }
     b = b
-        .plugin(paperpaw_plugin_format_epub::EpubFormat)
-        .plugin(paperpaw_plugin_format_epub::HtmlFormat)
-        .plugin(paperpaw_plugin_format_epub::Fb2Format)
-        .plugin(paperpaw_plugin_format_epub::MarkdownFormat)
-        .plugin(paperpaw_plugin_format_epub::CbzFormat)
+        .plugin(paperpaw_epub_family::EpubFormat)
+        .plugin(paperpaw_epub_family::HtmlFormat)
+        .plugin(paperpaw_epub_family::Fb2Format)
+        .plugin(paperpaw_epub_family::MarkdownFormat)
+        .plugin(paperpaw_epub_family::CbzFormat)
         .plugin(paperpaw_plugin_dictionary::DictionaryPlugin);
-    // Reader, Home and Menu keep their order; they are native plugins,
-    // linked (`NATIVE_PLUGINS`), where the features say (Home and Reader:
-    // `native-linked-reading`, Menu: `native-linked`).
+    // Reader and Home keep their order; they are native plugins, linked
+    // (`NATIVE_PLUGINS`), where the feature says (`native-linked-reading`);
+    // Menu where `native-linked` says.
     #[cfg(not(feature = "native-linked-reading"))]
     {
         b = b

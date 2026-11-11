@@ -526,6 +526,10 @@ fn walks() -> Vec<(String, Vec<Step>)> {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "native-linked",
+    ignore = "needs native activation (#228, #243): the walks set reader and vocabulary settings that only the linked native plugins register, and this test installs the interface-6 plugins only"
+)]
 fn no_screen_reads_while_it_draws() {
     let card = card();
     let mut found = String::new();
