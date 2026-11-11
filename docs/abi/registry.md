@@ -402,7 +402,7 @@ These change the user's configuration of the whole device, so they need the D1 f
   host-known submitter as `by`, to the plugins that subscribed to it and declare the install feature
   (`uses.install`, below: the plugins that may answer, the store among them); a plugin that
   subscribed without it does not hear it. With no such subscriber, every id is answered `failed` at
-  once and the request is not kept (its number is 0). A subscriber asks the user and answers each id
+  once; the request is numbered but kept nowhere. A subscriber asks the user and answers each id
   with `command.answer_plugin` (`outcome` 0 installed, 1 declined, 2 failed, 3 not found; the host
   refuses other values with `ERR_INVALID`, and a consumer of event 78 treats an outcome it does not
   know as `failed`, never as installed). Only a plugin that declares the install feature
