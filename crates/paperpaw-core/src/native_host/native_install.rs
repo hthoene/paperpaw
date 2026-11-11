@@ -290,20 +290,12 @@ impl crate::Kernel {
             .native_instances
             .attach_screens(&self.shared.stack_rows);
         if self.shared.registry.native_declarations.is_none() {
-            let declarations = super::shared::Shared::try_new(
-                super::native_declarations::NativeDeclarations::default(),
-            )
-            .map_err(|_| shell::Error::Allocation)?;
-            // The native formats' files are books of the catalog too.
-            let others = declarations
-                .downgrade()
-                .map(super::native_book_formats::NativeBookFormats::new)
-                .and_then(|others| {
-                    super::shared::try_box(move |name: Option<&str>| others.ask(name))
-                })
-                .ok_or(shell::Error::Allocation)?;
-            self.shared.formats.set_others(others);
-            self.shared.registry.native_declarations = Some(declarations);
+            self.shared.registry.native_declarations = Some(
+                super::shared::Shared::try_new(
+                    super::native_declarations::NativeDeclarations::default(),
+                )
+                .map_err(|_| shell::Error::Allocation)?,
+            );
         }
         let depth = depth.try_clone().ok_or(shell::Error::Allocation)?;
         // The first plugin's depth is the shell's device-wide one, and every

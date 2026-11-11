@@ -700,6 +700,7 @@ impl BuilderParts {
                     crate::native_host::registry_generation::RegistryGeneration::new(),
                 ),
                 formats: Formats::new(),
+                native_book_formats: Default::default(),
                 hyphenation,
                 hyphen_feed: crate::hyphen_feed::HyphenFeed::new(),
                 menus: Menus::new(),
