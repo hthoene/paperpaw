@@ -6,6 +6,13 @@ verschlüsselt. Es ist kein Release und nichts für andere Leute. **Du flashst
 selbst; kein Agent tut das.** Das wurde auf keinem Gerät ausprobiert. Schritte
 mit *(offen #2462)* werden ergänzt, wenn Seniors Bedingungen fertig sind.
 
+> **Notiere vor dem Flashen deine WLAN- und Konto-Passwörter; du musst sie später
+> neu eingeben.** Beim ersten Schreiben eines Geheimnisses verschleiert das
+> Testimage *alle* Passwortzeilen von Beta 3 neu. Mit der echten Verschlüsselung
+> später oder nach dem Zurück auf Beta 3 sind alle Passwörter auf diesem X4 (WLAN,
+> Konten) weg und müssen neu eingegeben werden. Bücher und übrige Einstellungen
+> bleiben.
+
 Du brauchst: den X4, ein USB-Kabel, Akku über 50 %, `espflash`
 (`cargo install espflash --version 4.6.0 --locked`) und diesen Ordner.
 

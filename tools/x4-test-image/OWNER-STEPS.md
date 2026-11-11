@@ -6,6 +6,12 @@ a release and must not be given to anyone else. **You flash it; no agent does.**
 Nothing here has been run on a device. Steps marked *(pending #2462)* are
 filled in when Senior's conditions have landed.
 
+> **Note your Wi-Fi/account passwords before flashing; you'll need to re-enter
+> them later.** The first time the test image writes a secret it re-veils *all*
+> the password lines Beta 3 saved. Under the real encryption that comes later, or
+> after going back to Beta 3, every password on this X4 (Wi-Fi, accounts) is gone
+> and has to be typed in again. Your books and the rest of the settings stay.
+
 What you need: the X4, a USB cable, a charged battery (above 50 %),
 [espflash](https://github.com/esp-rs/espflash) (`cargo install espflash
 --version 4.6.0 --locked`; the bundle was made with the version in
