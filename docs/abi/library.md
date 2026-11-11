@@ -265,14 +265,23 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   (DOC op 15) on first use and kept in the host's cover cache; `ERR_NOT_FOUND` for a book without
   one; while it is being made `ERR_BUSY` and `event.library_changed` bit 6 when it is ready
   (interface 6 lazy covers).
-  **Made covers inline, the rest in the background (#248).** A cover the host already made (the
-  cover job below made it; the host remembers the last 32 books in 256 bytes) is answered inside
-  the asking call, in the caller's frame: the host opens the book as the caller (root 1, no
-  `uses.storage`), asks the format (DOC op 15), which reads it from its cache and decodes nothing,
-  adopts the picture as the caller's own id (the same cover file has one id) and closes the
-  document. Any other cover is `ERR_BUSY`: no picture is decoded in a list's frame; the book goes
-  to the cover job below, which asks the format for the cover once the book is ready, and bit 6
-  follows. A format that is not running yet is `ERR_BUSY` with bit 6 raised, so the caller
+  **Made covers inline, the rest in the background (#248).** A cover the host already made is
+  answered inside the asking call, in the caller's frame: the host opens the book as the caller
+  (root 1, no `uses.storage`), asks the format (DOC op 15), which reads it from its cache and
+  decodes nothing, adopts the picture as the caller's own id (the same cover file has one id) and
+  closes the document. Any other cover is `ERR_BUSY`: no picture is decoded in a list's frame. A
+  book that is ready at its open stays open as the host's one **cover to make**, beside the cover
+  job (a job held back for the list never keeps it waiting): the pump's next look asks the format
+  for the cover (DOC op 17) outside every frame, closes the document and raises bit 6 (not while a
+  book is open for reading: it then only ends, and the list asks again when shown). While one
+  waits, other covers not made are `ERR_BUSY` without the book being opened. A preparing book
+  goes to the cover job below, which does the same once it is ready. A book counts as made once
+  its format answered (a picture, or none: `ERR_NOT_FOUND` inline from then on); a call that failed
+  otherwise counts the book as failed (below). The host remembers 32 made books in RAM (256 bytes),
+  the least recently asked written over; a card change, move or delete only means an inline
+  decode again, never a wrong picture. A cover made while more than 32 are on screen (asked since
+  the last made) would write over one shown: it counts towards the failed-jobs cap below instead
+  of resetting it, so the raises end. follows. A format that is not running yet is `ERR_BUSY` with bit 6 raised, so the caller
   asks again (one counter for the whole library host, not per book: after 6 raises in a row it
   raises no more until a cover is made); a full document table is `ERR_BUSY` and **raises nothing**
   (it does not clear by itself: the caller closes a document).
