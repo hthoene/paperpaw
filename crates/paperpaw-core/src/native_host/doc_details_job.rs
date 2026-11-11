@@ -188,7 +188,8 @@ impl Reader<'_> {
             text.push_str(piece);
             let read = u32::try_from(answer.text.len()).map_err(|_| ERR_NO_MEMORY)?;
             offset = offset.saturating_add(read);
-            if piece.len() < answer.text.len() || read == 0 || offset >= answer.total {
+            let whole = piece.len() < answer.text.len() || text.len() >= cap;
+            if whole || read == 0 || offset >= answer.total {
                 return Ok(text);
             }
         }

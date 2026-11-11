@@ -91,6 +91,10 @@ struct World<'a> {
     sniffs: RefCell<Vec<u64>>,
     /// What the format answers to the next call.
     reply: RefCell<Result<Vec<u8>, i32>>,
+    /// Answers to the next calls, in order, before `reply` (a details read).
+    script: RefCell<alloc::collections::VecDeque<Vec<u8>>>,
+    /// (kind, index, offset) of each op 6 `meta_text` call.
+    texts: RefCell<Vec<(u32, u32, u32)>>,
     /// The screen instance the opener's call runs in (`Frame::calling_instance`).
     instance: Cell<Option<u32>>,
     /// (owner, token, the call's fmt op) of each call made to a format.
@@ -193,7 +197,12 @@ impl Frame for World<'_> {
             .unwrap()
             .unwrap()
         {
-            local::Record::FmtCall(c) => (c.op, c.arg.len()),
+            local::Record::FmtCall(c) => {
+                if c.op == 6 {
+                    self.texts.borrow_mut().push((c.flags, c.index, c.offset));
+                }
+                (c.op, c.arg.len())
+            }
             other => panic!("{other:?}"),
         };
         self.calls.borrow_mut().push((owner, token, op));
@@ -228,7 +237,11 @@ impl Frame for World<'_> {
             accept(&reply[..n])?;
             return Ok(n);
         }
-        let answer = self.reply.borrow().clone()?;
+        let scripted = self.script.borrow_mut().pop_front();
+        let answer = match scripted {
+            Some(answer) => answer,
+            None => self.reply.borrow().clone()?,
+        };
         reply[..answer.len()].copy_from_slice(&answer);
         accept(&reply[..answer.len()])?;
         Ok(answer.len())
@@ -536,6 +549,8 @@ fn world<R>(body: impl FnOnce(&World<'_>) -> R) -> R {
         fail: Cell::new(0),
         instance: Cell::new(None),
         reply: RefCell::new(Ok(state_reply())),
+        script: RefCell::new(alloc::collections::VecDeque::new()),
+        texts: RefCell::new(Vec::new()),
         calls: RefCell::new(Vec::new()),
         hosts,
         state,
