@@ -303,6 +303,13 @@ impl StackRows {
             generation.checked_add(1).unwrap_or(0)
         });
     }
+    /// Whether the instance is secret now, by the kernel's last stack update (its
+    /// run-time policy included); one the rows do not hold, or a stale snapshot,
+    /// counts as secret (fail closed).
+    pub(crate) fn secret_now(&self, instance: u32) -> bool {
+        self.instance(instance, self.generation.get())
+            .is_none_or(|row| row.secret || row.guards)
+    }
     pub(crate) fn instance(&self, instance: u32, generation: u64) -> Option<Row> {
         if !self.valid(generation) || instance == 0 {
             return None;
@@ -621,6 +628,22 @@ mod tests {
         // An overflowed snapshot fails closed.
         let many: alloc::vec::Vec<StackRow> = (1..=17).map(|n| row(n, 9, 0)).collect();
         assert_eq!(topmost(&many, 9), None);
+    }
+
+    #[test]
+    fn an_instance_is_secret_now_by_the_last_update_and_a_missing_one_is_secret() {
+        let rows = StackRows::default();
+        rows.update([row(1, 9, 0), row(2, 9, SECRET), row(3, 9, GUARDS)]);
+        assert!(!rows.secret_now(1));
+        assert!(rows.secret_now(2));
+        assert!(rows.secret_now(3));
+        // Not on the stack, or no instance: fail closed.
+        assert!(rows.secret_now(7));
+        assert!(rows.secret_now(0));
+        // A policy that changed at run time shows with the next update.
+        rows.update([row(1, 9, SECRET), row(2, 9, 0)]);
+        assert!(rows.secret_now(1));
+        assert!(!rows.secret_now(2));
     }
 }
 

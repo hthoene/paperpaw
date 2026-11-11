@@ -72,6 +72,14 @@ pub(crate) trait Dispatch {
     ) -> Result<i32, i32> {
         Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     }
+    /// Whether the kernel holds the instance `key` secret now (its run-time
+    /// policy, `command.screen_policy`, included; a missing row counts as
+    /// secret), `None` where the dispatcher cannot tell: the screen's own
+    /// declaration then decides.
+    fn secret_now(&self, key: Option<ScreenKey>) -> Option<bool> {
+        let _ = key;
+        None
+    }
     fn dropped(&self, token: u32, status: i32);
 }
 
@@ -117,6 +125,9 @@ impl<T: Dispatch + ?Sized> Dispatch for Rc<T> {
     }
     fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], env: &Env<'_>) -> Result<i32, i32> {
         (**self).stage(token, bytes, out, env)
+    }
+    fn secret_now(&self, key: Option<ScreenKey>) -> Option<bool> {
+        (**self).secret_now(key)
     }
     fn dropped(&self, token: u32, status: i32) {
         (**self).dropped(token, status);
@@ -164,6 +175,9 @@ impl<T: Dispatch> Dispatch for super::shared::Shared<T> {
     }
     fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], env: &Env<'_>) -> Result<i32, i32> {
         (**self).stage(token, bytes, out, env)
+    }
+    fn secret_now(&self, key: Option<ScreenKey>) -> Option<bool> {
+        (**self).secret_now(key)
     }
     fn dropped(&self, token: u32, status: i32) {
         (**self).dropped(token, status);
@@ -348,9 +362,11 @@ impl<D: Dispatch> NativeScreen<D> {
 
     /// Whether the kernel's draw of this screen is to reach the plugin: it is on
     /// the stack, and the screens above it (none, for the top one) are all
-    /// overlays. Under an overlay of another plugin a screen that is secret, or at
-    /// or below a guard, is not drawn (its area stays blank: the sleep screen over a
-    /// locked device never shows the page or the PIN screen).
+    /// overlays. Under an overlay of another plugin a screen that is secret now
+    /// (the kernel's run-time answer, a guard included), or that is on a stack
+    /// with a guard (it guards, lies above one, or is under one), is not drawn:
+    /// its area stays blank, so the sleep screen over a locked device never
+    /// shows the page or the PIN screen.
     fn shown_below(&self, env: &Env<'_>) -> bool {
         let Some(key) = self.key else {
             return false;
@@ -363,7 +379,11 @@ impl<D: Dispatch> NativeScreen<D> {
         if !above.iter().all(|entry| entry.overlay) {
             return false;
         }
-        let guarded = self.secret() || stack[at..].iter().any(|entry| entry.guards);
+        let secret = self
+            .dispatch
+            .secret_now(self.key)
+            .unwrap_or_else(|| self.secret());
+        let guarded = secret || stack.iter().any(|entry| entry.guards);
         let foreign = above
             .iter()
             .any(|entry| entry.screen.namespace() != self.id.namespace());

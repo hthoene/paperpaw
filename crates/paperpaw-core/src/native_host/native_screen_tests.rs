@@ -13,6 +13,8 @@ struct Recorder {
     draws: RefCell<Vec<DrawCall>>,
     dropped: RefCell<Vec<(u32, i32)>>,
     result: Cell<i32>,
+    /// What the kernel answers to `secret_now` (`None`: it cannot tell).
+    secret_now: Cell<Option<bool>>,
 }
 impl Dispatch for Recorder {
     fn event(&self, token: u32, bytes: &[u8], _: &Env<'_>) -> Result<i32, i32> {
@@ -40,6 +42,9 @@ impl Dispatch for Recorder {
             canvas.clip(),
         ));
         Ok(self.result.get())
+    }
+    fn secret_now(&self, _: Option<ScreenKey>) -> Option<bool> {
+        self.secret_now.get()
     }
     fn dropped(&self, token: u32, status: i32) {
         self.dropped.borrow_mut().push((token, status));
@@ -225,6 +230,42 @@ fn under_another_plugins_overlay_a_secret_or_guarded_screen_stays_blank() {
     );
     secret.flags = 1 << 4;
     assert_eq!(drawn(&kernel, &mut secret, &calls), 0);
+}
+
+#[test]
+fn a_screen_that_becomes_secret_at_run_time_goes_blank_under_another_plugins_overlay() {
+    // Declared plain, made secret by `command.screen_policy`: the kernel says so.
+    let (kernel, mut page, calls) = stacked(
+        &[("keys.entry", false, false), ("sleep.screen", true, false)],
+        0,
+    );
+    assert_eq!(drawn(&kernel, &mut page, &calls), 1);
+    calls.secret_now.set(Some(true));
+    assert_eq!(drawn(&kernel, &mut page, &calls), 0);
+    // Its own plugin's overlay does not blank it, nor does a kernel that says no.
+    let (kernel, mut page, calls) = stacked(
+        &[("keys.entry", false, false), ("keys.menu", true, false)],
+        0,
+    );
+    calls.secret_now.set(Some(true));
+    assert_eq!(drawn(&kernel, &mut page, &calls), 1);
+}
+
+#[test]
+fn a_dialog_above_a_guard_stays_blank_under_the_sleep_screen() {
+    // The lock guards; its PIN dialog (an overlay of the lock, so secret as it
+    // lies above a guard) must not show through the sleep screen of another
+    // plugin that lies on top.
+    let stack = [
+        ("lock.screen", false, true),
+        ("lock.pin", true, false),
+        ("sleep.screen", true, false),
+    ];
+    let (kernel, mut pin, calls) = stacked(&stack, 1);
+    assert_eq!(drawn(&kernel, &mut pin, &calls), 0);
+    // The same dialog with nothing foreign on top is drawn.
+    let (kernel, mut pin, calls) = stacked(&stack[..2], 1);
+    assert_eq!(drawn(&kernel, &mut pin, &calls), 1);
 }
 
 #[test]

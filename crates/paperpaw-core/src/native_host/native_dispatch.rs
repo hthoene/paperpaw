@@ -253,6 +253,11 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
 }
 
 impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
+    fn secret_now(&self, key: Option<paperpaw_sdk::ScreenKey>) -> Option<bool> {
+        let key = key?;
+        Some(self.host.stack_rows.secret_now(key.serial()))
+    }
+
     fn take_open_info(&self) -> Option<super::ui_store::Info> {
         self.identity.take_open_info()
     }
