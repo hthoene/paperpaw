@@ -147,7 +147,7 @@ mod tests {
         assert!(failed.contains("after a failed start"), "{failed}");
         assert!(failed.contains("off and on to try again"), "{failed}");
         let held = shown(Some(SafeMode::new(SafeModeReason::KeyHeld)));
-        assert!(held.contains("the key was held"), "{held}");
+        assert!(held.contains("a key was held"), "{held}");
         let normal = shown(None);
         assert!(!normal.contains("Safe mode"), "{normal}");
     }
