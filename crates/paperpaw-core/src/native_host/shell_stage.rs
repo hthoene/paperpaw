@@ -1,5 +1,5 @@
 //! Bounded stage replies through the existing retained owner admission path.
-use super::{Batch, DispatchDepth, Error, Registration, borrowed};
+use super::{DispatchDepth, Error, Published, Registration, borrowed};
 use crate::abi7::core_frame::CoreFrame;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED, PpBuffer};
 
@@ -18,7 +18,7 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED, PpBuffer};
     reason = "stage registry and frozen-membership broker follow this hook"
 )]
 pub(crate) fn dispatch_stage<S: 'static, M>(
-    batch: &Batch<'_, S, M, Registration>,
+    batch: &Published<'_, S, M, Registration>,
     token: u32,
     depth: &DispatchDepth,
     frame: &CoreFrame<'_>,
@@ -26,7 +26,7 @@ pub(crate) fn dispatch_stage<S: 'static, M>(
     output: &mut [u8],
 ) -> Result<i32, Error> {
     batch.dispatch_owner(depth, |context| {
-        let _running = frame.meter.enter(&context.id);
+        let _running = frame.meter.enter(context.plugin_id());
         let instance = context.instance.get().ok_or(Error::Attempt)?;
         let callback = instance.event.ok_or(Error::Status(ERR_UNSUPPORTED))?;
         // SAFETY: the retained owner structurally pins this field and keeps it

@@ -118,3 +118,19 @@ does so for what it draws (`Style::rtl`, read from `core.language`: header, list
 chips, the sheet's pager; `Style::flip`, `flip_x` and `text::label_in` for the rest). What this plugin
 draws itself is not mirrored yet, so its screens are left to right in those parts for `ar` until it
 takes the kit's helpers (and, where it keeps its own keys, swaps left and right as `Chips::step` does).
+
+## Heap of the open pages (#248, X4)
+
+- The registry is read **a page at a time** (`Reader::each_setting`): a page of 250 settings is never held
+  whole. The main page, the group page, the chooser, the themes, search and the reset plan each copy only
+  what they need: the heading groups need no titles or values (`Fields::Light`); a group's page copies only
+  its own group's settings; the chooser one; the themes the covered ones; search copies a setting and drops
+  it unless it matches. Behaviour is as before (search finds the same settings).
+- `ui_kit::mem::push` grows a full vector by its length up to 16 elements, and by an eighth of its length
+  where that is more, not by doubling: a list of a few hundred rows has at most an eighth and 16 spare
+  slots instead of up to half of it, and a long vector still copies only a few times per doubling.
+- Measured on the native-default branch (`fw/native-default-228`, emulator `--heap-report`, X4 profile): the
+  peak of opening Settings from a reading screen fell from 248.5 to 154.2 KiB (live heap 136.5 KiB at the
+  end); the TXT reading flow's peak (`memory.rs`) from 234.1 to 168.0 KiB, which the start and the book now
+  set (168.0 KiB at the first page, 136.2 KiB live), not Settings. The gate of #248 (108.5 KiB) is not met
+  by the Settings change alone: what native plugins keep resident at start is Core's.

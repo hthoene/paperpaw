@@ -210,7 +210,7 @@ impl NativeTransfer {
         }
     }
 
-    fn work(&mut self, host: &Host<'_>) -> Result<Option<&Work>, Error> {
+    pub(super) fn work(&mut self, host: &Host<'_>) -> Result<Option<&Work>, Error> {
         if self.work.is_none() {
             match Work::open(host) {
                 Ok(work) => self.work = Some(work),

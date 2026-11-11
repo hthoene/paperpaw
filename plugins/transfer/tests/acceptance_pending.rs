@@ -29,11 +29,13 @@ const CASES: [Case; 5] = [
         golden: None,
         blocked_by: &["#944", "H1", "H3"],
     },
-    // The cable: an offer is asked about, allowed and taken once.
+    // The cable: an offer is asked about, allowed and taken once. Native since
+    // slice 4 (`tests/cable_native.rs` pins the flow); through the production
+    // loader it waits for the host's cable (Kernel #900).
     Case {
         name: "transfer-cable",
         golden: None,
-        blocked_by: &["H2", "CABLE-stage"],
+        blocked_by: &["#900"],
     },
     // Typing on a phone for the keyboard.
     Case {
@@ -72,7 +74,7 @@ fn transfer_screen() {
 }
 
 #[test]
-#[ignore = "BLOCKED H2/CABLE-stage: dialogs and the cable stage are not on integration"]
+#[ignore = "needs native activation (#900 cable host)"]
 fn transfer_cable() {
     CASES[3].refuse().unwrap();
 }

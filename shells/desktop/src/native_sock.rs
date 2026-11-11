@@ -218,8 +218,9 @@ struct Entry {
 /// The shell side of `core.sockets` (see the module).
 pub struct NativeSock {
     entries: RefCell<HashMap<u32, Entry>>,
-    events: Sender<Event>,
-    arrived: Receiver<Event>,
+    /// The reports of the threads, made when the first socket opens (a
+    /// channel costs 512 B of the heap the budget counts).
+    channel: std::cell::OnceCell<(Sender<Event>, Receiver<Event>)>,
     /// Reports core answered `ERR_BUSY`: again at the next turn.
     again: RefCell<Vec<Event>>,
     /// Bytes core did not take yet, by socket.
@@ -245,15 +246,23 @@ impl Default for NativeSock {
 impl NativeSock {
     #[must_use]
     pub fn new() -> Self {
-        let (events, arrived) = channel();
         Self {
             entries: RefCell::new(HashMap::new()),
-            events,
-            arrived,
+            channel: std::cell::OnceCell::new(),
             again: RefCell::new(Vec::new()),
             unread: RefCell::new(HashMap::new()),
             was_up: Cell::new(false),
         }
+    }
+
+    /// Where the threads report: made at the first use.
+    fn events(&self) -> &Sender<Event> {
+        &self.channel.get_or_init(channel).0
+    }
+
+    /// What the threads reported, if anything could have.
+    fn arrived(&self) -> Option<&Receiver<Event>> {
+        self.channel.get().map(|(_, arrived)| arrived)
     }
 
     /// Sockets and broadcasts open (not closed or failed).
@@ -276,13 +285,16 @@ impl NativeSock {
             }
             self.unread.borrow_mut().clear();
             self.again.borrow_mut().clear();
-            while self.arrived.try_recv().is_ok() {}
+            while self
+                .arrived()
+                .is_some_and(|arrived| arrived.try_recv().is_ok())
+            {}
             let _ = reports.network_lost();
             let _ = reports.tick();
             return;
         }
         let mut todo = std::mem::take(&mut *self.again.borrow_mut());
-        todo.extend(self.arrived.try_iter());
+        todo.extend(self.arrived().into_iter().flat_map(Receiver::try_iter));
         for event in todo {
             self.report(event, reports);
         }
@@ -366,7 +378,7 @@ impl NativeSock {
         let link = Link::new();
         let (writer, queue) = channel();
         let host = host.to_owned();
-        let (thread_link, events) = (link.clone(), self.events.clone());
+        let (thread_link, events) = (link.clone(), self.events().clone());
         self.entries.borrow_mut().insert(
             id,
             Entry {
@@ -418,7 +430,7 @@ impl NativeSock {
             return Err(ERR_STATE);
         }
         link.wake.notify_all();
-        let (link, events) = (link.clone(), self.events.clone());
+        let (link, events) = (link.clone(), self.events().clone());
         let name = server_name.to_owned();
         drop(entries);
         // The rest runs on the handshake's thread, not core's: it waits for
@@ -757,7 +769,7 @@ impl SockTransport for NativeSock {
             if link.held.load(Ordering::Acquire) < WRITE_HELD
                 && link.wants_room.swap(false, Ordering::AcqRel)
             {
-                let _ = self.events.send(Event::Writable(id));
+                let _ = self.events().send(Event::Writable(id));
             }
             return Ok(0);
         }
@@ -797,7 +809,7 @@ impl SockTransport for NativeSock {
             return Err(ERR_IO);
         }
         let link = Link::new();
-        let (thread_link, events) = (link.clone(), self.events.clone());
+        let (thread_link, events) = (link.clone(), self.events().clone());
         self.entries
             .borrow_mut()
             .insert(id, Entry { link, writer: None });
@@ -814,11 +826,24 @@ mod tests {
 
     /// The next thing a thread reported, within a few seconds.
     fn next(sock: &NativeSock) -> Event {
-        sock.arrived.recv_timeout(Duration::from_secs(10)).unwrap()
+        sock.arrived()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(10))
+            .unwrap()
     }
 
     fn connect(sock: &NativeSock, id: u32, port: u16) {
         sock.connect_to(id, "127.0.0.1", port, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn no_channel_is_made_until_a_socket_could_report() {
+        let sock = NativeSock::new();
+        assert!(sock.arrived().is_none());
+        sock.pump_with(&Core::new(0), true);
+        assert!(sock.arrived().is_none());
+        sock.events();
+        assert!(sock.arrived().is_some());
     }
 
     #[test]
@@ -839,7 +864,8 @@ mod tests {
         assert_eq!(&server.join().unwrap(), b"ping");
         // Nothing arrives unasked: the greeting waits for a read of 5.
         assert!(
-            sock.arrived
+            sock.arrived()
+                .unwrap()
                 .recv_timeout(Duration::from_millis(300))
                 .is_err()
         );
@@ -849,7 +875,8 @@ mod tests {
         };
         assert_eq!(first, b"hello");
         assert!(
-            sock.arrived
+            sock.arrived()
+                .unwrap()
                 .recv_timeout(Duration::from_millis(300))
                 .is_err()
         );

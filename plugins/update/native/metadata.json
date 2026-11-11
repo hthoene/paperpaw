@@ -156,10 +156,7 @@
     "core.work"
   ],
   "features": [
-    {
-      "key": "uses.firmware",
-      "required": true
-    },
+    "uses.firmware",
     "uses.install",
     "uses.network",
     {

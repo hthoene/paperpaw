@@ -51,6 +51,8 @@ impl Document for Book {
 struct Recorder {
     calls: Vec<(Role, i32, i32, String)>,
     fills: Vec<(i32, i32, u32, u32)>,
+    images: Vec<(u32, i32, i32, u32, u32)>,
+    image_error: Option<Error>,
     fail_at: Cell<Option<usize>>,
 }
 
@@ -72,6 +74,14 @@ impl Ink for Recorder {
 
     fn fill(&mut self, x: i32, y: i32, width: u32, height: u32) -> Result<(), Error> {
         self.fills.push((x, y, width, height));
+        Ok(())
+    }
+
+    fn image(&mut self, image: u32, x: i32, y: i32, width: u32, height: u32) -> Result<(), Error> {
+        if let Some(error) = self.image_error {
+            return Err(error);
+        }
+        self.images.push((image, x, y, width, height));
         Ok(())
     }
 }
@@ -218,7 +228,131 @@ fn a_refused_fill_ends_the_drawing() {
         fn fill(&mut self, _: i32, _: i32, _: u32, _: u32) -> Result<(), Error> {
             Err(Error::State)
         }
+        fn image(&mut self, _: u32, _: i32, _: i32, _: u32, _: u32) -> Result<(), Error> {
+            Ok(())
+        }
     }
     let (page, faces) = page("abc", TextStyle::UNDERLINE);
     assert!(draw_lines(&mut Refuses, &faces, &page, (0.0, 0.0)).is_err());
+}
+
+fn marked(page: &Page, faces: &Faces<Fixed>, words: core::ops::Range<usize>) -> Recorder {
+    let mut ink = Recorder::default();
+    draw_lines_marked(&mut ink, faces, page, (30.0, 50.0), Some(words)).unwrap();
+    ink
+}
+
+#[test]
+fn the_words_of_the_sentence_read_aloud_have_one_line_under_them() {
+    let (page, faces) = page("one two three", TextStyle::REGULAR);
+    let ink = marked(&page, &faces, 1..3);
+    let base = ink.calls[0].2;
+    // "two" from 70 to 100, a gap of 10, "three" to 160: one line, as the book's own.
+    assert_eq!(ink.fills, [(70, base + 2, 90, 1)]);
+    // Nothing marked: nothing under it, and the words are drawn as always.
+    assert!(marked(&page, &faces, 0..0).fills.is_empty());
+    assert!(marked(&page, &faces, 5..9).fills.is_empty());
+    assert_eq!(ink.calls.len(), 3);
+    // Without a mark it is draw_lines.
+    let mut plain = Recorder::default();
+    draw_lines_marked(&mut plain, &faces, &page, (30.0, 50.0), None).unwrap();
+    assert!(plain.fills.is_empty());
+}
+
+#[test]
+fn a_marked_stretch_ends_with_its_line_and_goes_on_on_the_next() {
+    let text = "word ".repeat(20);
+    let (page, faces) = page(text.trim_end(), TextStyle::REGULAR);
+    assert!(page.lines.len() > 1);
+    let first_line = page.lines[0].text.split(' ').count();
+    // The last word of the first line and the first of the second: two lines.
+    let ink = marked(&page, &faces, first_line - 1..first_line + 1);
+    assert_eq!(ink.fills.len(), 2);
+    assert!(ink.fills[0].1 < ink.fills[1].1);
+}
+
+#[test]
+fn a_word_in_two_runs_is_one_word() {
+    let mut block = Block::new(BlockKind::Paragraph, 0, 8, "abcd efg".into());
+    block.runs = alloc::vec![
+        paperpaw_sdk::document::Run::new(0, 2, TextStyle::BOLD),
+        paperpaw_sdk::document::Run::new(2, 8, TextStyle::REGULAR),
+    ];
+    let book = Book {
+        blocks: alloc::vec![block],
+        metadata: Metadata::default(),
+    };
+    let faces = Faces::new(Fixed, 20.0, 1.0).unwrap();
+    let style = Style::new(0.0, 0.0, 20.0, false);
+    let cx = LayoutContext::new(&book, &NoStorage, 400.0, &style, &faces);
+    let page = layout_page(&cx, Locator::START, 400.0).unwrap();
+    // "abcd" is word 0 (the bold "ab" and the regular "cd" pieces): both underlined
+    // in one line over its 44 pixels (a bold letter is 2 wider in this measure).
+    let ink = marked(&page, &faces, 0..1);
+    assert_eq!(ink.fills.len(), 1);
+    assert_eq!((ink.fills[0].0, ink.fills[0].2), (30, 44));
+    // "efg" is word 1: from its own start, after a space.
+    let second = marked(&page, &faces, 1..2);
+    assert_eq!(second.fills, [(84, second.calls[0].2 + 2, 30, 1)]);
+}
+
+fn picture_page(handle: &str) -> (Page, Faces<Fixed>) {
+    let mut block = Block::new(BlockKind::Image, 0, 1, String::new());
+    block.image = Some(paperpaw_sdk::document::ImageRef {
+        path: handle.into(),
+        width: 200,
+        height: 100,
+    });
+    let book = Book {
+        blocks: alloc::vec![block],
+        metadata: Metadata::default(),
+    };
+    let faces = Faces::new(Fixed, 20.0, 1.0).unwrap();
+    let style = Style::new(0.0, 0.0, 20.0, false);
+    let cx = LayoutContext::new(&book, &NoStorage, 400.0, &style, &faces);
+    (layout_page(&cx, Locator::START, 400.0).unwrap(), faces)
+}
+
+#[test]
+fn a_picture_is_drawn_scaled_into_the_box_the_layout_gave_it() {
+    let (page, faces) = picture_page("7");
+    let mut ink = Recorder::default();
+    draw_lines(&mut ink, &faces, &page, (30.0, 50.0)).unwrap();
+    // 200 by 100 fits a 400-wide, 400-high box at twice its size, centred.
+    assert_eq!(ink.images.len(), 1);
+    let (handle, x, y, w, h) = ink.images[0];
+    assert_eq!((handle, w, h), (7, 400, 200));
+    assert_eq!(x, 30);
+    assert!(y >= 50);
+}
+
+#[test]
+fn a_picture_the_host_does_not_know_leaves_its_place_empty() {
+    for error in [Error::NotFound, Error::Unsupported] {
+        let (page, faces) = picture_page("7");
+        let mut ink = Recorder {
+            image_error: Some(error),
+            ..Recorder::default()
+        };
+        draw_lines(&mut ink, &faces, &page, (0.0, 0.0)).unwrap();
+    }
+    // Handle 0 (the host had no id to give) is no picture either, and does not fail the page.
+    let (page, faces) = picture_page("0");
+    let mut ink = Recorder::default();
+    draw_lines(&mut ink, &faces, &page, (0.0, 0.0)).unwrap();
+    assert!(ink.images.is_empty());
+    // A handle that is no number is no picture; another refusal ends the drawing.
+    let (page, faces) = picture_page("x7");
+    let mut ink = Recorder::default();
+    draw_lines(&mut ink, &faces, &page, (0.0, 0.0)).unwrap();
+    assert!(ink.images.is_empty());
+    let (page, faces) = picture_page("7");
+    let mut ink = Recorder {
+        image_error: Some(Error::Io),
+        ..Recorder::default()
+    };
+    assert_eq!(
+        draw_lines(&mut ink, &faces, &page, (0.0, 0.0)),
+        Err(Error::Io)
+    );
 }
