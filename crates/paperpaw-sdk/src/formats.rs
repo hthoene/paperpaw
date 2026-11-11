@@ -267,8 +267,23 @@ impl Formats {
         let before = self.specs.len();
         self.specs.retain(keep);
         if self.specs.len() != before {
-            self.sniffed.borrow_mut().clear();
+            self.sniffed.get_mut().clear();
         }
+    }
+
+    /// Room for `additional` more formats, so that many [`Formats::add`]s
+    /// then need no allocation (the kernel's stand-ins of the formats of
+    /// native plugins are made fallibly).
+    ///
+    /// # Errors
+    /// The heap refused the room.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn try_reserve_formats(
+        &mut self,
+        additional: usize,
+    ) -> Result<(), alloc::collections::TryReserveError> {
+        self.specs.try_reserve(additional)
     }
 
     /// Whether no format was added: nothing can be opened, nor be a

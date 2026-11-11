@@ -10,8 +10,12 @@
 //! **In line with the declarations.** The stand-ins are made again whenever
 //! the registry's generation moved ([`Kernel::native_book_formats_sync`]):
 //! the service pump's every pass, and before `core.catalog-wanted` is heard,
-//! so the walk it starts sees every native format admitted by then. A plugin
-//! that stopped or was removed takes its extensions with it.
+//! so the walk it starts sees every native format admitted by then. A format
+//! counts while its plugin's instance runs (the declaration store's rule): a
+//! plugin removed, turned off or stopped (after a fault too) takes its
+//! extensions with it until it runs again. A sync the heap cut short is made
+//! again at the next call, not at the next generation: a format left out
+//! would drop its books from a walk.
 //!
 //! **Interface 6 first.** An extension an interface 6 format claims is left
 //! out of the stand-ins: a later format wins an extension in `Formats`, and an
@@ -39,30 +43,35 @@ pub(crate) struct NativeBookFormats {
     ids: Vec<Id>,
 }
 
-fn copy(text: &str) -> Option<String> {
+/// The heap refused: the sync is made again at the next call.
+#[derive(Debug)]
+struct NoRoom;
+
+fn copy(text: &str) -> Result<String, NoRoom> {
     let mut copied = String::new();
-    copied.try_reserve_exact(text.len()).ok()?;
+    copied.try_reserve_exact(text.len()).map_err(|_| NoRoom)?;
     copied.push_str(text);
-    Some(copied)
+    Ok(copied)
 }
 
 /// The stand-in for one declared format, with the extensions no format in
-/// `formats` claims yet; `None` where none is left or the heap refuses.
+/// `formats` claims yet; `Ok(None)` where none is left (or the id is not a
+/// valid one), [`NoRoom`] where the heap refuses.
 fn stand_in(
     formats: &Formats,
     plugin: &str,
     name: &str,
     title: &str,
     list: &str,
-) -> Option<FormatSpec> {
+) -> Result<Option<FormatSpec>, NoRoom> {
     let mut extensions = Vec::new();
     extensions
         .try_reserve_exact(extensions_of(list).count())
-        .ok()?;
+        .map_err(|_| NoRoom)?;
     let mut probe = String::new();
     for extension in extensions_of(list) {
         probe.clear();
-        probe.try_reserve(extension.len() + 2).ok()?;
+        probe.try_reserve(extension.len() + 2).map_err(|_| NoRoom)?;
         probe.push_str("x.");
         probe.push_str(extension);
         if !formats.supports(&probe) {
@@ -70,28 +79,33 @@ fn stand_in(
         }
     }
     if extensions.is_empty() {
-        return None;
+        return Ok(None);
     }
     let mut id = String::new();
-    id.try_reserve_exact(plugin.len() + 1 + name.len()).ok()?;
+    id.try_reserve_exact(plugin.len() + 1 + name.len())
+        .map_err(|_| NoRoom)?;
     id.push_str(plugin);
     id.push('.');
     id.push_str(name);
-    let id = Id::try_parse(&id).ok()?;
-    Some(FormatSpec::new(
+    let id = match Id::try_parse(&id) {
+        Ok(id) => id,
+        Err(paperpaw_sdk::IdError::NoMemory) => return Err(NoRoom),
+        // Not an id: never one, however often tried.
+        Err(_) => return Ok(None),
+    };
+    Ok(Some(FormatSpec::new(
         id,
         Cow::Owned(copy(title)?),
         extensions,
         // Never opened here: `core.document` opens native documents.
         Box::new(|_, _, _| Err(paperpaw_sdk::document::DocumentError::UnsupportedFormat)),
-    ))
+    )))
 }
 
 impl NativeBookFormats {
     /// Makes the stand-ins of `store`'s formats in `formats` again where
-    /// `generation` is not the one they were made at. A format the heap
-    /// cannot hold now is left out until the next generation (the walk counts
-    /// its files then).
+    /// `generation` is not the one they were made at, or the last sync was
+    /// cut short: one the heap refused is made again at the next call.
     pub(crate) fn sync(
         &mut self,
         formats: &mut Formats,
@@ -106,23 +120,31 @@ impl NativeBookFormats {
         self.ids.clear();
         let mut wanted = 0;
         store.each_format(&mut |_| wanted += 1);
-        if self.ids.try_reserve_exact(wanted).is_err() {
-            // None now; tried again at the next generation.
-            self.synced = generation;
+        if self.ids.try_reserve_exact(wanted).is_err()
+            || formats.try_reserve_formats(wanted).is_err()
+        {
+            // None now; tried again at the next call.
             return;
         }
+        let mut whole = true;
         store.each_format(&mut |format| {
             let spec = format.spec;
-            let Some(stand_in) = stand_in(
+            let stand_in = match stand_in(
                 formats,
                 format.plugin,
                 spec.name,
                 spec.title,
                 spec.extensions,
-            ) else {
-                return;
+            ) {
+                Ok(Some(stand_in)) => stand_in,
+                Ok(None) => return,
+                Err(NoRoom) => {
+                    whole = false;
+                    return;
+                }
             };
             let Some(id) = stand_in.id.try_clone() else {
+                whole = false;
                 return;
             };
             // A duplicate id (an interface 6 format of the same name) stays
@@ -132,7 +154,9 @@ impl NativeBookFormats {
                 self.ids.push(id);
             }
         });
-        self.synced = generation;
+        if whole {
+            self.synced = generation;
+        }
     }
 }
 

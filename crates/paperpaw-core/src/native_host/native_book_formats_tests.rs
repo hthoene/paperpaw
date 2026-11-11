@@ -159,3 +159,26 @@ fn a_stand_in_costs_little() {
     );
     assert!(held < 1024, "{held} B");
 }
+
+#[test]
+fn a_sync_the_heap_refused_is_made_again_at_the_next_call_not_the_next_generation() {
+    // Each allocation of the sync in turn: the 1st is the room for the ids,
+    // then `Formats`' room, then the stand-ins' lists, copies and ids.
+    for nth in 1..=16 {
+        let mut store = DeclarationStore::default();
+        declare(&mut store, &plugin("format-docx"), "docx", "docx");
+        declare(&mut store, &plugin("format-mobi"), "mobi", "mobi\nazw3");
+        let (mut formats, mut stand_ins) = (Formats::new(), NativeBookFormats::default());
+        crate::native_host::shell::tests::arm_failure(nth);
+        stand_ins.sync(&mut formats, &store, 2);
+        crate::native_host::shell::tests::arm_failure(0);
+        // Whatever was cut short, the same generation's next call makes it
+        // whole, and nothing is there twice.
+        stand_ins.sync(&mut formats, &store, 2);
+        for book in ["a.docx", "b.mobi", "c.azw3"] {
+            assert!(formats.supports(book), "{book} after failure {nth}");
+        }
+        assert_eq!(stand_ins.ids.len(), 2, "after failure {nth}");
+        assert_eq!(stand_ins.synced, 2);
+    }
+}
