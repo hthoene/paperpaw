@@ -72,8 +72,10 @@ impl Open {
     /// # Errors
     /// The host's refusal to redraw.
     pub(super) fn redraw_page(&mut self, host: &Host<'_>, mode: RedrawMode) -> Result<(), Error> {
-        redraw(host, mode)?;
+        // Drawn whole unless the boxes are taken below: a refused redraw
+        // never leaves the pictures' places empty.
         self.pictures = Pass::Whole;
+        redraw(host, mode)?;
         let Some(page) = self.page.as_ref().filter(|_| self.has_pictures()) else {
             return Ok(());
         };
