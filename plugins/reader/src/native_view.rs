@@ -611,6 +611,18 @@ impl View {
             Outcome::Turn { forward: true } => open.next()?,
             Outcome::Turn { forward: false } => open.previous(host, docs)?,
             _ => match native_pages::turn(input) {
+                // Select or Menu with nothing chosen: the reader's menu bar.
+                Turn::Ignored
+                    if matches!(
+                        input,
+                        Input::Action {
+                            action: "core.menu" | "core.confirm",
+                            ..
+                        }
+                    ) =>
+                {
+                    return open.menu_bar(host, ui);
+                }
                 Turn::Ignored => return Ok(Handled::No),
                 Turn::Next => open.next()?,
                 Turn::Previous => open.previous(host, docs)?,
@@ -1185,6 +1197,7 @@ fn say_with(
 
 mod aloud;
 mod count;
+mod menu_bar;
 mod r3;
 mod status;
 
