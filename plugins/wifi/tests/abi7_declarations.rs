@@ -186,7 +186,7 @@ fn screens_action_status_item_icons_needs_and_step_match() {
     );
     assert_eq!(batches(|d| declarations::screens(d).unwrap()).len(), 1);
     assert!(!batches(|d| declarations::navigation(d).unwrap()).is_empty());
-    // Eleven subscriptions (the radio's four and the timers' work among them) in two batches.
+    // Twelve subscriptions (the radio's four, the timers' work and the stack's change among them) in two batches.
     assert_eq!(batches(|d| declarations::events(d).unwrap()).len(), 2);
 }
 
@@ -207,7 +207,8 @@ fn the_decoded_subscriptions_name_every_event_the_plugin_handles() {
         }
     }
     // The device's four (not `screen_shown`: 38 goes to the declared screens' tokens, `screens-input.md` 2), then the radio's four: scanned 92, done 93,
-    // network wanted 94 and idle 95 (`docs/abi/device.md`), then the work's and the served page's (server, request).
+    // network wanted 94 and idle 95 (`docs/abi/device.md`), then the work's and the served page's (server, request),
+    // then the stack's change (81: any screen on top, back home or in a book the radio goes off).
     let tokens: Vec<u32> = found.iter().map(|(_, token)| *token).collect();
     assert_eq!(
         tokens,
@@ -223,6 +224,7 @@ fn the_decoded_subscriptions_name_every_event_the_plugin_handles() {
             declarations::WORK,
             declarations::SERVER_EVENT,
             declarations::SERVED_REQUEST,
+            declarations::STACK_CHANGED,
         ]
     );
     let radio: Vec<u32> = found[4..8].iter().map(|(tag, _)| *tag).collect();
@@ -230,4 +232,5 @@ fn the_decoded_subscriptions_name_every_event_the_plugin_handles() {
     // The timers (idle off, retry) come due as work (`event.work_due`).
     assert_eq!(found[8].0, 103, "work_due");
     assert_eq!(found[0].0, 32, "started");
+    assert_eq!(found[11].0, 81, "stack_changed");
 }

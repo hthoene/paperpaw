@@ -166,6 +166,34 @@ pub fn password_of(
     found
 }
 
+/// Whether any network is kept: the list read until its first entry, no name
+/// copied and no password read (Beta 3 asked the list's length).
+///
+/// # Errors
+/// What the service says; [`Error::NoMemory`].
+pub fn any(secrets: &Secrets, host: &Host<'_>) -> Result<bool, Error> {
+    let mut input = mem::buffer(INPUT)?;
+    let mut reply = mem::buffer(REPLY)?;
+    let result = (|| {
+        let mut query = SecretList::own();
+        loop {
+            let page = secrets.list(host, query, &mut input, &mut reply)?;
+            let more = page.end().next();
+            if let Some(entry) = page.into_iter().next() {
+                entry?;
+                return Ok(true);
+            }
+            match more {
+                Some(cursor) => query = SecretList::own().from(cursor),
+                None => return Ok(false),
+            }
+        }
+    })();
+    wipe(&mut input);
+    wipe(&mut reply);
+    result
+}
+
 /// The names of the networks kept, page after page of the list, at most
 /// [`MAX_KNOWN`].
 ///

@@ -139,9 +139,10 @@ becomes "complete, native only" and the plugin joins `tools/plugin-files7/comple
   emulator under `native-linked` ("not registered: Factory(-1)"). Their admission is Services' (#2282, with
   the tag 91 one in #1095); the case is switched on again then. Tag 38 (`screen_shown`) is refused by the contract
   (`screens-input.md` 2: it goes to the token of the declared screen, never to `registration.event`): the
-  subscription is **gone** from the plugin. **Difference:** the radio goes off at once "back home or in a book"
-  only when one of the plugin's own screens leaves (`ScreenClosed`, the stack read then); another plugin's screen
-  coming to the top while the radio idles is the idle timer's (`network_idle`), not at once as in interface 6.
+  subscription is **gone** from the plugin; `event.stack_changed` (81, a hint the host admits) takes its place:
+  any screen coming on top is matched again, as in interface 6 (back home or in a book, the radio goes off at
+  once). Its cost: one read of the radio per stack change, and the stack (its first row) only while the radio is
+  on; nothing is read while it is off.
   **Heap:** the interface-6 Wi-Fi flow (open the page, back, home; X4 profile, headless, `--heap-report`) peaks
   at 100.0 KiB; the native peak is measured when the plugin registers.
 - **No real radio on the desktop** (`uses.wifi` is not offered by `shells/desktop/src/linked.rs`; the X4's
@@ -163,13 +164,20 @@ becomes "complete, native only" and the plugin joins `tools/plugin-files7/comple
   tried, or the failure is told; a success decides nothing (the radio's change says it). `wifi_changed`
   keeps the password of the network just joined (`Action::KeepSecret`) and the network the user picked
   last (`picked.txt`, joined first next time, as *Join first* says), and may join one when charging keeps
-  the radio on. Also the power mode, one of the plugin's own screens closed (back home or in a book: radio off at once; see below) and the status
+  the radio on. Also the power mode, the stack changing (81: back home or in a book, radio off at once; see below) and the status
   changing (charging).
-- The facts are read per event and only as far as the decision needs them: the radio and its flags
-  (`dev_wifi`, wanted and busy), the networks in reach (scanned, failed), the networks joined before with
-  their passwords (`core.secrets`, wanted, scanned, failed, the retry timer, charging), the screen on top
-  (the stack's first row, home or reader), charging and whether the device may use the network (snapshot,
-  `dev_power`), the settings and `picked.txt`.
+- The facts are read per event and only as far as the decision needs them (`Need` in `events.rs`, each fact a
+  flag; `tests/scripted_radio.rs` counts the host calls): the radio and its flags (`dev_wifi`, wanted and
+  busy; its name and address copied only where the changed event compares them); the networks in reach
+  (scanned, failed); the networks joined before: none, **whether there are any** (the names listed, no
+  password read: wanted, the retry timer, charging, the radio's change while charging) or with their passwords
+  (scanned, failed only); the screen on top (the stack's first row, home or reader; the stack changed, while
+  the radio is on); charging and whether the device may use the network (snapshot, `dev_power`; once per
+  event, and not where the stack says nothing is at rest); the settings (on demand, idle time) and
+  `picked.txt` (scanned, failed, and the radio's change while the user's choice is joined).
+- The views keep Beta 3's memory: the Wi-Fi page counts the networks in reach and asks only whether one is
+  kept; the networks page holds each name once (in its row, with the signal and openness beside it); a view is
+  read again with the old rows freed first; the frame makes no catalog buffers of its own.
 - The timers are work (`core.work`, `WorkSpec::at`, keys `wifi.idle-off` and `wifi.retry`, the work event
   subscribed with token 15), at the event's `now_ms` plus the idle time or 10 s. Each is set with the
   policy's generation; one that comes due after the network was wanted again does nothing. A work is lost
