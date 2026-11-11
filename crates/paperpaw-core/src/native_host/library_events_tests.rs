@@ -180,7 +180,7 @@ fn catalog_wanted(w: &World) -> usize {
 /// reads the library: its first read since the start or a wake wants it, once.
 #[test]
 fn the_first_view_since_the_start_or_a_wake_wants_the_catalog_once() {
-    use crate::native_host::lib_service::query::LibQuery;
+    use crate::native_host::lib_service::LibQuery;
     let mut w = world();
     pump(&mut w);
     assert_eq!(catalog_wanted(&w), 0, "not at a start by itself");

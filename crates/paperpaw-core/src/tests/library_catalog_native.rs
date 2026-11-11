@@ -5,7 +5,7 @@
 //! takes its books out at the next walk.
 
 use super::*;
-use crate::native_host::native_book_formats::tests::{Plugin, declare};
+use crate::native_host::native_book_formats::tests::{Plugin as FormatPlugin, declare};
 use crate::native_host::native_declarations::NativeDeclarations;
 use crate::native_host::shared::Shared;
 use core::cell::Cell;
@@ -60,14 +60,14 @@ fn run(kernel: &mut Kernel, mut now: u64, mut effects: crate::Effects) -> u64 {
 
 /// Started with the native format plugin `format-books` (EPUB and DOCX)
 /// admitted, and the interface 6 TXT where `txt`.
-fn started(txt: bool) -> (Kernel, Rc<Plugin>, u64) {
+fn started(txt: bool) -> (Kernel, Rc<FormatPlugin>, u64) {
     let mut builder = Kernel::builder(DEVICE).storage(books());
     if txt {
         builder = builder.plugin(Txt);
     }
     let mut kernel = builder.build().unwrap();
     let directory = Shared::try_new(NativeDeclarations::default()).unwrap();
-    let plugin = Rc::new(Plugin {
+    let plugin = Rc::new(FormatPlugin {
         id: "format-books",
         live: Cell::new(true),
     });
