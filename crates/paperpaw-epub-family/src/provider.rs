@@ -420,7 +420,7 @@ impl FormatProvider {
             }
             op::COVER => {
                 let image = document.cover(io).map_err(|e| document_error(&e))?;
-                Self::picture(image, cache, u32::MAX, out)
+                Self::picture(decoded(document, io, image), cache, u32::MAX, out)
             }
             op::IMAGE => {
                 // The picture numbered `index`: a page of a whole-page
@@ -437,7 +437,7 @@ impl FormatProvider {
                     .map_err(|e| document_error(&e))?
                     .filter(|b| whole || b.start == call.index)
                     .ok_or(Error::NotFound)?;
-                Self::picture(block.image, cache, call.index, out)
+                Self::picture(decoded(document, io, block.image), cache, call.index, out)
             }
             op::PROGRESS => {
                 let ppm = document.progress(at) * 1_000_000.0;
@@ -706,10 +706,13 @@ impl FormatProvider {
         out: &mut [u8],
     ) -> Result<usize, Error> {
         let at = Locator::new(call.section, call.offset);
-        let block = document
+        let mut block = document
             .block_at(io, at)
             .map_err(|e| document_error(&e))?
             .ok_or(Error::NotFound)?;
+        // The pictures of a book are decoded when a page shows them: the
+        // file of this one may not be there yet (`decoded`).
+        block.image = decoded(document, io, block.image.take());
         let generation = generation(call.section, block.start, call.conversion);
         if call.cursor != 0 && call.generation != generation {
             return Err(Error::State);
@@ -738,6 +741,15 @@ impl FormatProvider {
             .is_none();
         fragment(&list, call.cursor, generation, block.end, last, out)
     }
+}
+
+/// `image` with its cache file made: the document decodes a picture when a page
+/// shows it, so a block that comes first has only the name of a file that is
+/// not there yet, which the host would not take for a picture. A picture that
+/// cannot be decoded (a broken file) stays as it is: the caller leaves it out.
+fn decoded(document: &dyn Document, io: &dyn Storage, image: Option<ImageRef>) -> Option<ImageRef> {
+    let image = image?;
+    Some(document.prepare_image(io, &image).unwrap_or(image))
 }
 
 /// `path` as a path in the document cache (root 6), if it lies in `cache`.
@@ -794,10 +806,20 @@ fn records<'a>(
     list: &mut Vec<Record<'a>>,
 ) -> Result<(), Error> {
     let (first, others) = tags.split_first_mut().ok_or(Error::Invalid)?;
+    // The picture, where it is a file of the cache: a picture block the host
+    // would get without its picture record is refused as a whole (it checks a
+    // picture block for exactly one), and with it the book. A picture that
+    // cannot be served goes out as a paragraph with the block's own text (its
+    // alt text, if it has one), so one broken picture costs only itself.
+    let picture = block
+        .image
+        .as_ref()
+        .and_then(|i| in_cache(&i.path, cache).map(|p| (p, i)));
     let (kind, level) = match block.kind {
         BlockKind::Paragraph => (0, 0),
         BlockKind::Heading(level) => (1, u32::from(level)),
         BlockKind::Preformatted => (2, 0),
+        BlockKind::Image if picture.is_none() => (0, 0),
         BlockKind::Image => (3, 0),
         BlockKind::TableRow => (4, 0),
         BlockKind::Extended(n) => (5 + u32::from(n), 0),
@@ -872,12 +894,7 @@ fn records<'a>(
     }
     // GAP: the picture's number (`index`, op 18) is the block's start until
     // the parsers number their pictures; a picture outside the cache is left out.
-    if let Some(path) = block
-        .image
-        .as_ref()
-        .and_then(|i| in_cache(&i.path, cache).map(|p| (p, i)))
-    {
-        let (path, image) = path;
+    if let Some((path, image)) = picture {
         list.push(Record::FmtImage(stage::FmtImage::new(
             path,
             image_index,

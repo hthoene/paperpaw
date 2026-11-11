@@ -34,7 +34,7 @@ impl Document for Fake {
         1
     }
     fn section_len(&self, _: u32) -> u32 {
-        20
+        40
     }
     fn block_at(&self, _: &dyn Storage, at: Locator) -> Result<Option<Block>, DocumentError> {
         Ok(match at.offset {
@@ -68,7 +68,36 @@ impl Document for Fake {
                 });
                 Some(b)
             }
+            // A picture the document decodes when a page shows it: its file
+            // is not there yet (`prepare_image`).
+            20..=29 => {
+                let mut b = Block::new(BlockKind::Image, 20, 30, String::new());
+                b.image = Some(ImageRef {
+                    path: format!("{}/lazy.gray", cache()),
+                    width: 30,
+                    height: 40,
+                });
+                Some(b)
+            }
+            // A picture that cannot be served (not a file of the cache), with
+            // its alt text.
+            30..=39 => {
+                let mut b = Block::new(BlockKind::Image, 30, 40, "a cat on a mat".into());
+                b.image = Some(ImageRef {
+                    path: "elsewhere/pic.gray".into(),
+                    width: 30,
+                    height: 40,
+                });
+                Some(b)
+            }
             _ => None,
+        })
+    }
+    fn prepare_image(&self, _: &dyn Storage, image: &ImageRef) -> Option<ImageRef> {
+        image.path.ends_with("/lazy.gray").then(|| ImageRef {
+            path: format!("{}/decoded.gray", cache()),
+            width: 30,
+            height: 40,
         })
     }
 }
@@ -175,7 +204,7 @@ fn hostile_calls_are_refused_and_the_provider_reads_on() {
         Err(Error::State)
     ));
     // Offsets past everything.
-    for offset in [20, u32::MAX] {
+    for offset in [40, u32::MAX] {
         assert!(matches!(
             run(&mut p, &io, &call(8, |c| c.offset = offset)),
             Err(Error::NotFound)
@@ -211,4 +240,69 @@ fn inline_languages_and_ruby_kinds_are_sent() {
         kinds,
         [(0, "note0"), (1, "note1"), (2, "note2"), (5, "note3")]
     );
+}
+
+fn block_at(p: &mut FormatProvider, io: &dyn Storage, offset: u32) -> Vec<u8> {
+    run(p, io, &call(8, |c| c.offset = offset)).unwrap()
+}
+
+/// What the host checks of a block stream: a picture block (kind 3) has
+/// exactly one picture record, and no other has one.
+fn pictures_match_kind(reply: &[u8]) {
+    let rows = rows(reply);
+    let stage::Record::FmtBlock(block) = rows[0] else {
+        panic!("block header first")
+    };
+    let images = rows
+        .iter()
+        .filter(|r| matches!(r, stage::Record::FmtImage(_)))
+        .count();
+    assert_eq!(
+        images == 1,
+        block.kind == 3,
+        "kind {}, {images} pictures",
+        block.kind
+    );
+    assert!(images <= 1);
+}
+
+#[test]
+fn a_picture_the_document_decodes_late_is_decoded_before_its_block_goes_out() {
+    let (mut p, io) = opened();
+    let reply = block_at(&mut p, &io, 20);
+    pictures_match_kind(&reply);
+    let rows = rows(&reply);
+    let stage::Record::FmtBlock(block) = rows[0] else {
+        panic!("block")
+    };
+    assert_eq!(block.kind, 3);
+    assert!(rows.iter().any(|r| matches!(
+        r,
+        stage::Record::FmtImage(i) if i.path == "decoded.gray" && (i.width, i.height) == (30, 40)
+    )));
+}
+
+#[test]
+fn a_picture_that_cannot_be_served_costs_the_picture_only_never_the_book() {
+    let (mut p, io) = opened();
+    let reply = block_at(&mut p, &io, 30);
+    pictures_match_kind(&reply);
+    let rows = rows(&reply);
+    // A paragraph with the block's own text, no picture record.
+    let stage::Record::FmtBlock(block) = rows[0] else {
+        panic!("block")
+    };
+    assert_eq!(block.kind, 0);
+    assert_eq!(block.text_bytes, "a cat on a mat".len() as u32);
+    assert!(rows.iter().any(|r| matches!(
+        r,
+        stage::Record::FmtTextPart(t) if t.text == "a cat on a mat"
+    )));
+    // The ones with their pictures in the cache are unchanged.
+    pictures_match_kind(&block_at(&mut p, &io, 10));
+    // The same picture asked for by number is not found, as before.
+    assert!(matches!(
+        run(&mut p, &io, &call(18, |c| c.index = 30)),
+        Err(Error::NotFound)
+    ));
 }
