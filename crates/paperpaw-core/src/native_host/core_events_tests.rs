@@ -518,23 +518,27 @@ fn moved(from: &str, path: &str) -> Params {
 #[test]
 fn a_moved_book_is_told_to_its_subscribers_with_both_paths_and_to_no_one_else() {
     let mut w = world(&[wire::EVENT_BOOK_MOVED_TAG], &[wire::EVENT_STARTED_TAG]);
-    raise(
-        &mut w.kernel,
-        wire::EVENT_BOOK_MOVED_TAG,
+    w.kernel.emit(
+        builtin::BOOK_MOVED.id(),
         &moved("books/a.txt", "books/new/a.txt"),
     );
+    // Held until the pump tells it: the edge charges the budget.
+    let held = w
+        .kernel
+        .shared
+        .native_instances
+        .setting_events
+        .budget_used();
+    assert!(held >= 26, "held until told: {held}");
+    while w.kernel.native_setting_pump() {}
     assert_eq!(tags(&w, 'a'), [wire::EVENT_BOOK_MOVED_TAG]);
     assert!(tags(&w, 'b').is_empty());
     assert_eq!(*w.titles.borrow(), ["books/a.txt>books/new/a.txt"]);
-    // Told: nothing waits.
-    assert!(
-        w.kernel
-            .shared
-            .native_instances
-            .setting_events
-            .waiting()
-            .is_empty()
-    );
+    // Told: nothing waits and the held bytes are back (the budget, not the
+    // list of waiting owners, is what the edge charges).
+    let events = &w.kernel.shared.native_instances.setting_events;
+    assert!(events.waiting().is_empty());
+    assert_eq!(events.budget_used(), 0);
 }
 
 #[test]
