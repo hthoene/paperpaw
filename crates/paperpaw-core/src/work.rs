@@ -1234,6 +1234,10 @@ pub(crate) fn register_network(
         "wifi",
         NETWORK_GROUP,
     )
+    // Guarded: the manager joins and hosts without the user's input and hears
+    // `network_wanted`, so only the settings editor (the user) may name it, never
+    // another plugin by command, default or preset.
+    .guarded()
     .advanced()
     .description("core.setting.network-manager.help")];
     r.add_settings(&MANAGER)

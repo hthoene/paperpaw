@@ -6,7 +6,7 @@ use crate::{
     io::WifiEvent,
     native_host::commands::CommandStage,
 };
-use paperpaw_native::host_glue::{ERR_CANCELLED, ERR_FULL, OK};
+use paperpaw_native::host_glue::{ERR_CANCELLED, ERR_FULL, ERR_INVALID, OK};
 use paperpaw_native::metadata::Feature;
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{SettingSpec, wifi::WifiState};
@@ -586,6 +586,24 @@ fn the_wifi_plugin_is_the_network_manager_until_the_user_chooses_another() {
     assert!(!honoured("wifi", Some("other")));
     assert!(!honoured("wifi", Some("")));
     assert!(!honoured("other", Some("")));
+}
+
+#[test]
+fn only_the_settings_editor_may_name_the_network_manager() {
+    let kernel = kernel();
+    let env = kernel.shared.env(Instant(0));
+    let admitted = |owner: &'static str, exempt: bool| {
+        let owner = Id::new_static(owner);
+        let authority = super::super::CommandAuthority::new(exempt);
+        CommandStage::new(&owner, env.settings(), Some(authority), 16, 4096)
+            .admitted(NETWORK_MANAGER)
+            .map(|_| ())
+    };
+    // Any other plugin, the Wi-Fi plugin itself included, is refused.
+    assert_eq!(admitted("other", false), Err(ERR_INVALID));
+    assert_eq!(admitted("wifi", false), Err(ERR_INVALID));
+    // The settings editor (the user's hand) may.
+    assert_eq!(admitted("settings", true), Ok(()));
 }
 
 #[test]
