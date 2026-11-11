@@ -616,7 +616,7 @@ impl NativeReader {
         }
     }
 
-    /// The start of the device: the book read last opens again where the setting
+    /// The start of the device (`Event::Started`): the book read last opens again where the setting
     /// asks for it.
     fn reopen_last(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.ui.is_none() {
@@ -685,7 +685,6 @@ impl Plugin for NativeReader {
                 self.auto_turn_leave(host);
                 Ok(())
             }
-            // The device started: the book read last opens again, if asked.
             Event::Started { .. } if token == STARTED => self.reopen_last(host),
             // The search's work is due (the work's own token, as declared).
             Event::WorkDue(due) if token == WORK_DUE && due.token() == SEARCH_WORK => {
