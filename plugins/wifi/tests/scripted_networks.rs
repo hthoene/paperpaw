@@ -16,7 +16,10 @@ use std::rc::Rc;
 
 const DEVICE_WIFI: u32 = 8;
 const DEVICE_NETWORKS: u32 = 9;
+const SECRETS_GET: u32 = 1;
 const SECRETS_LIST: u32 = 2;
+const SECRETS_KEEP: u32 = 3;
+const SECRETS_REMOVE: u32 = 4;
 const NETWORKS_TOKEN: u32 = 11;
 /// The radio is on, not scanning.
 const ON: u32 = 1;
@@ -96,6 +99,11 @@ fn script(host: &ScriptedHost, log: &Log) {
             _ => Err(-1),
         }
     });
+    // The shell refuses a smaller `out` than an op's reply bound
+    // (`docs/abi/secrets.md`: `get`, `keep` and `remove` 1,280, `list` 4,096).
+    for op in [SECRETS_GET, SECRETS_KEEP, SECRETS_REMOVE] {
+        host.reply_bound("core.secrets", op, 1_280);
+    }
 }
 
 fn opened() -> Vec<u8> {

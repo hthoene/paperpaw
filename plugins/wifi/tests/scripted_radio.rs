@@ -125,6 +125,9 @@ fn secrets_service(host: &ScriptedHost, world: &World) {
         }
         _ => Err(-1),
     });
+    // The shell refuses a smaller `out` than an op's reply bound
+    // (`docs/abi/secrets.md`: `get`, `keep` and `remove` 1,280, `list` 4,096).
+    host.reply_bound("core.secrets", SECRETS_GET, 1_280);
 }
 
 fn host(world: World, works: &Works) -> ScriptedHost {
