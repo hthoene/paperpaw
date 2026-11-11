@@ -33,6 +33,7 @@ const ROOT_CACHE: u32 = 6;
 
 mod op {
     pub const OPEN: u32 = 2;
+    pub const SECTIONS: u32 = 7;
     pub const FONTS: u32 = 16;
 }
 
@@ -439,4 +440,23 @@ fn an_embedded_font_is_copied_into_the_document_cache() {
     );
     // The plugin kept off what the host reserves, and the book was not touched.
     assert!(context.denied.borrow().is_empty());
+}
+
+/// The same open, read for its chapters: the first open of a book natively
+/// does not leave the document "uncleared" (the cache folder is the host's
+/// and starts empty), so the sections are listed too.
+#[test]
+fn the_sections_of_a_book_are_listed_after_its_first_native_open() {
+    let mut native = Native::new(book_with_font(TTF));
+    let opened = native.call(&fmt_call(op::OPEN, |c| c.text = ""));
+    let stage::Record::FmtState(state) = rows(&opened)[0] else {
+        panic!("open answers a state row");
+    };
+    assert_eq!((state.state, state.status), (0, 0), "the book opens");
+    let reply = native.call(&fmt_call(op::SECTIONS, |_| {}));
+    let sections = rows(&reply)
+        .into_iter()
+        .filter(|row| matches!(row, stage::Record::FmtSection(_)))
+        .count();
+    assert!(sections >= 1, "the book's chapter is listed");
 }
