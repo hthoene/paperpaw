@@ -299,12 +299,112 @@ fn drawing_is_banded_clipped_and_checked() {
         Err(ERR_NOT_FOUND)
     );
     // Reserved flag bits are unsupported, never silently ignored.
-    for bad in [4, 8, 0x80, 0x1_0000, u32::MAX, FILL | 0x40] {
+    for bad in [0x20, 0x40, 0x80, 0x1_0000, u32::MAX, FILL | 0x40] {
         assert_eq!(
             t.draw(A, id, &mut canvas, &storage, 0, 0, 8, 4, bad),
             Err(ERR_UNSUPPORTED)
         );
     }
+}
+
+#[test]
+fn stretch_fills_the_rectangle_and_drops_the_shape() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    gray_file(&storage, "c/p.gray", 8, 4, 40);
+    let id = add(&t, A, doc(1, 0), "c/p.gray").unwrap();
+    let mut fb = screen();
+    let mut canvas = fb.canvas();
+    // 8x4 into 20x20 at (10, 10): every pixel of the rectangle, none outside.
+    t.draw(A, id, &mut canvas, &storage, 10, 10, 20, 20, STRETCH)
+        .unwrap();
+    for (x, y) in [(10, 10), (29, 10), (10, 29), (29, 29), (20, 12)] {
+        assert_eq!(gray(&canvas, x, y), 40, "({x}, {y})");
+    }
+    for (x, y) in [(9, 20), (30, 20), (20, 9), (20, 30)] {
+        assert_eq!(gray(&canvas, x, y), 255, "({x}, {y})");
+    }
+    // An empty rectangle draws nothing; one over 65,535 pixels is invalid.
+    assert_eq!(
+        t.draw(A, id, &mut canvas, &storage, 0, 0, 0, 20, STRETCH),
+        Ok(())
+    );
+    assert_eq!(
+        t.draw(A, id, &mut canvas, &storage, 0, 0, 65_536, 20, STRETCH),
+        Err(ERR_INVALID)
+    );
+}
+
+#[test]
+fn flags_that_choose_two_ways_at_once_are_invalid_before_anything_else() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    gray_file(&storage, "c/p.gray", 8, 4, 40);
+    let id = add(&t, A, doc(1, 0), "c/p.gray").unwrap();
+    let mut fb = screen();
+    let mut canvas = fb.canvas();
+    for bad in [FILL | STRETCH, DOTS | GRAYS, FILL | STRETCH | SMALL | DOTS] {
+        assert_eq!(
+            t.draw(A, id, &mut canvas, &storage, 0, 0, 8, 4, bad),
+            Err(ERR_INVALID),
+            "{bad:#x}"
+        );
+        assert_eq!(
+            t.draw(B, id, &mut canvas, &storage, 0, 0, 8, 4, bad),
+            Err(ERR_INVALID),
+            "{bad:#x}: invalid whoever asks"
+        );
+    }
+    assert_eq!(gray(&canvas, 3, 2), 255, "nothing was drawn");
+    // Each alone, and with the others that go with it, is fine.
+    for good in [
+        FILL,
+        STRETCH,
+        DOTS,
+        GRAYS,
+        STRETCH | DOTS | SMALL,
+        FILL | GRAYS,
+    ] {
+        assert_eq!(
+            t.draw(A, id, &mut canvas, &storage, 0, 0, 8, 4, good),
+            Ok(()),
+            "{good:#x}"
+        );
+    }
+}
+
+#[test]
+fn dots_are_black_and_white_where_the_panel_has_grays_and_grays_are_the_panels() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    gray_file(&storage, "c/p.gray", 16, 16, 128);
+    let id = t.add(A, doc(1, 0), "c/p.gray", 16, 16, false).unwrap();
+    let count = |flags| {
+        let mut fb = screen();
+        let mut canvas = fb.canvas();
+        t.draw(A, id, &mut canvas, &storage, 0, 0, 16, 16, flags)
+            .unwrap();
+        let mut seen = [0_u32; 3];
+        for y in 0..16 {
+            for x in 0..16 {
+                match gray(&canvas, x, y) {
+                    0 => seen[0] += 1,
+                    255 => seen[1] += 1,
+                    128 => seen[2] += 1,
+                    other => panic!("an unexpected gray {other}"),
+                }
+            }
+        }
+        seen
+    };
+    // The panel's own rule on a Gray8 frame: the gray as it is.
+    assert_eq!(count(0), [0, 0, 256]);
+    assert_eq!(count(GRAYS), [0, 0, 256]);
+    // Dots: only black and white, about half each.
+    let [black, white, mid] = count(DOTS);
+    assert_eq!(mid, 0);
+    assert_eq!(black + white, 256);
+    assert!((96..=160).contains(&white), "{white} white of 256");
 }
 
 fn alpha_file(storage: &MemoryStorage, path: &str, width: u32, height: u32, gray: u8, alpha: u8) {
