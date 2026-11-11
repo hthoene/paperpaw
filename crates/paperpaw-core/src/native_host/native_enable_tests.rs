@@ -174,22 +174,58 @@ fn safe_mode_switches_the_crashing_plugin_off_for_good() {
         k.shared.native_safe_mode.as_ref().unwrap().switched_off,
         [Id::new_static("mail")]
     );
-    // A built-in plugin that crashed is switched off too.
+    // An essential built-in plugin that crashed is held back this start only:
+    // never saved off, so the device cannot be left without the only way to
+    // switch it on again but a PC.
     let mut b = kernel_with(
         "",
         "",
-        Some(safe(SafeModeReason::FailedStarts, Some("stats"))),
+        Some(safe(SafeModeReason::FailedStarts, Some("settings"))),
     );
     let config = b.native_config();
-    assert_eq!(
-        b.native_decide(&config, "stats", true, false),
-        NativeDecision::Crashed
-    );
+    let once = b.native_decide(&config, "settings", true, false);
+    assert_eq!(once, NativeDecision::CrashedOnce);
+    assert!(!once.hosts() && once.enabled());
+    assert_eq!(once.problem(), Some(PluginProblem::Crashed));
     assert_eq!(
         b.native_decide(&config, "clock", true, false),
         NativeDecision::Host
     );
-    // The next start, without safe mode: still off, from the file.
+    let kept = read_config(b.shared.storage.as_ref()).ok().flatten();
+    assert!(
+        kept.as_deref()
+            .is_none_or(|file| !file.contains("settings")),
+        "{kept:?}"
+    );
+    assert!(
+        b.shared
+            .native_safe_mode
+            .as_ref()
+            .unwrap()
+            .switched_off
+            .is_empty()
+    );
+    // The next start, without safe mode, hosts it again.
+    let mut again = kernel(kept.as_deref().unwrap_or(""), "");
+    assert!(enabled(&mut again, "settings", true));
+    // Any other built-in plugin that crashed is off from the next start on
+    // (a plugin that crashes at every start must not alternate crash starts
+    // and safe mode).
+    let mut c = kernel_with(
+        "",
+        "",
+        Some(safe(SafeModeReason::FailedStarts, Some("widgets"))),
+    );
+    let config = c.native_config();
+    assert_eq!(
+        c.native_decide(&config, "widgets", true, false),
+        NativeDecision::Crashed
+    );
+    let saved = read_config(c.shared.storage.as_ref()).unwrap().unwrap();
+    assert!(saved.contains("widgets = off"), "{saved}");
+    let mut after = kernel(&saved, "");
+    assert!(!enabled(&mut after, "widgets", true));
+    // The next start, without safe mode: the card plugin is still off.
     let mut next = kernel(&file, "");
     assert!(!enabled(&mut next, "mail", true));
     assert!(enabled(&mut next, "clock", true));
@@ -241,5 +277,12 @@ fn the_decision_says_how_to_list_the_plugin() {
             NativeDecision::Crashed.problem()
         ),
         (false, Some(PluginProblem::Crashed))
+    );
+    assert_eq!(
+        (
+            NativeDecision::CrashedOnce.enabled(),
+            NativeDecision::CrashedOnce.problem()
+        ),
+        (true, Some(PluginProblem::Crashed))
     );
 }
