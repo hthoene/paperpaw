@@ -538,14 +538,38 @@ impl KernelBuilder {
     /// small (the X4's). The kernel is large (about 6 KB there); built so, it
     /// is on the stack only while it is made, before the start reads the
     /// card, and every move after it is a pointer's, so no copy of it is on
-    /// the stack under the start's deepest calls (#250).
+    /// the stack under the start's deepest calls (#250). Where the heap has
+    /// no room for it: [`KernelError::NoMemory`], nothing built.
     pub fn build_boxed(mut self) -> Result<Box<Kernel>, KernelError> {
         let framebuffer = self.0.framebuffer()?;
-        let mut kernel = self.0.new_kernel_boxed(framebuffer);
+        let mut kernel = self
+            .0
+            .new_kernel_boxed(framebuffer)
+            .ok_or(KernelError::NoMemory)?;
         self.0.set_up(&mut kernel);
         Ok(kernel)
     }
 }
+
+/// Errors that prevent the kernel from starting.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum KernelError {
+    Graphics(GraphicsError),
+    /// The heap had no room for the kernel ([`KernelBuilder::build_boxed`]).
+    NoMemory,
+}
+
+impl fmt::Display for KernelError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            KernelError::Graphics(error) => write!(f, "cannot create framebuffer: {error}"),
+            KernelError::NoMemory => f.write_str("no memory for the kernel"),
+        }
+    }
+}
+
+impl core::error::Error for KernelError {}
 
 /// The most values kept for settings nobody had declared when the file was
 /// read (see `keep_config_value`): more are only warned about.
@@ -560,11 +584,13 @@ impl BuilderParts {
             .map_err(KernelError::Graphics)
     }
 
-    /// [`Self::new_kernel`] on the heap. Not inlined: the kernel made on the
-    /// way is in this call's frame, which is gone before [`Self::set_up`].
+    /// [`Self::new_kernel`] on the heap, made only once the room is there
+    /// (`None`, nothing made, where it is not). Not inlined: whatever of the
+    /// kernel is made on the way is in this call's frame, which is gone
+    /// before [`Self::set_up`].
     #[inline(never)]
-    fn new_kernel_boxed(&mut self, framebuffer: Framebuffer) -> Box<Kernel> {
-        Box::new(self.new_kernel(framebuffer))
+    fn new_kernel_boxed(&mut self, framebuffer: Framebuffer) -> Option<Box<Kernel>> {
+        crate::native_host::shared::try_box_with(|| self.new_kernel(framebuffer))
     }
 
     /// Everything the kernel takes from the builder once it is made: the

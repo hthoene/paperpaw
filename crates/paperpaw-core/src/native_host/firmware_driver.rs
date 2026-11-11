@@ -499,7 +499,7 @@ impl Driver {
         core::mem::take(&mut self.finish_due)
     }
 
-    #[cfg(test)]
+    /// Whether [`Self::want_finish`] waits, without taking it.
     pub(crate) fn finish_due(&self) -> bool {
         self.finish_due
     }
