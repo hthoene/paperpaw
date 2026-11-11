@@ -260,6 +260,7 @@ pub const fn host_table<S: Services + 'static>() -> PpHost {
     table.text_measure = text_measure::<S>;
     table.text_metrics = text_metrics::<S>;
     table.text_draw = text_draw::<S>;
+    table.text_draw_inked = text_draw_inked::<S>;
     doc_slots::install::<S>(&mut table);
     // The X4 ink probe is enabled only after device timing qualifies it.
     #[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
@@ -1269,6 +1270,46 @@ unsafe extern "C" fn text_draw<S: 'static>(
             baseline,
             color,
             text,
+            out,
+        )
+    }
+}
+
+#[allow(clippy::too_many_arguments, reason = "matches the ABI scalar slot")]
+unsafe extern "C" fn text_draw_inked<S>(
+    ctx: *mut c_void,
+    handle: u32,
+    size: f32,
+    x: f32,
+    baseline: i32,
+    color: u32,
+    text: PpBytes,
+    extra: u32,
+    tone: PpBytes,
+    flags: u32,
+    out: *mut f32,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
+    // SAFETY: slot contracts supply live, disjoint input and output storage.
+    unsafe {
+        super::fonts::draw_inked(
+            &context.environment,
+            &context.resources,
+            &context.canvas,
+            handle,
+            size,
+            x,
+            baseline,
+            color,
+            text,
+            extra,
+            tone,
+            flags,
             out,
         )
     }
