@@ -11,7 +11,7 @@
 )]
 use paperpaw_core::{
     Kernel, KernelBuilder,
-    native_host::{HostResources, flat::FlatDepth},
+    native_host::{HostResources, HostWiring, flat::FlatDepth},
 };
 use paperpaw_native::host_glue::{PpEntry, Services};
 use paperpaw_native::metadata::{Feature, Host as AdmissionHost, Profile, Service};
@@ -184,6 +184,8 @@ pub struct Setup {
     config: String,
     /// What else the kernel is built with (see [`Setup::with_kernel`]).
     kernel: Vec<Arc<dyn Fn(KernelBuilder) -> KernelBuilder>>,
+    /// The host services wired for the plugin (see [`Setup::wired`]).
+    wiring: Vec<Arc<dyn Fn(HostWiring) -> HostWiring>>,
 }
 
 impl Default for Setup {
@@ -199,6 +201,7 @@ impl Default for Setup {
             ),
             config: String::new(),
             kernel: Vec::new(),
+            wiring: Vec::new(),
         }
     }
 }
@@ -217,6 +220,7 @@ impl Setup {
             ),
             config: String::new(),
             kernel: Vec::new(),
+            wiring: Vec::new(),
         }
     }
 
@@ -225,6 +229,16 @@ impl Setup {
     /// order given.
     pub fn with_kernel(mut self, step: impl Fn(KernelBuilder) -> KernelBuilder + 'static) -> Self {
         self.kernel.push(Arc::new(step));
+        self
+    }
+
+    /// Wires host services for the plugin as a shell does
+    /// (`HostResources::wire`): `|w| w.lookup()`, `|w| w.library(..)`, ... Steps run in the
+    /// order given. Without any, a service the plugin declared answers as an unwired family
+    /// does; with one the call reaches the real host, and so the checks of the call path (a
+    /// reply buffer smaller than the op's `max_reply` is `ERR_NO_SPACE` there, as on a device).
+    pub fn wired(mut self, step: impl Fn(HostWiring) -> HostWiring + 'static) -> Self {
+        self.wiring.push(Arc::new(step));
         self
     }
 
@@ -291,6 +305,14 @@ pub fn install_with(
     // SAFETY: a linked entry's metadata view is its own static bytes.
     let metadata = unsafe { std::slice::from_raw_parts(entry.metadata.ptr, entry.metadata.len) };
     let heap = Heap::default();
+    let resources = HostResources::try_new().map_err(|e| format!("{e:?}"))?;
+    if !setup.wiring.is_empty() {
+        let wiring = setup
+            .wiring
+            .iter()
+            .fold(HostWiring::new(), |wiring, step| step(wiring));
+        resources.wire(wiring).map_err(|e| format!("wire: {e:?}"))?;
+    }
     // Held from here on, so a refused install is checked for leaks as well.
     let mut installed = Installed {
         kernel: Some(
@@ -314,7 +336,7 @@ pub fn install_with(
             &host,
             name,
             heap.clone(),
-            HostResources::try_new().map_err(|e| format!("{e:?}"))?,
+            resources,
             &FlatDepth::try_new().map_err(|e| format!("{e:?}"))?,
             teardown,
             report,

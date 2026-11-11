@@ -169,6 +169,21 @@ impl Session {
         Ok(session)
     }
 
+    /// Let the kernel go on with what the start began: a few seconds of ticks, each with the
+    /// work the kernel withheld, so that a plugin's callbacks (`Started` and what it staged
+    /// there: service calls, commands) have run against the real host before the test looks.
+    /// A call the host refused (a reply buffer smaller than the op's `max_reply` is
+    /// `ERR_NO_SPACE`, as on a device) lands in [`Self::dropped`] or [`Self::warnings`].
+    pub fn settle(&mut self) -> &mut Self {
+        for _ in 0..4 {
+            self.now += 1_000;
+            self.installed.kernel().proceed(Instant(self.now));
+            self.installed.kernel().tick(Instant(self.now));
+        }
+        self.draw();
+        self
+    }
+
     /// Open the screen `id` as a command would, and draw. `Err` where it is not the screen on
     /// top afterwards (the host refused it, or the plugin did not declare it).
     pub fn open(&mut self, id: &str) -> Result<&mut Self, String> {
