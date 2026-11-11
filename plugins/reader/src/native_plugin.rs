@@ -7,8 +7,8 @@
 //! `native_*` models, tested without one.
 use crate::{
     declarations::{
-        ANNOTATIONS, FOOTNOTE, SCREEN, SEARCH, SEARCH_WORK, SETTING_CHANGED, SKIM, STOPPING,
-        SUSPEND, TOC, WORK_DUE,
+        ANNOTATIONS, FOOTNOTE, SCREEN, SEARCH, SEARCH_WORK, SETTING_CHANGED, SKIM, SPOKEN,
+        STACK_CHANGED, STOPPING, SUSPEND, TOC, WORK_DUE,
     },
     native_annotations_view::{AnnotationsView, Outcome as NotesOutcome},
     native_footnote::{Footnote, Pressed},
@@ -30,11 +30,11 @@ use paperpaw_sdk::{
         commands::CommandSender,
         commands::RedrawMode,
         document::Documents,
-        events::{AnswerOutcome, Answered, Event, Incoming, kinds},
+        events::{AnswerOutcome, Answered, Event, Incoming, SpeechStatus, kinds},
         library::Library,
         registrations,
         reply::Reply,
-        ui::{Question, RequestId as AskId, Ui},
+        ui::{Question, RequestId as AskId, Ui, UiCursor},
         work::{Work, WorkSpec},
     },
 };
@@ -122,7 +122,8 @@ impl NativeReader {
         let (Some(ui), Some(docs)) = (&self.ui, &self.docs) else {
             return Err(Error::State);
         };
-        let view = View::open(host, ui, (docs, self.library.as_ref()), handover)?;
+        let mut view = View::open(host, ui, (docs, self.library.as_ref()), handover)?;
+        view.bind(instance.get());
         self.screens.open(instance, view)?;
         self.start_count(host);
         Ok(())
@@ -464,6 +465,60 @@ impl NativeReader {
         result
     }
 
+    /// Ends the reading aloud of every reading screen.
+    fn stop_speech(&mut self, host: &Host<'_>) {
+        let Some(docs) = &self.docs else {
+            return;
+        };
+        let library = self.library.as_ref();
+        for view in self.screens.all() {
+            if view.reading_aloud() {
+                view.stop_aloud(host, (docs, library));
+            }
+        }
+    }
+
+    /// The screen stack changed: where the reading screen is no longer on top,
+    /// nothing is read aloud (the table of contents, a menu, another plugin's
+    /// screen, the library). Asked only while something is read aloud.
+    fn stacked(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if !self.screens.all().any(|view| view.reading_aloud()) {
+            return Ok(());
+        }
+        let Some(ui) = &self.ui else {
+            return Ok(());
+        };
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let rows = ui.stack(host, UiCursor::start(), &mut input, &mut out)?;
+        let top = match rows.into_iter().next() {
+            Some(row) => Some(row?.instance()),
+            None => None,
+        };
+        if top.is_none() || top != self.screens.top_instance(SCREEN) {
+            self.stop_speech(host);
+        }
+        Ok(())
+    }
+
+    /// A sentence was spoken: the screen that handed it over goes on, which can
+    /// turn its page (the place is then written after the quiet time).
+    fn spoken(&mut self, host: &Host<'_>, cookie: u32, status: SpeechStatus) {
+        let Some(docs) = &self.docs else {
+            return;
+        };
+        let library = self.library.as_ref();
+        let mut turned = false;
+        for view in self.screens.all() {
+            if view.owns_speech(cookie) {
+                view.spoken(host, (docs, library), cookie, status);
+                turned |= view.take_turned();
+            }
+        }
+        if turned {
+            self.start_quiet(host);
+        }
+    }
+
     /// Writes the place of every reading screen not saved.
     fn save_now(&mut self, host: &Host<'_>) {
         let library = self.library.as_ref();
@@ -597,7 +652,9 @@ impl Plugin for NativeReader {
             kinds::Stopping,
             kinds::WorkDue,
             kinds::Answered,
-            kinds::SettingChanged
+            kinds::SettingChanged,
+            kinds::Spoken,
+            kinds::StackChanged
         ) else {
             return Ok(());
         };
@@ -631,12 +688,22 @@ impl Plugin for NativeReader {
             Event::WorkDue(_) | Event::Suspend { .. } | Event::Stopping { .. }
                 if matches!(token, WORK_DUE | SUSPEND | STOPPING) =>
             {
+                // A device that sleeps or stops reads no more aloud and turns no
+                // more pages by itself.
                 if token != WORK_DUE {
+                    self.stop_speech(host);
                     self.auto_turn_leave(host);
                 }
                 self.save_now(host);
                 Ok(())
             }
+            // The host's answer to a sentence handed over (the cookie says whose).
+            Event::Spoken { cookie, status, .. } if token == SPOKEN => {
+                self.spoken(host, cookie, status);
+                Ok(())
+            }
+            // Reading aloud ends when another screen is on top of the book.
+            Event::StackChanged { .. } if token == STACK_CHANGED => self.stacked(host),
             // A reading setting changed: the pages on show are laid out again (or
             // drawn again where only the ink changed).
             Event::SettingChanged { key, .. } if token == SETTING_CHANGED => {

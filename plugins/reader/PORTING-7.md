@@ -430,6 +430,63 @@ relative to the data folder).
   both into paragraphs (`native_block::start`), so a table's rules never occur yet; carrying them over needs the
   `doc_image` and `doc_columns` pieces of the document service (docs/abi/document.md section 5).
 
+## Read aloud (view slice R8d, Port E)
+
+- Action `reader.read-aloud` (menu, short menu; shown only where the device needs `speech`) on the reading
+  screen. The model is `native_speech.rs` (host-free, tested with a recording fake of the screen), the screen's
+  side is `native_view/aloud.rs`, the sentence rules are `native_aloud.rs` (`sentence_end_by` and `spoken_into`
+  added; the interface-6 comparisons in `native_tests.rs` still hold). The texts are the interface-6 keys
+  (`reader.aloud.started`, `.paused`, `.failed`, `.unavailable`, `.page-done`, `.timer-done`; en and de are
+  already in the plugin's i18n).
+- Words: those of the page on show, in reading order, borrowed from the laid-out lines (20 bytes each, one page
+  at a time; Beta 3 kept a `WordBox` with a `String` for each word and a second list of `&str`). Sentences end as
+  in Beta 3 (at most 80 words, closing quotes and brackets belong to the sentence, hyphenated words are joined
+  again, a sentence that goes on on the next page is spoken whole when pages turn). `command.speak` takes at most
+  2,048 bytes: a longer text is cut after a word.
+- Flow as Beta 3's: the sentence is spoken and the next is handed over at once with `queue`; `event.spoken` for the
+  sentence now speaking hands over the one after it and turns the page where the next sentence is on the next one.
+  Each speech has a cookie (the screen's instance in the upper 16 bits, a counter in the lower) so that an answer
+  of an older speech (`status` 1, replaced or stopped) is never taken for the current one. `rate` is
+  `reader.aloud-speed` (50-300), `language` the book's (empty: the system's; a tag the SDK refuses is empty too),
+  the timer's minutes `reader.aloud-timer` (checked when a sentence ends, as Beta 3 did).
+- Pause and stop: any action or gesture while it reads pauses it and does nothing else (also "Read aloud"); it
+  says `reader.aloud.paused`, stops the speech and remembers the place of the sentence (not an index: after a
+  turn or a reflow "Read aloud" goes on at the word at or after that place, else the page's start). The book
+  closing, the device sleeping or stopping (`event.suspend`, `event.stopping`) and the reading screen no longer
+  being on top (`event.stack_changed`, new token 9 in `declarations::events`; the stack is read only while it
+  reads aloud) end it. A layout change (turned screen, reading setting) pauses it. `status` 2 (no voice) says
+  `reader.aloud.failed`, 3 (no speech) `reader.aloud.unavailable`, 1 for the speech now speaking (another voice
+  replaced it) is a pause.
+- Underline: `native_draw::draw_lines_marked` draws one line (the geometry of the book's own underline) under the
+  marked words of a line, over the spaces between them, one line for each line of the sentence; `Open::mark` is the
+  range of words of the page on show, set when a sentence starts and cleared when it ends. It follows the setting
+  `reader.aloud-highlight`.
+- Differences from interface 6: the page is redrawn whole for each sentence (Beta 3 redrew the lines of the
+  sentence; `Fast` refresh); words of a line that needs reordering are in logical (spoken) order, not in the order they are
+  drawn; the speech and the notices are commands (a notice is the device's copy of the text, 256 bytes at most);
+  the page-turn and the place write of a turn by reading aloud are those of a turn by hand (report, save after
+  5 s or 2 s quiet). A device with no speech is told by the host (`status` 3) after the first request, not
+  beforehand (the entries are hidden there by `menu.need`).
+- **Needs the host (not in this tree):** `command.speak`, `command.stop_speaking` and `event.spoken` (89) are in
+  the contract (`docs/abi/ui.md` section 7) and the SDK (`CommandSender::speak`, `SpeechRequest`,
+  `Event::Spoken`), but the native host here does not apply either command (`commands_ui.rs` `owned_ui` answers
+  `Unsupported`) nor raise the event. Until it does, "Read aloud" says the device cannot read aloud. `command.notify`
+  is in the same state (the other notices of the screen, not saved and now these, stay unseen). Not declared: `event.spoken` needs
+  no subscription (like the answers of questions); if the host asks for one, it is one line in `declarations::events`.
+- **Not yet:** reading aloud from the selected text (`reader.selection.read-aloud`, with the selection flow), the
+  status-line icon *volume* (the status lines), the hands-free auto-turn, a timer that ends a sentence in the middle
+  (the minutes are checked at a sentence's end), a hosted test of the whole (a speech host and a document host in
+  the harness: `acceptance_pending.rs` *reader-aloud-and-auto-turn* stays blocked).
+- **Unmeasured X4 gates:** the whole-page redraw for each sentence (a sentence is a few seconds of speech, a
+  `Fast` refresh each); the layout of the page after the next one while the sentence goes over a page end
+  (laid out twice: for the text and for the turn; transient, as Beta 3); `Setup::read` (about eight host calls)
+  and the page fonts for each page asked for; the stack read (two 4 KiB buffers) at each stack change while it
+  reads; the `command.speak` scratch (the text and 128 bytes) and the words of a page (about 6 KB for 300 words).
+  Notices use 256 + 320 bytes on the stack and no heap.
+- Review remark (#1103): the notice *started* is said after the first sentence was handed to the host, so a device
+  without speech says *cannot read aloud* only. `event.spoken` (89) goes only to plugins that subscribed (Services, `ui.md` 7), so the reader subscribes
+  (`SPOKEN`, token 16 in `declarations::events`; the declaration test now counts 8 events). Device gate: a notice must not count as a stack row (op 1), or it ends the reading at once.
+
 ## Hands-free and auto-turn (view slice R8c, Port E)
 
 - **Ported:** the action `reader.auto-turn` (menu *More*, the key; Beta 3's name and texts

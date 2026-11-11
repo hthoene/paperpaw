@@ -8,6 +8,7 @@
 use crate::native_decor::{decorate, draw_rules};
 use crate::native_look::Look;
 use crate::native_typeset::{Faces, HostFonts, Measure, Role};
+use core::ops::Range;
 use paperpaw_sdk::{
     Color,
     layout::{Page, Typesetter},
@@ -60,12 +61,30 @@ pub fn draw_lines<M: Measure>(
     ink: &mut impl Ink,
     faces: &Faces<M>,
     page: &Page,
-    (left, top): (f32, f32),
+    origin: (f32, f32),
 ) -> Result<(), Error> {
+    draw_lines_marked(ink, faces, page, origin, None)
+}
+
+/// [`draw_lines`] with the words `mark` (their numbers on the page, as
+/// `native_speech::words` counts them: lines a filter inserted have none) underlined
+/// where the sentence read aloud is, in one line under a run of marked words.
+///
+/// # Errors
+/// What `ink` refuses.
+pub fn draw_lines_marked<M: Measure>(
+    ink: &mut impl Ink,
+    faces: &Faces<M>,
+    page: &Page,
+    (left, top): (f32, f32),
+    mark: Option<Range<usize>>,
+) -> Result<(), Error> {
+    let mut number: usize = 0;
     for line in &page.lines {
         // Rounded to the row (the page is below the top of the screen: never negative).
         let baseline = (top + line.baseline + 0.5) as i32;
         let mut x = left + line.x;
+        let mut under = Under::default();
         for run in &line.runs {
             let from = x;
             let Some(text) = line.text.get(run.start..run.end) else {
@@ -73,14 +92,29 @@ pub fn draw_lines<M: Measure>(
             };
             let (role, size) = (Role::of(run.face), faces.size(run.face));
             let space = faces.advance(run.face, ' ') + line.word_spacing;
+            let mut at = run.start;
             for (n, word) in text.split(' ').enumerate() {
                 if n > 0 {
                     x += space;
+                    at += 1;
                 }
+                let start = x;
                 x += draw_word(ink, (role, size), x, baseline, word)?;
+                if !word.is_empty() && !line.inserted {
+                    // A word goes on from the run before where no space is between.
+                    if at == 0 || line.text.as_bytes().get(at - 1) == Some(&b' ') {
+                        number += 1;
+                    }
+                    let marked = mark
+                        .as_ref()
+                        .is_some_and(|m| number.checked_sub(1).is_some_and(|i| m.contains(&i)));
+                    under.word(ink, marked, (start, x), (baseline, size))?;
+                }
+                at += word.len();
             }
             decorate(ink, run.face.style, size, (from, x - from), baseline)?;
         }
+        under.end(ink)?;
     }
     draw_rules(ink, &page.rules, (left, top))?;
     draw_images(ink, page, (left, top))
@@ -105,6 +139,47 @@ fn draw_images(ink: &mut impl Ink, page: &Page, (left, top): (f32, f32)) -> Resu
         }
     }
     Ok(())
+}
+
+/// The line under a stretch of marked words on one line of the page: it
+/// goes on over the space between two marked words.
+#[derive(Default)]
+struct Under {
+    stretch: Option<(f32, f32, i32, f32)>,
+}
+
+impl Under {
+    /// A word from `x.0` to `x.1` was drawn on `baseline` in `size` pixels.
+    fn word(
+        &mut self,
+        ink: &mut impl Ink,
+        marked: bool,
+        x: (f32, f32),
+        (baseline, size): (i32, f32),
+    ) -> Result<(), Error> {
+        match (&mut self.stretch, marked) {
+            (Some(stretch), true) => stretch.1 = x.1,
+            (_, true) => self.stretch = Some((x.0, x.1, baseline, size)),
+            (_, false) => self.end(ink)?,
+        }
+        Ok(())
+    }
+
+    /// The stretch ends: its line is drawn, as an underline of the same
+    /// geometry as the book's own (`native_decor`).
+    fn end(&mut self, ink: &mut impl Ink) -> Result<(), Error> {
+        let Some((from, to, baseline, size)) = self.stretch.take() else {
+            return Ok(());
+        };
+        let thick = ((size / 16.0) as u32).max(1);
+        let (left, right) = ((from + 0.5) as i32, (to + 0.5) as i32);
+        ink.fill(
+            left,
+            baseline + ((size / 10.0) as i32).max(1),
+            (right - left).max(0) as u32,
+            thick,
+        )
+    }
 }
 
 /// One word drawn without the characters that are not drawn (zero-width and

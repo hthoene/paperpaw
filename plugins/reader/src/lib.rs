@@ -75,6 +75,7 @@ pub mod native_search_view;
 pub mod native_selection;
 pub mod native_skim;
 pub mod native_skim_view;
+pub mod native_speech;
 pub mod native_state;
 pub mod native_status;
 #[cfg(test)]
