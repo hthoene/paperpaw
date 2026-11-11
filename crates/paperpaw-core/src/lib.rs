@@ -1277,6 +1277,7 @@ impl Kernel {
         self.close_shut_out();
         self.count_free_again(now);
         self.native_work_woke();
+        self.native_library_woke();
         self.output.commands.push(events::RESUME.emit(()));
     }
 

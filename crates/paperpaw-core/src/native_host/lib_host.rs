@@ -24,6 +24,7 @@ use super::registrations::{self as wire};
 use super::storage_files::{BusySources, excluded_on};
 use crate::abi7::context::RowsEnd;
 use alloc::rc::Rc;
+use core::cell::Cell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NOT_FOUND, ERR_UNSUPPORTED, OK};
 use paperpaw_platform::Storage;
 
@@ -42,6 +43,10 @@ pub(crate) struct LibraryHost {
     sources: Option<Rc<BusySources>>,
     /// What changed, for `event.library_changed` (the kernel's pump takes it).
     changes: Changes,
+    /// A view of the library asked (op 1 or 2) since the start or the last
+    /// wake, and whether the kernel's pump has yet to want the catalog for it.
+    catalog_asked: Cell<bool>,
+    catalog_wanted: Cell<bool>,
 }
 
 impl LibraryHost {
@@ -57,6 +62,8 @@ impl LibraryHost {
             moves,
             sources: None,
             changes: Changes::default(),
+            catalog_asked: Cell::new(false),
+            catalog_wanted: Cell::new(false),
         }
     }
 
@@ -129,6 +136,7 @@ impl LibraryHost {
 
 impl LibQuery for LibraryHost {
     fn state(&self, visit: One<'_>) -> Result<(), i32> {
+        self.view_asked();
         self.reads.state(visit)
     }
     fn query(
@@ -137,6 +145,7 @@ impl LibQuery for LibraryHost {
         archive: &str,
         visit: Rows<'_>,
     ) -> Result<RowsEnd, i32> {
+        self.view_asked();
         self.reads.query_hiding(
             query,
             archive,
@@ -399,6 +408,14 @@ impl LibWrite for LibraryHost {
         self.pending_change(visit)
     }
 
+    fn take_catalog_wanted(&self) -> bool {
+        self.catalog_wanted.replace(false)
+    }
+
+    fn catalog_ask_again(&self) {
+        self.catalog_asked.set(false);
+    }
+
     /// A field is part of the book's details, which a move carries: a book the
     /// job holds is `ERR_BUSY` (as for `provide`).
     fn set_field(&self, book: BookRef<'_>, field: &str, value: &str) -> Result<(), i32> {
@@ -410,6 +427,16 @@ impl LibWrite for LibraryHost {
 }
 
 impl LibraryHost {
+    /// A view of the library reads it (op 1 or 2): the first since the start or
+    /// the last wake wants the catalog, as Beta 3's library view did when it
+    /// showed (the kernel walks it where it was not walked since, or is not
+    /// there). Once: the queries after it want nothing.
+    fn view_asked(&self) {
+        if !self.catalog_asked.replace(true) {
+            self.catalog_wanted.set(true);
+        }
+    }
+
     /// `event.library_changed`'s change, as the pump takes it, with the
     /// catalog's generation (0 where the card cannot tell it now: the plugin
     /// reads again either way).

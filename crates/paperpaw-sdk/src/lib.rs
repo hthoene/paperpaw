@@ -172,7 +172,8 @@ pub use fonts::{FontFace, FontHandle, FontSet, FontSpec, Fonts};
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use fonts::{OpenError as FontOpenError, open_file as open_font_file};
 pub use formats::{
-    COVER_FIT, FormatOpener, FormatPrepared, FormatSpec, Formats, IMAGE_FIT, OpenOptions, cover_fit,
+    COVER_FIT, FormatOpener, FormatPrepared, FormatSpec, Formats, IMAGE_FIT, OpenOptions,
+    OtherFormats, cover_fit,
 };
 pub use gesture::{Direction, Gesture, GestureKind};
 #[cfg(feature = "kernel")]

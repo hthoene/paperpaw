@@ -294,6 +294,7 @@ pub(crate) mod linked_plugins;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
 mod moves_pump;
+pub(crate) mod native_book_formats;
 #[allow(
     dead_code,
     reason = "the shell builds the pool with the NET host and the SOCK host charges it"

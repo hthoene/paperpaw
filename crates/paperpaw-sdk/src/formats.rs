@@ -188,10 +188,39 @@ impl fmt::Debug for FormatSpec {
     }
 }
 
+/// The formats the kernel knows of besides the ones added here (those of
+/// native format plugins, interface 7): their files are books too, though
+/// they are not opened through [`Formats::open`]. Asked by name only; a
+/// check borrows what it compares and allocates nothing (a walk asks for
+/// every file of the library).
+pub trait OtherFormats {
+    /// Whether there is any.
+    fn any_other_format(&self) -> bool;
+    /// Whether one claims the file `name` by its extension (ASCII case
+    /// ignored, as FAT does).
+    fn other_format_claims(&self, name: &str) -> bool;
+}
+
+/// The kernel's [`OtherFormats`], if set.
+#[derive(Default)]
+struct Others(Option<Box<dyn OtherFormats>>);
+
+impl fmt::Debug for Others {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(if self.0.is_some() {
+            "Others(set)"
+        } else {
+            "Others(none)"
+        })
+    }
+}
+
 /// All registered file formats.
 #[derive(Debug, Default)]
 pub struct Formats {
     specs: Vec<FormatSpec>,
+    /// The formats of native plugins, asked where `specs` do not match.
+    others: Others,
     /// The screen shows colour: documents open with colour pictures.
     color: bool,
     /// The screen's size for pictures, if set.
@@ -238,6 +267,14 @@ impl Formats {
             .cover_fit(covers)
     }
 
+    /// The formats known besides the ones added (see [`OtherFormats`]),
+    /// set by the kernel when the first native plugin is admitted.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn set_others(&mut self, others: Box<dyn OtherFormats>) {
+        self.others = Others(Some(others));
+    }
+
     /// Releases unused capacity once registration is complete.
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
@@ -257,10 +294,10 @@ impl Formats {
         Ok(())
     }
 
-    /// Whether no format was added: nothing can be opened, nor be a
-    /// book.
+    /// Whether no format was added and the kernel knows of no other
+    /// ([`OtherFormats`]): nothing can be a book.
     pub fn is_empty(&self) -> bool {
-        self.specs.is_empty()
+        self.specs.is_empty() && !self.others.0.as_ref().is_some_and(|o| o.any_other_format())
     }
 
     pub fn contains(&self, id: &str) -> bool {
@@ -286,9 +323,15 @@ impl Formats {
         best.map(|(spec, _)| spec)
     }
 
-    /// Whether any format can open `path`, by its extension.
+    /// Whether any format can open `path`, by its extension: one added
+    /// here or another the kernel knows of ([`OtherFormats`]).
     pub fn supports(&self, path: &str) -> bool {
         self.for_path(path).is_some()
+            || self
+                .others
+                .0
+                .as_ref()
+                .is_some_and(|o| o.other_format_claims(crate::files::name(path)))
     }
 
     /// The format of the file at `path`: by its extension, else, for a

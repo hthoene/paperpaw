@@ -1,6 +1,7 @@
 //! `event.library_changed` from the library host to the plugins that
 //! subscribed: one event for the changes raised since the last pass, the
-//! changer hears it too, and a plugin that did not subscribe hears nothing.
+//! changer hears it too, and a plugin that did not subscribe hears nothing;
+//! the first view since the start or a wake wants the catalog, once.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use crate::native_host::{
@@ -161,4 +162,40 @@ fn changes_raised_before_a_pass_are_one_event_and_two_books_name_none() {
     assert_eq!(told.len(), 1);
     assert_eq!(told[0].0, ANNOTATIONS | STATUS);
     assert_eq!(told[0].2, "");
+}
+
+/// How many `core.catalog-wanted` the kernel has to run.
+fn catalog_wanted(w: &World) -> usize {
+    use paperpaw_sdk::Command;
+    use paperpaw_sdk::builtin::events::CATALOG_WANTED;
+    w.kernel
+        .output
+        .commands
+        .iter()
+        .filter(|c| matches!(c, Command::Emit(e, _) if *e == CATALOG_WANTED))
+        .count()
+}
+
+/// Beta 3's library view asked for the catalog when it showed; a native one
+/// reads the library: its first read since the start or a wake wants it, once.
+#[test]
+fn the_first_view_since_the_start_or_a_wake_wants_the_catalog_once() {
+    use crate::native_host::lib_service::query::LibQuery;
+    let mut w = world();
+    pump(&mut w);
+    assert_eq!(catalog_wanted(&w), 0, "not at a start by itself");
+    for _ in 0..3 {
+        w.host.state(&mut |_| {}).unwrap();
+    }
+    pump(&mut w);
+    pump(&mut w);
+    assert_eq!(catalog_wanted(&w), 1);
+    // Woken: the next view wants it again, once.
+    w.kernel.native_library_woke();
+    pump(&mut w);
+    assert_eq!(catalog_wanted(&w), 1);
+    w.host.state(&mut |_| {}).unwrap();
+    w.host.state(&mut |_| {}).unwrap();
+    pump(&mut w);
+    assert_eq!(catalog_wanted(&w), 2);
 }

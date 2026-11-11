@@ -7,8 +7,14 @@
 //! The host never reaches the queues itself. A change that does not fit a
 //! queue is dropped and logged there, once until the queue is empty again: the
 //! event is a hint ("re-read what you show"), so a later change tells again.
+//!
+//! The same pass wants the catalog (`core.catalog-wanted`) when a view of the
+//! library first reads it since the start or the last wake (#243): the
+//! kernel's walk starts from that event only, which Beta 3's library view
+//! raised when it showed and a native view has no op for.
 use super::registrations as wire;
 use crate::Kernel;
+use paperpaw_sdk::builtin::events;
 
 impl Kernel {
     /// Takes the library's waiting change and queues it for the subscribers.
@@ -26,6 +32,14 @@ impl Kernel {
         else {
             return false;
         };
+        // The first view of the library since the start or the wake: the
+        // kernel walks the catalog where it was not walked since, as for an
+        // interface 6 view that showed (`library::request_catalog`).
+        if host.take_catalog_wanted() {
+            self.output
+                .commands
+                .push(events::CATALOG_WANTED.emit(events::CatalogWanted::new(false)));
+        }
         let mut change = None;
         host.take_changed(&mut |what, generation, path| {
             // The path, at most 512 bytes, is held for the queueing only.
@@ -47,6 +61,18 @@ impl Kernel {
             });
         }
         false
+    }
+
+    /// Woken: the next view of the library wants the catalog again.
+    pub(crate) fn native_library_woke(&self) {
+        if let Some(library) = self
+            .shared
+            .native_instances
+            .hosts()
+            .and_then(|hosts| hosts.library())
+        {
+            library.0.catalog_ask_again();
+        }
     }
 }
 

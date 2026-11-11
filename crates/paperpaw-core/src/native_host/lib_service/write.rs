@@ -130,6 +130,16 @@ pub(crate) trait LibWrite {
     fn take_changed(&self, _visit: &mut dyn FnMut(u32, u32, &str)) -> bool {
         false
     }
+    /// Whether a view of the library read it (op 1 or 2) for the first time
+    /// since the start or the last wake, forgotten as it is told: the kernel's
+    /// pump then wants the catalog (`core.catalog-wanted`), once. `false` where
+    /// the host asks for none.
+    fn take_catalog_wanted(&self) -> bool {
+        false
+    }
+    /// The device woke: the next view to read the library wants the catalog
+    /// again (books may have been copied while it slept).
+    fn catalog_ask_again(&self) {}
     /// The open transactions; `None` where the host has none.
     fn transactions(&self) -> Option<&Transactions> {
         None
