@@ -173,7 +173,10 @@ fn both_entry_kinds_decode_all_six_records_and_unload_removes_them() {
         let mut store = DeclarationStore::default();
         let mut allocations = Allocations::default();
         let pending = pending(&source, owned, &mut allocations).unwrap();
-        assert_eq!(matches!(pending.kept.batches[0], DeclRef::Owned(_)), owned);
+        assert_eq!(
+            matches!(pending.kept.batches.refs()[0], DeclRef::Owned(_)),
+            owned
+        );
         store.prepare(pending, &mut allocations).unwrap().commit();
         let before = keys(&store);
         assert_eq!(before.len(), 6);
@@ -441,7 +444,7 @@ fn known_image_batches_have_no_snapshot_and_owned_snapshots_never_promote() {
             .stage_committed(batch, &mut Allocations::default())
             .unwrap();
         assert_eq!(
-            matches!(pending.kept.batches[0], DeclRef::Image { .. }),
+            matches!(pending.kept.batches.refs()[0], DeclRef::Image { .. }),
             known_image
         );
     }
@@ -464,7 +467,7 @@ fn committed_runtime_copy_moves_into_owned_storage_without_copying_again() {
     pending
         .stage_committed(batch, &mut Allocations::default())
         .unwrap();
-    let DeclRef::Owned(bytes) = &pending.kept.batches[0] else {
+    let DeclRef::Owned(bytes) = &pending.kept.batches.refs()[0] else {
         panic!("runtime bytes must be owned");
     };
     assert_eq!(bytes.as_ptr(), address);
@@ -551,6 +554,7 @@ fn full_widgets_image_moves_into_the_guarded_store_without_owned_bytes() {
         pending
             .kept
             .batches
+            .refs()
             .iter()
             .all(|batch| matches!(batch, DeclRef::Image { .. }))
     );
@@ -610,7 +614,10 @@ fn image_staging_and_lookup_acquire_a_non_reentrant_guard_only_once() {
     let mut allocations = Allocations::default();
     let mut pending = PendingDeclarations::new(Id::new_static("fixture"), source.clone());
     pending.stage_committed(batch, &mut allocations).unwrap();
-    assert!(matches!(pending.kept.batches[0], DeclRef::Image { .. }));
+    assert!(matches!(
+        pending.kept.batches.refs()[0],
+        DeclRef::Image { .. }
+    ));
     assert_eq!(source.denied.get(), 0);
     let mut store = DeclarationStore::default();
     store.prepare(pending, &mut allocations).unwrap().commit();
@@ -1229,11 +1236,15 @@ fn staged(allocations: &mut Allocations) -> Result<PendingDeclarations, i32> {
     Ok(pending)
 }
 
-/// The ranges of the one list: sorted by key, so in kind order, and the
-/// kinds' ranges together make the whole list.
+/// The ranges of the one list: in kind order, inside a kind in declaration
+/// order, and the kinds' ranges together make the whole list.
 fn ranges_hold(pending: &PendingDeclarations) {
     let slots = &pending.kept.slots;
-    assert!(slots.windows(2).all(|pair| pair[0].hash <= pair[1].hash));
+    assert!(slots.windows(2).all(|pair| {
+        let kind = |slot: &Slot| slot.hash >> KIND_SHIFT;
+        kind(&pair[0]) < kind(&pair[1])
+            || kind(&pair[0]) == kind(&pair[1]) && pair[0].place < pair[1].place
+    }));
     let total: usize = KINDS.iter().map(|kind| pending.of_kind(*kind).len()).sum();
     assert_eq!(total, slots.len(), "the kinds' ranges make the whole list");
 }
@@ -1252,8 +1263,8 @@ fn every_kind_lives_in_one_list_by_ranges_and_names_are_found_in_their_kind() {
     for kind in [Kind::Group, Kind::Action] {
         let slots = owner.of_kind(kind);
         assert!(
-            slots.windows(2).all(|pair| pair[0].hash <= pair[1].hash),
-            "{kind:?} is sorted by hash once prepared"
+            slots.windows(2).all(|pair| pair[0].place < pair[1].place),
+            "{kind:?} is in declaration order once prepared"
         );
     }
     for kind in KINDS {
@@ -1342,7 +1353,7 @@ fn an_owner_costs_a_flat_amount_however_many_kinds_exist() {
 }
 
 #[test]
-fn slot_keys_keep_kinds_apart_and_the_hash_order_inside_a_kind() {
+fn slot_keys_keep_kinds_apart_and_the_declaration_order_inside_a_kind() {
     // A kind's keys come before the next kind's, whatever the hash.
     assert!(Kind::Group.slot_key(u32::MAX) < Kind::Spec.slot_key(0));
     // The top ten bits of the hash order a kind; the low bits share a key.
@@ -1372,14 +1383,20 @@ fn slot_keys_keep_kinds_apart_and_the_hash_order_inside_a_kind() {
     }
     let records = |slots: &[Slot]| slots.iter().map(|slot| slot.record()).collect::<Vec<_>>();
     assert_eq!(records(owner.of_kind(Kind::Group)), [2]);
-    // Equal keys stay in the order they were added.
-    assert_eq!(records(owner.of_kind(Kind::Spec)), [3, 4, 0]);
+    // A kind's slots stay in the order they were added (declaration order).
+    assert_eq!(records(owner.of_kind(Kind::Spec)), [0, 3, 4]);
     assert_eq!(records(owner.of_kind(Kind::Lookup)), [1]);
     assert!(owner.of_kind(Kind::Extra).is_empty());
     // A run holds every slot of the key: the lookup compares their names.
-    assert_eq!(records(owner.run(Kind::Spec, 0x003f_ffff)), [3, 4]);
-    assert_eq!(records(owner.run(Kind::Spec, 0x0040_0000)), [0]);
-    assert!(owner.run(Kind::Group, 0x0040_0000).is_empty());
+    let run = |kind, hash| {
+        owner
+            .run(kind, hash)
+            .map(|slot| slot.record())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(run(Kind::Spec, 0x003f_ffff), [3, 4]);
+    assert_eq!(run(Kind::Spec, 0x0040_0000), [0]);
+    assert!(run(Kind::Group, 0x0040_0000).is_empty());
 }
 
 #[test]

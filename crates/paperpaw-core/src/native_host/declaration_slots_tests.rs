@@ -80,11 +80,18 @@ fn a_batch_past_the_last_place_a_slot_holds_is_no_space() {
     let mut pending = PendingDeclarations::new(Id::new_static("fixture"), source);
     let [first, second] = two_kinds_in_two_batches();
     // Stand-ins for the batches before: only their count matters here.
-    pending.kept.batches.reserve_exact(BATCHES_MAX - 1);
+    pending
+        .kept
+        .batches
+        .refs_mut()
+        .unwrap()
+        .reserve_exact(BATCHES_MAX - 1);
     for _ in 1..BATCHES_MAX {
         pending
             .kept
             .batches
+            .refs_mut()
+            .unwrap()
             .push(DeclRef::Image { offset: 0, len: 0 });
     }
     // The last batch a slot can name is taken and indexed.
@@ -138,7 +145,9 @@ fn two_names_on_one_key_are_each_found() {
     store.prepare(pending, &mut allocations).unwrap().commit();
     let owner = store.owners[0].as_ref().unwrap();
     assert_eq!(
-        owner.run(Kind::Group, record_hash(group(a)).unwrap()).len(),
+        owner
+            .run(Kind::Group, record_hash(group(a)).unwrap())
+            .count(),
         2
     );
     for name in [a, b] {

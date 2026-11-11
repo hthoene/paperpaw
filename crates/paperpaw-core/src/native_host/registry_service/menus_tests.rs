@@ -931,9 +931,10 @@ fn op_19_lists_widgets_with_kind_icon_cells_and_whether_a_place_shows_them() {
             "widget core.fill core core.widgets.layout layout 0 cells=0 Free space",
             "widget demo.clock demo core.widgets.time clock 0 cells=16843010 demo.widget.clock",
             "widget demo.note demo core.widgets.other puzzle 5 cells=16843266 demo.widget.note",
-            // The place `nat.home` lists demo.list: `demo.note@2` only.
-            "widget nat.round nat nat.own-kind puzzle 4 cells=33686018 nat.widget",
+            // The place `nat.home` lists demo.list: `demo.note@2` only. The
+            // declared ones in declaration order (#2390).
             "widget nat.quote nat core.widgets.words letter-case 2 cells=16843010 nat.widget",
+            "widget nat.round nat nat.own-kind puzzle 4 cells=33686018 nat.widget",
         ]
     );
     // A kind as scope.
@@ -959,14 +960,15 @@ fn op_19_with_flags_bit_0_lists_the_widgets_that_preview_a_group() {
         widget("other", "core.widgets.words", 0, 0, "demo.else"),
         widget("later", "core.widgets.words", 0, 0, "demo.top"),
     ]);
-    // In op 19's order (the store's for declarations); a page shows the last.
+    // In op 19's order (declaration order for declarations, #2390); a page
+    // shows the last.
     let rows = rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "demo.top", 1);
     assert_eq!(
         rows,
         [
-            "widget nat.later nat core.widgets.words letter-case 0 cells=0 previews=demo.top \
-             nat.widget",
             "widget nat.sample nat core.widgets.words letter-case 0 cells=0 previews=demo.top \
+             nat.widget",
+            "widget nat.later nat core.widgets.words letter-case 0 cells=0 previews=demo.top \
              nat.widget",
         ]
     );
