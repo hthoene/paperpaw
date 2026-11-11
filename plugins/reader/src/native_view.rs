@@ -379,6 +379,11 @@ impl View {
         // The host's book events start here (`document.md` 2.4); a book whose
         // first page cannot be laid out is told with its first draw.
         open.announce(host, docs);
+        // Its pictures follow its text: their boxes are asked for when the
+        // screen is shown (its place on the screen is the host's then).
+        if open.has_pictures() {
+            open.pictures = pictures::Pass::Ask;
+        }
         Ok(Self {
             body: Body::Open(open),
             speaker: Speaker::new(0),
@@ -580,8 +585,9 @@ impl View {
         } else if let Body::Open(open) = &mut self.body
             && open.pictures_pending()
         {
-            // Shown again while its pictures waited: the host dropped their
-            // follow-up when the screen left the top; they are asked for anew.
+            // Opened with pictures, or shown again while they waited (the
+            // host dropped their follow-up when the screen left the top): they
+            // are asked for now.
             open.redraw_page(host, RedrawMode::Partial).ok();
         }
     }

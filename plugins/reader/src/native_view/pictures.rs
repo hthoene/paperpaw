@@ -24,6 +24,9 @@ pub(super) enum Pass {
     /// follow-up frame: every draw before it (each band of a frame, the X4's
     /// second send) keeps their places empty.
     Pending,
+    /// A book just opened on a page with pictures: their boxes are asked for
+    /// when the screen is shown; until then its draws keep their places empty.
+    Ask,
 }
 
 impl Pass {
@@ -32,8 +35,8 @@ impl Pass {
     /// each of its bands), which draws them; every draw after that does too.
     pub(super) fn drawing(&mut self, follow_up: bool) -> Pictures {
         match (*self, follow_up) {
-            (Self::Pending, false) => Pictures::Places,
-            (Self::Pending, true) | (Self::Whole, _) => {
+            (Self::Pending | Self::Ask, false) => Pictures::Places,
+            (Self::Pending | Self::Ask, true) | (Self::Whole, _) => {
                 *self = Self::Whole;
                 Pictures::Drawn
             }
@@ -56,9 +59,9 @@ impl Open {
     }
 
     /// Whether the pictures of the page on show wait for the host's
-    /// follow-up frame.
+    /// follow-up frame, or to be asked for.
     pub(super) fn pictures_pending(&self) -> bool {
-        self.pictures == Pass::Pending
+        self.pictures != Pass::Whole
     }
 
     /// The page on show is drawn again in `mode` (it was laid out in the
@@ -123,5 +126,12 @@ mod tests {
         // Any frame after: with them.
         assert_eq!(pass.drawing(false), Pictures::Drawn);
         assert_eq!(pass, Pass::Whole);
+    }
+
+    #[test]
+    fn a_book_opened_on_a_picture_keeps_its_place_empty_until_it_is_asked_for() {
+        let mut pass = Pass::Ask;
+        assert_eq!(pass.drawing(false), Pictures::Places);
+        assert_eq!(pass, Pass::Ask);
     }
 }
