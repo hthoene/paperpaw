@@ -8,6 +8,7 @@ use crate::{
     paint, text,
 };
 use alloc::vec::Vec;
+use paperpaw_sdk::native::canvas::PartRole;
 use paperpaw_sdk::{
     Point, Rect,
     native::{
@@ -300,6 +301,7 @@ fn draw_window_row(
 ) -> Result<(), Error> {
     let band = Rect::new(rect.x, rect.y, rect.width, style.row.min(rect.height));
     crate::list::backdrop(paint, style, rect, focused)?;
+    paint::describe(paint, style.describing, PartRole::Row, rect, focused, false)?;
     let ink = crate::list::ink(style, focused);
     crate::list::columns(paint, font, style, band, &row.title, &row.value, ink)?;
     if row.note.is_empty() {

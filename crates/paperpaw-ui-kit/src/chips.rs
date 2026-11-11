@@ -17,6 +17,7 @@
 //! operations, and asking where a chip is or which one a tap meets allocates
 //! nothing. Allocation is fallible and at most [`MAX_CHIPS`] chips are made.
 use alloc::{string::String, vec::Vec};
+use paperpaw_sdk::native::canvas::PartRole;
 use paperpaw_sdk::{
     Color, Point, Rect,
     native::{Error, fonts::Font, snapshot::Snapshot},
@@ -44,6 +45,8 @@ pub struct Chips {
     pill: bool,
     /// The interface runs right to left: the chips start at the right.
     rtl: bool,
+    /// Whether to queue what the chips tell about themselves.
+    describing: bool,
     ink: Color,
     paper: Color,
 }
@@ -139,6 +142,7 @@ impl Chips {
             corner: style.corner,
             pill: style.pill,
             rtl: style.rtl,
+            describing: style.describing,
             ink: style.ink,
             paper: style.paper,
         })
@@ -327,6 +331,14 @@ impl Chips {
                 continue;
             }
             let back = if i == chosen { self.ink } else { self.paper };
+            paint::describe(
+                paint,
+                self.describing,
+                PartRole::Button,
+                *cell,
+                focus == Some(i),
+                false,
+            )?;
             let radius = self.radius(cell.height.min(cell.width));
             paint::push(paint, Paint::Focus(*cell, radius, None, back))?;
             paint::push(paint, Paint::Focus(*cell, radius, Some(border), self.ink))?;

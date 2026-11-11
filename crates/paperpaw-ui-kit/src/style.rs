@@ -78,6 +78,10 @@ pub struct Style {
     /// [`language_is_rtl`]): screens lay themselves out once from the left and
     /// mirror each part with [`Style::flip`] and [`Style::flip_x`].
     pub rtl: bool,
+    /// Somebody asks what the screen shows (`canvas.describe`): the parts
+    /// told with [`crate::paint::describe`] are queued only then. True until a
+    /// draw callback has asked ([`crate::paint::asking`]).
+    pub describing: bool,
 }
 
 impl Style {
@@ -162,6 +166,7 @@ impl Style {
             on_dark_muted: color("on-dark-muted", Color::gray(200)),
             strong,
             rtl: ui_language_is_rtl(host),
+            describing: true,
         })
     }
 

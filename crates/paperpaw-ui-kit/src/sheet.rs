@@ -8,6 +8,7 @@ use crate::{
     text,
 };
 use alloc::vec::Vec;
+use paperpaw_sdk::native::canvas::PartRole;
 use paperpaw_sdk::{
     Rect,
     native::{
@@ -133,6 +134,14 @@ impl ItemList {
             .unwrap_or(0);
         let end = starts.get(page + 1).copied().unwrap_or(self.items.len());
         let mut body = Vec::new();
+        paint::describe(
+            &mut body,
+            style.describing,
+            PartRole::Dialog,
+            sheet.region,
+            false,
+            false,
+        )?;
         paint::push(&mut body, Paint::Fill(sheet.region, style.paper))?;
         paint::push(&mut body, Paint::Fill(sheet.border, style.ink))?;
         let mut hits = Vec::new();

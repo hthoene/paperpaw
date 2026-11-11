@@ -1,0 +1,2 @@
+### Added
+- The UI kit tells what it draws to whoever asks (`canvas.describe`): list, item and window rows, headings, dialogs, sheets, chips and the keyboard's field and keys. A draw asks once at its start and queues nothing where nobody does, so automation (`tap-on:`), reading aloud and tests see the native screens' parts. Switches, checks and radios stay plain rows until `RowItem` has an on/off state.

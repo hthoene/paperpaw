@@ -1,5 +1,6 @@
 use crate::{Messages, Page, Paint, Style, text};
 use alloc::vec::Vec;
+use paperpaw_sdk::native::canvas::PartRole;
 use paperpaw_sdk::{
     Color, Rect,
     native::{
@@ -83,6 +84,15 @@ pub fn prepare(
     } else {
         0.0
     };
+    // The title is the heading: it takes the text drawn next as its label.
+    crate::paint::describe(
+        &mut page.paint,
+        s.describing,
+        PartRole::Heading,
+        band,
+        false,
+        false,
+    )?;
     page.paint.try_reserve(1).map_err(|_| Error::NoMemory)?;
     page.paint.push(Paint::Text {
         text: title,

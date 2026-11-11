@@ -9,13 +9,14 @@ use paperpaw_sdk::{
     Color, Rect,
     native::{
         Error,
+        canvas::PartRole,
         fonts::{Font, TextOrigin},
     },
 };
 use paperpaw_ui_kit::{
     Paint, Style,
     mem::push as grow,
-    paint::push,
+    paint::{describe, push},
     text::{cap_baseline, copy, fit, wrap_with},
 };
 
@@ -151,6 +152,15 @@ fn field(
     )?;
     let box_area = board.text_box();
     let thickness = u32::from(style.line).max(2);
+    // Where text is typed: the text drawn inside it is what it holds.
+    describe(
+        out,
+        style.describing,
+        PartRole::Field,
+        box_area,
+        false,
+        false,
+    )?;
     boxed(out, box_area, style.corner, Some(thickness), style.ink)?;
     let buttons_width = board.buttons.first().map_or(0.0, |(_, area)| {
         f32::from(box_area.x + box_area.width - area.x) + margin
@@ -240,6 +250,14 @@ fn button(
     label: &str,
     focused: bool,
 ) -> Result<(), Error> {
+    describe(
+        out,
+        style.describing,
+        PartRole::Button,
+        area,
+        focused,
+        false,
+    )?;
     let radius = style.corner.max(u32::from(area.height) / 4);
     let thickness = u32::from(style.line).max(1);
     if focused {
@@ -347,6 +365,7 @@ fn key(
     } else {
         (style.ink, style.paper)
     };
+    describe(out, style.describing, PartRole::Button, r, focused, false)?;
     let radius = radius(board, style, shape, r.height);
     let thickness = u32::from(style.line).max(1) * if focused && board.look.touch { 3 } else { 1 };
     if filled {
@@ -507,6 +526,14 @@ fn variants(
         let mut buffer = [0u8; 4];
         let label = c.encode_utf8(&mut buffer);
         let radius = radius(board, style, shape, r.height);
+        describe(
+            out,
+            style.describing,
+            PartRole::Button,
+            r,
+            popup.focus == Some(index),
+            false,
+        )?;
         if popup.focus == Some(index) {
             boxed(out, r, radius, None, style.ink)?;
             centred(out, font, label, style.text, r, style.paper)?;
