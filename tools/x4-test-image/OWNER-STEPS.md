@@ -3,8 +3,7 @@
 This is the **test image** (decision 156, #243): the native plugins are on, and
 passwords (Wi-Fi, lock, settings) are only **veiled**, not encrypted. It is not
 a release and must not be given to anyone else. **You flash it; no agent does.**
-Nothing here has been run on a device. Steps marked *(pending #2462)* are
-filled in when Senior's conditions have landed.
+Nothing here has been run on a device.
 
 > **Note your Wi-Fi/account passwords before flashing; you'll need to re-enter
 > them later.** The first time the test image writes a secret it re-veils *all*
@@ -49,10 +48,13 @@ Then press reset (or unplug and plug in). If `espflash` cannot reach the X4, see
 
 ## 4. What you should see
 
-- PaperPaw starts and shows the home screen. *(pending #2462: first-boot notes)*
+- PaperPaw starts and shows the home screen.
 - Settings › About (or Diagnostics) shows the line **"Secrets: veiled (test build)"**.
 - The boot log (`espflash monitor`, then reset the X4; the test image has no USB remote control)
   prints `secrets: veiled (test build)`.
+- Every 30 s the log has a `high-water:` line (stack left, heap free, largest
+  block); after a restart the first lines say `high-water: the run before …`.
+  Copy those lines if anything looks wrong.
 - Open a book, turn some pages, put the X4 to sleep and wake it again.
 - Wi-Fi: connect once, restart the X4, check it still has the password.
 
@@ -64,13 +66,16 @@ Please note anything that looks wrong, with the log lines if you can.
 espflash write-bin 0x0 x4-before-test-image.bin
 ```
 
-This writes back the whole flash you saved in step 2 (including which app slot
-starts). If the X4 does not react to the cable at all, hold the power button
+This writes back the whole flash you saved in step 2. If it does not start
+afterwards, run `espflash erase-parts otadata --partition-table partitions.csv`
+once more. The card is untouched. If the X4 does not react to the cable at all, hold the power button
 while it connects, as for the first flash of an X4 Pro.
 
 ## If it does not start
 
 - A screen that never changes, or restarts in a loop: unplug USB, hold power for
   10 s, try again; if it loops again, do step 5 and send the log
-  (`espflash monitor` right after a restart). *(pending #2462:
-  boot-loop guard / safe mode description)*
+  (`espflash monitor` right after a restart). The firmware has a guard: after two
+  failed starts of the native plugins it starts **without** them (the log says
+  so), so a loop that goes on is a different problem: send the log.
+- A stack-overflow test is not part of this image; it needs your own approval.

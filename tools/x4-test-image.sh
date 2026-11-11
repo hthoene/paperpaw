@@ -108,10 +108,16 @@ if [ "$dry" = 0 ]; then
     echo "espflash:  $(espflash --version | head -1)"
     echo "image:     $image  ($(stat -c %s "$bundle/$image") bytes)"
     echo "app slot:  0x7f0000 bytes (ota_0 at 0x10000, ota_1 at 0x800000; shells/xteink/partitions.csv)"
+    echo "cargo:     cargo build --release --locked --target riscv32imc-unknown-none-elf --no-default-features --features $features  (in shells/xteink)"
     echo "built:     $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "Hashes hold for THIS build only: the paths of the build machine are in the file."
   } > "$bundle/BUILD-INFO.txt"
-  (cd "$bundle" && sha256sum "$image" BUILD-INFO.txt OWNER-STEPS.md OWNER-SCHRITTE.md partitions.csv > SHA256SUMS && cat SHA256SUMS)
+  # The sections of the ELF (flash and RAM use), when a size tool is there.
+  for sz in llvm-size riscv32-esp-elf-size size; do
+    if command -v "$sz" >/dev/null; then "$sz" -A "$elf" > "$bundle/size-A.txt" 2>&1 || rm -f "$bundle/size-A.txt"; break; fi
+  done
+  [ -f "$bundle/size-A.txt" ] && echo "sections:  size-A.txt" >> "$bundle/BUILD-INFO.txt"
+  (cd "$bundle" && sha256sum "$image" BUILD-INFO.txt OWNER-STEPS.md OWNER-SCHRITTE.md partitions.csv $(ls size-A.txt 2>/dev/null) > SHA256SUMS && cat SHA256SUMS)
 else
   printf '\n$ (copy OWNER-STEPS.md, OWNER-SCHRITTE.md; write BUILD-INFO.txt; sha256sum > SHA256SUMS)\n'
 fi
