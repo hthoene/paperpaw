@@ -312,6 +312,11 @@ pub fn add_native_catalogs(kernel: &mut paperpaw_core::Kernel) {
 /// the program rather than made on the heap at every start (see
 /// [`KernelBuilder::network_settings`]); one missing here only costs
 /// memory (the tests say so).
+///
+/// Wi-Fi (native only, #244) is in it where it is linked (`native-linked`);
+/// without that feature the app does not register it, and its settings would
+/// be left without their page.
+#[cfg(feature = "native-linked")]
 pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::network_settings!(
     "fonts-browser",
     "mail",
@@ -320,6 +325,17 @@ pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::
     "transfer",
     "vocabulary",
     "wifi",
+);
+
+/// The network settings of every networked first-party plugin the app registers.
+#[cfg(not(feature = "native-linked"))]
+pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::network_settings!(
+    "fonts-browser",
+    "mail",
+    "news",
+    "store",
+    "transfer",
+    "vocabulary",
 );
 
 /// The indexes of the first-party plugins' translation catalogs, made

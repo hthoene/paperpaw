@@ -48,11 +48,6 @@ fn is_native(plugin: &str) -> bool {
     }
 }
 
-/// The plugins that have no interface-6 form any more (#244, held until native
-/// activation): without `native-linked` the app does not register them, so
-/// their fixed network settings are not made here; with it they are native.
-const NATIVE_ONLY: [&str; 1] = ["wifi"];
-
 /// The standard app, started with `config`.
 fn app(config: &str) -> Kernel {
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
@@ -79,7 +74,7 @@ fn fixed_network_settings_cover_the_plugins() {
     let mut fixed: Vec<&str> = paperpaw_app::NETWORK_SETTINGS
         .iter()
         .map(|(p, _)| *p)
-        .filter(|p| !is_native(p) && !NATIVE_ONLY.contains(p))
+        .filter(|p| !is_native(p))
         .collect();
     fixed.sort_unstable();
     assert_eq!(
@@ -96,7 +91,7 @@ fn fixed_network_settings_cover_the_plugins() {
 fn network_settings_keep_their_ids_defaults_and_values() {
     let kernel = app("");
     for (plugin, _) in paperpaw_app::NETWORK_SETTINGS {
-        if is_native(plugin) || NATIVE_ONLY.contains(plugin) {
+        if is_native(plugin) {
             continue;
         }
         let network = format!("core.network.{plugin}");
