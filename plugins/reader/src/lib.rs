@@ -49,6 +49,7 @@ pub mod native_aloud;
 pub mod native_annotations;
 pub mod native_annotations_view;
 pub mod native_block;
+pub mod native_bookmark;
 pub mod native_decor;
 pub mod native_document;
 pub mod native_draw;
