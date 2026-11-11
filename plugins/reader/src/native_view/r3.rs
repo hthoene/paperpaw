@@ -3,7 +3,7 @@
 //! (`core.panel`) and the bookmark of the page (`native_bookmark`).
 use super::{
     Body, CommandSender, Documents, Error, Handled, Host, Library, NavOpen, Open, Param,
-    RedrawMode, SERVICE_BUFFER, Ui, View, buffer, native_place, redraw,
+    SERVICE_BUFFER, Ui, View, buffer, native_place,
 };
 use crate::native_bookmark;
 
@@ -116,7 +116,7 @@ impl Open {
         self.bookmarks_toggled(shown.range, done);
         // The ribbon comes or goes; a refused redraw is no lost bookmark (the
         // next draw shows it).
-        redraw(host, RedrawMode::Partial).ok();
+        self.redraw_ribbon(host).ok();
         Ok(())
     }
 }

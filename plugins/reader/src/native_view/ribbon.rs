@@ -6,7 +6,10 @@
 //! The starts of the book's bookmarks are read from the library once, when
 //! the book opens (8 bytes each, at most [`MAX_MARKS`]), and follow the
 //! toggles made here; the page asks no service as it turns.
-use super::{Body, Error, Handled, Host, Input, Library, Open, Setup, View, flag};
+use super::{
+    Body, CommandSender, Error, Handled, Host, Input, Library, Open, RedrawMode, Setup, View, flag,
+    redraw,
+};
 use crate::native_bookmark::{self, Done, Range};
 use alloc::vec::Vec;
 use paperpaw_sdk::Color;
@@ -69,20 +72,30 @@ impl Open {
             start: (page.start.section, page.start.offset),
             end: (page.end.section, page.end.offset),
         };
-        self.bookmarks.iter().any(|at| range.holds(*at))
+        on_page(&self.bookmarks, range)
     }
 
     /// The bookmarks after a toggle of the page `range` did `done`.
     pub(super) fn bookmarks_toggled(&mut self, range: Range, done: Done) {
-        match done {
-            Done::Removed => self.bookmarks.retain(|at| !range.holds(*at)),
-            Done::Added if self.bookmarks.len() < MAX_MARKS => {
-                if self.bookmarks.try_reserve(1).is_ok() {
-                    self.bookmarks.push(range.start);
-                }
-            }
-            Done::Added => {}
-        }
+        toggled(&mut self.bookmarks, range, done);
+    }
+
+    /// Draws the ribbon's place again after a toggle, with a fast refresh
+    /// of it only, as Beta 3; the whole page when its box is not known.
+    pub(super) fn redraw_ribbon(&self, host: &Host<'_>) -> Result<(), Error> {
+        let setup = Setup::read(host)?;
+        let Some(area) = self.area(&setup) else {
+            return redraw(host, RedrawMode::Partial);
+        };
+        let right = u32::from(area.x) + u32::from(area.width);
+        let (x, y, width, height) =
+            ribbon_box(right, u32::from(area.y), setup.display.display_dpi());
+        let (Ok(x), Ok(y)) = (i32::try_from(x), i32::try_from(y)) else {
+            return redraw(host, RedrawMode::Partial);
+        };
+        let mut scratch = [0; 64];
+        CommandSender::new(host, &mut scratch)
+            .queue_redraw_area(RedrawMode::Fast, FrameRect::new(x, y, width, height))
     }
 
     /// Draws the ribbon where the page has a bookmark.
@@ -138,7 +151,11 @@ impl View {
         else {
             return Ok(None);
         };
-        if !matches!(self.body, Body::Open(_)) || !flag(host, "reader.corner-bookmark")? {
+        // Choosing text or a link: the tap leaves that first, as in Beta 3.
+        let Body::Open(open) = &self.body else {
+            return Ok(None);
+        };
+        if open.marking.is_active() || !flag(host, "reader.corner-bookmark")? {
             return Ok(None);
         }
         let setup = Setup::read(host)?;
@@ -152,6 +169,26 @@ impl View {
         }
         self.toggle_bookmark(host, library)?;
         Ok(Some(Handled::Yes))
+    }
+}
+
+/// Whether one of the bookmark starts `marks` is on the page `range`.
+fn on_page(marks: &[(u32, u32)], range: Range) -> bool {
+    marks.iter().any(|at| range.holds(*at))
+}
+
+/// The bookmark starts `marks` after a toggle of the page `range` did `done`:
+/// a removal takes every start on the page, an addition the page's start (at
+/// most [`MAX_MARKS`]; past them, or short of memory, it shows no ribbon).
+fn toggled(marks: &mut Vec<(u32, u32)>, range: Range, done: Done) {
+    match done {
+        Done::Removed => marks.retain(|at| !range.holds(*at)),
+        Done::Added if marks.len() < MAX_MARKS && !on_page(marks, range) => {
+            if marks.try_reserve(1).is_ok() {
+                marks.push(range.start);
+            }
+        }
+        Done::Added => {}
     }
 }
 
@@ -212,5 +249,31 @@ mod tests {
         // A narrow screen: a quarter of it.
         assert!(in_corner((300, 0), 400, 254));
         assert!(!in_corner((299, 0), 400, 254));
+    }
+
+    #[test]
+    fn toggles_keep_the_starts_of_the_pages_bookmarks() {
+        let page = |start: (u32, u32), end: (u32, u32)| Range { start, end };
+        let first = page((0, 0), (0, 500));
+        let second = page((0, 500), (1, 20));
+        let mut marks = Vec::new();
+        assert!(!on_page(&marks, first));
+        toggled(&mut marks, first, Done::Added);
+        assert!(on_page(&marks, first) && !on_page(&marks, second));
+        // Added twice: kept once.
+        toggled(&mut marks, first, Done::Added);
+        assert_eq!(marks, [(0, 0)]);
+        // A bookmark read inside the page (another layout) is on it too, and a
+        // removal takes every start on the page.
+        marks.push((0, 120));
+        toggled(&mut marks, second, Done::Added);
+        toggled(&mut marks, first, Done::Removed);
+        assert_eq!(marks, [(0, 500)]);
+        assert!(!on_page(&marks, first) && on_page(&marks, second));
+        // Past the most kept, an addition shows no ribbon.
+        let mut full: Vec<(u32, u32)> = (0..MAX_MARKS as u32).map(|i| (9, i)).collect();
+        toggled(&mut full, first, Done::Added);
+        assert_eq!(full.len(), MAX_MARKS);
+        assert!(!on_page(&full, first));
     }
 }
