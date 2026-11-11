@@ -73,7 +73,8 @@ while it connects, as for the first flash of an X4 Pro.
 
 - A screen that never changes, or restarts in a loop: unplug USB, hold power for
   10 s, try again; if it loops again, do step 5 and send the log
-  (`espflash monitor` right after a restart). The firmware has a guard: after two
-  failed starts of the native plugins it starts **without** them (the log says
-  so), so a loop that goes on is a different problem: send the log.
+  (`espflash monitor` right after a restart). The firmware has a guard that counts
+  every start from the very beginning of `main`, also starts that die before the first
+  frame: after two failed starts it boots without code plugins (the log says so), so a
+  loop that goes on is a different problem: send the log.
 - A stack-overflow test is not part of this image; it needs your own approval.

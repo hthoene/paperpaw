@@ -69,7 +69,8 @@ das Kabel, beim Verbinden die Power-Taste gedrückt halten.
 
 - Bild ändert sich nie oder Neustart-Schleife: USB abziehen, Power 10 s halten,
   nochmal versuchen; wieder Schleife → Schritt 5 und das Log schicken
-  (`espflash monitor` direkt nach dem Neustart). Die Firmware hat einen Schutz: nach
-  zwei fehlgeschlagenen Starts der nativen Plugins startet sie **ohne** sie (steht im
+  (`espflash monitor` direkt nach dem Neustart). Die Firmware hat einen Schutz, der
+  jeden Start ab dem Anfang von `main` zählt, auch Starts, die vor dem ersten Bild
+  sterben: nach zwei fehlgeschlagenen Starts startet sie ohne Code-Plugins (steht im
   Log); eine Schleife, die trotzdem weitergeht, ist ein anderes Problem: Log schicken.
 - Ein Stack-Überlauf-Test gehört nicht zu diesem Image; er braucht dein eigenes Okay.
