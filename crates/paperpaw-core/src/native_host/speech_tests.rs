@@ -331,7 +331,8 @@ fn stage_speech(held: usize, batches: &[&[(u32, bool)]]) -> Vec<i32> {
         .unwrap();
     let env = kernel.shared.env(Instant(0));
     let owner = Id::new_static("probe");
-    let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 8192);
+    let mut stage =
+        CommandStage::new(&owner, env.settings(), None, 16, 8192).with_ui(&env, None, 0, 100);
     stage.set_speech_held(held);
     let mut statuses = Vec::new();
     for batch in batches {
