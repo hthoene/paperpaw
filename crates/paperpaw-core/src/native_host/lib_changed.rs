@@ -34,11 +34,8 @@ pub(crate) const FIELDS: u32 = 1 << 4;
     reason = "the walk (Firmware) raises it; this goes with the first caller"
 )]
 pub(crate) const WALK: u32 = 1 << 5;
-/// A cover is ready.
-#[expect(
-    dead_code,
-    reason = "the cover job raises it; this goes with the first caller"
-)]
+/// A cover is ready, or a `cover` call that answered `ERR_BUSY` may be asked
+/// again.
 pub(crate) const COVER: u32 = 1 << 6;
 /// The bits the wire defines.
 const KNOWN: u32 = (1 << 7) - 1;

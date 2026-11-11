@@ -22,6 +22,7 @@ use crate::{
     native_typeset::{Faces, HostFonts},
     native_wordbox,
 };
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::ops::Range;
@@ -646,7 +647,7 @@ impl View {
                 open.jump((section, offset));
                 true
             }
-            Outcome::Turn { forward: true } => open.next()?,
+            Outcome::Turn { forward: true } => open.forward(host, docs)?,
             Outcome::Turn { forward: false } => open.previous(host, docs)?,
             _ => match native_pages::turn(input) {
                 // Select or Menu with nothing chosen: the reader's menu bar.
@@ -662,7 +663,7 @@ impl View {
                     return open.menu_bar(host, ui);
                 }
                 Turn::Ignored => return Ok(Handled::No),
-                Turn::Next => open.next()?,
+                Turn::Next => open.forward(host, docs)?,
                 Turn::Previous => open.previous(host, docs)?,
             },
         };
@@ -1031,6 +1032,32 @@ impl Open {
         self.marking.landed(Locator::new(to.0, to.1));
     }
 
+    /// A forward turn by hand: the page after the one on show is laid out
+    /// first, so on the last page the turn stays (the page after it would be
+    /// empty). The laid page is kept for the draw. Whether it moved.
+    fn forward(&mut self, host: &Host<'_>, docs: &Documents) -> Result<bool, Error> {
+        let Some(page) = &self.page else {
+            return Ok(false);
+        };
+        let end = (page.end.section, page.end.offset);
+        let Ok(setup) = Setup::read(host) else {
+            return self.next();
+        };
+        match onto(self.lay(host, docs, &setup, end)) {
+            Onto::Stay => Ok(false),
+            Onto::Unlaid => self.next(),
+            Onto::Page(laid) => {
+                let moved = self.next()?;
+                if moved {
+                    self.page = Some(*laid);
+                    self.laid = Some(setup.key());
+                    self.words = Vec::new();
+                }
+                Ok(moved)
+            }
+        }
+    }
+
     /// The page after the one on show; whether there is one.
     fn next(&mut self) -> Result<bool, Error> {
         let Some(page) = &self.page else {
@@ -1240,6 +1267,26 @@ mod count;
 mod menu_bar;
 mod r3;
 mod status;
+
+/// What a forward turn finds after the page on show.
+#[derive(Debug)]
+enum Onto {
+    /// Nothing: the page on show is the book's last.
+    Stay,
+    /// The page to turn to, laid out.
+    Page(Box<Page>),
+    /// Not laid out: the turn goes on, and the draw lays it again and says
+    /// what went wrong.
+    Unlaid,
+}
+
+fn onto(laid: Result<Page, Error>) -> Onto {
+    match laid {
+        Ok(page) if page.is_past_end() => Onto::Stay,
+        Ok(page) => Onto::Page(Box::new(page)),
+        Err(_) => Onto::Unlaid,
+    }
+}
 
 #[cfg(test)]
 mod tests;

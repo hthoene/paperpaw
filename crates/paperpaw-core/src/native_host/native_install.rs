@@ -286,9 +286,7 @@ impl crate::Kernel {
                     .ok_or(shell::Error::Status(ERR_NO_MEMORY))?,
             )
             .map_err(shell::Error::Status)?;
-        self.shared
-            .native_instances
-            .attach_screens(&self.shared.stack_rows);
+        self.attach_native_hosts();
         if self.shared.registry.native_declarations.is_none() {
             self.shared.registry.native_declarations = Some(
                 super::shared::Shared::try_new(
@@ -426,8 +424,10 @@ impl crate::Kernel {
         if self.shared.native_instances.stop(key).is_err() {
             return None;
         }
-        // Its firmware requests and its confirmation go with it.
+        // Its firmware requests and its confirmation go with it, and its
+        // Wi-Fi requests, undelivered.
         self.firmware_sender_stopped(key);
+        self.radio_sender_stopped(owner.as_str());
         let _bump = crate::native_host::registry_generation::BumpOnExit::new(
             &self.shared.registry_generation,
         );
@@ -496,6 +496,18 @@ impl crate::Kernel {
             .defer_close(dialog, self.shared.stack_rows.generation())
         {
             self.shared.stack_rows.note_close_error(status);
+        }
+    }
+
+    /// The device's screens and Wi-Fi table, for the host views the pool
+    /// holds: the callbacks' stages reserve Wi-Fi requests in the kernel's
+    /// own table.
+    fn attach_native_hosts(&self) {
+        self.shared
+            .native_instances
+            .attach_screens(&self.shared.stack_rows);
+        if let Some(hosts) = self.shared.native_instances.hosts() {
+            hosts.wire_radio_requests(&self.radio_requests);
         }
     }
 
@@ -659,14 +671,7 @@ impl crate::Kernel {
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
         let (owned, raw, events, folder) = mapped;
-        let mut flat_host = self.flat_host();
-        flat_host.directory = self
-            .shared
-            .registry
-            .native_declarations
-            .as_ref()
-            .map(|directory| directory.downgrade().ok_or(shell::Error::Allocation))
-            .transpose()?;
+        let flat_host = self.shared_flat_host()?;
         let instance = NativeLease::try_new(NativeDispatch::with_events(
             retained,
             depth,
@@ -1086,9 +1091,61 @@ pub(super) fn group_paths(
     Ok((kept, copied))
 }
 
+impl crate::Kernel {
+    /// The one [`FlatHost`](super::FlatHost) every native plugin's dispatch
+    /// shares, made with the first plugin. Its declaration directory is the
+    /// registry's, which is set before the first plugin and never replaced.
+    fn shared_flat_host(&mut self) -> Result<super::shared::Shared<super::FlatHost>, shell::Error> {
+        if self.shared.native_instances.flat_host.is_none() {
+            // `admit_native_with` makes the directory before the first plugin.
+            debug_assert!(self.shared.registry.native_declarations.is_some());
+            let mut host = self.flat_host();
+            host.directory = self
+                .shared
+                .registry
+                .native_declarations
+                .as_ref()
+                .map(|directory| directory.downgrade().ok_or(shell::Error::Allocation))
+                .transpose()?;
+            self.shared.native_instances.flat_host =
+                Some(super::shared::Shared::try_new(host).map_err(|_| shell::Error::Allocation)?);
+        }
+        self.shared
+            .native_instances
+            .flat_host
+            .as_ref()
+            .and_then(super::shared::Shared::try_clone)
+            .ok_or(shell::Error::Allocation)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every plugin's dispatch gets a handle to the same kernel handles,
+    /// with the registry's declaration directory: no copy per plugin.
+    #[test]
+    fn native_plugins_share_one_flat_host() {
+        let Ok(mut kernel) = crate::Kernel::builder(crate::tests::DEVICE).build() else {
+            panic!("kernel");
+        };
+        let Ok(directory) = super::super::shared::Shared::try_new(
+            super::super::native_declarations::NativeDeclarations::default(),
+        ) else {
+            panic!("directory");
+        };
+        kernel.shared.registry.native_declarations = Some(directory);
+        let (Ok(first), Ok(second)) = (kernel.shared_flat_host(), kernel.shared_flat_host()) else {
+            panic!("flat host");
+        };
+        assert!(core::ptr::eq(&*first, &*second));
+        let Ok(Some(seen)) = first.upgrade_directory() else {
+            panic!("directory handle");
+        };
+        let registry = kernel.shared.registry.native_declarations.as_ref();
+        assert!(registry.is_some_and(|registry| core::ptr::eq(&**registry, &*seen)));
+    }
     #[test]
     fn only_native_capacity_errors_become_no_memory() {
         for message in [
