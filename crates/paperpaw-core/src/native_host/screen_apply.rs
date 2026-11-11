@@ -24,6 +24,7 @@ impl Kernel {
             keys_remaining: self.screen_keys_remaining(),
             hint_buttons: !self.hint.buttons.is_empty(),
             images_held: self.image_held(owner_key),
+            speech_held: self.io.speech.owned_texts(owner),
         }
     }
 

@@ -192,7 +192,7 @@ impl LookupServices {
 /// name, as the event record. The caller (the event delivery) queues it for
 /// the subscribed asker only.
 pub(crate) fn ready_event(now_ms: u64, provider: &str, out: &mut [u8]) -> Result<usize, i32> {
-    wire::record_encode_one(
+    codec::encode_one(
         &Record::EventLookupReady(wire::EventLookupReady { now_ms, provider }),
         out,
     )
