@@ -11,13 +11,14 @@
 //! where one of those names also exists), as `core.files` decides it
 //! ([`excluded_on`]; it over-refuses where it cannot tell).
 use super::lib_changed::{self, Changes};
+use super::lib_edits::LibEdits;
 use super::lib_import::plan;
 use super::lib_moves_service::LibraryMoves;
 use super::lib_reads::{CatalogEnv, CatalogReads};
 use super::lib_service::moves::Access;
 use super::lib_service::{
-    BookRef, Caller, FieldKind, ImportRequest, LibExcluded, LibQuery, LibWrite, One, Rows,
-    StoredPosition,
+    BookId, BookRef, Caller, CommitRequest, Committed, FieldKind, ImportRequest, LibExcluded,
+    LibQuery, LibWrite, One, Rows, StageItem, StoredPosition, Transactions,
 };
 use super::registrations::{self as wire};
 use super::storage_files::{BusySources, excluded_on};
@@ -33,6 +34,8 @@ pub(crate) struct LibraryHost {
     /// The library's move job, where `core.files` is wired too: a book it
     /// carries is in use.
     moves: Option<Rc<LibraryMoves>>,
+    /// The staged annotation transactions (ops 17 to 21 and 26).
+    edits: LibEdits,
     /// Every source of paths in use (`core.files`' own): a book open in a
     /// document, the reader's, a transfer's. A delete, an import or a move over
     /// it is `ERR_BUSY`. Without it only the move job counts.
@@ -48,7 +51,8 @@ impl LibraryHost {
         moves: Option<Rc<LibraryMoves>>,
     ) -> Self {
         Self {
-            reads: CatalogReads::new(storage.clone(), env),
+            reads: CatalogReads::new(storage.clone(), env.clone()),
+            edits: LibEdits::new(storage.clone(), env),
             storage,
             moves,
             sources: None,
@@ -73,6 +77,14 @@ impl LibraryHost {
 }
 
 impl LibraryHost {
+    /// Reads the device's memory class and clock from what the other wirings
+    /// said ([`EditPolicy`]), whenever they came.
+    #[must_use]
+    pub(crate) fn with_policy(mut self, policy: Rc<super::lib_edits::EditPolicy>) -> Self {
+        self.edits = self.edits.with_policy(policy);
+        self
+    }
+
     /// Whether the library's move job holds the book at `path`.
     fn in_use(&self, path: &str) -> bool {
         self.busy(path, Access::Rework)
@@ -300,6 +312,59 @@ impl LibWrite for LibraryHost {
 
     fn field_kind(&self, field: &str) -> Result<FieldKind, i32> {
         self.reads.field_kind(field)
+    }
+
+    /// The book's key is its identity for a transaction. A book the move job
+    /// holds is `ERR_BUSY`: the carry would put the old annotations over the
+    /// new ones. (A move cannot start while a transaction is open on the
+    /// book: the service refuses it, so the commit needs no such check.)
+    fn resolve_book(&self, book: BookRef<'_>) -> Result<BookId, i32> {
+        self.reads.path_of(book, |path| {
+            if self.in_use(path) {
+                return Err(paperpaw_native::host_glue::ERR_BUSY);
+            }
+            self.edits.book_id(path)
+        })
+    }
+
+    fn now_ms(&self) -> u64 {
+        self.edits.now_ms()
+    }
+
+    fn transactions(&self) -> Option<&Transactions> {
+        self.edits.transactions()
+    }
+
+    fn stage(&self, transaction: u32, item: &StageItem<'_>) -> Result<(), i32> {
+        self.edits.stage_item(transaction, item)
+    }
+
+    fn abort_staged(&self, transaction: u32) {
+        self.edits.abort_staged(transaction);
+    }
+
+    fn commit(&self, request: &CommitRequest) -> Result<Committed, i32> {
+        let done = self.edits.commit(request)?;
+        // The new file is in place (the rename is done): the plugins that
+        // subscribed are told, the committer too.
+        self.edits.path_of(request.book, &mut |path| {
+            self.raise_changed(lib_changed::ANNOTATIONS, path);
+        });
+        Ok(done)
+    }
+
+    fn receipt(
+        &self,
+        who: &Caller<'_>,
+        transaction: u32,
+        cursor: u32,
+        visit: &mut dyn FnMut(wire::Record<'_>) -> core::ops::ControlFlow<()>,
+    ) -> Result<RowsEnd, i32> {
+        self.edits.receipt(who.owner, transaction, cursor, visit)
+    }
+
+    fn receipts_ended(&self, owner: u64) {
+        self.edits.receipts_ended(owner);
     }
 
     fn take_changed(&self, visit: &mut dyn FnMut(u32, u32, &str)) -> bool {

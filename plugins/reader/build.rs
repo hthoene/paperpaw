@@ -38,6 +38,7 @@ fn main() -> Result<(), String> {
     let mut source = String::new();
     emit!(source, "SETTINGS", declarations::settings);
     emit!(source, "SCREENS", declarations::screens);
+    emit!(source, "STATUS", declarations::status);
     emit!(source, "NAVIGATION", declarations::navigation);
     emit!(source, "KEYS", declarations::keys);
     emit!(source, "HOLD_KEYS", declarations::hold_keys);

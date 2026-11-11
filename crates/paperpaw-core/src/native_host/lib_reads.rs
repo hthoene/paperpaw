@@ -81,6 +81,11 @@ pub trait CatalogEnv {
     fn book_field(&self, _id: &str) -> Option<bool> {
         None
     }
+    /// The clock in milliseconds (an annotation transaction's idle time and
+    /// the life of its receipt); 0 where the host has none: they never run out.
+    fn now_ms(&self) -> u64 {
+        0
+    }
     /// Whether any plugin keeps data for the book at `path` (`book_data.spec`
     /// folders and the interface 6 ones): `delete`'s fact bit 2. An error is
     /// the card's or the memory's.
@@ -275,6 +280,15 @@ impl LibQuery for CatalogReads {
 }
 
 impl CatalogReads {
+    /// The book's root-1 path, for the host's own bookkeeping.
+    pub(crate) fn path_of<R>(
+        &self,
+        book: BookRef<'_>,
+        f: impl FnOnce(&str) -> Result<R, i32>,
+    ) -> Result<R, i32> {
+        self.with_path(book, f)
+    }
+
     /// Calls `f` with the root-1 path of the book, which is in the catalog.
     fn with_path<R>(
         &self,
