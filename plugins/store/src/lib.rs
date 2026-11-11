@@ -46,6 +46,22 @@ pub mod native_refusal;
 #[doc(hidden)]
 pub mod native_request;
 #[doc(hidden)]
+pub mod native_screen_fetch;
+#[doc(hidden)]
+pub mod native_screen_letters;
+#[doc(hidden)]
+pub mod native_screen_list;
+#[doc(hidden)]
+pub mod native_screen_page;
+#[doc(hidden)]
+pub mod native_screen_shots;
+#[doc(hidden)]
+pub mod native_screen_source;
+#[doc(hidden)]
+pub mod native_screen_view;
+#[doc(hidden)]
+pub mod native_screens;
+#[doc(hidden)]
 pub mod native_sort;
 mod needs;
 mod origin;
