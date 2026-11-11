@@ -137,11 +137,11 @@ pub(super) fn page_state(cursor: u32, generation: u32) -> Result<(), i32> {
     }
 }
 
-/// `image` side: 0 for the page's size, else at most 1,600.
-pub(super) fn image_side(asked: u32, page: u32) -> Result<u32, i32> {
+/// `image` side: 0 for the page's size, else at most 1,600: a larger one is
+/// clamped, not refused (`document.md` 5, as `image_prepare`).
+pub(super) fn image_side(asked: u32, page: u32) -> u32 {
     match asked {
-        0 => Ok(page),
-        1..=IMAGE_SIDE_MAX => Ok(asked),
-        _ => Err(ERR_INVALID),
+        0 => page,
+        _ => asked.min(IMAGE_SIDE_MAX),
     }
 }
