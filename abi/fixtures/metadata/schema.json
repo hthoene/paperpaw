@@ -9565,6 +9565,15 @@
           "ordinal": null,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": null,
+          "max_bytes": 256,
+          "name": "tone",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "bytes"
         }
       ],
       "id": 1559,
@@ -9642,6 +9651,15 @@
           "ordinal": null,
           "since": 1,
           "type": "u32"
+        },
+        {
+          "default": "",
+          "max_bytes": 64,
+          "name": "luma",
+          "optional": true,
+          "ordinal": 0,
+          "since": 1,
+          "type": "bytes"
         }
       ],
       "id": 90,

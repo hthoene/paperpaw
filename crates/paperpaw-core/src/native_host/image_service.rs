@@ -93,9 +93,15 @@ fn cache_path_ok(path: &str) -> bool {
 const FILL: u32 = 1;
 /// Flags bit 1: a small picture, no ghost full refresh for it.
 const SMALL: u32 = 2;
+/// Flags bit 2: scale to the rectangle and drop the picture's shape.
+const STRETCH: u32 = 4;
+/// Flags bit 3: black and white dots by force.
+const DOTS: u32 = 8;
+/// Flags bit 4: the panel's grays.
+const GRAYS: u32 = 16;
 /// Flags bits 8 to 15: 255 minus the opacity (0, opaque, by default).
 const TRANSPARENCY_SHIFT: u32 = 8;
-const KNOWN: u32 = FILL | SMALL | (0xff << TRANSPARENCY_SHIFT);
+const KNOWN: u32 = FILL | SMALL | STRETCH | DOTS | GRAYS | (0xff << TRANSPARENCY_SHIFT);
 
 /// Where an image came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -157,6 +163,7 @@ impl Inner {
 
 pub(crate) mod commands;
 pub(crate) mod prepare;
+pub(crate) mod recipe;
 
 /// The device's images, all plugins'.
 pub(crate) struct ImageTable {
@@ -626,6 +633,10 @@ impl ImageTable {
         if flags & !KNOWN != 0 {
             return Err(ERR_UNSUPPORTED);
         }
+        // Two ways to draw the same thing differently: neither is chosen.
+        if flags & (FILL | STRETCH) == FILL | STRETCH || flags & (DOTS | GRAYS) == DOTS | GRAYS {
+            return Err(ERR_INVALID);
+        }
         let opacity = 255 - u8::try_from((flags >> TRANSPARENCY_SHIFT) & 0xff).unwrap_or(0);
         let (path, w, h) = {
             let inner = self.inner.try_borrow().map_err(|_| ERR_BUSY)?;
@@ -655,14 +666,25 @@ impl ImageTable {
         if (fw, fh) != (w, h) {
             return Err(ERR_INVALID);
         }
-        let Some(place) = place(x, y, width, height, w, h, flags & FILL != 0)? else {
+        let placed = if flags & STRETCH != 0 {
+            stretched(x, y, width, height)?
+        } else {
+            place(x, y, width, height, w, h, flags & FILL != 0)?
+        };
+        let Some(place) = placed else {
             return Ok(());
         };
         let Some(visible) = visible(canvas.clip(), x, y, width, height) else {
             // Nothing of the rectangle is on the canvas; still a draw.
             return self.drawn(owner, id);
         };
-        let picture = paperpaw_sdk::ui::Picture::new(&path, kind, w, h, self.scratch_max.get());
+        let tones = match flags & (DOTS | GRAYS) {
+            DOTS => paperpaw_sdk::ui::Tones::Dots,
+            GRAYS => paperpaw_sdk::ui::Tones::Grays,
+            _ => paperpaw_sdk::ui::Tones::Panel,
+        };
+        let picture = paperpaw_sdk::ui::Picture::new(&path, kind, w, h, self.scratch_max.get())
+            .with_tones(tones);
         let mut child = canvas.clipped(visible).offset(place.left, place.top);
         let area = Rect::new(0, 0, place.width, place.height);
         let mut drawn = Ok(());
@@ -742,6 +764,20 @@ fn place(
         top: i32::try_from(top).map_err(|_| ERR_INVALID)?,
         width: dw,
         height: dh,
+    }))
+}
+
+/// The rectangle itself, `STRETCH`: the picture scaled to it, its shape
+/// dropped. `None` for an empty rectangle.
+fn stretched(x: i32, y: i32, width: u32, height: u32) -> Result<Option<Place>, i32> {
+    if width == 0 || height == 0 {
+        return Ok(None);
+    }
+    Ok(Some(Place {
+        left: x,
+        top: y,
+        width: u16::try_from(width).map_err(|_| ERR_INVALID)?,
+        height: u16::try_from(height).map_err(|_| ERR_INVALID)?,
     }))
 }
 

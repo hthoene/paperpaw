@@ -209,11 +209,13 @@ then then_some
 # Methods of workspace crates that are not hashed, which shared bodies call
 # and the native facade also names: `format` is `paperpaw_i18n::I18n::format`
 # (and the facade's `Declarations::format`), `tone` is
-# `paperpaw_text::Ink::tone` (and the facade's `fonts::Ink::tone`, slot 41).
+# `paperpaw_text::Ink::tone` (and the facade's `fonts::Ink::tone`, slot 41),
+# `luma` is `paperpaw_platform::Color::luma` (and the facade's
+# `image::ImageReady::luma`, the picture recipe's grid).
 # As for a standard name, the call is that method only where src/native/
 # alone defines the name; unlike a standard name it is still followed where
 # a hashed function has it.
-EXTERNAL = {"format", "tone"}
+EXTERNAL = {"format", "luma", "tone"}
 
 
 def block_end(text, i):

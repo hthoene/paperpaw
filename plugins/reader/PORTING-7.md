@@ -408,3 +408,72 @@ relative to the data folder).
 - **Not yet:** pictures (`Page::images` through `canvas.draw_image`) and table rows: the block assembler turns
   both into paragraphs (`native_block::start`), so a table's rules never occur yet; carrying them over needs the
   `doc_image` and `doc_columns` pieces of the document service (docs/abi/document.md section 5).
+
+## Book info, the font panel and the bookmark (view slice R3b, Port D, `native_bookmark.rs`, `native_view/r3.rs`)
+
+- `reader.book-info` opens the slot `core.book-info` with the book's path as a hand-over parameter (the files
+  plugin's information screen fills it); `reader.quick-settings` opens `core.panel` with the menu
+  `core.reader-panel` (the font and layout panel: the entries are the host's). Both as Beta 3's actions did.
+- `reader.toggle-bookmark` (`native_bookmark::toggle`): a page that has a bookmark loses all of them, any other gets
+  one, kept as an annotation of the book (`core.library` 2.2: the book's annotations are read page by page, up to 8,192
+  rows, then one staged transaction at the generation read: remove the ids / add one, commit; a `State` answer, another
+  change in between, looks again once; a refused edit aborts the transaction and says "the bookmark could not be kept"
+  once, `reader.marks-not-saved`). A bookmark is on the page when it starts between the page's start and the next
+  page's; a row in another conversion is not compared. A new bookmark keeps the page's text from its lines as the
+  book has it (a word broken by the layout is whole again, the layout's hyphen left out, a filter's lines left out;
+  `native_bookmark::text_of`), on one line and cut at 512 bytes at a character (Beta 3 ended a cut text in "…": the
+  library cuts at its own limit), the progress in whole percent (rounded, as Beta 3), the book's clock and
+  the conversion. At most 24 bookmarks of one page are removed in one go.
+- **Not yet (named):** the ribbon on a bookmarked page and the tap on the top right corner
+  (`reader.corner-bookmark`): both belong to the draw and the gesture code (`native_view.rs`, R2b's files) and
+  follow when that lands; until then a toggle shows no mark on the page (the annotations screen, R5, lists it).
+  Go to a page / percentage (a number dialog; its answer is an event of the reader's own) and the status-line actions
+  (`reader.next-status-line`, R2b) are not here. The annotations screen itself is R5.
+- An empty page (nothing laid out) is a silent no-op: no bookmark, no notice. Beta 3 sent `annotations::changed`
+  itself after an edit; here the plugin does not: `docs/abi/library.md` lists event 91 (`annotations-changed`)
+  as the host's after a commit, but `paperpaw-core` does not raise it yet. **Gap:** the library annotation
+  transactions (ops 15-21) are not wired on devices (`ERR_UNSUPPORTED`) and event 91 is not raised: Services'
+  todo 307/476 (with a host test for the edit transaction). Until it lands the toggle does nothing on a device;
+  it gates the reader entering `NATIVE_PLUGINS`.
+- Not tested with a host (no harness for `core.library` edits here): the pure parts are (the page's range, which
+  rows are the page's, the percent, the page text and the snippet, with refused allocations); host acceptance of the
+  edit transaction (H-library) is pending.
+
+
+## Annotations (native model, `native_annotations.rs`)
+
+- Host-free: the Markdown export (same form as interface 6, plugins read the file), the notes folder
+  beside the library folder, the file name (author and title, fit for a card), the list rows and the
+  export order (the `reader.notes-exported@1` stage runs only after a write that worked). Allocation
+  is fallible; every allocation refused in turn is tested.
+- **Not yet: the screen.** It needs a native `core.reader` entry, the book data of a book
+  (`add_book_data` / `LIB-position` have no native declaration) and the files service for the write.
+  When those exist the screen calls `native_notes::run` after `export` succeeds.
+- Review remarks (PR #950), for the screen: it creates the `Notes` folder first, and writes the file
+  staged and then moved where the files service allows (Beta 3 wrote straight onto an existing file).
+  The whole Markdown is one `String`: its size on the X4 is on the measurement list (pieces through a
+  sink if it does not fit). The screen, the book data and the files write stay on the activation list.
+
+## The annotations screen (`native_annotations_view.rs`, R5)
+
+- `AnnotationsView` (token `ANNOTATIONS`, id `reader.annotations`): opened by the reading screen's action
+  `reader.show-annotations` with the same hand-over as the contents (`View::toc_params`: path, root,
+  section, offset; the hook is `NativeReader::show_notes`, no change to `native_view.rs`). It reads the notes with `core.library` op 15
+  (`Library::annotations`, `BookRef::path`, restart after a stale generation, at most three times), shows each as one
+  `ItemList` row (`native_annotations::row`), and a choice goes to the reading screen below
+  (`View::go_to`) and closes, as the contents screen does. The last row, *Export as Markdown*, writes the file.
+- **Rows.** At most 100 notes are held, each as the row the list draws (the text cut at 160 bytes) plus eight bytes of
+  place; a book with more shows the first 100 and a note says so (`reader.annotations.more`, en/de). Beta 3 listed all.
+  X4 measurement: 100 rows of 160 + 160 bytes are about 35 KiB at worst (a bookmark is far less); the cap is the number to
+  change if the measurement says so.
+- **Export.** The Markdown is written in pieces of at most 4 KiB into `<file>.new` (highlights from one pass over
+  the notes, bookmarks from a second, so only a page of notes is in memory: this answers the review remark that the whole
+  text is one string), moved over the old file at the end, the `Notes` folder made first (beside the library folder,
+  `core-library-folder`), the stage `reader.notes-exported` run after a write that worked
+  only. The title and author come from the library's book row. The streamed text is tested to be the model's
+  `markdown` (same form, readwise and joplin read it).
+- **Missing / for activation.** Metadata must ask `core.library`, `core.files` and `uses.storage` (root 1 for the
+  export); with no library or no `uses.storage` the list shows the notes it can and the export says it failed. A note's text is
+  the library's preview (512 bytes), not whole (`annotation_text` would read it whole: the export uses the preview, as
+  Beta 3's snippet was short too). Editing a note, deleting one and the bookmark toggle are not in this screen (Beta 3 had none
+  here); `reader.toggle-bookmark` belongs to the reading screen.

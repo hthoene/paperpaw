@@ -94,6 +94,13 @@ impl BusySources {
             .map_or(true, |all| all.iter().any(|(have, _)| *have == kind))
     }
 
+    /// Whether any source holds `path` for `access` (what `core.files` asks;
+    /// the library's delete and import ask it too, for a book open in a
+    /// document, the reader or a transfer).
+    pub(crate) fn busy(&self, storage: &dyn Storage, path: &str, access: Access) -> bool {
+        self.any(|source| source.busy(storage, path, access))
+    }
+
     /// A list in use answers busy: the safe answer.
     fn any(&self, ask: impl Fn(&dyn BusySource) -> bool) -> bool {
         self.0
