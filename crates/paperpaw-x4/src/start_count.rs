@@ -250,9 +250,10 @@ mod tests {
             let previous = early::previous(word);
             assert!(!early::refuses(previous));
             assert_eq!(count.decide(false, false), None);
-            word = early::next(word);
+            // The start is counted at once, as the first thing it does ...
+            assert_eq!(early::previous(early::next(word)), 1);
             count.loading();
-            // Before any first frame: a plugin's power-off or a restart.
+            // ... and cleared again by an own end before any first frame (power-off, restart).
             word = early::clean_exit();
             count.clean_exit();
         }
