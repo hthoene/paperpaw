@@ -307,7 +307,7 @@ pub fn install_in(
             teardown,
             report,
             (core::ptr::null(), 0),
-            &[],
+            paperpaw_core::native_host::FixedTables::NONE,
         )
     }
     .map_err(|e| format!("{e:?}"))?;
