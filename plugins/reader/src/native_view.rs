@@ -319,6 +319,9 @@ impl View {
         }
         // The host's book events start here (`document.md` 2.4); a book whose
         // first page cannot be laid out is told with its first draw.
+        if root == Root::Library {
+            crate::native_start::remember(host, &open.path);
+        }
         open.announce(host, docs);
         Ok(Self {
             body: Body::Open(open),

@@ -8,7 +8,7 @@
 use crate::{
     declarations::{
         ANNOTATIONS, FOOTNOTE, SCREEN, SEARCH, SEARCH_WORK, SETTING_CHANGED, SKIM, SPOKEN,
-        STACK_CHANGED, STOPPING, SUSPEND, TOC, WORK_DUE,
+        STACK_CHANGED, STARTED, STOPPING, SUSPEND, TOC, WORK_DUE,
     },
     native_annotations_view::{AnnotationsView, Outcome as NotesOutcome},
     native_footnote::{Footnote, Pressed},
@@ -616,6 +616,16 @@ impl NativeReader {
         }
     }
 
+    /// The start of the device: the book read last opens again where the setting
+    /// asks for it.
+    fn reopen_last(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        crate::native_start::reopen_last(host, ui)
+    }
+
     /// The screen closed: its document is given back.
     fn close(&mut self, host: &Host<'_>, instance: paperpaw_sdk::native::ui::Instance) {
         if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
@@ -645,6 +655,7 @@ impl Plugin for NativeReader {
         let Some(event) = read_event!(
             incoming;
             kinds::ActionRun,
+            kinds::Started,
             kinds::ScreenOpened,
             kinds::ScreenShown,
             kinds::ScreenClosed,
@@ -674,6 +685,8 @@ impl Plugin for NativeReader {
                 self.auto_turn_leave(host);
                 Ok(())
             }
+            // The device started: the book read last opens again, if asked.
+            Event::Started { .. } if token == STARTED => self.reopen_last(host),
             // The search's work is due (the work's own token, as declared).
             Event::WorkDue(due) if token == WORK_DUE && due.token() == SEARCH_WORK => {
                 self.search_due(host);
