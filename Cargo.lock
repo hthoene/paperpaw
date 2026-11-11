@@ -2158,6 +2158,7 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-sdk",
+ "paperpaw-zip",
 ]
 
 [[package]]

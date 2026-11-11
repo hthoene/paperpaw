@@ -26,6 +26,7 @@ paperpaw-sdk.workspace = true
 paperpaw-core.workspace = true
 paperpaw-native.workspace = true
 paperpaw-i18n.workspace = true
+paperpaw-zip = { workspace = true, features = ["testing"] }
 
 [lints]
 workspace = true
