@@ -745,3 +745,37 @@ fn a_book_asked_for_stays_in_the_memo_and_33_covers_on_screen_end_the_cycle() {
         );
     });
 }
+
+#[test]
+fn a_cover_call_that_cannot_be_made_now_is_retried_not_failed() {
+    use crate::native_host::doc_host::CoverAt;
+    use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.state.allow_cover_jobs();
+        for status in [ERR_BUSY, ERR_NO_MEMORY] {
+            answer(w, READY, 0);
+            let document = w.open(1, "books/a.epub").unwrap();
+            assert!(w.state.table.start_cover_make(OPENER, document));
+            *w.reply.borrow_mut() = Err(status);
+            // Not noted, no book remembered as failed (key 0): asked again.
+            assert_eq!(
+                look(w),
+                JobStep::Ended {
+                    ready: false,
+                    key: 0
+                },
+                "{status}"
+            );
+            assert_eq!(w.state.cover_at("books/a.epub"), CoverAt::Unmade);
+            assert!(w.state.table.cover_make().is_none(), "closed");
+        }
+        // The next try makes it.
+        answer(w, READY, 0);
+        let document = w.open(1, "books/a.epub").unwrap();
+        assert!(w.state.table.start_cover_make(OPENER, document));
+        cover(w);
+        assert!(matches!(look(w), JobStep::Ended { ready: true, .. }));
+        assert_eq!(w.state.cover_at("books/a.epub"), CoverAt::Made);
+    });
+}
