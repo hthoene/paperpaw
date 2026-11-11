@@ -629,7 +629,12 @@ fn fragment(
         if used + need + END_RESERVE > cap {
             break;
         }
-        writer.push(record).map_err(|_| Error::Invalid)?;
+        match writer.push(record) {
+            Ok(()) => {}
+            // No room (the bound was not an upper bound of this record): stop here.
+            Err(-3) => break,
+            Err(_) => return Err(Error::Invalid),
+        }
         used += need;
         take += 1;
     }
