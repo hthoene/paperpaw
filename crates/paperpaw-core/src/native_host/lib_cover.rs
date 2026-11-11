@@ -10,8 +10,12 @@
 //! the picture in the cache and decodes nothing. Making it in the background
 //! (the work pump) is not in this version. `ERR_BUSY` means: no place in the
 //! caller's document table now, or a format not running yet (its start is
-//! requested): the library host raises `event.library_changed` bit 6 then, so
-//! the caller asks again. A format whose `open` is still *preparing* is
+//! requested). Only the second raises `event.library_changed` bit 6, so the
+//! caller asks again; a full table raises nothing (it does not clear by
+//! itself: the caller closes a document). The raises are counted by **one
+//! counter for the whole library host** (not per book): after six in a row
+//! it raises no more until a cover is made, so a start that never ends
+//! cannot loop a caller that redraws on the event. A format whose `open` is still *preparing* is
 //! `ERR_NOT_FOUND` (no cover now: the host's preparing loop does not run for
 //! a library call, and a retry would spin); the book shows its outline until
 //! the screen is built again, which finds the cover once the reader has
