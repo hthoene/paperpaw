@@ -287,7 +287,10 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   (`document.md` 2.1), nothing of a partial conversion is kept. A job displaced 3 times in a row
   for the same book is not started again for that book until the next start (no cover, as for a
   failed book). A job never holds the device awake
-  and does not restart after a sleep until a new `cover` asks. If a job's memory for the format's
+  and does not restart after a sleep until a new `cover` asks. Between two of its steps the pump waits 100 ms (1 s in the power modes Saving and Offline), a
+  timed wake, so the job goes on on an idle device. A book's job may run 10 minutes in all per
+  start of the device (displaced and begun again counts together); then the book counts as failed
+  (as above). If a job's memory for the format's
   `close` cannot be had (4 KiB, once, when the job ends) the format is not told and keeps its state
   for that document until it stops. A book whose job failed (the
   format could not prepare it, 8 steps in a row that could not be made) is `ERR_NOT_FOUND`, never
