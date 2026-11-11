@@ -20,6 +20,8 @@ pub enum Tap {
     TickItems,
     /// It turns the quote on to the next.
     TurnQuote,
+    /// It turns the picture on to the next.
+    TurnPicture,
     /// Each book on show is a target that opens it.
     Books,
     /// The book chosen (or being read) opens, or the library where there is none.
@@ -194,6 +196,17 @@ static LOGO: Behaviour = Behaviour {
     tap: Tap::None,
 };
 
+static PICTURE: Behaviour = Behaviour {
+    height: crate::native_picture::height,
+    // The picture is drawn by the plugin over the paint (`native_plugin`).
+    draw: |cx, out, area| {
+        crate::native_picture::draw_with(cx, out, area, crate::native_picture::State::Loading)
+            .map(|_| ())
+    },
+    shows: crate::native_picture::shows,
+    tap: Tap::TurnPicture,
+};
+
 /// The behaviour of the widget declared with `token`.
 #[must_use]
 pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
@@ -220,6 +233,7 @@ pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
         100 => Some(&DAY),
         101 => Some(&TILES),
         121 => Some(&LOGO),
+        122 => Some(&PICTURE),
         _ => None,
     }
 }
