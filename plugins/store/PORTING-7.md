@@ -358,3 +358,35 @@ in place; its removal comes with the PR that finishes the port).
   on the plugin side): a download the connection refuses ends as *failed*.
 - **Not run on a host**, and the store start heap (Beta 3: 99.9 KiB) is measured only
   when native plugins are activated (#243).
+
+### Review of #1136: what was fixed, and what the wiring must do
+
+- The ask dialog of requested plugins names every plugin it lets through (no cut
+  text); plugins that do not fit are answered *declined*, not fetched (consent).
+  *Remove* on a plugin's page asks keep or remove again (`store.remove-question`).
+  Every id of a request gets an outcome on every path (partial list: not found;
+  closed dialog, stale request, refused queue: declined or failed; no memory:
+  `Reply::AnswerAll`).
+- The shots' `closed` cannot be refused: the image id and the net handle are released
+  first with stack buffers. Download progress redraws one row of the page
+  (`ItemList::set_value`, an additive ui-kit change) instead of rebuilding all rows.
+  The offer's choice and its rows never disagree (`toggled`, `chosen_of`).
+- Shots and fetch hold nothing between frames: their texts come through stack
+  buffers (`copy_message`/`format_message`, 512 B message + 256 B arguments in the fetch;
+  the shots read their three texts once at open). A text too long for them (a long
+  list of names) is said through a `Messages` made for that one text and dropped. The
+  page counter of the shots is said by `header::pager` through two stack buffers
+  (96 + 128 B; an additive change in ui-kit, owner: Plugin Engineer). Strings and
+  paint ops of a frame are allocated as in the other screens.
+- **For the wiring (`native_plugin.rs`, Port A):** answer `Dialog.not_found` and
+  `Dialog.declined` at once, handle `Reply::AnswerAll` and `Asked::stale`; route the
+  Remove question's answer (`answered`, tag `REMOVE`); release the image id of an
+  `ImageReady` that arrives for a closed shots screen; call `forget_page` when a page
+  screen closes; the install's trust check needs the page's author key
+  (`trust::expect`). The store stays out of `NATIVE_PLUGINS` until the screens are
+  routed.
+- Differences from Beta 3, on purpose or open: the screens read what the plugin
+  passes in (`Installs`, `LoaderView`) instead of `env`; the free-space/room notes
+  and the offline offer depend on the facts the wiring provides (`flash_hint`,
+  `no_room`, `can_install`); the setup step's applicability and badge are pushed by
+  the plugin (`set_item_state`) because they cannot be declared.

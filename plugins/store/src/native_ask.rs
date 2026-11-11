@@ -270,8 +270,15 @@ pub fn listing(
 pub struct Dialog {
     /// Who asked.
     pub by: String,
-    /// The plugins the dialog names (those the library lists).
+    /// The plugins the dialog names (those the library lists, as many as the
+    /// question's text holds): the request keeps these and no others, so what
+    /// is fetched is what the reader was shown.
     pub ids: Vec<String>,
+    /// Asked for and listed by the library, but not named in the dialog (its
+    /// text is full): answer each *declined* at once, they are not fetched.
+    pub declined: Vec<String>,
+    /// Asked for and not in the library: answer each *not found* at once.
+    pub not_found: Vec<String>,
     /// What is asked.
     pub title: String,
     /// The plugins with what they take, a line each.
@@ -305,7 +312,13 @@ pub enum Reply {
         ids: Vec<String>,
         outcome: PluginOutcome,
     },
-    /// Show the dialog; the request is kept on the card.
+    /// Answer every id the ask named (the plugin holds them) with this outcome:
+    /// the store could not go on (memory, the card, the host) and no id may stay
+    /// without an outcome, because the host keeps a request open until each has
+    /// one and allows only a few open. Needs no memory.
+    AnswerAll(PluginOutcome),
+    /// Show the dialog; the request is kept on the card. Answer
+    /// [`Dialog::not_found`] and [`Dialog::declined`] at once.
     Dialog(Dialog),
     /// The plugins are queued as asked for (start the queue) and this screen
     /// shows their download.
@@ -323,10 +336,14 @@ fn answer(ids: &[String], outcome: PluginOutcome) -> Result<Reply, Error> {
 }
 
 /// The dialog's lines: each plugin with its size, as many as fit the question's
-/// text; the rest end in `…`.
-fn lines(say: &mut dyn Say, list: &[(String, Option<Entry>)]) -> Result<String, Error> {
-    const MORE: &str = "\n…";
+/// text, and how many that is. A plugin that does not fit is not named, so the
+/// caller does not ask for it (nothing is fetched that the reader did not see).
+///
+/// # Errors
+/// `NoMemory`; `NoSpace` where not even the first line fits.
+fn lines(say: &mut dyn Say, list: &[(String, Option<Entry>)]) -> Result<(String, usize), Error> {
     let mut text = String::new();
+    let mut shown = 0;
     for (n, (id, entry)) in list.iter().enumerate() {
         let line = match entry {
             Some(entry) => {
@@ -346,11 +363,7 @@ fn lines(say: &mut dyn Say, list: &[(String, Option<Entry>)]) -> Result<String, 
             None => copy(id)?,
         };
         let more = line.len() + usize::from(n > 0);
-        if text.len() + more + MORE.len() > MAX_TEXT {
-            if n > 0 {
-                text.try_reserve(MORE.len()).map_err(|_| Error::NoMemory)?;
-                text.push_str(MORE);
-            }
+        if text.len() + more > MAX_TEXT {
             break;
         }
         text.try_reserve(more).map_err(|_| Error::NoMemory)?;
@@ -358,8 +371,23 @@ fn lines(say: &mut dyn Say, list: &[(String, Option<Entry>)]) -> Result<String, 
             text.push('\n');
         }
         text.push_str(&line);
+        shown += 1;
     }
-    Ok(text)
+    if shown == 0 {
+        return Err(Error::NoSpace);
+    }
+    Ok((text, shown))
+}
+
+/// The ids of `wanted` that are not in `list`.
+fn missing(wanted: &[String], list: &[(String, Option<Entry>)]) -> Result<Vec<String>, Error> {
+    let mut out = Vec::new();
+    for id in wanted {
+        if !list.iter().any(|(listed, _)| listed == id) {
+            push(&mut out, copy(id)?)?;
+        }
+    }
+    Ok(out)
 }
 
 /// What the library and the connection make of an ask the store takes: the
@@ -382,27 +410,46 @@ pub fn offer(
     if list.is_empty() {
         return answer(wanted, PluginOutcome::NotFound);
     }
-    let mut ids: Vec<String> = Vec::new();
-    for (id, _) in &list {
-        push(&mut ids, copy(id)?)?;
-    }
+    // No network: every id asked for fails (those the library lacks too).
     if !online {
-        return answer(&ids, PluginOutcome::Failed);
+        return answer(wanted, PluginOutcome::Failed);
+    }
+    let not_found = missing(wanted, &list)?;
+    let download = say.text("store.request.download")?;
+    let not_now = say.text("store.request.not-now")?;
+    let title = say.text(by_key(by))?;
+    let (text, shown) = lines(say, &list)?;
+    let mut ids: Vec<String> = Vec::new();
+    let mut declined: Vec<String> = Vec::new();
+    for (n, (id, _)) in list.iter().enumerate() {
+        push(if n < shown { &mut ids } else { &mut declined }, copy(id)?)?;
     }
     match Request::start(storage, by, &ids) {
         Ok(()) => {}
         Err(Error::NoMemory) => return Err(Error::NoMemory),
-        Err(_) => return answer(&ids, PluginOutcome::Declined),
+        Err(_) => return answer(wanted, PluginOutcome::Declined),
     }
-    let download = say.text("store.request.download")?;
-    let not_now = say.text("store.request.not-now")?;
     Ok(Reply::Dialog(Dialog {
         by: copy(by)?,
-        title: say.text(by_key(by))?,
-        text: lines(say, &list)?,
+        title,
+        text,
         labels: concat(&[&download, "\n", &not_now])?,
         ids,
+        declined,
+        not_found,
     }))
+}
+
+/// What [`asked`] gives: the answer to the ask and what a stale request left.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Asked {
+    /// The ids of a request that an earlier dialog left open on the card, closed
+    /// now: answer each *declined* (the host keeps it open until each has an
+    /// outcome).
+    pub stale: Vec<String>,
+    /// What to do for this ask.
+    pub reply: Reply,
 }
 
 /// An ask for plugins (event 77): the whole decision. `last` is the last
@@ -410,8 +457,14 @@ pub fn offer(
 /// request is open on the card and `waiting` whether plugins asked for wait in
 /// the queue (both read by the caller from `Request::open` and the queue).
 ///
+/// Every id the ask names gets an outcome on every path: where the store cannot
+/// go on (memory, the card, the host) the reply is
+/// [`Reply::AnswerAll`]`(Failed)`; the request left by a closed dialog is
+/// answered through [`Asked::stale`].
+///
 /// # Errors
-/// `NoMemory`, or what the host refuses.
+/// None where the ask is answered; the host's refusal to read `now_ms` etc. is
+/// the caller's.
 #[allow(
     clippy::too_many_arguments,
     reason = "one ask: who, for what, when, and what the card and the device say of it"
@@ -424,27 +477,44 @@ pub fn asked(
     (by, wanted): (&str, &[String]),
     now_ms: u64,
     (online, open, waiting): (bool, bool, bool),
-) -> Result<Reply, Error> {
-    match plan(by, wanted, last.as_ref(), now_ms, open, waiting) {
-        Plan::Nothing => Ok(Reply::Nothing),
-        Plan::Answer(outcome) => answer(wanted, outcome),
-        Plan::SameOpen => Ok(Reply::Join),
+) -> Result<Asked, Error> {
+    let mut stale = Vec::new();
+    let reply = match plan(by, wanted, last.as_ref(), now_ms, open, waiting) {
+        Plan::Nothing => Reply::Nothing,
+        Plan::Answer(outcome) => answer(wanted, outcome).unwrap_or(Reply::AnswerAll(outcome)),
+        Plan::SameOpen => Reply::Join,
         Plan::Ask { close_stale } => {
             if close_stale {
+                // What the closed dialog left: told *declined*, then closed.
+                if let Ok(Some(left)) = Request::open(storage) {
+                    stale = left.ids;
+                }
                 Request::close(storage);
             }
-            let reply = offer(storage, say, index, by, wanted, online)?;
-            if let Reply::Dialog(dialog) = &reply {
-                *last = Some(Last {
-                    by: copy(by)?,
-                    ids: copy_all(&dialog.ids)?,
-                    at_ms: now_ms,
-                    declined: false,
-                });
+            match offer(storage, say, index, by, wanted, online) {
+                Ok(Reply::Dialog(dialog)) => {
+                    // Not remembering what was shown only asks again later.
+                    *last = remember(by, &dialog.ids, now_ms, false);
+                    Reply::Dialog(dialog)
+                }
+                Ok(other) => other,
+                Err(_) => {
+                    Request::close(storage);
+                    Reply::AnswerAll(PluginOutcome::Failed)
+                }
             }
-            Ok(reply)
         }
-    }
+    };
+    Ok(Asked { stale, reply })
+}
+
+fn remember(by: &str, ids: &[String], at_ms: u64, declined: bool) -> Option<Last> {
+    Some(Last {
+        by: copy(by).ok()?,
+        ids: copy_all(ids).ok()?,
+        at_ms,
+        declined,
+    })
 }
 
 fn copy_all(ids: &[String]) -> Result<Vec<String>, Error> {
@@ -478,11 +548,15 @@ pub fn decision(outcome: AnswerOutcome, choice: u32, not_started: bool) -> Decis
 
 /// The reader's answer to the dialog (event 24): the plugins are queued as
 /// asked for and their download is shown, or the one who asked is told
-/// *Not now* (declined), or no network is *failed*. Nothing happens where no
-/// request is open.
+/// *Not now* (declined), or no network is *failed*. A dialog closed without an
+/// answer is *declined* too (the request is closed and every id has its
+/// outcome; nothing is remembered, so the ask may come again). Where the queue
+/// cannot be kept (memory, the card) the ids are *failed*: no request is left
+/// open without an answer. Nothing happens where no request is open.
 ///
 /// # Errors
-/// `NoMemory`; `Io` where the card refuses the queue.
+/// `NoMemory` where the open request cannot be read: it stays on the card and
+/// the next ask answers it (`Asked::stale`).
 pub fn answered(
     storage: &dyn Storage,
     last: &mut Option<Last>,
@@ -494,30 +568,51 @@ pub fn answered(
         return Ok(Reply::Nothing);
     };
     match decision {
-        Decision::Ignore => Ok(Reply::Nothing),
-        Decision::NotNow => {
-            *last = Some(Last {
-                by: copy(&request.by)?,
-                ids: copy_all(&request.ids)?,
-                at_ms: now_ms,
-                declined: true,
-            });
+        Decision::Ignore => {
             Request::close(storage);
-            answer(&request.ids, PluginOutcome::Declined)
+            Ok(Reply::Answer {
+                ids: request.ids,
+                outcome: PluginOutcome::Declined,
+            })
+        }
+        Decision::NotNow => {
+            // Not remembering what was declined only asks again sooner.
+            *last = remember(&request.by, &request.ids, now_ms, true);
+            Request::close(storage);
+            Ok(Reply::Answer {
+                ids: request.ids,
+                outcome: PluginOutcome::Declined,
+            })
         }
         // The connection went meanwhile.
         Decision::Download if !online => {
             Request::close(storage);
-            answer(&request.ids, PluginOutcome::Failed)
+            Ok(Reply::Answer {
+                ids: request.ids,
+                outcome: PluginOutcome::Failed,
+            })
         }
-        Decision::Download => {
-            let mut queue = Queue::read(storage)?;
-            queue.add(request.ids.iter().map(String::as_str), Mark::Requested)?;
-            queue.keep(storage)?;
-            let open = crate::native_screen_fetch::open_next(&request.by, &request.ids)?;
-            Ok(Reply::Fetch(open))
-        }
+        Decision::Download => match start_download(storage, &request) {
+            Ok(next) => Ok(Reply::Fetch(next)),
+            Err(_) => {
+                Request::close(storage);
+                Ok(Reply::Answer {
+                    ids: request.ids,
+                    outcome: PluginOutcome::Failed,
+                })
+            }
+        },
     }
+}
+
+/// Queues the plugins of `request` as asked for and gives the fetch screen to
+/// open; the screen is made first, so nothing is queued where it cannot be.
+fn start_download(storage: &dyn Storage, request: &Request) -> Result<Next, Error> {
+    let open = crate::native_screen_fetch::open_next(&request.by, &request.ids)?;
+    let mut queue = Queue::read(storage)?;
+    queue.add(request.ids.iter().map(String::as_str), Mark::Requested)?;
+    queue.keep(storage)?;
+    Ok(open)
 }
 
 /// What the one who asked is told once the queue is empty: each id installed or
@@ -529,17 +624,21 @@ pub fn finished_answers(done: &Finished) -> Result<Vec<(&str, PluginOutcome)>, E
     let mut all = Vec::new();
     all.try_reserve_exact(done.installed.len() + done.missing.len())
         .map_err(|_| Error::NoMemory)?;
-    all.extend(
-        done.installed
-            .iter()
-            .map(|id| (id.as_str(), PluginOutcome::Installed)),
-    );
-    all.extend(
-        done.missing
-            .iter()
-            .map(|id| (id.as_str(), PluginOutcome::Failed)),
-    );
+    all.extend(finished_outcomes(done));
     Ok(all)
+}
+
+/// [`finished_answers`] as an iterator: needs no memory, so the end of a request
+/// is always told (each id its outcome), also where memory is short.
+pub fn finished_outcomes(done: &Finished) -> impl Iterator<Item = (&str, PluginOutcome)> {
+    done.installed
+        .iter()
+        .map(|id| (id.as_str(), PluginOutcome::Installed))
+        .chain(
+            done.missing
+                .iter()
+                .map(|id| (id.as_str(), PluginOutcome::Failed)),
+        )
 }
 
 // ---------------------------------------------------------------------------

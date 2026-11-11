@@ -47,7 +47,7 @@ use crate::native_model::Entry;
 use crate::native_page::{self, Installed, Kind, PageInput, Row};
 use crate::native_refusal::{self, Outcome};
 use crate::native_screen_shots as shots;
-use crate::native_screens::{Ctx, Next, Screen, Step, Trouble, ids};
+use crate::native_screens::{Ask, Ctx, Next, Reply, Screen, Step, Trouble, ids};
 
 /// The parameters: the plugin's id, its name (shown while the page is not
 /// here) and its place in the index.
@@ -427,7 +427,28 @@ pub fn how_text(name: &str, description: &str) -> Result<String, Error> {
     concat(&[name, "\n\n", description, "\n"])
 }
 
-/// What changes the rows: the page, how it stands, the install's step.
+/// The tag of the question *Remove* asks.
+pub const REMOVE: u8 = 1;
+
+/// `step` without the bytes of a download: what the rows are made from.
+#[must_use]
+pub fn calm(step: Step) -> Step {
+    match step {
+        Step::Downloading { .. } => Step::Downloading { done: 0, total: 0 },
+        other => other,
+    }
+}
+
+/// Whether the answer to the question *Remove* asked (`tag`, `reply`) is
+/// *Remove* (the first option); *Keep* and anything else leave the plugin.
+#[must_use]
+pub fn confirms_remove(tag: u8, reply: &Reply<'_>) -> bool {
+    tag == REMOVE && matches!(reply, Reply::Choice(0))
+}
+
+/// What changes the rows: the page, how it stands, the install's step. The
+/// bytes of a download are not in it: they move many times a second, and the
+/// rows are not made again for them (only the progress row's value, `progress`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Sig {
     page: bool,
@@ -440,7 +461,7 @@ impl Sig {
         Self {
             page: ctx.loader.page(id).is_some(),
             state: ctx.loader.page_state(id),
-            step: ctx.installs.step(id),
+            step: calm(ctx.installs.step(id)),
         }
     }
 }
@@ -827,13 +848,30 @@ impl View {
             }
             Row::Stop => Next::Stop(id()?),
             Row::Restart => Next::Restart,
-            Row::Remove => Next::Remove(id()?),
+            Row::Remove => self.ask_remove(ctx)?,
             Row::Shots => Next::Open {
                 screen: ids::SHOTS,
                 params: one((shots::PARAM, id()?))?,
             },
             Row::Source => self.open_source(ctx)?,
             Row::How => self.open_how(ctx)?,
+        })
+    }
+
+    /// *Remove* asks first, as Beta 3 did: remove or keep.
+    fn ask_remove(&self, ctx: &Ctx<'_>) -> Result<Next, Error> {
+        let mut say = Messages::new()?;
+        let name = self
+            .entry(ctx)
+            .map_or(self.id.as_str(), |e| e.name.as_str());
+        let title = say.format(ctx.host, "store.remove-question", &[text("name", name)])?;
+        let mut options = Vec::new();
+        options.try_reserve_exact(2).map_err(|_| Error::NoMemory)?;
+        options.push(say.copy(ctx.host, "store.option.remove")?);
+        options.push(say.copy(ctx.host, "store.option.keep")?);
+        Ok(Next::Ask {
+            tag: REMOVE,
+            ask: Ask::Choice { title, options },
         })
     }
 
@@ -876,13 +914,29 @@ impl View {
         let sig = Sig::read(ctx, &self.id);
         let changed = always || sig != self.sig;
         let next = self.resume(ctx)?;
+        let mut moved = false;
         if changed {
             self.build(ctx, false)?;
+        } else if let Step::Downloading { done, total } = ctx.installs.step(&self.id) {
+            moved = self.progress(ctx, done, total)?;
         }
         Ok(match next {
-            Next::None if changed => Next::Redraw,
+            Next::None if changed || moved => Next::Redraw,
             other => other,
         })
+    }
+
+    /// The bytes of the download moved: the value of the progress row is made
+    /// again, in place, and nothing else (one row's texts, not the screen's).
+    /// `false` where the page shows no *Stop* row (the one whose value is the progress).
+    fn progress(&mut self, ctx: &Ctx<'_>, done: u32, total: u32) -> Result<bool, Error> {
+        let Some(at) = self.targets.iter().position(|row| *row == Some(Row::Stop)) else {
+            return Ok(false);
+        };
+        let mut say = Messages::new()?;
+        let mark = say.copy(ctx.host, "core.decimal")?;
+        let value = say.digits(ctx.host, &progress_text(done, total, &mark)?)?;
+        Ok(self.list.set_value(at, value))
     }
 }
 
@@ -1050,6 +1104,13 @@ impl Screen for View {
             _ => Next::None,
         };
         Ok((ItemList::handled(step), next))
+    }
+
+    fn answered(&mut self, _: &Ctx<'_>, tag: u8, reply: Reply<'_>) -> Result<Next, Error> {
+        if confirms_remove(tag, &reply) {
+            return Ok(Next::Remove(copy(&self.id)?));
+        }
+        Ok(Next::None)
     }
 
     fn event(&mut self, ctx: &Ctx<'_>, event: &Event<'_>) -> Result<Next, Error> {

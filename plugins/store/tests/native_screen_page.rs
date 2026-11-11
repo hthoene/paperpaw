@@ -417,3 +417,39 @@ fn every_row_and_text_has_both_languages() {
         assert!(has(de, key), "{key} is missing in de");
     }
 }
+
+#[test]
+fn the_bytes_of_a_download_do_not_make_the_rows_again() {
+    use paperpaw_plugin_store::native_screen_page::calm;
+    use paperpaw_plugin_store::native_screens::Step;
+    // Two moments of one download are the one signature: only the progress
+    // row's value is made again, not the rows (about 13 KiB of texts).
+    assert_eq!(
+        calm(Step::Downloading {
+            done: 10,
+            total: 900
+        }),
+        calm(Step::Downloading {
+            done: 500,
+            total: 900
+        })
+    );
+    // What does change the rows still does.
+    assert_ne!(
+        calm(Step::Downloading { done: 1, total: 2 }),
+        calm(Step::Installing)
+    );
+    assert_ne!(calm(Step::Idle), calm(Step::Failed(5)));
+    assert_eq!(calm(Step::Failed(5)), Step::Failed(5));
+}
+
+#[test]
+fn remove_asks_and_only_the_first_option_removes() {
+    use paperpaw_plugin_store::native_screen_page::{REMOVE, confirms_remove};
+    use paperpaw_plugin_store::native_screens::Reply;
+    assert!(confirms_remove(REMOVE, &Reply::Choice(0)));
+    // Keep, a text, a closed question and another question's tag do not.
+    assert!(!confirms_remove(REMOVE, &Reply::Choice(1)));
+    assert!(!confirms_remove(REMOVE, &Reply::Text("0")));
+    assert!(!confirms_remove(REMOVE + 1, &Reply::Choice(0)));
+}

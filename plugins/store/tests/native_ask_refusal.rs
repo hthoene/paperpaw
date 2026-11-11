@@ -104,9 +104,18 @@ fn the_requests_survive_refused_allocations() {
             ("reader", &wanted),
             1,
             (true, false, false),
-        )?;
+        )?
+        .reply;
+        // Where memory is refused the ask is answered *failed*, not dropped.
+        if matches!(reply, ask::Reply::AnswerAll(_)) {
+            return Err(Error::NoMemory);
+        }
         assert!(matches!(reply, ask::Reply::Dialog(_)));
         let reply = ask::answered(&card, &mut last, 2, true, Decision::Download)?;
+        // Where the queue cannot be kept the ids are answered *failed*.
+        if matches!(reply, ask::Reply::Answer { .. }) {
+            return Err(Error::NoMemory);
+        }
         assert!(matches!(reply, ask::Reply::Fetch(_)));
         let done = paperpaw_plugin_store::native_request::finished(&card)?.expect("open");
         ask::finished_answers(&done)?;
