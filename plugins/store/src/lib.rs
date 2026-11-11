@@ -27,6 +27,8 @@ mod fetch;
 mod letters;
 mod list;
 #[doc(hidden)]
+pub mod native_device;
+#[doc(hidden)]
 pub mod native_download;
 mod native_entry;
 #[doc(hidden)]
@@ -37,6 +39,8 @@ pub mod native_install;
 pub mod native_item;
 #[doc(hidden)]
 pub mod native_list;
+#[doc(hidden)]
+pub mod native_load;
 #[doc(hidden)]
 pub mod native_model;
 #[doc(hidden)]

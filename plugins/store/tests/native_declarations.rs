@@ -8,22 +8,31 @@ mod declarations;
 #[path = "../../test-support/declared.rs"]
 mod declared;
 use paperpaw_plugin_store::Store;
+use paperpaw_sdk::native::declare::Declarations;
 use paperpaw_sdk::{Id, Plugin, Registrar};
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/store_declarations.rs"));
 }
 
-fn batches() -> Vec<Vec<u8>> {
-    let mut out: Vec<Vec<u8>> = Vec::new();
-    {
-        let mut d = paperpaw_sdk::native::declare::Declarations::new(|batch: &[u8]| {
-            out.push(batch.to_vec());
-            Ok(())
-        });
-        declarations::settings(&mut d).unwrap();
-    }
-    out
+type Batches = Vec<Vec<u8>>;
+
+macro_rules! batches_of {
+    ($declare:path) => {{
+        let mut out: Batches = Vec::new();
+        {
+            let mut d = Declarations::new(|batch: &[u8]| {
+                out.push(batch.to_vec());
+                Ok(())
+            });
+            $declare(&mut d).unwrap();
+        }
+        out
+    }};
+}
+
+fn batches() -> Batches {
+    batches_of!(declarations::settings)
 }
 
 #[test]
@@ -80,4 +89,20 @@ fn the_decoded_batches_say_what_the_registration_says() {
     let on: Vec<_> = new.specs.iter().filter(|l| guarded(l)).collect();
     assert_eq!(on.len(), 1);
     assert!(on[0].starts_with("community|"));
+}
+
+#[test]
+fn the_action_menu_entries_and_event_are_what_the_image_holds_and_the_host_admits_them() {
+    let navigation = batches_of!(declarations::navigation);
+    assert_eq!(navigation.len(), image::NAVIGATION.len());
+    for (built, image) in navigation.iter().zip(image::NAVIGATION) {
+        assert_eq!(built.as_slice(), *image);
+        validate_batch("store", &records_decode(built).unwrap()).unwrap();
+    }
+    let events = batches_of!(declarations::events);
+    assert_eq!(events.len(), image::EVENTS.len());
+    for (built, image) in events.iter().zip(image::EVENTS) {
+        assert_eq!(built.as_slice(), *image);
+        validate_batch("store", &records_decode(built).unwrap()).unwrap();
+    }
 }

@@ -37,6 +37,8 @@ fn main() -> Result<(), String> {
     println!("cargo:rerun-if-changed=declarations.rs");
     let mut source = String::new();
     emit!(source, "SETTINGS", declarations::settings);
+    emit!(source, "NAVIGATION", declarations::navigation);
+    emit!(source, "EVENTS", declarations::events);
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
     std::fs::write(out.join("store_declarations.rs"), source)
         .map_err(|error| format!("write declarations: {error}"))
