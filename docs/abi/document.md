@@ -220,7 +220,10 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   header and cover record), answers its other ops `ERR_STATE` and writes no cache. It is never
   given to an open without `background`: that one is a new open, prepared as usual. The host's own
   background job (covers, book details) opens with `background`, so it reads a book's details and
-  cover without converting the book.
+  cover without converting the book. The host never makes the `.complete` stamp for an open with
+  `background`, whatever the format answered (it cannot tell whether the format converted): a cache
+  that was finished before keeps its stamp, and what a background open wrote in an unstamped
+  root 6 is removed at the next open that uses that cache, as any unstamped cache.
 - [D] **A preparation that does not move fails.** After 32 answers in a row of state 1 whose
   `progress_ppm` is not higher than the highest one this preparation gave (equal or lower counts),
   the host fails the document with `ERR_TIMEOUT`, exactly as if the format had answered failed:
