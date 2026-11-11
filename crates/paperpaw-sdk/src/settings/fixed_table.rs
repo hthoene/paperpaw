@@ -8,8 +8,10 @@
 //! one source of truth. The kernel takes a spec from the table only after it
 //! equals the one the record makes; any other spec is made as before.
 
-use super::records_wire::{Record, SETTING_SPEC_CHOICES_SEPARATOR, records_decode};
-use super::settings_value::{SettingValueRef, settings_decode};
+use crate::native::declare::records_wire::{
+    Record, SETTING_SPEC_CHOICES_SEPARATOR, records_decode,
+};
+use crate::native::declare::settings_value::{SettingValueRef, settings_decode};
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -69,7 +71,7 @@ pub fn fixed_settings_source(
                         spec.title
                     )
                 }
-                (3 | 4 | 5, SettingValueRef::Text(value)) => {
+                (3..=5, SettingValueRef::Text(value)) => {
                     let constructor = match spec.kind {
                         3 => "text",
                         4 => "language",
