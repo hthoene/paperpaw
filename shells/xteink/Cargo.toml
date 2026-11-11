@@ -46,12 +46,11 @@ ppn5 = ["paperpaw-native/kernel"]
 # ships once the native plugins are on. Home and reader are linked with them
 # (`native-linked-reading`). The store's plugins stay files.
 native-on = ["ppn5", "paperpaw-app/native-linked", "paperpaw-app/native-linked-reading"]
-# The first owner TEST image (decision 156): `native-on` with the veiling
-# sealer (Beta 3's level, not encryption), so Wi-Fi, settings and the lock keep
-# their passwords. Shown on the device as "secrets: veiled (test build)" and in
-# the boot log. Never in a release: `release` refuses it at compile time and
-# `tools/check-test-image-guard.py` (CI) refuses it in the shipped lists.
-test-image = ["native-on", "paperpaw-x4/test-veil"]
+# The owner TEST image (decision 156): `native-on` with the test gates of
+# #2462, the high-water log every 30 s (`src/high_water.rs`). Never in a
+# release: `release` refuses it at compile time and
+# `tools/checks/tests/test_image_guard.rs` (CI) refuses it in the shipped lists.
+test-image = ["native-on"]
 # Marks a build as a release (beta.1 and later); set by the release build.
 release = []
 # What both ESP32-C3 devices build with; chosen by `x4` or `x3`, not by

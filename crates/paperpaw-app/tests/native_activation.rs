@@ -15,6 +15,9 @@
 )]
 
 use paperpaw_core::{Kernel, KernelBuilder};
+use paperpaw_platform::Storage;
+use paperpaw_sdk::MemoryStorage;
+use std::rc::Rc;
 
 /// Every consent feature, offered to plugins in these test kernels (they back
 /// none: the tests only need the plugins' screens; a shell offers only what it
@@ -82,7 +85,12 @@ impl BuildNative for KernelBuilder {
 /// test cannot go on then). A plugin the host refuses is named on stderr and
 /// its screens are missing, which the test that needs them reports.
 pub fn build(builder: KernelBuilder) -> Kernel {
-    build_with(builder, paperpaw_app::default_store())
+    build_full(
+        builder,
+        paperpaw_app::default_store(),
+        Rc::new(MemoryStorage::new()),
+        false,
+    )
 }
 
 /// [`build`] where the plugins the store offers are as `store` says.
@@ -90,19 +98,180 @@ pub fn build(builder: KernelBuilder) -> Kernel {
 /// # Panics
 /// As [`build`].
 pub fn build_with(builder: KernelBuilder, store: paperpaw_app::StorePlugins<'static>) -> Kernel {
+    build_full(builder, store, Rc::new(MemoryStorage::new()), false)
+}
+
+/// [`build`] where the linked plugins' files, library and documents are on
+/// `card`, a second handle on the card the kernel was given, as a shell wires
+/// them (a reader that opens the kernel's books needs it).
+///
+/// # Panics
+/// As [`build`].
+pub fn build_on(builder: KernelBuilder, card: Rc<dyn Storage>) -> Kernel {
+    build_full(builder, paperpaw_app::default_store(), card, true)
+}
+
+/// [`build_on`], with the X4's Wi-Fi (managed by PaperPaw and on) where `wifi`
+/// says so: the native Wi-Fi plugin's list of networks closes itself where
+/// there is no radio to choose with. The screens measured without it (the
+/// store's partial redraws) stay as they were. `store`: the plugins the store
+/// offers.
+fn build_full(
+    builder: KernelBuilder,
+    store: paperpaw_app::StorePlugins<'static>,
+    card: Rc<dyn Storage>,
+    wifi: bool,
+) -> Kernel {
+    #[cfg(feature = "native-linked")]
+    let builder = if wifi { builder.wifi(true) } else { builder };
     #[allow(unused_mut, reason = "only the native-linked build registers plugins")]
     let mut kernel = builder.build().unwrap();
     #[cfg(feature = "native-linked")]
-    linked::register(&mut kernel, store);
+    {
+        linked::register(&mut kernel, card, store);
+        if wifi {
+            let _ = kernel.wifi_event(
+                paperpaw_platform::Instant(0),
+                paperpaw_core::WifiEvent::State(paperpaw_core::WifiState::On),
+            );
+        }
+    }
     #[cfg(not(feature = "native-linked"))]
-    let _ = store;
+    let _ = (card, wifi, store);
     kernel
 }
 
 #[cfg(feature = "native-linked")]
 mod linked {
+    /// What the harness wires the families of files, library, documents, secrets,
+    /// work and HTTP with, so that every linked plugin registers as it does in a
+    /// shell (#248: the owned-ids test covers all of them). Nothing here does
+    /// work: the card is in memory, the network is down, nothing is sealed.
+    mod fakes {
+
+        use paperpaw_core::native_host::HostWiring;
+        use paperpaw_core::native_host::shell_wiring::{
+            CatalogEnv, HttpJob, NetInputs, NetLimits, Rng, Sealer, SecretsInputs, ServedReply,
+            ServerReason, ShellHttp, ShellNetwork, WorkDevice, WorkInputs,
+        };
+        use paperpaw_native::host_glue::ERR_UNSUPPORTED;
+        use paperpaw_platform::{MemoryClass, Storage};
+        use std::rc::Rc;
+
+        /// No network, no clock, no radio.
+        struct Offline;
+
+        impl WorkDevice for Offline {
+            fn now_ms(&self) -> u64 {
+                0
+            }
+            fn network_up(&self) -> bool {
+                false
+            }
+            fn radio_on(&self) -> bool {
+                false
+            }
+        }
+
+        impl ShellNetwork for Offline {
+            fn now_ms(&self) -> u64 {
+                0
+            }
+            fn network_up(&self) -> bool {
+                false
+            }
+            fn network_demand(&self, _: bool) {}
+        }
+
+        impl ShellHttp for Offline {
+            fn start(&self, _: &HttpJob<'_>) -> Result<(), i32> {
+                Err(ERR_UNSUPPORTED)
+            }
+            fn abort(&self, _: u32) {}
+            fn listen(&self, _: u32, _: u32, _: &mut [u8]) -> Result<usize, ServerReason> {
+                Err(ServerReason::Refused)
+            }
+            fn unlisten(&self, _: u32) {}
+            fn reply(&self, _: u32, _: &ServedReply<'_>) -> Result<(), i32> {
+                Err(ERR_UNSUPPORTED)
+            }
+            fn close_served(&self, _: u32, _: u32) {}
+        }
+
+        /// A sealer that seals nothing: secrets are refused, not kept open.
+        struct NoSeal;
+
+        impl Sealer for NoSeal {
+            fn seals(&self) -> bool {
+                false
+            }
+            fn seal(&self, _: &[u8], _: &[u8], _: &mut [u8]) -> Result<usize, i32> {
+                Err(ERR_UNSUPPORTED)
+            }
+            fn open(&self, _: &[u8], _: &[u8], _: &mut [u8]) -> Result<usize, i32> {
+                Err(ERR_UNSUPPORTED)
+            }
+        }
+
+        /// A random source for tests: the same bytes every run (a counter), said
+        /// to be strong, as a device's source is (the Wi-Fi plugin draws its own
+        /// network's password from it).
+        struct Counter(std::cell::Cell<u8>);
+
+        impl Rng for Counter {
+            fn fill(&self, out: &mut [u8]) -> Result<bool, i32> {
+                for byte in out {
+                    let next = self.0.get().wrapping_add(1);
+                    self.0.set(next);
+                    *byte = next;
+                }
+                Ok(true)
+            }
+        }
+
+        /// No walk under way, no date.
+        struct NoCatalog;
+
+        impl CatalogEnv for NoCatalog {
+            fn walking(&self) -> Option<u32> {
+                None
+            }
+            fn today(&self) -> Option<u32> {
+                None
+            }
+        }
+
+        /// `wiring` with the families a shell wires over its card, on `card`.
+        pub fn wire(wiring: HostWiring, card: Rc<dyn Storage>) -> HostWiring {
+            wiring
+                .documents(MemoryClass::Small, 800)
+                .library(card.clone(), Rc::new(NoCatalog))
+                .files(card.clone())
+                .secrets(
+                    SecretsInputs::new(card.clone(), Rc::new(NoSeal))
+                        .with_rng(Rc::new(Counter(std::cell::Cell::new(0)))),
+                )
+                .work(WorkInputs::new(Rc::new(Offline), MemoryClass::Small))
+                .net(NetInputs::new(
+                    card,
+                    Rc::new(Offline),
+                    Rc::new(Offline),
+                    NetLimits::new(0, 8),
+                ))
+        }
+
+        /// The keys of the families [`wire`] wires.
+        pub const WIRED: &[&str] = &[
+            "core.document",
+            "core.library",
+            "core.files",
+            "core.secrets",
+            "core.work",
+            "core.net",
+        ];
+    }
     use paperpaw_core::Kernel;
-    use paperpaw_core::native_host::device_service::{DEVICE_SERVICES, DeviceHost};
+    use paperpaw_core::native_host::device_service::{DEVICE_SERVICES, DeviceFacts, DeviceHost};
     use paperpaw_core::native_host::flat::FlatDepth;
     use paperpaw_core::native_host::shell::DATA_SERVICES;
     use paperpaw_core::native_host::{HostResources, HostWiring, TeardownStep};
@@ -132,10 +301,27 @@ mod linked {
         }
     }
 
-    /// A device that has no part to tell about: every question is "no such
-    /// part" (the default of `DeviceHost`).
+    /// A device that tells what it is (op 1, as every shell does: the Wi-Fi
+    /// plugin names its own network after the model) and has no part to tell
+    /// about: every other question is "no such part" (the default of
+    /// `DeviceHost`).
     struct NoParts;
-    impl DeviceHost for NoParts {}
+    impl DeviceHost for NoParts {
+        fn device(&self, visit: &mut dyn FnMut(&DeviceFacts<'_>)) -> Result<(), i32> {
+            visit(&DeviceFacts {
+                id: "test-device",
+                model: "Test device",
+                catalog: "",
+                class: 0,
+                caps: 0,
+                controls: 0,
+                tls_sessions: 0,
+                start: 0,
+                slept_ms: None,
+            });
+            Ok(())
+        }
+    }
 
     fn teardown(_: &Heap, id: &str, step: TeardownStep, why: paperpaw_core::native_host::Error) {
         eprintln!("native plugin {id}: teardown step {step:?} failed: {why:?}");
@@ -152,25 +338,35 @@ mod linked {
             .iter()
             .chain(DEVICE_SERVICES)
             .copied()
-            .chain(["core.ui", "core.registry"].into_iter().map(|key| Service {
-                key,
-                major: 1,
-                semantic_revision: 0,
-                min_table_bytes: 0,
-            }))
+            .chain(
+                ["core.ui", "core.registry"]
+                    .into_iter()
+                    .chain(fakes::WIRED.iter().copied())
+                    .map(|key| Service {
+                        key,
+                        major: 1,
+                        semantic_revision: 0,
+                        min_table_bytes: 0,
+                    }),
+            )
             .collect();
         Box::leak(all.into_boxed_slice())
     }
 
-    pub fn register(kernel: &mut Kernel, store: paperpaw_app::StorePlugins<'static>) {
+    pub fn register(
+        kernel: &mut Kernel,
+        card: Rc<dyn paperpaw_platform::Storage>,
+        store: paperpaw_app::StorePlugins<'static>,
+    ) {
         let resources = HostResources::try_new().expect("the table of handles");
         let device: Rc<dyn DeviceHost> = Rc::new(NoParts);
         resources
-            .wire(
+            .wire(fakes::wire(
                 HostWiring::new()
                     .ui(paperpaw_platform::MemoryClass::Small)
                     .device(device),
-            )
+                card,
+            ))
             .expect("core.ui and core.device wired");
         let depth = FlatDepth::try_new().expect("the dispatch budget");
         let host = Host {

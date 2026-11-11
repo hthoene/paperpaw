@@ -239,6 +239,9 @@ pub struct Loader {
     /// told the code room when the loader is done.
     #[cfg(feature = "ppn5")]
     device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
+    /// `core.secrets`: sealed with the device key (`crate::secrets`).
+    #[cfg(feature = "ppn5")]
+    secrets: crate::secrets::Wiring,
 }
 
 /// The device-wide table of handles, one for the whole firmware: the code
@@ -294,6 +297,7 @@ impl Loader {
         place: Place,
         #[cfg(feature = "ppn5")] host_net: alloc::rc::Rc<crate::host_net::Bridge>,
         #[cfg(feature = "ppn5")] device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
+        #[cfg(feature = "ppn5")] secrets: crate::secrets::Wiring,
     ) -> Self {
         Self {
             place,
@@ -303,6 +307,8 @@ impl Loader {
             host_net,
             #[cfg(feature = "ppn5")]
             device,
+            #[cfg(feature = "ppn5")]
+            secrets,
         }
     }
 
@@ -594,34 +600,6 @@ impl Loader {
         }
     }
 
-    /// Wires `core.secrets` with the sealer of a device that does not seal yet
-    /// (`paperpaw_x4::native_offer::NoSeal`, decision 156): the plugins that
-    /// declare the service are admitted, nothing is written or read, and
-    /// interface 6's values stay veiled. Offered only when it succeeded.
-    fn wire_secrets(&self, storage: &alloc::rc::Rc<dyn Storage>) {
-        use alloc::rc::Rc;
-        use paperpaw_core::native_host::{HostWiring, shell_wiring::SecretsInputs};
-        let Ok(table) = self.resources.0.try_borrow() else {
-            warn!("native: core.secrets not wired (table busy)");
-            return;
-        };
-        let Some(resources) = table.as_ref() else {
-            warn!("native: core.secrets not wired (no table)");
-            return;
-        };
-        #[cfg(feature = "test-image")]
-        let sealer = Rc::new(paperpaw_x4::native_offer::VeilSeal);
-        #[cfg(not(feature = "test-image"))]
-        let sealer = Rc::new(paperpaw_x4::native_offer::NoSeal);
-        #[cfg(feature = "test-image")]
-        warn!("secrets: veiled (test build)");
-        let secrets = SecretsInputs::new(storage.clone(), sealer);
-        match resources.wire(HostWiring::new().secrets(secrets)) {
-            Ok(_) => crate::device_host::wired_secrets(),
-            Err(status) => warn!("native: core.secrets not wired ({status})"),
-        }
-    }
-
     /// Wires `core.document`, `core.library` and `core.files` over the card:
     /// the books a plugin reads, the catalog, and the card's files. One wiring,
     /// because `core.files` needs the sources of what the host holds in use
@@ -679,7 +657,6 @@ impl CodeLoader for Loader {
         }
         self.wire_network(storage);
         self.wire_card(storage);
-        self.wire_secrets(storage);
     }
 
     fn load(
@@ -712,16 +689,23 @@ impl CodeLoader for Loader {
         // what is wired, so nothing is recorded wrongly.
         // `core.ui` was wired when the table of handles was made (before any
         // plugin loaded); `text.hyphenate` needs the card, which only comes here.
-        let wired = match resources
-            .as_ref()?
-            .wire(HostWiring::new().hyphenation(storage.clone()))
-        {
+        // `core.secrets` with them: the card's file, sealed with the device key.
+        let mut wired = match resources.as_ref()?.wire(
+            HostWiring::new()
+                .hyphenation(storage.clone())
+                .secrets(self.secrets.inputs(storage)),
+        ) {
             Ok(wired) => wired,
             Err(status) => {
-                warn!("native: text.hyphenate not wired ({status})");
+                warn!("native: text.hyphenate and core.secrets not wired ({status})");
                 return None;
             }
         };
+        // `core.secrets` is offered to the linked plugins only where it was wired.
+        if wired.secrets().is_some() {
+            crate::device_host::wired_secrets();
+        }
+        self.secrets.keep(&mut wired);
         wired.hyphen().cloned()
     }
 

@@ -92,8 +92,12 @@ pub struct Firmware {
     /// The device behind `core.device`, told of what the kernel keeps.
     #[cfg(feature = "ppn5")]
     pub device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
-    /// The loader's table of handles, for the linked-plugin
-    /// linked plugins' hosting (`native-on`): one table for the device.
+    /// `core.secrets` past the loader (Beta 3's veiled values sealed once
+    /// the random numbers are strong).
+    #[cfg(feature = "ppn5")]
+    pub secrets: crate::secrets::Secrets,
+    /// The loader's table of handles, for the linked plugins' hosting
+    /// (`native-on`): one table for the device.
     #[cfg(all(feature = "native-on", feature = "esp32c3"))]
     pub device_table: Option<crate::native::DeviceTable>,
     pub state: State,
@@ -200,6 +204,9 @@ impl Firmware {
                 warn!("native: the stack's band is not armed: no plugin of interface 7 is hosted");
             }
         }
+        // Interface 6's passwords through the same sealer, before the start.
+        #[cfg(feature = "ppn5")]
+        self.secrets.started(&mut self.kernel);
         let effects = self.kernel.start(now());
         self.apply(effects);
         self.finishing_update();
@@ -260,6 +267,9 @@ impl Firmware {
             info!("Power held: switching off");
             return self.sleep(false);
         }
+        // Beta 3's veiled values, sealed the first time a radio is on.
+        #[cfg(feature = "ppn5")]
+        self.secrets.poll();
         // Kept only where the mark was written: a flash that fails to write
         // leaves the update on trial (it may still go back), and the hold
         // on code plugins with it (`Kernel::trial_kept`).

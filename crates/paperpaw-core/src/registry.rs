@@ -343,6 +343,9 @@ impl Subscriptions {
 pub(crate) struct Registry {
     pub(crate) native_declarations:
         Option<crate::native_host::native_declarations::DirectoryHandle>,
+    /// The stand-ins of native formats in the kernel's `Formats` (their files
+    /// are books of the library).
+    pub(crate) native_book_formats: crate::native_host::native_book_formats::NativeBookFormats,
     pub(crate) screens: Screens,
     pub(crate) slots: VecMap<Id, SlotSpec>,
     /// When screens show the row of hints, where they said.
