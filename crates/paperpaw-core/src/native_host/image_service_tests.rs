@@ -766,6 +766,43 @@ fn a_picture_not_decoded_yet_comes_without_an_id_and_its_index() {
     }
 }
 
+#[test]
+fn a_picture_not_decoded_yet_is_checked_at_the_edges() {
+    use super::super::stages_wire::core_format_v1::FmtImage;
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    // A file there whose header says another size does not vouch for the
+    // record: no id, the record's own size, as for a file not there yet.
+    gray_file(&storage, ".paperpaw/cache/k/f/c/a.gray", 8, 4, 40);
+    let other_size = FmtImage::new("a.gray", 6, 9, 4, 1);
+    assert_eq!(
+        t.map_fmt_image(&storage, A, 7, CACHE, &other_size, true, true),
+        Ok(Some(wire::ServiceDocImage {
+            image: 0,
+            index: 6,
+            width: 9,
+            height: 4,
+            flags: 0b10,
+        }))
+    );
+    assert!(t.info(A, 1).is_err(), "no id handed out");
+    // One pixel wide, 1,600 high: the narrowest and tallest box.
+    let tall = FmtImage::new("img/14.gray", 14, 1, 1_600, 1);
+    assert!(matches!(
+        t.map_fmt_image(&storage, A, 7, CACHE, &tall, true, true),
+        Ok(Some(doc)) if doc.image == 0 && (doc.width, doc.height) == (1, 1_600)
+    ));
+    // The cache folder, `/` and the path: 512 bytes pass, 513 do not.
+    let folders = std::vec!["d".repeat(98); 4].join("/");
+    let room = PATH_MAX - CACHE.len() - 1 - folders.len() - 1;
+    for (name, kept) in [("n".repeat(room), true), ("n".repeat(room + 1), false)] {
+        let path = std::format!("{folders}/{name}");
+        let image = FmtImage::new(&path, 15, 300, 200, 1);
+        let mapped = t.map_fmt_image(&storage, A, 7, CACHE, &image, true, true);
+        assert_eq!(mapped.map(|doc| doc.is_some()), Ok(kept), "{}", path.len());
+    }
+}
+
 /// A card whose reads stop working after a number of them.
 struct Flaky {
     inner: MemoryStorage,
