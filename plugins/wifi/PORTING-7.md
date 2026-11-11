@@ -133,13 +133,17 @@ becomes "complete, native only" and the plugin joins `tools/plugin-files7/comple
   still not run on a host. Kernel's audit (#2269) reads the remaining markers H3, H4, H1 and `NET-serve-event` as
   stale for the host (compose, staged Wi-Fi commands, the status value and `serve` from the radio's event are
   there); the cases stay ignored until a run on the host shows each one, not on a reading.
-- **The host refuses four of the plugin's event subscriptions (found with `tests/hosted_construction.rs`, ignored
-  until the host admits them):** tags 38 (`screen_shown`), 92 (`wifi_scanned`), 94 (`network_wanted`) and 95
-  (`network_idle`); 71, 93, 101, 102 and the others are admitted. `make` ends with `Factory(-1)` in the kernel's
-  real scope, so the native Wi-Fi is not registered in the emulator under `native-linked` ("not registered:
-  Factory(-1)"). The fix is the host's subscribable-tag list (Services, with the tag 91 one in #1095); the case
-  is switched on again then. **Heap:** the interface-6 Wi-Fi flow (open the page, back, home; X4 profile,
-  headless, `--heap-report`) peaks at 100.0 KiB; the native peak is measured when the plugin registers.
+- **Host admission of event subscriptions (found with `tests/hosted_construction.rs`, ignored until the host admits
+  them):** the host refused tags 92 (`wifi_scanned`), 94 (`network_wanted`) and 95 (`network_idle`) at `make`
+  (`Factory(-1)`; 71, 93, 101, 102 and the others are admitted), so the native Wi-Fi is not registered in the
+  emulator under `native-linked` ("not registered: Factory(-1)"). Their admission is Services' (#2282, with
+  the tag 91 one in #1095); the case is switched on again then. Tag 38 (`screen_shown`) is refused by the contract
+  (`screens-input.md` 2: it goes to the token of the declared screen, never to `registration.event`): the
+  subscription is **gone** from the plugin. **Difference:** the radio goes off at once "back home or in a book"
+  only when one of the plugin's own screens leaves (`ScreenClosed`, the stack read then); another plugin's screen
+  coming to the top while the radio idles is the idle timer's (`network_idle`), not at once as in interface 6.
+  **Heap:** the interface-6 Wi-Fi flow (open the page, back, home; X4 profile, headless, `--heap-report`) peaks
+  at 100.0 KiB; the native peak is measured when the plugin registers.
 - **No real radio on the desktop** (`uses.wifi` is not offered by `shells/desktop/src/linked.rs`; the X4's
   radio is Firmware's wiring, #250): the plugin runs there only on the scripted host.
 - The phone setup screen drawn with its join and page codes (`Footer::Code` of the ui kit) is the
@@ -159,7 +163,7 @@ becomes "complete, native only" and the plugin joins `tools/plugin-files7/comple
   tried, or the failure is told; a success decides nothing (the radio's change says it). `wifi_changed`
   keeps the password of the network just joined (`Action::KeepSecret`) and the network the user picked
   last (`picked.txt`, joined first next time, as *Join first* says), and may join one when charging keeps
-  the radio on. Also the power mode, the screen shown (home or a book: radio off at once) and the status
+  the radio on. Also the power mode, one of the plugin's own screens closed (back home or in a book: radio off at once; see below) and the status
   changing (charging).
 - The facts are read per event and only as far as the decision needs them: the radio and its flags
   (`dev_wifi`, wanted and busy), the networks in reach (scanned, failed), the networks joined before with

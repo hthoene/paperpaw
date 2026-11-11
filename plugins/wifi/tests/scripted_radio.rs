@@ -9,7 +9,7 @@
 use paperpaw_core::native_host::commands::commands_decode;
 use paperpaw_core::native_host::environment::SettingValueRef;
 use paperpaw_core::native_host::registrations::{
-    EventNetworkIdle, EventNetworkWanted, EventScreenShown, EventWifiDone, EventWifiScanned,
+    EventNetworkIdle, EventNetworkWanted, EventScreenClosed, EventWifiDone, EventWifiScanned,
     EventWorkDue, Record, ServiceDevNetwork, ServiceDevWifi, ServiceEnd, ServiceSecEntry,
     ServiceSecValue, ServiceUiScreen, record_encode_one, records_decode,
 };
@@ -205,14 +205,13 @@ fn due(now_ms: u64) -> Vec<u8> {
     .unwrap()
 }
 
-fn shown(screen: &str, now_ms: u64) -> Vec<u8> {
-    event_batch(&Record::EventScreenShown(EventScreenShown {
+/// One of the plugin's own screens left (`screen_shown` of the others is not
+/// subscribed to: the host sends 38 only to a declared screen's token).
+fn closed(screen: &str, now_ms: u64) -> Vec<u8> {
+    event_batch(&Record::EventScreenClosed(EventScreenClosed {
         now_ms,
         screen,
-        width: 480,
-        height: 800,
-        instance: Some(1),
-        last_input: 0,
+        instance: 1,
     }))
     .unwrap()
 }
@@ -340,7 +339,7 @@ fn back_home_with_nothing_wanted_the_radio_goes_off_at_once() {
     let host = host(world, &Works::default());
     let plugin = host.load(NATIVE_ENTRY.entry()).unwrap();
     only(
-        &send(&plugin, declared::SCREEN_SHOWN, &shown("home", 1_000)),
+        &send(&plugin, declared::PAGE, &closed("wifi.page", 1_000)),
         "WifiOff",
     );
 }
@@ -349,7 +348,7 @@ fn back_home_with_nothing_wanted_the_radio_goes_off_at_once() {
 fn a_screen_that_is_not_at_rest_leaves_the_radio_on() {
     let host = host(World::new(ON), &Works::default());
     let plugin = host.load(NATIVE_ENTRY.entry()).unwrap();
-    let outcome = send(&plugin, declared::SCREEN_SHOWN, &shown("wifi.page", 1_000));
+    let outcome = send(&plugin, declared::PAGE, &closed("wifi.networks", 1_000));
     assert!(
         outcome.sent.iter().all(|c| c.starts_with("Redraw")),
         "{:?}",

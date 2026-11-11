@@ -30,8 +30,8 @@ use paperpaw_ui_kit::{
 
 use crate::declarations::{
     NETWORK_IDLE, NETWORK_WANTED, NETWORKS as NETWORKS_TOKEN, OPEN as OPEN_TOKEN,
-    PAGE as PAGE_TOKEN, PHONE as PHONE_TOKEN, POWER_CHANGED, SCREEN_SHOWN, SERVED_REQUEST,
-    SERVER_EVENT, STARTED, STATUS_CHANGED, WIFI_CHANGED, WIFI_DONE, WIFI_SCANNED, WORK,
+    PAGE as PAGE_TOKEN, PHONE as PHONE_TOKEN, POWER_CHANGED, SERVED_REQUEST, SERVER_EVENT, STARTED,
+    STATUS_CHANGED, WIFI_CHANGED, WIFI_DONE, WIFI_SCANNED, WORK,
 };
 use crate::native_ini::{self, Content};
 use crate::native_known::{self, Remember};
@@ -192,10 +192,9 @@ impl Plugin for NativeWifi {
                 }
                 self.reread(host)
             }
-            Event::ScreenShown { now_ms, .. } if token == SCREEN_SHOWN => {
-                self.screen_shown(host, now_ms)
-            }
-            Event::ScreenClosed { instance, .. } => {
+            Event::ScreenClosed {
+                instance, now_ms, ..
+            } => {
                 // The setup screen showed a password: the page is not served
                 // any more, the own network closed, and what showed it wiped.
                 let phone = matches!(self.screens.get(instance), Some(View::Phone(_)));
@@ -208,7 +207,11 @@ impl Plugin for NativeWifi {
                     view.wipe();
                 }
                 self.screens.close(instance);
-                result
+                // The registration for `screen_shown` of every screen is refused
+                // (`screens-input.md` 2: 38 goes to the declared screen's token),
+                // so what was on top when one of this plugin's screens left is
+                // looked at here: back home or in a book, the radio goes off now.
+                result.and(self.screen_shown(host, now_ms))
             }
             _ => Ok(()),
         }
