@@ -243,6 +243,7 @@ pub const fn host_table<S: Services + 'static>() -> PpHost {
     table.canvas_fill_round = canvas_fill_round::<S>;
     table.canvas_stroke_round = canvas_stroke_round::<S>;
     table.canvas_clip = canvas_clip::<S>;
+    table.canvas_describe = canvas_describe::<S>;
     table.storage_size = storage_externs::storage_size::<S>;
     table.storage_read_at = storage_externs::storage_read_at::<S>;
     table.storage_write = storage_externs::storage_write::<S>;
@@ -1125,6 +1126,35 @@ unsafe extern "C" fn canvas_clip<S: 'static>(
     // The plugin waits for the host from here to the return.
     let _slot = super::host_slot::enter();
     context.canvas.clip(x, y, width, height)
+}
+
+/// Slot 42: the label is at most 256 bytes of UTF-8 (`screens-input.md` 6.1).
+const DESCRIBE_LABEL_MAX: usize = 256;
+
+#[allow(clippy::too_many_arguments, reason = "matches the ABI scalar slot")]
+unsafe extern "C" fn canvas_describe<S: 'static>(
+    ctx: *mut c_void,
+    role: u32,
+    flags: u32,
+    label: PpBytes,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter();
+    // SAFETY: the slot contract supplies live readable input for the call.
+    match unsafe { host_glue::buffers::text_in(label, DESCRIBE_LABEL_MAX) } {
+        Ok(label) => context
+            .canvas
+            .describe(role, flags, label, x, y, width, height),
+        Err(error) => error,
+    }
 }
 
 unsafe extern "C" fn font_acquire<S: 'static>(

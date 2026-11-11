@@ -358,6 +358,7 @@ const REGISTRATIONS: usize = 32;
 /// Callback-scoped drawing for host-owned plugin contexts.
 #[path = "native_host/canvas.rs"]
 pub mod canvas;
+mod canvas_describe;
 
 /// Callback-scoped slot-15 command staging for host-owned plugin contexts.
 #[path = "native_host/commands.rs"]
