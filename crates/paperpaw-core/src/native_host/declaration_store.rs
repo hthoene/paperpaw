@@ -1216,6 +1216,10 @@ fn classify(id: &str, bytes: &[u8]) -> Result<(Classes, [usize; KIND_COUNT]), i3
 #[path = "declaration_store_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "declaration_classify_tests.rs"]
+mod classify_tests;
+
 // The device check validates layout instead of extrapolating host enum sizes.
 #[cfg(target_pointer_width = "32")]
 const _: () = {
