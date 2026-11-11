@@ -28,7 +28,7 @@ fn id(n: u32) -> ImageId {
 }
 
 fn ready(back: &mut Backdrop, cookie: u32, size: (u32, u32)) -> Landed {
-    back.ready(cookie, ImageStatus::Ready, Some(id(7)), size)
+    back.ready(cookie, ImageStatus::Ready, Some(id(7)), size, None)
 }
 
 const FILL: &str = "picture-home.fit.fill";
@@ -82,7 +82,7 @@ fn another_picture_or_setting_gives_the_held_one_back_and_asks_again() {
     assert_ne!(first, second);
     // The answer of the old request is nobody's: it is given back.
     assert_eq!(
-        back.ready(first, ImageStatus::Ready, Some(id(9)), (1, 1)),
+        back.ready(first, ImageStatus::Ready, Some(id(9)), (1, 1), None),
         Landed::Ignore(Some(id(9)))
     );
     assert!(back.waits_for(second));
@@ -119,7 +119,7 @@ fn a_failure_leaves_the_page_plain_and_is_not_asked_again() {
             .ask
             .unwrap();
         assert_eq!(
-            back.ready(number, status, None, (0, 0)),
+            back.ready(number, status, None, (0, 0), None),
             Landed::Failed(reason)
         );
         assert!(!back.making() && !back.held());
@@ -145,7 +145,7 @@ fn a_ready_answer_without_a_picture_is_a_failure_that_gives_back_what_it_holds()
         .unwrap();
     // A picture of no size cannot be drawn: given back, the page is plain.
     assert_eq!(
-        back.ready(number, ImageStatus::Ready, Some(id(3)), (0, 0)),
+        back.ready(number, ImageStatus::Ready, Some(id(3)), (0, 0), None),
         Landed::Ignore(Some(id(3)))
     );
     assert_eq!(back.drawing().unwrap(), None);
@@ -157,7 +157,7 @@ fn a_ready_answer_without_a_picture_is_a_failure_that_gives_back_what_it_holds()
         .ask
         .unwrap();
     assert_eq!(
-        back.ready(number, ImageStatus::Ready, None, (4, 4)),
+        back.ready(number, ImageStatus::Ready, None, (4, 4), None),
         Landed::Failed(Reason::Unreadable)
     );
 }
@@ -226,7 +226,7 @@ fn a_picture_that_fills_is_drawn_as_the_plan_places_it() {
         }]
     );
     // Covering the screen and opaque: no paper below it.
-    assert!(!drawing.paper && !drawing.fill);
+    assert!(!drawing.paper && !drawing.stretch);
     assert_eq!(drawing.transparency, 0);
     // The zoom enlarges it about the place.
     let zoomed = held(FILL, 200, 0, (600, 400));
@@ -275,7 +275,7 @@ fn a_stretched_picture_fills_the_screen() {
             height: 800
         }]
     );
-    assert!(stretch.fill && !stretch.paper);
+    assert!(stretch.stretch && !stretch.paper);
 }
 
 #[test]
@@ -353,4 +353,127 @@ fn every_allocation_may_be_refused() {
         back.drawing()?;
         Ok(())
     });
+}
+
+fn made_with(asked: Asked<'_>, size: (u32, u32), grid: Option<&[u8; 64]>) -> Backdrop {
+    let mut back = Backdrop::default();
+    let mut cookie = 0;
+    let wish = Recipe::new(&asked, 480, 800).unwrap();
+    let (number, _) = back.want(wish, &mut cookie).unwrap().ask.unwrap();
+    back.ready(number, ImageStatus::Ready, Some(id(7)), size, grid);
+    back
+}
+
+#[test]
+fn the_tone_curve_is_asked_for_only_where_brightness_or_contrast_change() {
+    let plain = made_with(asked("a.png", FILL, 100, 0), (600, 400), None);
+    assert_eq!(plain.tone(), None);
+    let brighter = Asked {
+        brightness: crate::settings::BRIGHTNESSES[4],
+        ..asked("a.png", FILL, 100, 0)
+    };
+    let curve = made_with(brighter, (600, 400), None).tone().unwrap();
+    assert_eq!(curve, crate::native_picture::tone(2, 0));
+    assert!(curve[128] > 128);
+    let harder = Asked {
+        contrast: crate::settings::CONTRASTS[2],
+        ..asked("a.png", FILL, 100, 0)
+    };
+    assert_eq!(
+        made_with(harder, (600, 400), None).tone(),
+        Some(crate::native_picture::tone(0, 1))
+    );
+    // Nothing is asked for where no picture is wanted.
+    assert_eq!(Backdrop::default().tone(), None);
+}
+
+#[test]
+fn a_change_of_brightness_contrast_or_render_asks_for_the_picture_again() {
+    let mut back = Backdrop::default();
+    let mut cookie = 0;
+    let first = back
+        .want(recipe("a.png", FILL, 100, 0), &mut cookie)
+        .unwrap();
+    assert!(first.ask.is_some());
+    let darker = Asked {
+        brightness: crate::settings::BRIGHTNESSES[0],
+        ..asked("a.png", FILL, 100, 0)
+    };
+    let again = back
+        .want(Recipe::new(&darker, 480, 800).unwrap(), &mut cookie)
+        .unwrap();
+    assert!(again.ask.is_some());
+    let grays = Asked {
+        render: crate::settings::RENDERS[1],
+        ..darker
+    };
+    let once_more = back
+        .want(Recipe::new(&grays, 480, 800).unwrap(), &mut cookie)
+        .unwrap();
+    assert!(once_more.ask.is_some());
+}
+
+#[test]
+fn the_render_choice_is_the_draw_flag() {
+    let with = |render: &str| {
+        let asked = Asked {
+            render,
+            ..asked("a.png", FILL, 100, 0)
+        };
+        made_with(asked, (600, 400), None)
+            .drawing()
+            .unwrap()
+            .unwrap()
+            .render
+    };
+    assert_eq!(with(crate::settings::RENDERS[0]), Rendering::Panel);
+    assert_eq!(with(crate::settings::RENDERS[1]), Rendering::Grays);
+    assert_eq!(with(crate::settings::RENDERS[2]), Rendering::Dots);
+}
+
+/// A grid dark on its left half and light on its right.
+fn halves() -> [u8; 64] {
+    let mut grid = [0u8; 64];
+    for (at, cell) in grid.iter_mut().enumerate() {
+        *cell = if at % 8 < 4 { 10 } else { 240 };
+    }
+    grid
+}
+
+#[test]
+fn the_brightness_behind_a_plate_is_read_from_the_hosts_grid() {
+    let grid = halves();
+    // Stretched over the 480 by 800 screen: the left half is dark.
+    let back = made_with(asked("a.png", STRETCH, 100, 0), (480, 800), Some(&grid));
+    let left = back.brightness_behind(Rect::new(0, 700, 200, 40)).unwrap();
+    let right = back
+        .brightness_behind(Rect::new(280, 700, 200, 40))
+        .unwrap();
+    assert!(left < 30, "{left}");
+    assert!(right > 220, "{right}");
+    assert_eq!(crate::native_picture::ink_over(Some(left)), 255);
+    assert_eq!(crate::native_picture::ink_over(Some(right)), 0);
+    // Paler by the lightening: the dark side is lifted towards the paper.
+    let pale = made_with(asked("a.png", STRETCH, 100, 60), (480, 800), Some(&grid));
+    assert!(pale.brightness_behind(Rect::new(0, 700, 200, 40)).unwrap() > 150);
+}
+
+#[test]
+fn the_paper_is_what_the_picture_does_not_cover_and_no_grid_gives_no_brightness() {
+    let grid = [0u8; 64];
+    // A whole picture 600 by 400 is 480 by 320 on the screen, centred: the
+    // strip at the foot of the screen is paper.
+    let back = made_with(asked("a.png", WHOLE, 100, 0), (600, 400), Some(&grid));
+    assert_eq!(
+        back.brightness_behind(Rect::new(0, 760, 480, 40)),
+        Some(255)
+    );
+    assert!(back.brightness_behind(Rect::new(0, 400, 480, 40)).unwrap() < 5);
+    // The host made no grid, or no picture is held.
+    let none = made_with(asked("a.png", WHOLE, 100, 0), (600, 400), None);
+    assert_eq!(none.brightness_behind(Rect::new(0, 400, 480, 40)), None);
+    assert_eq!(
+        Backdrop::default().brightness_behind(Rect::new(0, 0, 10, 10)),
+        None
+    );
 }

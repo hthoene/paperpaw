@@ -728,6 +728,20 @@ impl NativeInstances {
         self.pool.as_ref()?.hosts().work()
     }
 
+    /// Gives back what the tables kept in reserve while the plugins were
+    /// hosted one by one (every list grows by doubling): called once, when
+    /// the shell has hosted them all ([`Kernel::start`](crate::Kernel::start)).
+    pub(crate) fn shrink_to_fit(&mut self) {
+        super::shrink::shrink(&mut self.entries);
+        self.setting_events.shrink_to_fit();
+        if let Some(directory) = self.directory() {
+            directory.shrink_to_fit();
+        }
+        if let Some(hosts) = self.hosts() {
+            hosts.shrink_to_fit();
+        }
+    }
+
     /// The device's wired host views (none before a pool is adopted).
     pub(crate) fn hosts(&self) -> Option<&super::host_services::HostServices> {
         self.pool.as_ref().map(|pool| pool.hosts())

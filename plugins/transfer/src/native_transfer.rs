@@ -139,12 +139,23 @@ impl Offer {
                 return Ok(None);
             }
         }
-        let empty = offer.plugin.as_ref().is_none_or(|(_, f)| f.is_empty());
-        Ok((!(empty && offer.books.is_empty())).then_some(offer))
+        Ok(offer.finish())
     }
 
-    /// Takes a line of the offer: `Ok(None)` where it is not understood.
-    fn take(&mut self, line: &str) -> Result<Option<()>, Error> {
+    /// The offer once every line was taken: `None` where nothing is offered.
+    #[must_use]
+    pub fn finish(self) -> Option<Offer> {
+        let empty = self.plugin.as_ref().is_none_or(|(_, f)| f.is_empty());
+        (!(empty && self.books.is_empty())).then_some(self)
+    }
+
+    /// Takes a line of the offer (already trimmed, at most [`MAX_LINE`] bytes,
+    /// and not more than [`MAX_FILES`] of them: the caller counts):
+    /// `Ok(None)` where it is not understood.
+    ///
+    /// # Errors
+    /// `NoMemory` when the line cannot be kept.
+    pub fn take(&mut self, line: &str) -> Result<Option<()>, Error> {
         let Some((word, rest)) = line.split_once(' ') else {
             return Ok(None);
         };

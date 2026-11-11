@@ -48,7 +48,7 @@ const QUEUE_MAX: usize = 28;
 
 /// The lifecycle events that are edges, held encoded (and `library_changed`,
 /// held the same way: its queue must not be pruned for want of a listener).
-const EDGE_TAGS: [u32; 8] = [
+const EDGE_TAGS: [u32; 9] = [
     wire::EVENT_SCREEN_READY_TAG,
     wire::EVENT_STARTED_TAG,
     wire::EVENT_BATTERY_MEASURED_TAG,
@@ -57,6 +57,7 @@ const EDGE_TAGS: [u32; 8] = [
     wire::EVENT_BOOK_CLOSED_TAG,
     wire::EVENT_BOOK_FINISHED_TAG,
     wire::EVENT_LIBRARY_CHANGED_TAG,
+    wire::EVENT_SPOKEN_TAG,
 ];
 
 /// The wire tag of the kernel event `event`, `None` for any other event.
@@ -125,6 +126,7 @@ fn drop_note(tag: u32) -> &'static str {
         wire::EVENT_LIBRARY_CHANGED_TAG => {
             "a native plugin lost event.library_changed; not retried"
         }
+        wire::EVENT_SPOKEN_TAG => "a native plugin lost event.spoken; not retried",
         _ => "a native plugin lost event.page_turned; not retried",
     }
 }

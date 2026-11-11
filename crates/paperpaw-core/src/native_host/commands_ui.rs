@@ -300,8 +300,45 @@ impl<'a> CommandStage<'a> {
                 }
                 Ok(text.len())
             }
+            // Speech (`speech.rs`): a device without it says status 3 at once.
+            WireCommand::Speak {
+                text,
+                language,
+                rate,
+                flags,
+                ..
+            } => {
+                crate::native_host::speech::check(rate, flags)?;
+                Ok(text.len() + language.len())
+            }
+            WireCommand::StopSpeaking {} => Ok(0),
             _ => Err(ERR_UNSUPPORTED),
         }
+    }
+
+    /// At most `speech::MAX_TEXTS` texts per plugin: a queued `command.speak`
+    /// beyond is `ERR_FULL`, the batch refused whole (what is staged already
+    /// and what the batch holds count with the kernel's own).
+    pub(super) fn validate_speech_room(&self, batch: &CommandBatch<'_>) -> Result<(), i32> {
+        use crate::native_host::speech::{QUEUE, count, is_reply, is_stop};
+        let mut texts = self.speech_held;
+        for command in &self.staged {
+            if let Command::Speak(speech) = command {
+                if is_reply(speech.reply()) {
+                    let _ = count(&mut texts, Some(speech.is_queued()));
+                } else if is_stop(speech.reply()) {
+                    let _ = count(&mut texts, None);
+                }
+            }
+        }
+        for command in batch.iter() {
+            match command {
+                WireCommand::Speak { flags, .. } => count(&mut texts, Some(flags & QUEUE != 0))?,
+                WireCommand::StopSpeaking {} => count(&mut texts, None)?,
+                _ => {}
+            }
+        }
+        Ok(())
     }
 
     #[inline(never)]
@@ -330,6 +367,18 @@ impl<'a> CommandStage<'a> {
                     Command::Notify(owned)
                 })
             }
+            WireCommand::Speak {
+                cookie,
+                text,
+                language,
+                rate,
+                flags,
+            } => crate::native_host::speech::speak(
+                self.owner,
+                (cookie, text, language),
+                (rate, flags),
+            ),
+            WireCommand::StopSpeaking {} => crate::native_host::speech::stop(self.owner),
             _ => Err(ERR_UNSUPPORTED),
         }
     }

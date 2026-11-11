@@ -15,7 +15,7 @@
 //! fallibly before the format is entered; the drop never allocates. Calls in
 //! calls are bounded by [`MAX_NESTING`], and an owner has one call at a time.
 use alloc::{string::String, vec::Vec};
-use core::cell::{Cell, RefCell};
+use core::cell::{Cell, OnceCell, RefCell};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NO_MEMORY, ERR_NO_SPACE};
 
 /// Calls inside calls at most (the nesting budget of the instance registry).
@@ -145,7 +145,9 @@ impl Slot {
 /// second one (`ERR_BUSY`) instead of guessing between them, and `current`
 /// answers for exactly that call or for none.
 pub(crate) struct FormatScope {
-    slots: [Slot; MAX_NESTING],
+    /// The places for the calls, made at the first call (a device that never
+    /// opens a document through a format holds none of the 1 KiB they take).
+    slots: OnceCell<alloc::boxed::Box<[Slot]>>,
     /// The bytes in each cache folder (the folder's key, bytes), least
     /// recently used first: counted here because a cache lives longer than a
     /// call and is shared by the documents of one conversion.
@@ -161,7 +163,10 @@ impl Default for FormatScope {
 impl core::fmt::Debug for FormatScope {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("FormatScope")
-            .field("calls", &self.slots.iter().filter(|s| s.live.get()).count())
+            .field(
+                "calls",
+                &self.places().iter().filter(|s| s.live.get()).count(),
+            )
             .finish()
     }
 }
@@ -195,9 +200,31 @@ fn text(source: &str) -> Result<String, i32> {
 impl FormatScope {
     pub(crate) const fn new() -> Self {
         Self {
-            slots: [const { Slot::new() }; MAX_NESTING],
+            slots: OnceCell::new(),
             used: RefCell::new(Vec::new()),
         }
+    }
+
+    /// The places made so far (none before the first call).
+    fn places(&self) -> &[Slot] {
+        self.slots.get().map_or(&[], |slots| &slots[..])
+    }
+
+    /// The places, made now if they are not (fallibly, once).
+    fn places_made(&self) -> Result<&[Slot], i32> {
+        if let Some(slots) = self.slots.get() {
+            return Ok(&slots[..]);
+        }
+        let mut made = Vec::new();
+        made.try_reserve_exact(MAX_NESTING)
+            .map_err(|_| ERR_NO_MEMORY)?;
+        made.extend((0..MAX_NESTING).map(|_| Slot::new()));
+        // Nothing sets it between the check and here: the host is one thread.
+        let _ = self.slots.set(made.into_boxed_slice());
+        self.slots
+            .get()
+            .map(|slots| &slots[..])
+            .ok_or(ERR_NO_MEMORY)
     }
 
     /// `add` bytes more and `credit` bytes fewer in the cache folder `folder`
@@ -264,14 +291,11 @@ impl FormatScope {
     /// `ERR_BUSY` when `owner` has a call under way already, `ERR_FULL` when
     /// [`MAX_NESTING`] calls are, `ERR_NO_MEMORY` when the copies cannot be had.
     pub(crate) fn enter(&self, owner: u64, book: &FormatBook<'_>) -> Result<Guard<'_>, i32> {
-        if self
-            .slots
-            .iter()
-            .any(|s| s.live.get() && s.owner.get() == owner)
-        {
+        let slots = self.places_made()?;
+        if slots.iter().any(|s| s.live.get() && s.owner.get() == owner) {
             return Err(ERR_BUSY);
         }
-        let slot = self.slots.iter().find(|s| !s.live.get()).ok_or(ERR_FULL)?;
+        let slot = slots.iter().find(|s| !s.live.get()).ok_or(ERR_FULL)?;
         let entry = Entry {
             path: text(book.path)?,
             opened: text(book.opened)?,
@@ -293,7 +317,7 @@ impl FormatScope {
     /// looked at is none: it fails closed.
     pub(crate) fn current(&self, owner: u64, visit: &mut dyn FnMut(&FormatBook<'_>)) -> bool {
         let Some(slot) = self
-            .slots
+            .places()
             .iter()
             .find(|s| s.live.get() && s.owner.get() == owner)
         else {

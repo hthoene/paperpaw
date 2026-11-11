@@ -20,13 +20,17 @@ use super::registrations::{
     EVENT_PLUGINS_CHANGED_TAG, EVENT_POWER_CHANGED_TAG, EVENT_PREVIEW_CHANGED_TAG,
     EVENT_REGISTRY_CHANGED_TAG, EVENT_RESUME_TAG, EVENT_SCREEN_READY_TAG, EVENT_SCREEN_SHOWN_TAG,
     EVENT_SERVED_REQUEST_TAG, EVENT_SERVER_TAG, EVENT_SETTING_CHANGED_TAG, EVENT_SOCKET_TAG,
-    EVENT_STARTED_TAG, EVENT_STATUS_CHANGED_TAG, EVENT_STOPPING_TAG, EVENT_SUSPEND_TAG,
-    EVENT_TICK_TAG, EVENT_WIDGET_CHANGED_TAG, EVENT_WIFI_CHANGED_TAG, EVENT_WIFI_DONE_TAG,
-    EVENT_WORK_ALLOWED_TAG, EVENT_WORK_DUE_TAG, EVENT_WORK_REFUSED_TAG, EventBatteryMeasured,
-    EventPageTurned, EventResume, EventStarted, EventStopping, EventSuspend,
+    EVENT_SPOKEN_TAG, EVENT_STARTED_TAG, EVENT_STATUS_CHANGED_TAG, EVENT_STOPPING_TAG,
+    EVENT_SUSPEND_TAG, EVENT_TICK_TAG, EVENT_WIDGET_CHANGED_TAG, EVENT_WIFI_CHANGED_TAG,
+    EVENT_WIFI_DONE_TAG, EVENT_WORK_ALLOWED_TAG, EVENT_WORK_DUE_TAG, EVENT_WORK_REFUSED_TAG,
+    EventBatteryMeasured, EventPageTurned, EventResume, EventStarted, EventStopping, EventSuspend,
     REGISTRATION_MAX_RECORDS, Record,
 };
-use super::registrations::{EVENT_BOOK_MOVED_TAG, EVENT_BOOK_REMOVED_TAG, EVENT_STACK_CHANGED_TAG};
+use super::registrations::{
+    EVENT_BOOK_MOVED_TAG, EVENT_BOOK_REMOVED_TAG, EVENT_NETWORK_IDLE_TAG, EVENT_NETWORK_WANTED_TAG,
+    EVENT_PLUGIN_ANSWERED_TAG, EVENT_PLUGINS_REQUESTED_TAG, EVENT_STACK_CHANGED_TAG,
+    EVENT_WIFI_SCANNED_TAG,
+};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
 
 /// Whether `tag` names an event a plugin can register for: tick (3), 32-37,
@@ -49,7 +53,12 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
 ///
 /// The answers of a plugin's own requests register as well: `event.wifi_done` (93,
 /// ended `join` and `host`; `wifi_events`) and the work events 103-105
-/// (`work_pump`).
+/// (`work_pump`). So do the Wi-Fi hints `event.wifi_scanned` (92),
+/// `event.network_wanted` (94) and `event.network_idle` (95) (`device.md`
+/// section 4) and the registry's `event.plugins_requested` (77) and
+/// `event.plugin_answered` (78) (`registry.md` section 5): the host never
+/// fails a registration for an event a device does not raise (`core-events.md`
+/// 3.3), so a plugin that uses them can be made.
 ///
 /// Never 38 or 39: those go to the token of the screen or action declaration
 /// they name (`docs/abi/screens-input.md` section 2).
@@ -74,6 +83,7 @@ pub const fn is_event_tag(tag: u32) -> bool {
             | EVENT_DOCUMENT_CLOSED_TAG
             | EVENT_IMAGE_READY_TAG
             | EVENT_LIBRARY_CHANGED_TAG
+            | EVENT_SPOKEN_TAG
             | EVENT_LOOKUP_READY_TAG
             | EVENT_BOOK_CLOSED_TAG
             | EVENT_BOOK_FINISHED_TAG
@@ -96,6 +106,11 @@ pub const fn is_event_tag(tag: u32) -> bool {
             | EVENT_WORK_DUE_TAG
             | EVENT_WORK_REFUSED_TAG
             | EVENT_WORK_ALLOWED_TAG
+            | EVENT_WIFI_SCANNED_TAG
+            | EVENT_NETWORK_WANTED_TAG
+            | EVENT_NETWORK_IDLE_TAG
+            | EVENT_PLUGINS_REQUESTED_TAG
+            | EVENT_PLUGIN_ANSWERED_TAG
     )
 }
 

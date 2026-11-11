@@ -35,12 +35,12 @@ pub(crate) struct LibraryHost {
     moves: Option<Rc<LibraryMoves>>,
     /// The staged annotation transactions (ops 17 to 21 and 26).
     edits: LibEdits,
-    /// What changed, for `event.library_changed` (the kernel's pump takes it).
-    changes: Changes,
     /// Every source of paths in use (`core.files`' own): a book open in a
     /// document, the reader's, a transfer's. A move over it is `ERR_BUSY`.
     /// Without it only the move job counts.
     sources: Option<Rc<BusySources>>,
+    /// What changed, for `event.library_changed` (the kernel's pump takes it).
+    changes: Changes,
 }
 
 impl LibraryHost {
@@ -54,9 +54,15 @@ impl LibraryHost {
             edits: LibEdits::new(storage.clone(), env),
             storage,
             moves,
-            changes: Changes::default(),
             sources: None,
+            changes: Changes::default(),
         }
+    }
+
+    /// The host's sources of paths in use, asked by `move_book`.
+    pub(crate) fn with_busy_sources(mut self, sources: Rc<BusySources>) -> Self {
+        self.sources = Some(sources);
+        self
     }
 
     /// Notes that `what` (the bits of [`super::lib_changed`]) changed for the
@@ -65,12 +71,6 @@ impl LibraryHost {
     /// change is on the card; never fails, never calls a plugin.
     pub(crate) fn raise_changed(&self, what: u32, path: &str) {
         self.changes.raise(what, path);
-    }
-
-    /// The host's sources of paths in use, asked by `move_book`.
-    pub(crate) fn with_busy_sources(mut self, sources: Rc<BusySources>) -> Self {
-        self.sources = Some(sources);
-        self
     }
 }
 
@@ -136,9 +136,9 @@ impl LibQuery for LibraryHost {
 }
 
 /// The writes the catalog on the card backs: `provide` (op 24), the positions
-/// (ops 13/14's write half), `set_field` (op 23) and `move` (op 11). Each but the
-/// move raises its bit of `event.library_changed` once it is on the card, with no one book named
-/// (the plugin re-reads what it shows). Every other op keeps its
+/// (ops 13/14's write half), `set_field` (op 23) and `move` (op 11). Each raises its bit of
+/// `event.library_changed` once it is on the card, with no one book named (the
+/// plugin re-reads what it shows). Every other op keeps its
 /// default (`ERR_UNSUPPORTED`) until the rest of the write half exists
 /// (todo 307).
 impl LibWrite for LibraryHost {

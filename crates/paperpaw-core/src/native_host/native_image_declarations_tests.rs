@@ -2,7 +2,7 @@
 //! range, through the production mapping entry (`Retained::make_native_stored`).
 //! Its declarations (hundreds of settings, widgets and events) are borrowed
 //! from the image and counted against `IMAGE_DECLARATIONS_MAX` (512) and
-//! `IMAGE_INDEX_MAX_BYTES` (8 KiB); loaded without an image they would be
+//! `IMAGE_INDEX_MAX_BYTES` (12 KiB); loaded without an image they would be
 //! owned copies, bounded by `SPECS_MAX` (128) and `DECLARATIONS_MAX_BYTES`
 //! (32 KiB), which is only for loads without an image (tests, `(null, 0)`).
 //!
@@ -78,7 +78,7 @@ fn image() -> &'static [u8] {
 
 fn declared_services() -> shell::DeclaredServices {
     use paperpaw_native::metadata::{self, Host as AdmissionHost, Profile, Service};
-    let services = ["core.registry", "core.ui", "core.library"].map(|key| Service {
+    let services = ["core.registry", "core.ui", "core.library", "core.files"].map(|key| Service {
         key,
         major: 1,
         semantic_revision: 0,
