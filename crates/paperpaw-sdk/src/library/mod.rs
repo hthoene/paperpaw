@@ -47,6 +47,8 @@ pub use fallible::{KEY_LEN, key_into, try_book, try_book_sized, try_key, try_sta
 pub use fallible::{ProvidedText, try_provide, try_set_field, try_set_status};
 pub use fingerprint::Fingerprint;
 pub use indexed::try_indexed;
+#[cfg(any(test, feature = "kernel"))]
+pub use metadata::keep_native_details;
 pub use service::{Badge, BookBadge, BookField, Deleted, Library, is_book_path, service};
 
 /// What changed of a book ([`events::BookChanged::what`](crate::builtin::events::BookChanged)):
@@ -894,17 +896,27 @@ pub fn index(env: &Env<'_>, path: &str) -> Book {
     if book.added.is_none() {
         book.added = today(env);
     }
-    if let Ok(document) = env.formats().open(storage, path) {
-        // What the book names; else what its source said ([`provide`]).
-        // Copied fallibly; with no memory the book is not written down (it
-        // is read from the book again at the next walk).
-        if fallible::try_merge_metadata(&mut book, document.metadata()).is_err() {
-            // Not indexed: the book does not hold what it names, so a walk
-            // that finds its line must make it again.
+    match env.formats().open(storage, path) {
+        Ok(document) => {
+            // What the book names; else what its source said ([`provide`]).
+            // Copied fallibly; with no memory the book is not written down
+            // (it is read from the book again at the next walk).
+            if fallible::try_merge_metadata(&mut book, document.metadata()).is_err() {
+                // Not indexed: the book does not hold what it names, so a
+                // walk that finds its line must make it again.
+                book.indexed = false;
+                return book;
+            }
+            book.cover = document.cover(storage).ok().flatten();
+        }
+        // A native format's book (the kernel's stand-in): nothing was read,
+        // so nothing is written over or marked as indexed; the host's
+        // details job reads it (`keep_native_details`).
+        Err(crate::document::DocumentError::NotReady) => {
             book.indexed = false;
             return book;
         }
-        book.cover = document.cover(storage).ok().flatten();
+        Err(_) => {}
     }
     if known {
         write_book(storage, path, &book);

@@ -356,3 +356,49 @@ fn a_picture_the_host_does_not_know_leaves_its_place_empty() {
         Err(Error::Io)
     );
 }
+
+#[test]
+fn the_text_of_a_page_is_the_same_with_its_pictures_and_without() {
+    let mut block = Block::new(BlockKind::Paragraph, 0, 9, "Some text".into());
+    block.runs = alloc::vec![paperpaw_sdk::document::Run::new(0, 9, TextStyle::REGULAR)];
+    let mut picture = Block::new(BlockKind::Image, 9, 10, String::new());
+    picture.image = Some(paperpaw_sdk::document::ImageRef {
+        path: "7".into(),
+        width: 200,
+        height: 100,
+    });
+    let book = Book {
+        blocks: alloc::vec![block, picture],
+        metadata: Metadata::default(),
+    };
+    let faces = Faces::new(Fixed, 20.0, 1.0).unwrap();
+    let style = Style::new(0.0, 0.0, 20.0, false);
+    let cx = LayoutContext::new(&book, &NoStorage, 400.0, &style, &faces);
+    let page = layout_page(&cx, Locator::START, 400.0).unwrap();
+    let draw = |pictures| {
+        let mut ink = Recorder::default();
+        draw_page(&mut ink, &faces, &page, (30.0, 50.0), (None, pictures)).unwrap();
+        ink
+    };
+    let (first, second) = (draw(Pictures::Places), draw(Pictures::Drawn));
+    // The first frame keeps the picture's place empty; the second draws it
+    // there, in the box `picture_boxes` names; the text is the same in both.
+    assert!(first.images.is_empty());
+    assert_eq!(second.images.len(), 1);
+    assert_eq!(first.calls, second.calls);
+    assert_eq!(first.fills, second.fills);
+    let (_, x, y, w, h) = second.images[0];
+    assert_eq!(
+        picture_boxes(&page, (30.0, 50.0)).collect::<Vec<_>>(),
+        [(x, y, w, h)]
+    );
+}
+
+#[test]
+fn a_pictures_path_names_its_image_id_and_its_index() {
+    assert_eq!(picture_of("12:3"), Some((12, Some(3))));
+    assert_eq!(picture_of("0:7"), Some((0, Some(7))));
+    assert_eq!(picture_of("12"), Some((12, None)));
+    assert_eq!(picture_of("12:x"), None);
+    assert_eq!(picture_of("cover.png"), None);
+}
