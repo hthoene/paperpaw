@@ -54,7 +54,10 @@ impl Kernel {
     }
 
     /// The device goes to sleep or off at `now_ms`: the open book closes, and
-    /// the event is queued at once.
+    /// the event is queued at once. Called inside the kernel's `emit_from` of
+    /// the sleep or stop event, so an event of the session that still waited
+    /// is raised on the kernel's side one call deeper (once: the sleep's own
+    /// close, reason 1, is not raised there).
     pub(crate) fn native_reading_sleep(&mut self, now_ms: u64) {
         let Some(documents) = self
             .shared
@@ -97,7 +100,11 @@ impl Kernel {
         let Some((event, reading, reason)) = kernel_reading(&record) else {
             return;
         };
-        if reason == super::doc_reading::SLEPT {
+        let opened_or_closed = matches!(
+            record,
+            wire::Record::EventBookOpened(_) | wire::Record::EventBookClosed(_)
+        );
+        if opened_or_closed && reason == super::doc_reading::SLEPT {
             return;
         }
         if let Command::Emit(id, params) = event.emit(reading) {
