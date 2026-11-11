@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the owner's X4 TEST IMAGE (decision 156, #243) and the bundle that goes with it:
+# Builds the owner's X4 TEST IMAGE (#243) and the bundle that goes with it:
 #   dist/x4-test-image-<commit>/
 #     paperpaw-x4-TEST-<commit>.bin   one image for the whole flash (bootloader, table, app)
 #     SHA256SUMS                      checksums of every file in the bundle
@@ -107,7 +107,7 @@ if [ "$dry" = 0 ]; then
   cp "$root/tools/x4-test-image/OWNER-STEPS.md" "$root/tools/x4-test-image/OWNER-SCHRITTE.md" "$fw/partitions.csv" "$bundle/"
   sed -i "s/<IMAGE>/$image/g" "$bundle/OWNER-STEPS.md" "$bundle/OWNER-SCHRITTE.md"
   {
-    echo "PaperPaw X4 test image (decision 156, #243). NOT a release, NOT encryption: secrets are only veiled."
+    echo "PaperPaw X4 test image (#243). NOT a release. Passwords use the real sealer (#1224)."
     echo "commit:    $full${dirty:+ (with uncommitted changes)}"
     echo "branch:    $branch"
     echo "features:  $features"

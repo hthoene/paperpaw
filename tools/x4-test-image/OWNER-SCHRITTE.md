@@ -1,16 +1,8 @@
 # X4-Testimage: Schritte für den Owner
 
-Das ist das **Testimage** (Entscheidung 156, #243): Die nativen Plugins sind an,
-Passwörter (WLAN, Sperre, Einstellungen) sind nur **verschleiert**, nicht
-verschlüsselt. Es ist kein Release und nichts für andere Leute. **Du flashst
-selbst; kein Agent tut das.** Das wurde auf keinem Gerät ausprobiert.
+Das ist das **Testimage** (#243): Die nativen Plugins sind an, und Passwörter (WLAN, Sperre, Konten) werden mit dem Schlüssel des Geräts aufbewahrt (der echte Sealer, #1224). Es ist kein Release und nichts für andere Leute. **Du flashst selbst; kein Agent tut das.** Das wurde auf keinem Gerät ausprobiert.
 
-> **Notiere vor dem Flashen deine WLAN- und Konto-Passwörter; du musst sie später
-> neu eingeben.** Beim ersten Schreiben eines Geheimnisses verschleiert das
-> Testimage *alle* Passwortzeilen von Beta 3 neu. Mit der echten Verschlüsselung
-> später oder nach dem Zurück auf Beta 3 sind alle Passwörter auf diesem X4 (WLAN,
-> Konten) weg und müssen neu eingegeben werden. Bücher und übrige Einstellungen
-> bleiben.
+> **Passwörter bleiben erhalten; eine Sicherung des Flashs bleibt trotzdem ratsam** (Schritt 2).
 
 Du brauchst: den X4, ein USB-Kabel, Akku über 50 %, `espflash`
 (`cargo install espflash --version 4.6.0 --locked`) und diesen Ordner.
@@ -48,9 +40,7 @@ Danach Reset drücken (oder USB abziehen und wieder anstecken).
 ## 4. Was du sehen solltest
 
 - PaperPaw startet und zeigt den Startbildschirm.
-- Einstellungen › Info (oder Diagnose) zeigt **„Secrets: veiled (test build)“**.
-- Im Start-Log (`espflash monitor`, dann X4 zurücksetzen; das Testimage hat keine USB-Fernsteuerung)
-  steht `secrets: veiled (test build)`.
+- Im Start-Log (`espflash monitor`, dann X4 zurücksetzen; das Testimage hat keine USB-Fernsteuerung) siehst du den Start; bei Auffälligkeiten aufheben.
 - Alle 30 s steht eine `high-water:`-Zeile im Log (Stack frei, Heap frei, größter
   Block); nach einem Neustart sagen die ersten Zeilen `high-water: the run before …`.
   Bei Auffälligkeiten diese Zeilen kopieren.

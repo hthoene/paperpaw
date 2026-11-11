@@ -1,15 +1,9 @@
 # X4 test image: steps for the owner
 
-This is the **test image** (decision 156, #243): the native plugins are on, and
-passwords (Wi-Fi, lock, settings) are only **veiled**, not encrypted. It is not
-a release and must not be given to anyone else. **You flash it; no agent does.**
+This is the **test image** (#243): the native plugins are on, and passwords (Wi-Fi, lock, accounts) are kept with the device's own key (the real sealer, #1224). It is not a release and must not be given to anyone else. **You flash it; no agent does.**
 Nothing here has been run on a device.
 
-> **Note your Wi-Fi/account passwords before flashing; you'll need to re-enter
-> them later.** The first time the test image writes a secret it re-veils *all*
-> the password lines Beta 3 saved. Under the real encryption that comes later, or
-> after going back to Beta 3, every password on this X4 (Wi-Fi, accounts) is gone
-> and has to be typed in again. Your books and the rest of the settings stay.
+> **Passwords stay; a backup of the flash is still advised** (step 2).
 
 What you need: the X4, a USB cable, a charged battery (above 50 %),
 [espflash](https://github.com/esp-rs/espflash) (`cargo install espflash
@@ -50,9 +44,7 @@ Then press reset (or unplug and plug in). If `espflash` cannot reach the X4, see
 ## 4. What you should see
 
 - PaperPaw starts and shows the home screen.
-- Settings › About (or Diagnostics) shows the line **"Secrets: veiled (test build)"**.
-- The boot log (`espflash monitor`, then reset the X4; the test image has no USB remote control)
-  prints `secrets: veiled (test build)`.
+- The boot log (`espflash monitor`, then reset the X4; the test image has no USB remote control) shows the start; keep it if anything looks wrong.
 - Every 30 s the log has a `high-water:` line (stack left, heap free, largest
   block); after a restart the first lines say `high-water: the run before …`.
   Copy those lines if anything looks wrong.
