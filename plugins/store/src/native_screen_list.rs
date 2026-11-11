@@ -323,6 +323,7 @@ pub fn empty_words(trouble: Trouble, touch: bool) -> (&'static str, &'static str
         Trouble::Offline => ("store.offline", "store.offline.help.buttons"),
         Trouble::Failed if touch => ("store.unreachable", "store.unreachable.help"),
         Trouble::Failed => ("store.unreachable", "store.unreachable.help.buttons"),
+        Trouble::Unsupported => ("store.unsupported", "store.unsupported.help"),
         _ => ("store.loading", ""),
     }
 }

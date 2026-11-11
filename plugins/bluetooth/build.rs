@@ -48,7 +48,8 @@ fn main() -> Result<(), String> {
     let batches: Vec<&[u8]> = all.iter().map(Vec::as_slice).collect();
     let table =
         paperpaw_sdk::native::declare::fixed_settings_source("bluetooth", "SETTINGS", &batches)?
-            + &paperpaw_sdk::native::declare::fixed_groups_source("bluetooth", "GROUPS", &batches)?;
+            + &paperpaw_sdk::native::declare::fixed_groups_source("bluetooth", "GROUPS", &batches)?
+            + &paperpaw_sdk::native::declare::fixed_ids_source("bluetooth", "IDS", &batches)?;
     std::fs::write(out.join("bluetooth_settings.rs"), table)
         .map_err(|error| format!("write settings table: {error}"))?;
     std::fs::write(out.join("bluetooth_declarations.rs"), source)

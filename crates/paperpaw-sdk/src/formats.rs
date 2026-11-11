@@ -257,6 +257,37 @@ impl Formats {
         Ok(())
     }
 
+    /// Removes the formats `keep` says no to (the kernel's stand-ins for
+    /// the formats of native plugins, made again when they change). The
+    /// files told by their first bytes are forgotten: they name formats by
+    /// their place.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn retain_formats(&mut self, keep: impl FnMut(&FormatSpec) -> bool) {
+        let before = self.specs.len();
+        self.specs.retain(keep);
+        if self.specs.len() != before {
+            self.sniffed.get_mut().clear();
+        }
+    }
+
+    /// Room for `additional` more formats, so that many [`Formats::add`]s
+    /// then need no allocation (the kernel's stand-ins of the formats of
+    /// native plugins are made fallibly).
+    ///
+    /// # Errors
+    /// The heap refused the room.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn try_reserve_formats(
+        &mut self,
+        additional: usize,
+    ) -> Result<(), alloc::collections::TryReserveError> {
+        // Exact: the kernel adds one stand-in (a list of 112-byte specs
+        // would otherwise grow to four at once).
+        self.specs.try_reserve_exact(additional)
+    }
+
     /// Whether no format was added: nothing can be opened, nor be a
     /// book.
     pub fn is_empty(&self) -> bool {

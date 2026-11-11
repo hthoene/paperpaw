@@ -170,6 +170,7 @@ fn style() -> Style {
         on_dark_muted: Color::gray(200),
         strong: false,
         rtl: false,
+        describing: false,
     }
 }
 

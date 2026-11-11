@@ -591,6 +591,34 @@ impl Kernel {
         }
     }
 
+    /// Adds the translation catalog `source` of a linked native plugin, built
+    /// into the program (its `i18n/<language>.ini`): the texts the plugin
+    /// reads through `core.i18n`. Only text with the program's lifetime
+    /// (`&'static str`, `include_str!`): a catalog on the storage is
+    /// `Registrar::add_translation_file`. One that does not parse is reported
+    /// and left out.
+    pub fn add_catalog(&mut self, source: &'static str) {
+        match registry::catalog(alloc::borrow::Cow::Borrowed(source)) {
+            Ok(catalog) => self.shared.translator.add(catalog),
+            Err(error) => self.warn_runtime(format!("a built-in catalog: {error}")),
+        }
+    }
+
+    /// `true` the first time it is asked, `false` after: the linked plugins'
+    /// catalogs are added once, whoever asks first (`add_native_catalogs`),
+    /// so a shell that adds them after `register_native_plugins` has
+    /// done it does not add them twice.
+    pub fn claim_native_catalogs(&mut self) -> bool {
+        !core::mem::replace(&mut self.native_catalogs_added, true)
+    }
+
+    /// Room for the catalogs `plugins` more plugins bring, in the languages chosen, asked for once
+    /// before [`Kernel::add_catalog`] (as the start does for the plugins it
+    /// registers): the list does not grow by doubling.
+    pub fn reserve_catalogs(&mut self, plugins: usize) {
+        self.shared.translator.reserve(plugins);
+    }
+
     /// Opens the compiled catalog `path` (`Registrar::add_translation_file`)
     /// and adds it; one that cannot be opened is reported.
     pub(crate) fn add_translation_file(&mut self, plugin: &Id, path: String) {
@@ -1108,6 +1136,7 @@ impl Kernel {
         self.native_hint(crate::native_host::registrations::EVENT_PLUGINS_CHANGED_TAG);
         // What menus, bindings, slots, screens and the rest hold follows the set.
         self.native_registry_changed(crate::native_host::REGISTRY_ALL);
+        self.native_data_plugins_sync();
     }
 
     /// Releases memory reserved while plugins registered: on small devices

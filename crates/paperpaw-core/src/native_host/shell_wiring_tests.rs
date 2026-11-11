@@ -230,12 +230,17 @@ fn core_work_is_wired_once_and_its_view_is_made_of_the_shell_the_kernel_and_the_
 #[test]
 fn core_secrets_is_wired_once_and_the_shell_keeps_its_lifecycle_calls() {
     let resources = HostResources::try_new().unwrap();
-    let wired = resources
+    let mut wired = resources
         .wire(HostWiring::new().secrets(SecretsInputs::new(storage(), Rc::new(Keyed))))
         .unwrap();
     assert!(resources.hosts().secrets().is_some());
     // No file yet: nothing to upgrade.
     assert_eq!(wired.secrets().unwrap().upgrade(), Ok(false));
+    // A shell may keep it past the wiring (the X4 upgrades again once its
+    // random numbers are strong); it is taken once.
+    let kept = wired.take_secrets().unwrap();
+    assert_eq!(kept.upgrade(), Ok(false));
+    assert!(wired.take_secrets().is_none() && wired.secrets().is_none());
     let again = resources.wire(
         HostWiring::new()
             .secrets(SecretsInputs::new(storage(), Rc::new(Keyed)))
@@ -366,4 +371,34 @@ fn the_library_transactions_learn_the_memory_class_and_clock_from_wirings_of_the
         .wire(HostWiring::new().ui(MemoryClass::Small))
         .unwrap();
     assert!(policy.is_small());
+}
+
+#[test]
+fn the_library_learns_the_screens_long_side_from_a_documents_wiring_of_its_own() {
+    // Op 7 bounds a cover by the screen's long side: unsupported until the
+    // shell wires `documents`, in whichever call that comes.
+    use paperpaw_native::host_glue::ERR_UNSUPPORTED;
+    let card = crate::native_host::lib_reads::tests::card();
+    let resources = HostResources::try_new().unwrap();
+    resources
+        .wire(HostWiring::new().library(card.storage.clone(), card.env.clone()))
+        .unwrap();
+    let library = resources.hosts().library().unwrap();
+    assert_eq!(library.0.screen_long_side(), Err(ERR_UNSUPPORTED));
+    resources
+        .wire(HostWiring::new().documents(MemoryClass::Small, 800))
+        .unwrap();
+    assert_eq!(library.0.screen_long_side(), Ok(800));
+}
+
+#[test]
+fn a_value_that_does_not_open_is_told_once_per_start() {
+    let host = SecretsInputs::new(storage(), Rc::new(Keyed)).host();
+    assert!(!host.take_unopened(), "nothing to tell");
+    host.unopened();
+    host.unopened();
+    assert!(host.take_unopened());
+    assert!(!host.take_unopened(), "once");
+    host.unopened();
+    assert!(!host.take_unopened(), "once per start, not once per line");
 }

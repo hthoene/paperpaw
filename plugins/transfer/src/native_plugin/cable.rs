@@ -134,7 +134,7 @@ impl NativeTransfer {
             paperpaw_sdk::native::files::Files::open(host)
         })?;
         native_cable::clean(host, files)?;
-        self.cable = Some(CableScreen {
+        self.cable = Some(paperpaw_ui_kit::mem::boxed(CableScreen {
             instance,
             list: ItemList::new(Vec::new()),
             state: Cable::new(),
@@ -144,7 +144,7 @@ impl NativeTransfer {
             failed: None,
             pending: Vec::new(),
             clock: 0,
-        });
+        })?);
         Ok(())
     }
 

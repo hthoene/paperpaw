@@ -1,14 +1,20 @@
-//! The English catalogs built into the program as one table
-//! ([`BuiltCatalogs`]): a build script indexes them together, so a
-//! translator keeps one catalog for all of them, each plugin's source a
-//! word or two, rather than a catalog for each (a hundred bytes and more
-//! each, for some eighty plugins on the X4).
+//! The catalogs of one language built into the program as one table
+//! ([`BuiltCatalogs`]; English, and German where a program has it too): a
+//! build script indexes them together, so a translator keeps one catalog for
+//! all of a language's, each plugin's source a word or two, rather than a
+//! catalog for each (a hundred bytes and more each, for some eighty plugins
+//! on the X4), and the values a source does not give plainly (escape
+//! sequences) are kept in the program, not made on the heap.
 
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 
 use crate::catalog::{Catalog, CatalogError, cmp_plain_key, fingerprint, plain_key, plain_value};
+use crate::plural::PluralRule;
+
+/// English, whose catalogs [`BuiltTable`] indexes.
+const FALLBACK: &str = crate::FALLBACK_LANGUAGE;
 
 /// In an entry of [`BuiltCatalogs::entries`]: its message is
 /// `decoded[low bits]`, not a plain line of a source.
@@ -27,7 +33,8 @@ const fn low_of(entry: u32) -> u32 {
     entry & ((1 << OFFSET_BITS) - 1)
 }
 
-/// The English catalogs of the plugins built in, indexed together by a
+/// The catalogs of one language of the plugins built in (English, or the
+/// language of the [`BuiltLanguage`] that holds them), indexed together by a
 /// build script (`paperpaw-app`'s, with [`BuiltTable`]): kept in the
 /// program, handed to the translator
 /// ([`Translator::built_catalogs`](crate::Translator::built_catalogs)).
@@ -68,6 +75,31 @@ impl BuiltCatalogs {
     }
 }
 
+/// The [`BuiltCatalogs`] of one language, which calls itself `name` (all
+/// with the plural rule of English, one and other): written by a build
+/// script ([`BuiltLanguageTable`]), handed to the translator
+/// ([`Translator::built_language`](crate::Translator::built_language)).
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct BuiltLanguage {
+    /// As a catalog's `[meta] language` (`en`, `de`).
+    pub language: &'static str,
+    /// As a catalog's `[meta] name` (`English`, `Deutsch`).
+    pub name: &'static str,
+    pub catalogs: BuiltCatalogs,
+}
+
+impl BuiltLanguage {
+    /// Made of what a build script wrote.
+    pub const fn new(language: &'static str, name: &'static str, catalogs: BuiltCatalogs) -> Self {
+        Self {
+            language,
+            name,
+            catalogs,
+        }
+    }
+}
+
 /// [`BuiltCatalogs`] in a translator: the sources added so far by slot.
 #[derive(Debug, Clone)]
 pub(crate) struct Built {
@@ -83,9 +115,9 @@ impl Built {
         }
     }
 
-    /// Takes `source` into its slot, where the table holds it.
-    pub(crate) fn take(&mut self, source: &'static str) -> bool {
-        let print = fingerprint(source);
+    /// Takes `source` (of this [`fingerprint`]) into its slot, where the
+    /// table holds it.
+    pub(crate) fn take(&mut self, print: u64, source: &'static str) -> bool {
         let Some(slot) = self.table.prints.iter().position(|p| *p == print) else {
             return false;
         };
@@ -182,7 +214,7 @@ impl Built {
 
 /// [`BuiltCatalogs`] being made by a build script: the English catalogs
 /// added together ([`BuiltTable::add`]), written as Rust
-/// ([`BuiltTable::to_rust`]).
+/// ([`BuiltTable::to_rust`]); [`BuiltLanguageTable`] for another language.
 #[derive(Debug, Default)]
 pub struct BuiltTable {
     prints: Vec<u64>,
@@ -197,12 +229,31 @@ impl BuiltTable {
     }
 
     /// Adds the English catalog `source`; `false`, leaving it out (it then
-    /// stays a catalog of its own), where it is not English, holds a key
-    /// another source added holds, or its slot or an offset would not fit.
+    /// stays a catalog of its own), where it is not English, has another
+    /// plural rule than English's or a direction, script, digits or
+    /// calendar of its own (the table says none), holds a key another
+    /// source added holds, or its slot or an offset would not fit.
     pub fn add(&mut self, source: &str) -> Result<bool, CatalogError> {
+        self.add_in(source, FALLBACK, &mut None)
+    }
+
+    /// The same for a source of `language`; where `name` is `Some`, the
+    /// source must call its language so, and the first source added sets
+    /// it (English is always called English: `None`).
+    fn add_in(
+        &mut self,
+        source: &str,
+        language: &str,
+        name: &mut Option<String>,
+    ) -> Result<bool, CatalogError> {
         let catalog = Catalog::parse(String::from(source))?;
         let print = fingerprint(source);
-        if catalog.language() != "en" || self.prints.contains(&print) {
+        if catalog.language() != language
+            || self.prints.contains(&print)
+            || catalog.plural_rule() != PluralRule::OneOther
+            || catalog.says_more_than_language()
+            || name.as_deref().is_some_and(|name| name != catalog.name())
+        {
             return Ok(false);
         }
         let slot = self.prints.len() as u32;
@@ -232,6 +283,9 @@ impl BuiltTable {
             return Ok(false);
         }
         self.prints.push(print);
+        if language != FALLBACK && name.is_none() {
+            *name = Some(String::from(catalog.name()));
+        }
         for (key, message) in decoded {
             let entry = DECODED | slot << OFFSET_BITS | self.decoded.len() as u32;
             self.decoded.push((key.clone(), message));
@@ -292,5 +346,76 @@ impl BuiltTable {
 
     pub fn is_empty(&self) -> bool {
         self.prints.is_empty()
+    }
+}
+
+/// [`BuiltLanguage`] being made by a build script: a [`BuiltTable`] for the
+/// catalogs of one language, English or another, with the name its sources
+/// call it by.
+#[derive(Debug)]
+pub struct BuiltLanguageTable {
+    language: String,
+    /// The name the first source added gives its language; the others must
+    /// say it (English is always called English).
+    name: Option<String>,
+    table: BuiltTable,
+}
+
+impl BuiltLanguageTable {
+    /// For the catalogs of `language` (as a catalog's `[meta] language`).
+    pub fn new(language: &str) -> Self {
+        Self {
+            language: String::from(language),
+            name: None,
+            table: BuiltTable::new(),
+        }
+    }
+
+    /// Adds the catalog `source` of the table's language, as
+    /// [`BuiltTable::add`] does; `false` also where it calls its language
+    /// by another name than the first source added.
+    pub fn add(&mut self, source: &str) -> Result<bool, CatalogError> {
+        self.table.add_in(source, &self.language, &mut self.name)
+    }
+
+    fn name(&self) -> &str {
+        match &self.name {
+            Some(name) => name,
+            None if self.language == FALLBACK => "English",
+            None => "",
+        }
+    }
+
+    /// The table as a Rust expression of [`BuiltLanguage`], for
+    /// `include!`.
+    pub fn to_rust(&self) -> String {
+        alloc::format!(
+            "paperpaw_i18n::BuiltLanguage::new({:?}, {:?}, {})",
+            self.language,
+            self.name(),
+            self.table.to_rust()
+        )
+    }
+
+    /// The table as [`BuiltLanguage`] at run time, its memory never given
+    /// back: for tests and tools.
+    pub fn leak(self) -> &'static BuiltLanguage {
+        let name = &*alloc::boxed::Box::leak(String::from(self.name()).into_boxed_str());
+        let language = &*alloc::boxed::Box::leak(self.language.into_boxed_str());
+        let table = self.table.leak();
+        alloc::boxed::Box::leak(alloc::boxed::Box::new(BuiltLanguage::new(
+            language,
+            name,
+            BuiltCatalogs::new(table.prints, table.entries, table.decoded),
+        )))
+    }
+
+    /// Sources added.
+    pub fn len(&self) -> usize {
+        self.table.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.table.is_empty()
     }
 }

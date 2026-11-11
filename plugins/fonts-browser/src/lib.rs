@@ -31,6 +31,7 @@ mod declarations;
 pub mod native_catalog;
 mod native_entry;
 pub mod native_job;
+mod native_own;
 pub mod native_plan;
 /// The interface-7 plugin.
 pub mod native_plugin;

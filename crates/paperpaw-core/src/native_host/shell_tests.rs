@@ -42,6 +42,8 @@ std::thread_local! {
     static EVENT_ONLY: Cell<bool> = const { Cell::new(false) };
     /// `make` also registers for `event.tick`.
     static TICKS_TOO: Cell<bool> = const { Cell::new(false) };
+    /// The draw callback draws with `text.draw_inked` (`shell_inked_tests.rs`).
+    static DRAW_INKED: Cell<bool> = const { Cell::new(false) };
 }
 
 /// The test binary's allocator: the system's, failing on request so the
@@ -126,6 +128,7 @@ pub(in crate::native_host) fn reset(mode: u8) {
     UNCOVERED.with(|u| u.set(0));
     EVENT_ONLY.with(|e| e.set(false));
     TICKS_TOO.with(|e| e.set(false));
+    DRAW_INKED.with(|d| d.set(false));
 }
 
 /// The shell's heap and clock.
@@ -308,6 +311,9 @@ unsafe extern "C" fn draw(state: *mut c_void, token: u32, frame: PpBytes) -> i32
     }
     if token != TOKEN || frame.len == 0 || frame.ptr.is_null() {
         return ERR_INVALID;
+    }
+    if DRAW_INKED.with(Cell::get) {
+        return inked::draw(state);
     }
     // A positive result is a fault, never a length: the host maps it.
     if frame.len == 1 { 1 } else { OK }
@@ -1330,6 +1336,9 @@ fn kernel_dispatch_supplies_real_core_views_and_clears_them_after_callbacks() {
     finish(&hosted);
 }
 
+#[path = "shell_inked_tests.rs"]
+mod inked;
+
 #[path = "shell_service_oom_tests.rs"]
 mod service_oom;
 
@@ -1464,5 +1473,7 @@ mod native_late_config;
 #[path = "native_screen_install_tests.rs"]
 mod native_screen_install;
 
+#[path = "shell_describe_tests.rs"]
+mod describe;
 #[path = "shell_refuse_tests.rs"]
 mod refuse;

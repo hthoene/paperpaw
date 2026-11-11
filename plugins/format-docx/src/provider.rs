@@ -56,6 +56,9 @@ const PART: usize = 3072;
 const ROWS: usize = 64;
 const END_LAST: u32 = 1;
 const END_MORE: u32 = 2;
+/// The `generation` of a paged list (`document.md` section 3: the format's own for the
+/// document, never 0): the lists of a document do not change, so one value serves.
+const LIST_GENERATION: u32 = 1;
 const STATE_READY: u32 = 0;
 const STATE_MORE: u32 = 1;
 const STATE_FAILED: u32 = 2;
@@ -253,9 +256,9 @@ fn page(rows: &[Record<'_>], from: usize, total: usize, out: &mut [u8]) -> Resul
         frame.clear();
         frame.extend(rows.iter().take(take).cloned());
         frame.push(Record::FmtEnd(stage::FmtEnd::new(
-            if more { END_MORE } else { 0 },
+            if more { 0 } else { END_LAST },
             u32::try_from(total).map_err(|_| Error::Invalid)?,
-            0,
+            LIST_GENERATION,
             u32::try_from(next).map_err(|_| Error::Invalid)?,
             None,
         )));
@@ -550,7 +553,10 @@ impl DocxProvider {
             ),
             // No page labels or XPointers, and no fonts, in a Word document.
             11..=13 => Err(Error::NotFound),
-            16 => one(Record::FmtEnd(stage::FmtEnd::new(0, 0, 0, 0, None)), out),
+            16 => one(
+                Record::FmtEnd(stage::FmtEnd::new(END_LAST, 0, LIST_GENERATION, 0, None)),
+                out,
+            ),
             _ => Err(Error::Unsupported),
         }
     }
@@ -576,7 +582,10 @@ impl DocxProvider {
         out: &mut [u8],
     ) -> Result<usize, Error> {
         if call.section != 0 {
-            return one(Record::FmtEnd(stage::FmtEnd::new(0, 0, 0, 0, None)), out);
+            return one(
+                Record::FmtEnd(stage::FmtEnd::new(END_LAST, 0, LIST_GENERATION, 0, None)),
+                out,
+            );
         }
         let spans = document
             .link_spans(io, call.offset, call.index)

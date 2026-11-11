@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 7] = [
+const CASES: [Case; 6] = [
     // The list of fonts (fetched with `core.net`, kept in the data folder), the
     // font's page with Download / Update / Remove, and choosing a font draw as before.
     Case {
@@ -52,12 +52,6 @@ const CASES: [Case; 7] = [
         name: "fonts-browser-restart-drops-download",
         golden: None,
         blocked_by: &["H2"],
-    },
-    // *Your own fonts* shows the plugin's help part in the reader.
-    Case {
-        name: "fonts-browser-own-fonts",
-        golden: None,
-        blocked_by: &["draft-22-doc_open-root-5"],
     },
 ];
 
@@ -105,10 +99,4 @@ fn fonts_browser_update_keeps_font() {
 #[ignore = "BLOCKED H2: the host's install question is not wired to native plugins"]
 fn fonts_browser_restart_drops_download() {
     CASES[5].refuse().unwrap();
-}
-
-#[test]
-#[ignore = "BLOCKED draft-22-doc_open-root-5: command.open into core.reader (root 5, handed) is not there"]
-fn fonts_browser_own_fonts() {
-    CASES[6].refuse().unwrap();
 }

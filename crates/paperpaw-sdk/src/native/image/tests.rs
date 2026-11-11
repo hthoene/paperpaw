@@ -361,6 +361,10 @@ fn prepare_sets_the_turn_flag_and_carries_the_tone_table() {
         panic!("not a prepare");
     };
     assert_eq!((flags, tone.len()), (TURN, 0));
+    let Command::ImagePrepare { flags, .. } = plain.see_through().command().unwrap() else {
+        panic!("not a prepare");
+    };
+    assert_eq!(flags, SEE_THROUGH);
 }
 
 #[test]

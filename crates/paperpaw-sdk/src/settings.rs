@@ -8,7 +8,7 @@ use crate::collections::VecMap;
 use crate::id::Id;
 use crate::plugin::RegisterError;
 #[cfg(feature = "kernel")]
-pub use fixed_table::{fixed_groups_source, fixed_settings_source};
+pub use fixed_table::{fixed_groups_source, fixed_ids_source, fixed_settings_source};
 use specs::Specs;
 
 /// A setting's value.

@@ -147,3 +147,7 @@ mod tests;
 #[path = "canvas_clip.rs"]
 mod clip;
 pub use clip::ClipGuard;
+
+#[path = "canvas_describe.rs"]
+mod describe;
+pub use describe::{PartFlags, PartRole};

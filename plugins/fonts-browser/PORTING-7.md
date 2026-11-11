@@ -65,6 +65,19 @@ not yet in `tools/plugin-files7/complete.txt`: list it when download, update and
 - Gaps: the host's questions are not wired to native
   plugins (H2), so no end-to-end run yet (`fonts-browser-install` stays ignored).
 
+## Your own fonts (`src/native_own.rs`)
+
+- As Beta 3: the part of *How it works* after the heading `fonts-browser.own.heading`, under the title
+  `fonts-browser.own`, is written to `own.txt` in the data folder and opened in the reader; where there is
+  no such part or the card refuses the file, the notice `fonts-browser.how-failed`. The language is the one
+  whose text has the heading shown (a language without a text of its own shows the English heading).
+- The file is handed to the reader as Files Engineer's ruling says (#2376, #1186): `core.ui` op 16 with
+  `root` `0` and `path` `own.txt`, then `command.open` into the slot `core.reader`.
+- Memory: the part is appended straight from the text in the program (in 4 KiB pieces); only the title's
+  line is allocated (a sweep pins one allocation). The `HOW` table is kept once for both entries.
+- Tests: `native_own` (part per language, page layout, refused write, sweep), `tests/hosted_own.rs` (en
+  and de through the kernel, nothing dropped).
+
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
 - **Download, update, remove (named blocked step):** *Download*/*Update*/*Stop*/*Remove* answer `Unsupported`.
@@ -77,8 +90,6 @@ not yet in `tools/plugin-files7/complete.txt`: list it when download, update and
   entry has no download yet, so it does not subscribe: it comes back with the download.
 - The *Download*/*Update*/*Stop*/*Remove* rows are not shown until then (no dead buttons); `native_view::rows` still
   says which rows a page will have.
-- **Your own fonts:** the page of the help opens in the reader with `command.open` into `core.reader` (root 5
-  "handed"; as About's licences): `Unsupported` until that merges.
 - **The font's own face:** on the font's page the sentence is drawn in the font's own face
   (`native_sample.rs`): the sample pack (one size, only the characters of the name and the sentence, asked
   from the catalog's `sample` address with `core.net` `save_to` into `samples/` of the data folder) is
@@ -129,7 +140,7 @@ not yet in `tools/plugin-files7/complete.txt`: list it when download, update and
 | `install`: `coming_back_to_the_list_fetches_nothing` | `native_view::should_fetch` test; ignored `fonts-browser-list-back` |
 | `install`: `a_font_page_has_its_font_from_the_list` | `native_catalog` `a_font_goes_to_its_page_whole`; ignored `fonts-browser-list-back` |
 | `install`: `a_download_cut_off_by_a_restart_is_dropped` | `make` clears `staging`; ignored `fonts-browser-restart-drops-download` |
-| `install`: `your_own_fonts_shows_how_to_read_with_a_font_file` | ignored `fonts-browser-own-fonts` (`draft-22-doc_open-root-5`): the native action answers `Unsupported` meanwhile |
+| `install`: `your_own_fonts_shows_how_to_read_with_a_font_file` | `native_own` unit tests; `tests/hosted_own.rs` (en and de through the kernel, against the Beta 3 page) |
 | declaration tests (compared with the interface-6 registration) | `tests/abi7_declarations.rs` pins the decoded records as literals |
 
 ## Set aside until native activation (todo 380)
@@ -137,11 +148,10 @@ not yet in `tools/plugin-files7/complete.txt`: list it when download, update and
 - Six tests of the store (`plugins/store/tests/store.rs`: `fonts_open_the_fonts_browser`, `discover_fonts_opens_the_list_where_the_fonts_browser_runs`,
   `discover_fonts_asks_for_the_restart_a_fonts_browser_waits_for`, `discover_fonts_offers_to_switch_a_switched_off_fonts_browser_on`,
   `larger_sizes_are_discovered_from_the_reading_settings`, `the_list_shows_what_fits_by_group`) are `#[ignore]`d: they need the browser registered.
-- *Your own fonts* does nothing natively until the reader can be opened with a handed page (above).
 
 ## Notes for activation (Port Reviewer, #1058)
 
-- The native plugin has no `HOW`/`CATALOGS` statics, so `how/*.txt` is unused until the rule for plugin help texts is picked (as #996 to #999).
+- The native plugin keeps `HOW` only for *Your own fonts* (`native_own`); the plugin's help page itself waits for the rule for plugin help texts (as #996 to #999).
 - The store tests' `discovering(fonts, ...)` ignores its argument now: drop the parameter when the six tests return.
 - Put `fonts-browser` back into the app's `NETWORK_SETTINGS` (memory only).
 

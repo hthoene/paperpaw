@@ -59,6 +59,8 @@ pub(crate) const MAX_SIDE: u32 = 1_600;
 /// The longest side of a document image (what the band drawer's one transient
 /// block takes: a colour row of 1,600 pixels is 4.7 KiB).
 pub(crate) const DOC_SIDE_MAX: u32 = 1_600;
+/// The `document` of an image the library's `cover` op made: no document.
+pub(crate) const LIBRARY_COVER: u32 = 0;
 /// The longest cache path.
 pub(crate) const PATH_MAX: usize = 512;
 
@@ -76,6 +78,18 @@ fn is_reserved(name: &str, reserved: &str) -> bool {
         && name[..stem.len()].eq_ignore_ascii_case(stem)
         && name[stem.len()] == b'~'
         && name[stem.len() + 1..].iter().all(u8::is_ascii_digit)
+}
+
+/// Whether a picture that is not decoded yet may still be named to the opener
+/// without an id: a cache path of root 6 that fits, and a size a decoded
+/// document image can have (each side 1 to [`DOC_SIDE_MAX`]: the format plans
+/// it at the size it will decode to, so the reader's box is exact). Nothing is
+/// read: the file comes with op 16.
+fn pending_ok(cache: &str, image: &super::stages_wire::core_format_v1::FmtImage<'_>) -> bool {
+    cache_path_ok(image.path)
+        && cache.len().saturating_add(1 + image.path.len()) <= PATH_MAX
+        && (1..=DOC_SIDE_MAX).contains(&image.width)
+        && (1..=DOC_SIDE_MAX).contains(&image.height)
 }
 
 /// A cache path of root 6 (`document.md` 5): the storage grammar (relative,
@@ -480,7 +494,9 @@ impl ImageTable {
     /// `doc_image.flags` bit 1; bit 0 there is colour as `image.info` says it
     /// (the cache file's header, and `screen_colour`: never on a screen
     /// without colour); other bits of the record are dropped. The id is the
-    /// host's.
+    /// host's. A picture not decoded yet whose file is not there (or not
+    /// vouched for) still comes, without an id (`image` 0), so the opener
+    /// can ask op 16 for it by `index`.
     ///
     /// # Errors
     /// As [`ImageTable::map_document`].
@@ -512,11 +528,60 @@ impl ImageTable {
             in_block,
             screen_colour,
         )?;
-        Ok(mapped.map(|(image, colour)| wire::ServiceDocImage {
-            image,
-            flags: doc.flags | u32::from(colour),
-            ..doc
-        }))
+        Ok(match mapped {
+            Some((image, colour)) => Some(wire::ServiceDocImage {
+                image,
+                flags: doc.flags | u32::from(colour),
+                ..doc
+            }),
+            // Not decoded yet: there is no cache file to vouch for it, so no id
+            // (`image` 0); the opener asks op 16 by `index`, and that answer,
+            // decoded, is checked as any other (`document.md` 5).
+            None if image.flags & 1 != 0 && pending_ok(cache, image) => Some(doc),
+            None => None,
+        })
+    }
+
+    /// The picture `id` of `owner`, made by a document the library opened for
+    /// its `cover` op, as the library's own: it no longer ends with that
+    /// document (`document 0` is none) and the same cache file has one id. The
+    /// id to hand out: `id`, or the one the owner already has for that file
+    /// (`id` ends, its entry is dropped).
+    ///
+    /// # Errors
+    /// `ERR_NOT_FOUND` (not `owner`'s), `ERR_BUSY`.
+    pub(crate) fn adopt_cover(&self, owner: u64, id: u32) -> Result<u32, i32> {
+        let mut inner = self.lock()?;
+        let at = inner
+            .entries
+            .iter()
+            .position(|e| e.id == id && e.owner == owner)
+            .ok_or(ERR_NOT_FOUND)?;
+        let cover = Origin::Document {
+            document: LIBRARY_COVER,
+            index: u32::MAX,
+        };
+        let known = {
+            let path = &inner.entries[at].path;
+            inner
+                .entries
+                .iter()
+                .position(|e| e.owner == owner && e.origin == cover && e.path == *path)
+        };
+        match known {
+            Some(known) => {
+                // The file has its id already: this one ends and the old one
+                // is handed out again, protected until drawn once.
+                let old = inner.entries[known].id;
+                inner.entries[known].protected = true;
+                inner.entries.remove(at);
+                Ok(old)
+            }
+            None => {
+                inner.entries[at].origin = cover;
+                Ok(id)
+            }
+        }
     }
 
     /// `image_release`, or a reader giving a document image up.

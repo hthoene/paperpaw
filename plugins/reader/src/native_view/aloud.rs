@@ -79,6 +79,21 @@ impl Pages for Stage<'_, '_> {
     }
 }
 
+impl Stage<'_, '_> {
+    /// The page on show is known by where its layout starts, as the sentences
+    /// name their pages (`native_speech`): a place the layout moved on from (a
+    /// text the format starts after a header, a section that ended) becomes that
+    /// start. A page that cannot be laid out leaves the place as it is.
+    fn align(&mut self) {
+        let at = self.open.at;
+        if let Ok(start) = self.with_page(at, |page| (page.start.section, page.start.offset))
+            && start != at
+        {
+            self.open.at = start;
+        }
+    }
+}
+
 impl Scene for Stage<'_, '_> {
     fn shown(&self) -> Place {
         self.open.at
@@ -205,8 +220,49 @@ impl View {
         else {
             return None;
         };
-        self.staged(host, shared, |speaker, stage| speaker.start(stage))?;
+        self.start_aloud(host, shared);
         Some(Ok(Handled::Yes))
+    }
+
+    /// The key of the book on show, open or still prepared
+    /// (`native_start::book_key`); none without one.
+    #[must_use]
+    pub fn book_key(&self) -> Option<u64> {
+        match &self.body {
+            Body::Open(open) => Some(crate::native_start::book_key(&open.path)),
+            Body::Preparing(book) => Some(crate::native_start::book_key(&book.found.path)),
+            Body::Message(_) => None,
+        }
+    }
+
+    /// Starts reading aloud on the page on show; for a book still prepared it
+    /// is kept until the book is open (`take_aloud_kept`); nothing without a
+    /// book.
+    pub fn start_aloud(&mut self, host: &Host<'_>, shared: (&Documents, Option<&Library>)) {
+        if self.preparing() {
+            self.aloud_kept = true;
+            return;
+        }
+        self.staged(host, shared, |speaker, stage| {
+            stage.align();
+            speaker.start(stage);
+        });
+    }
+
+    /// Whether *Read aloud* was kept while the book was prepared.
+    #[must_use]
+    pub const fn aloud_kept(&self) -> bool {
+        self.aloud_kept
+    }
+
+    /// Whether *Read aloud* kept while the book was prepared is due now: the
+    /// book is open (asked once; a book that failed forgets it). A book still
+    /// prepared keeps it.
+    pub fn take_aloud_kept(&mut self) -> bool {
+        if self.preparing() {
+            return false;
+        }
+        core::mem::take(&mut self.aloud_kept) && matches!(self.body, Body::Open(_))
     }
 
     /// Pauses reading aloud (with the notice if `notice`): the layout changed.
@@ -248,6 +304,7 @@ impl View {
         status: SpeechStatus,
     ) {
         self.staged(host, shared, |speaker, stage| {
+            stage.align();
             speaker.spoken(stage, cookie, status);
         });
     }

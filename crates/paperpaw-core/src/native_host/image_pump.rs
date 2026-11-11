@@ -37,7 +37,9 @@ use super::{
 use crate::native_host::codec;
 use alloc::{format, string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_NO_MEMORY, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{
+    ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED,
+};
 
 /// Commands kept for a later pass: four requests a plugin may have waiting
 /// and a release or two, for the few plugins that ask at once.
@@ -107,6 +109,19 @@ impl ImageRoots for Roots<'_> {
         } else {
             String::new()
         };
+        if root == 1 && super::data_plugin_folders::plugin_folder_of(path).is_some() {
+            // A data plugin's folder is shown, read only (`files.md` 1.1);
+            // that of any other plugin is a file that is not there.
+            let shown = self
+                .hosts
+                .files()
+                .zip(super::data_plugin_folders::plugin_folder_of(path))
+                .is_some_and(|(files, name)| files.0.data_folder(name));
+            if !shown {
+                return Err(ERR_NOT_FOUND);
+            }
+            return join(&["", "", "", ""], path);
+        }
         let excluded = match root {
             // The host's own folder of received files.
             0 => first.eq_ignore_ascii_case(".received"),
@@ -126,15 +141,20 @@ impl ImageRoots for Roots<'_> {
         } else {
             ["", "", "", ""]
         };
-        let length = prefix.iter().map(|part| part.len()).sum::<usize>() + path.len();
-        let mut full = String::new();
-        full.try_reserve_exact(length).map_err(|_| ERR_NO_MEMORY)?;
-        for part in prefix {
-            full.push_str(part);
-        }
-        full.push_str(path);
-        Ok(full)
+        join(&prefix, path)
     }
+}
+
+/// `prefix` and `path` as one card path, with room reserved first.
+fn join(prefix: &[&str; 4], path: &str) -> Result<String, i32> {
+    let length = prefix.iter().map(|part| part.len()).sum::<usize>() + path.len();
+    let mut full = String::new();
+    full.try_reserve_exact(length).map_err(|_| ERR_NO_MEMORY)?;
+    for part in prefix {
+        full.push_str(part);
+    }
+    full.push_str(path);
+    Ok(full)
 }
 
 /// The decoder's view of the device.
