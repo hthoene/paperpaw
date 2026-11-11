@@ -83,7 +83,6 @@ mod stages;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
 
-
 /// The settings the plugin declares, made by its build script from the same
 /// declarations as a table.
 #[cfg(feature = "linked")]
