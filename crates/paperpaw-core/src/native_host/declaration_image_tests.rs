@@ -276,7 +276,7 @@ fn image_entry_limit_accepts_512_and_refuses_the_513th() {
 }
 #[test]
 fn image_index_budget_accepts_the_last_fitting_slot_and_refuses_the_next() {
-    assert_eq!(IMAGE_INDEX_MAX_BYTES, 12288);
+    assert_eq!(IMAGE_INDEX_MAX_BYTES, 8192);
     let cost = size_of::<raw_declarations::RawBatch>() + size_of::<declaration_index::NameEntry>();
     let fitting = IMAGE_INDEX_MAX_BYTES / cost;
     let (accepted, bytes) = image_limit(fitting + 1, 1);

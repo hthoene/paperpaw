@@ -47,9 +47,7 @@ pub const DECLARATIONS_MAX_BYTES: usize = 32 * 1024;
 /// Most declarations one plugin may borrow from its immutable image.
 pub const IMAGE_DECLARATIONS_MAX: usize = 512;
 /// Resident indexes for image-backed declarations, separate from owned copies.
-/// 12 KiB: the widget pack (65 batches, 407 entries) needs 7.4 KiB, and the
-/// batch and name vectors double, so 8 KiB left no room to grow the 65th batch.
-pub const IMAGE_INDEX_MAX_BYTES: usize = 12 * 1024;
+pub const IMAGE_INDEX_MAX_BYTES: usize = 8 * 1024;
 
 /// An owned setting group.
 #[derive(Clone, Debug, Eq, PartialEq)]
