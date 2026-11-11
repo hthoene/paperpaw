@@ -108,6 +108,14 @@ pub trait CodeLoader {
         Ok(None)
     }
 
+    /// Called once per start, before the first plugin is asked
+    /// ([`load_native`](Self::load_native) or [`load`](Self::load)); not in safe
+    /// mode, where no plugin is loaded. A shell that offers host services to
+    /// admission wires them here (`storage`: the card, as an `Rc`), so every
+    /// plugin is admitted against what is wired at this start and not what an
+    /// earlier build left.
+    fn prepare(&mut self, _storage: &alloc::rc::Rc<dyn Storage>) {}
+
     /// Every code plugin of this start is loaded (in safe mode, none
     /// was): e.g. say how much room is left for them
     /// ([`paperpaw_sdk::native::keep_code_room`]).
@@ -205,13 +213,9 @@ impl Kernel {
             safe_mode,
         }) = code
         else {
+            let problem = PluginProblem::Unsupported;
             for plugin in found {
-                self.list_code_plugin(
-                    &plugin,
-                    disabled,
-                    PluginState::Failed,
-                    PluginProblem::Unsupported,
-                );
+                self.list_code_plugin(&plugin, disabled, PluginState::Failed, problem);
             }
             return;
         };
@@ -237,6 +241,7 @@ impl Kernel {
         // not run.
         let revoked = paperpaw_sdk::native::keys::revoked(storage.as_ref());
         let host = self.flat_host();
+        loader.prepare(&storage);
         for plugin in found {
             let manifest = plugin.manifest();
             // Each try says its own why: what was kept of a declaration cap an

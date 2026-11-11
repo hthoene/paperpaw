@@ -630,6 +630,29 @@ impl Loader {
 }
 
 impl CodeLoader for Loader {
+    /// Wires what the shell offers (`core.net`, `core.sockets`, `core.work`
+    /// with the network's bridge, and `core.document`, `core.library`,
+    /// `core.files` over the card) before the first plugin is admitted, so the
+    /// offer (`device_host::offered`) is what is wired at this start. They are
+    /// wired before the per-plugin network policy is filled (a later wiring
+    /// would show plugins a false `network_off`); they need the card too
+    /// (files read to, the staged file).
+    #[cfg(feature = "ppn5")]
+    fn prepare(&mut self, storage: &alloc::rc::Rc<dyn Storage>) {
+        crate::device_host::reset_wired();
+        {
+            let Ok(mut table) = self.resources.0.try_borrow_mut() else {
+                warn!("native: no host services wired (table busy)");
+                return;
+            };
+            if table.is_none() {
+                *table = new_resources(Some(self.resources.device_host()));
+            }
+        }
+        self.wire_network(storage);
+        self.wire_card(storage);
+    }
+
     fn load(
         &mut self,
         storage: &dyn Storage,
@@ -670,15 +693,6 @@ impl CodeLoader for Loader {
                 return None;
             }
         };
-        // The table is borrowed no longer: `wire_sockets` takes it again.
-        drop(resources);
-        // This hook runs at the end of the kernel's build, before `Kernel::start`:
-        // `core.net` and `core.sockets` are wired before the per-plugin network policy is
-        // filled (a later wiring would show plugins a false `network_off`).
-        // It needs the card too (files read to, the staged file).
-        crate::device_host::reset_wired();
-        self.wire_network(storage);
-        self.wire_card(storage);
         wired.hyphen().cloned()
     }
 

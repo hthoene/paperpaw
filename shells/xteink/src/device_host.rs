@@ -170,9 +170,9 @@ static OFFER_CARD: [Service<'static>; BASE + CARD_SERVICES.len()] = offer(&[CARD
 static OFFER_BOTH: [Service<'static>; BASE + WORK_SERVICES.len() + CARD_SERVICES.len()] =
     offer(&[WORK_SERVICES, CARD_SERVICES]);
 
-/// Which of the two families the loader wired this start. Written once by
-/// the loader's wiring hook and read at each plugin's admission, in the
-/// same task: plain loads and stores (no read-modify-write, which the X4's
+/// Which of the two families the loader wired this start. Reset and written
+/// by the loader's `prepare` hook (before the first plugin is admitted) and
+/// read at each plugin's admission, in the same task: plain loads and stores (no read-modify-write, which the X4's
 /// core does not have).
 static WIRED: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
 const WIRED_WORK: u8 = 1;

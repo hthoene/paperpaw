@@ -103,3 +103,71 @@ fn thirty_two_plugins_read_the_installed_list_once() {
         32
     );
 }
+
+/// A loader that wires in `prepare` (or fails to) and admits a plugin that
+/// needs the wired services only if it did, recording what is asked in order.
+struct Ordered {
+    wiring_succeeds: bool,
+    wired: bool,
+    log: Rc<core::cell::RefCell<Vec<String>>>,
+}
+impl CodeLoader for Ordered {
+    fn prepare(&mut self, _: &Rc<dyn Storage>) {
+        self.wired = self.wiring_succeeds;
+        self.log.borrow_mut().push("prepare".into());
+    }
+    fn load(
+        &mut self,
+        _: &dyn Storage,
+        file: &CodeFile<'_>,
+    ) -> Result<Box<dyn Plugin>, PluginProblem> {
+        self.log.borrow_mut().push(format!("load {}", file.id));
+        if !self.wired {
+            return Err(PluginProblem::Unsupported);
+        }
+        Ok(Box::new(Code(file.id.clone())))
+    }
+}
+
+fn start_with_wiring(wiring_succeeds: bool) -> (Vec<String>, usize) {
+    let storage = MemoryStorage::new();
+    for id in ["plugin-a", "plugin-b"] {
+        let ini = b"[plugin]\nversion = 1.0.0\n";
+        storage
+            .write(&format!("plugins/{id}/plugin.ini"), ini)
+            .unwrap();
+        storage
+            .write(&format!("plugins/{id}/code.ppn"), b"PPNP")
+            .unwrap();
+        assert!(paperpaw_sdk::native::remember_code(&storage, id, &[7; 32]));
+    }
+    let log = Rc::new(core::cell::RefCell::new(Vec::new()));
+    let loader = Ordered {
+        wiring_succeeds,
+        wired: false,
+        log: log.clone(),
+    };
+    let kernel = Kernel::builder(crate::tests::DEVICE)
+        .storage(storage)
+        .code_plugins(Native::new("code.ppn"), Box::new(loader))
+        .build()
+        .unwrap();
+    let running = kernel
+        .plugins()
+        .iter()
+        .filter(|p| p.state == PluginState::Running);
+    let running = running.filter(|p| p.kind == PluginKind::Code).count();
+    (log.take(), running)
+}
+
+#[test]
+fn plugins_are_admitted_against_what_prepare_wired() {
+    // Wiring before the first plugin: both are admitted.
+    let (log, running) = start_with_wiring(true);
+    assert_eq!(log, ["prepare", "load plugin-a", "load plugin-b"]);
+    assert_eq!(running, 2);
+    // A wiring that failed: the same plugins are refused, not admitted.
+    let (log, running) = start_with_wiring(false);
+    assert_eq!(log, ["prepare", "load plugin-a", "load plugin-b"]);
+    assert_eq!(running, 0);
+}
