@@ -8,19 +8,14 @@ use paperpaw_sdk::builtin::events;
 use paperpaw_sdk::document::DocumentError;
 use paperpaw_sdk::event::EventData;
 use paperpaw_sdk::library::catalog;
-use paperpaw_sdk::{FormatSpec, MemoryStorage, OtherFormats};
+use paperpaw_sdk::{FormatSpec, MemoryStorage};
 
 /// The native formats as the kernel's hook gives them: EPUB and DOCX.
-struct Native;
-
-impl OtherFormats for Native {
-    fn any_other_format(&self) -> bool {
-        true
-    }
-    fn other_format_claims(&self, name: &str) -> bool {
+fn native(name: Option<&str>) -> bool {
+    name.is_none_or(|name| {
         let lower = name.to_ascii_lowercase();
         lower.ends_with(".epub") || lower.ends_with(".docx")
-    }
+    })
 }
 
 /// An interface 6 format of TXT, beside them.
@@ -74,7 +69,7 @@ fn started(txt: bool) -> (Kernel, u64) {
         builder = builder.plugin(Txt);
     }
     let mut kernel = builder.build().unwrap();
-    kernel.shared.formats.set_others(Box::new(Native));
+    kernel.shared.formats.set_others(Box::new(native));
     let effects = kernel.start(Instant(0));
     let now = run(&mut kernel, 0, effects);
     (kernel, now)

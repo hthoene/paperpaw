@@ -58,9 +58,8 @@ fn declare(store: &mut DeclarationStore, plugin: &Rc<Plugin>) {
 fn the_declared_extensions_are_books_and_none_once_the_plugin_stopped() {
     let directory = Shared::try_new(NativeDeclarations::default()).unwrap();
     let mut formats = Formats::new();
-    formats.set_others(Box::new(NativeBookFormats::new(
-        directory.downgrade().unwrap(),
-    )));
+    let others = NativeBookFormats::new(directory.downgrade().unwrap());
+    formats.set_others(Box::new(move |name: Option<&str>| others.ask(name)));
     // Nothing declared yet: no book.
     assert!(formats.is_empty());
     assert!(!formats.supports("books/a.epub"));
@@ -96,8 +95,8 @@ fn declarations_that_are_gone_are_no_formats() {
         live: Cell::new(true),
     });
     declare(&mut directory.store.borrow_mut(), &plugin);
-    assert!(others.other_format_claims("a.epub"));
+    assert!(others.ask(Some("a.epub")));
     drop(directory);
-    assert!(!others.any_other_format());
-    assert!(!others.other_format_claims("a.epub"));
+    assert!(!others.ask(None));
+    assert!(!others.ask(Some("a.epub")));
 }

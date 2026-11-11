@@ -615,6 +615,10 @@ impl Kernel {
         if *event == events::BOOK_CLOSED {
             self.shared.hyphenation.close_tables();
         }
+        // The catalog the walk made reaches the native views too.
+        if *event == events::CATALOG_CHANGED {
+            self.native_library_catalog_changed();
+        }
         self.tasks_follow_books(event, params);
         let guarded = self.guarded_screens();
         if let Some(screens) = guarded {

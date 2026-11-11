@@ -1,7 +1,7 @@
 //! The native formats' files are books of the library too (#243, #245): the
 //! kernel's catalog walk and its book check (`library::is_book_path`) ask the
-//! SDK's `Formats`, which knows only the interface 6 formats. This is the
-//! kernel's [`OtherFormats`] for it: the extensions native format plugins
+//! SDK's `Formats`, which knows only the interface 6 formats. This is what the
+//! kernel sets there (`Formats::set_others`): the extensions native format plugins
 //! declared (`format.spec`, `docs/abi/document.md` section 1), matched as the
 //! format index matches them (after a dot, ASCII case ignored).
 //!
@@ -14,7 +14,6 @@
 use super::declaration_store::DeclarationStore;
 use super::format_index::{extensions_of, has_extension};
 use super::native_declarations::DirectoryWeak;
-use paperpaw_sdk::OtherFormats;
 
 /// The native formats, through the kernel's weak handle on the declarations.
 pub(crate) struct NativeBookFormats(DirectoryWeak);
@@ -22,6 +21,15 @@ pub(crate) struct NativeBookFormats(DirectoryWeak);
 impl NativeBookFormats {
     pub(crate) fn new(directory: DirectoryWeak) -> Self {
         Self(directory)
+    }
+
+    /// For `Formats::set_others`: with a file name, whether a native format
+    /// claims it by its extension; with none, whether there is any.
+    pub(crate) fn ask(&self, name: Option<&str>) -> bool {
+        match name {
+            Some(name) => self.claims(name),
+            None => self.any(),
+        }
     }
 
     fn with_store(&self, ask: impl FnOnce(&DeclarationStore) -> bool) -> bool {
@@ -35,8 +43,8 @@ impl NativeBookFormats {
     }
 }
 
-impl OtherFormats for NativeBookFormats {
-    fn any_other_format(&self) -> bool {
+impl NativeBookFormats {
+    fn any(&self) -> bool {
         self.with_store(|store| {
             let mut any = false;
             store.each_format(&mut |_| any = true);
@@ -44,7 +52,7 @@ impl OtherFormats for NativeBookFormats {
         })
     }
 
-    fn other_format_claims(&self, name: &str) -> bool {
+    fn claims(&self, name: &str) -> bool {
         self.with_store(|store| {
             let mut claimed = false;
             store.each_format(&mut |format| {

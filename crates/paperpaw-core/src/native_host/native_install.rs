@@ -298,7 +298,9 @@ impl crate::Kernel {
             let others = declarations
                 .downgrade()
                 .map(super::native_book_formats::NativeBookFormats::new)
-                .and_then(super::shared::try_box)
+                .and_then(|others| {
+                    super::shared::try_box(move |name: Option<&str>| others.ask(name))
+                })
                 .ok_or(shell::Error::Allocation)?;
             self.shared.formats.set_others(others);
             self.shared.registry.native_declarations = Some(declarations);

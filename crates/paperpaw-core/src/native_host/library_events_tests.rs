@@ -199,3 +199,18 @@ fn the_first_view_since_the_start_or_a_wake_wants_the_catalog_once() {
     pump(&mut w);
     assert_eq!(catalog_wanted(&w), 2);
 }
+
+/// The kernel's walk ended: the native views hear books and walk changed.
+#[test]
+fn the_catalog_the_kernel_made_is_told_as_books_and_walk() {
+    use crate::native_host::lib_changed::{BOOKS, WALK};
+    use paperpaw_sdk::builtin::events::CATALOG_CHANGED;
+    let mut w = world();
+    w.kernel
+        .emit_to(CATALOG_CHANGED.id(), &paperpaw_sdk::Params::default(), None);
+    pump(&mut w);
+    let told = w.heard.borrow().clone();
+    assert_eq!(told.len(), 1);
+    assert_eq!(told[0].0, BOOKS | WALK);
+    assert_eq!(told[0].2, "");
+}

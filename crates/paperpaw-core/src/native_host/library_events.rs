@@ -11,7 +11,8 @@
 //! The same pass wants the catalog (`core.catalog-wanted`) when a view of the
 //! library first reads it since the start or the last wake (#243): the
 //! kernel's walk starts from that event only, which Beta 3's library view
-//! raised when it showed and a native view has no op for.
+//! raised when it showed and a native view has no op for. And the catalog the
+//! walk made (`core.catalog-changed`) is told as books and walk changed.
 use super::registrations as wire;
 use crate::Kernel;
 use paperpaw_sdk::builtin::events;
@@ -61,6 +62,21 @@ impl Kernel {
             });
         }
         false
+    }
+
+    /// The kernel's catalog changed (`core.catalog-changed`: a walk or a
+    /// catch-up ended): the plugins hear `event.library_changed` with books and
+    /// walk set at the next pass, and read again. The kernel's walk is the only
+    /// one; the views of interface 6 heard it as that event.
+    pub(crate) fn native_library_catalog_changed(&self) {
+        if let Some(library) = self
+            .shared
+            .native_instances
+            .hosts()
+            .and_then(|hosts| hosts.library())
+        {
+            library.0.catalog_changed();
+        }
     }
 
     /// Woken: the next view of the library wants the catalog again.
