@@ -9,6 +9,14 @@
 //! event and the status. One note for each plugin and event until the kernel
 //! starts again, and room for six: a seventh is only counted. What happens to
 //! the plugin is not changed.
+//!
+//! Limits, on purpose: the table is not cleared, so a pair already noted (or a
+//! seventh) that fails again is not said again, nor counted; and the host's own
+//! refusals `ERR_BUSY` and `ERR_STATE` are left out, so a plugin that itself ends
+//! with one of them (a refused service call it passes up) is not said either.
+//! The events that go through the screen queue (a screen's callbacks) do not
+//! pass `native_event_call` and are not noted here. The table takes about 150 B
+//! of the native instances' state.
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_STATE};
 
