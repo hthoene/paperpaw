@@ -8,8 +8,7 @@
 use crate::{
     declarations::{
         ANNOTATIONS, FOOTNOTE, SCREEN, SEARCH, SEARCH_WORK, SETTING_CHANGED, SPOKEN, STACK_CHANGED,
-        STOPPING, SUSPEND,
-        TOC, WORK_DUE,
+        STOPPING, SUSPEND, TOC, WORK_DUE,
     },
     native_annotations_view::{AnnotationsView, Outcome as NotesOutcome},
     native_footnote::{Footnote, Pressed},
@@ -152,6 +151,26 @@ impl NativeReader {
             return Ok(());
         };
         view.follow(host, docs, (&path, &href))
+    }
+
+    /// A screen of the reader opened: over the reading screen the pages stop
+    /// turning, then the screen's own view is opened.
+    fn screen_opened(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        instance: paperpaw_sdk::native::ui::Instance,
+        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
+    ) -> Result<(), Error> {
+        self.auto_turn_leave(host);
+        match token {
+            SCREEN => self.open(host, instance, handover),
+            TOC => self.open_toc(host, instance, handover),
+            ANNOTATIONS => self.open_notes(host, instance, handover),
+            SEARCH => self.open_search(host, instance, handover),
+            FOOTNOTE => self.open_note(host, instance, handover),
+            _ => Ok(()),
+        }
     }
 
     /// The table of contents opened: its book is opened with it.
@@ -631,18 +650,7 @@ impl Plugin for NativeReader {
             // other screens come with their slices (`PORTING-7.md`).
             Event::ScreenOpened {
                 instance, handover, ..
-            } => {
-                // A screen opened over the reading screen: the pages stop turning.
-                self.auto_turn_leave(host);
-                match token {
-                    SCREEN => self.open(host, instance, handover),
-                    TOC => self.open_toc(host, instance, handover),
-                    ANNOTATIONS => self.open_notes(host, instance, handover),
-                    SEARCH => self.open_search(host, instance, handover),
-                    FOOTNOTE => self.open_note(host, instance, handover),
-                    _ => Ok(()),
-                }
-            }
+            } => self.screen_opened(host, token, instance, handover),
             Event::ScreenShown {
                 instance: Some(instance),
                 ..
