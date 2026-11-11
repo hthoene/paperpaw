@@ -170,3 +170,55 @@ fn a_start_reads_the_sealed_values_before_any_plugin_runs() {
     kernel.start(paperpaw_platform::Instant(0));
     assert_eq!(kernel.secrets().get("mail.pw"), Some("one"));
 }
+
+#[test]
+fn a_secret_that_cannot_be_sealed_is_refused_at_save_and_never_applied() {
+    let host = Fake::new(9);
+    let sealed = seal_text(&veiled(&[("mail.pw", "one")]), "", &host).unwrap();
+    let (mut kernel, _) = kernel(&sealed, true);
+    kernel.open_sealed_secrets();
+    kernel.set_secret(SecretChange::keep("kosync", "Key", "abc"));
+    assert_eq!(kernel.secrets().get("kosync"), None);
+    assert!(!kernel.secrets().saved("kosync"));
+    assert_eq!(file(&kernel), sealed);
+    // Later saves are not stopped by it.
+    kernel.set_secret(SecretChange::keep("wifi.Home", "Home", "two"));
+    assert!(kernel.secrets().saved("wifi.Home"));
+    assert!(!file(&kernel).contains("kosync"));
+}
+
+#[test]
+fn an_old_unsealable_line_in_the_file_does_not_stop_later_saves() {
+    let host = Fake::new(9);
+    let sealed = seal_text(&veiled(&[("mail.pw", "one")]), "", &host).unwrap();
+    let old = veiled(&[("kosync", "abc")]);
+    let text = alloc::format!("{sealed}{old}");
+    let (mut kernel, _) = kernel(&text, true);
+    kernel.open_sealed_secrets();
+    kernel.set_secret(SecretChange::keep("wifi.Home", "Home", "two"));
+    assert!(kernel.secrets().saved("wifi.Home"));
+    let written = file(&kernel);
+    assert!(written.contains(old.lines().next().unwrap()));
+    assert!(written.contains("wifi.Home") && !written.contains("two"));
+}
+
+#[test]
+fn a_shell_that_wired_core_secrets_seals_with_no_native_plugin_admitted() {
+    let host = Fake::new(9);
+    let sealed = seal_text(&veiled(&[("mail.pw", "one")]), "", &host).unwrap();
+    // No native plugin, no pool: only the shell's wiring.
+    let (mut kernel, wired) = kernel(&sealed, false);
+    assert!(kernel.secrets_host().is_none());
+    let lifecycle = crate::native_host::shell_wiring::SecretsLifecycle::new(wired.clone());
+    kernel.wire_secrets(&lifecycle);
+    assert_eq!(kernel.secrets().get("mail.pw"), Some("one"));
+    kernel.set_secret(SecretChange::keep("wifi.Home", "Home", "two"));
+    let written = file(&kernel);
+    assert!(written.lines().all(|line| line.contains("\ts1:")));
+    assert!(!written.contains("two"));
+    // A sealer that cannot seal now: nothing is written veiled.
+    wired.seal.fails.set(true);
+    kernel.set_secret(SecretChange::keep("wifi.Work", "Work", "three"));
+    assert!(!kernel.secrets().saved("wifi.Work"));
+    assert_eq!(file(&kernel), written);
+}

@@ -21,16 +21,39 @@ use crate::{
 use alloc::{rc::Rc, string::String};
 use paperpaw_sdk::secrets::Secrets;
 
+/// Whether a secret of this (unescaped) id can be sealed: `owner.name`.
+pub(crate) fn sealable_id(id: &str) -> bool {
+    id.split_once('.')
+        .is_some_and(|(owner, name)| !owner.is_empty() && !name.is_empty())
+}
+
 impl Kernel {
-    /// The wired `core.secrets` host, if its sealer seals.
+    /// Tells the kernel the shell wired `core.secrets` (decision 140): from
+    /// now on interface 6's passwords are opened and written through its
+    /// sealer, whether or not a native plugin is ever admitted. A shell calls
+    /// it after [`HostResources::wire`](crate::native_host::HostResources::wire)
+    /// and before [`Kernel::start`]; a device whose `core.secrets` seals would
+    /// otherwise write interface 6's values veiled when no native plugin runs.
+    pub fn wire_secrets(&mut self, secrets: &crate::native_host::shell_wiring::SecretsLifecycle) {
+        self.secrets_wired = Some(secrets.host().clone());
+        self.secrets_opened = false;
+        self.open_sealed_secrets();
+    }
+
+    /// The wired `core.secrets` host, if its sealer seals: the one the shell
+    /// gave [`Self::wire_secrets`], else the device pool's once a native
+    /// plugin was admitted.
     pub(crate) fn secrets_host(&self) -> Option<Rc<dyn SecretsHost>> {
-        let host = self
-            .shared
-            .native_instances
-            .hosts()?
-            .secrets()?
-            .host
-            .clone();
+        let host = match &self.secrets_wired {
+            Some(host) => host.clone(),
+            None => self
+                .shared
+                .native_instances
+                .hosts()?
+                .secrets()?
+                .host
+                .clone(),
+        };
         host.sealer().seals().then_some(host)
     }
 
@@ -59,9 +82,9 @@ impl Kernel {
         }
     }
 
-    /// After the first native plugin was admitted (the pool, and with it
-    /// `core.secrets`, is the kernel's from then on): reads the file again
-    /// through the sealer, once.
+    /// Once `core.secrets` is the kernel's (wired by the shell, or the pool
+    /// after the first native admission): reads the file again through the
+    /// sealer, once.
     pub(crate) fn open_sealed_secrets(&mut self) {
         if !self.secrets_opened && self.secrets_host().is_some() {
             self.secrets_opened = true;

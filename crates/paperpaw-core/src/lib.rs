@@ -332,6 +332,9 @@ pub struct Kernel {
     /// The file was read again through the sealer of `core.secrets`
     /// (`secrets_i6.rs`).
     secrets_opened: bool,
+    /// The `core.secrets` host the shell gave [`Kernel::wire_secrets`]: the
+    /// kernel seals through it with or without a native plugin admitted.
+    secrets_wired: Option<alloc::rc::Rc<dyn crate::native_host::secrets_service::SecretsHost>>,
     /// The number a pairing question's answer must bring back.
     pairing_nonce: Option<u64>,
     /// A screen was opened or closed since the last call ended; then the
@@ -958,6 +961,13 @@ impl Kernel {
             self.secrets_unreadable = false;
         }
         let id = change.id.clone();
+        if sealer.is_some() && change.value.is_some() && !secrets_i6::sealable_id(&id) {
+            // No owner to bind a sealed value to: it is never applied, so it
+            // is never written veiled (nor does it stop later saves).
+            self.shared.secrets.mark_unsaved(&id);
+            self.warn_runtime(format!("{id}: cannot be sealed (no owner): not saved"));
+            return;
+        }
         self.shared.secrets.apply(change);
         if let Err(error) = read {
             self.shared.secrets.mark_unsaved(&id);

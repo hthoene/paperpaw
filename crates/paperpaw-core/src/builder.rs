@@ -873,6 +873,7 @@ impl BuilderParts {
             after_sleep: false,
             secrets_unreadable: false,
             secrets_opened: false,
+            secrets_wired: None,
             pairing_nonce: None,
             plugin_defaults: Vec::new(),
             late_device_defaults: Vec::new(),

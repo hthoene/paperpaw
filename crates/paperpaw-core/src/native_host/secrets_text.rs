@@ -152,7 +152,7 @@ pub(crate) fn seal_text(text: &str, previous: &str, sealer: &dyn Sealer) -> Resu
     for line in text.lines() {
         match kept(line, previous, sealer, &mut scratch) {
             Some(old) => out.push_str(old),
-            None => match sealed(line, sealer, &mut scratch) {
+            None => match sealed(line, previous, sealer, &mut scratch) {
                 Some(Ok(line)) => out.push_str(&line),
                 Some(Err(status)) => return Err(status),
                 None => out.push_str(line),
@@ -182,8 +182,25 @@ fn kept<'a>(
         .find(|old| opened(old, sealer, scratch).as_deref() == Some(line))
 }
 
+/// Whether `previous` (the file as read) holds exactly `line`.
+fn was_there(line: &str, previous: &str) -> bool {
+    previous
+        .lines()
+        .any(|old| old.trim_end_matches('\r') == line)
+}
+
 /// The sealed form of the veiled `line`; `None` for a line that is not one.
-fn sealed(line: &str, sealer: &dyn Sealer, scratch: &mut Scratch) -> Option<Result<String, i32>> {
+///
+/// A veiled line whose id cannot be sealed is [`ERR_INVALID`] (never applied
+/// by a save, so never written new), except one the file held already: it is
+/// written back as it was read, so that one old line cannot stop every later
+/// save (it is no new veiled write).
+fn sealed(
+    line: &str,
+    previous: &str,
+    sealer: &dyn Sealer,
+    scratch: &mut Scratch,
+) -> Option<Result<String, i32>> {
     let [id, label, flags, value] = fields(line)?;
     if value.as_bytes().starts_with(SEALED_MARK) || !matches!(flags, "" | "c") {
         return None;
@@ -191,14 +208,20 @@ fn sealed(line: &str, sealer: &dyn Sealer, scratch: &mut Scratch) -> Option<Resu
     let mut plain = unhex(value)?;
     veil(&mut plain);
     // A secret that cannot be sealed is never written veiled instead.
+    let unsealable = |plain: &mut Vec<u8>, status: i32| {
+        wipe(plain);
+        Some(if was_there(line, previous) {
+            Ok(String::from(line))
+        } else {
+            Err(status)
+        })
+    };
     let Some((owner, name)) = owner_name(id) else {
-        wipe(&mut plain);
-        return Some(Err(ERR_INVALID));
+        return unsealable(&mut plain, ERR_INVALID);
     };
     let mut aad = [0_u8; 2 * NAME_MAX + 1];
     let Ok(aad) = aad_of(&owner, &name, &mut aad) else {
-        wipe(&mut plain);
-        return Some(Err(ERR_IO));
+        return unsealable(&mut plain, ERR_IO);
     };
     let made = sealer.seal(aad, &plain, &mut scratch.blob);
     wipe(&mut plain);

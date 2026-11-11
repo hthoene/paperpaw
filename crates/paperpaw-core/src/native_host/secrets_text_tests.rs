@@ -151,3 +151,22 @@ fn lines_that_did_not_change_are_kept_and_need_no_new_seal() {
     list.apply(SecretChange::keep("wifi.Home\tNet", "Home", "other"));
     assert_eq!(seal_text(&list.encode(), &before, &sealer), Err(ERR_STATE));
 }
+
+#[test]
+fn an_old_line_that_cannot_be_sealed_is_written_back_as_read_and_blocks_nothing() {
+    let sealer = Fake::new(9);
+    let mut list = Secrets::default();
+    list.apply(SecretChange::keep("kosync", "Key", "abc"));
+    let old = list.encode();
+    // The file holds it (an old veiled line); a save of another secret
+    // keeps it as it is and seals the new one.
+    list.apply(SecretChange::keep("mail.pw", "Mail", "one"));
+    let written = seal_text(&list.encode(), &old, &sealer).unwrap();
+    assert!(written.contains(old.lines().next().unwrap()));
+    assert!(written.lines().any(|line| line.contains("\ts1:")));
+    // The same line where the file did not hold it is still refused.
+    assert_eq!(
+        seal_text(&list.encode(), "", &sealer),
+        Err(paperpaw_native::host_glue::ERR_INVALID)
+    );
+}
