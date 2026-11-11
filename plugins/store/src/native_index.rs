@@ -48,6 +48,7 @@ pub type Names<'a> = [&'a str; 4];
 ///
 /// # Errors
 /// `NoMemory`.
+#[inline(never)]
 pub fn line_at(storage: &dyn Storage, path: &str, offset: u32) -> Result<Option<String>, Error> {
     let mut buf = [0u8; 256];
     let mut at = u64::from(offset);
@@ -123,6 +124,7 @@ impl Writer<'_> {
 ///
 /// # Errors
 /// `NoMemory`; `Io` where the card refused a write (no index is left).
+#[inline(never)]
 pub fn build(
     storage: &dyn Storage,
     json: &str,
@@ -446,6 +448,7 @@ impl Index {
     ///
     /// # Errors
     /// `NoMemory`, or what `found` says.
+    #[inline(never)]
     pub fn scan(
         &self,
         storage: &dyn Storage,

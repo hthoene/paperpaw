@@ -130,6 +130,7 @@ impl<'a> ListReader<'a> {
     ///
     /// # Errors
     /// `NoMemory` when memory is refused.
+    #[inline(never)]
     pub fn finish(
         mut self,
         found: &mut dyn FnMut(Entry) -> Result<(), Error>,
@@ -180,6 +181,7 @@ impl<'a> ListReader<'a> {
     clippy::too_many_arguments,
     reason = "the reader's state, borrowed apart"
 )]
+#[inline(never)]
 fn step(
     event: Event<'_>,
     device: &Device<'_>,
@@ -314,6 +316,7 @@ impl<'a> PageReader<'a> {
     ///
     /// # Errors
     /// `NoMemory` when memory is refused.
+    #[inline(never)]
     pub fn finish(mut self) -> Result<Option<Page>, Error> {
         let Self {
             device,
@@ -370,6 +373,7 @@ fn lower_trimmed(text: &str) -> Result<String, Error> {
     Ok(out)
 }
 
+#[inline(never)]
 fn page_step(
     event: Event<'_>,
     device: &Device<'_>,
