@@ -94,3 +94,31 @@ pub fn remember(host: &Host<'_>, path: &str) {
     }
     paperpaw_sdk::Storage::write(&storage, native_state::STATE, text.as_bytes()).ok();
 }
+
+/// A book moved (`event.book_moved`): the last book read follows it, as Beta 3's
+/// `book_moved` did. Best effort, like [`remember`].
+pub fn follow(host: &Host<'_>, from: &str, to: &str) {
+    if last_book(host).ok().flatten().as_deref() == Some(from) {
+        remember(host, to);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The state a move leaves: the new path, read back as the last book.
+    #[test]
+    fn a_moved_last_book_is_read_back_at_its_new_place() {
+        let kept = native_state::state_text("books/a.epub").unwrap();
+        assert_eq!(
+            native_state::last_in(&kept).unwrap().as_deref(),
+            Some("books/a.epub")
+        );
+        let moved = native_state::state_text("books/new/a.epub").unwrap();
+        assert_eq!(
+            native_state::last_in(&moved).unwrap().as_deref(),
+            Some("books/new/a.epub")
+        );
+    }
+}
