@@ -600,6 +600,19 @@ impl Kernel {
     /// Emits `event` to the plugin `only` alone where one is named: its
     /// handlers and screens hear it, no other plugin's.
     pub(crate) fn emit_to(&mut self, event: &Id, params: &Params, only: Option<&str>) {
+        self.emit_from(event, params, only, true);
+    }
+
+    /// [`Self::emit_to`]; the native plugins that subscribed hear it too only
+    /// where `natives` (`false` for an event they have queued already: the
+    /// reading session's, `native_host/reading_events.rs`).
+    pub(crate) fn emit_from(
+        &mut self,
+        event: &Id,
+        params: &Params,
+        only: Option<&str>,
+        natives: bool,
+    ) {
         // The reader's answer to pairing is the kernel's alone.
         if self.bluetooth_answer(event, params) {
             return;
@@ -630,7 +643,7 @@ impl Kernel {
         self.tasks_follow_books(event, params);
         let guarded = self.guarded_screens();
         if let Some(screens) = guarded {
-            return self.emit_to_guard(event, params, &screens);
+            return self.emit_to_guard(event, params, &screens, natives);
         }
         // Moments for declared work, and jobs waiting for this event.
         self.works.saw(event, params);
@@ -673,7 +686,9 @@ impl Kernel {
         }
         // The native plugins that subscribed to a kernel event (tick, the
         // lifecycle, the page turned), queued in their one order.
-        self.native_core_event(event, params, &hears);
+        if natives {
+            self.native_core_event(event, params, &hears);
+        }
         if refused_secret {
             self.warn_runtime("a plugin asked what only the settings editor may; not done");
         }
@@ -727,7 +742,7 @@ impl Kernel {
     /// [`Self::emit`] for an event of a screen guarding the device: to the
     /// plugins of `screens` that subscribed to it, then to `screens`. No
     /// other plugin, screen, bar or rule hears it.
-    fn emit_to_guard(&mut self, event: &Id, params: &Params, screens: &[usize]) {
+    fn emit_to_guard(&mut self, event: &Id, params: &Params, screens: &[usize], natives: bool) {
         let owners: Vec<String> = screens
             .iter()
             .map(|&i| self.stack[i].id.namespace().to_string())
@@ -746,9 +761,11 @@ impl Kernel {
             let reserved = Reserved::of(&self.shared.settings, &self.shared.registry);
             vet_reserved(&mut self.output.commands, from, plugin.as_str(), &reserved);
         }
-        self.native_core_event(event, params, &|plugin| {
-            owners.iter().any(|owner| owner == plugin)
-        });
+        if natives {
+            self.native_core_event(event, params, &|plugin| {
+                owners.iter().any(|owner| owner == plugin)
+            });
+        }
         let keys: Vec<_> = screens.iter().map(|&i| self.stack[i].serial).collect();
         for key in keys {
             // Each where it is now: one may have closed meanwhile.

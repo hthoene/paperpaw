@@ -35,6 +35,12 @@ fn the_action_token_is_the_place_of_auto_turn_in_the_list() {
     ));
     assert!(!is_reader_action(u32::MAX));
     assert_eq!(ACTION, "reader.auto-turn");
+    let aloud = token_of(b"read-aloud");
+    assert_eq!(
+        declarations::ACTIONS[(aloud - declarations::FIRST_ACTION) as usize].0,
+        "read-aloud"
+    );
+    assert_eq!(token_of(b"no-such-action"), u32::MAX);
     assert_eq!(SETTING, "reader.auto-turn-seconds");
 }
 

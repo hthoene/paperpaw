@@ -79,7 +79,10 @@ events 83, 88 and 90 are free).
   to the screen that reads them. Keys starting with `core.` are the host's (section 3:
   `core.request`, `core.kind`): op 16 naming one is `ERR_INVALID`. **One exception to "unchanged":**
   an instance that holds a handed file (`document.md` 1, root 5) hands it on to its own screens
-  (a reader's table of contents) with `root` `5` and the same `path`; the host puts the file's own
+  (a reader's table of contents, search) with `root` `5` and the same `path`; in an event's callback
+  (the answer to a question its screen asked) no instance runs, and the file is the one of the
+  plugin's topmost screen that holds a file of that path (when two screens hold the same path, the
+  topmost wins, so its maker is the file's maker); the host puts the file's own
   root (`0` or `2`) in the params and the new instance's root 5 names the same file of the same
   maker. The `open` that names it may open any screen, the reader's own or another plugin's: the
   file stays the maker's, read only, and the document ends with the maker, whoever reads it. Another path, an instance that holds none, or no path is `ERR_DENIED` at op 16.
@@ -173,7 +176,9 @@ events 83, 88 and 90 are free).
     gets the open's hand-over (none: its params become empty) and `event.screen_opened` again
     (`flags` bit 0 `again`) before it is shown, so a single screen shows the new params as if
     opened with them (interface 6 `on_reopen`); *back* then leaves it in one press.
-    `screen_policy` cannot change these bits.
+    `screen_policy` cannot change these bits;
+  - bit 8 `hints_hidden`: the screen shows no row of button hints (interface 6
+    `HintVisibility::Hidden`: the sleep screen). Declared only; `screen_policy` cannot change it.
   Other bits stay `ERR_UNSUPPORTED`.
 - [D] **Policies change at run time** (the lock guards only while locked): `command.screen_policy`
   (`instance: u32`, 0 for the own top one; `flags: u32` with bits 1, 4 and 5 above) sets them for
@@ -962,6 +967,7 @@ and every device of that profile (the X3 too), not the model.
 | `Command::OpenBook`, `readers::open`, `open_page`, `open_with` | `command.open` mode 1 (slot `core.reader`) or 3 (a `doc_reader.screen` in `core.reader`), params `path`, `page` (`document.md` 1) |
 | `ScreenKey`, `Cx::params`, `params::TEXT` | `instance`; hand-over (op 16, `command.open.handover`), read with op 17 and the hand-over text (op 10); event 79 again on update |
 | `Screen::guards`, `secret`, `holds_edges` (dynamic) | `screen.spec.flags` bits 1, 4, 5; `command.screen_policy` |
+| `Registrar::set_screen_hints(screen, HintVisibility::Hidden)` | `screen.spec.flags` bit 8 `hints_hidden` |
 | `Env::stack`, `StackEntry` (`guards`, `overlay`, `slot`) | `core.ui` op 1, `ui_screen`; event 81 |
 | `Command::SetKeyLayer`, `ShowHints`, `Input` | `command.set_key_layer`, `show_hints`, `raise_input` |
 | `Registrar::add_input`, `add_gesture`, `InputSpec`, `GestureSpec` | `input.spec`; recognizer = filter verdict 5 |

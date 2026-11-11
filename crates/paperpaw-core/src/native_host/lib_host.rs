@@ -11,6 +11,7 @@
 //! where one of those names also exists), as `core.files` decides it
 //! ([`excluded_on`]; it over-refuses where it cannot tell).
 use super::lib_changed::{self, Changes};
+use super::lib_cover::{self, CoverCx};
 use super::lib_edits::LibEdits;
 use super::lib_import::plan;
 use super::lib_moves_service::LibraryMoves;
@@ -25,7 +26,7 @@ use super::storage_files::{BusySources, excluded_on};
 use crate::abi7::context::RowsEnd;
 use alloc::rc::Rc;
 use core::cell::Cell;
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_NOT_FOUND, ERR_UNSUPPORTED, OK};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NOT_FOUND, ERR_UNSUPPORTED, OK};
 use paperpaw_platform::Storage;
 
 /// `core.library` over the catalog on `storage`.
@@ -47,7 +48,18 @@ pub(crate) struct LibraryHost {
     /// wake, and whether the kernel's pump has yet to want the catalog for it.
     catalog_asked: Cell<bool>,
     catalog_wanted: Cell<bool>,
+    /// The `cover` calls in a row that answered "the format is not running
+    /// yet" and told the caller to ask again (bit 6); at [`COVER_RETRIES`]
+    /// it stops telling, so a start that never ends cannot loop a caller
+    /// that redraws on the event. A cover made starts it again.
+    cover_retries: core::cell::Cell<u8>,
+    /// What the device's wirings told (the screen's long side for op 7).
+    policy: Option<Rc<super::lib_edits::EditPolicy>>,
 }
+
+/// How often in a row a busy `cover` raises bit 6 (the format's start is
+/// asked for with the first).
+const COVER_RETRIES: u8 = 6;
 
 impl LibraryHost {
     pub(crate) fn new(
@@ -64,6 +76,8 @@ impl LibraryHost {
             changes: Changes::default(),
             catalog_asked: Cell::new(false),
             catalog_wanted: Cell::new(false),
+            cover_retries: core::cell::Cell::new(0),
+            policy: None,
         }
     }
 
@@ -88,7 +102,8 @@ impl LibraryHost {
     /// said ([`EditPolicy`]), whenever they came.
     #[must_use]
     pub(crate) fn with_policy(mut self, policy: Rc<super::lib_edits::EditPolicy>) -> Self {
-        self.edits = self.edits.with_policy(policy);
+        self.edits = self.edits.with_policy(policy.clone());
+        self.policy = Some(policy);
         self
     }
 
@@ -135,6 +150,14 @@ impl LibraryHost {
 }
 
 impl LibQuery for LibraryHost {
+    /// As `documents` named it, in whichever wiring call; unsupported (and so
+    /// op 7) before.
+    fn screen_long_side(&self) -> Result<u32, i32> {
+        self.policy
+            .as_ref()
+            .and_then(|policy| policy.long_side())
+            .ok_or(ERR_UNSUPPORTED)
+    }
     fn state(&self, visit: One<'_>) -> Result<(), i32> {
         self.view_asked();
         self.reads.state(visit)
@@ -187,6 +210,45 @@ impl LibQuery for LibraryHost {
     fn book_key(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         self.visible(book)?;
         self.reads.book_key(book, visit)
+    }
+    /// The cover is made by `core.document` from the book's format, in the
+    /// caller's frame (`lib_cover`).
+    fn cover(
+        &self,
+        who: &Caller<'_>,
+        book: BookRef<'_>,
+        side: u32,
+        cx: &CoverCx<'_>,
+        visit: One<'_>,
+    ) -> Result<(), i32> {
+        self.visible(book)?;
+        // The path is copied out of the catalog read: the format call takes
+        // the frame, not a borrow of the catalog.
+        let path = self.reads.path_of(book, lib_cover::owned)?;
+        match lib_cover::make(cx, who, &path, side, visit) {
+            // A format that is not running yet (its start is requested) is
+            // there a moment later: the plugin that was told "busy" is told
+            // to ask again (bit 6). Nothing makes the cover in the background
+            // in this version.
+            Err(ERR_BUSY) => {
+                let raised = self.cover_retries.get();
+                if raised < COVER_RETRIES {
+                    self.cover_retries.set(raised + 1);
+                    self.changes.raise(lib_changed::COVER, &path);
+                }
+                Err(ERR_BUSY)
+            }
+            // No place in the caller's document table does not clear by
+            // itself (the caller closes a document): busy, and no event, or
+            // a caller that redraws on it would ask again for ever.
+            Err(ERR_FULL) => Err(ERR_BUSY),
+            made => {
+                if made.is_ok() {
+                    self.cover_retries.set(0);
+                }
+                made
+            }
+        }
     }
     fn position(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         self.visible(book)?;

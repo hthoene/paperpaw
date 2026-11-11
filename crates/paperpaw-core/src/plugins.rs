@@ -1136,6 +1136,7 @@ impl Kernel {
         self.native_hint(crate::native_host::registrations::EVENT_PLUGINS_CHANGED_TAG);
         // What menus, bindings, slots, screens and the rest hold follows the set.
         self.native_registry_changed(crate::native_host::REGISTRY_ALL);
+        self.native_data_plugins_sync();
     }
 
     /// Releases memory reserved while plugins registered: on small devices

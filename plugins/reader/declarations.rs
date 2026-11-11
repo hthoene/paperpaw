@@ -2,14 +2,14 @@
 //! slots they fill, the actions with their menu entries, icons, device needs
 //! and key bindings, and the events it hears. Compared with the interface-6
 //! registration by `tests/abi7_declarations.rs`. What has no native
-//! declaration yet (status places, the sample widget, the reading app, the
+//! declaration yet (status places, the sample widget, the
 //! book data folder, screen hints, help, the setup step, the reader's stages)
 //! is listed in `PORTING-7.md`.
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, Instances, KeyBindingDecl, Kind,
-    MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl, StageDecl, StatusItemDecl, StatusLineDecl,
-    StatusPlaceDecl,
+    MenuEntryDecl, ReaderDecl, ScreenDecl, SlotOfferDecl, SpecDecl, StageDecl, StatusItemDecl,
+    StatusLineDecl, StatusPlaceDecl,
 };
 
 /// Callback tokens: stable within this plugin. Screens from 10, actions from
@@ -328,6 +328,11 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
             decl
         })?;
     }
+    // The reading app `reader.app` (interface 6 `ReaderSpec`): its screen shows
+    // books of every format. The host counts a book's reading session only for
+    // a reader it knows: without this, no progress, "Continue reading" or book
+    // event.
+    d.reader(ReaderDecl::new("app", "reader.screen"))?;
     d.submit()
 }
 

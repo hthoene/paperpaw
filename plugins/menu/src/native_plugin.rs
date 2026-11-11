@@ -454,6 +454,12 @@ impl NativeMenu {
             if let Item::Row(r) = &mut item {
                 r.disabled = !row.choosable();
                 r.stepper = touch && info.is_some_and(|i| i.kind == SettingKind::Int);
+                // A switch is told as one: the row is on or off.
+                if let (Kind::Setting, Some(Value::Bool(on))) =
+                    (row.kind, info.and_then(|i| i.value.as_ref()))
+                {
+                    r.on = Some(*on);
+                }
             }
             items.push(item);
         }

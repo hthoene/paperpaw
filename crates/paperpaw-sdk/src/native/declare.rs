@@ -63,6 +63,8 @@ use settings_value::{SettingValueRef, settings_encode};
 
 mod format;
 pub use format::FormatDecl;
+mod reader;
+pub use reader::ReaderDecl;
 mod lookup;
 pub use lookup::LookupProviderDecl;
 mod library;
@@ -458,6 +460,12 @@ impl ScreenDecl<'_> {
     #[must_use]
     pub const fn holds_edges(mut self) -> Self {
         self.policy_flags |= 32;
+        self
+    }
+    /// Show no row of button hints with this screen (the sleep screen).
+    #[must_use]
+    pub const fn hints_hidden(mut self) -> Self {
+        self.policy_flags |= 256;
         self
     }
 }
