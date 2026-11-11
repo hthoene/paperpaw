@@ -14,6 +14,7 @@ use paperpaw_sdk::document::{
     AnnotationKind, Block, BlockKind, Document, DocumentError, ImageRef, LinkKind, Locator,
     PageProgression, VerticalAlign, is_external,
 };
+use paperpaw_sdk::image::ImageFile;
 use paperpaw_sdk::lang::{Direction, WritingMode};
 use paperpaw_sdk::native::{
     Error,
@@ -423,7 +424,7 @@ impl FormatProvider {
             }
             op::COVER => {
                 let image = document.cover(io).map_err(|e| document_error(&e))?;
-                Self::picture(image, cache, u32::MAX, out)
+                Self::picture(decoded(document, io, image), cache, u32::MAX, out)
             }
             op::IMAGE => {
                 // The picture numbered `index`: a page of a whole-page
@@ -440,7 +441,7 @@ impl FormatProvider {
                     .map_err(|e| document_error(&e))?
                     .filter(|b| whole || b.start == call.index)
                     .ok_or(Error::NotFound)?;
-                Self::picture(block.image, cache, call.index, out)
+                Self::picture(decoded(document, io, block.image), cache, call.index, out)
             }
             op::PROGRESS => {
                 let ppm = document.progress(at) * 1_000_000.0;
@@ -709,10 +710,13 @@ impl FormatProvider {
         out: &mut [u8],
     ) -> Result<usize, Error> {
         let at = Locator::new(call.section, call.offset);
-        let block = document
+        let mut block = document
             .block_at(io, at)
             .map_err(|e| document_error(&e))?
             .ok_or(Error::NotFound)?;
+        // The pictures of a book are decoded when a page shows them: the
+        // file of this one may not be there yet (`decoded`).
+        block.image = decoded(document, io, block.image.take());
         let generation = generation(call.section, block.start, call.conversion);
         if call.cursor != 0 && call.generation != generation {
             return Err(Error::State);
@@ -741,6 +745,19 @@ impl FormatProvider {
             .is_none();
         fragment(&list, call.cursor, generation, block.end, last, out)
     }
+}
+
+/// `image` with its cache file made: the document decodes a picture when a page
+/// shows it, so a block that comes first has only the name of a file that is
+/// not there yet, which the host would not take for a picture. A picture whose
+/// file is still not there (a broken file, a failed decode, no room) is none:
+/// the caller leaves it out, as a picture block without its file is refused by
+/// the host, and with it the book.
+fn decoded(document: &dyn Document, io: &dyn Storage, image: Option<ImageRef>) -> Option<ImageRef> {
+    let image = image?;
+    let image = document.prepare_image(io, &image).unwrap_or(image);
+    let served = ImageFile::try_open(io, &image.path).ok().flatten();
+    served.is_some().then_some(image)
 }
 
 /// `path` as a path in the document cache (root 6), if it lies in `cache`.
@@ -787,7 +804,7 @@ fn generation(section: u32, start: u32, conversion: u64) -> u32 {
 }
 
 /// The record list of a block (section 4): header, text parts, runs, maps,
-/// image, columns, cells and rubies.
+/// image, columns, cells, rubies and inline languages.
 fn records<'a>(
     block: &'a Block,
     cache: &'a str,
@@ -797,10 +814,20 @@ fn records<'a>(
     list: &mut Vec<Record<'a>>,
 ) -> Result<(), Error> {
     let (first, others) = tags.split_first_mut().ok_or(Error::Invalid)?;
+    // The picture, where it is a file of the cache: a picture block the host
+    // would get without its picture record is refused as a whole (it checks a
+    // picture block for exactly one), and with it the book. A picture that
+    // cannot be served goes out as a paragraph with the block's own text (its
+    // alt text, if it has one), so one broken picture costs only itself.
+    let picture = block
+        .image
+        .as_ref()
+        .and_then(|i| in_cache(&i.path, cache).map(|p| (p, i)));
     let (kind, level) = match block.kind {
         BlockKind::Paragraph => (0, 0),
         BlockKind::Heading(level) => (1, u32::from(level)),
         BlockKind::Preformatted => (2, 0),
+        BlockKind::Image if picture.is_none() => (0, 0),
         BlockKind::Image => (3, 0),
         BlockKind::TableRow => (4, 0),
         BlockKind::Extended(n) => (5 + u32::from(n), 0),
@@ -812,7 +839,8 @@ fn records<'a>(
             + block.runs.len()
             + block.map.checkpoints().len()
             + cells
-            + block.annotations.len(),
+            + block.annotations.len()
+            + block.inline_langs.as_ref().map_or(0, |l| l.len()),
     )
     .map_err(|_| Error::NoMemory)?;
     // `dir` and `writing_mode` use the draft-29 numbers.
@@ -849,14 +877,6 @@ fn records<'a>(
         u32::from(block.drop_cap),
         u32::try_from(block.text.len()).map_err(|_| Error::Invalid)?,
     )));
-    // The languages the runs name by their `lang_index` (from 1).
-    if let Some(langs) = &block.inline_langs {
-        for (lang, buf) in langs.iter().zip(others.iter_mut()) {
-            list.push(Record::FmtInlineLang(stage::FmtInlineLang::new(lang_tag(
-                *lang, buf,
-            ))));
-        }
-    }
     let mut rest = block.text.as_str();
     while !rest.is_empty() {
         let part = prefix(rest, PART);
@@ -875,12 +895,7 @@ fn records<'a>(
     }
     // GAP: the picture's number (`index`, op 18) is the block's start until
     // the parsers number their pictures; a picture outside the cache is left out.
-    if let Some(path) = block
-        .image
-        .as_ref()
-        .and_then(|i| in_cache(&i.path, cache).map(|p| (p, i)))
-    {
-        let (path, image) = path;
+    if let Some((path, image)) = picture {
         list.push(Record::FmtImage(stage::FmtImage::new(
             path,
             image_index,
@@ -891,6 +906,15 @@ fn records<'a>(
     }
     table_records(block, weights, list);
     ruby_records(block, list);
+    // The languages the runs name by their `lang_index` (from 1) come last
+    // (section 4: after the rubies; the host refuses any other order).
+    if let Some(langs) = &block.inline_langs {
+        for (lang, buf) in langs.iter().zip(others.iter_mut()) {
+            list.push(Record::FmtInlineLang(stage::FmtInlineLang::new(lang_tag(
+                *lang, buf,
+            ))));
+        }
+    }
     Ok(())
 }
 
