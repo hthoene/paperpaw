@@ -45,7 +45,7 @@ impl DocState {
 
     /// The key of the path of the book of document `document` (what the
     /// library keeps of a failed book), 0 where the book is not held.
-    fn book_key(&self, document: u32) -> u64 {
+    pub(super) fn book_key(&self, document: u32) -> u64 {
         self.books.try_borrow().map_or(0, |books| {
             books
                 .iter()
@@ -144,6 +144,11 @@ impl DocState {
         }
         if job.state == PREPARING {
             return JobStep::Wait;
+        }
+        // Ready: the format makes the cover now, outside the list's frame
+        // (`doc_cover_make`).
+        if job.state == READY {
+            self.make_job_cover(hosts, route, &job);
         }
         // A card that failed is no fault of the book: not remembered as failed.
         let key = if job.state == FAILED && job.status == ERR_IO {

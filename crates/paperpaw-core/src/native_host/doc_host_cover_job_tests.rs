@@ -466,3 +466,43 @@ fn a_job_that_sleeps_ends_without_a_restart() {
         assert!(!w.state.preparing());
     });
 }
+
+#[test]
+fn a_ready_books_cover_is_made_by_the_job_and_only_then_answered_inline() {
+    use crate::native_host::doc_host::CoverAt;
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        assert_eq!(w.state.cover_at("books/a.epub"), CoverAt::Unmade);
+        // Ready at its open: still the job's (no picture in the list's frame).
+        answer(w, READY, 0);
+        let document = w.open(1, "books/a.epub").unwrap();
+        assert!(w.state.table.start_cover_job(OPENER, document));
+        assert_eq!(w.state.cover_at("books/a.epub"), CoverAt::Job);
+        assert!(matches!(look(w), JobStep::Ended { ready: true, .. }));
+        // The job asked the format for the cover (op 17), then closed it.
+        let ops = ops(w);
+        assert_eq!(ops.get(ops.len() - 2..), Some(&[17, 4][..]), "{ops:?}");
+        // From now on the list's `cover` answers inline from the cache.
+        assert_eq!(w.state.cover_at("books/a.epub"), CoverAt::Made);
+        assert_eq!(w.state.cover_at("books/b.epub"), CoverAt::Unmade);
+    });
+}
+
+#[test]
+fn the_covers_made_are_kept_for_the_last_32_books() {
+    use crate::native_host::doc_host::CoverAt;
+    world(|w| {
+        for n in 0..33 {
+            w.state
+                .note_cover_made(path_key(&std::format!("books/{n}.epub")));
+        }
+        // The first is written over; the 32 after it stay, each once.
+        assert_eq!(w.state.cover_at("books/0.epub"), CoverAt::Unmade);
+        assert_eq!(w.state.cover_at("books/1.epub"), CoverAt::Made);
+        assert_eq!(w.state.cover_at("books/32.epub"), CoverAt::Made);
+        w.state.note_cover_made(path_key("books/32.epub"));
+        assert_eq!(w.state.cover_at("books/1.epub"), CoverAt::Made);
+        w.state.note_cover_made(0);
+        assert_eq!(w.state.cover_at("books/1.epub"), CoverAt::Made);
+    });
+}

@@ -256,9 +256,10 @@ pub(crate) trait DocHost {
     ) -> JobStep {
         JobStep::None
     }
-    /// Whether the cover job is the document of the book at `path`.
-    fn cover_job_path_is(&self, _path: &str) -> bool {
-        false
+    /// Where the cover of the book at `path` stands (`doc_cover_make`): a
+    /// host without the cover job answers every cover inline.
+    fn cover_at(&self, _path: &str) -> super::doc_host::CoverAt {
+        super::doc_host::CoverAt::Made
     }
     /// Whether the only document that prepares is the cover job: the pump's
     /// "more" then does not hold the device awake.
@@ -632,8 +633,8 @@ impl DocHost for Cx<'_> {
     fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
         self.host.reader_opened(document, root, path)
     }
-    fn cover_job_path_is(&self, path: &str) -> bool {
-        self.host.cover_job_path_is(path)
+    fn cover_at(&self, path: &str) -> super::doc_host::CoverAt {
+        self.host.cover_at(path)
     }
     fn cover_jobs_allowed(&self) -> bool {
         self.host.cover_jobs_allowed()
