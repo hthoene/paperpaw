@@ -88,3 +88,5 @@
 36 library::try_moved and library::try_removed (the fallible forms of moved and removed: the first card error is returned instead of dropped, and a failed host step can run again), for the host's journalled library moves (#981): public SDK functions are added, so the next draft (#228)
 36 native::fonts::Font::draw_inked with Ink (extra, tone, sharp) over slot 41; FontRole::UiBold and FontRole::Mono removed (no host resolves role:ui-bold or role:mono; bold UI text is the regular font drawn wider), for home, reading-goal, weather, widgets, stats and vocabulary (Services, #1005): public SDK items are added and an enum loses variants, so the next draft (#228)
 36 native::device::FileCheck::leaves_out (dev_check.flags bit 5, the checked firmware leaves out built-in plugins), for the update port (Services, #1006): a public SDK method is added, so the next draft (#228)
+# Closed 2026-11-10 (owner): one interface 7 until 1.0, no more draft steps or
+# blessing lines; only the freeze is appended here (README.md).

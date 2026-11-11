@@ -345,6 +345,7 @@ impl CommandStage<'_> {
 
     /// The preset records of `batch`, checked and copied; their bytes are
     /// the second part of the answer.
+    #[inline(never)]
     pub(super) fn validate_presets(
         &self,
         batch: &CommandBatch<'_>,

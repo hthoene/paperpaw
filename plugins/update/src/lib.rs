@@ -18,6 +18,16 @@
 
 extern crate alloc;
 
+#[cfg(test)]
+extern crate std;
+/// Test-only: refuses chosen allocations to prove the fallible paths.
+#[cfg(test)]
+#[path = "../../test-support/fail_alloc.rs"]
+mod fail_alloc;
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
+
 #[path = "../declarations.rs"]
 #[allow(
     dead_code,
@@ -28,6 +38,7 @@ mod declarations;
 mod native_card;
 mod native_check;
 mod native_entry;
+mod native_leaves;
 mod native_online;
 /// The interface-7 plugin.
 pub mod native_plugin;
@@ -71,6 +82,7 @@ mod tests {
             include_str!("native_plugin/online.rs"),
             include_str!("native_plugin/fetch.rs"),
             include_str!("native_plugin/waiting.rs"),
+            include_str!("native_plugin/leaves.rs"),
             include_str!("native_card.rs"),
             include_str!("native_online.rs"),
         ] {

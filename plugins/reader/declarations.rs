@@ -141,7 +141,13 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     ] {
         // One instance for each set of parameters (the book, the section), as in
         // interface 6.
-        d.screen(ScreenDecl::new(name, title, token).instances(Instances::PerParams))?;
+        let decl = ScreenDecl::new(name, title, token).instances(Instances::PerParams);
+        // The note is laid over the page, which shows above it.
+        d.screen(if token == FOOTNOTE {
+            decl.overlay()
+        } else {
+            decl
+        })?;
     }
     d.submit()
 }

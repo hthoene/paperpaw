@@ -6,17 +6,22 @@
 //! not ported yet (the place saved last time, progress, menus, selection,
 //! links, annotations) is in `PORTING-7.md`.
 use crate::{
+    native_actions,
     native_document::HostDocument,
     native_draw::{HostInk, draw_lines_marked},
+    native_links::DocRef,
     native_look::Look,
+    native_marking::{Ctx, Marking, Outcome},
     native_open::{self, Place, Start},
     native_pages::{self, Reading, Trail, Turn},
     native_place::{self, Progress},
     native_speech::Speaker,
     native_typeset::{Faces, HostFonts},
+    native_wordbox,
 };
 use alloc::string::String;
 use core::ops::Range;
+use alloc::vec::Vec;
 use paperpaw_sdk::{
     Color, Handled, NoStorage,
     document::{DocumentError, Locator},
@@ -33,6 +38,7 @@ use paperpaw_sdk::{
         snapshot::{self, Snapshot},
         ui::{HandoverId, Notify, Open as NavOpen, Param, Ui},
     },
+    reading::WordBox,
 };
 use paperpaw_ui_kit::{
     Messages, Style as UiStyle,
@@ -88,6 +94,10 @@ struct Open {
     at: (u32, u32),
     /// The page on show, laid out at the first draw after it changed.
     page: Option<Page>,
+    /// The words of `page` with their boxes (made with it): what a touch hits.
+    words: Vec<WordBox>,
+    /// What is chosen, looked up and followed on the page.
+    marking: Marking,
     /// What the page on show was laid out with: a change of the reading
     /// settings or of the screen lays it out again.
     laid: Option<LayoutKey>,
@@ -268,6 +278,8 @@ impl View {
             whole_pages,
             at,
             page: None,
+            words: Vec::new(),
+            marking: Marking::new(),
             laid: None,
             trail: Trail::new(),
             root: root_code(root),
@@ -392,6 +404,28 @@ impl View {
         }
     }
 
+    /// The actions besides the page turns: the font size, the justification
+    /// and the chapters; `None` for any other.
+    fn other_action(
+        &mut self,
+        host: &Host<'_>,
+        (docs, library): (&Documents, Option<&Library>),
+        action: &str,
+    ) -> Result<Option<Handled>, Error> {
+        match action {
+            "reader.font-larger" => native_actions::font_step(host, 1)?,
+            "reader.font-smaller" => native_actions::font_step(host, -1)?,
+            "reader.toggle-justify" => native_actions::toggle_justify(host)?,
+            "reader.next-chapter" | "reader.prev-chapter" => {
+                if let Body::Open(open) = &mut self.body {
+                    open.step_chapter(host, (docs, library), action == "reader.next-chapter")?;
+                }
+            }
+            _ => return Ok(None),
+        }
+        Ok(Some(Handled::Yes))
+    }
+
     /// Opens the table of contents of the book on show.
     fn show_toc(&self, host: &Host<'_>, ui: &Ui) -> Result<Handled, Error> {
         let Some(params) = self.toc_params() else {
@@ -482,6 +516,30 @@ impl View {
         self.body = Body::Message("reader.no-book");
     }
 
+    /// *Go to the note* of `path`'s book: follows `href`, and draws again
+    /// where the page moved. Another book's note is none of this screen's.
+    ///
+    /// # Errors
+    /// Allocation and the host's refusals.
+    pub fn follow(
+        &mut self,
+        host: &Host<'_>,
+        docs: &Documents,
+        (path, href): (&str, &str),
+    ) -> Result<(), Error> {
+        let Body::Open(open) = &mut self.body else {
+            return Ok(());
+        };
+        if open.path != path || !open.follow(host, docs, href)? {
+            return Ok(());
+        }
+        open.unsaved = true;
+        open.turned = true;
+        open.announce(host, docs);
+        let mut scratch = [0; 64];
+        CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)
+    }
+
     /// What an input did: turns the page.
     ///
     /// # Errors
@@ -505,14 +563,39 @@ impl View {
         ) {
             return self.show_toc(host, ui);
         }
+        if let Input::Action { action, .. } = input
+            && let Some(handled) = self.r3_action(host, (docs, library, ui), action)?
+        {
+            return Ok(handled);
+        }
+        if let Input::Action { action, .. } = input
+            && let Some(handled) = self.other_action(host, (docs, library), action)?
+        {
+            return Ok(handled);
+        }
         let Body::Open(open) = &mut self.body else {
             return Ok(Handled::No);
         };
-        let moved = match native_pages::turn(input) {
-            Turn::Ignored => return Ok(Handled::No),
-            Turn::Next => open.next()?,
-            Turn::Previous => open.previous(host, docs)?,
+        let marked = open.mark(host, (docs, Some(ui)), input)?;
+        let choosing = matches!(marked, Outcome::Turn { .. });
+        let moved = match marked {
+            Outcome::Handled | Outcome::Redraw => return Ok(Handled::Yes),
+            Outcome::Jump { section, offset } => {
+                open.jump((section, offset));
+                true
+            }
+            Outcome::Turn { forward: true } => open.next()?,
+            Outcome::Turn { forward: false } => open.previous(host, docs)?,
+            _ => match native_pages::turn(input) {
+                Turn::Ignored => return Ok(Handled::No),
+                Turn::Next => open.next()?,
+                Turn::Previous => open.previous(host, docs)?,
+            },
         };
+        // A turn that did not move (the last page) leaves the link focus where it was.
+        if choosing && !moved {
+            open.marking.stay();
+        }
         if moved {
             open.after_turn(host, (docs, library))?;
         }
@@ -609,6 +692,44 @@ impl Setup {
 }
 
 impl Open {
+    /// The start of the chapter after (`forward`) or before the page on show,
+    /// gone to as a turn goes; nothing happens where there is none.
+    fn step_chapter(
+        &mut self,
+        host: &Host<'_>,
+        (docs, library): (&Documents, Option<&Library>),
+        forward: bool,
+    ) -> Result<(), Error> {
+        let from = if forward {
+            if self.page.is_none() {
+                let setup = Setup::read(host)?;
+                self.page = Some(self.lay(host, docs, &setup, self.at)?);
+            }
+            let Some(page) = &self.page else {
+                return Ok(());
+            };
+            (page.end.section, page.end.offset)
+        } else {
+            self.at
+        };
+        let Some(to) = native_actions::chapter(host, docs, self.id, from, forward)? else {
+            return Ok(());
+        };
+        if to == self.at || to.0 >= self.sections {
+            return Ok(());
+        }
+        self.trail.push(self.at)?;
+        self.at = to;
+        self.page = None;
+        self.unsaved = true;
+        self.turned = true;
+        self.save(host, library, When::Turn);
+        self.announce(host, docs);
+        let mut scratch = [0; 64];
+        CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
+        Ok(())
+    }
+
     /// Says once that the place could not be saved; after the screen closed
     /// the device's message (`announce`) carries it, as nothing else would.
     fn say_not_saved(&self, host: &Host<'_>, closing: bool) {
@@ -744,6 +865,67 @@ impl Open {
         redraw(host, RedrawMode::Partial)
     }
 
+    /// What the marking makes of `input` on the page on show (nothing where the
+    /// page has not been drawn).
+    fn mark(
+        &mut self,
+        host: &Host<'_>,
+        (docs, ui): (&Documents, Option<&Ui>),
+        input: &Input<'_>,
+    ) -> Result<Outcome, Error> {
+        if self.page.is_none() {
+            return Ok(Outcome::Ignored);
+        }
+        let setup = Setup::read(host)?;
+        let area = self.area(&setup).ok_or(Error::NoSpace)?;
+        let ctx = Ctx::new(
+            Locator::new(self.at.0, self.at.1),
+            &self.words,
+            &self.path,
+            &self.title,
+            "",
+            area,
+        )
+        .doc(DocRef::new(docs, self.id, self.sections, self.whole_pages));
+        let ctx = match ui {
+            Some(ui) => ctx.ui(ui),
+            None => ctx,
+        };
+        self.marking.input(host, &ctx, input)
+    }
+
+    /// Follows the link `href` of the book (*Go to the note*): goes to its
+    /// target, the page left kept for *Back*; whether the page moved.
+    fn follow(&mut self, host: &Host<'_>, docs: &Documents, href: &str) -> Result<bool, Error> {
+        let setup = Setup::read(host)?;
+        let area = self.area(&setup).ok_or(Error::NoSpace)?;
+        let ctx = Ctx::new(
+            Locator::new(self.at.0, self.at.1),
+            &[],
+            &self.path,
+            &self.title,
+            "",
+            area,
+        )
+        .doc(DocRef::new(docs, self.id, self.sections, self.whole_pages));
+        match self.marking.follow_target(host, &ctx, href)? {
+            Outcome::Jump { section, offset } => {
+                self.jump((section, offset));
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    /// Goes to the page that starts at `to` (a followed link, or the way back).
+    fn jump(&mut self, to: (u32, u32)) {
+        self.at = to;
+        self.page = None;
+        self.trail.clear();
+        self.marking.reset();
+        self.marking.landed(Locator::new(to.0, to.1));
+    }
+
     /// The page after the one on show; whether there is one.
     fn next(&mut self) -> Result<bool, Error> {
         let Some(page) = &self.page else {
@@ -866,9 +1048,13 @@ impl Open {
         if self.page.is_none() {
             let page = self.lay_with(host, docs, &faces, setup, self.at, area)?;
             self.page = Some(page);
+            self.words = Vec::new();
             self.laid = Some(key);
         }
         let page = self.page.as_ref().ok_or(Error::State)?;
+        if self.words.is_empty() {
+            self.words = native_wordbox::word_boxes(&faces, page, area)?;
+        }
         let rect = frame.rect;
         let canvas = frame.draw_canvas()?;
         canvas.fill_rectangle(rect, Color::WHITE)?;
@@ -878,7 +1064,18 @@ impl Open {
             rect.x as f32 + f32::from(area.x),
             rect.y as f32 + f32::from(area.y),
         );
-        draw_lines_marked(&mut ink, &faces, page, origin, self.mark.clone())
+        draw_lines_marked(&mut ink, &faces, page, origin, self.mark.clone())?;
+        
+let ctx = Ctx::new(
+            Locator::new(self.at.0, self.at.1),
+            &self.words,
+            &self.path,
+            &self.title,
+            "",
+            area,
+        )
+        .doc(DocRef::new(docs, self.id, self.sections, self.whole_pages));
+        self.marking.draw_overlay(host, &ctx, frame)
     }
 }
 
@@ -922,6 +1119,7 @@ fn say_with(
 }
 
 mod aloud;
+mod r3;
 
 #[cfg(test)]
 mod tests;

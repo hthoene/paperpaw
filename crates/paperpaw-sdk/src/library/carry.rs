@@ -1,7 +1,9 @@
 //! [`try_moved`] and [`try_removed`]: what the library knows of a book
 //! carried along or forgotten, with every card error the caller can
 //! retry returned instead of dropped, for a host step that must fail and
-//! run again (a power cut, a full card).
+//! run again (a power cut, a full card). An error no retry changes (a
+//! path the card refuses, damaged data) does not stop the other parts:
+//! they are still carried, and that error is returned at the end.
 
 use alloc::collections::TryReserveError;
 use alloc::string::{String, ToString};
@@ -33,9 +35,17 @@ use crate::{Storage, StorageError};
 /// only paths of a few hundred bytes are allocated as everywhere.
 ///
 /// # Errors
-/// The first rename, remove, read or write error other than
-/// [`StorageError::NotFound`]; what was done before it stays done.
+/// The first rename, remove, read or write error that a retry may cure
+/// ([`StorageError::Io`], [`StorageError::Full`],
+/// [`StorageError::OutOfMemory`] or one this version does not know): the
+/// call stops there, and what was done before it stays done. Else the
+/// first error no retry changes ([`StorageError::InvalidPath`],
+/// [`StorageError::Unsupported`], [`StorageError::InvalidData`],
+/// [`StorageError::TooLarge`]), returned once every other part was
+/// carried: the part it hit stays where it was. [`StorageError::NotFound`]
+/// is never returned.
 pub fn try_moved(storage: &dyn Storage, from: &str, to: &str) -> Result<(), StorageError> {
+    let mut left = Left::default();
     for (file, old) in [
         (
             book_file as fn(&str) -> String,
@@ -43,21 +53,32 @@ pub fn try_moved(storage: &dyn Storage, from: &str, to: &str) -> Result<(), Stor
         ),
         (cover_file, |path| old_cover_variant_file(path, "")),
     ] {
-        let moved = done(storage.rename(&file(from), &file(to)))?
-            || done(storage.rename(&old(from), &file(to)))?;
+        // The old place is tried only where nothing is at the current one;
+        // after a permanent error there an older copy must not be moved
+        // over `to`.
+        let moved = match left.step(done(storage.rename(&file(from), &file(to))))? {
+            Some(true) => true,
+            Some(false) => left.step(done(storage.rename(&old(from), &file(to))))? == Some(true),
+            None => false,
+        };
         // What is left at the old place goes once the file is at `to`; where
         // nothing could be moved and nothing is at `to`, it is the only copy
         // and stays.
         if moved || storage.exists(&file(to)) {
-            done(storage.remove(&old(from)))?;
+            left.step(done(storage.remove(&old(from))))?;
         }
     }
     let book = match try_book(storage, to) {
         Ok(book) => book,
         // Details a newer PaperPaw wrote, or damaged ones: not written over.
+        // `Other` is a data error of the format (not of the card), which no
+        // retry changes either.
         Err(Error::Newer(_) | Error::Unreadable | Error::Other(_)) => None,
         Err(Error::Storage(StorageError::NotFound)) => None,
-        Err(Error::Storage(e)) => return Err(e),
+        Err(Error::Storage(e)) => {
+            left.step(Err::<(), _>(e))?;
+            None
+        }
         Err(Error::OutOfMemory) => return Err(StorageError::OutOfMemory),
     };
     if let Some(mut book) = book
@@ -65,7 +86,7 @@ pub fn try_moved(storage: &dyn Storage, from: &str, to: &str) -> Result<(), Stor
         && cover.path.contains(&key(from))
     {
         cover.path = cover.path.replace(&key(from), &key(to));
-        write_details(storage, to, &book).map_err(StorageError::from)?;
+        left.step(write_details(storage, to, &book).map_err(StorageError::from))?;
     }
     let replace = |list: &mut Vec<String>| {
         let mut changed = false;
@@ -75,8 +96,21 @@ pub fn try_moved(storage: &dyn Storage, from: &str, to: &str) -> Result<(), Stor
         }
         changed
     };
-    try_update_list(storage, &opened_file(), MAX_OPENED, replace)?;
-    try_update_list(storage, &favourites_file(), MAX_FAVOURITES, replace)
+    left.step(try_update_list(
+        storage,
+        &opened_file(),
+        MAX_OPENED,
+        Unreadable::Leave,
+        replace,
+    ))?;
+    left.step(try_update_list(
+        storage,
+        &favourites_file(),
+        MAX_FAVOURITES,
+        Unreadable::Leave,
+        replace,
+    ))?;
+    left.end()
 }
 
 /// [`removed`](super::removed) that returns the first card error instead
@@ -84,28 +118,86 @@ pub fn try_moved(storage: &dyn Storage, from: &str, to: &str) -> Result<(), Stor
 /// where an earlier version kept them) and its place among the recently
 /// opened and the favourites.
 ///
-/// What is not there counts as done, so a repeated call finishes; a list
-/// that cannot be read is left out, as for [`try_moved`].
+/// What is not there counts as done, so a repeated call finishes. A list
+/// that is there but cannot be read (a newer version's, damaged, no text)
+/// is not written over and is a permanent error, as the book would stay
+/// listed: the other parts are still forgotten, then
+/// [`StorageError::InvalidData`] is returned. ([`try_moved`] leaves such a
+/// list out.)
 ///
 /// # Errors
-/// The first remove, read or write error other than
-/// [`StorageError::NotFound`]; what was done before it stays done.
+/// As [`try_moved`]: the first error a retry may cure stops the call;
+/// else the first one no retry changes (an unreadable list included) is
+/// returned once every other part was forgotten.
 pub fn try_removed(storage: &dyn Storage, path: &str) -> Result<(), StorageError> {
+    let mut left = Left::default();
     for file in [
         book_file(path),
         cover_file(path),
         old_book_file(path),
         old_cover_variant_file(path, ""),
     ] {
-        done(storage.remove(&file))?;
+        left.step(done(storage.remove(&file)))?;
     }
     let without = |list: &mut Vec<String>| {
         let before = list.len();
         list.retain(|p| p != path);
         list.len() != before
     };
-    try_update_list(storage, &opened_file(), MAX_OPENED, without)?;
-    try_update_list(storage, &favourites_file(), MAX_FAVOURITES, without)
+    left.step(try_update_list(
+        storage,
+        &opened_file(),
+        MAX_OPENED,
+        Unreadable::Fail,
+        without,
+    ))?;
+    left.step(try_update_list(
+        storage,
+        &favourites_file(),
+        MAX_FAVOURITES,
+        Unreadable::Fail,
+        without,
+    ))?;
+    left.end()
+}
+
+/// Whether no retry changes `error`: the card refuses the path or the
+/// call, or the data is damaged or too large. Everything else (a card
+/// error, a full card, no memory, an error this version does not know)
+/// may pass. A variant added to [`StorageError`] later is transient until
+/// it is listed here, so it must be classified here when it is added.
+const fn is_permanent(error: StorageError) -> bool {
+    matches!(
+        error,
+        StorageError::InvalidPath
+            | StorageError::Unsupported
+            | StorageError::InvalidData
+            | StorageError::TooLarge
+    )
+}
+
+/// The first permanent error of a carry, kept while the other parts go on.
+#[derive(Default)]
+struct Left(Option<StorageError>);
+
+impl Left {
+    /// The step's value; `None` for a permanent error (kept, the carry goes
+    /// on); a transient one is returned to stop the carry.
+    fn step<T>(&mut self, result: Result<T, StorageError>) -> Result<Option<T>, StorageError> {
+        match result {
+            Ok(value) => Ok(Some(value)),
+            Err(error) if is_permanent(error) => {
+                self.0.get_or_insert(error);
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// The first permanent error, if a step had one.
+    fn end(self) -> Result<(), StorageError> {
+        self.0.map_or(Ok(()), Err)
+    }
 }
 
 /// Whether the step did something: `false` for a file that is not there.
@@ -117,21 +209,38 @@ fn done(result: Result<(), StorageError>) -> Result<bool, StorageError> {
     }
 }
 
+/// What a list that is there but cannot be read (a newer version's, damaged,
+/// no text) does to the call: it is never written over either way.
+#[derive(Clone, Copy)]
+enum Unreadable {
+    /// Left as it is; the call goes on (a move).
+    Leave,
+    /// [`StorageError::InvalidData`], a permanent error (a removal): the
+    /// book would stay listed.
+    Fail,
+}
+
 /// [`update_list`](super::update_list) with its errors: a list that is
-/// there but unreadable is skipped (not written over), any other read or
-/// write error returned. The list is written only where `change` says it
-/// changed it (no copy of a list of up to 500 paths to compare), so a
-/// repeat writes nothing.
+/// there but unreadable is not written over and is left or fails the call as
+/// `unreadable` says, any other read or write error is returned. The list is
+/// written only where `change` says it changed it (no copy of a list of up to
+/// 500 paths to compare), so a repeat writes nothing.
 fn try_update_list(
     storage: &dyn Storage,
     path: &str,
     max: usize,
+    unreadable: Unreadable,
     change: impl FnOnce(&mut Vec<String>) -> bool,
 ) -> Result<(), StorageError> {
     let text = match Format::FIRST.try_load(storage, path, max * 512) {
         Ok(Some(text)) => text,
         Ok(None) | Err(Error::Storage(StorageError::NotFound)) => return Ok(()),
-        Err(Error::Newer(_) | Error::Unreadable | Error::Other(_)) => return Ok(()),
+        Err(Error::Newer(_) | Error::Unreadable | Error::Other(_)) => {
+            return match unreadable {
+                Unreadable::Leave => Ok(()),
+                Unreadable::Fail => Err(StorageError::InvalidData),
+            };
+        }
         Err(Error::Storage(e)) => return Err(e),
         Err(Error::OutOfMemory) => return Err(StorageError::OutOfMemory),
     };

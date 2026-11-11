@@ -24,8 +24,10 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_UNSUPPORTED};
 
 mod broker;
 mod pending;
+mod providers;
 
 pub(crate) use pending::PendingAsks;
+pub(crate) use providers::Providers;
 
 /// `lookup_entry.flags`: bit 0 more pages follow, bit 1 pending (the provider
 /// answers later).
@@ -43,6 +45,7 @@ pub(crate) trait LookupHost {
     /// ([`broker`]).
     fn ask(
         &self,
+        frame: &dyn Frame,
         owner: u64,
         ask: &wire::ServiceLookupAsk<'_>,
         out: &mut [u8],
@@ -197,7 +200,7 @@ pub(crate) fn ready_event(now_ms: u64, provider: &str, out: &mut [u8]) -> Result
 
 /// The `core.lookup` backend.
 pub(crate) fn backend(
-    _frame: &dyn Frame,
+    frame: &dyn Frame,
     who: &Caller<'_>,
     op: &ServiceOp,
     input: &[u8],
@@ -212,7 +215,7 @@ pub(crate) fn backend(
     if ask.text.is_empty() || !language_ok(ask.language) {
         return Err(ERR_INVALID);
     }
-    let length = service.host.ask(who.owner, &ask, out)?;
+    let length = service.host.ask(frame, who.owner, &ask, out)?;
     let reply = out.get(..length).ok_or(ERR_INVALID)?;
     let entry = check(reply)?;
     if entry.flags & PENDING == 0 {

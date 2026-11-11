@@ -49,6 +49,7 @@ mod code_plugin;
 mod commands;
 mod config;
 mod core_plugin;
+mod core_texts;
 mod data_plugin;
 mod drawing;
 mod effects;
@@ -65,6 +66,7 @@ mod keymap;
 mod meter;
 pub mod native_host;
 mod network;
+mod notices;
 mod panes;
 mod plugins;
 mod realtime;
@@ -278,9 +280,9 @@ pub struct Kernel {
     /// Of the commands asked for, those of a screen guarding the device or
     /// one it opened: what they open above it is its own.
     own_trusted: Vec<usize>,
-    /// A notice given while a screen guarded the device, shown once it
-    /// lets go.
-    held_notice: Option<String>,
+    /// Notices given while a screen guarded the device, shown in turn once it
+    /// lets go (`notices`).
+    waiting_notices: notices::Waiting,
     /// When the device was last used (input, a page turned), for sleeping
     /// by itself ([`settings::SLEEP_AFTER`](core_settings::SLEEP_AFTER)).
     last_activity: Instant,
@@ -1348,7 +1350,7 @@ struct Shared {
     /// background work, whose notices become notes (see [`work`]).
     reader: bool,
     /// Text copied here.
-    clipboard: String,
+    clipboard: alloc::rc::Rc<native_host::ui_clipboard::ClipboardCell>,
     /// The system's clipboard has text (see
     /// [`Kernel::set_clipboard_available`]).
     system_clipboard: bool,

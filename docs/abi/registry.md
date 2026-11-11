@@ -191,7 +191,7 @@ Field meanings:
   host itself: `id` `core`, its version (interface 6 `env.plugins().kernel()`).
 - `reg_need.kind`: 0 feature (`key` = `uses.*`, `flags` bit 0 required), 1 service (`key`,
   `version` = major.revision), 2 required plugin (`key` = id, `version` = at least).
-- [D] **Where op 20's rows come from** (draft 30): kinds 0 and 1 from the native metadata the host
+- [D] **Where op 20's rows come from**: kinds 0 and 1 from the native metadata the host
   admitted this run, which it keeps with the plugin's registry row: the validated view where its
   bytes stay for the run (a linked plugin's are static), else one fallible copy of at most 2,048
   bytes (`metadata::MAX_BYTES`) made at admission; features from
@@ -224,8 +224,8 @@ Field meanings:
   (its base id, also a placement) in one of its `list_keys` (interface 6 `Widgets::shown`, not
   "has instances"; `ui.md` section 5.2), bit 1 private, bit 2 square; `cells` the widget's
   `widget.spec.cells` as declared (size and least size, draft 29); `previews` its
-  `widget.spec.previews` (the settings group it previews, `ui.md` section 5.2), empty for none
-  (draft 32): a settings page lists the widgets whose `previews` is its group. With
+  `widget.spec.previews` (the settings group it previews, `ui.md` section 5.2), empty for none:
+  a settings page lists the widgets whose `previews` is its group. With
   `reg_query.flags` bit 0 op 19 lists those that preview `scope` in its order (the host's own,
   then declarations by plugin slot, a plugin's own by name), and a page shows the last. Interface
   6 took the last added; where two plugins preview one group the shown one may differ (accepted

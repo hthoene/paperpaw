@@ -12,6 +12,8 @@ use paperpaw_native::host_glue::{
 
 /// `image_prepare.flags` bit 0: colour, where the screen has it.
 const COLOUR: u32 = 1;
+/// Bit 1: turn a JPEG as its EXIF orientation says.
+const TURN: u32 = 1 << 1;
 
 /// What the stage checks a batch against.
 #[derive(Clone, Copy, Debug)]
@@ -32,6 +34,8 @@ pub(crate) enum ImageCommand {
         side: u32,
         cookie: u32,
         colour: bool,
+        /// The turn and the tone table (`document.md` 5).
+        recipe: super::recipe::Recipe,
     },
     Release {
         image: u32,
@@ -54,8 +58,12 @@ impl ImageAdmit {
     pub(crate) fn admit(&mut self, command: &WireCommand<'_>) -> Option<Result<(), i32>> {
         match command {
             WireCommand::ImagePrepare {
-                root, path, flags, ..
-            } => Some(self.prepare(*root, path, *flags)),
+                root,
+                path,
+                flags,
+                tone,
+                ..
+            } => Some(self.prepare(*root, path, *flags, tone)),
             WireCommand::ImageRelease { .. } => Some(Ok(())),
             _ => None,
         }
@@ -76,6 +84,9 @@ impl ImageAdmit {
             && let WireCommand::ImagePrepare { path, .. } = command
         {
             *bytes = bytes.saturating_add(path.len());
+            if let WireCommand::ImagePrepare { tone, .. } = command {
+                *bytes = bytes.saturating_add(tone.len());
+            }
             if *bytes > limit {
                 return Some(Err(ERR_NO_SPACE));
             }
@@ -83,7 +94,7 @@ impl ImageAdmit {
         Some(result)
     }
 
-    fn prepare(&mut self, root: u32, path: &str, flags: u32) -> Result<(), i32> {
+    fn prepare(&mut self, root: u32, path: &str, flags: u32, tone: &[u8]) -> Result<(), i32> {
         match root {
             0 => {}
             1 if self.storage_root => {}
@@ -92,8 +103,12 @@ impl ImageAdmit {
             2 => {}
             _ => return Err(ERR_UNSUPPORTED),
         }
-        if flags & !COLOUR != 0 {
+        if flags & !(COLOUR | TURN) != 0 {
             return Err(ERR_UNSUPPORTED);
+        }
+        // A tone table is all 256 values, or none.
+        if !tone.is_empty() && tone.len() != super::recipe::TONE_BYTES {
+            return Err(ERR_INVALID);
         }
         checked(path)?;
         // Root 1 never reaches the install folders, the kernel's folder or its
@@ -118,6 +133,7 @@ pub(crate) fn owned_kind(command: &WireCommand<'_>) -> bool {
 }
 
 /// Copies an admitted image command, fallibly; `None` for another command.
+#[inline(never)]
 pub(crate) fn owned(command: &WireCommand<'_>) -> Option<Result<ImageCommand, i32>> {
     match command {
         WireCommand::ImagePrepare {
@@ -126,18 +142,33 @@ pub(crate) fn owned(command: &WireCommand<'_>) -> Option<Result<ImageCommand, i3
             side,
             cookie,
             flags,
+            tone,
         } => {
             let mut text = String::new();
             if text.try_reserve_exact(path.len()).is_err() {
                 return Some(Err(ERR_NO_MEMORY));
             }
             text.push_str(path);
+            let table = if tone.is_empty() {
+                None
+            } else {
+                let mut copy = alloc::vec::Vec::new();
+                if copy.try_reserve_exact(tone.len()).is_err() {
+                    return Some(Err(ERR_NO_MEMORY));
+                }
+                copy.extend_from_slice(tone);
+                Some(copy)
+            };
             Some(Ok(ImageCommand::Prepare {
                 root: *root,
                 path: text,
                 side: *side,
                 cookie: *cookie,
                 colour: *flags & COLOUR != 0,
+                recipe: super::recipe::Recipe {
+                    turn: *flags & TURN != 0,
+                    tone: table,
+                },
             }))
         }
         WireCommand::ImageRelease { image } => Some(Ok(ImageCommand::Release { image: *image })),
@@ -222,6 +253,7 @@ impl ImageTable {
                 side,
                 cookie,
                 colour,
+                recipe,
             } => {
                 let side = (*side).min(MAX_SIDE);
                 let source = match roots.resolve(owner, *root, path) {
@@ -233,7 +265,7 @@ impl ImageTable {
                     }
                     Err(_) => return self.refuse(owner, *cookie, prepare::CARD),
                 };
-                match self.prepare(owner, &source, side, *cookie, *colour) {
+                match self.prepare(owner, &source, side, *cookie, *colour, recipe) {
                     Err(ERR_NO_MEMORY) => self.refuse(owner, *cookie, prepare::NO_MEMORY),
                     other => other,
                 }
