@@ -14,6 +14,7 @@ use crate::{
     native_links::DocRef,
     native_look::Look,
     native_marking::{Ctx, Marking, Outcome},
+    native_marks::{self, CanvasPen, Marks, Painted},
     native_open::{self, Place, Start},
     native_pages::{self, Reading, Trail, Turn},
     native_place::{self, Progress},
@@ -106,6 +107,8 @@ struct Open {
     words: Vec<WordBox>,
     /// What is chosen, looked up and followed on the page.
     marking: Marking,
+    /// The book's highlights and the search hit shown on its page.
+    marks: Marks,
     /// What the page on show was laid out with: a change of the reading
     /// settings or of the screen lays it out again.
     laid: Option<LayoutKey>,
@@ -346,6 +349,15 @@ impl View {
                     return Err(error);
                 }
             };
+        // The highlights of the book; a book the library does not know has none.
+        let marks = match library.map(|l| native_marks::load(host, l, &found.path, conversion)) {
+            Some(Ok(spans)) => Marks::new(spans),
+            Some(Err(Error::NoMemory)) => {
+                Self::forget(host, docs, id);
+                return Err(Error::NoMemory);
+            }
+            _ => Marks::default(),
+        };
         let mut open = Open {
             id,
             sections,
@@ -354,6 +366,7 @@ impl View {
             page: None,
             words: Vec::new(),
             marking: Marking::new(),
+            marks,
             laid: None,
             trail: Trail::new(),
             root: root_code(root),
@@ -564,6 +577,23 @@ impl View {
         // Told when this screen is shown again: the host drops the report of
         // a screen that is not on top (`document.md` 2.4).
         open.report_due = true;
+        Ok(())
+    }
+
+    /// [`go_to`](Self::go_to) the page that starts at `start`, with the match
+    /// from `start` to `end` marked on it (a search hit chosen); the mark goes
+    /// with the next page.
+    ///
+    /// # Errors
+    /// `NoMemory`, and the host's refusal to redraw.
+    pub fn go_to_match(&mut self, start: (u32, u32), end: (u32, u32)) -> Result<(), Error> {
+        self.go_to(start)?;
+        if let Body::Open(open) = &mut self.body
+            && start.0 < open.sections
+            && start < end
+        {
+            open.marks.found(open.at, native_marks::Span { start, end });
+        }
         Ok(())
     }
 
@@ -1282,7 +1312,19 @@ impl Open {
             rect.x as f32 + f32::from(area.x),
             rect.y as f32 + f32::from(area.y),
         );
+        // The highlights and the search hit: backgrounds behind the words,
+        // lines and frames over them.
+        let hit = self.marks.hit_on(self.at);
+        let painted = Painted::new(
+            host,
+            &self.marks,
+            &self.words,
+            hit,
+            setup.display.display_dpi(),
+        )?;
+        painted.behind(&mut CanvasPen(&canvas))?;
         draw_lines_marked(&mut ink, &faces, page, origin, self.mark.clone())?;
+        painted.over(&mut CanvasPen(&canvas))?;
         self.paint_status(host, ui, frame, (setup, &area))?;
         let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),

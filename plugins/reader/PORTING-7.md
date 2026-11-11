@@ -803,3 +803,21 @@ relative to the data folder).
   `handovers: None`; `with_handovers` is only used by tests), so the open with the book's hand-over is
   refused `ERR_INVALID` until it is wired, in event callbacks as in input callbacks.
 - Not covered by a test: the host path (no scripted host); `state.ini`'s reading is the tested `native_state`.
+
+## Marks on the page: highlights and the search hit (`native_marks.rs`, #257)
+
+- The page draws the book's **highlights** (library annotations of kind highlight, read with `core.library` op 15 when the book
+  opens: rows of another conversion are left out, one with none is taken, a highlight of no length marks nothing) and the
+  **match of a search hit** gone to, in the looks of the roles `core.highlight` and `core.search-hit` (settings
+  `<role>.background|ink|line|line-tone|thickness|frame|struck`, read on the pages that have a mark, as Beta 3's
+  `Decoration::of_role`). Backgrounds go behind the words (`Painted::behind`, before `draw_lines_marked`), lines under, frames
+  and strikes over them (`Painted::over`); a box is one for each line of covered words (`native_selection::line_boxes`).
+- **Memory.** Only the highlights are held: 16 bytes each, at most 512 (`MAX_HIGHLIGHTS`; Beta 3 held every note with its
+  text); a book with more draws the first ones the library gives. The read is one pass of at most 8,192 rows through a 256 B
+  and a 4 KiB buffer at the open. The search results keep 4 bytes more a row (where the match ends, 100 rows at most).
+- **The hit.** Choosing a search hit goes to the page that starts at the match (`View::go_to_match`) and marks it there; the next
+  page drops the mark (it is kept with the page it was set for).
+- **Not here (named):** the highlights are read at the open and after the reader's own edits (the creation, next slice); the
+  event 91 (`annotations-changed`) has no SDK decoder yet, so an edit by another plugin shows at the next open. The `ink` aspect
+  (a tone for the words' letters) is not drawn: the text is one colour. Words a text filter inserted have no places and are not
+  marked.
