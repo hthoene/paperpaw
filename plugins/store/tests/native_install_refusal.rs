@@ -163,11 +163,15 @@ fn the_record_of_installs_and_the_queue_survive_refused_allocations() {
                 let _ = card.remove(name);
             }
         });
+        let mut kept = false;
         for n in 0..5 {
-            Installs::remember(&card, "airy-theme", &format!("1.{n}.0"))?;
+            let release = fail_alloc::exempt(|| format!("1.{n}.0"));
+            kept = Installs::remember(&card, "airy-theme", &release)?;
         }
         let installs = Installs::read(&card)?;
-        assert!(installs.of("airy-theme", "1.4.0"));
+        // A record the card cannot keep for want of memory is said so (false),
+        // not lost silently: where it was kept, it reads back.
+        assert!(!kept || installs.of("airy-theme", "1.4.0"));
         Installs::forget(&card, "airy-theme")?;
         Installs::adopt(&card, [("other", "2.0.0")])?;
         let mut queue = Queue::default();

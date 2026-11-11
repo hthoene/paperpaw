@@ -39,10 +39,11 @@ pub const MAX_REVOKED: usize = 16;
 /// interface-6 file (`paperpaw_sdk::data_path!("plugin-origin.txt")`), so what
 /// Beta 3 kept is read as it was.
 pub const INSTALLS_FILE: &str = ".paperpaw/plugin-origin.txt";
-/// The most of it read, and the versions kept of one plugin: the one
-/// installed, and those before it in case an install did not complete.
+/// The most of the record read, in bytes.
 const MAX_INSTALLS: usize = 64 * 1024;
-const VERSIONS_KEPT: usize = 4;
+/// The versions kept of one plugin: the one installed, and those before it in
+/// case an install did not complete.
+pub const VERSIONS_KEPT: usize = 4;
 
 /// The library's word about a code plugin, carried with its install.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
