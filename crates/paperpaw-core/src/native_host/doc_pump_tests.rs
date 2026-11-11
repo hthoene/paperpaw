@@ -202,3 +202,56 @@ fn inside_a_callback_the_kernels_pump_calls_no_format_and_steps_once_it_returned
         );
     });
 }
+
+#[test]
+fn the_cover_job_goes_on_by_timed_wakes_on_an_idle_device_and_holds_no_timer_off() {
+    world(|w| {
+        let log = Rc::new(Log::default());
+        let (mut kernel, opener) = kernel(w, &log);
+        let document = open(w, &kernel, opener, "books/a.epub");
+        assert!(w.state.table.start_cover_job(opener, document));
+        kernel.now = Instant(10_000);
+        let asleep_at = kernel.sleep_due();
+        *log.reply.borrow_mut() = fmt_state(PREPARING, 100_000);
+        // A step of the job: no "more" (the pump does not ask for a pass at
+        // once), but a timed wake 100 ms on.
+        assert!(!kernel.native_doc_pump());
+        assert_eq!(log.calls.borrow().len(), 1);
+        assert_eq!(kernel.shared.native_instances.doc_retry(), Some(10_100));
+        assert!(!kernel.shared.native_instances.service_more());
+        assert_eq!(kernel.service_due(), Some(Instant(10_100)));
+        // Before then no step; at the wake the next one.
+        kernel.now = Instant(10_099);
+        assert!(!kernel.native_doc_pump());
+        assert_eq!(log.calls.borrow().len(), 1);
+        kernel.now = Instant(10_100);
+        assert!(!kernel.native_doc_pump());
+        assert_eq!(log.calls.borrow().len(), 2);
+        assert_eq!(kernel.shared.native_instances.doc_retry(), Some(10_200));
+        // The job is no activity and holds no sleep off: the sleep is due
+        // when it was, and nothing keeps it from happening.
+        assert_eq!(kernel.sleep_due(), asleep_at);
+        assert!(!kernel.busy_at_sleep(Instant(10_200)));
+        *log.reply.borrow_mut() = fmt_state(READY, 1_000_000);
+        kernel.now = Instant(10_200);
+        // Ready: the step that finished it asks for the next pass (the end
+        // is looked at), and no wait is left.
+        assert!(kernel.native_doc_pump());
+        assert_eq!(kernel.shared.native_instances.doc_retry(), None);
+    });
+}
+
+#[test]
+fn a_book_that_is_not_the_cover_job_is_stepped_at_once_again() {
+    world(|w| {
+        let log = Rc::new(Log::default());
+        let (mut kernel, opener) = kernel(w, &log);
+        open(w, &kernel, opener, "books/a.epub");
+        kernel.now = Instant(10_000);
+        *log.reply.borrow_mut() = fmt_state(PREPARING, 100_000);
+        assert!(kernel.native_doc_pump(), "more to come");
+        assert_eq!(kernel.shared.native_instances.doc_retry(), None);
+        assert!(kernel.native_doc_pump(), "the next step at once");
+        assert_eq!(log.calls.borrow().len(), 2);
+    });
+}

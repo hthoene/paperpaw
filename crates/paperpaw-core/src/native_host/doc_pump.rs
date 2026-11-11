@@ -11,12 +11,20 @@
 //! [`RETRY_MAX_MS`], not at once, so a format that is slow to start (or never
 //! starts) does not keep the device awake; a step that was made asks for the next pass at once
 //! while a document still prepares (the format itself works for at most 50 ms
-//! of its own clock per call, and the pump runs between inputs).
+//! of its own clock per call, and the pump runs between inputs). The library's
+//! cover job is the exception: after its step the pump waits [`JOB_GAP_MS`]
+//! (a timed wake), so it goes on while the device is idle.
 use super::{doc_service::PrepareStep, native_host_call::HostRoute};
 
 /// The wait before a step that could not be made is tried again; it doubles
 /// for each failure in a row (as the library move job's does) ...
 const RETRY_MS: u64 = 500;
+/// The wait between two steps of the library's cover job (`doc_cover_job`),
+/// the only document that prepares: a timed wake, not the "more" signal, so
+/// the job goes on while the device is idle (nothing else wakes the pump) and
+/// still never holds the idle or the sleep timer off (it is no input, and no
+/// wake counts as one).
+const JOB_GAP_MS: u64 = 100;
 /// ... up to this (500 ms shifted at most seven times).
 const RETRY_MAX_MS: u64 = RETRY_MS << 7;
 
@@ -91,10 +99,11 @@ impl crate::Kernel {
             }
             PrepareStep::More => {
                 instances.doc_ok();
-                instances.set_doc_retry(None);
                 // The library's cover job is background work: its next step
-                // waits for the next pass for another reason, and never holds
-                // the idle or the sleep timer off.
+                // comes after a short gap, as a timed wake and not as "more",
+                // so it goes on on an idle device and never holds the idle or
+                // the sleep timer off.
+                instances.set_doc_retry(job_only.then(|| self.now.millis() + JOB_GAP_MS));
                 !job_only
             }
             PrepareStep::Later => {
