@@ -458,12 +458,24 @@ mod x4 {
     /// plugin that still runs).
     pub(super) struct FlashModule;
 
+    /// Set while the linked plugins are made (`register_linked`): every call
+    /// into one feeds the watchdogs, so that making them all, with the card
+    /// and the heap busy, is not taken for a hang (test image, Senior's
+    /// condition on #2462). Not set later: a plugin that loops in a call is
+    /// still the watchdog's.
+    #[cfg(all(feature = "native-on", feature = "esp32c3"))]
+    static CREATING: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
     fn call_begin(id: &str) -> bool {
         // The ESP32-S3's band needs the call to start at interrupt level 0
-        // on the first core (todo 185): otherwise it is refused, and the
-        // plugin is not run.
+        // on the first core (todo 185); the ESP32-C3's band must be armed and
+        // not lost: otherwise it is refused, and the plugin is not run.
         if !crate::stack::dispatch_allowed() {
             return false;
+        }
+        #[cfg(all(feature = "native-on", feature = "esp32c3"))]
+        if CREATING.load(core::sync::atomic::Ordering::Relaxed) {
+            crate::power::feed();
         }
         crate::safe_mode::calling(id);
         true
@@ -507,6 +519,12 @@ mod x4 {
             warn!("native: no room for the linked plugins' table: none hosted");
             return;
         };
+        // This start loads native plugins: counted as one that may fail until
+        // its first frame is shown (`safe_mode::started`); after two in a
+        // row the next goes without them (`paperpaw_x4::start_count`).
+        crate::safe_mode::loading("native-linked");
+        let began = crate::micros();
+        CREATING.store(true, core::sync::atomic::Ordering::Relaxed);
         // SAFETY: the entries are `native_plugin!(..., linked = NAME)` of crates
         // linked into this firmware (their code stays for the whole run); the
         // services offered are the ones wired at this start
@@ -525,12 +543,25 @@ mod x4 {
                 flash_rodata(),
             )
         };
+        CREATING.store(false, core::sync::atomic::Ordering::Relaxed);
+        let mut hosted = 0_u32;
         for (id, status) in outcome {
             match status {
-                Ok(()) => info!("native: linked {id}: running"),
+                Ok(()) => {
+                    hosted += 1;
+                    info!("native: linked {id}: running");
+                }
                 Err(why) => warn!("native: linked {id}: not hosted: {why:?}"),
             }
         }
+        if hosted > 0 {
+            // A lost band after a sleep now ends in a start without them.
+            crate::stack::native_loaded();
+        }
+        info!(
+            "native: {hosted} linked plugins hosted in {} ms",
+            (crate::micros() - began) / 1000
+        );
     }
 
     /// The owner's fallback report of a teardown step that failed (called

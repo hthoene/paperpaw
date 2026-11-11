@@ -52,3 +52,28 @@ fn the_firmware_refuses_a_test_image_that_is_a_release() {
     let manifest = read("shells/xteink/Cargo.toml");
     assert!(manifest.contains("test-image = [\"native-on\", \"paperpaw-x4/test-veil\"]"));
 }
+
+/// The release build sets `release`, which refuses `test-image` at compile
+/// time: without it the compile error could never fire in a real release.
+#[test]
+fn the_release_build_sets_the_release_feature() {
+    let workflow = read(".github/workflows/release.yml");
+    assert!(
+        workflow.contains(r#"--features "$DEVICE,release""#),
+        "release.yml must build the firmware with the `release` feature"
+    );
+    assert!(read("shells/xteink/Cargo.toml").contains("\nrelease = []"));
+}
+
+/// `paperpaw-x4/test-veil` (which reports `secrets-veiled`) is switched on by
+/// `test-image` alone, the feature that also wires `VeilSeal`.
+#[test]
+fn test_veil_is_switched_on_by_the_test_image_alone() {
+    let manifest = read("shells/xteink/Cargo.toml");
+    let on: Vec<_> = manifest
+        .lines()
+        .filter(|l| l.contains("paperpaw-x4/test-veil"))
+        .collect();
+    assert_eq!(on.len(), 1, "{on:?}");
+    assert!(on[0].trim_start().starts_with("test-image"), "{on:?}");
+}

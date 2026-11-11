@@ -194,7 +194,7 @@ impl Firmware {
         // `start()` would copy it (+4 KB on the frame).
         #[cfg(all(feature = "native-on", feature = "esp32c3"))]
         if let Some(table) = &self.device_table {
-            if crate::stack::band_armed() {
+            if paperpaw_x4::stack_band::host_native_at_start(crate::stack::band_armed()) {
                 crate::native::register_linked(&mut self.kernel, table);
             } else {
                 warn!("native: the stack's band is not armed: no plugin of interface 7 is hosted");
@@ -302,6 +302,10 @@ impl Firmware {
         power::feed();
         power::mark(power::at::LOOP);
         stack::check();
+        // The test image's high-water log: a comparison of the clock, a sample
+        // only every 30 s.
+        #[cfg(feature = "test-image")]
+        crate::high_water::step(now().0);
         self.io();
         self.watch_card();
         for effects in self.network.step(&mut self.kernel, now()) {
@@ -778,6 +782,9 @@ impl Firmware {
     #[inline(never)]
     fn sleep(&mut self, lightly: bool) {
         self.settle_frame();
+        // The lows of the run are kept before the sleep (test image).
+        #[cfg(feature = "test-image")]
+        crate::high_water::before_sleep();
         // A press over USB that put it to sleep is let go first.
         #[cfg(feature = "remote")]
         self.release_held();
