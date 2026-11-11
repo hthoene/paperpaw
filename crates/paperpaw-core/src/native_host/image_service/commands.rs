@@ -4,6 +4,7 @@
 //! host does with it after the callback returns.
 use super::{ImageTable, MAX_SIDE, prepare};
 use crate::native_host::commands::WireCommand;
+use crate::native_host::data_plugin_folders::plugin_folder_of;
 use alloc::string::String;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND,
@@ -114,10 +115,18 @@ impl ImageAdmit {
         }
         checked(path)?;
         // Root 1 never reaches the install folders, the kernel's folder or its
-        // settings file.
+        // settings file; a data plugin's folder is the one exception
+        // (`plugins/<folder>/<file>`: the host decides when it resolves the
+        // path, and a folder that is none is a missing file, status 6).
         if root == 1 {
             let first = path.split('/').next().unwrap_or_default();
-            if super::super::owner_paths::protected_first(first) {
+            // A file below the plugin's folder (a folder itself is no picture).
+            let in_folder = plugin_folder_of(path).is_some()
+                && path
+                    .splitn(3, '/')
+                    .nth(2)
+                    .is_some_and(|rest| !rest.is_empty());
+            if super::super::owner_paths::protected_first(first) && !in_folder {
                 return Err(ERR_INVALID);
             }
         }

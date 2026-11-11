@@ -602,7 +602,8 @@ fn wire_files(
             hosts.busy_sources().clone(),
             hosts.linked().clone(),
         )
-        .with_moves(moves.clone()),
+        .with_moves(moves.clone())
+        .with_data_plugins(hosts.data_plugins().clone()),
     ))?;
     Ok(moves)
 }
