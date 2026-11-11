@@ -305,6 +305,13 @@ impl Kernel {
             // messages. Make room before on_show or another command translates.
             self.forget_read_messages_if_full();
             if self.output.commands.is_empty() {
+                // The actions native plugins ran in this call (a button's,
+                // a menu row's, a rule's: `Command::RunAction` runs them
+                // above) reach their plugins; what they ask for is the next
+                // round's.
+                if self.native_actions_run() {
+                    continue;
+                }
                 // The makers of widgets dropped meanwhile hear of it; what
                 // they stage is the next round's.
                 if self.deliver_widget_drops() {

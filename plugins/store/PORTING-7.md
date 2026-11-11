@@ -1,4 +1,4 @@
-# Plugin store on interface 7 (slices 1 to 4, partly ported)
+# Plugin store on interface 7 (slices 1 to 8, partly ported)
 
 Status: **not complete.** The interface-6 plugin (the library's list and plugin
 pages, the index kept on the card, the downloads, the install with its checks
@@ -190,6 +190,40 @@ finishes the port; until then nothing is dropped.
   the dialog (`Ui::ask`), the fetch of a page and the download, the install, the
   first-run offer's names (`styles.rs`'s hint) and what the fetch screen shows.
 - Tests: `tests/native_queue.rs`, `native_queue_refusal.rs`.
+
+## Ported in slice 8 (`src/native_download.rs`, `src/native_install.rs`, host-free)
+
+- **The download** (`Download::start`, `ended`, `cancel`, `take_ready`): the files of a
+  page one after the other over `core.net` into `stage/<plugin>/` in the data folder,
+  as they come (nothing is held in memory; the request's most is the size the library
+  lists), each checked against that size and its SHA-1 or SHA-256 before the next is
+  asked for, the job kept in `install.txt` / `install.done` (read in pieces of 256
+  bytes, written a line at a time, hashing in pieces of 512). The rules are those of
+  the interface-6 `install::Installer`: a package is valid with safe distinct paths, a
+  `plugin.ini`, valid digests and at most 64 files; a start stops the download going
+  on and forgets what it fetched; a file that fails ends it as `Failure::Network`,
+  `Damaged` or `Card` and the files go. The plugin owns the network: it implements
+  `Wire` (`get`, `cancel`) and passes each `http_done` as a `Done`.
+- **The install** (`Installer::finish`, `done`): the host's job (`install_plugin`,
+  commands 1576 and 1580 to 1582) with the library's word of a code plugin (`Proof`:
+  author key, recovery key, the last six rotations) and `update` / `allow_older`
+  from `Have`; the end comes as `install_done` (`End`) and is said by
+  `native_refusal::outcome`. The files are removed at the end whatever it was. The
+  library's revocations are handed to the host (`hand_over`, at most 16).
+- **What the store installed** (`Installs`): `.paperpaw/plugin-origin.txt`, the
+  interface-6 file and format (`<id>\t<release>`, at most four releases of a plugin,
+  the newest last, the same release once), so what Beta 3 kept is read as it was;
+  `adopt` keeps interface 6's rule (the plugins installed before the record count as
+  the store's, once). The no-downgrade rule is the host's (reason 11 "older", 14 "the same version"; `device.md` 5.5).
+  Kernel #1091's "installed by store" registry flag is to be used once it lands; the
+  file stays the record until then.
+- **The queue** (`native_install::next`): goes on with `Queue::advance` and keeps the
+  queue on the card; `Next::FetchPage(id)` is what the plugin's loader fetches next.
+- **Differences on purpose:** an install the plugin cannot start (`Full` while four
+  wait, no `uses.install`) is `Failed`, not retried; a record that cannot be kept does
+  not turn an installed plugin into a failure.
+- Tests: the unit tests of both modules and `tests/native_install_refusal.rs`
+  (every allocation refused in turn).
 
 ## Not yet (the install and the fetch)
 

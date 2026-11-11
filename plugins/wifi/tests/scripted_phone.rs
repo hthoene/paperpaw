@@ -92,6 +92,15 @@ fn script(host: &ScriptedHost, world: &Rc<World>) {
         SettingValueRef::Text("wifi.join-first.picked"),
     );
     host.set_setting("core.language", SettingValueRef::Text("en"));
+    script_ui(host);
+    script_device(host, world);
+    script_secrets(host, world);
+    script_net(host, world);
+    script_work(host, world);
+}
+
+/// The stack: the setup screen on top.
+fn script_ui(host: &ScriptedHost) {
     host.service("core.ui", 1, 0, |op, _| match op {
         UI_STACK => Ok(stream(&[
             Record::ServiceUiScreen(ServiceUiScreen {
@@ -105,6 +114,10 @@ fn script(host: &ScriptedHost, world: &Rc<World>) {
         ])),
         _ => Ok(Vec::new()),
     });
+}
+
+/// The device: its facts, the radio and the networks in reach.
+fn script_device(host: &ScriptedHost, world: &Rc<World>) {
     let w = world.clone();
     host.service("core.device", 1, 0, move |op, _| match op {
         DEVICE_DEVICE => Ok(stream(&[Record::ServiceDevDevice(ServiceDevDevice {
@@ -142,6 +155,10 @@ fn script(host: &ScriptedHost, world: &Rc<World>) {
         ])),
         _ => Err(-1),
     });
+}
+
+/// The secrets: the random draw.
+fn script_secrets(host: &ScriptedHost, world: &Rc<World>) {
     let w = world.clone();
     host.service("core.secrets", 1, 0, move |op, input| match op {
         SECRETS_RANDOM => {
@@ -159,6 +176,10 @@ fn script(host: &ScriptedHost, world: &Rc<World>) {
         }
         _ => Err(-1),
     });
+}
+
+/// The network: what is served, stopped and answered.
+fn script_net(host: &ScriptedHost, world: &Rc<World>) {
     let w = world.clone();
     host.service("core.net", 1, 0, move |op, input| {
         let batch = records_decode(input).map_err(|_| -1)?;
@@ -195,6 +216,10 @@ fn script(host: &ScriptedHost, world: &Rc<World>) {
             }
         }
     });
+}
+
+/// The work declared, and the replies' bounds the shell keeps.
+fn script_work(host: &ScriptedHost, world: &Rc<World>) {
     let w = world.clone();
     host.service("core.work", 1, 0, move |op, input| {
         if op == WORK_DECLARE {

@@ -238,6 +238,7 @@ impl Loader {
     ///
     /// # Errors
     /// `NoMemory` (nothing changes then) and the host's refusals of the facts.
+    #[inline(never)]
     pub fn start_list(&mut self, wire: &mut dyn Wire) -> Result<(), Error> {
         let Some(facts) = wire.facts()? else {
             return Ok(());
@@ -273,6 +274,7 @@ impl Loader {
     ///
     /// # Errors
     /// `NoMemory` and the host's refusals of the facts.
+    #[inline(never)]
     pub fn start_page(&mut self, wire: &mut dyn Wire, id: &str) -> Result<(), Error> {
         wire.cancel(PAGE_TOKEN);
         let mut slot = PageSlot {
@@ -324,6 +326,7 @@ impl Loader {
     ///
     /// # Errors
     /// `NoMemory`: the fetch is over, what was held stays.
+    #[inline(never)]
     pub fn ended(&mut self, wire: &mut dyn Wire, done: &Done) -> Result<Ended, Error> {
         match done.token {
             LIST_TOKEN if self.list == Some(done.id) => {
@@ -357,6 +360,7 @@ impl Loader {
         }
     }
 
+    #[inline(never)]
     fn list_ended(&mut self, wire: &mut dyn Wire, done: &Done) -> Result<Ended, Error> {
         let none = |wire: &mut dyn Wire, this: &mut Self| {
             let _ = wire.storage().remove(LIST_PART);
@@ -400,6 +404,7 @@ impl Loader {
         }
     }
 
+    #[inline(never)]
     fn page_ended(&mut self, wire: &mut dyn Wire, done: &Done) -> Result<Ended, Error> {
         let Some(slot) = self.page.as_mut() else {
             return Ok(Ended::Ignored);
@@ -448,7 +453,19 @@ fn part_of(id: &str) -> Result<String, Error> {
 
 /// Reads the page fetched to `file`, its files and pictures made absolute with
 /// `base` (where the answer says where it came from).
+#[inline(never)]
 fn read_page(wire: &mut dyn Wire, file: &str, base: &str) -> Result<Option<Page>, Error> {
+    let Some(page) = parse_page(wire, file)? else {
+        return Ok(None);
+    };
+    let mut page = page;
+    absolute(&mut page, base)?;
+    Ok(Some(page))
+}
+
+/// The page in `file`. The reader lives in this frame alone (X4: under 2,048 B).
+#[inline(never)]
+fn parse_page(wire: &mut dyn Wire, file: &str) -> Result<Option<Page>, Error> {
     let Some(facts) = wire.facts()? else {
         return Ok(None);
     };
@@ -468,14 +485,17 @@ fn read_page(wire: &mut dyn Wire, file: &str, base: &str) -> Result<Option<Page>
         reader.feed(piece.get(..n).unwrap_or_default())?;
         at = at.saturating_add(n as u64);
     }
-    let Some(mut page) = reader.finish()? else {
-        return Ok(None);
-    };
+    reader.finish()
+}
+
+/// The addresses of a page's files and pictures, relative to the page's own.
+#[inline(never)]
+fn absolute(page: &mut Page, base: &str) -> Result<(), Error> {
     for file in &mut page.files {
         file.url = join_url(base, &file.url)?;
     }
     for shot in &mut page.more.shots {
         shot.url = join_url(base, &shot.url)?;
     }
-    Ok(Some(page))
+    Ok(())
 }
