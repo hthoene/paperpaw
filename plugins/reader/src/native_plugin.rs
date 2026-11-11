@@ -34,14 +34,14 @@ use paperpaw_sdk::{
         library::Library,
         registrations,
         reply::Reply,
-        ui::{Instance, Question, RequestId as AskId, Ui, UiCursor},
+        ui::{Instance, Question, RequestId as AskId, TextWrite, Ui, UiCursor},
         work::{Work, WorkSpec},
     },
 };
 use paperpaw_ui_kit::{
     Messages, Screens,
     mem::{self, SERVICE_BUFFER, buffer},
-    read_event, text,
+    read_event, text, uitext,
 };
 
 mod image {
@@ -90,6 +90,9 @@ pub struct NativeReader {
     searches: Screens<SearchView>,
     /// The question for the text to search for, while it is open.
     asking: Option<AskId>,
+    /// The question for the note of a highlight, while it is open: where the
+    /// note goes.
+    noting: Option<(AskId, crate::native_marks::Span)>,
     /// The text answered, until the results screen it opened takes it.
     query: Option<String>,
     /// The notes over the pages.
@@ -490,8 +493,77 @@ impl NativeReader {
         Ok(Handled::Yes)
     }
 
+    /// Asks for the note of the highlight `note` names (the keyboard answers),
+    /// the note it has to start from.
+    fn ask_note(
+        &mut self,
+        host: &Host<'_>,
+        note: &crate::native_marking::act::NoteAsk,
+    ) -> Result<(), Error> {
+        let Some(ui) = &self.ui else {
+            return Ok(());
+        };
+        let title = Messages::new()?.copy(host, "reader.note.prompt")?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let request = ui.ask(host, Question::text(&title, "")?, &mut input, &mut out)?;
+        if !note.note.is_empty() {
+            ui.text_write(
+                host,
+                request.text(),
+                0,
+                &note.note,
+                TextWrite::Last,
+                &mut input,
+                &mut out,
+            )?;
+        }
+        self.noting = Some((request, note.span));
+        Ok(())
+    }
+
+    /// An answer to the question for a note: set on its highlight (an empty note
+    /// takes it away). A note that was not answered leaves the highlight as it is.
+    fn note_answered(
+        &mut self,
+        host: &Host<'_>,
+        target: crate::native_marks::Span,
+        answer: &Answered,
+    ) -> Result<(), Error> {
+        if answer.outcome() != AnswerOutcome::Answered {
+            return Ok(());
+        }
+        let Some(ui) = &self.ui else {
+            return Ok(());
+        };
+        let typed = match uitext::read_all(
+            ui,
+            host,
+            answer.request().text(),
+            paperpaw_sdk::native::library::NOTE_MAX_BYTES,
+        ) {
+            Ok(typed) => typed,
+            // A note too long to keep is not kept.
+            Err(Error::NoSpace) => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        let library = self.library.as_ref();
+        match self.screens.top(SCREEN) {
+            Some(view) => view.note_entered(host, library, target, typed.trim()),
+            None => Ok(()),
+        }
+    }
+
     /// An answer to the question for the text: the search screen opens for it.
     fn answered(&mut self, host: &Host<'_>, answer: &Answered) -> Result<(), Error> {
+        if let Some((request, target)) = self.noting
+            && request == answer.request()
+        {
+            if answer.outcome() == AnswerOutcome::Typing {
+                return Ok(());
+            }
+            self.noting = None;
+            return self.note_answered(host, target, answer);
+        }
         if answer.outcome() == AnswerOutcome::Typing || self.asking != Some(answer.request()) {
             return Ok(());
         }
@@ -1112,15 +1184,18 @@ impl Plugin for NativeReader {
                 return Ok(handled);
             }
         }
-        let (handled, turned) = match (self.screens.top(token), &self.docs, &self.ui) {
+        let (handled, turned, note) = match (self.screens.top(token), &self.docs, &self.ui) {
             (Some(view), Some(docs), Some(ui)) => {
                 let handled = view.input(host, (docs, self.library.as_ref(), ui), &input)?;
-                (handled, view.take_turned())
+                (handled, view.take_turned(), view.take_note())
             }
             _ => return Ok(Handled::No),
         };
         if turned {
             self.start_quiet(host);
+        }
+        if let Some(note) = note {
+            self.ask_note(host, &note)?;
         }
         Ok(handled)
     }

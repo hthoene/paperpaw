@@ -16,6 +16,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
         commands::{CommandSender, RedrawMode},
         fonts::{Font, FontRole},
+        library::Library,
         snapshot::{self, Snapshot},
         ui::Ui,
     },
@@ -27,15 +28,34 @@ use paperpaw_ui_kit::{
 };
 
 use crate::native_links::{DocRef, PageLink, Returns};
+use crate::native_marks::Span;
 use crate::native_pages;
+use crate::native_place::Progress;
 use crate::native_selection::{Mode, Selection, line_boxes};
 use crate::native_wordbox::word_at;
 
-mod act;
+pub mod act;
 pub mod bar;
 mod linking;
 
 use bar::{Bar, Item};
+
+/// What the marking needs of the book's highlights: the ones held (to name the
+/// bar's items), the library to change them in, and where a place is in the book.
+#[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
+pub struct Book<'a> {
+    /// The highlights of the book.
+    pub highlights: &'a [Span],
+    /// The library the highlights are kept in (none: they cannot be changed).
+    pub library: Option<&'a Library>,
+    /// The conversion the places belong to.
+    pub conversion: u64,
+    /// The sections' lengths, for the progress of a place.
+    pub progress: Option<&'a Progress>,
+    /// The progress stored with the place, where `progress` is none.
+    pub stored_ppm: u32,
+}
 
 /// What the screen knows of its page and book: everything [`Marking`] reads.
 #[derive(Debug)]
@@ -61,6 +81,8 @@ pub struct Ctx<'a> {
     /// The plugin's `core.ui` handle, for the clipboard and the screens opened
     /// (one is held for the plugin: none is opened here, none leaks).
     pub ui: Option<&'a Ui>,
+    /// The book's highlights (none: the bar offers them, nothing is changed).
+    pub book: Option<Book<'a>>,
 }
 
 impl<'a> Ctx<'a> {
@@ -84,7 +106,15 @@ impl<'a> Ctx<'a> {
             area,
             now_ms: 0,
             ui: None,
+            book: None,
         }
+    }
+
+    /// With the book's highlights.
+    #[must_use]
+    pub const fn book(mut self, book: Book<'a>) -> Self {
+        self.book = Some(book);
+        self
     }
 
     /// With the plugin's `core.ui` handle.
@@ -112,6 +142,9 @@ pub enum Outcome {
     Handled,
     /// Taken; the page's overlay changed, draw it again.
     Redraw,
+    /// Taken: a highlight was made, removed or noted (or could not be, and it was
+    /// said): the screen reads the highlights again and draws the page again.
+    Edited,
     /// Taken: go to the page that holds this place (a followed link, or the way
     /// back). The page left is the marking's to return to; the screen keeps its
     /// own trail as for any jump.
@@ -144,6 +177,8 @@ pub struct Marking {
     enter: Option<bool>,
     /// Where followed links were left from.
     returns: Returns,
+    /// The note that is to be asked for (see [`Marking::take_note`]).
+    note: Option<act::NoteAsk>,
 }
 
 /// The action that starts choosing text with the buttons.
@@ -162,6 +197,7 @@ impl Marking {
             linking: None,
             enter: None,
             returns: Returns::new(),
+            note: None,
         }
     }
 
@@ -178,6 +214,12 @@ impl Marking {
     /// focus stays on the link it was on.
     pub fn stay(&mut self) {
         self.enter = None;
+    }
+
+    /// The note *Note* started: the stretch it belongs to and the note it has,
+    /// to be asked for once (taken).
+    pub fn take_note(&mut self) -> Option<act::NoteAsk> {
+        self.note.take()
     }
 
     /// Whether text is chosen.
@@ -218,7 +260,7 @@ impl Marking {
             Input::Gesture { position, kind, .. } => self.on_gesture(host, ctx, position, kind)?,
             _ => Outcome::Ignored,
         };
-        if outcome == Outcome::Redraw {
+        if matches!(outcome, Outcome::Redraw | Outcome::Edited) {
             let mut scratch = [0; 64];
             CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
         }
@@ -293,7 +335,7 @@ impl Marking {
         action: &str,
     ) -> Result<Outcome, Error> {
         let touch = snapshot::capture_snapshot(host)?.has_touch();
-        let items = bar::items(touch);
+        let items = bar::items(touch, act::standing(ctx, selection.range()));
         let focus = selection.focus.unwrap_or(0);
         let last = items.len() - 1;
         let step = |forward: bool| Selection {
@@ -344,7 +386,7 @@ impl Marking {
                 None => Outcome::Ignored,
             }),
             (InputGestureKind::Tap, Some(selection)) => {
-                let bar = self.hit_bar(host, selection, at)?;
+                let bar = self.hit_bar(host, ctx, selection, at)?;
                 if let Some(item) = bar {
                     return self.activate(host, ctx, selection, item);
                 }
@@ -368,6 +410,7 @@ impl Marking {
     fn hit_bar(
         &self,
         host: &Host<'_>,
+        ctx: &Ctx<'_>,
         selection: Selection,
         at: Point,
     ) -> Result<Option<Item>, Error> {
@@ -380,7 +423,7 @@ impl Marking {
         );
         let found = UiStyle::read(host, &display, &font)
             .and_then(|style| {
-                let items = bar::items(display.has_touch());
+                let items = bar::items(display.has_touch(), act::standing(ctx, selection.range()));
                 Bar::new(host, &font, &style, &display, &items)
             })
             .map(|bar| bar.item_at(at));
@@ -419,6 +462,18 @@ impl Marking {
                 }),
             )),
             Item::Cancel => Ok(self.set(ctx, None)),
+            Item::Highlight | Item::Unhighlight => {
+                act::highlight(host, ctx, (lo, hi))?;
+                self.selection = None;
+                self.on = None;
+                Ok(Outcome::Edited)
+            }
+            Item::Note | Item::EditNote => {
+                self.note = act::note(host, ctx, (lo, hi))?;
+                self.selection = None;
+                self.on = None;
+                Ok(Outcome::Edited)
+            }
         }
     }
 
@@ -461,7 +516,7 @@ impl Marking {
             let (lo, hi) = selection.range();
             frame_words(&mut ops, &style, ctx.words, |i| (lo..=hi).contains(&i))?;
             if selection.mode == Mode::Bar {
-                let items = bar::items(display.has_touch());
+                let items = bar::items(display.has_touch(), act::standing(ctx, selection.range()));
                 let bar = Bar::new(host, font, &style, &display, &items)?;
                 bar.prepare(&mut ops, font, &style, selection.focus)?;
             }

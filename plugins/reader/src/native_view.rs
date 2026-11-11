@@ -13,7 +13,7 @@ use crate::{
     native_index::Counter,
     native_links::DocRef,
     native_look::Look,
-    native_marking::{Ctx, Marking, Outcome},
+    native_marking::{Book, Ctx, Marking, Outcome},
     native_marks::{self, CanvasPen, Marks, Painted},
     native_open::{self, Place, Start},
     native_pages::{self, Reading, Trail, Turn},
@@ -592,7 +592,12 @@ impl View {
             && start.0 < open.sections
             && start < end
         {
-            open.marks.found(open.at, native_marks::Span { start, end });
+            open.marks.found(open.at, native_marks::Span {
+                    start,
+                    end,
+                    noted: false,
+                },
+            );
         }
         Ok(())
     }
@@ -742,10 +747,14 @@ impl View {
         if let Some(handled) = open.status_input(host, ui, input)? {
             return Ok(handled);
         }
-        let marked = open.mark(host, (docs, Some(ui)), input)?;
+        let marked = open.mark(host, (docs, library, Some(ui)), input)?;
         let choosing = matches!(marked, Outcome::Turn { .. });
         let moved = match marked {
             Outcome::Handled | Outcome::Redraw => return Ok(Handled::Yes),
+            Outcome::Edited => {
+                open.reload_marks(host, library)?;
+                return Ok(Handled::Yes);
+            }
             Outcome::Jump { section, offset } => {
                 open.jump((section, offset));
                 true
@@ -1080,7 +1089,7 @@ impl Open {
     fn mark(
         &mut self,
         host: &Host<'_>,
-        (docs, ui): (&Documents, Option<&Ui>),
+        (docs, library, ui): (&Documents, Option<&Library>, Option<&Ui>),
         input: &Input<'_>,
     ) -> Result<Outcome, Error> {
         if self.page.is_none() {
@@ -1096,7 +1105,14 @@ impl Open {
             "",
             area,
         )
-        .doc(DocRef::new(docs, self.id, self.sections, self.whole_pages));
+        .doc(DocRef::new(docs, self.id, self.sections, self.whole_pages))
+        .book(Book {
+            highlights: self.marks.highlights(),
+            library,
+            conversion: self.conversion,
+            progress: self.progress.as_ref(),
+            stored_ppm: self.stored_ppm,
+        });
         let ctx = match ui {
             Some(ui) => ctx.ui(ui),
             None => ctx,
@@ -1334,7 +1350,14 @@ impl Open {
             "",
             area,
         )
-        .doc(DocRef::new(docs, self.id, self.sections, self.whole_pages));
+        .doc(DocRef::new(docs, self.id, self.sections, self.whole_pages))
+        .book(Book {
+            highlights: self.marks.highlights(),
+            library: None,
+            conversion: self.conversion,
+            progress: self.progress.as_ref(),
+            stored_ppm: self.stored_ppm,
+        });
         self.marking.draw_overlay(host, &ctx, frame)
     }
 }
@@ -1381,6 +1404,7 @@ fn say_with(
 mod aloud;
 mod count;
 mod menu_bar;
+mod notes;
 mod preparing;
 use preparing::Preparing;
 
