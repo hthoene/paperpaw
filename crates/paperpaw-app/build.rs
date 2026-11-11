@@ -111,8 +111,14 @@ fn catalog_indexes(crates: &[String]) {
         let print = paperpaw_i18n::fingerprint(&source);
         // Catalogs of a language together; one that cannot be (a key another
         // has) stays a catalog of its own, with its index here.
+        let mut built = false;
         for table in &mut tables {
-            let _ = table.add(&source);
+            built |= table.add(&source).unwrap_or(false);
+        }
+        // A source a table holds is read through the table: it needs no index
+        // of its own.
+        if built {
+            continue;
         }
         let Ok(catalog) = paperpaw_i18n::Catalog::parse(source) else {
             continue;
