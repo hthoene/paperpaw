@@ -1,0 +1,2 @@
+### Fixed
+- A delete or import of the library no longer stalls on a part the card refuses for good (a damaged recent-books or favourites list): that part is left and never repeated, the rest of the book is still carried and the job ends; a fault that may pass is still retried. The delete's entry now also records which books are done with, so a restart after a cut never looks again at a path whose file is gone, even when the card reuses the identity (FAT clusters).

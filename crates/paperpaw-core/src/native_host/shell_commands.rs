@@ -1,5 +1,5 @@
 //! Inactive callback staging, exercised through kernel-backed dispatch fixtures.
-use super::{Batch, Context, DispatchDepth, Error, Registration};
+use super::{Context, DispatchDepth, Error, Published, Registration};
 use crate::{
     Kernel,
     abi7::core_frame::CoreFrame,
@@ -53,7 +53,7 @@ impl Kernel {
     /// Draw is render-only and must never use this helper. No second queue is kept.
     pub(crate) fn with_native_commands<S: 'static, M>(
         &mut self,
-        batch: &Batch<'_, S, M, Registration>,
+        batch: &Published<'_, S, M, Registration>,
         depth: &DispatchDepth,
         target: CommandTarget,
         now: Instant,
@@ -63,7 +63,7 @@ impl Kernel {
             let env = self.shared.env(now);
             let frame = self.shared.command_frame(&env);
             batch.dispatch_owner(depth, |context| {
-                let owner = Id::try_parse(&context.id).map_err(|error| match error {
+                let owner = Id::try_parse(context.plugin_id()).map_err(|error| match error {
                     IdError::NoMemory => Error::Allocation,
                     _ => Error::Status(ERR_INVALID),
                 })?;

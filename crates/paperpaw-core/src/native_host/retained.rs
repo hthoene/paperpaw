@@ -6,7 +6,9 @@ use core::mem::ManuallyDrop;
 use paperpaw_native::host_glue::Services;
 
 pub(crate) struct Retained<S: Services + 'static, M: 'static> {
-    batch: Option<shell::Batch<'static, S, M, Registration>>,
+    /// Only the records and their lease: the declarations staged beside them
+    /// were moved out or dropped at commit and keep no room here.
+    batch: Option<shell::Published<'static, S, M, Registration>>,
     host: ManuallyDrop<shell::Hosted<S, M>>,
 }
 
@@ -72,7 +74,7 @@ impl<S: Services + 'static, M: 'static> Retained<S, M> {
         ))
     }
 
-    pub(crate) fn batch(&self) -> Result<&shell::Batch<'_, S, M, Registration>, Error> {
+    pub(crate) fn batch(&self) -> Result<&shell::Published<'_, S, M, Registration>, Error> {
         self.batch.as_ref().ok_or(Error::State)
     }
 
@@ -90,6 +92,21 @@ impl<S: Services + 'static, M: 'static> Retained<S, M> {
             batch.dispatch(index, depth, |_, record| visit(index, *record))?;
         }
         Ok(())
+    }
+
+    /// Whether a committed registration names the event `tag`. The records
+    /// are read in place, without dispatch admission: this is asked while
+    /// the plugin's own callback runs (`core.net` asks before it accepts a
+    /// request). Install admits one entry for each tag, at most 32 records.
+    pub(crate) fn subscribed(&self, tag: u32) -> bool {
+        self.batch.as_ref().is_some_and(|batch| {
+            (0..batch.len()).any(|index| {
+                matches!(
+                    batch.record(index),
+                    Some(Registration::Event { event_tag, .. }) if *event_tag == tag
+                )
+            })
+        })
     }
 }
 
