@@ -36,7 +36,7 @@ fn started(language: &str) -> Kernel {
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
     let builder = Kernel::builder(DEVICE)
         .storage(storage)
-        .user_config(&format!("[core]\nlanguage = {language}\n"));
+        .user_config(format!("[core]\nlanguage = {language}\n"));
     let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
     let _ = kernel.start(Instant(0));
     kernel
