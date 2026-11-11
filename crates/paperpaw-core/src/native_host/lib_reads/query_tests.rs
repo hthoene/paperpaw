@@ -488,3 +488,18 @@ fn an_empty_or_missing_catalog_has_no_books() {
     assert!(rows.is_empty());
     assert_eq!((end.total, end.next), (0, 0));
 }
+
+#[test]
+fn a_sort_key_is_cut_at_96_bytes_and_a_tie_goes_by_path() {
+    let long = |tail: &str| format!("{}{tail}", "x".repeat(96));
+    let s = shelf(&[
+        line("books/b.epub", "A", &long("zzz"), "", "", ["", "", "1"]),
+        line("books/a.epub", "A", &long("aaa"), "", "", ["", "", "1"]),
+        line("books/c.epub", "A", "short", "", "", ["", "", "1"]),
+    ]);
+    let (rows, _) = page(&s.reads(), &ask(), 9).unwrap();
+    // "short" first; the two long titles agree to the cut: their path
+    // decides (a before b), not the tail.
+    let keys: Vec<u64> = rows.iter().map(|r| u64::from(r.key)).collect();
+    assert_eq!(keys, [s.at[2], s.at[1], s.at[0]]);
+}
