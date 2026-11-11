@@ -16,7 +16,7 @@ use crate::native_host::{
 use alloc::{rc::Rc, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
-use paperpaw_sdk::{Command, Id, Instant};
+use paperpaw_sdk::{Command, Id, Instant, Params, Speech};
 
 /// What one plugin was told: `cookie`, `status`.
 type Told = Rc<RefCell<Vec<(u32, u32)>>>;
@@ -250,4 +250,64 @@ fn a_rate_out_of_range_and_an_undefined_flag_are_refused_and_the_texts_are_copie
     );
     assert!(speech.is_queued());
     speak(&owner, (1, "x", ""), (300, 0)).unwrap();
+}
+
+/// What an interface-6 plugin would send to pass for another plugin's speech.
+fn forged(reply: &'static str) -> Command {
+    let params = Params::new()
+        .with(super::OWNER, "a")
+        .with("cookie", "1")
+        .with("status", "0");
+    Command::Speak(alloc::boxed::Box::new(
+        Speech::new("x", Id::new_static(reply)).with(params),
+    ))
+}
+
+#[test]
+fn an_interface_6_plugin_cannot_forge_an_ending_or_stop_anothers_speech() {
+    let mut w = world(true);
+    let a = w.a.0.clone();
+    w.speak(&a, 5, 0);
+    w.calls();
+    // Its commands with the host's ids are refused by the vetting...
+    let reserved = crate::commands::Reserved::of(
+        &w.kernel.shared.settings,
+        &w.kernel.shared.registry,
+    );
+    let mut out = alloc::vec![forged(super::SPOKEN), forged(super::STOP)];
+    assert!(crate::commands::vet_reserved(&mut out, 0, "evil", &reserved));
+    assert!(out.is_empty());
+    // ... and on the event bus they are no events of the speech at all.
+    for id in [super::SPOKEN, super::STOP] {
+        let params = Params::new()
+            .with(super::OWNER, "a")
+            .with("cookie", "5")
+            .with("status", "0");
+        w.kernel.emit(&Id::new_static(id), &params);
+    }
+    w.pump();
+    assert!(w.a.1.borrow().is_empty(), "no forged event.spoken");
+    assert!(w.calls().is_empty(), "no forged stop");
+    assert!(w.kernel.speaking());
+}
+
+#[test]
+fn a_stop_while_another_texts_is_first_drops_only_the_submitters_waiting_text() {
+    let mut w = world(true);
+    let (a, b) = (w.a.0.clone(), w.b.0.clone());
+    w.speak(&a, 1, 0);
+    w.speak(&b, 2, 1);
+    w.calls();
+    // `b`'s text waits behind `a`'s: its stop drops it from the line (status 1)
+    // and does not stop the shell, which is speaking `a`'s text.
+    w.stop(&b);
+    assert!(w.calls().is_empty());
+    w.pump();
+    assert_eq!(*w.b.1.borrow(), [(2, 1)]);
+    assert!(w.a.1.borrow().is_empty());
+    // `a`'s stop, with its text first, stops the shell.
+    w.stop(&a);
+    assert_eq!(w.calls(), [SpeechCall::Stop]);
+    w.pump();
+    assert_eq!(*w.a.1.borrow(), [(1, 1)]);
 }

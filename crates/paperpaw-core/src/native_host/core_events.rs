@@ -123,6 +123,8 @@ fn drop_note(tag: u32) -> &'static str {
         wire::EVENT_BOOK_CLOSED_TAG => "a native plugin lost event.book_closed; not retried",
         wire::EVENT_BOOK_FINISHED_TAG => "a native plugin lost event.book_finished; not retried",
         wire::EVENT_SCREEN_READY_TAG => "a native plugin lost event.screen_ready; not retried",
+        wire::EVENT_LIBRARY_CHANGED_TAG => "a native plugin lost event.library_changed; not retried",
+        wire::EVENT_SPOKEN_TAG => "a native plugin lost event.spoken; not retried",
         wire::EVENT_LIBRARY_CHANGED_TAG => {
             "a native plugin lost event.library_changed; not retried"
         }

@@ -6,6 +6,7 @@
     reason = "a part of the kernel, which sees all of it; not every part uses every name"
 )]
 use super::*;
+use crate::native_host::speech as native_speech;
 
 /// Runs a plugin's handler with a [`Commands`](paperpaw_sdk::Commands) of
 /// its own, then queues what it sent at the end of `out`.
@@ -596,11 +597,6 @@ impl Kernel {
         if self.bluetooth_answer(event, params) {
             return;
         }
-        // A native plugin's speech: its end is told to it alone, its stop is
-        // the kernel's (`native_host::speech`).
-        if self.native_speech_event(event, params) {
-            return;
-        }
         // (The firmware confirmation's answer is not an event anyone can
         // send: `with_screen` takes it from the confirmation screen alone.)
         // A page turned, also by itself, is use.
@@ -849,7 +845,7 @@ impl Kernel {
             // In place of what the system or another voice says now,
             // unless after it.
             if !speech.is_queued() {
-                self.io.speech.stop(&mut self.output.commands);
+                self.io.speech.stop();
                 let other = self
                     .io
                     .speech
@@ -890,7 +886,7 @@ impl Kernel {
 
     /// Stops speaking: the system's voice and a plugin's.
     pub(crate) fn stop_speaking(&mut self) {
-        self.io.speech.stop(&mut self.output.commands);
+        self.io.speech.stop();
         self.stop_voice();
     }
 
@@ -961,6 +957,14 @@ impl Kernel {
                 self.io.clipboard.read(reply, params);
             }
             Command::ReadClipboard(reply, params) => self.reply_clipboard(reply, params),
+            // A native plugin's stop (`native_host::speech`): its own speech
+            // only; it reaches here from the command stage alone (an
+            // interface-6 plugin's is refused in `vet_reserved`).
+            Command::Speak(speech) if native_speech::is_stop(speech.reply()) => {
+                if let Some(owner) = speech.params().get(native_speech::OWNER) {
+                    self.io.speech.stop_owned(owner);
+                }
+            }
             Command::Speak(speech) => {
                 self.speak(*speech);
                 self.io.focus_spoken = false;
@@ -1179,6 +1183,12 @@ pub(crate) fn vet_reserved(
                 // The sleep screen shows over the lock; the settings
                 // editor has these rights.
                 Command::BindSlot(slot, _) => *slot == slots::SLEEP || *slot == slots::SETTINGS,
+                // The host's own speech replies and stop request: only a
+                // native plugin's command stage makes them, or `event.spoken`
+                // could be forged for another plugin.
+                Command::Speak(speech) => {
+                    native_speech::is_reply(speech.reply()) || native_speech::is_stop(speech.reply())
+                }
                 _ => false,
             };
         index += 1;

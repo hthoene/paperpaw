@@ -3,13 +3,16 @@
 //!
 //! The kernel's speech (`io::speech`) is interface 6's and the shells' one
 //! backend: a native `command.speak` becomes the same [`Command::Speak`] with
-//! the host's own reply event ([`SPOKEN`]), which carries the submitter and
-//! the plugin's `cookie` in its parameters. When the text ends, or is replaced
-//! or stopped, the kernel emits that reply with a `status` (0 spoken, 1
-//! replaced or stopped, 2 no voice, 3 no speech on this device) and
-//! [`Kernel::native_speech_event`] queues `event.spoken` for the submitter
-//! alone. `command.stop_speaking` becomes a [`STOP`] request the same way: it
-//! stops the submitter's own speech only.
+//! the host's own reply id ([`SPOKEN`]), which carries the submitter and the
+//! plugin's `cookie` in its parameters. When the text ends, or is replaced or
+//! stopped, `io::speech` notes how (`status`: 0 spoken, 1 replaced or stopped,
+//! 2 no voice, 3 no speech on this device) in a list only the kernel holds, and
+//! [`Kernel::native_speech_pump`] queues `event.spoken` from it for the
+//! submitter alone. `command.stop_speaking` becomes a [`Command::Speak`] with
+//! the reply id [`STOP`] the kernel's apply recognises: it stops the
+//! submitter's own speech only. Neither id goes over the event bus, and an
+//! interface-6 plugin's command with either is refused (`vet_reserved`), so
+//! no plugin can forge an ending or stop another's speech.
 //!
 //! The only text copy beyond the plugin's own is the one the kernel keeps for
 //! the shell (the sentence being sent); the bookkeeping per text is the
@@ -21,9 +24,9 @@ use core::fmt::Write;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY};
 use paperpaw_sdk::{Command, Id, Params, Speech};
 
-/// The reply event of a native plugin's speech (the kernel's, no plugin's).
+/// The reply id of a native plugin's speech (the kernel's, no plugin's).
 pub(crate) const SPOKEN: &str = "core.native-spoken";
-/// The request to stop the speech of one native plugin.
+/// The reply id of the request to stop the speech of one native plugin.
 pub(crate) const STOP: &str = "core.native-stop-speaking";
 /// The submitting plugin's id.
 pub(crate) const OWNER: &str = "owner";
@@ -38,6 +41,11 @@ const QUEUE: u32 = 1;
 /// Whether `event` is the reply event of a native plugin's speech.
 pub(crate) fn is_reply(event: &Id) -> bool {
     event.as_str() == SPOKEN
+}
+
+/// Whether `event` is the reply id of a native plugin's stop request.
+pub(crate) fn is_stop(event: &Id) -> bool {
+    event.as_str() == STOP
 }
 
 /// `params` with the way the text ended (`event.spoken.status`).
@@ -93,42 +101,34 @@ pub(crate) fn stop(owner: &Id) -> Result<Command, i32> {
     params
         .try_set(OWNER, owner.as_str())
         .map_err(|_| ERR_NO_MEMORY)?;
-    Ok(Command::Emit(Id::new_static(STOP), params))
+    let request = Speech::new(String::new(), Id::new_static(STOP)).with(params);
+    Ok(Command::Speak(Box::new(request)))
 }
 
 impl Kernel {
-    /// The kernel's own events of a native plugin's speech: the end of a text
-    /// is queued as `event.spoken` for its submitter alone, and a stop request
-    /// stops the submitter's speech. `true` for those two events (nothing else
-    /// hears them), `false` for any other.
-    pub(crate) fn native_speech_event(&mut self, event: &Id, params: &Params) -> bool {
-        let owner = params.get(OWNER).unwrap_or("");
-        match event.as_str() {
-            STOP => {
-                self.io.speech.stop_owned(owner, &mut self.output.commands);
-            }
-            SPOKEN => {
-                let number = |key| params.get(key).and_then(|text| text.parse::<u32>().ok());
-                let (Some(cookie), Some(status)) = (number(COOKIE), number(STATUS)) else {
-                    return true;
-                };
-                let now_ms = self.now.millis();
-                self.native_queue_event(
-                    wire::EVENT_SPOKEN_TAG,
-                    &|plugin| plugin == owner,
-                    &|queue| {
-                        let record = wire::Record::EventSpoken(wire::EventSpoken {
-                            now_ms,
-                            cookie,
-                            status,
-                        });
-                        queue.push_record(wire::EVENT_SPOKEN_TAG, &record)
-                    },
-                );
-            }
-            _ => return false,
+    /// Queues `event.spoken` for the submitters of the texts that ended since
+    /// the last pass (to each alone), from the kernel's own list. `true` is
+    /// never answered: the queues are told by the pump after this.
+    pub(crate) fn native_speech_pump(&mut self) -> bool {
+        let ended = self.io.speech.take_ended();
+        let now_ms = self.now.millis();
+        for params in &ended {
+            let number = |key| params.get(key).and_then(|text| text.parse::<u32>().ok());
+            let (Some(owner), Some(cookie), Some(status)) =
+                (params.get(OWNER), number(COOKIE), number(STATUS))
+            else {
+                continue;
+            };
+            self.native_queue_event(wire::EVENT_SPOKEN_TAG, &|plugin| plugin == owner, &|queue| {
+                let record = wire::Record::EventSpoken(wire::EventSpoken {
+                    now_ms,
+                    cookie,
+                    status,
+                });
+                queue.push_record(wire::EVENT_SPOKEN_TAG, &record)
+            });
         }
-        true
+        false
     }
 }
 
