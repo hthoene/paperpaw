@@ -236,23 +236,22 @@ impl DocState {
         }
     }
 
-    #[inline(never)]
-    fn prepare_one(
+    /// One call of `op` to the format of `document`, outside any callback,
+    /// with the document's roots 3, 4 and 6 (as in an open) and its sides and
+    /// conversion; the answer at the front of `out`, its length returned. The
+    /// preparing loop's step and the cover job's cover (`doc_cover_make`).
+    ///
+    /// # Errors
+    /// As `Stage::call`, `ERR_BUSY` for a book table held now.
+    pub(super) fn call_in_scope(
         &self,
         hosts: &HostServices,
         route: &dyn Route,
         document: &doc_service::Document,
-    ) -> Result<(), i32> {
-        let (target, kind) = match self.format_target(document.format) {
-            Ok(found) => found,
-            // The format left the index: it will not be there again for this
-            // document, so the document fails (retrying would never end).
-            Err(ERR_CANCELLED) => {
-                self.fail_prepared(hosts, document, ERR_CANCELLED);
-                return Ok(());
-            }
-            Err(status) => return Err(status),
-        };
+        (target, kind): (Target, BookKind),
+        op: u32,
+        out: &mut [u8],
+    ) -> Result<usize, i32> {
         let css = {
             let books = self.books.try_borrow().map_err(|_| ERR_BUSY)?;
             let book = books
@@ -261,11 +260,7 @@ impl DocState {
                 .ok_or(ERR_NOT_FOUND)?;
             super::copy(book.cache.as_ref().map_or("", |cache| &cache.css))?
         };
-        let mut out = Vec::new();
-        out.try_reserve_exact(REPLY_BYTES)
-            .map_err(|_| ERR_NO_MEMORY)?;
-        out.resize(REPLY_BYTES, 0);
-        let mut call = FormatCall::new(document.format, fmt::PREPARE, document.id);
+        let mut call = FormatCall::new(document.format, op, document.id);
         call.conversion = document.conversion;
         call.image_side = document.image_side;
         call.cover_side = document.cover_side;
@@ -284,7 +279,7 @@ impl DocState {
                 },
                 target,
                 &call,
-                &mut out,
+                out,
             );
         };
         if kind == BookKind::Siblings {
@@ -292,7 +287,38 @@ impl DocState {
         } else {
             run("");
         }
-        let length = result?;
+        result
+    }
+
+    #[inline(never)]
+    fn prepare_one(
+        &self,
+        hosts: &HostServices,
+        route: &dyn Route,
+        document: &doc_service::Document,
+    ) -> Result<(), i32> {
+        let (target, kind) = match self.format_target(document.format) {
+            Ok(found) => found,
+            // The format left the index: it will not be there again for this
+            // document, so the document fails (retrying would never end).
+            Err(ERR_CANCELLED) => {
+                self.fail_prepared(hosts, document, ERR_CANCELLED);
+                return Ok(());
+            }
+            Err(status) => return Err(status),
+        };
+        let mut out = Vec::new();
+        out.try_reserve_exact(REPLY_BYTES)
+            .map_err(|_| ERR_NO_MEMORY)?;
+        out.resize(REPLY_BYTES, 0);
+        let length = self.call_in_scope(
+            hosts,
+            route,
+            document,
+            (target, kind),
+            fmt::PREPARE,
+            &mut out,
+        )?;
         let (state, status, moved) = doc_service::prepared(&self.table, document, &out[..length])?;
         if moved {
             self.fresh.set(true);

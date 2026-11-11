@@ -34,6 +34,7 @@ const SCRATCH: usize = 4096;
 
 impl DocState {
     /// Whether the cover job is the document of the book at `path`.
+    #[cfg(test)]
     pub(super) fn cover_job_path_is(&self, path: &str) -> bool {
         let Some(job) = self.table.cover_job() else {
             return false;
@@ -45,7 +46,7 @@ impl DocState {
 
     /// The key of the path of the book of document `document` (what the
     /// library keeps of a failed book), 0 where the book is not held.
-    fn book_key(&self, document: u32) -> u64 {
+    pub(super) fn book_key(&self, document: u32) -> u64 {
         self.books.try_borrow().map_or(0, |books| {
             books
                 .iter()
@@ -54,12 +55,36 @@ impl DocState {
         })
     }
 
+    /// A library list screen is up (`up`) or not (`DocHost::cover_job_list`):
+    /// the job is held while one is up and for [`RESUME_AFTER_MS`] after, and
+    /// the time it is held is no awake time.
+    ///
+    /// Says when the quiet moment of a job that waits ends (the kernel's
+    /// clock, ms), so that the pump asks to be woken then: `None` while a
+    /// list is up (its leaving makes a pass), without a job, or with no hold.
+    pub(super) fn list_hold(&self, up: bool) -> Option<u64> {
+        let now = self.now.get();
+        if up {
+            self.list_quiet_until
+                .set(now.saturating_add(super::RESUME_AFTER_MS));
+        }
+        let hold = up || now < self.list_quiet_until.get();
+        if hold && !self.table.list_held() {
+            // What it ran so far counts; the held time does not.
+            self.add_used();
+        }
+        if self.table.set_list_hold(hold) && !hold {
+            self.job_started.set(now);
+        }
+        (hold && !up && self.table.cover_job().is_some()).then(|| self.list_quiet_until.get())
+    }
+
     /// What the job that runs has run since it began (or since this was last
     /// asked) is added to its book's total.
     fn add_used(&self) {
         let (key, used) = self.job_used.get();
         let now = self.now.get();
-        if key == self.job_key.get() {
+        if key == self.job_key.get() && !self.table.list_held() {
             let ran = now.saturating_sub(self.job_started.get());
             self.job_used.set((key, used.saturating_add(ran)));
         }
@@ -130,6 +155,11 @@ impl DocState {
             self.cover_job_end(hosts, route);
             return JobStep::None;
         }
+        // A ready book's cover to make goes first: it never waits behind a
+        // job (`doc_cover_make`).
+        if let Some(row) = self.table.cover_make() {
+            return self.cover_make_next(hosts, route, &row);
+        }
         let Some(job) = self.table.cover_job() else {
             // A job that an open took the place of: its marker is left.
             self.unguard();
@@ -145,6 +175,9 @@ impl DocState {
         if job.state == PREPARING {
             return JobStep::Wait;
         }
+        // Ready: the format makes the cover now, outside the list's frame
+        // (`doc_cover_make`).
+        let made = (job.state == READY).then(|| self.make_cover(hosts, route, &job));
         // A card that failed is no fault of the book: not remembered as failed.
         let key = if job.state == FAILED && job.status == ERR_IO {
             0
@@ -158,10 +191,7 @@ impl DocState {
         self.unguard();
         // It came to an end by itself: displacements are not in a row.
         self.job_displaced.set((0, 0));
-        JobStep::Ended {
-            ready: job.state == READY,
-            key,
-        }
+        made.map_or(JobStep::Ended { ready: false, key }, |made| made.step(key))
     }
 
     /// Notes what a preparing step did for the cover job: steps that cannot be
@@ -211,12 +241,13 @@ impl DocState {
         if let Some(job) = self.table.take_cover_job() {
             self.end_job(hosts, route, &job);
         }
+        self.cover_make_end(hosts, route);
         self.unguard();
     }
 
     /// Ends a job whose preparation is over, as `close` would: the cache is
     /// finished, the format gets op 4, the book's hold is given back.
-    fn end_job(&self, hosts: &HostServices, route: &dyn Route, document: &Document) {
+    pub(super) fn end_job(&self, hosts: &HostServices, route: &dyn Route, document: &Document) {
         self.finish_cache(hosts, document.id);
         if !document.format_gone
             && let Ok((target, _)) = self.format_target(document.format)
