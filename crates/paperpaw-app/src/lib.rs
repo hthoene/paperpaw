@@ -343,11 +343,11 @@ pub fn install_with(
     let _ = store;
     let mut b = builder
         .plugin(paperpaw_plugin_format_txt::TxtFormat)
-        .plugin(paperpaw_plugin_format_epub::EpubFormat)
-        .plugin(paperpaw_plugin_format_epub::HtmlFormat)
-        .plugin(paperpaw_plugin_format_epub::Fb2Format)
-        .plugin(paperpaw_plugin_format_epub::MarkdownFormat)
-        .plugin(paperpaw_plugin_format_epub::CbzFormat)
+        .plugin(paperpaw_epub_family::EpubFormat)
+        .plugin(paperpaw_epub_family::HtmlFormat)
+        .plugin(paperpaw_epub_family::Fb2Format)
+        .plugin(paperpaw_epub_family::MarkdownFormat)
+        .plugin(paperpaw_epub_family::CbzFormat)
         .plugin(paperpaw_plugin_format_xtc::XtcFormat)
         .plugin(paperpaw_plugin_dictionary::DictionaryPlugin)
         .plugin(paperpaw_plugin_reader::Reader);
