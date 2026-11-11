@@ -276,7 +276,10 @@ impl TxtProvider {
             // labels, XPointers, cover or pictures (`ERR_NOT_FOUND`).
             9 | 14 | 16 => {
                 self.ready(call.document)?;
-                one(Record::FmtEnd(stage::FmtEnd::new(0, 0, 0, 0, None)), out)
+                one(
+                    Record::FmtEnd(stage::FmtEnd::new(END_LAST, 0, 1, 0, None)),
+                    out,
+                )
             }
             10..=13 | 15 | 17 | 18 => {
                 self.ready(call.document)?;
@@ -463,7 +466,13 @@ impl TxtProvider {
 
     fn sections(document: &TxtDocument, cursor: u32, out: &mut [u8]) -> Result<usize, Error> {
         let section = Record::FmtSection(stage::FmtSection::new(0, document.section_len(0), 0));
-        let end = Record::FmtEnd(stage::FmtEnd::new(0, document.sections(), 0, 0, None));
+        let end = Record::FmtEnd(stage::FmtEnd::new(
+            END_LAST,
+            document.sections(),
+            1,
+            0,
+            None,
+        ));
         if cursor == 0 {
             stage::reply_encode(&[section, end], out)
         } else {

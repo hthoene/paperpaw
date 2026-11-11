@@ -26,6 +26,8 @@ native-linked-reading = [
     "native-linked",
     "paperpaw-plugin-home/linked",
     "paperpaw-plugin-reader/linked",
+    "paperpaw-plugin-format-txt/linked",
+    "paperpaw-plugin-format-xtc/linked",
     "paperpaw-plugin-news?/linked",
     "paperpaw-plugin-vocabulary?/linked",
 ]

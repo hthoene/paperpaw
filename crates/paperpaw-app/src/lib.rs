@@ -142,9 +142,11 @@ pub const fn default_store() -> StorePlugins<'static> {
 /// list only with the feature `native-linked-store`; whether one registers is
 /// [`native_default_on`]. Not in the list yet, because their ports are not
 /// finished (each one's `PORTING-7.md` says what is open) or the interface-6
-/// reader still reads books through their interface-6 forms: the formats (txt,
-/// xtc, docx, images, mobi), sleep, dictionary, store, fonts-browser,
-/// picture-home. Home, reader, news and vocabulary are linked since their
+/// reader still reads books through their interface-6 forms: the formats (epub
+/// family, docx, images, mobi), sleep, dictionary, store, fonts-browser,
+/// picture-home. Format TXT and XTC are linked with the reader
+/// (`native-linked-reading`): the native reader opens books through the
+/// formats the document service finds among the native plugins. Home, reader, news and vocabulary are linked since their
 /// settings tables are kept in the program (`fixed_tables`): without them
 /// linking costs about 39 KiB of heap (Core's measurement on #1140).
 #[cfg(feature = "native-linked")]
@@ -158,6 +160,10 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("help", &paperpaw_plugin_help::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-reading")]
     ("home", &paperpaw_plugin_home::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-reading")]
+    ("format-txt", &paperpaw_plugin_format_txt::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-reading")]
+    ("format-xtc", &paperpaw_plugin_format_xtc::NATIVE_ENTRY),
     ("keyboard", &paperpaw_plugin_keyboard::NATIVE_ENTRY),
     ("lock", &paperpaw_plugin_lock::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
@@ -495,14 +501,18 @@ pub fn install_with(
     let mut b = builder;
     // The plugins that are native plugins, linked (`NATIVE_PLUGINS`), where the
     // feature says, are not installed here: one plugin, one form.
+    #[cfg(not(feature = "native-linked-reading"))]
+    {
+        b = b
+            .plugin(paperpaw_plugin_format_txt::TxtFormat)
+            .plugin(paperpaw_plugin_format_xtc::XtcFormat);
+    }
     b = b
-        .plugin(paperpaw_plugin_format_txt::TxtFormat)
         .plugin(paperpaw_epub_family::EpubFormat)
         .plugin(paperpaw_epub_family::HtmlFormat)
         .plugin(paperpaw_epub_family::Fb2Format)
         .plugin(paperpaw_epub_family::MarkdownFormat)
         .plugin(paperpaw_epub_family::CbzFormat)
-        .plugin(paperpaw_plugin_format_xtc::XtcFormat)
         .plugin(paperpaw_plugin_dictionary::DictionaryPlugin);
     // Reader and Home keep their order; they are native plugins, linked
     // (`NATIVE_PLUGINS`), where the feature says (`native-linked-reading`);
