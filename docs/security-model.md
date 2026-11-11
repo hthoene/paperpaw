@@ -37,7 +37,12 @@ are reported as [SECURITY.md](../SECURITY.md) says.
   more, count as absent and are entered again, and the next save makes a new
   key. Whether the stock firmware does erase it is not known from sources
   (no dump, no ESP-IDF source here); it needs one look on the owner's X4
-  (todo for dual-boot, not for this change).
+  (todo for dual-boot, not for this change). The firmware only erases that
+  sector when it is erased or holds its own record (`PPDEVKY1`, or one cut
+  short); anything else (an NVS page) is left as it is and nothing is sealed
+  (`ERR_STATE`). The X4 Classic, whose `nvs` is the factory's and "kept
+  whole, never written", seals nothing until decision 141 gives the key a
+  place of its own.
   On Android the file is in the app's private folder, which only
   PaperPaw reads. They are never shown
   in full; screens show dots and ask for them afresh. Wi-Fi networks the

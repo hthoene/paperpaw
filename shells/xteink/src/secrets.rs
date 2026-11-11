@@ -11,8 +11,11 @@
 //! - A key that reads is never replaced. A flash that fails to read is not
 //!   erased. A sector without a valid key (erased, damaged) gets a new key
 //!   only at a seal.
-//! - Statuses: `ERR_STATE` means only "the random numbers are weak now" (the host
-//!   then asks to turn Wi-Fi on); a failing cipher or flash is `ERR_IO`, a flash that
+//! - A key sector that holds data that is not ours (an NVS page), and the X4
+//!   Classic's (its `nvs` is the factory's), are never erased or written:
+//!   nothing is sealed there.
+//! - Statuses: `ERR_STATE` means "the random numbers are weak now" (the host
+//!   then asks to turn Wi-Fi on) or "this device keeps no key now" (above); a failing cipher or flash is `ERR_IO`, a flash that
 //!   somebody else holds is `ERR_BUSY`.
 //! - Fallible throughout: the GCM context is made with `try_reserve`, a
 //!   panic is never the answer to a value that does not open.
@@ -126,6 +129,14 @@ impl DeviceSealer {
         if let Some(at) = self.at.get() {
             return Ok(at);
         }
+        // The X4 Classic's `nvs` is the factory's NVS (`0x9000` to `0xE000`,
+        // "kept whole, never written": it says which panel the device has), and
+        // the key's sector is inside it. No key is kept there until decision
+        // 141 gives it a place of its own: nothing is sealed (`ERR_STATE`),
+        // nothing is written.
+        if cfg!(feature = "x4-classic") {
+            return Err(ERR_STATE);
+        }
         let mut flash = self.flash.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         let mut table = Vec::new();
         table
@@ -168,6 +179,9 @@ impl DeviceSealer {
     fn key(&self, make: bool) -> Result<Key, i32> {
         match self.read()? {
             Sector::Key(key) => return Ok(Key(key)),
+            // Not ours: never erased, never written over (a page of the
+            // factory's or the stock firmware's NVS); nothing is sealed.
+            Sector::Foreign => return Err(if make { ERR_STATE } else { ERR_NOT_FOUND }),
             _ if !make => return Err(ERR_NOT_FOUND),
             _ => {}
         }
@@ -178,8 +192,10 @@ impl DeviceSealer {
         }
         // Read again before a key is replaced: one bad read must not destroy
         // a key that is there.
-        if let Sector::Key(there) = self.read()? {
-            return Ok(Key(there));
+        match self.read()? {
+            Sector::Key(there) => return Ok(Key(there)),
+            Sector::Foreign => return Err(ERR_STATE),
+            _ => {}
         }
         let at = self.sector()?;
         let mut record = dk::record(&key.0);

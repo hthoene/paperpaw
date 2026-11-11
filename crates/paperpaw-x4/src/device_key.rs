@@ -48,8 +48,14 @@ pub enum Sector {
     Key([u8; KEY]),
     /// Nothing written: the erased flash.
     Erased,
-    /// Something else, or a record cut short: no key.
+    /// Our own record that does not read: it begins with [`MAGIC`] (or a
+    /// prefix of it, the rest erased: a write cut short) but the checksum
+    /// fails or it is too short. No key; the sector is ours to erase.
     Damaged,
+    /// Anything else: data that is not ours (an NVS page of the stock
+    /// firmware, of the factory's NVS). No key, and the sector is **never
+    /// erased or written** over it.
+    Foreign,
 }
 
 /// Never prints the key (a log line or a failed assertion must not show it).
@@ -59,6 +65,7 @@ impl core::fmt::Debug for Sector {
             Self::Key(_) => f.write_str("Key(<redacted>)"),
             Self::Erased => f.write_str("Erased"),
             Self::Damaged => f.write_str("Damaged"),
+            Self::Foreign => f.write_str("Foreign"),
         }
     }
 }
@@ -73,7 +80,21 @@ pub fn read(bytes: &[u8]) -> Sector {
         return Sector::Erased;
     }
     let (body, crc) = bytes.split_at(LEN - 4);
-    if !body.starts_with(&MAGIC) || crc != crc32(body).to_le_bytes() {
+    if !body.starts_with(&MAGIC) {
+        // A write cut short inside the magic: a prefix of it, then erased.
+        let kept = bytes
+            .iter()
+            .zip(MAGIC)
+            .take_while(|&(&have, want)| have == want)
+            .count();
+        let torn = kept > 0 && bytes[kept..].iter().all(|&b| b == 0xFF);
+        return if torn {
+            Sector::Damaged
+        } else {
+            Sector::Foreign
+        };
+    }
+    if crc != crc32(body).to_le_bytes() {
         return Sector::Damaged;
     }
     let mut key = [0u8; KEY];
@@ -172,6 +193,7 @@ mod tests {
         assert_eq!(format!("{:?}", Sector::Key(key())), "Key(<redacted>)");
         assert_eq!(format!("{:?}", Sector::Erased), "Erased");
         assert_eq!(format!("{:?}", Sector::Damaged), "Damaged");
+        assert_eq!(format!("{:?}", Sector::Foreign), "Foreign");
     }
 
     #[test]
@@ -192,13 +214,20 @@ mod tests {
     }
 
     #[test]
-    fn any_changed_bit_is_damage() {
+    fn any_changed_bit_of_our_record_is_damage_and_one_in_the_magic_is_not_ours() {
         let good = record(&key());
         for at in 0..LEN {
             for bit in 0..8 {
                 let mut bad = good;
                 bad[at] ^= 1 << bit;
-                assert_eq!(read(&bad), Sector::Damaged, "byte {at} bit {bit}");
+                // Past the magic the record is still ours, with a bad
+                // checksum; in it the bytes are no longer ours to erase.
+                let expected = if at < MAGIC.len() {
+                    Sector::Foreign
+                } else {
+                    Sector::Damaged
+                };
+                assert_eq!(read(&bad), expected, "byte {at} bit {bit}");
             }
         }
     }
@@ -217,9 +246,24 @@ mod tests {
     }
 
     #[test]
-    fn foreign_data_is_damage() {
-        assert_eq!(read(&[0u8; SECTOR]), Sector::Damaged);
-        assert_eq!(read(&[0x5A; LEN]), Sector::Damaged);
+    fn foreign_data_is_foreign_and_never_ours_to_erase() {
+        assert_eq!(read(&[0u8; SECTOR]), Sector::Foreign);
+        assert_eq!(read(&[0x5A; LEN]), Sector::Foreign);
+        // An NVS page of the ESP-IDF (state word, sequence number, entries):
+        // the factory's or the stock firmware's pages at the same place.
+        let mut nvs = [0xFF_u8; SECTOR];
+        nvs[..8].copy_from_slice(&[0xFE, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00]);
+        nvs[32..48].copy_from_slice(b"\x01\x01\x01\xFFhw_calib\0\0\0\0");
+        assert_eq!(read(&nvs), Sector::Foreign);
+    }
+
+    #[test]
+    fn a_torn_prefix_of_the_magic_is_ours() {
+        for kept in 1..MAGIC.len() {
+            let mut torn = [0xFF_u8; LEN];
+            torn[..kept].copy_from_slice(&MAGIC[..kept]);
+            assert_eq!(read(&torn), Sector::Damaged, "{kept} bytes");
+        }
     }
 
     #[test]
