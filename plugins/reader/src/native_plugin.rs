@@ -7,31 +7,39 @@
 //! `native_*` models, tested without one.
 use crate::{
     declarations::{
-        ANNOTATIONS, FOOTNOTE, SCREEN, SETTING_CHANGED, STOPPING, SUSPEND, TOC, WORK_DUE,
+        ANNOTATIONS, FOOTNOTE, SCREEN, SEARCH, SEARCH_WORK, SETTING_CHANGED, STOPPING, SUSPEND,
+        TOC, WORK_DUE,
     },
     native_annotations_view::{AnnotationsView, Outcome as NotesOutcome},
     native_footnote::{Footnote, Pressed},
     native_pages,
+    native_search::MAX_NEEDLE,
+    native_search_view::{Outcome as SearchOutcome, SearchView},
     native_toc_view::{Outcome, TocView},
     native_view::View,
 };
-use alloc::string::String;
+use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled,
     native::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::CommandSender,
+        commands::RedrawMode,
         document::Documents,
-        events::{Event, Incoming, kinds},
+        events::{AnswerOutcome, Answered, Event, Incoming, kinds},
         library::Library,
         registrations,
         reply::Reply,
-        ui::Ui,
+        ui::{Question, RequestId as AskId, Ui},
         work::{Work, WorkSpec},
     },
 };
-use paperpaw_ui_kit::{Screens, read_event};
+use paperpaw_ui_kit::{
+    Messages, Screens,
+    mem::{SERVICE_BUFFER, buffer},
+    read_event,
+};
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/reader_declarations.rs"));
@@ -55,6 +63,10 @@ const BATCHES: [&[&[u8]]; 7] = [
 /// (Beta 3's `SAVE_QUIET_MS`).
 const QUIET_KEY: &str = "place";
 const QUIET_MS: u32 = 2_000;
+/// The key of the work that reads the next blocks of a search, and the pause
+/// between two steps (the page is drawn between them).
+const SEARCH_KEY: &str = "search";
+const SEARCH_STEP_MS: u32 = 50;
 
 /// The interface-7 reader.
 #[derive(Debug, Default)]
@@ -69,6 +81,11 @@ pub struct NativeReader {
     tocs: Screens<TocView>,
     /// The annotations screens.
     annotations: Screens<AnnotationsView>,
+    searches: Screens<SearchView>,
+    /// The question for the text to search for, while it is open.
+    asking: Option<AskId>,
+    /// The text answered, until the results screen it opened takes it.
+    query: Option<String>,
     /// The notes over the pages.
     notes: Screens<Footnote>,
     /// *Go to the note* pressed: the book and the link, followed when its
@@ -235,6 +252,134 @@ impl NativeReader {
         Ok(Handled::Yes)
     }
 
+    /// The search screen opened: the text answered is searched for.
+    fn open_search(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
+    ) -> Result<(), Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        if self.docs.is_none() {
+            self.docs = Some(Documents::open(host)?);
+        }
+        let query = self.query.take().unwrap_or_default();
+        let (Some(ui), Some(docs)) = (&self.ui, &self.docs) else {
+            return Err(Error::State);
+        };
+        let shared = self.screens.top(SCREEN).and_then(|v| v.doc_id());
+        let view = SearchView::open(host, ui, docs, (handover, shared), &query)?;
+        let searching = view.searching();
+        self.searches.open(instance, view)?;
+        if searching {
+            self.declare_work(host, (SEARCH_KEY, SEARCH_WORK), SEARCH_STEP_MS);
+        }
+        Ok(())
+    }
+
+    /// The work of the search is due: the next blocks of the book are read by
+    /// every search under way, and the page is drawn where it changed.
+    fn search_due(&mut self, host: &Host<'_>) {
+        let Some(docs) = &self.docs else {
+            return;
+        };
+        let (mut redraw, mut again) = (false, false);
+        for view in self.searches.all() {
+            match view.step(host, docs) {
+                Ok(stepped) => {
+                    redraw |= stepped.redraw;
+                    again |= stepped.again;
+                }
+                // A step that fails ends its search, and the screen says so.
+                Err(error) => {
+                    view.fail(error);
+                    redraw = true;
+                }
+            }
+        }
+        if redraw {
+            let mut scratch = [0; 64];
+            CommandSender::new(host, &mut scratch)
+                .queue_redraw(RedrawMode::Partial)
+                .ok();
+        }
+        if again {
+            self.declare_work(host, (SEARCH_KEY, SEARCH_WORK), SEARCH_STEP_MS);
+        }
+    }
+
+    /// An input of the search results; a choice goes to the reading screen
+    /// below and closes this one.
+    fn search_input(&mut self, host: &Host<'_>, input: &Input<'_>) -> Result<Handled, Error> {
+        let Some(view) = self.searches.top(SEARCH) else {
+            return Ok(Handled::No);
+        };
+        let (handled, outcome) = view.input(host, input)?;
+        if let SearchOutcome::Go(place) = outcome {
+            if let Some(reading) = self.screens.top(SCREEN) {
+                reading.go_to((place.section, place.offset))?;
+                if reading.take_turned() {
+                    self.start_quiet(host);
+                }
+            }
+            let mut scratch = [0; 64];
+            CommandSender::new(host, &mut scratch).back()?;
+        }
+        Ok(handled)
+    }
+
+    /// Asks for the text to search for (the keyboard answers).
+    fn ask_search(&mut self, host: &Host<'_>) -> Result<Handled, Error> {
+        let (Some(view), Some(ui)) = (self.screens.top(SCREEN), &self.ui) else {
+            return Ok(Handled::No);
+        };
+        if view.doc_id().is_none() {
+            return Ok(Handled::No);
+        }
+        let title = Messages::new()?.copy(host, "reader.search.prompt")?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let request = ui.ask(host, Question::text(&title, "")?, &mut input, &mut out)?;
+        self.asking = Some(request);
+        Ok(Handled::Yes)
+    }
+
+    /// An answer to the question for the text: the search screen opens for it.
+    fn answered(&mut self, host: &Host<'_>, answer: &Answered) -> Result<(), Error> {
+        if answer.outcome() == AnswerOutcome::Typing || self.asking != Some(answer.request()) {
+            return Ok(());
+        }
+        self.asking = None;
+        if answer.outcome() != AnswerOutcome::Answered {
+            return Ok(());
+        }
+        let Some(ui) = &self.ui else {
+            return Err(Error::State);
+        };
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let part = ui.text_read(host, answer.request().text(), 0, &mut input, &mut out)?;
+        // What a query counts is its first characters: the screen shows the
+        // text it searches for.
+        let typed = part.data();
+        let query = paperpaw_ui_kit::text::copy(cut(typed.trim(), MAX_NEEDLE))?;
+        if query.is_empty() {
+            return Ok(());
+        }
+        let Some(view) = self.screens.top(SCREEN) else {
+            return Ok(());
+        };
+        let Some(book) = view.toc_params() else {
+            return Ok(());
+        };
+        let mut params = Vec::new();
+        params.try_reserve_exact(5).map_err(|_| Error::NoMemory)?;
+        params.extend(book);
+        params.push(("query", paperpaw_ui_kit::text::copy(&query)?));
+        self.query = Some(query);
+        crate::native_annotations_view::open_screen(host, ui, "reader.search-results", &params)
+    }
+
     /// A setting changed: every reading screen lays its page out again (a
     /// setting of the layout) or draws it again (a setting of the ink). A refusal
     /// of one screen costs the others nothing.
@@ -272,6 +417,11 @@ impl NativeReader {
     /// turn, which replaces the work and starts the time again. Where the host
     /// has no work, the place is written at sleep, stop and close.
     fn start_quiet(&mut self, host: &Host<'_>) {
+        self.declare_work(host, (QUIET_KEY, WORK_DUE), QUIET_MS);
+    }
+
+    /// Declares the work `(key, token)` to be due after `after` milliseconds.
+    fn declare_work(&mut self, host: &Host<'_>, (key, token): (&str, u32), after: u32) {
         if self.work.is_none() && !self.no_work {
             self.work = Work::open(host).ok();
             self.no_work = self.work.is_none();
@@ -285,8 +435,8 @@ impl NativeReader {
         ) else {
             return;
         };
-        if let Ok(spec) = WorkSpec::new(QUIET_KEY, WORK_DUE) {
-            work.declare(host, &spec.after_ms(QUIET_MS), &mut input, &mut out)
+        if let Ok(spec) = WorkSpec::new(key, token) {
+            work.declare(host, &spec.after_ms(after), &mut input, &mut out)
                 .ok();
         }
     }
@@ -325,11 +475,18 @@ impl Plugin for NativeReader {
             kinds::Suspend,
             kinds::Stopping,
             kinds::WorkDue,
+            kinds::Answered,
             kinds::SettingChanged
         ) else {
             return Ok(());
         };
         match event {
+            // The search's work is due (the work's own token, as declared).
+            Event::WorkDue(due) if token == WORK_DUE && due.token() == SEARCH_WORK => {
+                self.search_due(host);
+                Ok(())
+            }
+            Event::Answered { answer, .. } => self.answered(host, &answer),
             // The quiet time has come, or the device sleeps or stops.
             Event::WorkDue(_) | Event::Suspend { .. } | Event::Stopping { .. }
                 if matches!(token, WORK_DUE | SUSPEND | STOPPING) =>
@@ -350,6 +507,7 @@ impl Plugin for NativeReader {
                 SCREEN => self.open(host, instance, handover),
                 TOC => self.open_toc(host, instance, handover),
                 ANNOTATIONS => self.open_notes(host, instance, handover),
+                SEARCH => self.open_search(host, instance, handover),
                 FOOTNOTE => self.open_note(host, instance, handover),
                 _ => Ok(()),
             },
@@ -365,6 +523,7 @@ impl Plugin for NativeReader {
                     self.follow_note(host, instance)
                 }
                 TOC => self.tocs.shown(TOC, instance),
+                SEARCH => self.searches.shown(SEARCH, instance),
                 ANNOTATIONS => self.annotations.shown(ANNOTATIONS, instance),
                 FOOTNOTE => self.notes.shown(FOOTNOTE, instance),
                 _ => Ok(()),
@@ -373,6 +532,12 @@ impl Plugin for NativeReader {
                 match token {
                     SCREEN => self.close(host, instance),
                     TOC => self.close_toc(host, instance),
+                    SEARCH => {
+                        if let Some(view) = self.searches.get(instance) {
+                            view.close();
+                        }
+                        self.searches.close(instance);
+                    }
                     ANNOTATIONS => self.annotations.close(instance),
                     FOOTNOTE => self.notes.close(instance),
                     _ => {}
@@ -392,6 +557,10 @@ impl Plugin for NativeReader {
             let view = self.annotations.top(token).ok_or(Error::State)?;
             return view.draw(host, &mut frame);
         }
+        if token == SEARCH {
+            let view = self.searches.top(token).ok_or(Error::State)?;
+            return view.draw(host, &mut frame);
+        }
         if token == FOOTNOTE {
             let note = self.notes.top(token).ok_or(Error::State)?;
             return note.draw(host, &mut frame);
@@ -408,6 +577,20 @@ impl Plugin for NativeReader {
         }
         if token == ANNOTATIONS {
             return self.notes_input(host, &input);
+        }
+        if token == SEARCH {
+            return self.search_input(host, &input);
+        }
+        if token == SCREEN
+            && matches!(
+                input,
+                Input::Action {
+                    action: "reader.search",
+                    ..
+                }
+            )
+        {
+            return self.ask_search(host);
         }
         if token == SCREEN
             && matches!(
@@ -442,6 +625,13 @@ impl Plugin for NativeReader {
         }
         Ok(handled)
     }
+}
+
+/// `text` cut to at most `most` characters.
+fn cut(text: &str, most: usize) -> &str {
+    text.char_indices()
+        .nth(most)
+        .map_or(text, |(end, _)| text.get(..end).unwrap_or(text))
 }
 
 #[cfg(test)]

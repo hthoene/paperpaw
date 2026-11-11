@@ -228,3 +228,19 @@ finishes the port; until then nothing is dropped.
 
 Each is an ignored case in `tests/acceptance_pending.rs`. The interface-6 tests
 (`tests/*.rs`) stay as the references.
+
+## Ported in slice 7 (`src/native_device.rs`, `src/native_load.rs`, `src/native_plugin.rs`)
+
+- The device's facts (`native_device.rs`): its name, the code file a build gets, the
+  plugins installed (sorted by id, read from the registry with a 256-byte stack
+  request), the library's address and the *Community plugins* setting, read from the
+  settings service. `Facts::read` returns `None` where plugin libraries do not know the
+  device.
+- The fetch (`native_load.rs`): a state machine over the `Wire` trait (the host's
+  storage, the network request, final address and revocations), host-free and tested
+  with a scripted wire. The list is saved to `list.part` and indexed in one pass; a
+  plugin's page is asked and kept for one screen; a failed or offline answer is
+  `Trouble::Failed`/`Offline`, never a panic. Small devices keep fewer pictures.
+- `native_plugin.rs`: the entry and the `Wire` over the host. Still open (other
+  slices): the screens, the downloads and installs, the requests of other plugins, the
+  first-run offer.

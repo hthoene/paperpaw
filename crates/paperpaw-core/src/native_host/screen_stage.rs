@@ -33,6 +33,8 @@ pub(crate) struct StageInputs {
     pub(crate) hint_buttons: bool,
     /// The plugin's picture requests that wait outside the table.
     pub(crate) images_held: usize,
+    /// The plugin's texts the kernel's speech holds.
+    pub(crate) speech_held: usize,
 }
 
 /// The device-wide hand-off between the kernel and the screens' dispatch.
@@ -171,6 +173,7 @@ pub(crate) fn build_stage<'a>(parts: StageParts<'a>) -> CommandStage<'a> {
     .with_hint_labels(stack_rows.labels(), inputs.hint_buttons)
     .with_widgets(ui, owner_key);
     stage.set_images_held(inputs.images_held);
+    stage.set_speech_held(inputs.speech_held);
     if let Some(directory) = directory {
         stage = stage.with_item_states(super::commands::ItemAdmit { directory });
     }
@@ -266,6 +269,7 @@ mod tests {
             keys_remaining: keys,
             hint_buttons: false,
             images_held: 0,
+            speech_held: 0,
         };
         assert!(queue.inputs().is_none());
         let outer = queue.arm(inputs(1));

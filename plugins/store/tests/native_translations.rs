@@ -7,7 +7,8 @@ fn the_settings_have_words() {
     let source = include_str!("../declarations.rs");
     let mut asked = 0;
     for part in source.split('"').skip(1).step_by(2) {
-        if part.starts_with("store.") && !part.ends_with('.') {
+        // `store.open` is the id of the action (its title is `store.title`).
+        if part.starts_with("store.") && !part.ends_with('.') && part != "store.open" {
             asked += 1;
             for (name, catalog) in [("en", EN), ("de", DE)] {
                 assert!(

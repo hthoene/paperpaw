@@ -28,6 +28,8 @@ mod letters;
 mod list;
 #[doc(hidden)]
 pub mod native_ask;
+#[doc(hidden)]
+pub mod native_device;
 mod native_entry;
 #[doc(hidden)]
 pub mod native_index;
@@ -35,6 +37,8 @@ pub mod native_index;
 pub mod native_item;
 #[doc(hidden)]
 pub mod native_list;
+#[doc(hidden)]
+pub mod native_load;
 #[doc(hidden)]
 pub mod native_model;
 #[doc(hidden)]

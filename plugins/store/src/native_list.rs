@@ -30,6 +30,10 @@ pub struct Hooks<'a> {
     pub author_of: &'a dyn Fn(&str) -> Option<[u8; 32]>,
     /// The plugins whose keys are already stopped.
     pub stopped: &'a dyn Fn() -> Vec<String>,
+    /// The device does not say whose key a plugin is pinned to (interface 7: the
+    /// host keeps the pins): a revocation of a plugin that is here is handed
+    /// over whatever `author_of` says, and the host keeps only what holds.
+    pub host_checks: bool,
 }
 
 impl core::fmt::Debug for Hooks<'_> {
@@ -196,7 +200,10 @@ fn step(
         Event::Close([list, at])
             if list == "revoked_keys" && at == "[]" && *format == Some(FORMAT) =>
         {
-            revoked.entry_done(&|id| device.knows(id), hooks.author_of, hooks.stopped)?;
+            revoked.entry_done(
+                &|id| device.knows(id),
+                (hooks.author_of, hooks.stopped, hooks.host_checks),
+            )?;
         }
         Event::Open([key, ..]) if key == "sections" => picks.fair = true,
         Event::Value([key, section, at], value) if key == "sections" && at == "[]" => {

@@ -6,7 +6,7 @@ use crate::native_host::{
 };
 use alloc::{rc::Rc, string::String};
 use core::cell::Cell;
-use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_STATE};
+use paperpaw_native::host_glue::ERR_NO_MEMORY;
 use paperpaw_sdk::Id;
 
 struct Source {
@@ -40,7 +40,7 @@ fn pending(plugin: &'static str, owner: u64, generation: &Rc<Cell<u32>>) -> Pend
     };
     // Read the identity through the trait so the field stays live on old compilers.
     assert_eq!(ImageOwner::plugin_id(&source), plugin);
-    let mut pending = PendingDeclarations::native(Id::new_static(plugin), source).unwrap();
+    let mut pending = PendingDeclarations::new(Id::new_static(plugin), Rc::new(source));
     let records = [
         Record::WidgetSpec(WidgetSpec {
             name: "shared",
@@ -122,24 +122,24 @@ fn assert_absent(directory: &NativeDeclarations, plugin: &str) {
     assert_eq!(directory.status_line(&id), Err(ERR_NOT_FOUND));
 }
 
+/// The catalog is still at `generation`, and the store reads the fixture's
+/// three rows in kind order.
 fn assert_catalog_fixture(directory: &NativeDeclarations, generation: u32) {
-    for (index, token) in [17, 23, 41].into_iter().enumerate() {
-        let mut visited = false;
-        directory
-            .catalog
-            .with_record(&directory.store, generation, index, &mut |record| {
-                let actual = match record {
-                    Record::WidgetSpec(row) => row.token,
-                    Record::StatusItem(row) => row.token,
-                    Record::StatusLine(row) => row.token,
-                    _ => return Err(ERR_STATE),
-                };
-                assert_eq!(actual, token);
-                visited = true;
-                Ok(())
-            })
-            .unwrap();
-        assert!(visited);
+    assert_eq!(directory.catalog.generation(), generation);
+    let store = directory.store.borrow();
+    let keys = store.all_keys(&mut Allocations::default()).unwrap();
+    assert_eq!(keys.len(), 3);
+    for (key, token) in keys.into_iter().zip([17, 23, 41]) {
+        let mut actual = None;
+        assert!(store.visit_record(key, &mut |record| {
+            actual = match record {
+                Record::WidgetSpec(row) => Some(row.token),
+                Record::StatusItem(row) => Some(row.token),
+                Record::StatusLine(row) => Some(row.token),
+                _ => None,
+            };
+        }));
+        assert_eq!(actual, Some(token));
     }
 }
 
@@ -235,8 +235,8 @@ fn every_publication_allocation_failure_preserves_previous_rows() {
             break;
         }
     }
-    // The producer, key collection and each of the three catalog tables reserve.
-    assert!(refused >= 5);
+    // The owner table reserves; the catalog keeps no rows, so nothing more.
+    assert!(refused >= 1);
     assert!(completed);
 }
 
@@ -252,7 +252,7 @@ fn publish_hints(
         owner,
         generation: Rc::clone(live),
     };
-    let mut pending = PendingDeclarations::native(Id::new_static(plugin), source).unwrap();
+    let mut pending = PendingDeclarations::new(Id::new_static(plugin), Rc::new(source));
     let records: alloc::vec::Vec<Record<'_>> = hints
         .iter()
         .map(|(screen, text)| {
