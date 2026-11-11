@@ -1222,3 +1222,11 @@ fn the_archive_setting_reaches_the_host_only_for_a_query_that_leaves_it_out() {
     ask(&fake, 2, &[query(|q| q.flags = 0b01)]).unwrap();
     assert!(!fake.log.borrow().last().unwrap().contains("archive"));
 }
+
+#[test]
+fn an_undeclared_archive_setting_with_the_flag_set_leaves_nothing_out() {
+    // No `files.archive` at all: the host is told no folder.
+    let fake = Fake::new();
+    ask(&fake, 2, &[query(|q| q.flags = 0b10)]).unwrap();
+    assert!(!fake.log.borrow().last().unwrap().contains("archive"));
+}

@@ -80,15 +80,19 @@ pub(super) fn with<R>(host: Rc<dyn LibHost>, body: impl FnOnce(&View<'_>) -> R) 
         .build()
         .unwrap();
     let mut settings = Settings::new();
-    settings
-        .define(paperpaw_sdk::SettingSpec::new(
-            paperpaw_sdk::Id::new_static("files.archive"),
-            "archive",
-            paperpaw_sdk::SettingKind::Text,
-            paperpaw_sdk::SettingValue::Text(ARCHIVE.with(core::cell::Cell::get).into()),
-            paperpaw_sdk::builtin::groups::OTHER,
-        ))
-        .unwrap();
+    // An empty value is no setting at all (the files plugin is not there).
+    let archive = ARCHIVE.with(core::cell::Cell::get);
+    if !archive.is_empty() {
+        settings
+            .define(paperpaw_sdk::SettingSpec::new(
+                paperpaw_sdk::Id::new_static("files.archive"),
+                "archive",
+                paperpaw_sdk::SettingKind::Text,
+                paperpaw_sdk::SettingValue::Text(archive.into()),
+                paperpaw_sdk::builtin::groups::OTHER,
+            ))
+            .unwrap();
+    }
     let env = kernel.shared.env(Instant(0));
     let hosts = crate::native_host::host_services::HostServices::new();
     hosts.wire_library(host).unwrap();
