@@ -342,8 +342,19 @@ in place; its removal comes with the PR that finishes the port).
   `Ui::ask`, the opening of screens and of the reader). `image_prepare` and
   `image_release` are commands through `commands.submit`, already listed. The `.bin`
   and inspected files are regenerated.
-- **Held:** `uses.install` and the subscription to event 77 (`plugins_requested`) with
-  the answer through `command.answer_plugin` wait for Services' #1132 (part A) and
-  part B; `native_ask.rs` holds the dialog's logic until then.
+- **Plugins other plugins ask for** (`src/native_asks.rs`; #1132 has the host side:
+  event 77, `command.answer_plugin`, event 78): the store subscribes to event 77
+  (token 8) and declares `uses.install` (optional, like the other installers). The ask
+  is decided by `native_ask::asked`; ids the host named and the store does not take
+  are answered at once (on the device: installed, no plugin's name: failed), those the
+  library lacks *not found*, a repeated or busy ask *declined*. The reader is asked
+  once (`Ui::ask`, a confirmation); *Download* queues the plugins (`Mark::Requested`),
+  opens the fetch screen and starts the queue; *Not now* answers *declined*; a dialog
+  left without an answer tells nothing (the next ask closes it). When the queue
+  ends each id is answered installed or failed (`finished_answers`), when the
+  download cannot start (no network) failed. What is held between ask and answers is
+  the host's request numbers with their ids, in memory: a restart drops them and the
+  host fails the open ids. The network is not asked before the dialog (no call for it
+  on the plugin side): a download the connection refuses ends as *failed*.
 - **Not run on a host**, and the store start heap (Beta 3: 99.9 KiB) is measured only
   when native plugins are activated (#243).

@@ -26,6 +26,8 @@ pub const PROGRESS_TOKEN: u32 = 5;
 pub const IMAGE_TOKEN: u32 = 6;
 /// PaperPaw started: what a restart cut off goes on.
 pub const STARTED_TOKEN: u32 = 7;
+/// Other plugins asking for plugins (event 77).
+pub const PLUGINS_TOKEN: u32 = 8;
 /// The screens' tokens: the start, the page of a plugin, a view, the letters,
 /// the source, the pictures and the progress of a fetch.
 pub const LIST_SCREEN: u32 = 20;
@@ -134,6 +136,7 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.subscribe_event(EventKind::HttpProgress, PROGRESS_TOKEN)?;
     d.subscribe_event(EventKind::ImageReady, IMAGE_TOKEN)?;
     d.subscribe_event(EventKind::Started, STARTED_TOKEN)?;
+    d.subscribe_event(EventKind::PluginsRequested, PLUGINS_TOKEN)?;
     d.submit()?;
     Ok(())
 }

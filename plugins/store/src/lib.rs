@@ -33,6 +33,7 @@ pub mod native_device;
 #[doc(hidden)]
 pub mod native_download;
 mod native_entry;
+mod native_asks;
 mod native_glue;
 #[doc(hidden)]
 pub mod native_index;

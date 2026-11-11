@@ -61,6 +61,17 @@ pub fn ask(host: &Host<'_>, ui: &Ui, ask: &Ask) -> Result<RequestId, Error> {
     }
 }
 
+/// Asks the reader a confirmation (the dialog of plugins another plugin asks
+/// for); the answer comes as an `Answered` event with the request returned.
+///
+/// # Errors
+/// `NoMemory`, or what the host refuses.
+pub fn confirm(host: &Host<'_>, ui: &Ui, question: Question<'_>) -> Result<RequestId, Error> {
+    let mut input = [0; REQUEST_BYTES];
+    let mut out = buffer(SERVICE_BUFFER)?;
+    ui.ask(host, question, &mut input, &mut out)
+}
+
 /// What a closed dialog came to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reply {

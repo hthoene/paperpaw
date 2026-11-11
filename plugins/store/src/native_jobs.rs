@@ -185,7 +185,10 @@ impl NativeStore {
                 self.sync_step(id);
                 redraw(host)
             }
-            Started::NoNetwork => self.say(host, "store.offline"),
+            Started::NoNetwork => {
+                self.requests_failed(host)?;
+                self.say(host, "store.offline")
+            }
             Started::Invalid | Started::Card => {
                 self.not_installed(host, id, &name)?;
                 self.go_on(host)
@@ -403,7 +406,9 @@ impl NativeStore {
     /// request's plugins became, is said.
     fn queue_ended(&mut self, host: &Host<'_>, queue: &Queue) -> Result<(), Error> {
         let storage = DataStorage::new(host);
-        let _ = crate::native_request::finished(&storage)?;
+        if let Some(done) = crate::native_request::finished(&storage)? {
+            self.requests_finished(host, &done)?;
+        }
         if let Some(report) = crate::native_queue::report(&storage, queue)? {
             let mut words = Words::new(host)?;
             if !report.done.is_empty() {

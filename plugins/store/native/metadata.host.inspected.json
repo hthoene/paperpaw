@@ -14,6 +14,11 @@
   ],
   "features": [
     {
+      "key": "uses.install",
+      "required": false,
+      "revision": 1
+    },
+    {
       "key": "uses.network",
       "required": false,
       "revision": 1
@@ -59,5 +64,5 @@
     }
   ],
   "target": "linux-x86_64-sysv64-le",
-  "total_bytes": 185
+  "total_bytes": 205
 }

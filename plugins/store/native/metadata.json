@@ -147,6 +147,10 @@
   ],
   "features": [
     {
+      "key": "uses.install",
+      "required": false
+    },
+    {
       "key": "uses.network",
       "required": false
     }
