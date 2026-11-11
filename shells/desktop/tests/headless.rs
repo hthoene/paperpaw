@@ -459,7 +459,7 @@ fn reading_aloud_speaks_passage_after_passage() {
 
 /// *Read aloud* at the start for a book opened for the first time and still
 /// prepared (a UTF-16 text the format converts first) is read once the book
-/// opens.
+/// opens, in the UI language: a text names none (Beta 3).
 #[test]
 fn reading_aloud_waits_for_a_book_still_prepared() {
     let library = library("speech-prepared");
@@ -481,7 +481,7 @@ fn reading_aloud_waits_for_a_book_still_prepared() {
         &library,
         "boox-go-7",
         "run:reader.read-aloud,wait:15000",
-        &[],
+        &["--set", "core.language=de"],
     );
     let _ = fs::remove_dir_all(&library);
     assert!(aloud.ok, "{}", aloud.stderr);
@@ -489,8 +489,7 @@ fn reading_aloud_waits_for_a_book_still_prepared() {
     let spoken = aloud
         .stderr
         .lines()
-        // A text names no language: the tag is the system's or none.
-        .filter(|l| l.starts_with("speech (") && l.contains("Sentence"))
+        .filter(|l| l.starts_with("speech (de, 100 %") && l.contains("Sentence"))
         .count();
     assert!(spoken >= 2, "{}", aloud.stderr);
 }

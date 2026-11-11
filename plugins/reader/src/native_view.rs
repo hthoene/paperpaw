@@ -131,8 +131,8 @@ struct Open {
     report_due: bool,
     /// The book's title as a report carries it.
     title: String,
-    /// The book's language (a BCP 47 tag), empty where the format names none:
-    /// the voice reading aloud speaks it.
+    /// The book's language (a BCP 47 tag), the UI language where the format
+    /// names none (`book_language`): the voice reading aloud speaks it.
     language: String,
     /// The words of the page on show the sentence read aloud underlines.
     mark: Option<Range<usize>>,
@@ -312,7 +312,7 @@ impl View {
                 meta.sections().max(1),
                 // The path stands for a title the format does not give.
                 text::copy(native_place::title_of(meta.title(), &found.path)),
-                text::copy(meta.language()),
+                book_language(host, meta.language()),
             ),
             Err(Error::NoMemory) => {
                 Self::forget(host, docs, id);
@@ -1341,6 +1341,21 @@ mod count;
 mod menu_bar;
 mod preparing;
 use preparing::Preparing;
+
+/// The language a book is read in: its own, or the UI language where the
+/// format names none (a text file), as in Beta 3, so the voice reading aloud
+/// is the reader's. Empty only where the UI language cannot be read either
+/// (the host's voice then).
+///
+/// # Errors
+/// `NoMemory`.
+fn book_language(host: &Host<'_>, declared: &str) -> Result<String, Error> {
+    if !declared.is_empty() {
+        return text::copy(declared);
+    }
+    let mut scratch = [0; 64];
+    text::copy(paperpaw_sdk::native::i18n::language(host, &mut scratch).unwrap_or(""))
+}
 mod r3;
 mod status;
 
