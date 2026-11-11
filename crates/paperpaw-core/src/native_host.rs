@@ -130,6 +130,9 @@ pub mod host_slot;
 #[path = "native_host/frame_owner.rs"]
 pub(crate) mod frame_owner;
 
+#[path = "native_host/plugin_heap.rs"]
+pub(crate) mod plugin_heap;
+
 #[path = "native_host/screen_ready.rs"]
 mod screen_ready;
 

@@ -35,6 +35,7 @@ mod sockets;
 #[path = "shell_wiring/work.rs"]
 mod work;
 pub use super::lib_reads::CatalogEnv;
+pub use super::plugin_heap::{PLUGIN_HEAP_LARGE, PLUGIN_HEAP_SMALL, default_plugin_heap};
 pub use super::sock_service::{Connect, PeerInfo, SockTls, SockTransport, TlsOpen, TlsPin};
 use alloc::{rc::Rc, vec::Vec};
 pub use net::{
@@ -68,6 +69,8 @@ pub struct HostWiring {
     lookup: bool,
     secrets: Option<SecretsInputs>,
     work: Option<WorkInputs>,
+    /// The per-plugin heap budget the shell named.
+    plugin_heap: Option<usize>,
 }
 
 impl core::fmt::Debug for HostWiring {
@@ -84,11 +87,27 @@ impl core::fmt::Debug for HostWiring {
             .field("lookup", &self.lookup)
             .field("secrets", &self.secrets.is_some())
             .field("work", &self.work.is_some())
+            .field("plugin_heap", &self.plugin_heap)
             .finish()
     }
 }
 
 impl HostWiring {
+    /// The default budget of the classes this wiring names (the smaller of
+    /// two; Small where it names none).
+    pub(crate) fn class_plugin_heap(&self) -> usize {
+        let small = self.ui == Some(true)
+            || self
+                .documents
+                .is_some_and(|(memory, _)| super::ui_store::is_x4(memory));
+        let named = self.ui.is_some() || self.documents.is_some();
+        if named && !small {
+            super::plugin_heap::PLUGIN_HEAP_LARGE
+        } else {
+            super::plugin_heap::PLUGIN_HEAP_SMALL
+        }
+    }
+
     /// Nothing named yet.
     #[must_use]
     pub fn new() -> Self {
@@ -186,6 +205,26 @@ impl HostWiring {
         screen_long_side: u32,
     ) -> Self {
         self.documents = Some((memory, screen_long_side));
+        self
+    }
+
+    /// The most heap one plugin may use, in bytes (`abi/heap-word.md`
+    /// section 4): a ceiling, not a reservation (a full real heap still gives
+    /// null), and the headers and the padding an alignment needs count toward
+    /// it. 0 makes every allocation null.
+    ///
+    /// Without it the budget is the default of the memory class the wiring
+    /// names ([`default_plugin_heap`]): [`PLUGIN_HEAP_SMALL`] on the X4,
+    /// [`PLUGIN_HEAP_LARGE`] elsewhere; where `ui` and `documents` name
+    /// different classes the smaller applies, and where neither names one,
+    /// the small one. The X4's value can change after the device measurement.
+    ///
+    /// The limit is read at each allocation: one set below what a plugin uses
+    /// reclaims nothing, and that plugin's later allocations are null until
+    /// its use drops below the limit.
+    #[must_use]
+    pub fn plugin_heap(mut self, bytes: usize) -> Self {
+        self.plugin_heap = Some(bytes);
         self
     }
 
@@ -426,6 +465,12 @@ impl HostResources {
             return Err(ERR_INVALID);
         }
         let mut wired = WiredHosts::default();
+        self.set_plugin_heap(
+            wiring
+                .plugin_heap
+                .unwrap_or_else(|| wiring.class_plugin_heap()),
+            wiring.plugin_heap.is_some(),
+        );
         if let Some(storage) = wiring.hyphenation {
             let tables = Rc::new(CardTables::new(storage));
             hosts.wire_hyphen(tables.clone())?;

@@ -246,6 +246,56 @@ fn core_secrets_is_wired_once_and_the_shell_keeps_its_lifecycle_calls() {
 }
 
 #[test]
+fn the_plugin_heap_budget_is_named_or_follows_the_classes_named() {
+    use super::super::plugin_heap::{PLUGIN_HEAP_LARGE, PLUGIN_HEAP_SMALL};
+    let class = |wiring: HostWiring| wiring.class_plugin_heap();
+    // None named: small. One named: its class. Two that differ: the smaller.
+    assert_eq!(class(HostWiring::new()), PLUGIN_HEAP_SMALL);
+    assert_eq!(
+        class(HostWiring::new().ui(MemoryClass::Small)),
+        PLUGIN_HEAP_SMALL
+    );
+    assert_eq!(
+        class(HostWiring::new().ui(MemoryClass::Large)),
+        PLUGIN_HEAP_LARGE
+    );
+    assert_eq!(
+        class(HostWiring::new().documents(MemoryClass::Large, 800)),
+        PLUGIN_HEAP_LARGE
+    );
+    assert_eq!(
+        class(
+            HostWiring::new()
+                .ui(MemoryClass::Large)
+                .documents(MemoryClass::Small, 800)
+        ),
+        PLUGIN_HEAP_SMALL
+    );
+    assert_eq!(
+        class(
+            HostWiring::new()
+                .ui(MemoryClass::Small)
+                .documents(MemoryClass::Large, 800)
+        ),
+        PLUGIN_HEAP_SMALL
+    );
+    // Wired: the class default, then the shell's own number, which wins.
+    let resources = HostResources::try_new().unwrap();
+    resources
+        .wire(HostWiring::new().ui(MemoryClass::Large))
+        .unwrap();
+    assert_eq!(resources.plugin_heap_limit(), PLUGIN_HEAP_LARGE);
+    let resources = HostResources::try_new().unwrap();
+    resources
+        .wire(HostWiring::new().ui(MemoryClass::Large).plugin_heap(12_345))
+        .unwrap();
+    assert_eq!(resources.plugin_heap_limit(), 12_345);
+    let resources = HostResources::try_new().unwrap();
+    resources.wire(HostWiring::new().plugin_heap(0)).unwrap();
+    assert_eq!(resources.plugin_heap_limit(), 0);
+}
+
+#[test]
 fn the_library_is_wired_over_the_catalog_reads_and_once() {
     let card = crate::native_host::lib_reads::tests::card();
     let storage: Rc<dyn Storage> = card.storage.clone();
