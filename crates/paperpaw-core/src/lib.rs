@@ -75,6 +75,7 @@ mod refresh;
 mod registry;
 mod room;
 mod screens;
+mod secrets_i6;
 mod shared_env;
 use screens::ActiveScreen;
 #[cfg(test)]
@@ -328,6 +329,9 @@ pub struct Kernel {
     /// The file of passwords and keys is there but could not be read at
     /// start: it is not written over.
     secrets_unreadable: bool,
+    /// The file was read again through the sealer of `core.secrets`
+    /// (`secrets_i6.rs`).
+    secrets_opened: bool,
     /// The number a pairing question's answer must bring back.
     pairing_nonce: Option<u64>,
     /// A screen was opened or closed since the last call ended; then the
@@ -934,16 +938,19 @@ impl Kernel {
     /// readable again takes the place of what could not be read at start.
     /// A change not written is not [`saved`](paperpaw_sdk::secrets::Secrets::saved).
     pub fn set_secret(&mut self, change: paperpaw_sdk::secrets::SecretChange) {
-        use paperpaw_sdk::secrets::{self, Secrets};
+        use paperpaw_sdk::secrets;
         let storage = self.shared.storage.clone();
+        let sealer = self.secrets_host();
         let read =
             paperpaw_sdk::files::load_for_update(storage.as_ref(), secrets::FILE, MAX_SECRETS);
         if let Ok(data) = &read
-            && self.secrets_unreadable
+            && (self.secrets_unreadable || sealer.is_some())
         {
-            // Damaged text keeps what can be read: values are in hex.
+            // Damaged text keeps what can be read: values are in hex. Where
+            // values are sealed the file is read again each time: native
+            // plugins write it too.
             let text = String::from_utf8_lossy(data.as_deref().unwrap_or_default());
-            self.shared.secrets = Secrets::decode(&text);
+            self.shared.secrets = Self::decode_secrets(&text, sealer.as_ref());
             self.secrets_unreadable = false;
         }
         let id = change.id.clone();
@@ -963,7 +970,18 @@ impl Kernel {
             self.output.commands.push(Command::Notify(text));
             return;
         }
-        let text = self.shared.secrets.encode();
+        let text = match Self::sealed_secrets(self.shared.secrets.encode(), sealer.as_ref()) {
+            Ok(text) => text,
+            Err(status) => {
+                // No value is written veiled where values are sealed.
+                self.shared.secrets.mark_unsaved(&id);
+                self.warn_runtime(format!(
+                    "{}: not sealed ({status}): not saved",
+                    secrets::FILE
+                ));
+                return;
+            }
+        };
         let storage = self.shared.storage.as_ref();
         let _ = storage.create_dir(paperpaw_sdk::data::DIR);
         let saved = if self.shared.secrets.is_empty() {

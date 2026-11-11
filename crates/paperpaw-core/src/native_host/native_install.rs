@@ -155,6 +155,9 @@ impl crate::Kernel {
         let offers_before = self.shared.registry.offers();
         let keys_before = self.native_key_count();
         self.admit_native(host, depth, folder, report)?;
+        // `core.secrets` is the kernel's now: interface 6's passwords are
+        // read through its sealer too (`secrets_i6.rs`).
+        self.open_sealed_secrets();
         if self.native_key_count() != keys_before {
             // Its bindings are in the key map from now on.
             self.rebuild_keymap();

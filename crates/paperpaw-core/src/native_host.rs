@@ -116,6 +116,7 @@ pub(crate) mod plugin_unforgotten;
 
 #[path = "native_host/secrets_file.rs"]
 pub(crate) mod secrets_file;
+pub(crate) mod secrets_text;
 
 #[path = "native_host/secrets_service.rs"]
 #[allow(
