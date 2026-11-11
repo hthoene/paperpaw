@@ -855,3 +855,4 @@ fn a_lookup_provider_is_refused_for_what_the_host_would_refuse() {
 mod format;
 #[path = "tests/library.rs"]
 mod library;
+mod reader;
