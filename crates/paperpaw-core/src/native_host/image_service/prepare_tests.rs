@@ -905,11 +905,16 @@ fn gray_alpha_png(width: u32, height: u32, pixels: &[(u8, u8)]) -> std::vec::Vec
         a = (a + u32::from(byte)) % 65_521;
         b = (b + a) % 65_521;
     }
-    let len = u16::try_from(raw.len()).unwrap();
-    let mut zlib = std::vec![0x78, 0x01, 1];
-    zlib.extend_from_slice(&len.to_le_bytes());
-    zlib.extend_from_slice(&(!len).to_le_bytes());
-    zlib.extend_from_slice(&raw);
+    // Stored blocks of at most 65,535 bytes, the last one marked.
+    let mut zlib = std::vec![0x78, 0x01];
+    let blocks: std::vec::Vec<&[u8]> = raw.chunks(65_535).collect();
+    for (at, block) in blocks.iter().enumerate() {
+        let len = u16::try_from(block.len()).unwrap();
+        zlib.push(u8::from(at + 1 == blocks.len()));
+        zlib.extend_from_slice(&len.to_le_bytes());
+        zlib.extend_from_slice(&(!len).to_le_bytes());
+        zlib.extend_from_slice(block);
+    }
     zlib.extend_from_slice(&((b << 16) | a).to_be_bytes());
     let mut png = std::vec::Vec::from(*b"\x89PNG\r\n\x1a\n");
     let mut header = std::vec::Vec::new();
@@ -1011,4 +1016,240 @@ fn a_tone_table_maps_a_see_through_pictures_gray_and_keeps_its_opacity() {
     assert_eq!(step(&t, &storage).unwrap().status, READY);
     let (_, bytes) = cache_of(&t, &storage);
     assert_eq!(&bytes[12..], &[245, 0, 55, 77]);
+}
+
+/// The cache file of the prepared image at `index` in the table.
+fn file_at(t: &ImageTable, index: usize) -> std::string::String {
+    let inner = t.lock().unwrap();
+    file_name(inner.entries[index].owner, inner.entries[index].seq).unwrap()
+}
+
+#[test]
+fn a_see_through_cache_file_goes_on_release_on_stop_and_in_the_boot_sweep() {
+    let storage = MemoryStorage::new();
+    storage
+        .write("a.png", &gray_alpha_png(2, 1, &[(0, 0), (9, 255)]))
+        .unwrap();
+    // image_release: the file goes the turn after, as an opaque one's.
+    let t = ImageTable::new();
+    t.prepare(A, "a.png", 0, 1, false, &see_through()).unwrap();
+    let ready = step(&t, &storage).unwrap();
+    let file = file_at(&t, 0);
+    assert!(file.starts_with(DIR) && ours(file.rsplit('/').next().unwrap()));
+    assert_eq!(
+        cache_of(&t, &storage).0,
+        paperpaw_sdk::ui::PictureKind::Alpha
+    );
+    t.release(A, ready.image).unwrap();
+    assert_eq!(step(&t, &storage), None);
+    assert!(!storage.exists(&file));
+    // A stopped plugin's see-through file goes too.
+    t.prepare(A, "a.png", 0, 2, false, &see_through()).unwrap();
+    assert_eq!(step(&t, &storage).unwrap().status, READY);
+    let file = file_at(&t, 0);
+    t.owner_stopped(A).unwrap();
+    assert_eq!(step(&t, &storage), None);
+    assert!(!storage.exists(&file));
+    // One a power cut left is removed by the next boot's sweep.
+    t.prepare(A, "a.png", 0, 3, false, &see_through()).unwrap();
+    assert_eq!(step(&t, &storage).unwrap().status, READY);
+    let file = file_at(&t, 0);
+    let booted = ImageTable::new();
+    let mut cursor = SweepCursor::default();
+    let mut calls = 0;
+    while booted.sweep_cache(&storage, 8, &mut cursor).unwrap() {
+        calls += 1;
+        assert!(calls < 20, "the sweep must end");
+    }
+    assert!(!storage.exists(&file));
+}
+
+#[test]
+fn an_opaque_cache_is_never_reused_for_a_see_through_request() {
+    let storage = MemoryStorage::new();
+    storage
+        .write("a.png", &gray_alpha_png(2, 1, &[(0, 0), (9, 255)]))
+        .unwrap();
+    let t = ImageTable::new();
+    t.prepare(A, "a.png", 0, 1, false, &Recipe::default())
+        .unwrap();
+    let opaque = step(&t, &storage).unwrap();
+    t.prepare(A, "a.png", 0, 2, false, &see_through()).unwrap();
+    let clear = step(&t, &storage).unwrap();
+    assert_ne!(opaque.image, clear.image);
+    let (first, second) = (file_at(&t, 0), file_at(&t, 1));
+    assert_ne!(first, second, "every request gets its own file");
+    let kind = |path: &str| paperpaw_sdk::ui::probe_picture(&storage, path).unwrap().0;
+    assert_eq!(kind(&first), paperpaw_sdk::ui::PictureKind::Gray);
+    assert_eq!(kind(&second), paperpaw_sdk::ui::PictureKind::Alpha);
+    // Also after the opaque one ended and its number could come back.
+    t.release(A, opaque.image).unwrap();
+    assert_eq!(step(&t, &storage), None);
+    t.prepare(A, "a.png", 0, 3, false, &see_through()).unwrap();
+    assert_eq!(step(&t, &storage).unwrap().status, READY);
+    let newest = file_at(&t, 1);
+    assert_eq!(kind(&newest), paperpaw_sdk::ui::PictureKind::Alpha);
+}
+
+#[test]
+fn a_jpeg_cache_is_byte_identical_with_and_without_the_bit() {
+    let storage = MemoryStorage::new();
+    storage
+        .write("w.jpg", include_bytes!("fixtures/wide.jpg"))
+        .unwrap();
+    let env = Env {
+        colour: true,
+        ..ENV
+    };
+    for colour in [false, true] {
+        let made = |recipe: &Recipe| {
+            let t = ImageTable::new();
+            t.prepare(A, "w.jpg", 64, 1, colour, recipe).unwrap();
+            t.prepare_step(&storage, env).unwrap();
+            let ready = told(&t).unwrap();
+            (ready, cache_of(&t, &storage))
+        };
+        let (plain, plain_cache) = made(&Recipe::default());
+        let (clear, clear_cache) = made(&see_through());
+        assert_eq!(plain.status, READY);
+        assert_eq!(
+            (plain.width, plain.height, plain.luma),
+            (clear.width, clear.height, clear.luma)
+        );
+        assert!(plain_cache == clear_cache, "colour {colour}");
+    }
+}
+
+#[test]
+fn see_through_pictures_count_to_the_same_eight_prepared() {
+    let storage = MemoryStorage::new();
+    storage
+        .write("a.png", &gray_alpha_png(2, 1, &[(0, 0), (9, 255)]))
+        .unwrap();
+    let t = ImageTable::new();
+    for round in 0..2 {
+        for n in 0..4 {
+            t.prepare(A, "a.png", 0, round * 4 + n, false, &see_through())
+                .unwrap();
+        }
+        for _ in 0..4 {
+            assert_eq!(step(&t, &storage).unwrap().status, READY);
+        }
+    }
+    assert_eq!(
+        t.prepare(A, "a.png", 0, 9, false, &see_through()),
+        Err(ERR_FULL)
+    );
+    assert_eq!(
+        t.prepare(A, "a.png", 0, 9, false, &Recipe::default()),
+        Err(ERR_FULL),
+        "opaque and see-through share the count"
+    );
+}
+
+/// A card whose own allocations are the fixture's: the heap measured is the
+/// host's and the decoder's only.
+struct Shielded(MemoryStorage);
+
+/// Runs `f` with the counting allocator looking away.
+fn shielded<T>(f: impl FnOnce() -> T) -> T {
+    use crate::native_host::shell::tests::HEAP_SHIELD;
+    let was = HEAP_SHIELD.with(|s| s.replace(true));
+    let out = f();
+    HEAP_SHIELD.with(|s| s.set(was));
+    out
+}
+
+impl Storage for Shielded {
+    fn read_at(
+        &self,
+        p: &str,
+        o: u64,
+        b: &mut [u8],
+    ) -> Result<usize, paperpaw_platform::StorageError> {
+        shielded(|| self.0.read_at(p, o, b))
+    }
+    fn size(&self, p: &str) -> Result<u64, paperpaw_platform::StorageError> {
+        shielded(|| self.0.size(p))
+    }
+    fn write(&self, p: &str, d: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        shielded(|| self.0.write(p, d))
+    }
+    fn append(&self, p: &str, d: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        shielded(|| self.0.append(p, d))
+    }
+    fn list(
+        &self,
+        d: &str,
+        v: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+    ) -> Result<(), paperpaw_platform::StorageError> {
+        shielded(|| self.0.list(d, v))
+    }
+    fn remove(&self, p: &str) -> Result<(), paperpaw_platform::StorageError> {
+        shielded(|| self.0.remove(p))
+    }
+}
+
+/// The most heap `f` held at once, counted from nothing.
+fn heap_peak(f: impl FnOnce()) -> usize {
+    use crate::native_host::shell::tests::{HEAP_LIVE, HEAP_PEAK};
+    HEAP_LIVE.with(|live| live.set(0));
+    HEAP_PEAK.with(|peak| peak.set(0));
+    f();
+    HEAP_PEAK.with(core::cell::Cell::get)
+}
+
+/// The X4 measurement (`document.md` 5 and 8.2): a full-screen see-through
+/// sleep picture (480 x 800, gray and opacity) prepared and drawn over the
+/// page within the X4's limits, its heap beside an opaque one's.
+#[test]
+fn a_full_screen_see_through_picture_on_the_x4_stays_within_the_opaque_bounds() {
+    use paperpaw_graphics::Framebuffer;
+    let (w, h) = (480_u32, 800_u32);
+    let card = Shielded(MemoryStorage::new());
+    let pixels: std::vec::Vec<(u8, u8)> = (0..w * h)
+        .map(|i| ((i % 251) as u8, if (i / w) % 4 == 0 { 0 } else { 200 }))
+        .collect();
+    card.write("sleep.png", &gray_alpha_png(w, h, &pixels))
+        .unwrap();
+    let env = Env::x4(800, false);
+    let mut fb = Framebuffer::new(480, 800, paperpaw_platform::PixelFormat::Mono1).unwrap();
+    let mut measure = |recipe: &Recipe| {
+        let t = ImageTable::new();
+        let made = heap_peak(|| {
+            t.prepare(A, "sleep.png", 0, 1, false, recipe).unwrap();
+            t.prepare_step(&card, env).unwrap();
+        });
+        let ready = told(&t).unwrap();
+        assert_eq!((ready.status, ready.width, ready.height), (READY, w, h));
+        // Over a black page: a transparent row shows the page, an opaque
+        // picture's is white.
+        let mut canvas = fb.canvas();
+        canvas.clear(paperpaw_platform::Color::BLACK);
+        let drawn = heap_peak(|| {
+            t.draw(A, ready.image, &mut canvas, &card, 0, 0, w, h, 0)
+                .unwrap();
+        });
+        let row0 = canvas.gray_at(paperpaw_platform::Point::new(0, 0)).unwrap();
+        (made, drawn, row0)
+    };
+    let (opaque_made, opaque_drawn, opaque_row0) = measure(&Recipe::default());
+    let (clear_made, clear_drawn, clear_row0) = measure(&see_through());
+    assert_eq!(
+        (opaque_row0, clear_row0),
+        (255, 0),
+        "the page shows through"
+    );
+    std::eprintln!(
+        "x4 480x800 mono: prepare opaque {opaque_made} B, see-through {clear_made} B; \
+         draw opaque {opaque_drawn} B, see-through {clear_drawn} B"
+    );
+    // The draw stays inside the X4's 32 KiB scratch (a see-through one is
+    // blended, never dithered); the prepare adds only the opacity's share of
+    // the rows (the downscaler's second sum and the second byte a pixel).
+    assert!(clear_drawn <= super::super::SCRATCH_X4, "{clear_drawn}");
+    assert!(
+        clear_made <= opaque_made + 8 * w as usize,
+        "{clear_made} {opaque_made}"
+    );
 }

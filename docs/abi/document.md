@@ -588,7 +588,8 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   that root, every root alike; an older SDK reads it as 2). Unknown values read as 2. There is no
   prepare from bytes: a plugin writes them to a file in root 0 first. At
   most 4 waiting per plugin (`ERR_FULL`), 8 prepared images per plugin. `flags` bit 0 colour
-  (where the screen has it), bit 1 `turn`, bit 2 `see-through`; other bits are `ERR_UNSUPPORTED`.
+  (where the screen has it), bit 1 `turn`, bit 2 `see-through` (PNG/GIF keep their transparency:
+  gray plus opacity, colour ignored; a JPEG stays opaque); other bits are `ERR_UNSUPPORTED`.
 - [D] **The picture recipe** (picture-home): `image_prepare` carries what a plugin needs to make
   its picture the way it shows it, so it never reads one into memory.
   - **`turn`** (`flags` bit 1): the host applies a JPEG's EXIF orientation (tag 0x0112, 2 to 8, read
@@ -639,7 +640,9 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   takes one bounded, transient heap block per call (its source row chunk of 8 KiB, filled by
   `read_at` requests of up to that size, plus a few bytes per source row and per drawn column:
   about 25-30 KiB for a 1,600-pixel picture), allocated fallibly before the first band and freed
-  before the call returns. It is at most 32 KiB on the X4 and at most 1 MiB on Android, the
+  before the call returns. A see-through picture (`image_prepare` bit 2: gray plus opacity, two
+  bytes a pixel on the card) is read through the same row chunk, so its rows take twice a gray
+  picture's room in it and no other block. It is at most 32 KiB on the X4 and at most 1 MiB on Android, the
   desktop and the emulator (the shell's `scratch_max`); a draw that needs more, or whose block is
   refused, is `ERR_NO_MEMORY` with nothing drawn. The
   one thing a host **may** keep between calls is a **dithering carry**: the error rows of the
@@ -843,7 +846,10 @@ reply 4,096 bytes, stage payload 3,840.
   state, so the peak is the tile + one output row (at most 4,800) + the append chunk (8 KiB): **at
   most about 45 KiB** at 1,600 pixels, below the PNG decode's 48 KiB peak, and never at the same
   time as a decode or a draw. The brightness grid is 8 sums of 8 bytes and the grid's 64 bytes on
-  the stack (about 130 bytes) and one source row (at most 4,800 bytes) on the heap. The turn's
+  the stack (about 130 bytes) and one source row (at most 4,800 bytes) on the heap. **See-through**
+  (bit 2) adds no block a colour picture lacks: the cache writer's append chunk stays 8 KiB, and
+  the tone scratch and the grid's source row are two bytes a pixel (at most 3,200 bytes at 1,600
+  pixels), inside the bounds above; the decode's peak is the PNG's or GIF's own. The turn's
   time is an X4 gate item: it reads `height × ceil(width / columns)` short pieces (a 1,600 × 1,200
   picture in 27-column tiles: about 72,000, over the X4's budget of 16,384 reads, so refused with
   status 3; the screen's 800 × 600: about 9,000), to be measured on the device (#250).
