@@ -174,3 +174,46 @@ fn the_settings_that_change_the_layout_are_told_from_those_that_change_the_ink()
         assert!(!affects_layout(key) && !affects_ink(key), "{key}");
     }
 }
+
+#[test]
+fn paragraphs_and_lines_are_kept_to_what_the_settings_allow() {
+    let r = Reading::new(12, 120, 100, 4, 4, true)
+        .with_paragraphs((true, 150), (true, 60))
+        .with_lines((2, 3), true, 0b101);
+    assert_eq!(r.paragraphs, (150, 60));
+    assert_eq!((r.lines_kept, r.balanced, r.book), ((2, 3), true, 0b101));
+    // Off: none, whatever the size says.
+    let off = Reading::new(12, 120, 100, 4, 4, true).with_paragraphs((false, 150), (false, 60));
+    assert_eq!(off.paragraphs, (0, 0));
+    // Out of range: the nearest allowed.
+    let wild = Reading::new(12, 120, 100, 4, 4, true)
+        .with_paragraphs((true, 9_000), (true, -5))
+        .with_lines((0, 99), false, 0);
+    assert_eq!(wild.paragraphs, (400, 20));
+    assert_eq!(wild.lines_kept, (1, 4));
+    // Until the settings are read: as the native reader set pages before.
+    let plain = Reading::new(12, 120, 100, 4, 4, true);
+    assert_eq!(plain.paragraphs, (0, 0));
+    assert_eq!(
+        (plain.lines_kept, plain.balanced, plain.book),
+        ((1, 1), false, u16::MAX)
+    );
+}
+
+#[test]
+fn the_paragraph_settings_lay_the_page_out_again() {
+    for key in [
+        "core.indent",
+        "core.indent-size",
+        "core.paragraph-spacing",
+        "core.paragraph-space",
+        "core.widows",
+        "core.orphans",
+        "core.line-breaking",
+        "core.book-align",
+        "core.book-line-height",
+    ] {
+        assert!(affects_layout(key), "{key}");
+        assert!(!affects_ink(key), "{key}");
+    }
+}

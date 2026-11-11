@@ -84,10 +84,10 @@ pub fn layout_text(
     whole_pages: bool,
 ) -> Result<String, Error> {
     let mut text = String::new();
-    text.try_reserve(64).map_err(|_| Error::NoMemory)?;
+    text.try_reserve(96).map_err(|_| Error::NoMemory)?;
     write!(
         text,
-        "{}/{}/{}/{}/{}/{}/{}x{}x{}/{}/{}-{}",
+        "{}/{}/{}/{}/{}/{}/{}x{}x{}/{}/{}-{}/{}:{}/{}:{}/{}/{:x}",
         (reading.size_pt * 10.0) as u32,
         reading.line_spacing,
         reading.word_spacing,
@@ -101,6 +101,13 @@ pub fn layout_text(
         // The room of the status lines: another room, other page breaks.
         if whole_pages { 0 } else { reading.status.0 },
         if whole_pages { 0 } else { reading.status.1 },
+        // How paragraphs are set apart and kept, and the book's own styles.
+        reading.paragraphs.0,
+        reading.paragraphs.1,
+        reading.lines_kept.0,
+        reading.lines_kept.1,
+        u8::from(reading.balanced),
+        reading.book,
     )
     .map_err(|_| Error::NoMemory)?;
     Ok(text)
