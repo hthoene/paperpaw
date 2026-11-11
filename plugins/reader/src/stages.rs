@@ -32,6 +32,18 @@ pub struct StageSchema {
 /// Every stage schema of this crate, sorted by key and major.
 pub static STAGES: &[StageSchema] = &[
     StageSchema {
+        key: reader_decorations_v1::KEY,
+        major: reader_decorations_v1::MAJOR,
+        revision: reader_decorations_v1::REVISION,
+        test_only: reader_decorations_v1::TEST_ONLY,
+        max_subscribers: reader_decorations_v1::MAX_SUBSCRIBERS,
+        max_input: reader_decorations_v1::MAX_INPUT,
+        max_reply: reader_decorations_v1::MAX_REPLY,
+        reply_rows: reader_decorations_v1::REPLY_ROWS,
+        input_tags: reader_decorations_v1::INPUT_TAGS,
+        reply_tags: reader_decorations_v1::REPLY_TAGS,
+    },
+    StageSchema {
         key: reader_filter_v1::KEY,
         major: reader_filter_v1::MAJOR,
         revision: reader_filter_v1::REVISION,
@@ -68,6 +80,932 @@ pub static STAGES: &[StageSchema] = &[
         reply_tags: reader_word_looked_up_v1::REPLY_TAGS,
     },
 ];
+
+/// Local records of `reader.decorations` major 1.
+pub mod reader_decorations_v1 {
+    /// Schema key.
+    pub const KEY: &str = "reader.decorations";
+    /// Schema major.
+    pub const MAJOR: u16 = 1;
+    /// Schema revision.
+    pub const REVISION: u16 = 0;
+    /// Schema test_only.
+    pub const TEST_ONLY: bool = false;
+    /// Schema max_subscribers.
+    pub const MAX_SUBSCRIBERS: usize = 4;
+    /// Schema max_input.
+    pub const MAX_INPUT: usize = 3840;
+    /// Schema max_reply.
+    pub const MAX_REPLY: usize = 3840;
+    /// Schema reply_rows.
+    pub const REPLY_ROWS: usize = 32;
+    /// Schema input_tags.
+    pub const INPUT_TAGS: &[u32] = &[1, 2, 3];
+    /// Schema reply_tags.
+    pub const REPLY_TAGS: &[u32] = &[4, 5];
+    /// Schema input_rows: the most records of one input batch.
+    pub const INPUT_ROWS: usize = 33;
+    struct Reader<'a> {
+        remaining: &'a [u8],
+    }
+
+    impl<'a> Reader<'a> {
+        fn take(&mut self, len: usize) -> Result<&'a [u8], i32> {
+            if len > self.remaining.len() {
+                return Err(-2);
+            }
+            let (value, rest) = self.remaining.split_at(len);
+            self.remaining = rest;
+            Ok(value)
+        }
+
+        fn varint(&mut self) -> Result<u32, i32> {
+            let mut value = 0_u32;
+            for index in 0..5 {
+                let byte = self.take(1)?[0];
+                if index == 4 && byte > 0x0f {
+                    return Err(-2);
+                }
+                value |= u32::from(byte & 0x7f) << (index * 7);
+                if byte & 0x80 == 0 {
+                    if index > 0 && byte == 0 {
+                        return Err(-2);
+                    }
+                    return Ok(value);
+                }
+            }
+            Err(-2)
+        }
+
+        fn scalar<const N: usize>(&mut self) -> Result<[u8; N], i32> {
+            let mut value = [0; N];
+            value.copy_from_slice(self.take(N)?);
+            Ok(value)
+        }
+
+        fn record(&mut self) -> Result<(u32, Reader<'a>), i32> {
+            let tag = self.varint()?;
+            let len = self.varint()? as usize;
+            let body = Reader {
+                remaining: self.take(len)?,
+            };
+            Ok((tag, body))
+        }
+
+        fn bitmap(&mut self) -> Result<(), i32> {
+            let len = self.varint()? as usize;
+            // Unknown optional bits and fields are skipped using the record length.
+            self.take(len)?;
+            Ok(())
+        }
+
+        fn finish(self) -> Result<(), i32> {
+            if self.remaining.is_empty() {
+                Ok(())
+            } else {
+                Err(-2)
+            }
+        }
+    }
+
+    fn varint_len(mut value: u32) -> usize {
+        let mut len = 1;
+        while value >= 0x80 {
+            len += 1;
+            value >>= 7;
+        }
+        len
+    }
+
+    fn record_len(tag: u32, fields: u32) -> usize {
+        let body_len = fields + 1; // The initial bitmap is empty.
+        varint_len(tag) + varint_len(body_len) + body_len as usize
+    }
+
+    fn write_varint(mut value: u32, out: &mut [u8], offset: &mut usize) {
+        loop {
+            let byte = (value & 0x7f) as u8;
+            value >>= 7;
+            out[*offset] = byte | if value == 0 { 0 } else { 0x80 };
+            *offset += 1;
+            if value == 0 {
+                return;
+            }
+        }
+    }
+
+    fn write_bytes(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
+        out[*offset..*offset + bytes.len()].copy_from_slice(bytes);
+        *offset += bytes.len();
+    }
+
+    fn write_header(tag: u32, fields: u32, out: &mut [u8], offset: &mut usize) {
+        write_varint(tag, out, offset);
+        write_varint(fields + 1, out, offset);
+        write_varint(0, out, offset);
+    }
+
+    /// Wire tag of the `decorate.page` record.
+    pub const DECORATE_PAGE_TAG: u32 = 1;
+    /// Maximum bytes of `decorate.page.path`.
+    pub const DECORATE_PAGE_PATH_MAX_BYTES: usize = 256;
+    /// Maximum bytes of `decorate.page.language`.
+    pub const DECORATE_PAGE_LANGUAGE_MAX_BYTES: usize = 16;
+
+    /// The `decorate.page` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct DecoratePage<'a> {
+        /// UTF-8 text of at most 256 bytes.
+        pub path: &'a str,
+        /// UTF-8 text of at most 16 bytes.
+        pub language: &'a str,
+        /// Little-endian u32.
+        pub runs: u32,
+    }
+
+    impl<'a> DecoratePage<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::DecoratePage(Self {
+                path: body.string(DECORATE_PAGE_PATH_MAX_BYTES)?,
+                language: body.string(DECORATE_PAGE_LANGUAGE_MAX_BYTES)?,
+                runs: u32::from_le_bytes(body.scalar()?),
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += blob_len(self.path.len(), DECORATE_PAGE_PATH_MAX_BYTES)?;
+            len += blob_len(self.language.len(), DECORATE_PAGE_LANGUAGE_MAX_BYTES)?;
+            len += 4;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_blob(self.path.as_bytes(), out, offset);
+            write_blob(self.language.as_bytes(), out, offset);
+            write_bytes(&self.runs.to_le_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> DecoratePage<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(path: &'a str, language: &'a str, runs: u32) -> Self {
+            Self {
+                path,
+                language,
+                runs,
+            }
+        }
+    }
+    /// Wire tag of the `decorate.run` record.
+    pub const DECORATE_RUN_TAG: u32 = 2;
+    /// Maximum bytes of `decorate.run.text`.
+    pub const DECORATE_RUN_TEXT_MAX_BYTES: usize = 3200;
+
+    /// The `decorate.run` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct DecorateRun<'a> {
+        /// Little-endian u32.
+        pub section: u32,
+        /// Little-endian u32.
+        pub offset: u32,
+        /// UTF-8 text of at most 3200 bytes.
+        pub text: &'a str,
+    }
+
+    impl<'a> DecorateRun<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::DecorateRun(Self {
+                section: u32::from_le_bytes(body.scalar()?),
+                offset: u32::from_le_bytes(body.scalar()?),
+                text: body.string(DECORATE_RUN_TEXT_MAX_BYTES)?,
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            len += 4;
+            len += blob_len(self.text.len(), DECORATE_RUN_TEXT_MAX_BYTES)?;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.section.to_le_bytes(), out, offset);
+            write_bytes(&self.offset.to_le_bytes(), out, offset);
+            write_blob(self.text.as_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> DecorateRun<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(section: u32, offset: u32, text: &'a str) -> Self {
+            Self {
+                section,
+                offset,
+                text,
+            }
+        }
+    }
+    /// Wire tag of the `decorate.tapped` record.
+    pub const DECORATE_TAPPED_TAG: u32 = 3;
+    /// Maximum bytes of `decorate.tapped.role`.
+    pub const DECORATE_TAPPED_ROLE_MAX_BYTES: usize = 64;
+    /// Maximum bytes of `decorate.tapped.text`.
+    pub const DECORATE_TAPPED_TEXT_MAX_BYTES: usize = 256;
+    /// Maximum bytes of `decorate.tapped.path`.
+    pub const DECORATE_TAPPED_PATH_MAX_BYTES: usize = 256;
+
+    /// The `decorate.tapped` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct DecorateTapped<'a> {
+        /// UTF-8 text of at most 64 bytes.
+        pub role: &'a str,
+        /// UTF-8 text of at most 256 bytes.
+        pub text: &'a str,
+        /// UTF-8 text of at most 256 bytes.
+        pub path: &'a str,
+        /// Little-endian u32.
+        pub section: u32,
+        /// Little-endian u32.
+        pub offset: u32,
+        /// Little-endian u32.
+        pub end_section: u32,
+        /// Little-endian u32.
+        pub end_offset: u32,
+    }
+
+    impl<'a> DecorateTapped<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::DecorateTapped(Self {
+                role: body.string(DECORATE_TAPPED_ROLE_MAX_BYTES)?,
+                text: body.string(DECORATE_TAPPED_TEXT_MAX_BYTES)?,
+                path: body.string(DECORATE_TAPPED_PATH_MAX_BYTES)?,
+                section: u32::from_le_bytes(body.scalar()?),
+                offset: u32::from_le_bytes(body.scalar()?),
+                end_section: u32::from_le_bytes(body.scalar()?),
+                end_offset: u32::from_le_bytes(body.scalar()?),
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += blob_len(self.role.len(), DECORATE_TAPPED_ROLE_MAX_BYTES)?;
+            len += blob_len(self.text.len(), DECORATE_TAPPED_TEXT_MAX_BYTES)?;
+            len += blob_len(self.path.len(), DECORATE_TAPPED_PATH_MAX_BYTES)?;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_blob(self.role.as_bytes(), out, offset);
+            write_blob(self.text.as_bytes(), out, offset);
+            write_blob(self.path.as_bytes(), out, offset);
+            write_bytes(&self.section.to_le_bytes(), out, offset);
+            write_bytes(&self.offset.to_le_bytes(), out, offset);
+            write_bytes(&self.end_section.to_le_bytes(), out, offset);
+            write_bytes(&self.end_offset.to_le_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> DecorateTapped<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(
+            role: &'a str,
+            text: &'a str,
+            path: &'a str,
+            section: u32,
+            offset: u32,
+            end_section: u32,
+            end_offset: u32,
+        ) -> Self {
+            Self {
+                role,
+                text,
+                path,
+                section,
+                offset,
+                end_section,
+                end_offset,
+            }
+        }
+    }
+    /// Wire tag of the `decorate.mark` record.
+    pub const DECORATE_MARK_TAG: u32 = 4;
+    /// Maximum bytes of `decorate.mark.role`.
+    pub const DECORATE_MARK_ROLE_MAX_BYTES: usize = 64;
+
+    /// The `decorate.mark` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct DecorateMark<'a> {
+        /// Little-endian u32.
+        pub run: u32,
+        /// Little-endian u32.
+        pub from: u32,
+        /// Little-endian u32.
+        pub to: u32,
+        /// UTF-8 text of at most 64 bytes.
+        pub role: &'a str,
+        /// Little-endian u32.
+        pub background: u32,
+        /// Little-endian u32.
+        pub ink: u32,
+        /// Little-endian u32.
+        pub line: u32,
+        /// Little-endian u32.
+        pub line_tone: u32,
+        /// Little-endian u32.
+        pub thickness: u32,
+        /// Little-endian u32.
+        pub flags: u32,
+    }
+
+    impl<'a> DecorateMark<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::DecorateMark(Self {
+                run: u32::from_le_bytes(body.scalar()?),
+                from: u32::from_le_bytes(body.scalar()?),
+                to: u32::from_le_bytes(body.scalar()?),
+                role: body.string(DECORATE_MARK_ROLE_MAX_BYTES)?,
+                background: u32::from_le_bytes(body.scalar()?),
+                ink: u32::from_le_bytes(body.scalar()?),
+                line: u32::from_le_bytes(body.scalar()?),
+                line_tone: u32::from_le_bytes(body.scalar()?),
+                thickness: u32::from_le_bytes(body.scalar()?),
+                flags: u32::from_le_bytes(body.scalar()?),
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            len += 4;
+            len += 4;
+            len += blob_len(self.role.len(), DECORATE_MARK_ROLE_MAX_BYTES)?;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.run.to_le_bytes(), out, offset);
+            write_bytes(&self.from.to_le_bytes(), out, offset);
+            write_bytes(&self.to.to_le_bytes(), out, offset);
+            write_blob(self.role.as_bytes(), out, offset);
+            write_bytes(&self.background.to_le_bytes(), out, offset);
+            write_bytes(&self.ink.to_le_bytes(), out, offset);
+            write_bytes(&self.line.to_le_bytes(), out, offset);
+            write_bytes(&self.line_tone.to_le_bytes(), out, offset);
+            write_bytes(&self.thickness.to_le_bytes(), out, offset);
+            write_bytes(&self.flags.to_le_bytes(), out, offset);
+        }
+    }
+
+    impl<'a> DecorateMark<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(
+            run: u32,
+            from: u32,
+            to: u32,
+            role: &'a str,
+            background: u32,
+            ink: u32,
+            line: u32,
+            line_tone: u32,
+            thickness: u32,
+            flags: u32,
+        ) -> Self {
+            Self {
+                run,
+                from,
+                to,
+                role,
+                background,
+                ink,
+                line,
+                line_tone,
+                thickness,
+                flags,
+            }
+        }
+    }
+    /// Wire tag of the `decorate.taken` record.
+    pub const DECORATE_TAKEN_TAG: u32 = 5;
+
+    /// The `decorate.taken` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct DecorateTaken {
+        /// Little-endian u32.
+        pub taken: u32,
+    }
+
+    impl DecorateTaken {
+        fn decode_body<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::DecorateTaken(Self {
+                taken: u32::from_le_bytes(body.scalar()?),
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.taken.to_le_bytes(), out, offset);
+        }
+    }
+
+    impl DecorateTaken {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(taken: u32) -> Self {
+            Self { taken }
+        }
+    }
+
+    /// A record with a tag local to this stage.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub enum Record<'a> {
+        /// A `decorate.page` record.
+        DecoratePage(DecoratePage<'a>),
+        /// A `decorate.run` record.
+        DecorateRun(DecorateRun<'a>),
+        /// A `decorate.tapped` record.
+        DecorateTapped(DecorateTapped<'a>),
+        /// A `decorate.mark` record.
+        DecorateMark(DecorateMark<'a>),
+        /// A `decorate.taken` record.
+        DecorateTaken(DecorateTaken),
+    }
+    impl<'a> Reader<'a> {
+        fn blob(&mut self, cap: usize) -> Result<&'a [u8], i32> {
+            let len = self.varint()? as usize;
+            if len > cap {
+                return Err(-2);
+            }
+            self.take(len)
+        }
+        fn string(&mut self, cap: usize) -> Result<&'a str, i32> {
+            core::str::from_utf8(self.blob(cap)?).map_err(|_| -2)
+        }
+    }
+    fn blob_len(len: usize, cap: usize) -> Result<usize, i32> {
+        if len > cap {
+            return Err(-2);
+        }
+        Ok(varint_len(len as u32) + len)
+    }
+    fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
+        write_varint(bytes.len() as u32, out, offset);
+        write_bytes(bytes, out, offset);
+    }
+    fn valid_list(value: &str, separator: char, max_items: usize, item_max: usize) -> bool {
+        let mut count = 0;
+        for item in value.split(separator) {
+            count += 1;
+            if item.is_empty() || item.len() > item_max || count > max_items {
+                return false;
+            }
+        }
+        true
+    }
+    impl<'a> Record<'a> {
+        /// Local wire tag.
+        pub fn tag(&self) -> u32 {
+            match self {
+                Record::DecoratePage(_) => DECORATE_PAGE_TAG,
+                Record::DecorateRun(_) => DECORATE_RUN_TAG,
+                Record::DecorateTapped(_) => DECORATE_TAPPED_TAG,
+                Record::DecorateMark(_) => DECORATE_MARK_TAG,
+                Record::DecorateTaken(_) => DECORATE_TAKEN_TAG,
+            }
+        }
+        fn body_len(&self) -> Result<usize, i32> {
+            match self {
+                Record::DecoratePage(r) => r.body_len(),
+                Record::DecorateRun(r) => r.body_len(),
+                Record::DecorateTapped(r) => r.body_len(),
+                Record::DecorateMark(r) => r.body_len(),
+                Record::DecorateTaken(r) => r.body_len(),
+            }
+        }
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            match self {
+                Record::DecoratePage(r) => r.write(out, offset),
+                Record::DecorateRun(r) => r.write(out, offset),
+                Record::DecorateTapped(r) => r.write(out, offset),
+                Record::DecorateMark(r) => r.write(out, offset),
+                Record::DecorateTaken(r) => r.write(out, offset),
+            }
+        }
+        fn validate(&self) -> Result<(), i32> {
+            match self {
+                _ => {}
+            }
+            Ok(())
+        }
+    }
+    fn decode_body<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        let record = match tag {
+            DECORATE_PAGE_TAG => DecoratePage::decode_body(body)?,
+            DECORATE_RUN_TAG => DecorateRun::decode_body(body)?,
+            DECORATE_TAPPED_TAG => DecorateTapped::decode_body(body)?,
+            DECORATE_MARK_TAG => DecorateMark::decode_body(body)?,
+            DECORATE_TAKEN_TAG => DecorateTaken::decode_body(body)?,
+            _ => return Err(-2),
+        };
+        // Unknown appended fields are bounded by the record framing.
+        record.validate()?;
+        Ok(record)
+    }
+    /// A validated stage batch, borrowed without keeping a decoded array.
+    #[derive(Clone, Debug)]
+    pub struct RecordStream<'a> {
+        bytes: &'a [u8],
+        remaining: usize,
+    }
+    impl RecordStream<'_> {
+        /// Records still to iterate.
+        pub fn len(&self) -> usize {
+            self.remaining
+        }
+        /// Whether iteration is complete.
+        pub fn is_empty(&self) -> bool {
+            self.remaining == 0
+        }
+    }
+    impl<'a> Iterator for RecordStream<'a> {
+        type Item = Result<Record<'a>, i32>;
+        fn next(&mut self) -> Option<Self::Item> {
+            if self.remaining == 0 {
+                return None;
+            }
+            let mut reader = Reader {
+                remaining: self.bytes,
+            };
+            let decoded = (|| {
+                let (tag, mut body) = reader.record()?;
+                decode_body(tag, &mut body)
+            })();
+            self.bytes = reader.remaining;
+            self.remaining -= 1;
+            Some(decoded)
+        }
+    }
+    /// Tooling-only, side-agnostic batch validation. Runtime callers use a direction.
+    pub(crate) fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        decode_with(
+            bytes,
+            MAX_INPUT.max(MAX_REPLY),
+            REPLY_ROWS.max(INPUT_ROWS),
+            &[],
+        )
+    }
+    /// Decode one stage input of 1..=`INPUT_ROWS` records of input tags within its byte cap.
+    pub fn input_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        let records = decode_with(bytes, MAX_INPUT, INPUT_ROWS, INPUT_TAGS)?;
+        if records.is_empty() {
+            return Err(-2);
+        }
+        Ok(records)
+    }
+    /// Decode a subscriber's reply using only reply tags, rows and byte cap.
+    pub fn reply_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        decode_with(bytes, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+    }
+    fn decode_with<'a>(
+        bytes: &'a [u8],
+        cap: usize,
+        rows: usize,
+        tags: &[u32],
+    ) -> Result<RecordStream<'a>, i32> {
+        if bytes.len() > cap {
+            return Err(-2);
+        }
+        let mut reader = Reader { remaining: bytes };
+        let count = reader.varint()? as usize;
+        if count > rows {
+            return Err(-2);
+        }
+        let records = reader.remaining;
+        for _ in 0..count {
+            let (tag, mut body) = reader.record()?;
+            if !tags.is_empty() && !tags.contains(&tag) {
+                return Err(-2);
+            }
+            decode_body(tag, &mut body)?;
+        }
+        reader.finish()?;
+        Ok(RecordStream {
+            bytes: records,
+            remaining: count,
+        })
+    }
+    /// Tooling-only, side-agnostic encoding. Runtime callers use a direction.
+    pub(crate) fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        encode_with(
+            records,
+            out,
+            MAX_INPUT.max(MAX_REPLY),
+            REPLY_ROWS.max(INPUT_ROWS),
+            &[],
+        )
+    }
+    /// Encode one input of 1..=`INPUT_ROWS` records using its tag and byte bounds.
+    pub fn input_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        if records.is_empty() {
+            return Err(-2);
+        }
+        encode_with(records, out, MAX_INPUT, INPUT_ROWS, INPUT_TAGS)
+    }
+    /// Encode a subscriber reply using its tag, row and byte bounds.
+    pub fn reply_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        encode_with(records, out, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+    }
+    fn encode_with(
+        records: &[Record<'_>],
+        out: &mut [u8],
+        cap: usize,
+        rows: usize,
+        tags: &[u32],
+    ) -> Result<usize, i32> {
+        if records.len() > rows {
+            return Err(-2);
+        }
+        let mut required = varint_len(records.len() as u32);
+        for record in records {
+            if !tags.is_empty() && !tags.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            required += varint_len(record.tag()) + varint_len(body as u32) + body;
+        }
+        if required > cap {
+            return Err(-3);
+        }
+        if out.len() < required {
+            return Err(-3);
+        }
+        let mut offset = 0;
+        write_varint(records.len() as u32, out, &mut offset);
+        for record in records {
+            let body = record.body_len()?;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+            write_varint(0, out, &mut offset);
+            record.write(out, &mut offset);
+        }
+        Ok(offset)
+    }
+    /// Writes one reply batch record by record, straight into `out`: the
+    /// bytes [`reply_encode`] would write for the same records, without a
+    /// slice of them. Each [`push`](Self::push) checks the record before it
+    /// writes; a refused one leaves the rows before it as they were.
+    #[derive(Debug)]
+    pub struct ReplyWriter<'w> {
+        out: &'w mut [u8],
+        offset: usize,
+        rows: usize,
+    }
+    impl<'w> ReplyWriter<'w> {
+        /// A writer over `out`; `ERR_NO_SPACE` (-3) if `out` is empty.
+        pub fn new(out: &'w mut [u8]) -> Result<Self, i32> {
+            let first = out.first_mut().ok_or(-3)?;
+            *first = 0;
+            Ok(Self {
+                out,
+                offset: 1,
+                rows: 0,
+            })
+        }
+        /// Records written so far.
+        pub fn len(&self) -> usize {
+            self.rows
+        }
+        /// Whether no record is written yet.
+        pub fn is_empty(&self) -> bool {
+            self.rows == 0
+        }
+        /// Append `record`: -2 for a tag of the other side, a field out of its
+        /// bounds or one row too many; -3 when it does not fit the byte cap or
+        /// `out`. Nothing is written then.
+        pub fn push(&mut self, record: &Record<'_>) -> Result<(), i32> {
+            if self.rows >= REPLY_ROWS {
+                return Err(-2);
+            }
+            if !REPLY_TAGS.is_empty() && !REPLY_TAGS.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            let need = varint_len(record.tag()) + varint_len(body as u32) + body;
+            let end = self.offset.checked_add(need).ok_or(-3)?;
+            if end > MAX_REPLY || end > self.out.len() {
+                return Err(-3);
+            }
+            let out = &mut *self.out;
+            let mut offset = self.offset;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+            write_varint(0, out, &mut offset);
+            record.write(out, &mut offset);
+            self.offset = offset;
+            self.rows += 1;
+            Ok(())
+        }
+        /// The batch's length in `out`, its count written; -2 for an input
+        /// batch of no record.
+        pub fn finish(self) -> Result<usize, i32> {
+            let count = u8::try_from(self.rows).map_err(|_| -2)?;
+            let first = self.out.first_mut().ok_or(-3)?;
+            *first = count;
+            Ok(self.offset)
+        }
+    }
+    /// Writes one input batch record by record, straight into `out`: the
+    /// bytes [`input_encode`] would write for the same records, without a
+    /// slice of them. Each [`push`](Self::push) checks the record before it
+    /// writes; a refused one leaves the rows before it as they were.
+    #[derive(Debug)]
+    pub struct InputWriter<'w> {
+        out: &'w mut [u8],
+        offset: usize,
+        rows: usize,
+    }
+    impl<'w> InputWriter<'w> {
+        /// A writer over `out`; `ERR_NO_SPACE` (-3) if `out` is empty.
+        pub fn new(out: &'w mut [u8]) -> Result<Self, i32> {
+            let first = out.first_mut().ok_or(-3)?;
+            *first = 0;
+            Ok(Self {
+                out,
+                offset: 1,
+                rows: 0,
+            })
+        }
+        /// Records written so far.
+        pub fn len(&self) -> usize {
+            self.rows
+        }
+        /// Whether no record is written yet.
+        pub fn is_empty(&self) -> bool {
+            self.rows == 0
+        }
+        /// Append `record`: -2 for a tag of the other side, a field out of its
+        /// bounds or one row too many; -3 when it does not fit the byte cap or
+        /// `out`. Nothing is written then.
+        pub fn push(&mut self, record: &Record<'_>) -> Result<(), i32> {
+            if self.rows >= INPUT_ROWS {
+                return Err(-2);
+            }
+            if !INPUT_TAGS.is_empty() && !INPUT_TAGS.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            let need = varint_len(record.tag()) + varint_len(body as u32) + body;
+            let end = self.offset.checked_add(need).ok_or(-3)?;
+            if end > MAX_INPUT || end > self.out.len() {
+                return Err(-3);
+            }
+            let out = &mut *self.out;
+            let mut offset = self.offset;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+            write_varint(0, out, &mut offset);
+            record.write(out, &mut offset);
+            self.offset = offset;
+            self.rows += 1;
+            Ok(())
+        }
+        /// The batch's length in `out`, its count written; -2 for an input
+        /// batch of no record.
+        pub fn finish(self) -> Result<usize, i32> {
+            if self.rows == 0 {
+                return Err(-2);
+            }
+            let count = u8::try_from(self.rows).map_err(|_| -2)?;
+            let first = self.out.first_mut().ok_or(-3)?;
+            *first = count;
+            Ok(self.offset)
+        }
+    }
+    impl<'a> DecoratePage<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = DECORATE_PAGE_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            input_encode(&[Record::DecoratePage(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = input_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::DecoratePage(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> DecorateRun<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = DECORATE_RUN_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            input_encode(&[Record::DecorateRun(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = input_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::DecorateRun(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> DecorateTapped<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = DECORATE_TAPPED_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            input_encode(&[Record::DecorateTapped(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = input_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::DecorateTapped(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> DecorateMark<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = DECORATE_MARK_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::DecorateMark(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::DecorateMark(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl DecorateTaken {
+        /// Local tag of this record.
+        pub const TAG: u32 = DECORATE_TAKEN_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::DecorateTaken(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &[u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::DecorateTaken(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+}
 
 /// Local records of `reader.filter` major 1.
 pub mod reader_filter_v1 {

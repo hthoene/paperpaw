@@ -106,6 +106,39 @@ relative to the data folder).
   validation); the reader drops a reply that is invalid whole.
 
 
+## The stage `reader.decorations@1` (draft, Kernel review; todos 338, 448)
+
+Replaces the interface-6 decorators (`add_decorator`, `PageText`, `Decorated`) and the event
+`core.decoration-tapped` (Kernel ruling 334: a reader-defined stage, `document.md` 9). Schema
+`stages/reader.decorations@1.def`, codec `src/stages.rs`. Not declared or fired yet: the reader
+side follows once the schema is approved.
+
+- **Asking a page.** Once a page is laid out (and again when the reader screen comes back on
+  top, so a word added in a lookup shows), the reader fires the stage with one head record
+  `decorate.page` (`path` str 256, `language` str 16, `runs`: how many run rows follow) and
+  `runs` rows `decorate.run` (`section`, `offset`: where the run starts; `text` str 3,200: the
+  page's text of that section from there, words apart by one space, a word broken over two lines
+  once, whole). A page whose text is over the stage's 3,840 bytes is asked in several fires of
+  whole runs; at most 32 runs a fire. The answer is kept with the page; turning back to a page
+  asks again (no answers are kept between pages, #248).
+- **Marks.** A subscriber replies up to 32 rows `decorate.mark`: `run` (index of the run in this
+  fire), `from` and `to` (byte offsets in that run's `text`, on character boundaries, `from` <
+  `to`; else the row is dropped), `role` (str 64, `<plugin>.<name>`), and the look the plugin
+  resolved from its own role settings: `background` and `line_tone` (0 none, else 1 + the index in
+  `Tone::ALL`), `ink` (0 as it is, else 1 + the index), `line` (0 none, else 1 + the index in
+  `LineKind::ALL`), `thickness` (tenths of a millimetre, 0 the default, at most 20), `flags` (bit 0
+  frame, bit 1 struck, bit 2 the plugin takes taps on this mark; other bits 0). Values a reader
+  does not know draw as the default (`Tone::Other`, `LineKind::Other`). Where marks meet, the
+  subscriber answered first wins an aspect both set (Beta 3's decorator order).
+- **Taps.** A tap on a mark with bit 2 (or choosing it with the buttons) fires the stage again
+  with one record `decorate.tapped` (`role`, the mark's `text` str 256, `path`, start and end
+  place). Only the subscriber whose id is the role's plugin acts; it replies one
+  `decorate.taken` (`taken` 1) and opens what it shows itself (its lookup, its screen). The others
+  reply nothing. No answer, or `taken` 0: the tap goes on as a tap on the page.
+- **Bounds.** At most 4 subscribers; input and reply at most 3,840 bytes each, the reader holds
+  one reply buffer of that size while it fires and nothing between fires (#248). A subscriber's
+  bad reply (framing, a tag it should not send) drops that subscriber's marks for the page only.
+
 ## The native entry (slice 2)
 
 - `NATIVE_ENTRY` (feature `linked`; `native-entry` for the packed form), `src/native_plugin.rs`,
