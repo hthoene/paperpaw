@@ -13,11 +13,12 @@
 use super::{
     host_services::HostServices,
     lib_jobs::Jobs,
-    lib_jobs_env::{EnvJobs, NoCatalog},
+    lib_jobs_env::EnvJobs,
     lib_jobs_journal::DELETE_MAX,
     lib_moves_carry::EnvCarry,
     lib_moves_host::{CardMoves, StepHost},
     lib_moves_walk::Resume,
+    lib_reads::CatalogJobs,
     lib_service::moves::Moves,
 };
 use alloc::rc::Rc;
@@ -167,7 +168,7 @@ impl LibraryMoves {
             self.started.set(true);
         }
         if !self.moves.active() {
-            let catalog = NoCatalog;
+            let catalog = CatalogJobs::new(carry.storage());
             let jobs = EnvJobs::new(&carry, &catalog, &catalog);
             return match self.jobs.step(&jobs) {
                 Ok(true) => Pump::More,

@@ -10,20 +10,21 @@
 //! `paperpaw.ini`) by its spelling or, for an 8.3 alias (a name with a `~`
 //! where one of those names also exists), as `core.files` decides it
 //! ([`excluded_on`]; it over-refuses where it cannot tell).
-use super::files_service::Access;
 use super::lib_changed::{self, Changes};
 use super::lib_edits::LibEdits;
+use super::lib_import::plan;
 use super::lib_moves_service::LibraryMoves;
 use super::lib_reads::{CatalogEnv, CatalogReads};
+use super::lib_service::moves::Access;
 use super::lib_service::{
-    BookId, BookRef, Caller, CommitRequest, Committed, FieldKind, LibExcluded, LibQuery, LibWrite,
-    One, Rows, StageItem, StoredPosition, Transactions,
+    BookId, BookRef, Caller, CommitRequest, Committed, FieldKind, ImportRequest, LibExcluded,
+    LibQuery, LibWrite, One, Rows, StageItem, StoredPosition, Transactions,
 };
 use super::registrations::{self as wire};
 use super::storage_files::{BusySources, excluded_on};
 use crate::abi7::context::RowsEnd;
 use alloc::rc::Rc;
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NOT_FOUND, ERR_UNSUPPORTED, OK};
 use paperpaw_platform::Storage;
 
 /// `core.library` over the catalog on `storage`.
@@ -36,8 +37,8 @@ pub(crate) struct LibraryHost {
     /// The staged annotation transactions (ops 17 to 21 and 26).
     edits: LibEdits,
     /// Every source of paths in use (`core.files`' own): a book open in a
-    /// document, the reader's, a transfer's. A move over it is `ERR_BUSY`.
-    /// Without it only the move job counts.
+    /// document, the reader's, a transfer's. A delete, an import or a move over
+    /// it is `ERR_BUSY`. Without it only the move job counts.
     sources: Option<Rc<BusySources>>,
     /// What changed, for `event.library_changed` (the kernel's pump takes it).
     changes: Changes,
@@ -59,7 +60,8 @@ impl LibraryHost {
         }
     }
 
-    /// The host's sources of paths in use, asked by `move_book`.
+    /// The host's sources of paths in use, asked by `delete`, `import` and
+    /// `move_book`.
     pub(crate) fn with_busy_sources(mut self, sources: Rc<BusySources>) -> Self {
         self.sources = Some(sources);
         self
@@ -85,9 +87,43 @@ impl LibraryHost {
 
     /// Whether the library's move job holds the book at `path`.
     fn in_use(&self, path: &str) -> bool {
+        self.busy(path, Access::Rework)
+    }
+
+    /// Whether anything holds `path` for `access`: the move job, or (where
+    /// wired) a document, the reader or a transfer. For what changes or
+    /// removes the file itself.
+    fn held(&self, path: &str, access: Access) -> bool {
+        self.busy(path, access)
+            || self
+                .sources
+                .as_ref()
+                .is_some_and(|all| all.busy(&*self.storage, path, access))
+    }
+
+    /// Whether the library's move job holds `path` for `access`.
+    fn busy(&self, path: &str, access: Access) -> bool {
         self.moves
             .as_ref()
-            .is_some_and(|moves| moves.moves().busy(&**moves.card(), path, Access::Rework))
+            .is_some_and(|moves| moves.moves().busy(&**moves.card(), path, access))
+    }
+
+    /// Whether the book at `book` is one a delete has removed from the card
+    /// and whose catalog part is not done yet: lists and reads leave it out.
+    fn deleted(&self, book: BookRef<'_>) -> bool {
+        match (book, &self.moves) {
+            (BookRef::Path(path), Some(moves)) => moves.pending_delete(path),
+            _ => false,
+        }
+    }
+
+    /// `ERR_NOT_FOUND` for a book a pending delete holds.
+    fn visible(&self, book: BookRef<'_>) -> Result<(), i32> {
+        if self.deleted(book) {
+            Err(paperpaw_native::host_glue::ERR_NOT_FOUND)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -96,6 +132,7 @@ impl LibQuery for LibraryHost {
         self.reads.state(visit)
     }
     fn book(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
+        self.visible(book)?;
         self.reads.book(book, visit)
     }
     fn book_file_present(&self, path: &str) -> Result<bool, i32> {
@@ -107,12 +144,15 @@ impl LibQuery for LibraryHost {
         at: &wire::ServiceLibTextAt,
         visit: One<'_>,
     ) -> Result<(), i32> {
+        self.visible(book)?;
         self.reads.text(book, at, visit)
     }
     fn book_key(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
+        self.visible(book)?;
         self.reads.book_key(book, visit)
     }
     fn position(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
+        self.visible(book)?;
         self.reads.position(book, visit)
     }
     fn annotations(
@@ -122,6 +162,7 @@ impl LibQuery for LibraryHost {
         generation: u32,
         visit: Rows<'_>,
     ) -> Result<RowsEnd, i32> {
+        self.visible(book)?;
         self.reads.annotations(book, cursor, generation, visit)
     }
     fn anchors(
@@ -131,6 +172,7 @@ impl LibQuery for LibraryHost {
         generation: u32,
         visit: Rows<'_>,
     ) -> Result<RowsEnd, i32> {
+        self.visible(book)?;
         self.reads.anchors(book, cursor, generation, visit)
     }
 }
@@ -184,6 +226,62 @@ impl LibWrite for LibraryHost {
         self.reads
             .set_status_unless(book, set, clear, &|path| self.in_use(path))?;
         self.raise_changed(lib_changed::STATUS, "");
+        Ok(())
+    }
+
+    /// The books at `paths`, as one journalled job (Files'): a path in use
+    /// answers `ERR_BUSY` and is not passed on; the rest is, with the card's
+    /// answer per path. The catalog's part follows from the pump.
+    fn delete(&self, paths: &[&str], with_notes: bool) -> Result<[i32; 7], i32> {
+        let Some(moves) = &self.moves else {
+            return Err(ERR_UNSUPPORTED);
+        };
+        let (mut answers, mut asked, mut slots, mut count) = ([OK; 7], [""; 7], [0_usize; 7], 0);
+        for (index, path) in paths.iter().enumerate().take(7) {
+            if self.held(path, Access::Remove) {
+                answers[index] = ERR_BUSY;
+            } else {
+                asked[count] = path;
+                slots[count] = index;
+                count += 1;
+            }
+        }
+        if count > 0 {
+            let done = moves.begin_delete(&asked[..count], with_notes)?;
+            for (slot, status) in slots.iter().zip(done).take(count) {
+                answers[*slot] = status;
+            }
+        }
+        Ok(answers)
+    }
+
+    fn library_folder(&self, visit: &mut dyn FnMut(&str)) -> Result<(), i32> {
+        self.reads.library_folder(visit);
+        Ok(())
+    }
+
+    /// An import: the name and the replace rule are decided on the card
+    /// ([`plan`]), then the journalled move is Files'; the catalog's part
+    /// follows from the pump. A path in use is `ERR_BUSY`.
+    fn import(
+        &self,
+        who: &Caller<'_>,
+        request: &ImportRequest<'_>,
+        visit: &mut dyn FnMut(&str),
+    ) -> Result<(), i32> {
+        let Some(moves) = &self.moves else {
+            return Err(ERR_UNSUPPORTED);
+        };
+        let mut planned = Err(ERR_NOT_FOUND);
+        self.reads.library_folder(&mut |library| {
+            planned = plan(&*self.storage, who.plugin, library, request);
+        });
+        let planned = planned?;
+        if self.held(&planned.to, Access::Rework) {
+            return Err(ERR_BUSY);
+        }
+        moves.begin_import(&planned.from, &planned.to, who.plugin, planned.replace)?;
+        visit(&planned.to);
         Ok(())
     }
 
