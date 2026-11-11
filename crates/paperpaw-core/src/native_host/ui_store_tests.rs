@@ -594,3 +594,18 @@ fn a_full_table_of_plugins_hand_overs_leaves_room_for_the_hosts_dialogs() {
     s.handover_dialog("2", "0").unwrap();
     assert_eq!(s.handover_dialog("3", "0"), Err(ERR_FULL));
 }
+
+#[test]
+fn a_plugin_that_fills_the_params_pool_leaves_room_for_the_hosts_dialogs() {
+    let mut limits = Limits::ELSEWHERE;
+    limits.params_bytes = 300;
+    let s = UiStore::new(limits);
+    // One long value fills the pool as far as it goes.
+    let long = "x".repeat(250);
+    s.handover_make(who(1, 1), &[p("k", &long)]).unwrap();
+    assert_eq!(s.handover_make(who(1, 1), &[p("j", &long)]), Err(ERR_FULL));
+    // The host's dialog still gets its hand-over.
+    let id = s.handover_dialog("1", "0").unwrap();
+    s.attach(Some(id), 3).unwrap();
+    assert_eq!(read_params(&s, 3, id).unwrap().len(), 2);
+}

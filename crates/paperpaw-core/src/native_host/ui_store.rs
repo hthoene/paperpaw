@@ -230,6 +230,11 @@ const HOST_OWNER: u64 = u64::MAX;
 /// plugin that fills the table (`Limits::handovers`) cannot make every text
 /// question fail.
 const HOST_ROOM: usize = 2;
+/// The bytes of params the host may make for them beyond the limit of the
+/// plugins' ([`HOST_ROOM`] of the two params `core.request` and `core.kind`,
+/// framed, are under 100 each), so that a plugin that fills the pool
+/// (`Limits::params_bytes`) cannot make every text question fail either.
+const HOST_BYTES: usize = HOST_ROOM * 128;
 
 enum State {
     Made {
@@ -495,7 +500,7 @@ impl UiStore {
                 owner: who.owner,
                 epoch: who.epoch,
             },
-            0,
+            (0, 0),
         )
     }
 
@@ -526,13 +531,13 @@ impl UiStore {
                 owner: HOST_OWNER,
                 batch: u64::MAX,
             },
-            HOST_ROOM,
+            (HOST_ROOM, HOST_BYTES),
         )
     }
 
-    /// Keeps a hand-over of `params` (checked) in `state`, `room` beyond the
-    /// limit of hand-overs allowed.
-    fn insert(&self, params: &[Param<'_>], state: State, room: usize) -> Result<u32, i32> {
+    /// Keeps a hand-over of `params` (checked) in `state`, `room` (hand-overs,
+    /// bytes) beyond the limits allowed.
+    fn insert(&self, params: &[Param<'_>], state: State, room: (usize, usize)) -> Result<u32, i32> {
         // Encode once into a block of exactly the size.
         let mut framed = 0_usize;
         for param in params {
@@ -542,8 +547,8 @@ impl UiStore {
             }))?;
         }
         let mut inner = self.inner()?;
-        if inner.params_bytes + framed > self.limits.params_bytes
-            || inner.entries.len() >= self.limits.handovers + room
+        if inner.params_bytes + framed > self.limits.params_bytes + room.1
+            || inner.entries.len() >= self.limits.handovers + room.0
         {
             return Err(ERR_FULL);
         }
