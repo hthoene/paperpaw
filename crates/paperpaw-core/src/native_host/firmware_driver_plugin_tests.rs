@@ -57,10 +57,10 @@ fn facts(id: &str) -> PluginFacts {
 
 /// What a scripted job did, seen from the test.
 #[derive(Default)]
-struct Seen {
-    steps: Cell<u32>,
+pub(crate) struct Seen {
+    pub(crate) steps: Cell<u32>,
     aborted: Cell<Option<u8>>,
-    dropped: Cell<bool>,
+    pub(crate) dropped: Cell<bool>,
 }
 
 pub(crate) struct Script {
@@ -202,7 +202,7 @@ fn job_of_kind(owner: u64, request: u32, kind: u32) -> PluginJobs {
 }
 
 /// An install-like job of `steps` steps, with what it says of stopping.
-fn install_job(
+pub(crate) fn install_job(
     owner: u64,
     request: u32,
     steps: u32,
