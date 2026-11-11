@@ -143,7 +143,7 @@ pub const fn default_store() -> StorePlugins<'static> {
 /// [`native_default_on`]. Not in the list yet, because their ports are not
 /// finished (each one's `PORTING-7.md` says what is open) or the interface-6
 /// reader still reads books through their interface-6 forms: sleep,
-/// dictionary, store, fonts-browser, picture-home. The formats (txt, xtc, epub,
+/// dictionary, fonts-browser, picture-home. The formats (txt, xtc, epub,
 /// html, fb2, markdown, cbz) are linked with the reader
 /// (`native-linked-reading`), and docx, images and mobi with it where
 /// `native-linked-store` links the store's plugins: the native reader opens
@@ -207,6 +207,7 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("reader", &paperpaw_plugin_reader::NATIVE_ENTRY),
     ("settings", &paperpaw_plugin_settings::NATIVE_ENTRY),
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
+    ("store", &paperpaw_plugin_store::NATIVE_ENTRY),
     ("transfer", &paperpaw_plugin_transfer::NATIVE_ENTRY),
     ("update", &paperpaw_plugin_update::NATIVE_ENTRY),
     #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
@@ -279,6 +280,7 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
         "files" => tables!(paperpaw_plugin_files),
         "plugin-manager" => tables!(paperpaw_plugin_plugin_manager),
         "setup" => tables!(paperpaw_plugin_setup),
+        "store" => tables!(paperpaw_plugin_store),
         "transfer" => tables!(paperpaw_plugin_transfer),
         "update" => tables!(paperpaw_plugin_update),
         "wifi" => tables!(paperpaw_plugin_wifi),
@@ -579,7 +581,12 @@ pub fn install_with(
     {
         b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);
     }
-    b = b.plugin(paperpaw_plugin_store::Store);
+    // The store is a native plugin, linked (`NATIVE_PLUGINS`), where the
+    // feature says.
+    #[cfg(not(feature = "native-linked"))]
+    {
+        b = b.plugin(paperpaw_plugin_store::Store);
+    }
     #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
     {
         b = offered(b, store, paperpaw_plugin_aids::Aids);

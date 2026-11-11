@@ -12,8 +12,8 @@
 //!
 //! The setup step is declared with the screen (`declarations::setup`); where
 //! no plugin can be added here the plugin says so through
-//! `command.set_item_state` (the step does not apply, [`applies`]) and, should
-//! the page be opened all the same, it closes at once (`started`).
+//! `command.set_item_state` (the step does not apply, [`applies`]); opened all
+//! the same, the page shows only *Done*, as Beta 3's did.
 //!
 //! Memory: the words are read once, when the page opens (four rows, two hints);
 //! a toggle builds the few rows again from them; a frame reads nothing.
@@ -243,15 +243,6 @@ impl Screen for View {
             texts,
             list,
             added: false,
-        })
-    }
-
-    /// Where no plugin can be added here the page has nothing to offer.
-    fn started(&mut self, _: &Ctx<'_>) -> Result<Next, Error> {
-        Ok(if self.ids.is_empty() {
-            Next::Close
-        } else {
-            Next::None
         })
     }
 

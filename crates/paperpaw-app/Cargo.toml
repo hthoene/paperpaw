@@ -93,6 +93,7 @@ native-linked = [
     "paperpaw-plugin-opds/linked",
     "paperpaw-plugin-settings/linked",
     "paperpaw-plugin-setup/linked",
+    "paperpaw-plugin-store/linked",
     "paperpaw-plugin-transfer/linked",
     "paperpaw-plugin-update/linked",
     "paperpaw-plugin-wifi/linked",

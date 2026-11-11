@@ -63,8 +63,8 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
 /// keyboard's and before Wi-Fi's. It applies until the plugin says it does not
 /// (`command.set_item_state`, where no plugin of the offer can be added here;
 /// `native_screen_offer::applies`), and the item state carries the badge of
-/// what became of those chosen. The page closes at once if it is opened all
-/// the same with nothing to offer.
+/// what became of those chosen. Opened all the same with nothing to offer,
+/// the page shows only *Done*, as in Beta 3.
 pub fn setup<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {

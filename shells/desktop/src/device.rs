@@ -711,6 +711,12 @@ impl Device {
             let before = self.native_in_flight();
             self.poll_native_net(if mixed { None } else { slice });
             let mut delivered = self.native_in_flight() < before;
+            if delivered {
+                // The native answers wait in core for its next pass.
+                let now = self.now();
+                let effects = budget::track(|| self.kernel.tick(now));
+                self.execute(effects);
+            }
             while let Some((id, received, total)) = self.http.next_progress() {
                 let now = self.now();
                 let effects = budget::track(|| self.kernel.http_progress(now, id, received, total));
