@@ -181,6 +181,11 @@ impl crate::Kernel {
             )
             .with_ui(&env, self.event_screen(id), 0, self.screen_keys_remaining())
             .with_widgets(instances.ui_services(), owner);
+            // An event's or an action's callback sets its items' states too, as
+            // a screen's does (`update` marks its menu item).
+            if let Some(directory) = self.shared.registry.native_declarations.as_ref() {
+                stage = stage.with_item_states(super::commands::ItemAdmit { directory });
+            }
             stage.set_images_held(self.image_held(owner));
             stage.set_speech_held(self.io.speech.owned_texts(id.as_str()));
             stage.set_requests_open(
@@ -202,6 +207,7 @@ impl crate::Kernel {
                 // failed borrow is a host fault: the callback fails
                 // (`ERR_BUSY`, as in the shell path) and its batch is dropped.
                 let widgets = stage.take_widget_changes();
+                let item_states = stage.take_item_states();
                 let answers = stage.take_answers();
                 let marked = match instances.ui_services() {
                     Some(ui) if !widgets.is_empty() => ui.widgets_changed(owner, &widgets),
@@ -215,9 +221,11 @@ impl crate::Kernel {
                     (!commands.is_empty()
                         || redraw.is_some()
                         || !images.is_empty()
+                        || !item_states.0.is_empty()
                         || !answers.is_empty())
                     .then(|| {
                         let mut staged = Staged::new(owner, commands, redraw, images);
+                        staged.screen.item_states = item_states;
                         staged.screen.answers = answers;
                         staged
                     })
