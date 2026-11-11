@@ -52,6 +52,21 @@ pub trait Loader {
     fn generation(&self) -> u32 {
         0
     }
+    /// How the page of plugin `id` stands (a screen that waits for it says so):
+    /// here, still coming (the default where it is not here), offline, or
+    /// failed (the library no longer offers it).
+    fn page_state(&self, id: &str) -> Trouble {
+        if self.page(id).is_some() {
+            Trouble::None
+        } else {
+            Trouble::Loading
+        }
+    }
+    /// Whether the device has little memory (the pictures of a page are then
+    /// kept small). Unknown reads as small.
+    fn small_memory(&self) -> bool {
+        true
+    }
 }
 
 /// How the install of a plugin stands (Port E's steps).
@@ -100,6 +115,27 @@ pub trait Installs {
     /// screens' port.)
     fn waiting(&self, id: &str) -> bool {
         let _ = id;
+        false
+    }
+    /// Whether the kernel stopped plugin `id`: the key its author signed it
+    /// with was withdrawn.
+    fn revoked(&self, id: &str) -> bool {
+        let _ = id;
+        false
+    }
+    /// Whether a check (`check_file`) said there is no room for plugin `id`.
+    fn no_room(&self, id: &str) -> bool {
+        let _ = id;
+        false
+    }
+    /// The name of the plugin whose install goes on, when it is not `id`.
+    fn other_job(&self, id: &str) -> Option<&str> {
+        let _ = id;
+        None
+    }
+    /// The device runs the stock layout of the code flash (*no room* says the
+    /// full layout gives much more).
+    fn flash_hint(&self) -> bool {
         false
     }
 }
@@ -178,6 +214,14 @@ pub enum Next {
     /// Close this screen and hand `value` (named `key`) to the screen below
     /// through [`Screen::returned`]. (Addition of the screens' port.)
     CloseWith { key: &'static str, value: String },
+    /// Show the text file `path` of the data folder in the reader.
+    Read(String),
+    /// Restart the device.
+    Restart,
+    /// Switch on the built-in plugin `id`.
+    SwitchOn(String),
+    /// Say text `key` of the catalog with `name` for its `{name}`, once.
+    Said { key: &'static str, name: String },
 }
 
 /// What a screen asks the reader. The texts are already in the reader's
@@ -240,6 +284,16 @@ pub trait Screen: Sized {
     /// # Errors
     /// `NoMemory`, or what the host refuses.
     fn input(&mut self, ctx: &Ctx<'_>, input: &Input<'_>) -> Result<(Handled, Next), Error>;
+
+    /// The screen is closed: it gives back what it holds (a picture the host
+    /// keeps, a request going on, a file it wrote).
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    fn closed(&mut self, ctx: &Ctx<'_>) -> Result<(), Error> {
+        let _ = ctx;
+        Ok(())
+    }
 
     /// An event that may concern the screen (an answer, a download's end, an
     /// install's step).
@@ -324,6 +378,22 @@ impl StoreView {
             Self::Plugin(v) => v.shown(ctx),
             Self::Shots(v) => v.shown(ctx),
             Self::Fetch(v) => v.shown(ctx),
+        }
+    }
+
+    /// The screen is closed.
+    ///
+    /// # Errors
+    /// What the screen says.
+    pub fn closed(&mut self, ctx: &Ctx<'_>) -> Result<(), Error> {
+        match self {
+            Self::List(v) => v.closed(ctx),
+            Self::View(v) => v.closed(ctx),
+            Self::Letters(v) => v.closed(ctx),
+            Self::Source(v) => v.closed(ctx),
+            Self::Plugin(v) => v.closed(ctx),
+            Self::Shots(v) => v.closed(ctx),
+            Self::Fetch(v) => v.closed(ctx),
         }
     }
 
