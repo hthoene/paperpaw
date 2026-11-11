@@ -1323,7 +1323,9 @@ impl Kernel {
         self.io.servers.stop_for_closed_screens(screens, out);
         self.io.sockets.close_for_closed_screens(screens, out);
         self.bluetooth_screens_closed();
-        self.io.speech.stop_for_closed_screens(screens);
+        self.io
+            .speech
+            .stop_for_closed_screens(screens, &mut self.output.commands);
         if self
             .io
             .speech

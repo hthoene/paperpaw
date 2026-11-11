@@ -596,6 +596,11 @@ impl Kernel {
         if self.bluetooth_answer(event, params) {
             return;
         }
+        // A native plugin's speech: its end is told to it alone, its stop is
+        // the kernel's (`native_host::speech`).
+        if self.native_speech_event(event, params) {
+            return;
+        }
         // (The firmware confirmation's answer is not an event anyone can
         // send: `with_screen` takes it from the confirmation screen alone.)
         // A page turned, also by itself, is use.
@@ -844,7 +849,7 @@ impl Kernel {
             // In place of what the system or another voice says now,
             // unless after it.
             if !speech.is_queued() {
-                self.io.speech.stop();
+                self.io.speech.stop(&mut self.output.commands);
                 let other = self
                     .io
                     .speech
@@ -885,7 +890,7 @@ impl Kernel {
 
     /// Stops speaking: the system's voice and a plugin's.
     pub(crate) fn stop_speaking(&mut self) {
-        self.io.speech.stop();
+        self.io.speech.stop(&mut self.output.commands);
         self.stop_voice();
     }
 

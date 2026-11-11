@@ -300,6 +300,18 @@ impl<'a> CommandStage<'a> {
                 }
                 Ok(text.len())
             }
+            // Speech (`speech.rs`): a device without it says status 3 at once.
+            WireCommand::Speak {
+                text,
+                language,
+                rate,
+                flags,
+                ..
+            } => {
+                super::speech::check(rate, flags)?;
+                Ok(text.len() + language.len())
+            }
+            WireCommand::StopSpeaking {} => Ok(0),
             _ => Err(ERR_UNSUPPORTED),
         }
     }
@@ -330,6 +342,14 @@ impl<'a> CommandStage<'a> {
                     Command::Notify(owned)
                 })
             }
+            WireCommand::Speak {
+                cookie,
+                text,
+                language,
+                rate,
+                flags,
+            } => super::speech::speak(self.owner, (cookie, text, language), (rate, flags)),
+            WireCommand::StopSpeaking {} => super::speech::stop(self.owner),
             _ => Err(ERR_UNSUPPORTED),
         }
     }
