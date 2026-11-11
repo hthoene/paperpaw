@@ -261,7 +261,9 @@ fn goldens_of_other_depths_and_colors_compare_as_grays() {
 
 /// The kit wires host services as a shell does (`Setup::wired`) and lets the start's callbacks
 /// run (`Session::settle`): a plugin that makes service calls there meets the real call path,
-/// with its reply-buffer check. Battery makes none; this keeps the two helpers exercised.
+/// with its reply-buffer check (`files/tests/hosted_undersized.rs` proves a refusal is
+/// reported). Battery declares no call service: `lookup()` is wired here only to exercise the
+/// two helpers together on a plugin that starts and draws.
 #[test]
 fn a_wired_start_settles_without_a_refused_callback() {
     let setup = hosted::Setup::x4()
