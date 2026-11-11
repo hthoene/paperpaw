@@ -498,7 +498,7 @@ fn the_input_window_for_join_ends_after_2000_ms_inclusive() {
         assert_eq!(outcome(&kernel, "wifi").is_some(), !honoured, "{since} ms");
     }
     // No input yet, and the clock before the input, are handled.
-    let mut kernel = kernel();
+    let mut kernel = kernel_without_manager();
     let owner = Id::new_static("wifi");
     assert_eq!(
         run(&mut kernel, &owner, &[join(1, "net")], &Clock(5, None)),
