@@ -74,6 +74,15 @@ impl NativeInstance for Probe {
                     text: "plain",
                     flags: 0,
                 },
+                // The state of a menu item of its own.
+                6 => WireCommand::SetItemState {
+                    item: "open",
+                    flags: crate::native_host::item_state::FAINT,
+                    label: "",
+                    label_args: &[],
+                    badge: "",
+                    badge_args: &[],
+                },
                 _ => WireCommand::Open {
                     target: "a.screen",
                     mode: 0,
@@ -606,4 +615,53 @@ fn the_service_pump_does_not_run_a_batch_inside_a_callback() {
     w.kernel.native_service_pump();
     assert!(w.kernel.shared.native_instances.outbox.full());
     assert!(!w.kernel.output.redraw);
+}
+
+fn item_state_of(w: &World) -> Option<u32> {
+    let directory = w.kernel.shared.registry.native_declarations.as_ref()?;
+    let states = directory.items.borrow();
+    states
+        .get("a", "open")
+        .map(crate::native_host::item_state::ItemPush::flags)
+}
+
+#[test]
+fn an_event_callback_sets_the_state_of_its_item_and_it_is_stored_after_it_returned() {
+    let mut w = world(true);
+    // The item is one the plugin declared: here a setting of its own.
+    w.kernel
+        .shared
+        .settings
+        .define(paperpaw_sdk::SettingSpec::switch(
+            "a.open",
+            "setting",
+            false,
+            paperpaw_sdk::builtin::groups::OTHER,
+        ))
+        .unwrap();
+    w.kernel.shared.registry.native_declarations = Some(
+        crate::native_host::shared::Shared::try_new(
+            crate::native_host::native_declarations::NativeDeclarations::default(),
+        )
+        .unwrap(),
+    );
+    w.command.set(6);
+    assert_eq!(w.call(), Ok(OK));
+    assert_eq!(w.last.get(), OK, "admitted at submit");
+    // Kept for the kernel, stored when it runs the batch.
+    assert_eq!(item_state_of(&w), None);
+    assert!(w.kernel.shared.native_instances.outbox.full());
+    w.kernel.native_outbox_run();
+    assert_eq!(
+        item_state_of(&w),
+        Some(crate::native_host::item_state::FAINT)
+    );
+}
+
+#[test]
+fn without_the_declarations_an_item_state_is_still_refused_as_unsupported() {
+    let w = world(true);
+    w.command.set(6);
+    assert_eq!(w.call(), Ok(OK));
+    assert_eq!(w.last.get(), paperpaw_native::host_glue::ERR_UNSUPPORTED);
 }
