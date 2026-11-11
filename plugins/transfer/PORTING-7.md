@@ -3,7 +3,7 @@
 Version 1.0.4 (already above its Beta 3 version, 1.0.3; no further bump). Status: **not complete**: the native
 entry (`NativeTransfer`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin `transfer`) serves the page
 and shows its address, installs plugins sent from the computer, types for the phone's keyboard, offers to go online and
-opens the reader's own network; the cable and moving files are named blocked steps below, so the plugin is **gated**:
+opens the reader's own network, moves, renames and deletes files through the library; the cable is a named blocked step below, so the plugin is **gated**:
 it is not in `NATIVE_PLUGINS` and not in `tools/plugin-files7/complete.txt` (its native file is not the whole
 plugin). The interface-6 `Transfer`, `web.rs`, `plugins.rs`, `cable.rs`, `phone.rs`, `link.rs` and everything of
 them stay until the host activates native plugins (then they go together, no shim; see the removal step).
@@ -48,13 +48,15 @@ them stay until the host activates native plugins (then they go together, no shi
   firmware's transfer does not wait for a file on the card), the translated texts, the device's name
   (`core.device-name`) and the library folder (`core.library-folder`) go where it names them, and the finished page is
   written into the data folder (`page.html`) and sent with `Response::send_file` (an inline body holds 2,048 bytes).
-  The page reads a new `T.noMove` that hides *Move* and *Rename* (see below); the interface-6 page never sets it.
+  The page's `T.noMove` (hides *Move* and *Rename*) is no longer set: moving and renaming are native (see
+  *Moving, deleting and uploading through the library*).
 - **The requests** (`src/native_web.rs`, over a `Card` trait; `src/native_files.rs` is the `core.files` root 1 one):
   `GET /` (the page), `GET /api/list` (an inline answer of at most 2,000 bytes; folders with more entries go on in
   parts with `next`, as before), `GET /api/file` (the file whole, `send_file` from the card: the host streams it),
   `PUT /api/file` (the body the host saved under `.received/<server>/<request>` is **moved** to the card under a
-  free name, `name (2)`; refused with 507 when the body is longer than the free room `core.files` `space` says, the
-  card's own *full* is 507 too), `POST /api/mkdir`, `POST /api/delete` (a folder with all in it, `remove_tree`), each
+  free name, `name (2)` (a book into the library folder is imported, see below); refused with 507 when the body is longer than the free room `core.files` `space` says, the
+  card's own *full* is 507 too), `POST /api/mkdir`, `POST /api/delete` (a folder with all in it, `remove_tree`; a book through the library),
+  `POST /api/move` (see below), each
   with the key. Paths are plain names (no hidden, no `..`, no trailing dot or space); the host checks root 1 by
   identity (`plugins` and `.paperpaw` are never reached). `paperpaw.ini` can be fetched but not put, made over or
   deleted (any case). Nothing a computer sends can fail the plugin: an error while answering is answered 500 or 503
@@ -123,6 +125,41 @@ them stay until the host activates native plugins (then they go together, no shi
 - **What the host admits**: every registration `make` submits is admitted (`event.install_done`, `event.wifi_done`
   and `event.work_due` too: `tests/hosted_construction.rs` constructs the plugin in the kernel's real scope).
 
+## Moving, deleting and uploading through the library (`native_web.rs`, `native_files.rs`)
+
+- **`POST /api/move?path=&to=[&name=]`** (the page's *Move* and *Rename*; interface 6's rules, kept): the source is
+  there and is not the top or `paperpaw.ini`; `to` is a folder that is there (the top for none); `name` is a plain
+  name (the source's own when none); the target is never over what is there (`name (2)`, before the extension);
+  a folder never goes into itself or below itself (*400*); `paperpaw.ini` is neither moved nor a target
+  (*403*); the same place (as the card names it, case ignored) answers *200* and changes nothing, so a rename that only
+  changes case is no change. The reader's line is *Moved: {name}* (`transfer.moved`, the name it has now; en and de).
+  **A book file** (the library's preflight `can_delete` says it is one: the file-manager's rule, the format by
+  extension or sniffing) is moved by `Library::move_to` (`replace` off), so its position, notes, fields and the
+  plugins' data follow and its key changes (`library.md` 2.3 and 6). **A folder or any other file** is
+  `core.files` `move` (root 1 to root 1, `replace` off): the host's library follows every move on root 1 by itself
+  (`files.md` 2.6), books below a folder included, so the plugin sends no moved event (interface 6's
+  `tell_moved` is gone). Differences from interface 6: the host's refusals are said (*409* `busy, try again` for
+  `Busy`, which is also a move job running for another move, *409* `exists` for `State`, *403* `not allowed` for
+  `Denied`, *507* for `Full`, as for any change; out of memory stays *503*).
+- **`POST /api/delete`**: a book file is `Library::delete` (`paths=[path]`, `with_notes` on: interface 6 deleted
+  everything kept for the book and the user asked on the page); a folder is `remove_tree` (the host forgets the books
+  below it), any other file `remove_tree` too. The answers of the host are the same as for a move (a book the reader has
+  open is `Busy`, *409*).
+- **`PUT /api/file`**: the body (a file of the data folder, root 0) is **imported** (`Library::import`, `from` the
+  body's root-0 path, `folder` the part of the target below the library folder, `Existing::FreeName`, so the book is
+  catalogued at once and the walk need not find it) when the target is a book name (an extension of the formats,
+  `core.document` `formats`, as the page's hint does) inside the library folder (`core.library-folder`, read per
+  upload; case ignored; an empty setting is the whole card). Everything else is moved with `core.files` as before.
+  Where the library refuses the names (`Invalid`, nothing sent) the body is moved as before. The line says the name the
+  host took.
+- **Without the library** (`Library::open` refused: not declared or not allowed) books are files: the same calls go
+  to `core.files`, which the host's library follows on root 1. `uses.library` is declared **optional** and
+  `core.library` is in the services (`uses.storage` was already required, which move and delete need).
+- Tests: `native_web/tests.rs` over the in-memory card, which logs whether the library or the card did each change
+  (a file, a book, a folder, into itself, over what is there, the same place, the settings, missing and hostile
+  names, the host's refusals, an allocation sweep of each route), `native_files.rs` (the library folder and the
+  book names).
+
 ## `paperpaw.ini`: not served, not changed (defence in depth)
 
 In interface 7 `paperpaw.ini` never holds secrets (Kernel, decisions 138/140): Wi-Fi passwords, keys and tokens
@@ -136,14 +173,7 @@ compares `read_only` with the interface-6 rule.
 
 ## Blocked and next steps
 
-1. **Moving and renaming files** (`POST /api/move`: 501; the page hides *Move* and *Rename*). The library keeps
-   positions, notes and catalog data under a book's key, and a plain `core.files` move would leave them behind.
-   `core.library`'s `move` (`library.md`: the file and everything kept for it follow) is not in the SDK
-   (`native::library` has query, book, fields and annotations only). **Needs `Library::move` (and `delete`,
-   `import`) from Services.** The same op is wanted for books uploaded (`import`: a journalled move that catalogues
-   at once; today the walk finds the file) and deleted: *Delete* removes the file or folder through `core.files`, and
-   what the library kept for a removed book (its notes) is left for the walk's clean-up (interface 6 emitted
-   `BOOK_REMOVED` and told the moved).
+1. ~~Moving and renaming files~~: native (see *Moving, deleting and uploading through the library*).
 2. ~~Installing plugins from the computer~~: native (slice 3).
 3. **The cable** (`cable.rs`, the screen `transfer.cable`, slot `core.cable`): **missing: the stage declaration for
    `core.cable`** (a plugin cannot declare that it serves the host's cable stage; the server itself exists:
