@@ -5161,6 +5161,7 @@ pub const fn paperpaw_sdk::native::image::ImageStyle::transparency(self, u8) -> 
 impl<'a> paperpaw_sdk::native::image::PrepareImage<'a>
 pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::colour(self) -> Self
 pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::new(paperpaw_sdk::native::image::PrepareRoot, &'a str, u32) -> Self
+pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::see_through(self) -> Self
 pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::side(self, u32) -> Self
 pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::tone(self, &'a [u8; 256]) -> Self
 pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::turn(self) -> Self

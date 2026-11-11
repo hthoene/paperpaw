@@ -319,7 +319,8 @@ allow call paperpaw_core::native_host::firmware_install::Job::make -> memcpy the
 allow call paperpaw_core::native_host::firmware_driver::Driver::accept -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::firmware_driver::Driver::accept -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call _ZN80_$LT$paperpaw_image..alpha..AlphaWriter$u20$as$u20$paperpaw_image..ImageSink$GT$3row -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call row_alpha -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN80_$LT$paperpaw_image..alpha..AlphaWriter$u20$as$u20$paperpaw_image..ImageSink$GT$9row_alpha -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call _ZN114_$LT$paperpaw_core..native_host..image_service..recipe..ToneSink$LT$S$GT$$u20$as$u20$paperpaw_image..ImageSink$GT$9row_alpha -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call _ZN59_$LT$$RF$$u5b$u8$u5d$$u20$as$u20$paperpaw_image..Source$GT$4read -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::shell::storage_externs::storage_size -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::shell::storage_externs::storage_size -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
@@ -801,3 +802,4 @@ allow indirect paperpaw_core::native_host::shell::text_draw_inked 2 new in train
 allow indirect paperpaw_fat::remove_tree 9 literal call not proven on every path
 allow indirect paperpaw_fat::settle::clean_old 2 literal call not proven on every path
 allow indirect paperpaw_sdk::action::Actions::find_native 1 new in train 14: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect _ZN4core3ptr41drop_glue$LT$paperpaw_sdk..work..Work$GT$ 1 new with #1209 (moved from `IndexBuilder::finish` in that build): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
