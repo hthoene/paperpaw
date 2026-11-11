@@ -27,6 +27,8 @@ const COLOUR: u32 = 1;
 const NOT_DECODED: u32 = 1 << 1;
 /// Bit 1 of `image_prepare.flags`: apply a JPEG's EXIF orientation.
 const TURN: u32 = 1 << 1;
+/// Bit 2 of `image_prepare.flags`: keep a PNG's or GIF's transparency.
+const SEE_THROUGH: u32 = 1 << 2;
 /// Bits of `canvas.draw_image` flags.
 const FILL: u32 = 1;
 const SMALL: u32 = 1 << 1;
@@ -269,6 +271,7 @@ pub struct PrepareImage<'a> {
     side: u32,
     colour: bool,
     turn: bool,
+    see_through: bool,
     tone: Option<&'a [u8; TONE_BYTES]>,
 }
 
@@ -284,6 +287,7 @@ impl<'a> PrepareImage<'a> {
             side: 0,
             colour: false,
             turn: false,
+            see_through: false,
             tone: None,
         }
     }
@@ -312,6 +316,16 @@ impl<'a> PrepareImage<'a> {
         self
     }
 
+    /// Keep a PNG's or GIF's transparency: the picture is made in gray with
+    /// how opaque each pixel is, and drawing it shows what is below through
+    /// it (a picture over the page). Colour is not kept then; a JPEG, which
+    /// has no transparency, is made as without it.
+    #[must_use]
+    pub const fn see_through(mut self) -> Self {
+        self.see_through = true;
+        self
+    }
+
     /// Map every gray (every colour channel) through `table` while the picture
     /// is decoded: `table[value]` is the new value. The plugin keeps its own
     /// curve; the host defines no brightness or contrast.
@@ -334,7 +348,9 @@ impl<'a> PrepareImage<'a> {
             path: self.path,
             side: self.side,
             cookie: self.cookie,
-            flags: if self.colour { COLOUR } else { 0 } | if self.turn { TURN } else { 0 },
+            flags: if self.colour { COLOUR } else { 0 }
+                | if self.turn { TURN } else { 0 }
+                | if self.see_through { SEE_THROUGH } else { 0 },
             tone: self.tone.map_or(&[], |table| &table[..]),
         })
     }

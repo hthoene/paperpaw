@@ -465,8 +465,9 @@ fn a_screen_policy_is_the_submitters_own_and_staged_apart() {
             }]
         );
     }
-    // Bits other than 1, 4 and 5.
-    for flags in [1, 4, 8, 0x40, 0x100] {
+    // Bits other than 1, 4 and 5, among them 8 (`hints_hidden`: declared only),
+    // alone or beside the allowed ones.
+    for flags in [1, 4, 8, 0x40, 0x100, 0x112, 0x200] {
         assert_eq!(
             submit_policy(&kernel, 3, &[policy(0, flags)]).0,
             ERR_INVALID

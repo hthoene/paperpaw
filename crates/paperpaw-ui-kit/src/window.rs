@@ -8,6 +8,7 @@ use crate::{
     paint, text,
 };
 use alloc::vec::Vec;
+use paperpaw_sdk::native::canvas::PartRole;
 use paperpaw_sdk::{
     Point, Rect,
     native::{
@@ -220,7 +221,8 @@ impl WindowList {
         }
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
-        let style = Style::read(host, &display, &font)?;
+        let mut style = Style::read(host, &display, &font)?;
+        style.describing = paint::asking(frame);
         let (width, height) = (display.display_width(), display.display_height());
         let top = style.header.saturating_add(style.gap);
         let area = Rect::new(0, top, width, height.saturating_sub(top));
@@ -300,6 +302,7 @@ fn draw_window_row(
 ) -> Result<(), Error> {
     let band = Rect::new(rect.x, rect.y, rect.width, style.row.min(rect.height));
     crate::list::backdrop(paint, style, rect, focused)?;
+    paint::describe(paint, style.describing, PartRole::Row, rect, focused, false)?;
     let ink = crate::list::ink(style, focused);
     crate::list::columns(paint, font, style, band, &row.title, &row.value, ink)?;
     if row.note.is_empty() {

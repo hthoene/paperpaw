@@ -226,6 +226,7 @@ pub(crate) mod book_data_steps;
 pub(crate) mod busy_adapters;
 #[path = "native_host/call_services.rs"]
 mod call_services;
+pub(crate) mod data_plugin_folders;
 #[path = "native_host/data_services.rs"]
 mod data_services;
 mod declared_services;
@@ -271,6 +272,7 @@ pub(crate) mod image_pump;
 )]
 pub(crate) mod image_service;
 pub(crate) mod lib_changed;
+pub(crate) mod lib_cover;
 #[allow(
     dead_code,
     reason = "wired by HostWiring::library; the write half is todo 307"
@@ -522,6 +524,7 @@ mod native_resources;
 pub(crate) mod native_action;
 #[path = "native_host/native_screen_factory.rs"]
 pub(crate) mod native_screen_factory;
+mod owned_texts;
 
 #[path = "native_host/native_screen.rs"]
 mod native_screen;

@@ -3557,6 +3557,8 @@ pub fn paperpaw_sdk::native::declare::Declarations<F>::slot_offer(&mut self, pap
 impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::lookup_provider(&mut self, paperpaw_sdk::native::declare::LookupProviderDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::reader(&mut self, paperpaw_sdk::native::declare::ReaderDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::register_draw(&mut self, u32) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::subscribe_event(&mut self, paperpaw_sdk::native::declare::EventKind, u32) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
@@ -3670,6 +3672,13 @@ pub paperpaw_sdk::native::declare::PresetValueDecl::preset: &'a str
 pub paperpaw_sdk::native::declare::PresetValueDecl::value: paperpaw_sdk::native::settings::SettingValue<'a>
 impl<'a> paperpaw_sdk::native::declare::PresetValueDecl<'a>
 pub const fn paperpaw_sdk::native::declare::PresetValueDecl<'a>::new(&'a str, &'a str, paperpaw_sdk::native::settings::SettingValue<'a>) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::declare::ReaderDecl<'a>
+pub paperpaw_sdk::native::declare::ReaderDecl::formats: &'a str
+pub paperpaw_sdk::native::declare::ReaderDecl::name: &'a str
+pub paperpaw_sdk::native::declare::ReaderDecl::screen: &'a str
+impl<'a> paperpaw_sdk::native::declare::ReaderDecl<'a>
+pub const fn paperpaw_sdk::native::declare::ReaderDecl<'a>::formats(self, &'a str) -> Self
+pub const fn paperpaw_sdk::native::declare::ReaderDecl<'a>::new(&'a str, &'a str) -> Self
 #[non_exhaustive] pub struct paperpaw_sdk::native::declare::ScreenDecl<'a>
 pub paperpaw_sdk::native::declare::ScreenDecl::full_refresh_on_open: bool
 pub paperpaw_sdk::native::declare::ScreenDecl::name: &'a str
@@ -3677,6 +3686,7 @@ pub paperpaw_sdk::native::declare::ScreenDecl::title: &'a str
 pub paperpaw_sdk::native::declare::ScreenDecl::token: u32
 impl paperpaw_sdk::native::declare::ScreenDecl<'_>
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::guards(self) -> Self
+pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::hints_hidden(self) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::holds_edges(self) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::instances(self, paperpaw_sdk::native::declare::Instances) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::overlay(self) -> Self
@@ -5171,6 +5181,7 @@ pub const fn paperpaw_sdk::native::image::ImageStyle::transparency(self, u8) -> 
 impl<'a> paperpaw_sdk::native::image::PrepareImage<'a>
 pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::colour(self) -> Self
 pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::new(paperpaw_sdk::native::image::PrepareRoot, &'a str, u32) -> Self
+pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::see_through(self) -> Self
 pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::side(self, u32) -> Self
 pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::tone(self, &'a [u8; 256]) -> Self
 pub const fn paperpaw_sdk::native::image::PrepareImage<'a>::turn(self) -> Self
@@ -10325,6 +10336,7 @@ pub macro paperpaw_sdk::role_settings!
 pub macro paperpaw_sdk::service_type!
 #[non_exhaustive] pub enum paperpaw_sdk::Action<'a>
 pub paperpaw_sdk::Action::Fixed(&'static paperpaw_sdk::FixedAction)
+pub paperpaw_sdk::Action::Native(&'a paperpaw_sdk::NativeAction)
 pub paperpaw_sdk::Action::Spec(&'a paperpaw_sdk::ActionSpec)
 impl<'a> paperpaw_sdk::Action<'a>
 pub fn paperpaw_sdk::Action<'a>::description(self) -> core::option::Option<&'a str>
@@ -11404,6 +11416,7 @@ pub const fn paperpaw_sdk::Metrics::mm(&self, u32) -> u32
 pub const fn paperpaw_sdk::Metrics::new(u16) -> Self
 pub fn paperpaw_sdk::Metrics::pt(&self, f32) -> f32
 pub const fn paperpaw_sdk::Metrics::tenth_mm(&self, u32) -> u32
+pub struct paperpaw_sdk::NativeAction
 #[non_exhaustive] pub struct paperpaw_sdk::ObserverSpec
 pub paperpaw_sdk::ObserverSpec::id: paperpaw_sdk::Id
 pub paperpaw_sdk::ObserverSpec::observer: paperpaw_sdk::Observer

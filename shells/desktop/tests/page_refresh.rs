@@ -35,7 +35,7 @@ fn reading(profile: &str, settings: &str) -> Device {
             ".paperpaw/plugins/reader/state.ini",
             format!("[reader]\nlast = {BOOK}\n"),
         )
-        .with("paperpaw.ini", settings);
+        .with("paperpaw.ini", format!("[help]\nshow = false\n{settings}"));
     // Refreshes are checked here, not memory (tests/memory.rs does): the
     // budget counts every thread's allocations at once, and the tests run
     // side by side.

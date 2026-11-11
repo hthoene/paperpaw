@@ -120,11 +120,14 @@ fn a_wrong_argument_leaves_the_default_library_alone() {
 }
 
 /// Runs `script` headless on `profile` in the library `library`, with
-/// `args` more.
+/// `args` more. The first-time hints are off, as they were for these tests
+/// on interface 6: in a fresh library they open over the first screen shown
+/// and, as on a device, take the next button (#2411).
 fn run_in(library: &Path, profile: &str, script: &str, args: &[&str]) -> Run {
     Command::new(env!("CARGO_BIN_EXE_paperpaw-emu"))
         .args(["--profile", profile, "--headless", "--library"])
         .arg(library)
+        .args(["--set", "help.show=false"])
         .args(["--script", script])
         .args(args)
         .output()

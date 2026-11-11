@@ -143,10 +143,12 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert!(native.groups.is_empty() && native.widget_places.is_empty());
     assert_eq!(native.status_places, old.status_places);
     assert_eq!(native.status_places.len(), 2);
-    // The four items and the two lines of the reader, declared for its lists.
+    // The reading app (`the_reading_app_is_the_one_of_interface_6`), and the four
+    // items and the two lines of the reader, declared for its lists.
     assert_eq!(
         native.others,
         [
+            "ReaderSpec",
             "StatusItem",
             "StatusItem",
             "StatusItem",
@@ -278,5 +280,32 @@ fn the_notes_stage_is_declared_with_the_codecs_bounds() {
     assert_eq!(
         declarations::FILTER_MAX_RECORDS as usize,
         filter::MAX_SUBSCRIBERS
+    );
+}
+
+/// The reading app: `reader.app` with the reading screen, every format, as the
+/// interface-6 `ReaderSpec`. Without it the host counts no reading session.
+#[test]
+fn the_reading_app_is_the_one_of_interface_6() {
+    let batches = batches(|d| declarations::screens(d).unwrap());
+    let specs: Vec<_> = batches
+        .iter()
+        .flat_map(|batch| records_decode(batch).unwrap().iter().collect::<Vec<_>>())
+        .filter_map(|record| match record {
+            Record::ReaderSpec(spec) => Some((spec.name, spec.screen, spec.formats, spec.flags)),
+            _ => None,
+        })
+        .map(|(n, s, f, flags)| (n.to_string(), s.to_string(), f.to_string(), flags))
+        .collect();
+    let old = paperpaw_plugin_reader::APP;
+    assert_eq!(old.as_str(), "reader.app");
+    assert_eq!(
+        specs,
+        [(
+            "app".to_string(),
+            "reader.screen".to_string(),
+            String::new(),
+            0
+        )]
     );
 }

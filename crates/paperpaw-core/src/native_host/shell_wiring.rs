@@ -519,6 +519,9 @@ impl HostResources {
         if let Some(inputs) = &wiring.work {
             policy.set_clock(inputs.device());
         }
+        if let Some((_, long_side)) = wiring.documents {
+            policy.set_long_side(long_side);
+        }
         if let Some((storage, env)) = wiring.library {
             wire_library(hosts, policy, storage, env, library_moves)?;
         }
@@ -599,7 +602,8 @@ fn wire_files(
             hosts.busy_sources().clone(),
             hosts.linked().clone(),
         )
-        .with_moves(moves.clone()),
+        .with_moves(moves.clone())
+        .with_data_plugins(hosts.data_plugins().clone()),
     ))?;
     Ok(moves)
 }

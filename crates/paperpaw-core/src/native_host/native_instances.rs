@@ -257,6 +257,10 @@ pub(crate) struct NativeInstances {
     /// The hand-over the staged `open` being applied names: `Some(None)` an
     /// open of none, `None` no staged open (see `Kernel::drain_native_opens`).
     pending_handover: Cell<Option<Option<u32>>>,
+    /// The kernel handles every plugin's dispatch reads (meter, stack rows,
+    /// declaration directory …): one for all, made with the first plugin
+    /// (`Kernel::shared_flat_host`), so each keeps a handle, not a copy.
+    pub(super) flat_host: Option<super::shared::Shared<super::FlatHost>>,
     #[cfg(test)]
     fixture_pool: Option<super::HostResources>,
 }
@@ -465,6 +469,20 @@ impl NativeInstances {
             .ok()?
             .as_ref()
             .and_then(super::shared::Shared::try_clone)
+    }
+
+    /// The ids of the interface-7 plugins known, enabled or not.
+    pub(crate) fn plugin_ids(&self) -> impl Iterator<Item = &Id> {
+        self.entries.iter().map(|entry| &entry.id)
+    }
+
+    /// A lease of the installed, enabled plugin `key` (`None` for none, or
+    /// where memory refuses the clone).
+    pub(crate) fn lease(&self, key: u64) -> Option<NativeLease> {
+        self.entry(key)
+            .filter(|entry| entry.enabled)
+            .and_then(|entry| entry.instance.as_ref())
+            .and_then(|lease| lease.try_clone().ok())
     }
 
     pub(crate) fn id(&self, key: u64) -> Option<&Id> {

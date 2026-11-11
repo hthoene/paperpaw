@@ -247,6 +247,8 @@ impl crate::Kernel {
         let widget_more = self.native_widget_pump();
         // A changed screen stack reaches the plugins that subscribed (`stack_events`).
         let stack_more = self.native_stack_pump();
+        // The folders of the running data plugins follow the plugin set.
+        self.native_data_plugins_sync();
         // The library's move job goes on, a bounded step a pass (`moves_pump`).
         let moves_more = self.native_moves_pump();
         // A document a format is preparing takes a step (`doc_pump`).

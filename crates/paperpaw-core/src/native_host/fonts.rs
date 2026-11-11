@@ -385,9 +385,101 @@ pub(crate) unsafe fn draw(
     })())
 }
 
+/// The curve of slot 41's `tone` bytes: none for the handle's own, or exactly 16.
+const TONE_BYTES: usize = 16;
+/// Slot 41's `flags`: bit 0 `sharp`.
+const INKED_SHARP: u32 = 1;
+/// The widest `extra` (more is clamped to it, not refused).
+const EXTRA_MAX: u32 = 16;
+
+/// Slot 41: `text.draw_inked`. Draws as slot 14 does, with glyphs widened by
+/// `extra` (above 16 clamped to 16) and the coverage drawn in `tone` (none: the
+/// handle's own; else 16 opacities), `flags` bit 0 `sharp` drawing the chosen
+/// curve without grays at the canvas's `mono_coverage`. The order of refusals
+/// is no canvas (`ERR_STATE`), then a stale handle (`ERR_STATE`), then the
+/// arguments (`ERR_INVALID`, `ERR_UTF8`); all of them come before the first
+/// pixel, so a refused call draws nothing. Nothing is allocated: the curve is
+/// read from the call's own 16 bytes.
+///
+/// # Safety
+/// Text and tone must be readable and unchanged. Output must be writable,
+/// exclusive and disjoint from them and from host state for the call.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "matches the ABI text draw scalars"
+)]
+pub(crate) unsafe fn draw_inked(
+    scope: &EnvironmentScope,
+    owner: &OwnerResources,
+    canvas: &CanvasScope,
+    handle: u32,
+    size: f32,
+    x: f32,
+    baseline: i32,
+    color: u32,
+    text: PpBytes,
+    extra: u32,
+    tone: PpBytes,
+    flags: u32,
+    out: *mut f32,
+) -> i32 {
+    status((|| {
+        canvas.present()?;
+        with_font(scope, owner, handle, |_| Ok(()))?;
+        outputs([out])?;
+        size_check(size)?;
+        if color >> 24 != 0 || flags & !INKED_SHARP != 0 {
+            return Err(ERR_INVALID);
+        }
+        let [_, red, green, blue] = color.to_be_bytes();
+        let color = Color::rgb(red, green, blue);
+        // SAFETY: the caller provides live readable input.
+        let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
+        // SAFETY: as above.
+        let tone = unsafe { buffers::bytes_in(tone, TONE_BYTES) }?;
+        if !tone.is_empty() && tone.len() != TONE_BYTES {
+            return Err(ERR_INVALID);
+        }
+        let given = <[u8; TONE_BYTES]>::try_from(tone)
+            .ok()
+            .map(paperpaw_sdk::text::ToneCurve::from_alphas);
+        // Widening is clamped; it never refuses.
+        let extra = u16::try_from(extra.min(EXTRA_MAX)).unwrap_or(0);
+        let width = with_font(scope, owner, handle, |font| {
+            canvas.with_canvas(|canvas| {
+                let curve = given.unwrap_or_else(|| font.text_ink().tone());
+                let curve = if flags & INKED_SHARP != 0 {
+                    curve.sharp(canvas.mono_coverage())
+                } else {
+                    curve
+                };
+                graphics::text_draw_toned(
+                    canvas,
+                    font,
+                    size,
+                    x,
+                    i64::from(baseline),
+                    text,
+                    color,
+                    extra,
+                    curve,
+                )
+                .map_err(|_| ERR_INVALID)
+            })?
+        })?;
+        // SAFETY: output was validated before drawing.
+        unsafe { out.write(width) };
+        Ok(())
+    })())
+}
+
 #[cfg(test)]
 #[path = "fonts_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "fonts_inked_tests.rs"]
+mod inked_tests;
 
 /// The longest text slot 39 reads (`screens-input.md` section 4).
 const COVERS_MAX: usize = 1024;
