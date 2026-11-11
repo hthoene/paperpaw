@@ -298,6 +298,9 @@ impl crate::Kernel {
         self.shared
             .native_instances
             .set_pending_handover(handover.map(Some));
+        // Open for the instance about to be made, so that a native dialog
+        // reads its question in its `screen_opened`, inside the open.
+        let _ = store.dialog_opening(start.request, first);
         self.from_guard = own;
         self.from_guard_own = own;
         self.apply(Command::OpenSlot(slot.clone(), params));
