@@ -40,6 +40,24 @@ fn answer(w: &World<'_>, state: u32, status: i32) {
     *w.reply.borrow_mut() = Ok(fmt_state(state, 0, status));
 }
 
+/// The format's answer to the cover call (op 17): a gray picture of 8 x 4.
+fn cover(w: &World<'_>) {
+    let mut bytes = vec![0_u8; 3840];
+    let n = local::reply_encode(
+        &[local::Record::FmtImage(local::FmtImage::new(
+            "cover.gray",
+            u32::MAX,
+            8,
+            4,
+            0,
+        ))],
+        &mut bytes,
+    )
+    .unwrap();
+    bytes.truncate(n);
+    *w.reply.borrow_mut() = Ok(bytes);
+}
+
 fn prepare(w: &World<'_>) {
     w.state.prepare_step(&w.hosts, &FrameRoute(w));
 }
@@ -244,6 +262,7 @@ fn a_job_that_ends_removes_its_marker() {
         w.state.cover_job_guard("books/a.epub").unwrap();
         answer(w, READY, 0);
         prepare(w);
+        cover(w);
         assert!(matches!(look(w), JobStep::Ended { ready: true, .. }));
         assert_eq!(marker(w), None);
         // Given way to by an open that is not the library's: gone as well.
@@ -292,6 +311,7 @@ fn a_job_that_prepares_is_waited_for_then_ended_ready_with_its_books_key() {
         assert_eq!(look(w), JobStep::Wait);
         answer(w, READY, 0);
         prepare(w);
+        cover(w);
         assert_eq!(
             look(w),
             JobStep::Ended {
@@ -476,6 +496,7 @@ fn a_ready_job_is_ended_beside_a_list_for_only_conversion_is_held() {
             .table
             .set_prepared(document, READY, 0, 0, job_row.flags)
             .unwrap();
+        cover(w);
         assert!(
             matches!(look(w), JobStep::Ended { ready: true, .. }),
             "ready: its cover is made, the list being up"
@@ -538,5 +559,189 @@ fn a_job_that_sleeps_ends_without_a_restart() {
         assert_eq!(ops(w).last(), Some(&4), "the format got its close");
         assert_eq!(look(w), JobStep::None, "nothing restarts it");
         assert!(!w.state.preparing());
+    });
+}
+
+#[test]
+fn a_ready_books_cover_is_made_by_the_job_and_only_then_answered_inline() {
+    use crate::native_host::doc_host::CoverAt;
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        assert_eq!(w.state.cover_at("books/a.epub"), CoverAt::Unmade);
+        // Ready at its open: still the job's (no picture in the list's frame).
+        answer(w, READY, 0);
+        let document = w.open(1, "books/a.epub").unwrap();
+        assert!(w.state.table.start_cover_job(OPENER, document));
+        assert_eq!(w.state.cover_at("books/a.epub"), CoverAt::Job);
+        cover(w);
+        assert!(matches!(look(w), JobStep::Ended { ready: true, .. }));
+        // The job asked the format for the cover (op 17), then closed it.
+        let ops = ops(w);
+        assert_eq!(ops.get(ops.len() - 2..), Some(&[17, 4][..]), "{ops:?}");
+        // From now on the list's `cover` answers inline from the cache.
+        assert_eq!(w.state.cover_at("books/a.epub"), CoverAt::Made);
+        assert_eq!(w.state.cover_at("books/b.epub"), CoverAt::Unmade);
+    });
+}
+
+#[test]
+fn the_covers_made_are_kept_for_the_last_32_books() {
+    use crate::native_host::doc_host::CoverAt;
+    world(|w| {
+        for n in 0..33 {
+            let _ = w
+                .state
+                .note_cover_made(path_key(&std::format!("books/{n}.epub")));
+        }
+        // The first is written over; the 32 after it stay, each once.
+        assert_eq!(w.state.cover_at("books/0.epub"), CoverAt::Unmade);
+        assert_eq!(w.state.cover_at("books/1.epub"), CoverAt::Made);
+        assert_eq!(w.state.cover_at("books/32.epub"), CoverAt::Made);
+        let _ = w.state.note_cover_made(path_key("books/32.epub"));
+        assert_eq!(w.state.cover_at("books/1.epub"), CoverAt::Made);
+        let _ = w.state.note_cover_made(0);
+        assert_eq!(w.state.cover_at("books/1.epub"), CoverAt::Made);
+    });
+}
+
+#[test]
+fn a_ready_book_beside_a_job_the_list_holds_gets_its_cover_made_at_once() {
+    use crate::native_host::doc_host::CoverAt;
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.state.allow_cover_jobs();
+        // A ready book (opened first: the test's opens are not the library's
+        // own, which leave the job alone).
+        answer(w, READY, 0);
+        let document = w.open(1, "books/a.epub").unwrap();
+        // A long book prepares as the job, and a library list is up: held.
+        job(w, "books/long.epub");
+        w.state.list_hold(true);
+        assert!(w.state.table.list_held());
+        // The ready book's document becomes the cover to make beside it.
+        assert!(w.state.table.start_cover_make(OPENER, document));
+        assert_eq!(w.state.cover_at("books/a.epub"), CoverAt::Job);
+        // Any other book not made waits, and is not opened.
+        assert_eq!(w.state.cover_at("books/b.epub"), CoverAt::Wait);
+        assert!(w.state.cover_job_active());
+        let before = ops(w).len();
+        cover(w);
+        assert_eq!(
+            look(w),
+            JobStep::Ended {
+                ready: true,
+                key: path_key("books/a.epub")
+            }
+        );
+        assert_eq!(ops(w).get(before..), Some(&[17, 4][..]), "cover, close");
+        assert_eq!(w.state.cover_at("books/a.epub"), CoverAt::Made);
+        assert_eq!(w.state.cover_at("books/b.epub"), CoverAt::Unmade);
+        // The held job is there as it was, and takes no step.
+        assert!(
+            w.state
+                .table
+                .cover_job()
+                .is_some_and(|j| j.state == PREPARING)
+        );
+        assert_eq!(look(w), JobStep::Wait);
+    });
+}
+
+#[test]
+fn a_book_is_noted_as_made_only_once_its_format_answered() {
+    use crate::native_host::doc_host::CoverAt;
+    use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND};
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.state.allow_cover_jobs();
+        for (path, reply, noted) in [
+            ("books/fault.epub", Err(ERR_INVALID), false),
+            ("books/plain.epub", Err(ERR_NOT_FOUND), true),
+        ] {
+            answer(w, READY, 0);
+            let document = w.open(1, path).unwrap();
+            assert!(w.state.table.start_cover_make(OPENER, document));
+            *w.reply.borrow_mut() = reply;
+            let key = path_key(path);
+            // A cover call that failed: not noted, and the book counts as
+            // failed; one without a cover is noted (not sent again).
+            assert_eq!(look(w), JobStep::Ended { ready: noted, key });
+            let at = if noted {
+                CoverAt::Made
+            } else {
+                CoverAt::Unmade
+            };
+            assert_eq!(w.state.cover_at(path), at, "{path}");
+            assert!(w.state.table.cover_make().is_none(), "closed");
+        }
+    });
+}
+
+#[test]
+fn a_ready_cover_to_make_ends_without_a_cover_while_a_book_is_read_or_at_sleep() {
+    use crate::native_host::doc_host::CoverAt;
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.state.allow_cover_jobs();
+        answer(w, READY, 0);
+        let document = w.open(1, "books/a.epub").unwrap();
+        assert!(w.state.table.start_cover_make(OPENER, document));
+        // A book opened for reading: no picture beside it; nothing is told.
+        let reader = w.open(1, "books/r.epub").unwrap();
+        let before = ops(w).len();
+        assert_eq!(look(w), JobStep::None);
+        assert_eq!(ops(w).get(before..), Some(&[4][..]), "only its close");
+        assert_eq!(w.state.cover_at("books/a.epub"), CoverAt::Unmade);
+        w.state.table.close(OPENER, reader).unwrap();
+        // At sleep it ends with the job.
+        let document = w.open(1, "books/a.epub").unwrap();
+        assert!(w.state.table.start_cover_make(OPENER, document));
+        w.state.cover_job_abort(&w.hosts, &FrameRoute(w));
+        assert!(w.state.table.cover_make().is_none());
+        assert!(!w.state.cover_job_active());
+    });
+}
+
+#[test]
+fn a_book_asked_for_stays_in_the_memo_and_33_covers_on_screen_end_the_cycle() {
+    use crate::native_host::doc_host::{CoverAt, cover_make::Cover};
+    let path = |n: u32| std::format!("books/{n}.epub");
+    world(|w| {
+        for n in 0..32 {
+            assert!(!w.state.note_cover_made(path_key(&path(n))));
+        }
+        // Asked for: book 0 moves to the front; book 1 is the oldest now.
+        assert_eq!(w.state.cover_at(&path(0)), CoverAt::Made);
+        assert!(
+            !w.state.note_cover_made(path_key(&path(32))),
+            "book 1 was not asked for since: not on screen"
+        );
+        assert_eq!(w.state.cover_at(&path(0)), CoverAt::Made);
+        assert_eq!(w.state.cover_at(&path(1)), CoverAt::Unmade);
+        // 33 covers on screen: each round asks for all of them; the one not
+        // made is made and writes over one on screen, every round.
+        for _round in 0..3 {
+            let unmade: Vec<u32> = (0..33)
+                .filter(|&n| w.state.cover_at(&path(n)) == CoverAt::Unmade)
+                .collect();
+            assert_eq!(unmade.len(), 1, "{unmade:?}");
+            assert!(w.state.note_cover_made(path_key(&path(unmade[0]))));
+        }
+        // Told to the library as a failed job of no book: its cap of those
+        // in a row ends the raises (no endless bit 6).
+        assert_eq!(
+            Cover::Noted { crowded: true }.step(9),
+            JobStep::Ended {
+                ready: false,
+                key: 0
+            }
+        );
+        assert_eq!(
+            Cover::Noted { crowded: false }.step(9),
+            JobStep::Ended {
+                ready: true,
+                key: 9
+            }
+        );
     });
 }

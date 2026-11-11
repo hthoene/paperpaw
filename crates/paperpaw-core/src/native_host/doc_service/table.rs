@@ -355,6 +355,54 @@ impl DocumentTable {
             .copied()
     }
 
+    /// Makes the open, ready document `id` of `owner` the host's **cover to
+    /// make** (`doc_cover_make`): kept open past the asking call, beside the
+    /// cover job, until the pump's next look asks its format for the cover and
+    /// closes it. A background row of the host's (`HOST_JOB`, no opener's
+    /// cap, no close event; a book to show takes its place first after the
+    /// job's). `false` (the document stays as it was) where one waits already,
+    /// or the table is held.
+    pub(crate) fn start_cover_make(&self, owner: u64, id: u32) -> bool {
+        let Ok(mut rows) = self.rows() else {
+            return false;
+        };
+        if rows.iter().any(|d| d.owner == HOST_JOB && !d.cover_job) {
+            return false;
+        }
+        match rows.iter_mut().find(|d| d.id == id && d.owner == owner) {
+            Some(document) if document.closed_by_host == 0 && document.state == READY => {
+                document.background = true;
+                document.owner = HOST_JOB;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The cover to make's document ([`Self::start_cover_make`]), wherever it
+    /// stands.
+    pub(crate) fn cover_make(&self) -> Option<Document> {
+        self.documents
+            .try_borrow()
+            .ok()?
+            .iter()
+            .find(|d| d.owner == HOST_JOB && !d.cover_job)
+            .copied()
+    }
+
+    /// The live cover to make, taken out of the table for sleep (as
+    /// [`Self::take_cover_job`]).
+    pub(crate) fn take_cover_make(&self) -> Option<Document> {
+        let mut rows = self.rows().ok()?;
+        let at = rows
+            .iter()
+            .position(|d| d.owner == HOST_JOB && !d.cover_job && d.closed_by_host == 0)?;
+        let mut row = rows.remove(at);
+        row.closed_by_host = NEEDED;
+        self.remember(&row);
+        Some(row)
+    }
+
     /// The live cover job, taken out of the table for a book to show or for
     /// sleep: as a place taken in [`Self::open`] (later calls on its id are
     /// `ERR_CANCELLED`), for the caller to end with the table released.
