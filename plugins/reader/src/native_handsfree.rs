@@ -68,10 +68,16 @@ pub const fn interval_ms(seconds: i64) -> u32 {
 /// place in `ACTIONS`); `u32::MAX` if the list lacks it (a test holds it).
 #[must_use]
 pub const fn action_token() -> u32 {
+    token_of(b"auto-turn")
+}
+
+/// The callback token of the reader's action `name` (`FIRST_ACTION` + its place
+/// in `ACTIONS`); `u32::MAX` if the list lacks it.
+#[must_use]
+pub const fn token_of(want: &[u8]) -> u32 {
     let mut at = 0;
     while at < ACTIONS.len() {
         let name = ACTIONS[at].0.as_bytes();
-        let want = b"auto-turn";
         let mut same = name.len() == want.len();
         let mut i = 0;
         while same && i < want.len() {

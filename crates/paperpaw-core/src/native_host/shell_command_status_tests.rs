@@ -298,3 +298,6 @@ fn picture_commands_are_admitted_by_the_plugins_own_features() {
         finish(&hosted);
     }
 }
+
+#[path = "shell_dev_command_tests.rs"]
+mod dev_commands;

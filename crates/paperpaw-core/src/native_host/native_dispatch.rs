@@ -11,7 +11,7 @@ use paperpaw_sdk::Env;
 pub(crate) struct NativeDispatch<S: Services + 'static, M: 'static> {
     instance: Retained<S, M>,
     depth: FlatDepth,
-    host: FlatHost,
+    host: super::shared::Shared<FlatHost>,
     report: fn(&S, u32, i32),
     identity: super::native_instances::NativeIdentity,
 }
@@ -30,7 +30,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         Self::with_events(
             instance,
             depth,
-            host,
+            super::shared::Shared::try_new(host).ok().unwrap(),
             report,
             identity,
             super::event_tags::EventTags::default(),
@@ -44,7 +44,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
     pub(crate) fn with_events(
         instance: Retained<S, M>,
         depth: FlatDepth,
-        host: FlatHost,
+        host: super::shared::Shared<FlatHost>,
         report: fn(&S, u32, i32),
         identity: super::native_instances::NativeIdentity,
         _events: super::event_tags::EventTags,

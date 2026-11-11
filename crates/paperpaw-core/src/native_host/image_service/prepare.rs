@@ -11,7 +11,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{ERR_FULL, ERR_INVALID, ERR_NO_MEMORY};
 use paperpaw_platform::Storage;
-use paperpaw_sdk::image::{ColorWriter, Fit, Format, GrayWriter, ImageError, Source};
+use paperpaw_sdk::image::{AlphaWriter, ColorWriter, Fit, Format, GrayWriter, ImageError, Source};
 
 /// Waiting requests a plugin may have.
 pub(crate) const WAITING: usize = 4;
@@ -666,19 +666,13 @@ impl ImageTable {
             let _ = storage.remove(&path);
             return fail(CARD);
         };
-        let luma = recipe::luma_grid(
-            storage,
-            &path,
-            (
-                width as usize,
-                height as usize,
-                if kind == paperpaw_sdk::ui::PictureKind::Color {
-                    3
-                } else {
-                    1
-                },
-            ),
-        );
+        let channels = match kind {
+            paperpaw_sdk::ui::PictureKind::Color => 3,
+            paperpaw_sdk::ui::PictureKind::Alpha => 2,
+            _ => 1,
+        };
+        let luma = recipe::luma_grid(storage, &path, (width as usize, height as usize, channels));
+        let colour = kind == paperpaw_sdk::ui::PictureKind::Color;
         match self.add_prepared(job.owner, number, width, height, colour) {
             Ok(image) => Ready {
                 owner: job.owner,
@@ -697,6 +691,14 @@ impl ImageTable {
     }
 }
 
+/// What a cache file holds: gray, colour, or gray with its opacity.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Made {
+    Gray,
+    Colour,
+    SeeThrough,
+}
+
 /// Decodes the picture at `from` into the cache file `to`, at most `side`
 /// pixels on the longest side.
 fn run(
@@ -704,7 +706,7 @@ fn run(
     from: &str,
     to: &str,
     side: u32,
-    (colour, tone): (bool, Option<&[u8]>),
+    (made, tone): (Made, Option<&[u8]>),
 ) -> Result<(), ImageError> {
     let mut head = [0_u8; 8];
     let n = storage
@@ -720,14 +722,22 @@ fn run(
         short: side,
         long: side,
     };
-    if colour {
-        let mut writer = ColorWriter::new(storage, to);
-        decode_into(format, &mut source, fit, &mut writer, tone)?;
-        writer.finish()
-    } else {
-        let mut writer = GrayWriter::new(storage, to);
-        decode_into(format, &mut source, fit, &mut writer, tone)?;
-        writer.finish()
+    match made {
+        Made::Colour => {
+            let mut writer = ColorWriter::new(storage, to);
+            decode_into(format, &mut source, fit, &mut writer, tone)?;
+            writer.finish()
+        }
+        Made::Gray => {
+            let mut writer = GrayWriter::new(storage, to);
+            decode_into(format, &mut source, fit, &mut writer, tone)?;
+            writer.finish()
+        }
+        Made::SeeThrough => {
+            let mut writer = AlphaWriter::new(storage, to);
+            decode_into(format, &mut source, fit, &mut writer, tone)?;
+            writer.finish()
+        }
     }
 }
 
@@ -771,22 +781,31 @@ fn make(
     // The orientation is read before the decode, so that a picture that is
     // not turned is decoded straight into its file.
     let mut head = [0_u8; 8];
-    let is_jpeg = storage
+    let format = storage
         .read_at(&job.source, 0, &mut head)
-        .is_ok_and(|n| Format::detect(&head[..n]) == Some(Format::Jpeg));
+        .ok()
+        .and_then(|n| Format::detect(head.get(..n)?));
+    let is_jpeg = format == Some(Format::Jpeg);
+    // Only a PNG or a GIF has transparency to keep; it is gray then.
+    let made = match format {
+        Some(Format::Png | Format::Gif) if job.recipe.see_through => Made::SeeThrough,
+        _ if colour => Made::Colour,
+        _ => Made::Gray,
+    };
     let orientation = if job.recipe.turn && is_jpeg {
         recipe::exif_orientation(storage, &job.source)
     } else {
         1
     };
     if !recipe::needs_turn(orientation) {
-        return run(storage, &job.source, path, side, (colour, tone)).map_err(|error| {
+        return run(storage, &job.source, path, side, (made, tone)).map_err(|error| {
             let _ = storage.remove(path);
             status_of(&error)
         });
     }
     let first = first_name(job.owner, number).map_err(|_| NO_MEMORY)?;
-    let made = run(storage, &job.source, &first, side, (colour, tone)).and_then(|()| {
+    // Only a JPEG is turned: gray or colour.
+    let turned = run(storage, &job.source, &first, side, (made, tone)).and_then(|()| {
         recipe::turn_file(
             storage,
             (&first, path),
@@ -796,7 +815,7 @@ fn make(
         )
     });
     let _ = storage.remove(&first);
-    made.map_err(|error| {
+    turned.map_err(|error| {
         let _ = storage.remove(path);
         status_of(&error)
     })

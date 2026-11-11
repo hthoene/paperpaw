@@ -53,6 +53,20 @@ pub paperpaw_i18n::BuiltCatalogs::prints: &'static [u64]
 impl paperpaw_i18n::BuiltCatalogs
 pub const paperpaw_i18n::BuiltCatalogs::NONE: paperpaw_i18n::BuiltCatalogs
 pub const fn paperpaw_i18n::BuiltCatalogs::new(&'static [u64], &'static [u32], &'static [(&'static str, &'static str)]) -> Self
+#[non_exhaustive] pub struct paperpaw_i18n::BuiltLanguage
+pub paperpaw_i18n::BuiltLanguage::catalogs: paperpaw_i18n::BuiltCatalogs
+pub paperpaw_i18n::BuiltLanguage::language: &'static str
+pub paperpaw_i18n::BuiltLanguage::name: &'static str
+impl paperpaw_i18n::BuiltLanguage
+pub const fn paperpaw_i18n::BuiltLanguage::new(&'static str, &'static str, paperpaw_i18n::BuiltCatalogs) -> Self
+pub struct paperpaw_i18n::BuiltLanguageTable
+impl paperpaw_i18n::BuiltLanguageTable
+pub fn paperpaw_i18n::BuiltLanguageTable::add(&mut self, &str) -> core::result::Result<bool, paperpaw_i18n::CatalogError>
+pub fn paperpaw_i18n::BuiltLanguageTable::is_empty(&self) -> bool
+pub fn paperpaw_i18n::BuiltLanguageTable::leak(self) -> &'static paperpaw_i18n::BuiltLanguage
+pub fn paperpaw_i18n::BuiltLanguageTable::len(&self) -> usize
+pub fn paperpaw_i18n::BuiltLanguageTable::new(&str) -> Self
+pub fn paperpaw_i18n::BuiltLanguageTable::to_rust(&self) -> alloc::string::String
 pub struct paperpaw_i18n::BuiltTable
 impl paperpaw_i18n::BuiltTable
 pub fn paperpaw_i18n::BuiltTable::add(&mut self, &str) -> core::result::Result<bool, paperpaw_i18n::CatalogError>
@@ -90,6 +104,7 @@ pub struct paperpaw_i18n::Translator
 impl paperpaw_i18n::Translator
 pub fn paperpaw_i18n::Translator::add(&mut self, paperpaw_i18n::Catalog)
 pub fn paperpaw_i18n::Translator::built_catalogs(&mut self, &'static paperpaw_i18n::BuiltCatalogs)
+pub fn paperpaw_i18n::Translator::built_language(&mut self, &'static paperpaw_i18n::BuiltLanguage)
 pub fn paperpaw_i18n::Translator::catalogs(&self) -> alloc::vec::Vec<paperpaw_i18n::Catalog>
 pub fn paperpaw_i18n::Translator::digits(&self) -> [char; 10]
 pub fn paperpaw_i18n::Translator::direction(&self) -> paperpaw_lang::Direction

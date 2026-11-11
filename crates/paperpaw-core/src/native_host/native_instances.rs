@@ -229,6 +229,12 @@ pub(crate) struct NativeInstances {
     /// When the library's move job may be pumped again after a step that
     /// failed (`moves_pump`).
     moves_retry: Cell<Option<u64>>,
+    /// When the document preparing loop may step again after a step that
+    /// could not be made (`doc_pump`).
+    doc_retry: Cell<Option<u64>>,
+    /// How many steps of the preparing loop in a row could not be made (its
+    /// back-off).
+    doc_failures: Cell<u8>,
     /// How many steps in a row were refused (the back-off of `moves_pump`).
     moves_failures: Cell<u8>,
     /// The count of begun moves the pump last saw (`moves_pump`).
@@ -251,6 +257,10 @@ pub(crate) struct NativeInstances {
     /// The hand-over the staged `open` being applied names: `Some(None)` an
     /// open of none, `None` no staged open (see `Kernel::drain_native_opens`).
     pending_handover: Cell<Option<Option<u32>>>,
+    /// The kernel handles every plugin's dispatch reads (meter, stack rows,
+    /// declaration directory …): one for all, made with the first plugin
+    /// (`Kernel::shared_flat_host`), so each keeps a handle, not a copy.
+    pub(super) flat_host: Option<super::shared::Shared<super::FlatHost>>,
     #[cfg(test)]
     fixture_pool: Option<super::HostResources>,
 }
@@ -783,6 +793,28 @@ impl NativeInstances {
 
     pub(crate) fn set_moves_retry(&self, at: Option<u64>) {
         self.moves_retry.set(at);
+    }
+
+    pub(crate) fn doc_retry(&self) -> Option<u64> {
+        self.doc_retry.get()
+    }
+
+    pub(crate) fn set_doc_retry(&self, at: Option<u64>) {
+        self.doc_retry.set(at);
+    }
+
+    /// Counts one more step of the preparing loop that could not be made and
+    /// returns how many in a row.
+    pub(crate) fn doc_failed(&self) -> u8 {
+        let failures = self.doc_failures.get().saturating_add(1);
+        self.doc_failures.set(failures);
+        failures
+    }
+
+    /// A step of the preparing loop was made, or none is due: the back-off
+    /// starts over.
+    pub(crate) fn doc_ok(&self) {
+        self.doc_failures.set(0);
     }
 
     /// Counts one more refused step and returns how many in a row.

@@ -13,8 +13,8 @@
 use super::registrations::{
     EVENT_ACTION_RUN_TAG, EVENT_BATTERY_MEASURED_TAG, EVENT_BOOK_CLOSED_TAG,
     EVENT_BOOK_FINISHED_TAG, EVENT_BOOK_OPENED_TAG, EVENT_BROADCAST_TAG, EVENT_CHARGE_CHANGED_TAG,
-    EVENT_DOCUMENT_CLOSED_TAG, EVENT_FIRMWARE_CHANGED_TAG, EVENT_HTTP_DONE_TAG,
-    EVENT_HTTP_PROGRESS_TAG, EVENT_IMAGE_READY_TAG, EVENT_INSTALL_DONE_TAG,
+    EVENT_DOCUMENT_CHANGED_TAG, EVENT_DOCUMENT_CLOSED_TAG, EVENT_FIRMWARE_CHANGED_TAG,
+    EVENT_HTTP_DONE_TAG, EVENT_HTTP_PROGRESS_TAG, EVENT_IMAGE_READY_TAG, EVENT_INSTALL_DONE_TAG,
     EVENT_LIBRARY_CHANGED_TAG, EVENT_LOOKUP_READY_TAG, EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES,
     EVENT_PAGE_TURNED_PATH_MAX_BYTES, EVENT_PAGE_TURNED_TAG, EVENT_PAGE_TURNED_TITLE_MAX_BYTES,
     EVENT_PLUGINS_CHANGED_TAG, EVENT_POWER_CHANGED_TAG, EVENT_PREVIEW_CHANGED_TAG,
@@ -39,7 +39,7 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
 /// (`setting_events`), `event.widget_changed` (86, `widget_events`), the
 /// firmware events 96 and 97 (`firmware_events`), the events of the services
 /// the kernel pumps: `core.net` 99-102 and `core.sockets` 106-107 and
-/// `core.document` 108 (`service_pump`), `event.image_ready` 90
+/// `core.document` 88 and 108 (`service_pump`), `event.image_ready` 90
 /// (`image_pump`) and `event.lookup_ready` 110 (`core.lookup`; both check the
 /// subscription before they deliver), `event.library_changed` 91
 /// (`core.library`, `library_events`), and `event.book_opened`,
@@ -82,6 +82,7 @@ pub const fn is_event_tag(tag: u32) -> bool {
             | EVENT_BROADCAST_TAG
             | EVENT_BOOK_OPENED_TAG
             | EVENT_DOCUMENT_CLOSED_TAG
+            | EVENT_DOCUMENT_CHANGED_TAG
             | EVENT_IMAGE_READY_TAG
             | EVENT_LIBRARY_CHANGED_TAG
             | EVENT_SPOKEN_TAG

@@ -1010,3 +1010,99 @@ fn an_undefined_flag_bit_refuses_its_batch_and_leaves_earlier_commands_and_reser
         assert_eq!(dev_len(&stage), 3);
     }
 }
+
+#[test]
+fn the_first_dev_command_makes_the_box_and_a_batch_answered_ok_needs_no_more_memory() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    let kernel = kernel();
+    let owner = Id::new_static("probe");
+    let env = kernel.shared.env(Instant(0));
+    let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
+    // Each allocation of the submit in turn fails: the command answers
+    // `ERR_NO_MEMORY` and nothing is kept, until one goes through.
+    let mut nth = 1;
+    loop {
+        FAIL_NTH.with(|n| n.set(nth));
+        let status = submit(&mut stage, &[WireCommand::Sleep {}]);
+        FAIL_NTH.with(|n| n.set(0));
+        if status == OK {
+            break;
+        }
+        assert_eq!(status, ERR_NO_MEMORY, "allocation {nth}");
+        assert_eq!(dev_len(&stage), 0);
+        nth += 1;
+        assert!(nth < 16, "the submit allocates a bounded number of times");
+    }
+    assert!(nth > 1, "the box is an allocation of the submit");
+    // The batch answered `OK` is kept whole with no allocation left to make.
+    FAIL_NTH.with(|n| n.set(1));
+    let batch = stage.take_dev_boxed();
+    let spared = FAIL_NTH.with(|n| n.replace(0));
+    assert_eq!(spared, 1, "nothing was allocated");
+    assert_eq!(batch.map(|batch| batch.items.len()), Some(1));
+    // A stage with no DEV command makes no box.
+    let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
+    assert!(stage.take_dev_boxed().is_none());
+}
+
+/// A plugin whose screen `lock.screen` guards the device.
+struct LockPlugin;
+
+struct Lock;
+
+impl paperpaw_sdk::Screen for Lock {
+    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+    fn guards(&self) -> bool {
+        true
+    }
+    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+        paperpaw_sdk::Handled::No
+    }
+}
+
+impl paperpaw_sdk::Plugin for LockPlugin {
+    fn manifest(&self) -> paperpaw_sdk::Manifest {
+        paperpaw_sdk::Manifest::new(
+            Id::new_static("lock"),
+            "Lock",
+            paperpaw_sdk::Version::new(1, 0, 0),
+        )
+        .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+        r.add_screen(paperpaw_sdk::ScreenSpec::new(
+            Id::new_static("lock.screen"),
+            "lock",
+            alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Lock)),
+        ))
+    }
+}
+
+#[test]
+fn a_guard_that_came_up_after_the_submit_drops_power_off_and_restart_of_another_plugin() {
+    let mut kernel = Kernel::builder(crate::tests::DEVICE)
+        .power_off(true)
+        .plugin(LockPlugin)
+        .build()
+        .unwrap();
+    let (power, lock) = (Id::new_static("power"), Id::new_static("lock"));
+    let clock = Clock(0, None);
+    // Both were accepted while nothing guarded.
+    let off = stage_only(&kernel, &power, &[WireCommand::PowerOff {}]);
+    let restart = stage_only(&kernel, &power, &[WireCommand::Restart {}]);
+    assert_eq!((off.0, restart.0), (OK, OK));
+    kernel.open_screen(
+        Instant(1),
+        Id::new_static("lock.screen"),
+        paperpaw_sdk::Params::new(),
+    );
+    assert!(kernel.guard().is_some());
+    drain(&mut kernel, &power, off.1, &clock);
+    drain(&mut kernel, &power, restart.1, &clock);
+    assert!(!kernel.power_off && !kernel.restart);
+    // The guard's own plugin may.
+    let own = stage_only(&kernel, &lock, &[WireCommand::Restart {}]);
+    assert_eq!(own.0, OK);
+    drain(&mut kernel, &lock, own.1, &clock);
+    assert!(kernel.restart);
+}

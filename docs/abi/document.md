@@ -473,11 +473,13 @@ meaning (the format's own split of a very long paragraph).
 - [D] Order of the list: one `doc_block` (`text_bytes` the text's whole length), the text in
   `doc_text_part`s (each at most 3,072 bytes, cut at UTF-8 boundaries, joined in order to
   `text_bytes`), its `doc_run`s (sorted, not overlapping), `doc_map`s (the `OffsetMap` checkpoints),
-  for an image block one `doc_image` (section 5), for a table row one `doc_columns` (interface 6
-  `TableRow.columns`: up to 16 `u16` weights shared by the table's rows, little-endian) and its
-  `doc_cell`s (at most 16, `MAX_COLUMNS`; `flags` bits 8-10 header, first, last row), its
-  `doc_ruby`s and up to 15 `doc_inline_lang`s (`MAX_INLINE_LANGS`); the last fragment ends with
-  `service.end` (`flags` bit 0: the last block of the section; `next` the offset of the next block).
+  for an image block at most one `doc_image` (section 5: a picture that fails the image check is
+  left out and the block keeps its alt text, never `ERR_INVALID`), for a table row one
+  `doc_columns` (interface 6 `TableRow.columns`: up to 16 `u16` weights shared by the table's
+  rows, little-endian) and its `doc_cell`s (at most 16, `MAX_COLUMNS`; `flags` bits 8-10 header,
+  first, last row), its `doc_ruby`s and up to 15 `doc_inline_lang`s (`MAX_INLINE_LANGS`); the last
+  fragment ends with `service.end` (`flags` bit 0: the last block of the section; `next` the offset
+  of the next block).
   Runs, maps and rubies have no count cap (interface 6 has none); every record fits a fragment.
   Another order, an unknown record or a text whose parts do not add up is `ERR_INVALID` (the host
   checks the format's answer).
@@ -558,8 +560,13 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   dropped, not refused: it is a format's reply row, so a bit a newer format sets must not cost an
   older host the picture (requests to the host keep refusing unknown bits). A `fmt.image` that
   fails the check becomes no `doc_image` (the block keeps its alt text, counted as a failed read)
-  and never fails the whole stream. Over the 8 image ids per plugin, the
-  host ends the opener's least recently drawn document image first, so a long chapter of pictures
+  and never fails the whole stream. A picture **not decoded yet** (`fmt.image` bit 0) has no cache
+  file to check: where its file is not there or not vouched for, the host checks only its path and
+  its size (`width` and `height` 1 to 1,600, the size it will decode to) and passes it on with
+  `image` 0 (no id) and bit 1, so the reader keeps a box of that size and asks op 16 by `index`
+  (the decoded answer is checked as above).
+  Over the 8 image ids per plugin, the host ends the opener's least recently drawn document image
+  first, so a long chapter of pictures
   never runs out (`ERR_NOT_FOUND` at a draw of an ended id: the reader asks again with op 16 by the
   picture's `index`; the host keeps nothing for an ended id). An id handed out is never ended before
   it has been drawn once, and that protection ends at the opener's next drawn frame that does not
@@ -590,7 +597,8 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   that root, every root alike; an older SDK reads it as 2). Unknown values read as 2. There is no
   prepare from bytes: a plugin writes them to a file in root 0 first. At
   most 4 waiting per plugin (`ERR_FULL`), 8 prepared images per plugin. `flags` bit 0 colour
-  (where the screen has it), bit 1 `turn`; other bits are `ERR_UNSUPPORTED`.
+  (where the screen has it), bit 1 `turn`, bit 2 `see-through` (PNG/GIF keep their transparency:
+  gray plus opacity, colour ignored; a JPEG stays opaque); other bits are `ERR_UNSUPPORTED`.
 - [D] **The picture recipe** (picture-home): `image_prepare` carries what a plugin needs to make
   its picture the way it shows it, so it never reads one into memory.
   - **`turn`** (`flags` bit 1): the host applies a JPEG's EXIF orientation (tag 0x0112, 2 to 8, read
@@ -605,6 +613,11 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
     and nothing is turned; ask for the screen's side (`side` 0) with `turn` on the X4. Its time
     below the budget is a measured gate (#250). `event.image_ready` reports the size **after** the turn, `side`
     limits the longest side before and after alike. PNG and GIF are never turned.
+  - **`see-through`** (`flags` bit 2): a PNG's or GIF's transparency is kept: the picture is made
+    in gray with how opaque each pixel is (two bytes a pixel on the card, never colour: bit 0 is
+    then ignored), and `canvas.draw_image` blends it over what is below (a sleep picture over the
+    page). A JPEG has none and is made as without the bit; `tone` maps the gray, not the opacity,
+    and `luma` is the gray's, the opacity not counted. The decode's peak is unchanged.
   - **`tone: bytes 256`**, empty for none, else exactly 256 bytes (`ERR_INVALID` otherwise): a luma
     table the host applies while it decodes: every gray value `v` becomes `tone[v]`, and for
     a colour picture every channel. The host defines no brightness or contrast: the plugin's table
@@ -636,7 +649,9 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   takes one bounded, transient heap block per call (its source row chunk of 8 KiB, filled by
   `read_at` requests of up to that size, plus a few bytes per source row and per drawn column:
   about 25-30 KiB for a 1,600-pixel picture), allocated fallibly before the first band and freed
-  before the call returns. It is at most 32 KiB on the X4 and at most 1 MiB on Android, the
+  before the call returns. A see-through picture (`image_prepare` bit 2: gray plus opacity, two
+  bytes a pixel on the card) is read through the same row chunk, so its rows take twice a gray
+  picture's room in it and no other block. It is at most 32 KiB on the X4 and at most 1 MiB on Android, the
   desktop and the emulator (the shell's `scratch_max`); a draw that needs more, or whose block is
   refused, is `ERR_NO_MEMORY` with nothing drawn. The
   one thing a host **may** keep between calls is a **dithering carry**: the error rows of the
@@ -823,9 +838,13 @@ reply 4,096 bytes, stage payload 3,840.
   for `image_prepare` uses one band buffer of at most 4 KiB plus the decoder's transient state, one
   decode at a time, fallible (`status` 5 when the heap cannot). The state differs per format: PNG
   the 32 KiB inflate window plus two source rows; **on the X4 a PNG's source row is capped at 8
-  KiB** (2,048 pixels of 8-bit RGBA, 1,024 at 16 bits; wider is `status` 3 too large), so the peak
-  is at most 32 + 2 × 8 = 48 KiB, about 45 KiB at a 1,600-pixel row (Senior's remark: without the
-  cap an 8 Mpx source could reach about 160 KiB; other devices keep the 8 Mpx limit only);
+  KiB** (2,048 pixels of 8-bit RGBA, 1,024 at 16 bits; wider is `status` 3 too large), so the
+  window and the rows are at most 32 + 2 × 8 = 48 KiB (Senior's remark: without the cap an 8 Mpx
+  source could reach about 160 KiB; other devices keep the 8 Mpx limit only). **Measured, the
+  whole prepare** (inflate state, rows, downscaler, the 8 KiB append chunk, the grid's row) of a
+  full-screen 480 × 800 PNG at the X4's limits **peaks at about 63 KiB** (63,123 bytes), about 66
+  KiB (66,003) see-through (`prepare_tests.rs`,
+  `a_full_screen_see_through_picture_on_the_x4_stays_within_the_opaque_bounds`);
   progressive JPEG a coefficient store the decoder sizes from the free heap (it keeps only the
   frequencies the output size needs); interlaced GIF the rows of the part on the screen; baseline
   JPEG and BMP a few rows. **This transient peak (PNG the largest) is an X4 gate item**, measured
@@ -838,9 +857,12 @@ reply 4,096 bytes, stage payload 3,840.
   of whole source columns (a tile is at most **32 KiB** on the X4, the draw's own ceiling, and at
   least one column of `height × channels` bytes, at most 4,800), after the decoder has freed its
   state, so the peak is the tile + one output row (at most 4,800) + the append chunk (8 KiB): **at
-  most about 45 KiB** at 1,600 pixels, below the PNG decode's 48 KiB peak, and never at the same
+  most about 45 KiB** at 1,600 pixels, below the PNG prepare's measured peak, and never at the same
   time as a decode or a draw. The brightness grid is 8 sums of 8 bytes and the grid's 64 bytes on
-  the stack (about 130 bytes) and one source row (at most 4,800 bytes) on the heap. The turn's
+  the stack (about 130 bytes) and one source row (at most 4,800 bytes) on the heap. **See-through**
+  (bit 2) adds no block a colour picture lacks: the cache writer's append chunk stays 8 KiB, and
+  the tone scratch and the grid's source row are two bytes a pixel (at most 3,200 bytes at 1,600
+  pixels), inside the bounds above; the decode's peak is the PNG's or GIF's own. The turn's
   time is an X4 gate item: it reads `height × ceil(width / columns)` short pieces (a 1,600 × 1,200
   picture in 27-column tiles: about 72,000, over the X4's budget of 16,384 reads, so refused with
   status 3; the screen's 800 × 600: about 9,000), to be measured on the device (#250).
