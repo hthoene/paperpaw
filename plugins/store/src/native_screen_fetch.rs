@@ -44,13 +44,13 @@ use paperpaw_sdk::native::{
 };
 use paperpaw_sdk::{Point, Rect};
 use paperpaw_ui_kit::{
-    Page, Paint, Style, geometry, header, list,
+    Messages, Page, Paint, Style, geometry, header, list,
     mem::push,
     paint, text,
     text::{concat, copy, decimal_u64},
 };
 
-use crate::native_ask::{Say, Words, listing, names_up_to, shown_size};
+use crate::native_ask::{Say, listing, names_up_to, shown_size};
 use crate::native_model::Entry;
 use crate::native_queue::{Queue, join_names};
 use crate::native_request::MAX_WANTED;
@@ -655,10 +655,39 @@ fn bar(body: &mut Vec<Paint>, style: &Style, bar: Rect, permille: u16) -> Result
     )
 }
 
+/// The host's catalog said through the screen's own buffers (a `Messages` it
+/// keeps), so that a frame makes none.
+struct Held<'h, 'a, 'm> {
+    host: &'h Host<'a>,
+    messages: &'m mut Messages,
+}
+
+impl Say for Held<'_, '_, '_> {
+    fn lookup(&mut self, key: &str) -> Result<Option<String>, Error> {
+        match self.messages.copy(self.host, key) {
+            Ok(text) => Ok(Some(text)),
+            Err(Error::NotFound | Error::Invalid) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn format(&mut self, key: &str, args: &[Arg<'_>]) -> Result<String, Error> {
+        self.messages.format(self.host, key, args)
+    }
+
+    fn digits(&mut self, text: &str) -> Result<String, Error> {
+        self.messages.digits(self.host, text)
+    }
+}
+
 /// The screen.
 #[derive(Debug)]
 pub struct View {
     core: Core,
+    /// The buffers the texts of a frame are said through: made by the first
+    /// frame, kept while the screen is on top (a frame makes none), given back
+    /// when it is covered or closed.
+    messages: Messages,
     /// The header's back arrow of the last frame (touch devices).
     back: Option<Rect>,
     /// The rows of the end of the last frame.
@@ -690,7 +719,10 @@ impl View {
         let font = Font::acquire_role(host, FontRole::Ui)?;
         let style = Style::read(host, &display, &font)?;
         let (width, height) = (display.display_width(), display.display_height());
-        let mut say = Words::new(host)?;
+        let mut say = Held {
+            host,
+            messages: &mut self.messages,
+        };
         let title = say.text("store.fetch.title")?;
         let mut page = Page::default();
         header::prepare(
@@ -698,7 +730,7 @@ impl View {
             host,
             &font,
             &style,
-            say.messages(),
+            say.messages,
             &title,
             width,
             display.has_touch(),
@@ -791,6 +823,7 @@ impl Screen for View {
         drop(core.refresh(ctx.installs, ctx.loader.list_state()));
         Ok(Self {
             core,
+            messages: Messages::default(),
             back: None,
             hits: Vec::new(),
         })
@@ -802,6 +835,7 @@ impl Screen for View {
 
     fn hidden(&mut self) {
         self.core.hide();
+        self.messages = Messages::default();
     }
 
     fn draw(&mut self, ctx: &Ctx<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {

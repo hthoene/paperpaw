@@ -123,6 +123,43 @@ pub fn items(on: &[bool], texts: &Texts) -> Result<Vec<Item>, Error> {
     Ok(items)
 }
 
+/// The plugins of `ids` that are chosen (`on`), in the order of the rows.
+///
+/// # Errors
+/// `NoMemory`.
+pub fn chosen_of(ids: &[&'static str], on: &[bool]) -> Result<Vec<&'static str>, Error> {
+    let mut chosen = Vec::new();
+    chosen
+        .try_reserve_exact(on.iter().filter(|on| **on).count())
+        .map_err(|_| Error::NoMemory)?;
+    for (id, _) in ids.iter().zip(on).filter(|(_, on)| **on) {
+        push(&mut chosen, *id)?;
+    }
+    Ok(chosen)
+}
+
+/// Flips choice `index` and makes the rows that show it; where the rows cannot
+/// be made the choice is put back, so what *Done* adds is always what the
+/// reader sees chosen. `None` where there is no such row.
+///
+/// # Errors
+/// `NoMemory`.
+pub fn toggled(on: &mut [bool], index: usize, texts: &Texts) -> Result<Option<Vec<Item>>, Error> {
+    let Some(flag) = on.get_mut(index) else {
+        return Ok(None);
+    };
+    *flag = !*flag;
+    match items(on, texts) {
+        Ok(rows) => Ok(Some(rows)),
+        Err(error) => {
+            if let Some(flag) = on.get_mut(index) {
+                *flag = !*flag;
+            }
+            Err(error)
+        }
+    }
+}
+
 /// The page.
 #[derive(Debug)]
 pub struct View {
@@ -137,26 +174,16 @@ pub struct View {
 }
 
 impl View {
-    fn chosen(&self) -> Vec<&'static str> {
-        self.ids
-            .iter()
-            .zip(&self.on)
-            .filter(|(_, on)| **on)
-            .map(|(id, _)| *id)
-            .collect()
-    }
-
     fn any_chosen(&self) -> bool {
         self.on.iter().any(|on| *on)
     }
 
     /// Flips row `index`.
     fn toggle(&mut self, index: usize) -> Result<Next, Error> {
-        let Some(on) = self.on.get_mut(index) else {
+        let Some(rows) = toggled(&mut self.on, index, &self.texts)? else {
             return Ok(Next::None);
         };
-        *on = !*on;
-        self.list.replace(items(&self.on, &self.texts)?);
+        self.list.replace(rows);
         Ok(Next::Redraw)
     }
 
@@ -165,7 +192,8 @@ impl View {
         if self.added {
             return Ok(if close { Next::Close } else { Next::None });
         }
-        let next = add(ctx.installs, ctx.data, &self.chosen(), close)?;
+        let chosen = chosen_of(&self.ids, &self.on)?;
+        let next = add(ctx.installs, ctx.data, &chosen, close)?;
         self.added = !matches!(next, Next::Close | Next::None);
         Ok(next)
     }

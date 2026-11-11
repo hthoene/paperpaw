@@ -54,6 +54,8 @@ pub const SMALL_BYTES: u64 = 300 * 1000;
 const DECODE_MAX: u32 = paperpaw_sdk::native::image::SIDE_MAX;
 /// The size of the buffers of a request to the host.
 const IO: usize = 2048;
+/// The buffers of a cancel: one token in, nothing out.
+const CANCEL_IO: usize = 64;
 /// The parameter that names the plugin.
 const ID: &str = "id";
 
@@ -207,12 +209,30 @@ pub struct View {
     /// What the last frame's header takes a tap for.
     header: Page,
     width: u16,
+    texts: Texts,
+    /// The buffers of the page counter's text (`1 / 3`), made by the first frame
+    /// of a view with more than one picture and kept while the screen is on top:
+    /// a frame makes none. Given back when the screen is covered.
+    messages: Messages,
 }
 
-fn only_memory(result: Result<(), Error>) -> Result<(), Error> {
-    match result {
-        Err(Error::NoMemory) => Err(Error::NoMemory),
-        Ok(()) | Err(_) => Ok(()),
+/// The texts the screen says, read once when it opens: a frame borrows them and
+/// reads none.
+#[derive(Debug)]
+struct Texts {
+    title: String,
+    loading: String,
+    failed: String,
+}
+
+impl Texts {
+    fn read(host: &Host<'_>) -> Result<Self, Error> {
+        let mut messages = Messages::new()?;
+        Ok(Self {
+            title: messages.copy(host, "store.shots")?,
+            loading: messages.copy(host, "store.loading-plugin")?,
+            failed: messages.copy(host, "store.shot-failed")?,
+        })
     }
 }
 
@@ -228,13 +248,16 @@ impl View {
     }
 
     /// Gives back what the picture on show holds: the download is stopped,
-    /// the picture's id released, its file removed.
-    fn drop_current(&mut self, ctx: &Ctx<'_>) -> Result<(), Error> {
+    /// the picture's id released, its file removed. It allocates nothing (the
+    /// cancel's two small buffers are on the stack), so it cannot be refused:
+    /// what a closed screen holds is always given back.
+    fn drop_current(&mut self, ctx: &Ctx<'_>) {
         if self.pending.take().is_some()
             && let Some(net) = &self.net
         {
-            let (mut input, mut out) = io()?;
-            only_memory(net.cancel(ctx.host, TOKEN, &mut input, &mut out))?;
+            // A cancel the host refuses ends by itself with its request.
+            let (mut input, mut out) = ([0; CANCEL_IO], [0; CANCEL_IO]);
+            let _ = net.cancel(ctx.host, TOKEN, &mut input, &mut out);
         }
         if let Picture::Here(id, ..) = self.picture {
             release(ctx.host, id);
@@ -244,12 +267,11 @@ impl View {
         let mut name = [0; 32];
         // A card that does not answer leaves a file the next fetch replaces.
         let _ = ctx.data.remove(part_name(self.at, &mut name));
-        Ok(())
     }
 
     /// Asks for picture `at`, after the one on show was given back.
     fn fetch(&mut self, ctx: &Ctx<'_>) -> Result<(), Error> {
-        self.drop_current(ctx)?;
+        self.drop_current(ctx);
         let Some(url) = self.shot(ctx, self.at).map(|shot| shot.url.as_str()) else {
             self.picture = Picture::Failed;
             return Ok(());
@@ -344,13 +366,11 @@ impl View {
     /// screenshot's own paper apart from ours) or what is said instead.
     fn body(
         &self,
-        ctx: &Ctx<'_>,
         font: &Font<'_>,
         style: &Style,
         area: Rect,
         ops: &mut Vec<Paint>,
     ) -> Result<Option<(ImageId, Rect)>, Error> {
-        let say = |key: &str| Messages::new()?.copy(ctx.host, key);
         let message = match self.picture {
             Picture::Here(id, w, h) => {
                 let at = fit_in((w, h), area);
@@ -370,13 +390,13 @@ impl View {
                 }
                 return Ok(Some((id, at)));
             }
-            Picture::Loading => say("store.loading-plugin")?,
-            Picture::Failed => say("store.shot-failed")?,
+            Picture::Loading => self.texts.loading.as_str(),
+            Picture::Failed => self.texts.failed.as_str(),
         };
-        let wide = font.measure_text(style.text, &message)?;
+        let wide = font.measure_text(style.text, message)?;
         let x = f32::from(area.x) + (f32::from(area.width) - wide).max(0.0) / 2.0;
         let line = Rect::new(area.x, area.y, area.width, area.height.min(style.row));
-        text::label(ops, font, &message, style.text, x, line, style.muted, None)?;
+        text::label(ops, font, message, style.text, x, line, style.muted, None)?;
         Ok(None)
     }
 
@@ -386,7 +406,7 @@ impl View {
             return Ok(false);
         };
         // The one on show goes with its file, then the next is asked for.
-        self.drop_current(ctx)?;
+        self.drop_current(ctx);
         self.at = to;
         self.fetch(ctx)?;
         Ok(true)
@@ -424,6 +444,8 @@ impl Screen for View {
             preparing: None,
             header: Page::default(),
             width: 0,
+            texts: Texts::read(ctx.host)?,
+            messages: Messages::default(),
         };
         view.fetch(ctx)?;
         Ok(view)
@@ -446,28 +468,33 @@ impl Screen for View {
         let font = Font::acquire_role(host, FontRole::Ui)?;
         let style = Style::read(host, &display, &font)?;
         let (width, height) = (display.display_width(), display.display_height());
-        let mut messages = Messages::new()?;
-        let title = messages.copy(host, "store.shots")?;
         let mut head = Page::default();
-        header::prepare(
+        // The counter's buffers are the view's own, taken for the call.
+        let mut messages = core::mem::take(&mut self.messages);
+        let prepared = header::prepare(
             &mut head,
             host,
             &font,
             &style,
             &mut messages,
-            &title,
+            &self.texts.title,
             width,
             display.has_touch(),
             self.at,
             self.count,
-        )?;
+        );
+        self.messages = messages;
+        if let Err(error) = prepared {
+            let _ = font.release();
+            return Err(error);
+        }
         let area = area_of((width, height), style.header, style.gap, style.margin);
         let mut ops = Vec::new();
         push(
             &mut ops,
             Paint::Fill(Rect::new(0, 0, width, height), Color::WHITE),
         )?;
-        let picture = self.body(ctx, &font, &style, area, &mut ops);
+        let picture = self.body(&font, &style, area, &mut ops);
         let result = picture.and_then(|picture| {
             paint::replay(frame, &font, head.paint.iter().chain(ops.iter()))?;
             Ok(picture)
@@ -514,11 +541,18 @@ impl Screen for View {
     }
 
     fn closed(&mut self, ctx: &Ctx<'_>) -> Result<(), Error> {
-        self.drop_current(ctx)?;
+        // Nothing here can be refused for want of memory: the picture's id and
+        // the network handle are given back whatever the heap is.
+        self.drop_current(ctx);
         if let Some(net) = self.net.take() {
             let _ = net.release(ctx.host);
         }
+        self.messages = Messages::default();
         Ok(())
+    }
+
+    fn hidden(&mut self) {
+        self.messages = Messages::default();
     }
 
     fn event(&mut self, ctx: &Ctx<'_>, event: &Event<'_>) -> Result<Next, Error> {
