@@ -1,8 +1,8 @@
 //! The library's delete and import jobs ([`Jobs`](super::lib_jobs::Jobs)) as
 //! one step of the main loop has them: the kernel's catalog ([`EnvCarry`]:
 //! the card, the plugins' book-data folders, the queue the events go to) and
-//! the catalog's own parts (`RemovalCarry`, `ImportCarry`, which Services
-//! implements over the same `Env`).
+//! the catalog's own parts (`RemovalCarry`, `ImportCarry`: `CatalogJobs` over
+//! the card of the step).
 use super::{
     book_data_steps::{self, Progress},
     lib_jobs::{ImportCarry, JobHost, RemovalCarry, RemovalPhase},
@@ -12,25 +12,6 @@ use super::{
 use paperpaw_native::host_glue::ERR_NO_MEMORY;
 use paperpaw_platform::Storage;
 use paperpaw_sdk::builtin::events;
-
-/// The catalog's parts, for a build that has none yet: nothing to forget and
-/// nothing to note (the files and the data are still handled).
-pub(crate) struct NoCatalog;
-
-impl RemovalCarry for NoCatalog {
-    fn forget(&self, _: &str, _: bool, phase: RemovalPhase) -> Result<RemovalPhase, i32> {
-        Ok(match phase {
-            RemovalPhase::Details => RemovalPhase::Marks,
-            _ => RemovalPhase::Done,
-        })
-    }
-}
-
-impl ImportCarry for NoCatalog {
-    fn catalogue(&self, _: &str, _: &str) -> Result<(), i32> {
-        Ok(())
-    }
-}
 
 /// A step's view of what the jobs need.
 pub(crate) struct EnvJobs<'a> {

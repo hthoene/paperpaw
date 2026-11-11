@@ -273,10 +273,9 @@ pub(crate) mod lib_changed;
 )]
 pub(crate) mod lib_edits;
 pub(crate) mod lib_host;
-#[allow(dead_code, reason = "wired by the LIB write half (Services, #1050)")]
+pub(crate) mod lib_import;
 pub(crate) mod lib_jobs;
 pub(crate) mod lib_jobs_env;
-#[allow(dead_code, reason = "wired by the LIB write half (Services, #1050)")]
 pub(crate) mod lib_jobs_journal;
 pub(crate) mod lib_moves_carry;
 pub(crate) mod lib_moves_host;

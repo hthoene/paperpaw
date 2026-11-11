@@ -32,7 +32,7 @@ pub(crate) use args::BookRef;
 pub(crate) use query::{LibQuery, One, Rows};
 pub(crate) use write::{BookId, CommitRequest, Committed, StageItem, Transactions};
 #[allow(unused_imports, reason = "the catalog's write half implements it")]
-pub(crate) use write::{FieldKind, LibWrite, StoredPosition};
+pub(crate) use write::{FieldKind, ImportRequest, LibWrite, StoredPosition};
 
 /// The calling plugin: its host owner id and its plugin id.
 #[derive(Clone, Copy, Debug)]
