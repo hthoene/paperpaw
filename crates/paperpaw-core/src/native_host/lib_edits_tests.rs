@@ -622,3 +622,22 @@ fn a_host_without_a_clock_ends_an_idle_transaction_after_60_calls() {
     // The idle time of the transactions is 10 minutes.
     assert!(last - first >= 600_000, "{first} {last}");
 }
+
+#[test]
+fn a_committed_transaction_raises_the_annotations_change_for_its_book_and_a_refused_one_does_not() {
+    let t = fixture();
+    let take = |t: &Fixture| {
+        let mut seen = None;
+        t.host.take_changed(&mut |what, _, path| {
+            seen = Some((what, std::string::String::from(path)));
+        });
+        seen
+    };
+    assert_eq!(take(&t), None);
+    // A commit on a generation that moved is refused: nothing changed.
+    assert_eq!(t.transact(9, &[edit(0)], &[]).err(), Some(ERR_STATE));
+    assert_eq!(take(&t), None);
+    t.transact(1, &[edit(0)], &[]).unwrap();
+    assert_eq!(take(&t), Some((1 << 3, BOOK.into())));
+    assert_eq!(take(&t), None);
+}

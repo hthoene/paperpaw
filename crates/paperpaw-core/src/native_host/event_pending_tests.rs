@@ -178,9 +178,10 @@ fn producer_reports_every_unrepresentable_edge_and_never_truncates_old() {
 
 #[test]
 fn the_events_of_subscription_checked_services_can_be_registered() {
-    // 90 `image_ready`, 108 `document_closed` and 110 `lookup_ready`: their
-    // producers deliver only to a plugin that subscribed.
-    for tag in [90, 108, 110] {
+    // 90 `image_ready`, 91 `library_changed`, 108 `document_closed` and 110
+    // `lookup_ready`: their producers deliver only to a plugin that subscribed
+    // (the native `files` plugin is refused at admission without 91).
+    for tag in [90, 91, 108, 110] {
         assert!(super::super::events::is_event_tag(tag), "{tag}");
     }
 }

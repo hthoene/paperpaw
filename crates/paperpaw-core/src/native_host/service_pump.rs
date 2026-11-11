@@ -180,6 +180,9 @@ impl crate::Kernel {
         // The reading session's events are queued for the subscribers (the
         // reader's report raised them), before the pump that tells them.
         let reading_more = self.native_reading_pump();
+        // What the library says changed is queued for the subscribers
+        // (`library_events`), before the pump that tells them.
+        let library_more = self.native_library_pump();
         // Changed settings reach the plugins that subscribed (`setting_events`).
         let setting_more = self.native_setting_pump();
         // Widgets their owners said changed reach their makers (`widget_events`).
@@ -202,6 +205,7 @@ impl crate::Kernel {
                 || setting_more
                 || widget_more
                 || stack_more
+                || library_more
                 || moves_more
                 || dialog_more
                 || wifi_more

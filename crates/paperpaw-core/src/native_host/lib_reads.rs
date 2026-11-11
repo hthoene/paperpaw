@@ -103,7 +103,7 @@ impl CatalogReads {
     /// The catalog generation of the wire: it changes whenever the
     /// catalog's own generation or its log of changes does (a book added,
     /// removed, its status changed); never 0.
-    fn generation(&self) -> Result<u32, i32> {
+    pub(super) fn generation(&self) -> Result<u32, i32> {
         Ok(self.snapshot()?.0)
     }
 
