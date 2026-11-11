@@ -88,15 +88,18 @@ impl RefreshPolicy {
         self.partials
     }
 
-    /// A refresh in `mode` of `region` (of `screen`) was done.
-    pub(crate) fn done(&mut self, mode: RefreshMode, region: Rect, screen: Rect) {
+    /// A refresh in `mode` of `region` (of `screen`) was done. Refreshes of
+    /// the user interface are counted only where `every.ui` is set: never
+    /// while reading (a clock, a progress line), so that leaving the page
+    /// does not flash at once.
+    pub(crate) fn done(&mut self, mode: RefreshMode, region: Rect, screen: Rect, every: Intervals) {
         match mode {
             RefreshMode::Full | RefreshMode::Clear => (self.partials, self.ui) = (0, 0),
             RefreshMode::Partial | RefreshMode::Gray if self.is_page(region, screen) => {
                 self.partials = self.partials.saturating_add(1)
             }
             // Smaller ones and fast ones: the user interface.
-            RefreshMode::Partial | RefreshMode::Gray | RefreshMode::Fast => {
+            RefreshMode::Partial | RefreshMode::Gray | RefreshMode::Fast if every.ui > 0 => {
                 self.ui = self.ui.saturating_add(1)
             }
             // Black and white (games, pen strokes) leave ghosting as they
@@ -110,6 +113,10 @@ impl RefreshPolicy {
 mod tests {
     use super::*;
 
+    /// Where the user interface counts (as in menus), at an interval too
+    /// long to flash.
+    const COUNTED: Intervals = Intervals { pages: 0, ui: 1000 };
+
     fn pages(pages: u32) -> Intervals {
         Intervals { pages, ui: 0 }
     }
@@ -122,7 +129,7 @@ mod tests {
         for _ in 0..50 {
             let (mode, region) = policy.decide(RefreshMode::Partial, line, screen, pages(6));
             assert_eq!((mode, region), (RefreshMode::Partial, line));
-            policy.done(mode, region, screen);
+            policy.done(mode, region, screen, COUNTED);
         }
         assert_eq!(policy.since_full(), 0);
         // Pages still flash at the interval: the sixth.
@@ -130,7 +137,7 @@ mod tests {
         let modes: alloc::vec::Vec<RefreshMode> = (0..6)
             .map(|_| {
                 let (mode, region) = policy.decide(RefreshMode::Partial, page, screen, pages(6));
-                policy.done(mode, region, screen);
+                policy.done(mode, region, screen, COUNTED);
                 mode
             })
             .collect();
@@ -145,7 +152,7 @@ mod tests {
         let screen = Rect::new(0, 0, 10, 10);
         let modes: [RefreshMode; 4] = core::array::from_fn(|_| {
             let (mode, _) = policy.decide(RefreshMode::Partial, dirty, screen, pages(3));
-            policy.done(mode, screen, screen);
+            policy.done(mode, screen, screen, COUNTED);
             mode
         });
         assert_eq!(
@@ -164,12 +171,12 @@ mod tests {
         let mut policy = RefreshPolicy::default();
         let r = Rect::new(0, 0, 1, 1);
         for _ in 0..10 {
-            policy.done(RefreshMode::Fast, r, r);
+            policy.done(RefreshMode::Fast, r, r, COUNTED);
             assert_eq!(
                 policy.decide(RefreshMode::Fast, r, r, pages(2)).0,
                 RefreshMode::Fast
             );
-            policy.done(RefreshMode::Partial, r, r);
+            policy.done(RefreshMode::Partial, r, r, COUNTED);
             assert_eq!(
                 policy.decide(RefreshMode::Partial, r, r, pages(0)).0,
                 RefreshMode::Partial
@@ -183,15 +190,15 @@ mod tests {
     fn the_count_follows_the_refreshes_done() {
         let mut policy = RefreshPolicy::default();
         let r = Rect::new(0, 0, 1, 1);
-        policy.done(RefreshMode::Partial, r, r);
-        policy.done(RefreshMode::Full, r, r);
+        policy.done(RefreshMode::Partial, r, r, COUNTED);
+        policy.done(RefreshMode::Full, r, r, COUNTED);
         assert_eq!(
             policy.decide(RefreshMode::Partial, r, r, pages(2)).0,
             RefreshMode::Partial
         );
-        policy.done(RefreshMode::Partial, r, r);
+        policy.done(RefreshMode::Partial, r, r, COUNTED);
         // The full refresh the policy wanted became partial: still due.
-        policy.done(RefreshMode::Partial, r, r);
+        policy.done(RefreshMode::Partial, r, r, COUNTED);
         assert_eq!(
             policy.decide(RefreshMode::Partial, r, r, pages(2)).0,
             RefreshMode::Full
@@ -215,7 +222,7 @@ mod tests {
             RefreshMode::Fast,
         ] {
             let (mode, region) = policy.decide(requested, item, screen, every);
-            policy.done(mode, region, screen);
+            policy.done(mode, region, screen, every);
             modes.push((mode, region));
         }
         assert_eq!(
@@ -229,10 +236,10 @@ mod tests {
         );
         assert_eq!(policy.ui, 1);
         // A page turn neither counts there nor is flashed by that count.
-        policy.done(RefreshMode::Fast, item, screen);
+        policy.done(RefreshMode::Fast, item, screen, every);
         let (mode, region) = policy.decide(RefreshMode::Partial, screen, screen, every);
         assert_eq!((mode, region), (RefreshMode::Partial, screen));
-        policy.done(mode, region, screen);
+        policy.done(mode, region, screen, every);
         assert_eq!((policy.partials, policy.ui), (1, 2));
     }
 
@@ -244,8 +251,8 @@ mod tests {
         let screen = Rect::new(0, 0, 480, 800);
         let item = Rect::new(0, 100, 480, 60);
         for _ in 0..5 {
-            policy.done(RefreshMode::Fast, item, screen);
-            policy.done(RefreshMode::Partial, screen, screen);
+            policy.done(RefreshMode::Fast, item, screen, COUNTED);
+            policy.done(RefreshMode::Partial, screen, screen, COUNTED);
         }
         assert_eq!((policy.partials, policy.ui), (5, 5));
         let off = Intervals { pages: 0, ui: 0 };
@@ -258,12 +265,34 @@ mod tests {
             policy.decide(RefreshMode::Mono, item, screen, ui).0,
             RefreshMode::Mono
         );
-        policy.done(RefreshMode::Mono, item, screen);
+        policy.done(RefreshMode::Mono, item, screen, COUNTED);
         assert_eq!(policy.ui, 5);
-        policy.done(RefreshMode::Clear, screen, screen);
+        policy.done(RefreshMode::Clear, screen, screen, COUNTED);
         assert_eq!((policy.partials, policy.ui), (0, 0));
         assert_eq!(
             policy.decide(RefreshMode::Fast, item, screen, ui).0,
+            RefreshMode::Fast
+        );
+    }
+
+    /// While reading (the interval passed as 0) the user interface does
+    /// not count: a clock or a progress line never adds up to a flash
+    /// later in a menu.
+    #[test]
+    fn nothing_counts_where_the_interval_is_off() {
+        let mut policy = RefreshPolicy::default();
+        let screen = Rect::new(0, 0, 480, 800);
+        let line = Rect::new(0, 740, 480, 40);
+        let reading = Intervals { pages: 6, ui: 0 };
+        for _ in 0..10 {
+            let (mode, region) = policy.decide(RefreshMode::Partial, line, screen, reading);
+            assert_eq!(mode, RefreshMode::Partial);
+            policy.done(mode, region, screen, reading);
+        }
+        assert_eq!(policy.ui, 0);
+        let menu = Intervals { pages: 6, ui: 3 };
+        assert_eq!(
+            policy.decide(RefreshMode::Fast, line, screen, menu).0,
             RefreshMode::Fast
         );
     }

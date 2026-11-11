@@ -21,6 +21,35 @@ pub(crate) fn handing<R>(
 }
 
 impl Kernel {
+    /// How often the panel is cleaned now: after page turns, as set, and
+    /// after refreshes of the user interface where set (#255), except
+    /// while reading, where a clock or a progress line neither counts nor
+    /// flashes. Screens that clean themselves are never cleaned so.
+    fn refresh_intervals(
+        &self,
+        mode: &paperpaw_sdk::realtime::ScreenMode,
+    ) -> crate::refresh::Intervals {
+        if mode.does_clean_itself() {
+            return crate::refresh::Intervals::default();
+        }
+        let interval = |key: &str| {
+            let settings = &self.shared.settings;
+            settings.int(key).clamp(0, i64::from(u32::MAX)) as u32
+        };
+        let reading = self
+            .stack
+            .last()
+            .and_then(|top| top.slot.as_ref())
+            .is_some_and(|slot| *slot == slots::READER);
+        crate::refresh::Intervals {
+            pages: interval(core_settings::FULL_REFRESH_INTERVAL.as_str()),
+            ui: match reading {
+                true => 0,
+                false => interval(crate::refresh::UI_FULL_REFRESH_INTERVAL),
+            },
+        }
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "longer than the limit from before it was set; split it when it is next changed"
@@ -113,18 +142,7 @@ impl Kernel {
             });
             // Items far apart make a large region without being much.
             let weight = weight.min(area(dirty));
-            let interval = |key: &str| {
-                let settings = &self.shared.settings;
-                settings.int(key).clamp(0, i64::from(u32::MAX)) as u32
-            };
-            let every = match mode.does_clean_itself() {
-                // Cleaned when the screen asks, never every few frames.
-                true => crate::refresh::Intervals::default(),
-                false => crate::refresh::Intervals {
-                    pages: interval(core_settings::FULL_REFRESH_INTERVAL.as_str()),
-                    ui: interval(crate::refresh::UI_FULL_REFRESH_INTERVAL),
-                },
-            };
+            let every = self.refresh_intervals(&mode);
             let screen = self.framebuffer.bounds();
             let mut requested = match mode.wants_fastest() && set.is_none() {
                 true => Self::fastest_mode(&mode, requested),
@@ -190,7 +208,7 @@ impl Kernel {
                     // Counted as done, after the filters.
                     self.frame
                         .refresh
-                        .done(refresh.mode, refresh.region, screen);
+                        .done(refresh.mode, refresh.region, screen, every);
                     self.frame.refresh.weigh(None);
                     effects.refresh = Some((refresh.region, refresh.mode));
                     effects.grays = refresh.grays;
