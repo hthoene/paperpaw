@@ -349,7 +349,7 @@ impl fmt::Debug for Id {
     }
 }
 
-const fn is_valid(id: &str) -> bool {
+pub(crate) const fn is_valid(id: &str) -> bool {
     let bytes = id.as_bytes();
     if bytes.is_empty() {
         return false;
