@@ -559,8 +559,10 @@ relative to the data folder).
 - **Not yet (named):** the ribbon on a bookmarked page and the tap on the top right corner
   (`reader.corner-bookmark`): both belong to the draw and the gesture code (`native_view.rs`, R2b's files) and
   follow when that lands; until then a toggle shows no mark on the page (the annotations screen, R5, lists it).
-  Go to a page / percentage (a number dialog; its answer is an event of the reader's own) and the status-line actions
-  (`reader.next-status-line`, R2b) are not here. The annotations screen itself is R5.
+  Go to a page / percentage is `native_goto.rs` and `native_view/goto.rs` (#257): the number is asked on the keyboard
+  (`core.ui` ask, number mode), a page goes to its start in the count (clamped to the pages counted so far), a
+  percentage to the start of its page where the count is complete, else to the place that far into the text, as Beta 3
+  did. The status-line actions (`reader.next-status-line`, R2b) are not here. The annotations screen itself is R5.
 - An empty page (nothing laid out) is a silent no-op: no bookmark, no notice. Beta 3 sent `annotations::changed`
   itself after an edit; here the plugin does not: `docs/abi/library.md` lists event 91 (`annotations-changed`)
   as the host's after a commit, but `paperpaw-core` does not raise it yet. **Gap:** the library annotation

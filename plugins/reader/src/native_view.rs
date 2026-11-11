@@ -1366,6 +1366,7 @@ fn say_with(
 
 mod aloud;
 mod count;
+mod goto;
 mod menu_bar;
 mod pictures;
 mod preparing;
