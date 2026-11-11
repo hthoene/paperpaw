@@ -14,7 +14,10 @@ use paperpaw_sdk::{Command, Id, Params, ScreenKey};
 #[derive(Clone, Copy)]
 pub(super) struct Handovers<'a> {
     pub(super) store: &'a UiStore,
-    pub(super) stamp: Stamp,
+    /// The callback's stamp: known once the callback is entered (the stage is
+    /// built before), and none until then, when an open that names a hand-over
+    /// is refused.
+    pub(super) stamp: Option<Stamp>,
 }
 
 /// One staged open, for the drain.
@@ -39,27 +42,36 @@ pub(crate) struct Opens {
 
 impl<'a> CommandStage<'a> {
     /// Opens of this stage may name hand-overs `who` made in this callback.
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "the production command path takes it with the shell wiring (Input's core.ui, todo 119)"
-        )
-    )]
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn with_handovers(mut self, store: &'a UiStore, stamp: Stamp) -> Self {
-        self.handovers = Some(Handovers { store, stamp });
+        self.handovers = Some(Handovers {
+            store,
+            stamp: Some(stamp),
+        });
         self
     }
 
+    /// Opens of this stage may name hand-overs in `store`, once the callback
+    /// it serves says who it is ([`Self::set_handover_stamp`]): the stage is
+    /// built before the callback is entered.
+    #[must_use]
+    pub(crate) fn with_handover_store(mut self, store: Option<&'a UiStore>) -> Self {
+        if let Some(store) = store {
+            self.handovers = Some(Handovers { store, stamp: None });
+        }
+        self
+    }
+
+    /// The callback is entered: its hand-overs are those `owner` made under
+    /// `epoch` (`Stamp`), the ones `ui.handover` stamped.
+    pub(crate) fn set_handover_stamp(&mut self, owner: u64, epoch: u64) {
+        if let (Some(named), Ok(stamp)) = (&mut self.handovers, Stamp::new(owner, epoch)) {
+            named.stamp = Some(stamp);
+        }
+    }
+
     /// The staged opens, for the drain; the claims go with them.
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "the production command path takes it with the shell wiring (Input's core.ui, todo 119)"
-        )
-    )]
     pub(super) fn take_opens(&mut self) -> Opens {
         core::mem::take(&mut self.opens)
     }
@@ -67,13 +79,6 @@ impl<'a> CommandStage<'a> {
     /// As `into_ui_output`, with the opens the drain needs (hand-overs and
     /// the screens they replace). Without them the claims are rolled back
     /// when the stage is dropped.
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "the production command path takes it with the shell wiring (Input's core.ui, todo 119)"
-        )
-    )]
     pub(crate) fn into_ui_output_with_opens(
         mut self,
     ) -> (Vec<Command>, Option<ui::Redraw>, u8, Opens) {
@@ -127,19 +132,20 @@ impl<'a> CommandStage<'a> {
                     .at
                     .iter()
                     .any(|before| before.handover == Some(*id));
-            let Some(named) = self.handovers.filter(|_| !named_before) else {
+            let Some((named, stamp)) = self
+                .handovers
+                .filter(|_| !named_before)
+                .and_then(|named| Some((named, named.stamp?)))
+            else {
                 return Err(ERR_INVALID);
             };
-            named
-                .store
-                .handover_check(named.stamp, *id)
-                .map_err(|status| {
-                    if status == ERR_STATE {
-                        ERR_STATE
-                    } else {
-                        ERR_INVALID
-                    }
-                })?;
+            named.store.handover_check(stamp, *id).map_err(|status| {
+                if status == ERR_STATE {
+                    ERR_STATE
+                } else {
+                    ERR_INVALID
+                }
+            })?;
         }
         Ok(())
     }
@@ -155,7 +161,9 @@ impl<'a> CommandStage<'a> {
         let Some(named) = self.handovers.filter(|_| count > 0) else {
             return Ok(None);
         };
-        named.store.claim(named.stamp, &ids[..count]).map(Some)
+        // Validated at the start of the batch, which needs the stamp.
+        let stamp = named.stamp.ok_or(ERR_INVALID)?;
+        named.store.claim(stamp, &ids[..count]).map(Some)
     }
 
     /// Reserve what recording the batch's opens takes, so recording cannot fail.

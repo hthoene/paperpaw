@@ -294,14 +294,19 @@ impl UiServices {
             .next_screen(after))
     }
 
-    /// A callback of `plugin` returned: its status handles end with it.
+    /// A callback of `plugin` returned: its status handles end with it, and the
+    /// hand-overs it made that no `open` claimed are freed (`ui.md` 1.1: one
+    /// valid in the callback that made it only). A store in use leaves them to
+    /// the plugin's stop.
     pub(crate) fn callback_ended(&self, plugin: u64, callback: u64) -> Result<(), i32> {
+        let made = super::ui_store::Stamp::new(plugin, callback)
+            .and_then(|stamp| self.store.end_callback(stamp));
         self.widgets
             .handles
             .try_borrow_mut()
             .map_err(|_| ERR_BUSY)?
             .end_callback(plugin, callback);
-        Ok(())
+        made
     }
 
     /// A callback of `plugin` returned a failure: the questions it asked in it

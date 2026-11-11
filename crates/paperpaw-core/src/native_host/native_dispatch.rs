@@ -95,6 +95,12 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
     ) -> Result<i32, i32> {
         let directory = self.host.upgrade_directory()?;
         let epoch = self.identity.callback()?;
+        // The hand-overs the callback makes are stamped with its epoch: an open
+        // it stages may name them.
+        let mut stage = stage;
+        if let Some(stage) = stage.as_mut() {
+            stage.set_handover_stamp(self.identity.owner(), epoch.epoch());
+        }
         let batch = self.instance.batch().map_err(|e| status(e.into()))?;
         // A screen's callback is on the stack until this returns (`core.net`
         // asks whether the screen is showing).
