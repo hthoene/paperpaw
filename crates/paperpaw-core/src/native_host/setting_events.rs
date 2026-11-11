@@ -65,6 +65,18 @@ pub(crate) struct SettingEvents {
     cursor: Cell<usize>,
 }
 
+/// Frees the queue of every plugin with nothing waiting and nothing to
+/// remember (a drop already logged stays until the queue is emptied by a
+/// delivery), and the list itself once no queue is left: an idle device holds
+/// no event queue at all. A queue is made again, empty, when the next event
+/// comes.
+fn release_idle(queues: &mut Vec<(u64, Pending)>) {
+    queues.retain(|(_, queue)| !queue.is_idle());
+    if queues.is_empty() {
+        *queues = Vec::new();
+    }
+}
+
 impl SettingEvents {
     /// Gives back the room the queues kept while plugins were hosted.
     pub(crate) fn shrink_to_fit(&self) {
@@ -134,7 +146,9 @@ impl SettingEvents {
             .queues
             .try_borrow_mut()
             .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
-        Ok(visit(self.queue_of(&mut queues, owner)?))
+        let made = self.queue_of(&mut queues, owner).map(visit);
+        release_idle(&mut queues);
+        made
     }
 
     /// Announces one change (an empty `key`: read everything again) to every
@@ -166,6 +180,7 @@ impl SettingEvents {
                 let _ = queue.setting(now_ms, key, old, seen);
             }
         }
+        release_idle(&mut queues);
     }
 
     /// Announces that the state behind hint `tag` changed (a second one
@@ -187,6 +202,7 @@ impl SettingEvents {
                 let _ = queue.hint(tag);
             }
         }
+        release_idle(&mut queues);
     }
 
     /// Announces that the registry changed in the `what` bits (OR-ed with the
@@ -208,6 +224,7 @@ impl SettingEvents {
                 queue.registry(what);
             }
         }
+        release_idle(&mut queues);
     }
 
     /// Tells `plugin` alone that `what` happened (bit 31, `dropped`): no other
@@ -229,6 +246,7 @@ impl SettingEvents {
         if let Ok(queue) = self.queue_of(&mut queues, owner) {
             queue.registry(what);
         }
+        release_idle(&mut queues);
     }
 
     /// Forgets the queues of plugins that no longer subscribe (stopped or
@@ -236,24 +254,30 @@ impl SettingEvents {
     fn prune(&self, instances: &NativeInstances) {
         if let Ok(mut queues) = self.queues.try_borrow_mut() {
             queues.retain(|(owner, _)| Self::listens(instances, *owner));
+            release_idle(&mut queues);
         }
     }
 
     /// The next event of one plugin, detached from its queue.
     fn take(&self, owner: u64) -> Option<Ready> {
         let mut queues = self.queues.try_borrow_mut().ok()?;
-        queues
+        let ready = queues
             .iter_mut()
             .find(|(key, _)| *key == owner)
-            .and_then(|(_, queue)| queue.take())
+            .and_then(|(_, queue)| queue.take());
+        // Told: a queue that is empty now is given back.
+        release_idle(&mut queues);
+        ready
     }
 
     /// The plugin's queue lost an event that could not be told: read again.
     fn reread(&self, owner: u64, now_ms: u64) {
-        if let Ok(mut queues) = self.queues.try_borrow_mut()
-            && let Some((_, queue)) = queues.iter_mut().find(|(key, _)| *key == owner)
-        {
-            let _ = queue.setting(now_ms, "", Ok(&[]), Visibility::Readable);
+        // The queue was freed when its last event was taken: made again here.
+        if let Ok(mut queues) = self.queues.try_borrow_mut() {
+            if let Ok(queue) = self.queue_of(&mut queues, owner) {
+                let _ = queue.setting(now_ms, "", Ok(&[]), Visibility::Readable);
+            }
+            release_idle(&mut queues);
         }
     }
 

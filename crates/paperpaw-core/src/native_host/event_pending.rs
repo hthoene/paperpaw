@@ -224,6 +224,13 @@ impl Pending {
         !core::mem::replace(&mut self.drop_logged, true)
     }
 
+    /// Whether the queue holds nothing and remembers nothing: no event waits
+    /// and no drop was logged since it was last empty, so it can be freed and
+    /// made again with the same behaviour.
+    pub(crate) fn is_idle(&self) -> bool {
+        self.len == 0 && !self.drop_logged
+    }
+
     /// Whether a held edge waits: a later edge goes behind it.
     pub(crate) fn has_edges(&self) -> bool {
         !self.edges.is_empty()

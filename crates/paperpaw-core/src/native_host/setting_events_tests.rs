@@ -647,3 +647,52 @@ fn a_registry_bit_raised_while_the_queues_are_borrowed_is_dropped_without_a_pani
     run(&mut w);
     assert!(w.hints.borrow().is_empty());
 }
+
+/// The queues now held, and the room the list keeps.
+fn held(w: &World) -> (usize, usize) {
+    let events = &w.kernel.shared.native_instances.setting_events;
+    let queues = events.queues.borrow();
+    (queues.len(), queues.capacity())
+}
+
+#[test]
+fn an_idle_device_holds_no_event_queue_once_the_events_are_told() {
+    let mut w = world(false);
+    w.kernel.native_setting_publish("c.size", Ok(&int(7)));
+    assert_eq!(held(&w).0, 1, "waits for the pump");
+    run(&mut w);
+    assert_eq!(*w.a.1.borrow(), [("c.size".into(), int(7))]);
+    assert_eq!(held(&w), (0, 0), "told: the queue and the list are freed");
+    // The next event makes the queue again, and it is told as before.
+    w.kernel.native_setting_publish("c.size", Ok(&int(8)));
+    run(&mut w);
+    assert_eq!(w.a.1.borrow().len(), 2);
+    assert_eq!(held(&w), (0, 0));
+}
+
+#[test]
+fn a_change_nobody_may_be_told_leaves_no_empty_queue_behind() {
+    let w = world(false);
+    // The secret of another plugin is not announced: nothing is queued.
+    w.kernel.native_setting_publish("b.secret", Ok(&int(1)));
+    assert_eq!(held(&w), (0, 0));
+}
+
+#[test]
+fn a_lost_edge_is_still_replaced_by_the_empty_key_after_its_queue_was_freed() {
+    let mut w = world(false);
+    let owner = w.kernel.shared.native_instances.running_nth(0).unwrap().0;
+    // The queue was freed when its last event was taken; the encode failed.
+    w.kernel
+        .shared
+        .native_instances
+        .setting_events
+        .reread(owner, 5);
+    assert_eq!(
+        w.kernel.shared.native_instances.setting_events.waiting(),
+        [owner]
+    );
+    run(&mut w);
+    assert_eq!(*w.a.1.borrow(), [(String::new(), Vec::new())]);
+    assert_eq!(held(&w), (0, 0));
+}
