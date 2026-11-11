@@ -132,6 +132,7 @@ fn run_in(library: &Path, profile: &str, args: &[&str]) -> Command {
     command
         .args(["--profile", profile, "--headless", "--library"])
         .arg(library)
+        .args(["--set", "help.show=false"])
         .args(args);
     command
 }
