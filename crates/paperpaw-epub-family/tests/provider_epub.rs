@@ -756,3 +756,40 @@ fn an_adobe_obfuscated_font_is_revealed_as_it_is_copied() {
     assert_eq!(bytes as usize, TTF.len());
     assert_eq!(data, TTF);
 }
+
+#[test]
+fn every_paged_list_ends_with_the_last_page_bit_and_a_generation_that_is_never_0() {
+    let io = Roots::new("notes.epub", &book_bytes());
+    let mut p = epub_provider();
+    run(&mut p, &io, &call(2, |c| c.text = "notes.epub")).unwrap();
+    // Sections (7), contents (9), links (14) and fonts (16): `document.md` section 3,
+    // paged replies: bit 0 the last page and no other flag, `generation` the format's own.
+    for op in [7, 9, 14, 16] {
+        let (mut cursor, mut generation) = (0, 0);
+        loop {
+            let reply = run(
+                &mut p,
+                &io,
+                &call(op, |c| {
+                    c.cursor = cursor;
+                    c.generation = generation;
+                }),
+            )
+            .unwrap();
+            let all = rows(&reply);
+            let Some(stage::Record::FmtEnd(end)) = all.last().copied() else {
+                panic!("op {op}: no end")
+            };
+            assert_ne!(end.generation, 0, "op {op}");
+            assert_eq!(end.flags & !1, 0, "op {op}: only bit 0");
+            if end.flags & 1 == 1 {
+                break;
+            }
+            assert!(
+                end.next > cursor,
+                "op {op}: a page that is not the last goes on"
+            );
+            (cursor, generation) = (end.next, end.generation);
+        }
+    }
+}
