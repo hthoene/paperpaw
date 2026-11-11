@@ -1,42 +1,11 @@
 //! One declaration producer retaining the same lease as native callbacks.
 use super::{
-    declaration_store::{Allocations, ImageOwner, PendingDeclarations},
+    declaration_store::{Allocations, PendingDeclarations},
     native_instances::NativeLease,
-    native_screen::Dispatch,
     raw_declarations::RawDeclarations,
 };
 use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_sdk::Id;
-
-struct Source {
-    lease: NativeLease,
-    plugin: Id,
-    owner: u64,
-}
-impl ImageOwner for Source {
-    fn plugin_id(&self) -> &str {
-        self.plugin.as_str()
-    }
-    fn generation(&self) -> u32 {
-        u32::from(self.lease.live().is_ok())
-    }
-    fn owner_id(&self) -> Result<u64, i32> {
-        Ok(self.owner)
-    }
-    fn native_lease(&self) -> Result<NativeLease, i32> {
-        self.lease.live()?;
-        self.lease.try_clone()
-    }
-    fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
-        match self.lease.live() {
-            Ok(instance) => instance.with_image(visit),
-            Err(_) => visit(None),
-        }
-    }
-    fn invalid_declaration(&self, error: i32) {
-        self.lease.dropped(0, error);
-    }
-}
 
 pub(crate) fn pending(
     plugin: &Id,
@@ -47,15 +16,16 @@ pub(crate) fn pending(
 ) -> Result<PendingDeclarations, i32> {
     lease.live()?;
     let id = plugin.try_clone().ok_or(ERR_NO_MEMORY)?;
-    let source = Source {
-        lease,
-        plugin: plugin.try_clone().ok_or(ERR_NO_MEMORY)?,
-        owner,
-    };
-    if source.generation() == 0 {
-        return Err(ERR_STATE);
-    }
-    let mut pending = PendingDeclarations::native(id, source)?;
+    let mut pending = PendingDeclarations::native(id, lease, owner);
+    // A batch without indexed records keeps nothing, so it needs no room.
+    let (batches, entries) = raw
+        .batches
+        .iter()
+        .filter(|batch| batch.entries != 0)
+        .fold((0, 0), |(batches, entries), batch| {
+            (batches + 1, entries + usize::from(batch.entries))
+        });
+    pending.reserve(batches, entries, allocations)?;
     for batch in raw.batches {
         pending.stage_committed(batch, allocations)?;
     }
@@ -88,15 +58,13 @@ impl core::fmt::Debug for NativeDeclarations {
 
 pub(crate) struct Publication<'a> {
     store: core::cell::RefMut<'a, super::declaration_store::DeclarationStore>,
-    catalog: Option<super::reg_catalog::PreparedCatalog<'a>>,
+    catalog: super::reg_catalog::PreparedCatalog<'a>,
     owner: u64,
     committed: bool,
 }
 impl Publication<'_> {
     pub(crate) fn commit(mut self) {
-        if let Some(catalog) = self.catalog.take() {
-            catalog.commit();
-        }
+        self.catalog.commit();
         self.committed = true;
     }
 }
@@ -157,21 +125,12 @@ impl NativeDeclarations {
             }
         };
         prepared.commit();
-        let prepared = store
-            .all_keys(allocations)
-            .and_then(|keys| self.catalog.prepare_store(&store, &keys, allocations));
-        match prepared {
-            Ok(catalog) => Ok(Publication {
-                store,
-                catalog: Some(catalog),
-                owner,
-                committed: false,
-            }),
-            Err(error) => {
-                store.remove_host_owner(owner);
-                Err(error)
-            }
-        }
+        Ok(Publication {
+            store,
+            catalog: self.catalog.prepare(),
+            owner,
+            committed: false,
+        })
     }
 }
 
