@@ -683,3 +683,33 @@ fn params_over_the_caps_of_op_16_are_not_handed_over() {
         assert_eq!((store.len(), store.held()), (0, (0, 0)));
     }
 }
+
+#[test]
+fn hand_overs_of_params_leave_the_room_of_the_hosts_dialogs_alone() {
+    let mut limits = Limits::ELSEWHERE;
+    limits.handovers = 2;
+    let s = UiStore::new(limits);
+    // Two screens opened with params take the plugins' table.
+    let one = s.handover_params(&[p("id", "core.rotation")]).unwrap();
+    let two = s.handover_params(&[p("text", "A note.")]).unwrap();
+    s.attach(Some(one), 1).unwrap();
+    s.attach(Some(two), 2).unwrap();
+    // A third is refused (that screen opens without), not put in the room
+    // kept for the host's dialogs.
+    assert_eq!(s.handover_params(&[p("id", "x")]), Err(ERR_FULL));
+    // The host's dialogs still open, both of them.
+    let first = s.handover_dialog("1", "0").unwrap();
+    let second = s.handover_dialog("2", "0").unwrap();
+    s.attach(Some(first), 3).unwrap();
+    s.attach(Some(second), 4).unwrap();
+    assert_eq!(read_params(&s, 4, second).unwrap().len(), 2);
+    // So also when the params pool is what is full.
+    let mut limits = Limits::ELSEWHERE;
+    limits.params_bytes = 100;
+    let s = UiStore::new(limits);
+    let long = "x".repeat(80);
+    s.handover_params(&[p("id", &long)]).unwrap();
+    assert_eq!(s.handover_params(&[p("id", &long)]), Err(ERR_FULL));
+    s.handover_dialog("1", "0").unwrap();
+    s.handover_dialog("2", "0").unwrap();
+}

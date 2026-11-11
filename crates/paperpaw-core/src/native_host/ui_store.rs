@@ -546,12 +546,14 @@ impl UiStore {
     /// it fits those caps. Made **claimed** by the host as
     /// [`Self::handover_dialog`]'s, so the stack's `attach` gives it to the
     /// instance (freed when it closes) and [`Self::release`] frees it where it
-    /// does not open.
+    /// does not open; but under the plugins' limits, never in the room kept
+    /// for the host's dialogs.
     ///
     /// # Errors
     /// `ERR_NO_SPACE` when the params beyond `text` exceed op 16's caps or the
     /// text is longer than a hand-over's; as [`Self::text_write`] for the
-    /// text; `ERR_FULL`, `ERR_NO_MEMORY`. Nothing is kept then.
+    /// text; `ERR_FULL` when the plugins' table or params are full;
+    /// `ERR_NO_MEMORY`. Nothing is kept then.
     pub(crate) fn handover_params(&self, params: &[Param<'_>]) -> Result<u32, i32> {
         // Interface 6 names the long text so; it is also the hand-over's text.
         const TEXT: &str = "text";
@@ -596,8 +598,9 @@ impl UiStore {
                 owner: HOST_OWNER,
                 batch: u64::MAX,
             },
-            // The room of the host's own, as a dialog's.
-            (HOST_ROOM, HOST_BYTES),
+            // Under the plugins' limits: the room kept beyond them is the
+            // host's dialogs' alone, so that they never fail (#1137 R1).
+            (0, 0),
         )?;
         if let Err(error) = self.host_text(id, text.as_bytes()) {
             let mut inner = self.inner()?;
