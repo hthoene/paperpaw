@@ -140,6 +140,7 @@
     }
   ],
   "services": [
+    "core.files",
     "core.library",
     "core.registry",
     "core.ui"

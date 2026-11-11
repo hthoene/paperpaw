@@ -6,8 +6,10 @@
 use alloc::string::String;
 use core::cell::RefCell;
 
+use paperpaw_sdk::Handled;
 use paperpaw_sdk::native::{
     Error, Host, Plugin,
+    callbacks::{DrawFrame, DrawPurpose, Input},
     commands::CommandSender,
     device::{Device, DeviceClass},
     events::{Event, Incoming, kinds},
@@ -16,12 +18,12 @@ use paperpaw_sdk::native::{
     registrations,
     reply::Reply,
     storage::{self, Root},
-    ui::Notify,
+    ui::{Notify, Open, RequestId as AskId, Ui},
     work::{Moment, Work, WorkSpec},
 };
-use paperpaw_ui_kit::{Messages, files::Volume, mem, read_event, text, widget::Settings};
+use paperpaw_ui_kit::{Messages, Screens, files::Volume, mem, read_event, text, widget::Settings};
 
-use crate::declarations::{FETCH_TOKEN, HTTP_TOKEN, WORK_TOKEN};
+use crate::declarations::{FETCH_TOKEN, HTTP_TOKEN, OPEN_TOKEN, SCREEN, SETTING_TOKEN, WORK_TOKEN};
 
 /// The key of the work that fetches the news in the background.
 const WORK_KEY: &str = "news.fetch";
@@ -29,41 +31,46 @@ const WORK_KEY: &str = "news.fetch";
 const USER_AGENT: &str = "PaperPaw/0.1 (e-reader)";
 /// The background fetch comes no sooner than this, in milliseconds.
 const BACKGROUND_AFTER_MS: u32 = 3_600_000;
-use crate::native_book::Failure;
-use crate::native_convert::Converted;
-use crate::native_fetch::{Done, Ended, FEED_REQUEST, Fetcher, Shelf, Started, Wire};
-use crate::native_news::{Feed, MAX_FEED_FILE, MAX_TEXT, MAX_TEXT_SMALL};
+use crate::native_fetch::{Done, Ended, FEED_REQUEST, Fetcher, Started, Wire};
+use crate::native_news::{MAX_FEED_FILE, MAX_TEXT, MAX_TEXT_SMALL};
+use crate::native_screen::{Ask, View};
+use crate::native_shelf::Shelved;
+use crate::native_widgets::{Tap, Widgets};
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/news_declarations.rs"));
-}
-
-/// Where a finished page goes: the library, once `Library::import` is in the
-/// SDK (#668). Until then no page is put anywhere, so no book is made.
-#[derive(Debug, Default)]
-struct Unshelved;
-
-impl Shelf for Unshelved {
-    fn put(&mut self, _: &Feed, _: &str, _: &str, _: &Converted) -> Result<(), Failure> {
-        Err(Failure::Failed)
-    }
 }
 
 /// The interface-7 news plugin.
 #[derive(Debug, Default)]
 pub struct NativeNews {
     fetcher: Fetcher,
-    shelf: Unshelved,
-    handles: Handles,
+    shelf: Shelved,
+    pub(crate) handles: Handles,
+    pub(crate) screens: Screens<View>,
+    pub(crate) widgets: Widgets,
+    /// The question of the screen that is open, and what it is for.
+    pub(crate) asked: Option<(AskId, Ask)>,
 }
 
 /// The handles of the services, opened when first needed.
 #[derive(Debug, Default)]
-struct Handles {
+pub(crate) struct Handles {
+    ui: Option<Ui>,
     net: Option<Net>,
     work: Option<Work>,
     /// The text kept of an article, read from the device's memory class once.
     text_cap: Option<usize>,
+}
+
+impl Handles {
+    /// The UI service, opened when first needed.
+    pub(crate) fn ui(&mut self, host: &Host<'_>) -> Result<&Ui, Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        self.ui.as_ref().ok_or(Error::State)
+    }
 }
 
 /// The text kept of an article: [`MAX_TEXT`] on a medium or large device, as
@@ -170,7 +177,7 @@ impl Wire for HostWire<'_, '_> {
 }
 
 /// The storage calls on the plugin's data folder.
-struct DataVolume<'a, 'h>(&'a Host<'h>);
+pub(crate) struct DataVolume<'a, 'h>(pub(crate) &'a Host<'h>);
 
 impl Volume for DataVolume<'_, '_> {
     fn size(&self, name: &str) -> Result<u64, Error> {
@@ -198,8 +205,22 @@ impl Volume for DataVolume<'_, '_> {
 
 impl Plugin for NativeNews {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
-        for batch in image::SETTINGS.iter().chain(image::EVENTS) {
+        for batch in image::SETTINGS
+            .iter()
+            .chain(image::UI)
+            .chain(image::SCREENS)
+            .chain(image::EVENTS)
+        {
             registrations::submit(host, batch)?;
+        }
+        // The home widget, and the subscription to the settings that change (it
+        // shows them anew): a host that does not admit a part of them yet answers
+        // `Unsupported`, and the plugin goes on without it.
+        for batch in image::WIDGETS.iter().chain(image::WIDGET_EVENTS) {
+            match registrations::submit(host, batch) {
+                Ok(()) | Err(Error::Unsupported) => {}
+                Err(error) => return Err(error),
+            }
         }
         Ok(Self::default())
     }
@@ -209,13 +230,21 @@ impl Plugin for NativeNews {
         host: &Host<'_>,
         token: u32,
         incoming: Incoming<'_>,
-        _reply: &mut Reply<'_>,
+        reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         let Some(event) = read_event!(
             incoming;
             kinds::ActionRun,
             kinds::WorkDue,
-            kinds::HttpDone
+            kinds::HttpDone,
+            kinds::ScreenOpened,
+            kinds::ScreenShown,
+            kinds::ScreenClosed,
+            kinds::Answered,
+            kinds::SettingChanged,
+            kinds::WidgetMade,
+            kinds::WidgetDropped,
+            kinds::StageCall
         ) else {
             return Ok(());
         };
@@ -231,16 +260,83 @@ impl Plugin for NativeNews {
                         _ => Ok(()),
                     })
             }
+            Event::ActionRun { .. } if token == OPEN_TOKEN => {
+                let mut scratch = [0; 128];
+                CommandSender::new(host, &mut scratch).open(Open::screen("news.list")?)
+            }
             Event::WorkDue(_) if token == WORK_TOKEN => self.start(host, 0, true),
-            Event::HttpDone(done) if token == HTTP_TOKEN => self.ended(host, &done),
+            Event::HttpDone(done) if token == HTTP_TOKEN => {
+                let ended = self.ended(host, &done);
+                // The names of the feeds and their books may have changed.
+                self.widgets.refresh(host);
+                ended.and(self.refresh(host))
+            }
+            Event::WidgetMade {
+                widget, instance, ..
+            } => self.widgets.made(widget, instance),
+            Event::WidgetDropped { instance, .. } => {
+                self.widgets.dropped(instance);
+                Ok(())
+            }
+            Event::StageCall {
+                stage: "core.widget",
+                payload,
+                ..
+            } => self.widgets.stage(host, payload, reply),
+            Event::SettingChanged { key, .. } if token == SETTING_TOKEN => {
+                if key.starts_with("news.widget.") {
+                    self.widgets.refresh(host);
+                }
+                Ok(())
+            }
+            Event::ScreenOpened { instance, .. } if token == SCREEN => {
+                self.screen_opened(host, instance)
+            }
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } if token == SCREEN => self.screen_shown(host, instance),
+            Event::ScreenClosed { instance, .. } => {
+                self.screens.close(instance);
+                Ok(())
+            }
+            Event::Answered { answer, .. } => self.answered(host, answer),
             _ => Ok(()),
         }
+    }
+
+    fn draw(&mut self, host: &Host<'_>, token: u32, frame: DrawFrame<'_>) -> Result<(), Error> {
+        if frame.purpose == DrawPurpose::Widget {
+            return self.widgets.draw(host, frame);
+        }
+        if token != SCREEN {
+            return Err(Error::Unsupported);
+        }
+        self.draw_screen(host, frame)
+    }
+
+    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        // A tap on a headline opens its book, a tap on the empty widget the list.
+        if let Some(tap) = self.widgets.tapped(host, &input)? {
+            match tap {
+                Tap::Book(path) => self.open_book(host, &path)?,
+                Tap::List => {
+                    let mut scratch = [0; 128];
+                    CommandSender::new(host, &mut scratch).open(Open::screen("news.list")?)?;
+                }
+            }
+            return Ok(Handled::Yes);
+        }
+        if token != SCREEN {
+            return Ok(Handled::No);
+        }
+        self.input_screen(host, &input)
     }
 }
 
 impl NativeNews {
     /// Starts a fetch and says how it went.
-    fn start(&mut self, host: &Host<'_>, from: usize, all: bool) -> Result<(), Error> {
+    pub(crate) fn start(&mut self, host: &Host<'_>, from: usize, all: bool) -> Result<(), Error> {
         let mut wire = HostWire::new(host, &mut self.handles);
         match self.fetcher.start(&mut wire, from, all)? {
             Started::Fetching => notice(host, "news.fetching"),
@@ -258,9 +354,10 @@ impl NativeNews {
         let cap = text_cap(host, &mut self.handles);
         let mut wire = HostWire::new(host, &mut self.handles);
         let end = Done::new(done.id(), done.token(), done.reason(), done.saved());
+        let mut shelf = self.shelf.on(host);
         let ended = self
             .fetcher
-            .ended(&mut wire, &mut self.shelf, &end, (articles, cap), &date)?;
+            .ended(&mut wire, &mut shelf, &end, (articles, cap), &date)?;
         match ended {
             Ended::Ignored | Ended::Next => Ok(()),
             Ended::Unreadable => notice(host, "news.unreadable"),
@@ -353,7 +450,7 @@ fn date_text(
 }
 
 /// The notice `key`, shown to the reader (a run's notices go to its note).
-fn notice(host: &Host<'_>, key: &str) -> Result<(), Error> {
+pub(crate) fn notice(host: &Host<'_>, key: &str) -> Result<(), Error> {
     let message = Messages::new()?.copy(host, key)?;
     tell(host, &message)
 }

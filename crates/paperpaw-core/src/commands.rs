@@ -949,8 +949,8 @@ impl Kernel {
                 )),
             },
             Command::SetClipboard(text) => {
-                self.shared.clipboard = clipped(&text);
-                self.io.clipboard.copy(self.shared.clipboard.clone());
+                self.shared.clipboard.set(clipped(&text));
+                self.io.clipboard.copy(self.shared.clipboard.get());
             }
             Command::ReadClipboard(reply, params) if self.io.clipboard.system => {
                 self.io.clipboard.read(reply, params);

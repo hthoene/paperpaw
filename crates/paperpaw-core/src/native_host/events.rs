@@ -232,6 +232,7 @@ pub(crate) fn page_turned_record<'a>(turn: &PageTurn<'a>) -> Result<EventPageTur
         pages: turn.pages,
         // The kernel reader inserts no content: every page starts in text (N5).
         insert: None,
+        chapter_left: None,
     })
 }
 

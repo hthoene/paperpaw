@@ -180,7 +180,7 @@ record.
 | 104 | `event.work_refused` | `now_ms: u64`, `token: u32`, `reason: u32`, `key: str 64` |
 | 105 | `event.work_allowed` | `now_ms: u64` |
 
-- [D] **Subscriptions** (draft 30): the three go only to the plugin whose work it is, and only
+- [D] **Subscriptions**: the three go only to the plugin whose work it is, and only
   when it subscribed to them with `registration.event`, as every event (`network.md` 4 for 99).
   `declare` without a subscription to 103 is `ERR_STATE`: its work could never be told it is due.
   104 and 105 are the plugin's choice: one that did not subscribe to 104 finds a refused work gone

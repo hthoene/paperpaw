@@ -293,6 +293,13 @@ impl<'a> CommandStage<'a> {
                 ui.widget_check_changed(owner, instance)?;
                 Ok(0)
             }
+            // Bit 0 `announce`; the other bits are `ERR_INVALID` (ui.md, messages).
+            WireCommand::Notify { text, flags } => {
+                if flags & !NOTIFY_ANNOUNCE != 0 {
+                    return Err(ERR_INVALID);
+                }
+                Ok(text.len())
+            }
             _ => Err(ERR_UNSUPPORTED),
         }
     }
@@ -311,10 +318,26 @@ impl<'a> CommandStage<'a> {
             }
             WireCommand::CloseScreen => Ok(Command::Close(self.own_top()?)),
             command if super::nav::is_nav(&command) => self.owned_nav(command),
+            WireCommand::Notify { text, flags } => {
+                let mut owned = alloc::string::String::new();
+                owned
+                    .try_reserve_exact(text.len())
+                    .map_err(|_| ERR_NO_MEMORY)?;
+                owned.push_str(text);
+                Ok(if flags & NOTIFY_ANNOUNCE != 0 {
+                    Command::Announce(owned)
+                } else {
+                    Command::Notify(owned)
+                })
+            }
             _ => Err(ERR_UNSUPPORTED),
         }
     }
 }
+
+/// `command.notify` flags bit 0: also from background work and when no screen
+/// of the plugin shows.
+pub(super) const NOTIFY_ANNOUNCE: u32 = 1;
 
 pub(super) fn copy_id(text: &str) -> Result<Id, i32> {
     Id::try_parse(text).map_err(|error| match error {
@@ -413,6 +436,18 @@ impl crate::Kernel {
             })
         {
             self.warn_runtime("native close dropped: its screen no longer exists");
+            return;
+        }
+        // A notify without the announce bit is for a plugin that shows a
+        // screen: otherwise it is dropped (`OK` at submit, logged here).
+        if matches!(command, Command::Notify(_))
+            && !self
+                .shared
+                .stack
+                .iter()
+                .any(|entry| entry.screen.namespace() == owner.as_str())
+        {
+            self.warn_runtime("native notify dropped: the plugin shows no screen");
             return;
         }
         // A key map layer is laid for the owner's own screen on top, the one

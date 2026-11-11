@@ -22,6 +22,12 @@ pub(crate) mod event_tags;
 pub(crate) mod owner_directory;
 
 pub(crate) mod device_log;
+#[allow(
+    dead_code,
+    reason = "the dual-boot request of the firmware queue uses it (Core todo 397)"
+)]
+pub(crate) mod dual_boot_ini;
+pub(crate) mod dual_boot_job;
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
 pub(crate) mod registry_generation;
@@ -119,12 +125,18 @@ pub(crate) mod secrets_service;
 #[path = "native_host/host_slot.rs"]
 pub mod host_slot;
 
+#[path = "native_host/frame_owner.rs"]
+pub(crate) mod frame_owner;
+
 #[path = "native_host/screen_ready.rs"]
 mod screen_ready;
 
 #[path = "native_host/ui_service.rs"]
 pub(crate) mod ui_service;
 pub use ui_service::check_ask;
+
+#[path = "native_host/ui_clipboard.rs"]
+pub(crate) mod ui_clipboard;
 
 #[path = "native_host/ui_hints.rs"]
 pub(crate) mod ui_hints;
@@ -196,6 +208,8 @@ pub use shell_wiring::{HostWiring, HyphenTables, WiredHosts};
 
 #[path = "native_host/fonts.rs"]
 mod fonts;
+#[path = "native_host/fonts_data.rs"]
+mod fonts_data;
 
 mod admitted_features;
 #[path = "native_host/secret_bytes.rs"]
@@ -214,6 +228,7 @@ pub(crate) mod dialog_pump;
 pub(crate) mod dialogs;
 pub(crate) mod doc_cache;
 pub(crate) mod doc_host;
+pub(crate) mod doc_reading;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
 pub(crate) mod event_call;
@@ -246,6 +261,11 @@ pub(crate) mod image_pump;
     reason = "wired into the shell table; the DOC, LIB and prepare producers fill it"
 )]
 pub(crate) mod image_service;
+#[allow(
+    dead_code,
+    reason = "wired by HostWiring::library; the write half is todo 307"
+)]
+pub(crate) mod lib_host;
 pub(crate) mod lib_moves_carry;
 pub(crate) mod lib_moves_host;
 pub(crate) mod lib_moves_journal;
@@ -270,7 +290,10 @@ pub(crate) mod net_service;
 mod network_demand;
 pub(crate) mod owner_paths;
 pub(crate) mod paths_in_use;
+mod reading_events;
 pub(crate) mod save_files;
+pub(crate) mod screen_apply;
+pub(crate) mod screen_stage;
 pub(crate) mod service_events;
 mod service_pump;
 mod service_slots;

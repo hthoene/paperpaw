@@ -1,0 +1,3 @@
+### Added
+
+- **The desktop shell and the emulator offer `core.document`, `core.library` and `core.files` to the interface-7 plugins they run** (#228, `--features native-linked`, Linux x86-64, off by default), with the signed features `uses.storage` and `uses.library`, over the card itself (a folder, or the files kept in memory). The library serves the catalog reads (its writes answer "not supported" until the production write half exists); a book the library's move job carries is in use for `core.files` and for `provide`. A library wired after `core.files`, even by an earlier wiring, shares that job. On simulated time no book counts as new.

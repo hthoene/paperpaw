@@ -38,6 +38,7 @@ pub(crate) const KIND_TABLE: &[(&str, u8)] = &[
     ("book_data.spec", 30),
     ("format.spec", 31),
     ("reader.spec", 32),
+    ("lookup.spec", 33),
 ];
 pub(crate) const STAGE_KIND: u8 = KIND_TABLE[7].1;
 /// Category of `registration.stage`: keyed by the stage's full id and the
@@ -131,6 +132,8 @@ pub(crate) fn key(record: Record<'_>) -> Option<(u8, &str)> {
         // plugin (`document.md` section 1).
         Record::FormatSpec(r) => (KIND_TABLE[31].1, r.name),
         Record::ReaderSpec(r) => (KIND_TABLE[32].1, r.name),
+        // A lookup provider: its name once per plugin (`document.md` section 7).
+        Record::LookupSpec(r) => (KIND_TABLE[33].1, r.name),
         _ => return None,
     })
 }
