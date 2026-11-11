@@ -8,7 +8,8 @@
 //! own network, installing plugins and moving files) is named in `PORTING-7.md`.
 use crate::{
     declarations::{
-        INSTALL_DONE, OPEN_TOKEN, PHONE, SCREEN, SERVED_REQUEST, SERVER_EVENT, WIFI_DONE, WORK,
+        CABLE, INSTALL_DONE, OPEN_TOKEN, PHONE, SCREEN, SERVED_REQUEST, SERVER_EVENT, WIFI_DONE,
+        WORK,
     },
     native_draw::{Join, draw_address},
     native_files::HostCard,
@@ -31,6 +32,7 @@ use paperpaw_sdk::{
         events::{Event, Incoming, InstallDone, kinds},
         files::Files,
         formatting::Arg,
+        library::Library,
         net::{
             FileRoot, MAX_SERVED_BODY, Net, REQUEST_INPUT, Reason, Response, ServedRequest, Server,
             ServerState,
@@ -61,6 +63,7 @@ const SERVER: u32 = 1;
 const PHONE_SERVER: u32 = 2;
 /// The port asked for; the host takes the next free one if it is in use.
 const PORT: u16 = 8080;
+mod cable;
 mod own;
 mod phone;
 
@@ -109,12 +112,15 @@ pub struct NativeTransfer {
     device: Option<Device>,
     secrets: Option<Secrets>,
     registry: Option<Registry>,
+    library: Option<Library>,
     ui: Option<Ui>,
     work: Option<Work>,
     /// Whether the plugin opened the reader's own network and left it open.
     own_open: bool,
     /// The plugins sent from the computer: what is staged and how each stands.
     installs: Installs,
+    /// The cable's screen, while it is open (`cable.rs`).
+    cable: Option<cable::CableScreen>,
 }
 
 /// The handle in `slot`, opened on first use.
@@ -129,6 +135,7 @@ impl Plugin for NativeTransfer {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
         for batch in image::SCREENS
             .iter()
+            .chain(image::CABLE)
             .chain(image::NAVIGATION)
             .chain(image::EVENTS)
         {
@@ -149,6 +156,7 @@ impl Plugin for NativeTransfer {
             kinds::ActionRun,
             kinds::Server,
             kinds::ServedRequest,
+            kinds::Answered,
             kinds::InstallDone,
             kinds::WifiDone,
             kinds::WorkDue,
@@ -158,6 +166,10 @@ impl Plugin for NativeTransfer {
         ) else {
             return Ok(());
         };
+        // The cable's screen, its server and its questions.
+        if let Some(done) = self.cable_event(host, token, &event) {
+            return done;
+        }
         match event {
             Event::ActionRun {
                 action: "transfer.open",
@@ -228,6 +240,9 @@ impl Plugin for NativeTransfer {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        if token == CABLE {
+            return self.draw_cable(host, &mut frame);
+        }
         let page = self.screens.top(token).ok_or(Error::State)?;
         let mut messages = Messages::new()?;
         let (title, hint) = if page.phone.is_some() {
@@ -295,6 +310,9 @@ impl Plugin for NativeTransfer {
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        if token == CABLE {
+            return self.input_cable(host, &input);
+        }
         let Some(page) = self.screens.top(token) else {
             return Ok(Handled::No);
         };
@@ -636,6 +654,10 @@ impl NativeTransfer {
     /// The host ended an install this plugin asked for: the state the page
     /// reads is set, and the device says what came of it.
     fn install_done(&mut self, host: &Host<'_>, done: &InstallDone<'_>) -> Result<(), Error> {
+        // The cable's own install: its request waits for this end.
+        if self.cable_install_done(host, done)? {
+            return Ok(());
+        }
         let Some(request) = done.request() else {
             return Ok(());
         };
