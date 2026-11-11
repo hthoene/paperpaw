@@ -551,6 +551,15 @@ pub enum Event<'a> {
         state: super::document::Preparation,
         progress_ppm: u32,
     },
+    /// The host ended a document this plugin opened (`core.document`): every later
+    /// call on it is `Error::Cancelled`. Close it
+    /// ([`Documents::close`](super::document::Documents::close)) to forget its id.
+    #[non_exhaustive]
+    DocumentClosed {
+        now_ms: u64,
+        document: super::document::DocId,
+        reason: super::document::DocClosedReason,
+    },
     /// A final answer or committed live update, readable in this callback.
     #[non_exhaustive]
     Answered { now_ms: u64, answer: Answered },

@@ -101,6 +101,11 @@ pub enum EventKind {
     /// A lookup provider's pending answer is kept (`event.lookup_ready`). Needed
     /// for the host to remember an ask that comes back `pending`.
     LookupReady,
+    /// The host ended a document this plugin opened (`event.document_closed`,
+    /// `document.md` 2.1): the format stopped, the card went, the book went, or
+    /// its place went to a book to show. Without it the plugin learns only from
+    /// `Cancelled` on its next call.
+    DocumentClosed,
     /// A widget instance of this plugin changed (`event.widget_changed`, ui.md 5.2): a
     /// widget a screen shows says its content changed, so the plugin refreshes its view.
     WidgetChanged,
@@ -160,6 +165,7 @@ impl EventKind {
             Self::WorkRefused => records_wire::EVENT_WORK_REFUSED_TAG,
             Self::WorkAllowed => records_wire::EVENT_WORK_ALLOWED_TAG,
             Self::LookupReady => records_wire::EVENT_LOOKUP_READY_TAG,
+            Self::DocumentClosed => records_wire::EVENT_DOCUMENT_CLOSED_TAG,
             Self::WidgetChanged => records_wire::EVENT_WIDGET_CHANGED_TAG,
             Self::Spoken => records_wire::EVENT_SPOKEN_TAG,
             Self::DocumentChanged => records_wire::EVENT_DOCUMENT_CHANGED_TAG,

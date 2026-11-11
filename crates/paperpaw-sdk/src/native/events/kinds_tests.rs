@@ -275,6 +275,11 @@ fn fixtures() -> Vec<Vec<u8>> {
                 now_ms: 42,
                 provider: "wikipedia.lookup",
             }),
+            Record::EventDocumentClosed(EventDocumentClosed {
+                now_ms: 42,
+                document: 3,
+                reason: 4,
+            }),
             Record::EventTextTyped(EventTextTyped {
                 now_ms: 42,
                 text: "héllo",
