@@ -61,6 +61,14 @@ pub fn prepare(
     // runs right to left.
     if touch {
         page.back = Some(s.flip(area, Rect::new(0, 0, left, s.header)));
+        name_arrow(
+            page,
+            (host, m),
+            (s, area),
+            "core.hint.core.back",
+            Rect::new(0, 0, left, s.header),
+            false,
+        )?;
         arrow(
             &mut page.paint,
             (s, area),
@@ -204,6 +212,12 @@ fn pager(
                 s.flip(area, label_rect),
                 s.flip(area, next),
             ));
+            for (key, rect, faint) in [
+                ("core.pager.previous", prev, index == 0),
+                ("core.pager.next", next, index.saturating_add(1) == count),
+            ] {
+                name_arrow(page, (host, m), (s, area), key, rect, faint)?;
+            }
             arrow(
                 &mut page.paint,
                 (s, area),
@@ -227,6 +241,31 @@ fn pager(
         }
     }
     Ok(right)
+}
+/// Tells the part of an arrow's tap region (it has no text to name it) where
+/// somebody asks: a button named by the catalog message `key`, faint where
+/// `faint`.
+fn name_arrow(
+    page: &mut Page,
+    (host, m): (&Host<'_>, &mut Messages),
+    (s, area): (&Style, Rect),
+    key: &str,
+    rect: Rect,
+    faint: bool,
+) -> Result<(), Error> {
+    if !s.describing {
+        return Ok(());
+    }
+    let name = m.copy(host, key)?;
+    crate::paint::describe_labelled(
+        &mut page.paint,
+        true,
+        PartRole::Button,
+        s.flip(area, rect),
+        false,
+        faint,
+        &name,
+    )
 }
 /// An arrow pointing `left` (as laid out left to right) at `x`, mirrored in
 /// `area` where the interface runs right to left.
