@@ -163,25 +163,18 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
                 .with_ids($plugin::NATIVE_IDS)
         };
     }
-    // With the ids the plugin's declarations name kept in the program too.
-    macro_rules! tables_ids {
-        ($plugin:ident) => {
-            FixedTables::new($plugin::NATIVE_SETTINGS, $plugin::NATIVE_GROUPS)
-                .with_ids($plugin::NATIVE_IDS)
-        };
-    }
     match id {
-        "about" => tables_ids!(paperpaw_plugin_about),
-        "files" => tables_ids!(paperpaw_plugin_files),
-        "plugin-manager" => tables_ids!(paperpaw_plugin_plugin_manager),
-        "setup" => tables_ids!(paperpaw_plugin_setup),
-        "transfer" => tables_ids!(paperpaw_plugin_transfer),
-        "update" => tables_ids!(paperpaw_plugin_update),
-        "wifi" => tables_ids!(paperpaw_plugin_wifi),
+        "about" => tables!(paperpaw_plugin_about),
+        "files" => tables!(paperpaw_plugin_files),
+        "plugin-manager" => tables!(paperpaw_plugin_plugin_manager),
+        "setup" => tables!(paperpaw_plugin_setup),
+        "transfer" => tables!(paperpaw_plugin_transfer),
+        "update" => tables!(paperpaw_plugin_update),
+        "wifi" => tables!(paperpaw_plugin_wifi),
         #[cfg(feature = "native-linked-store")]
-        "mail" => tables_ids!(paperpaw_plugin_mail),
+        "mail" => tables!(paperpaw_plugin_mail),
         #[cfg(feature = "native-linked-store")]
-        "notes-vault" => tables_ids!(paperpaw_plugin_notes_vault),
+        "notes-vault" => tables!(paperpaw_plugin_notes_vault),
         "bluetooth" => tables!(paperpaw_plugin_bluetooth),
         "file-manager" => tables!(paperpaw_plugin_file_manager),
         "help" => tables!(paperpaw_plugin_help),
