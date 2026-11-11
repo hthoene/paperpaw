@@ -175,11 +175,13 @@ const HEAP_SIZE: usize =
 /// The X4's band at the stack's end and its reserve (4 KB and the band's 2 KB,
 /// `paperpaw_x4::stack_band`) take the top 7.7 KB of a stack that had only
 /// 37.4 KB left once the interface-7 plugins were built in: the start's path
-/// (some 33 KB) tripped the band in the first test image (#2556). The stack
-/// grows by as much as the heap gives (`build.rs` checks its size), as the
-/// ESP32-S3's does (`S3_BAND_KB`).
+/// (some 33 KB) and then the first frame's card read (37.9 KB, a plugin's call
+/// into the files host and the FAT) tripped the band in the first two test
+/// images (#2556, on the device). The stack grows by as much as the heap gives
+/// (`build.rs` checks its size), as the ESP32-S3's does (`S3_BAND_KB`, 16 KB):
+/// 53.4 KB, 45.7 KB above the band.
 const X4_BAND_KB: usize = if cfg!(all(target_arch = "riscv32", feature = "ppn5")) {
-    8
+    16
 } else {
     0
 };

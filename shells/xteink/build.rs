@@ -55,12 +55,12 @@ fn main() {
 }
 
 /// The least main stack of the X4 where interface-7 plugins are built in
-/// (`ppn5`): the deepest path of the main loop (some 35.8 KB: `main`, the
-/// firmware's run and a plugin's install with its signature check) and the
-/// band with its reserve at the stack's end (7.7 KB), 43.5 KB. The first test
-/// image had 37.4 KB and tripped the band at the start (#2556); statics that
-/// grow shrink the stack unseen, so the link fails below this instead.
-const STACK_FLOOR_X4_BAND: u32 = 43 * 1024 + 512;
+/// (`ppn5`): as the ESP32-S3's (`STACK_FLOOR_BAND`): the deepest path measured
+/// (a plugin's call into the files host and the FAT reached 37.9 KB on the
+/// device, over the band of the first test images, #2556) and the band with its
+/// reserve at the stack's end (7.7 KB). Statics that grow shrink the stack
+/// unseen, so the link fails below this instead.
+const STACK_FLOOR_X4_BAND: u32 = STACK_FLOOR_BAND;
 
 /// Fails the link where the X4's main stack is below [`STACK_FLOOR_X4_BAND`]:
 /// a linker script of its own, read beside esp-hal's.
