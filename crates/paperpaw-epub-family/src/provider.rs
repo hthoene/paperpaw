@@ -796,7 +796,7 @@ fn generation(section: u32, start: u32, conversion: u64) -> u32 {
 }
 
 /// The record list of a block (section 4): header, text parts, runs, maps,
-/// image, columns, cells and rubies.
+/// image, columns, cells, rubies and inline languages.
 fn records<'a>(
     block: &'a Block,
     cache: &'a str,
@@ -831,7 +831,8 @@ fn records<'a>(
             + block.runs.len()
             + block.map.checkpoints().len()
             + cells
-            + block.annotations.len(),
+            + block.annotations.len()
+            + block.inline_langs.as_ref().map_or(0, |l| l.len()),
     )
     .map_err(|_| Error::NoMemory)?;
     // `dir` and `writing_mode` use the draft-29 numbers.
@@ -868,14 +869,6 @@ fn records<'a>(
         u32::from(block.drop_cap),
         u32::try_from(block.text.len()).map_err(|_| Error::Invalid)?,
     )));
-    // The languages the runs name by their `lang_index` (from 1).
-    if let Some(langs) = &block.inline_langs {
-        for (lang, buf) in langs.iter().zip(others.iter_mut()) {
-            list.push(Record::FmtInlineLang(stage::FmtInlineLang::new(lang_tag(
-                *lang, buf,
-            ))));
-        }
-    }
     let mut rest = block.text.as_str();
     while !rest.is_empty() {
         let part = prefix(rest, PART);
@@ -905,6 +898,15 @@ fn records<'a>(
     }
     table_records(block, weights, list);
     ruby_records(block, list);
+    // The languages the runs name by their `lang_index` (from 1) come last
+    // (section 4: after the rubies; the host refuses any other order).
+    if let Some(langs) = &block.inline_langs {
+        for (lang, buf) in langs.iter().zip(others.iter_mut()) {
+            list.push(Record::FmtInlineLang(stage::FmtInlineLang::new(lang_tag(
+                *lang, buf,
+            ))));
+        }
+    }
     Ok(())
 }
 

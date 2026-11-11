@@ -242,6 +242,41 @@ fn inline_languages_and_ruby_kinds_are_sent() {
     );
 }
 
+/// The order the host checks (document.md section 4): header, text, runs,
+/// maps, picture, columns, cells, rubies, inline languages. A block with the
+/// languages before its text is refused, and with it the book.
+#[test]
+fn a_blocks_records_come_in_the_order_the_host_checks() {
+    fn rank(r: &stage::Record<'_>) -> u8 {
+        match r {
+            stage::Record::FmtBlock(_) => 0,
+            stage::Record::FmtTextPart(_) => 1,
+            stage::Record::FmtRun(_) => 2,
+            stage::Record::FmtMap(_) => 3,
+            stage::Record::FmtImage(_) => 4,
+            stage::Record::FmtColumns(_) => 5,
+            stage::Record::FmtCell(_) => 6,
+            stage::Record::FmtRuby(_) => 7,
+            stage::Record::FmtInlineLang(_) => 8,
+            _ => 9,
+        }
+    }
+    let (mut p, io) = opened();
+    for offset in [0, 10, 20, 40] {
+        let Ok(reply) = run(&mut p, &io, &call(8, |c| c.offset = offset)) else {
+            continue;
+        };
+        let ranks: Vec<u8> = rows(&reply)
+            .iter()
+            .map(rank)
+            .filter(|r| *r != 9)
+            .collect();
+        assert!(ranks.windows(2).all(|w| w[0] <= w[1]), "offset {offset}: {ranks:?}");
+    }
+    let reply = block_at(&mut p, &io, 0);
+    assert!(rows(&reply).iter().any(|r| matches!(r, stage::Record::FmtInlineLang(_))));
+}
+
 fn block_at(p: &mut FormatProvider, io: &dyn Storage, offset: u32) -> Vec<u8> {
     run(p, io, &call(8, |c| c.offset = offset)).unwrap()
 }
