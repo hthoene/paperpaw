@@ -7,8 +7,8 @@ its converter (`convert.rs`), the interface-6 tests (`tests/fetch.rs`, `fetching
 and the tests of `lib.rs`), its place in `paperpaw-app` (`install_with`, `STORE_PLUGINS`, `NETWORK_SETTINGS`) and its
 store-file builder in `tools/plugin-files` (`plugins.txt` keeps a comment line). Goldens changed by this (the Tools list lost its *News* row): `crates/paperpaw-app/tests/snapshots/tools.txt` and the emulator images `boox-all-tools.png`, `x4-tools.png`, `x4-drawer-de.png`; no others. **HELD until native activation
 (#243):** the interface-6 app would lose News before; this PR must not merge before. `tools/plugin-files7` builds and
-packs the native file for the X4 (`news-1.0.10-x4.ppn`, 196,112 bytes before this change: 157,540 code, 33,408 data;
-the removal changes no native code, so the size is the same; the packer accepts it, no frame over 2,048 B). The page's
+packs the native file for the X4 (`news-1.0.10-x4.ppn`: 198,228 bytes on train/t13 before this change, 197,692 after; the
+packer accepts it, no frame over 2,048 B; `news` is in `complete.txt`). The page's
 read buffer is on the heap (a 2 KiB array made the frame 2,368 bytes, over the packer's limit of 2,048).
 
 ## What replaced the interface-6 tests
