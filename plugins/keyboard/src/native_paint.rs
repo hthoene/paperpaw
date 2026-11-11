@@ -16,7 +16,7 @@ use paperpaw_sdk::{
 use paperpaw_ui_kit::{
     Paint, Style,
     mem::push as grow,
-    paint::{describe, push},
+    paint::{describe, describe_labelled, push},
     text::{cap_baseline, copy, fit, wrap_with},
 };
 
@@ -26,6 +26,12 @@ pub struct Words {
     pub letters_key: String,
     pub symbols_key: String,
     pub done: String,
+    /// What the keys drawn as arrows are called: only kept where somebody
+    /// asks what is shown.
+    pub shift: String,
+    pub delete: String,
+    pub enter: String,
+    pub space: String,
     pub phone: String,
     pub paste: String,
     pub hold_back: String,
@@ -368,7 +374,22 @@ fn key(
     } else {
         (style.ink, style.paper)
     };
-    describe(out, style.describing, PartRole::Button, r, focused, false)?;
+    let name: &str = match key {
+        Key::Shift => &words.shift,
+        Key::Delete => &words.delete,
+        Key::Enter => &words.enter,
+        Key::Space => &words.space,
+        _ => "",
+    };
+    describe_labelled(
+        out,
+        style.describing,
+        PartRole::Button,
+        r,
+        focused,
+        false,
+        name,
+    )?;
     let radius = radius(board, style, shape, r.height);
     let thickness = u32::from(style.line).max(1) * if focused && board.look.touch { 3 } else { 1 };
     if filled {

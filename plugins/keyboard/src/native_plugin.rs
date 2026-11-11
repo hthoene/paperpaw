@@ -180,7 +180,7 @@ impl Plugin for NativeKeyboard {
                 // Nothing about the parts is queued where nobody asks.
                 d.style.describing = paint::asking(&mut frame);
                 let font = Font::acquire_role(host, FontRole::Ui)?;
-                let words = words(host, &d.board)?;
+                let words = words(host, &d.board, d.style.describing)?;
                 let mut ops = Vec::new();
                 native_paint::paint(&d.board, &d.style, &d.shape, &font, &words, &mut ops)?;
                 paint::replay(&mut frame, &font, &ops)
@@ -818,7 +818,7 @@ impl NativeKeyboard {
 }
 
 /// The words the keyboard shows.
-fn words(host: &Host<'_>, board: &Board) -> Result<Words, Error> {
+fn words(host: &Host<'_>, board: &Board, describing: bool) -> Result<Words, Error> {
     let mut messages = Messages::new()?;
     let hold_for = match board.held_letters() {
         Some(letters) => Some(messages.format(
@@ -831,7 +831,21 @@ fn words(host: &Host<'_>, board: &Board) -> Result<Words, Error> {
         )?),
         None => None,
     };
+    // The names of the arrow keys: copied only where somebody asks.
+    let mut name = |key: &str| {
+        if describing {
+            messages.copy(host, key)
+        } else {
+            Ok(String::new())
+        }
+    };
+    let (shift, delete) = (name("keyboard.shift")?, name("keyboard.delete")?);
+    let (enter, space) = (name("keyboard.enter")?, name("keyboard.space")?);
     Ok(Words {
+        shift,
+        delete,
+        enter,
+        space,
         letters_key: messages.copy(host, "keyboard.letters-key")?,
         symbols_key: messages.copy(host, "keyboard.symbols-key")?,
         done: messages.copy(host, "keyboard.done")?,

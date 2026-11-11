@@ -327,7 +327,9 @@ fn each_chip_tells_it_is_a_button_before_its_frame_where_somebody_asks() {
     let told: Vec<_> = paint
         .iter()
         .filter_map(|op| match op {
-            Paint::Describe { role, flags, rect } => Some((*role, flags.bits(), *rect)),
+            Paint::Describe {
+                role, flags, rect, ..
+            } => Some((*role, flags.bits(), *rect)),
             _ => None,
         })
         .collect();
