@@ -33,6 +33,22 @@ fn emit(
     Ok(framed)
 }
 
+/// The batches of length-framed `bytes` (as [`emit`] returns them).
+fn unframe(bytes: &[u8]) -> Result<Vec<&[u8]>, String> {
+    let mut batches = Vec::new();
+    let mut rest = bytes;
+    while let Some((size, tail)) = rest.split_first_chunk::<4>() {
+        let size = usize::try_from(u32::from_le_bytes(*size)).map_err(|_| "batch size")?;
+        let (batch, tail) = tail.split_at_checked(size).ok_or("truncated batch")?;
+        batches.push(batch);
+        rest = tail;
+    }
+    if !rest.is_empty() {
+        return Err("bytes left after the last batch".into());
+    }
+    Ok(batches)
+}
+
 fn main() -> Result<(), String> {
     println!("cargo:rerun-if-changed=declarations.rs");
     println!("cargo:rerun-if-changed=testdata/declarations.bin.v1");
@@ -53,24 +69,18 @@ fn main() -> Result<(), String> {
     let emits: [(&str, Emit); 1] = [("UI", |sink| {
         declarations::ui(sink).map_err(|e| format!("invalid File manager UI declarations: {e:?}"))
     })];
+    // The UI batches name ids too (actions, screens) for the id table.
+    let mut ui = Vec::new();
     for (name, build) in emits {
-        emit(&mut source, name, build)?;
+        ui.extend(emit(&mut source, name, build)?);
     }
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
     // The settings as a table the kernel keeps in the program (a linked
     // build only), made of the very records declared above (the golden's
     // length-framed batches).
-    let mut batches: Vec<&[u8]> = Vec::new();
-    let mut rest = settings.as_slice();
-    while let Some((size, tail)) = rest.split_first_chunk::<4>() {
-        let size = usize::try_from(u32::from_le_bytes(*size)).map_err(|_| "batch size")?;
-        let (batch, tail) = tail.split_at_checked(size).ok_or("truncated batch")?;
-        batches.push(batch);
-        rest = tail;
-    }
-    if !rest.is_empty() {
-        return Err("bytes left after the last batch of the golden".into());
-    }
+    let batches = unframe(&settings)?;
+    let mut named = batches.clone();
+    named.extend(unframe(&ui)?);
     let table =
         paperpaw_sdk::native::declare::fixed_settings_source("file-manager", "SETTINGS", &batches)?
             + &paperpaw_sdk::native::declare::fixed_groups_source(
@@ -78,7 +88,7 @@ fn main() -> Result<(), String> {
                 "GROUPS",
                 &batches,
             )?
-            + &paperpaw_sdk::native::declare::fixed_ids_source("file-manager", "IDS", &batches)?;
+            + &paperpaw_sdk::native::declare::fixed_ids_source("file-manager", "IDS", &named)?;
     std::fs::write(out.join("file_manager_settings.rs"), table)
         .map_err(|error| format!("write settings table: {error}"))?;
     std::fs::write(out.join("file_manager_declarations.rs"), source)
