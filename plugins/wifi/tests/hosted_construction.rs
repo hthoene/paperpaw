@@ -11,7 +11,6 @@
 mod hosted;
 
 #[test]
-#[ignore = "needs native activation (the host refuses the subscriptions to events 92, 94 and 95: Factory(-1))"]
 fn make_runs_in_a_real_registered_scope() {
     hosted::try_construct(
         paperpaw_plugin_wifi::NATIVE_ENTRY.entry(),

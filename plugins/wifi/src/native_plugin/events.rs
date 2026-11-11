@@ -10,6 +10,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use super::DEVICE_INPUT;
 use paperpaw_sdk::Storage;
 use paperpaw_sdk::native::{
     Error, Host,
@@ -244,7 +245,7 @@ impl NativeWifi {
             return Ok(false);
         }
         let device = self.device.as_ref().ok_or(Error::State)?;
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let (mut input, mut out) = (buffer(DEVICE_INPUT)?, buffer(SERVICE_BUFFER)?);
         match device.power(host, 0, &mut input, &mut out) {
             Ok(power) => Ok(power.online()),
             Err(Error::NotFound | Error::Unsupported) => Ok(false),

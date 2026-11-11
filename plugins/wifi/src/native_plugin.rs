@@ -51,6 +51,9 @@ mod image {
     include!(concat!(env!("OUT_DIR"), "/wifi_declarations.rs"));
 }
 
+/// The input of a `core.device` call: one record of at most 256 B
+/// (`max_input`), where its reply buffer must hold 4,096 B (`max_reply`).
+const DEVICE_INPUT: usize = 256;
 const ON_DEMAND: &str = "wifi.on-demand";
 const IDLE_OFF: &str = "wifi.idle-off";
 const WHILE_CHARGING: &str = "wifi.while-charging";
@@ -279,7 +282,7 @@ impl NativeWifi {
         f: impl FnOnce(&WifiInfo<'_>) -> Result<T, Error>,
     ) -> Result<Option<T>, Error> {
         let device = self.device.as_ref().ok_or(Error::State)?;
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let (mut input, mut out) = (buffer(DEVICE_INPUT)?, buffer(SERVICE_BUFFER)?);
         match device.wifi(host, &mut input, &mut out) {
             Ok(info) => f(&info).map(Some),
             Err(Error::NotFound | Error::Unsupported) => Ok(None),
@@ -362,7 +365,7 @@ impl NativeWifi {
     /// is read again from the start.
     fn walk_networks(&self, host: &Host<'_>, found: &mut impl Found) -> Result<(), Error> {
         let device = self.device.as_ref().ok_or(Error::State)?;
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let (mut input, mut out) = (buffer(DEVICE_INPUT)?, buffer(SERVICE_BUFFER)?);
         'again: for _ in 0..2 {
             found.restart();
             let mut cursor = DeviceCursor::start();

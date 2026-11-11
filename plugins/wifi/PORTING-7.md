@@ -133,18 +133,25 @@ becomes "complete, native only" and the plugin joins `tools/plugin-files7/comple
   still not run on a host. Kernel's audit (#2269) reads the remaining markers H3, H4, H1 and `NET-serve-event` as
   stale for the host (compose, staged Wi-Fi commands, the status value and `serve` from the radio's event are
   there); the cases stay ignored until a run on the host shows each one, not on a reading.
-- **Host admission of event subscriptions (found with `tests/hosted_construction.rs`, ignored until the host admits
-  them):** the host refused tags 92 (`wifi_scanned`), 94 (`network_wanted`) and 95 (`network_idle`) at `make`
+- **Host admission of event subscriptions (found with `tests/hosted_construction.rs`, which runs now that
+  Services' #1111 admits them):** the host refused tags 92 (`wifi_scanned`), 94 (`network_wanted`) and 95 (`network_idle`) at `make`
   (`Factory(-1)`; 71, 93, 101, 102 and the others are admitted), so the native Wi-Fi is not registered in the
   emulator under `native-linked` ("not registered: Factory(-1)"). Their admission is Services' (#2282, with
-  the tag 91 one in #1095); the case is switched on again then. Tag 38 (`screen_shown`) is refused by the contract
+  the tag 91 one in #1095); the case is switched on (#1112, measured on the flip with #1123). Tag 38 (`screen_shown`) is refused by the contract
   (`screens-input.md` 2: it goes to the token of the declared screen, never to `registration.event`): the
   subscription is **gone** from the plugin; `event.stack_changed` (81, a hint the host admits) takes its place:
   any screen coming on top is matched again, as in interface 6 (back home or in a book, the radio goes off at
   once). Its cost: one read of the radio per stack change, and the stack (its first row) only while the radio is
   on; nothing is read while it is off.
   **Heap:** the interface-6 Wi-Fi flow (open the page, back, home; X4 profile, headless, `--heap-report`) peaks
-  at 100.0 KiB; the native peak is measured when the plugin registers.
+  at 100.0 KiB (67.7 KiB at idle, so +32 KiB). Native, on the flip with #1123 and #1130 (X4 profile, headless, the
+  same flow, `uses.wifi` offered by a local scratch patch; no radio, so no scan list and no password entry):
+  142.9 KiB peak with the radio online, 148.8 KiB with it off, from a native idle of 128.4 KiB (all plugins
+  native): the flow adds 14.5 and 20.4 KiB, less than Beta 3's +32 KiB; the gap to 100.0 KiB is the native
+  idle baseline (#248). Top Wi-Fi sites at the peak: the radio read (`with_wifi`), the secrets list (`any`).
+  Their input buffers are cut to the size the op takes (256 B; `max_input`), their reply buffers stay at the
+  op's `max_reply` (the host refuses a smaller buffer: `device` ops 4,096 B, secrets `get`/`keep`/`remove`
+  1,280 B, `list` 4,096 B).
 - **No real radio on the desktop** (`uses.wifi` is not offered by `shells/desktop/src/linked.rs`; the X4's
   radio is Firmware's wiring, #250): the plugin runs there only on the scripted host.
 - The phone setup screen drawn with its join and page codes (`Footer::Code` of the ui kit) is the
