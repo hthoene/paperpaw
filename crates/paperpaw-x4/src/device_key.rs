@@ -249,9 +249,71 @@ pub fn startup_upgrade(result: Result<bool, i32>, unsupported: i32) -> StartupUp
     }
 }
 
+/// When the firmware runs the start-up re-save (Senior M1, #254): once at
+/// start, then again only after weak numbers (`ERR_STATE`), and at most once
+/// for each time a radio comes on. Any other outcome ends it for this start,
+/// so a key place that is not ours never costs a try on every main-loop turn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct UpgradeRetry {
+    /// Nothing more to try this start.
+    done: bool,
+    /// The count of radio-ons at the last try.
+    tried: Option<u32>,
+}
+
+impl UpgradeRetry {
+    /// Whether to try now: not done, the numbers are strong, and not tried yet
+    /// while this radio-on lasts (`radio_ons` counts the times a radio came on).
+    #[must_use]
+    pub fn due(&self, strong: bool, radio_ons: u32) -> bool {
+        !self.done && strong && self.tried != Some(radio_ons)
+    }
+
+    /// A try at `radio_ons` came to `outcome`; only `weak` (the status of weak
+    /// numbers, `ERR_STATE`) leaves another try for a later radio-on.
+    pub fn tried(&mut self, radio_ons: u32, outcome: StartupUpgrade, weak: i32) {
+        self.tried = Some(radio_ons);
+        self.done = outcome != StartupUpgrade::Failed(weak);
+    }
+
+    /// Nothing more to try this start.
+    #[must_use]
+    pub const fn done(&self) -> bool {
+        self.done
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_start_up_re_save_retries_once_per_radio_on_after_weak_numbers() {
+        const WEAK: i32 = -6;
+        let mut retry = UpgradeRetry::default();
+        // At start (no radio yet), weak numbers.
+        retry.tried(0, StartupUpgrade::Failed(WEAK), WEAK);
+        assert!(!retry.done());
+        assert!(!retry.due(false, 0), "not while the numbers are weak");
+        assert!(retry.due(true, 1), "the first radio-on");
+        retry.tried(1, StartupUpgrade::Failed(WEAK), WEAK);
+        assert!(!retry.due(true, 1), "once per radio-on, not every turn");
+        assert!(retry.due(true, 2), "the next radio-on");
+        retry.tried(2, StartupUpgrade::Rewritten, WEAK);
+        assert!(retry.done());
+        assert!(!retry.due(true, 3));
+        // Anything else than weak numbers ends it for this start.
+        for outcome in [
+            StartupUpgrade::Nothing,
+            StartupUpgrade::NoKeyPlace,
+            StartupUpgrade::Failed(-8),
+        ] {
+            let mut retry = UpgradeRetry::default();
+            retry.tried(0, outcome, WEAK);
+            assert!(retry.done());
+            assert!(!retry.due(true, 1));
+        }
+    }
 
     #[test]
     fn a_table_without_a_key_place_skips_the_start_up_re_save_quietly() {

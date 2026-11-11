@@ -104,7 +104,13 @@ impl Kernel {
     /// the service pump, after the start: the notice waits behind a guard.
     pub(crate) fn secrets_notice(&mut self) {
         if self.secrets_host().is_some_and(|host| host.take_unopened()) {
-            let text = String::from(self.shared.translator.tr("core.secrets-unopened"));
+            // Fallible, as every notice text: short of memory, no notice.
+            let words = self.shared.translator.tr("core.secrets-unopened");
+            let mut text = String::new();
+            if text.try_reserve_exact(words.len()).is_err() {
+                return;
+            }
+            text.push_str(words);
             self.notify(text);
         }
     }

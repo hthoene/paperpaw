@@ -7,7 +7,7 @@ use super::*;
 use aes_gcm::aead::{AeadInPlace, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce, Tag};
 use core::cell::RefCell;
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_IO, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::ERR_BUSY;
 use std::collections::HashSet;
 use std::vec::Vec;
 
@@ -270,11 +270,12 @@ fn a_stuck_generator_seals_nothing() {
         Ok(()),
         "the first such nonce is new"
     );
-    assert_eq!(seal(&s, b"two"), Err(ERR_STATE), "the same nonce again");
+    // A fault, not weak numbers: no radio mends it, so no retry (M1, #254).
+    assert_eq!(seal(&s, b"two"), Err(ERR_IO), "the same nonce again");
     // All zeros or all ones are never a nonce.
     for value in [0x00, 0xFF] {
         random.stuck.set(Some(value));
-        assert_eq!(seal(&s, b"x"), Err(ERR_STATE));
+        assert_eq!(seal(&s, b"x"), Err(ERR_IO));
     }
     random.stuck.set(None);
     assert!(seal(&s, b"back").is_ok());
@@ -321,7 +322,8 @@ fn a_sector_that_is_not_ours_is_never_touched() {
     let flash = Flash::holding(&page);
     let before = flash.sector.borrow().clone();
     let s = sealer(&flash, &Random::new(10));
-    assert_eq!(seal(&s, b"x"), Err(ERR_STATE));
+    // No place for a key: reinstall once, never "turn Wi-Fi on" (M1, #254).
+    assert_eq!(seal(&s, b"x"), Err(ERR_UNSUPPORTED));
     assert_eq!(open(&s, AAD, &[0u8; NONCE + 4 + TAG]), Err(ERR_NOT_FOUND));
     assert_eq!(flash.replaced.get(), 0);
     assert_eq!(*flash.sector.borrow(), before);
@@ -343,9 +345,9 @@ fn a_flash_that_does_not_read_is_never_erased() {
 fn a_device_without_a_key_place_seals_nothing_and_finds_nothing() {
     let flash = Flash::erased();
     let s = sealer(&flash, &Random::new(12));
-    // No `nvs` partition: the host's "this device keeps no key" (ERR_STATE).
+    // No `nvs` partition: no place for a key, as decision 141's table (M1).
     flash.read_error.set(Some(ERR_NOT_FOUND));
-    assert_eq!(seal(&s, b"x"), Err(ERR_STATE));
+    assert_eq!(seal(&s, b"x"), Err(ERR_UNSUPPORTED));
     assert_eq!(open(&s, AAD, &[0u8; NONCE + 1 + TAG]), Err(ERR_NOT_FOUND));
     // An X4 Classic on CrossPoint's table (decision 141): reinstall once.
     flash.read_error.set(Some(ERR_UNSUPPORTED));
@@ -428,4 +430,41 @@ fn a_test_images_veiled_value_is_absent_never_a_value() {
     assert!(blob.len() >= NONCE + TAG);
     assert_eq!(open(&s, AAD, &blob), Err(ERR_NOT_FOUND));
     assert_eq!(flash.replaced.get(), 1, "the key stayed");
+}
+
+/// Senior M1 (#254): only weak numbers leave the start-up re-save to be tried
+/// again. A sector that is not ours, no key place and a stuck generator end it
+/// for this start, so it does not run on every main-loop turn while a radio is on.
+#[test]
+fn only_weak_numbers_leave_the_start_up_re_save_to_retry() {
+    let mut page = [0xFF_u8; 64];
+    page[..8].copy_from_slice(&[0xFE, 0xFF, 0xFF, 0xFF, 1, 0, 0, 0]);
+    let outcome = |s: &KeySealer<Rc<Flash>, Gcm>| {
+        dk::startup_upgrade(seal(s, b"x").map(|_| true), ERR_UNSUPPORTED)
+    };
+    let retries = |outcome| {
+        let mut retry = dk::UpgradeRetry::default();
+        retry.tried(1, outcome, ERR_STATE);
+        retry.due(true, 2)
+    };
+    // Not ours, and no place: the reinstall hint, given up for this start.
+    let foreign = sealer(&Flash::holding(&page), &Random::new(20));
+    assert_eq!(outcome(&foreign), dk::StartupUpgrade::NoKeyPlace);
+    assert!(!retries(outcome(&foreign)));
+    let none = Flash::erased();
+    none.read_error.set(Some(ERR_NOT_FOUND));
+    let none = sealer(&none, &Random::new(21));
+    assert_eq!(outcome(&none), dk::StartupUpgrade::NoKeyPlace);
+    // A stuck generator: a failure, logged once, not retried.
+    let random = Random::new(22);
+    random.stuck.set(Some(0));
+    let stuck = sealer(&Flash::erased(), &random);
+    assert_eq!(outcome(&stuck), dk::StartupUpgrade::Failed(ERR_IO));
+    assert!(!retries(outcome(&stuck)));
+    // Weak numbers: tried again, at the next time a radio comes on.
+    let random = Random::new(23);
+    random.strong.set(false);
+    let weak = sealer(&Flash::erased(), &random);
+    assert_eq!(outcome(&weak), dk::StartupUpgrade::Failed(ERR_STATE));
+    assert!(retries(outcome(&weak)));
 }

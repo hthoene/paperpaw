@@ -11,7 +11,9 @@
 //! Every buffer is one fallible allocation made up front, wiped when dropped.
 use alloc::vec::Vec;
 use core::fmt;
-use paperpaw_native::host_glue::{ERR_FULL, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE};
+use paperpaw_native::host_glue::{
+    ERR_FULL, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
+};
 use paperpaw_platform::{Storage, StorageError};
 
 /// The file, in the data folder of the card (the private folder on Android).
@@ -406,7 +408,9 @@ pub(super) struct Opener<'a> {
     pub(super) sealer: &'a dyn Sealer,
     pub(super) plain: Buf,
     pub(super) blob: Buf,
-    /// A sealed value did not open here (another device's, a lost key).
+    /// A sealed value did not open here (another device's, a lost key): the
+    /// sealer said `ERR_NOT_FOUND`. A busy or unreadable flash is not that
+    /// (Senior R1, #254).
     pub(super) unopened: bool,
 }
 
@@ -425,6 +429,7 @@ impl<'a> Opener<'a> {
     pub(super) fn open(&mut self, row: &Row<'_>) -> bool {
         self.plain.clear();
         self.blob.clear();
+        let mut absent_here = false;
         let opened = match row.field {
             Field::Veiled(hex) => unhex_into(hex, &mut self.plain).map(|()| {
                 let len = self.plain.len;
@@ -436,7 +441,10 @@ impl<'a> Opener<'a> {
                 let length = self
                     .sealer
                     .open(aad, self.blob.as_bytes(), &mut self.plain.data)
-                    .map_err(|_| ERR_IO)?;
+                    .map_err(|status| {
+                        absent_here = status == ERR_NOT_FOUND;
+                        ERR_IO
+                    })?;
                 if length > VALUE_MAX {
                     return Err(ERR_IO);
                 }
@@ -445,7 +453,7 @@ impl<'a> Opener<'a> {
             }),
         };
         self.blob.clear();
-        if opened.is_err() && matches!(row.field, Field::Sealed(_)) {
+        if opened.is_err() && absent_here {
             self.unopened = true;
         }
         let text = opened.is_ok()

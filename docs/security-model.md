@@ -26,13 +26,19 @@ are reported as [SECURITY.md](../SECURITY.md) says.
   12-byte nonce come from the chip's generator only while a radio is on (only then
   is it random); otherwise a save is refused (`ERR_STATE`, the screens ask to turn
   Wi-Fi on) and nothing is written, and a nonce that repeats the previous one of
-  the start, or is all zeros or ones, is refused too. There is no veiling for a new
+  the start, or is all zeros or ones, is refused too (`ERR_IO`: the generator is
+  stuck, which a radio does not mend). Where the key's sector holds something that
+  is not ours (another firmware's data) or the table gives it no place, nothing is
+  sealed and a save says to reinstall once with the web flasher (`ERR_UNSUPPORTED`);
+  the sector is never written. There is no veiling for a new
   value. Values written by Beta 3 and earlier (interface 6) are **veiled, not
   encrypted**, so that they do not show at a glance: whoever has the card has
   those, until the first start of this version that has a radio on seals them all
-  (at start, or the first time Wi-Fi or Bluetooth comes on). A card in another
+  (at start, or the first time Wi-Fi or Bluetooth comes on; tried again only after
+  weak numbers, at most once each time a radio comes on). A card in another
   device opens none of the values: they count as absent, the user is told once per
-  start that saved passwords from another device cannot be opened, and they are
+  start that saved passwords from another device cannot be opened (not for a flash
+  that is only busy or unreadable then: those values are absent for the moment), and they are
   entered again; the lines stay for the device they belong to. The key is one 4 KiB
   sector (`paperpaw_x4::device_key`):
 

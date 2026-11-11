@@ -10,7 +10,7 @@ use crate::native_host::call_services::validate_reply;
 use alloc::{string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_i18n::Translator;
-use paperpaw_native::host_glue::ERR_NO_MEMORY;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
 use paperpaw_native::metadata::Feature;
 use paperpaw_platform::{DirEntry, Instant, StorageError};
 use paperpaw_sdk::{Env, Settings};
@@ -147,6 +147,8 @@ struct Seal {
     /// The random numbers are weak now: a seal is `ERR_STATE` (the X4 with
     /// its radio off).
     weak: Rc<Cell<bool>>,
+    /// Opens nothing now, with this status (a busy or unreadable flash).
+    open_fault: Cell<Option<i32>>,
 }
 
 impl Seal {
@@ -156,6 +158,7 @@ impl Seal {
             seals: true,
             nonce: Cell::new(1),
             weak: Rc::new(Cell::new(false)),
+            open_fault: Cell::new(None),
         }
     }
     fn tag(&self, aad: &[u8], body: &[u8]) -> [u8; 16] {
@@ -187,10 +190,15 @@ impl Sealer for Seal {
         Ok(total)
     }
     fn open(&self, aad: &[u8], sealed: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-        let body_len = sealed.len().checked_sub(28).ok_or(ERR_IO)?;
+        if let Some(fault) = self.open_fault.get() {
+            return Err(fault);
+        }
+        // As the device's sealer: too short is `ERR_INVALID`, another key's
+        // value `ERR_NOT_FOUND`.
+        let body_len = sealed.len().checked_sub(28).ok_or(ERR_INVALID)?;
         let (body, tag) = sealed.split_at(12 + body_len);
         if self.tag(aad, body) != tag {
-            return Err(ERR_IO);
+            return Err(ERR_NOT_FOUND);
         }
         let out = out.get_mut(..body_len).ok_or(ERR_NO_SPACE)?;
         for (i, b) in body[12..].iter().enumerate() {
@@ -764,8 +772,10 @@ fn a_sealed_line_that_does_not_open_tells_the_host_and_a_veiled_or_good_one_does
         v.host.card.put(file::FILE, &file);
         assert_eq!(v.get("stats", "webdav").unwrap().0, "d");
         assert_eq!(v.host.unopened.get(), 0);
-        // A line sealed on another device (here: bytes no key opens).
-        file.extend_from_slice(b"mail.other\t\t\ts1:00aa\n");
+        // A line sealed on another device (here: bytes no key here opens).
+        file.extend_from_slice(b"mail.other\t\t\ts1:");
+        file.extend_from_slice(&[b'0'; 2 * 30]);
+        file.push(b'\n');
         v.host.card.put(file::FILE, &file);
         assert_eq!(v.get("mail", "other").err(), Some(ERR_NOT_FOUND));
         assert_eq!(v.host.unopened.get(), 1, "told once for the call");
@@ -1397,6 +1407,30 @@ fn a_secret_after_an_over_long_line_is_still_read_and_the_long_line_kept() {
             after.starts_with(long.as_bytes()),
             "the long line is kept first"
         );
+        assert_eq!(v.get("mail", "password").unwrap().0, "pw");
+    });
+}
+
+/// Senior R1 (#254): only the sealer's `ERR_NOT_FOUND` is "another device". A
+/// busy flash (an update holds it) or one that does not read is absent for
+/// the call, and nobody is told the values came from elsewhere.
+#[test]
+fn a_busy_or_unreadable_flash_is_not_another_device() {
+    with_view(|v| {
+        v.keep("mail", "password", "", "pw").unwrap();
+        for fault in [ERR_BUSY, ERR_IO] {
+            v.host.seal.open_fault.set(Some(fault));
+            assert_eq!(v.get("mail", "password").err(), Some(ERR_NOT_FOUND));
+            assert_eq!(v.host.unopened.get(), 0, "not another device");
+        }
+        // A value too short to be sealed is damaged, not another device's.
+        v.host.seal.open_fault.set(None);
+        let mut file = v.host.card.file();
+        file.extend_from_slice(b"mail.short\t\t\ts1:00aa\n");
+        v.host.card.put(file::FILE, &file);
+        assert_eq!(v.get("mail", "short").err(), Some(ERR_NOT_FOUND));
+        assert_eq!(v.host.unopened.get(), 0);
+        // The flash is back: the value opens again.
         assert_eq!(v.get("mail", "password").unwrap().0, "pw");
     });
 }

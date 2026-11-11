@@ -30,7 +30,9 @@ use mbedtls_rs::sys::{
     mbedtls_gcm_setkey,
 };
 use paperpaw_core::native_host::shell_wiring::{Rng, SecretsInputs, SecretsLifecycle, WiredHosts};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{
+    ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED,
+};
 use paperpaw_platform::Storage;
 use paperpaw_x4::device_key::{self as dk, KEY, NONCE, TAG};
 use paperpaw_x4::key_sealer::{Aead, KeySealer, KeyStore};
@@ -273,14 +275,17 @@ impl Kept {
 /// `core.secrets` in the firmware's main loop.
 pub struct Secrets {
     kept: Kept,
-    /// Beta 3's veiled values were sealed this start, or there is nothing to
-    /// seal, or it failed for another reason than weak numbers.
-    done: bool,
+    /// Whether and when Beta 3's veiled values are tried again: only after
+    /// weak numbers, once per radio-on (Senior M1, #254).
+    retry: dk::UpgradeRetry,
 }
 
 impl Secrets {
     pub fn new(kept: Kept) -> Self {
-        Self { kept, done: false }
+        Self {
+            kept,
+            retry: dk::UpgradeRetry::default(),
+        }
     }
 
     /// Before the kernel starts: interface 6's passwords go through the same
@@ -291,42 +296,43 @@ impl Secrets {
             return;
         };
         let Some(secrets) = slot.as_ref() else {
-            self.done = true;
+            self.retry.tried(0, dk::StartupUpgrade::Nothing, ERR_STATE);
             return;
         };
         kernel.wire_secrets(secrets);
-        self.done = upgrade(secrets);
+        let ons = crate::entropy::radio_ons();
+        self.retry.tried(ons, upgrade(secrets), ERR_STATE);
     }
 
-    /// Once per main-loop turn until done (one flag and one atomic read): at
+    /// Once per main-loop turn until done (a flag and two atomic reads): at
     /// start the radio is off and the numbers weak, so Beta 3's veiled values
-    /// are sealed the first time a radio is on (Senior R1, #2465).
+    /// are sealed the first time a radio is on (Senior R1, #2465). After weak
+    /// numbers only, and at most once per radio-on (Senior M1, #254).
     #[inline(never)]
     pub fn poll(&mut self) {
-        if self.done || !crate::entropy::strong() {
+        let ons = crate::entropy::radio_ons();
+        if !self.retry.due(crate::entropy::strong(), ons) {
             return;
         }
         if let Ok(slot) = self.kept.0.try_borrow()
             && let Some(secrets) = slot.as_ref()
         {
-            self.done = upgrade(secrets);
+            self.retry.tried(ons, upgrade(secrets), ERR_STATE);
         }
     }
 }
 
-/// Seals Beta 3's veiled values; whether this start is done with it (not
-/// when the numbers were weak: then again when a radio is on).
-fn upgrade(secrets: &SecretsLifecycle) -> bool {
-    match dk::startup_upgrade(secrets.upgrade(), ERR_UNSUPPORTED) {
-        dk::StartupUpgrade::Rewritten => {
-            log::info!("secrets: veiled values sealed");
-            true
-        }
-        dk::StartupUpgrade::Nothing | dk::StartupUpgrade::NoKeyPlace => true,
-        dk::StartupUpgrade::Failed(paperpaw_native::host_glue::ERR_STATE) => false,
+/// Seals Beta 3's veiled values. Weak numbers (`ERR_STATE`) are tried again at
+/// the next radio-on; the rest ends it for this start (logged once).
+fn upgrade(secrets: &SecretsLifecycle) -> dk::StartupUpgrade {
+    let outcome = dk::startup_upgrade(secrets.upgrade(), ERR_UNSUPPORTED);
+    match outcome {
+        dk::StartupUpgrade::Rewritten => log::info!("secrets: veiled values sealed"),
+        dk::StartupUpgrade::Failed(ERR_STATE) | dk::StartupUpgrade::Nothing => {}
+        dk::StartupUpgrade::NoKeyPlace => log::info!("secrets: no place for the device key"),
         dk::StartupUpgrade::Failed(status) => {
             log::warn!("secrets: veiled values not sealed ({status})");
-            true
         }
     }
+    outcome
 }

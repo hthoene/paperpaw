@@ -9,11 +9,16 @@
 //!   turn Wi-Fi on) and nothing is written. Never a weak fallback.
 //! - Every seal draws a fresh 12-byte nonce. One that repeats the previous
 //!   nonce of this start, or is all zeros or all ones, is refused
-//!   (`ERR_STATE`): the generator has stopped (Senior, #2465).
+//!   (`ERR_IO`): the generator has stopped (Senior, #2465). Not `ERR_STATE`,
+//!   which only weak numbers answer: a radio does not mend it (Senior M1, #254).
 //! - A key that reads is never replaced; a flash that fails to read is never
 //!   erased; a sector that is not ours ([`Sector::Foreign`]) is never erased
 //!   or written. A new key is made at the first seal only, read again just
 //!   before the erase, and counts once it reads back as written.
+//! - No place for a key (no `nvs`, a sector that is not ours, decision 141's
+//!   table) is `ERR_UNSUPPORTED` for a seal, as decision 141 has it: the host's
+//!   "reinstall once" hint, and the start-up re-save gives up for this start
+//!   (Senior M1, #254). For an open it is "absent" (`ERR_NOT_FOUND`).
 //! - The key is read for each seal or open and wiped after: it is not held
 //!   between calls.
 //! - A value that does not open (another device's card, a lost key, changed
@@ -24,7 +29,9 @@ use alloc::rc::Rc;
 use core::cell::Cell;
 
 use paperpaw_core::native_host::shell_wiring::{Rng, Sealer};
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE};
+use paperpaw_native::host_glue::{
+    ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
+};
 
 use crate::device_key::{self as dk, KEY, NONCE, Sector, TAG};
 
@@ -130,7 +137,7 @@ impl<S: KeyStore, A: Aead> KeySealer<S, A> {
         match self.sector().map_err(|e| no_place(make, e))? {
             Sector::Key(key) => return Ok(Key(key)),
             // Not ours: never erased, never written over; nothing is sealed.
-            Sector::Foreign => return Err(if make { ERR_STATE } else { ERR_NOT_FOUND }),
+            Sector::Foreign => return Err(if make { ERR_UNSUPPORTED } else { ERR_NOT_FOUND }),
             // Erased or damaged: nothing sealed under it opens.
             _ if !make => return Err(ERR_NOT_FOUND),
             _ => {}
@@ -144,7 +151,7 @@ impl<S: KeyStore, A: Aead> KeySealer<S, A> {
         // a key that is there.
         match self.sector().map_err(|e| no_place(make, e))? {
             Sector::Key(there) => return Ok(Key(there)),
-            Sector::Foreign => return Err(ERR_STATE),
+            Sector::Foreign => return Err(ERR_UNSUPPORTED),
             _ => {}
         }
         let mut record = dk::record(&key.0);
@@ -154,7 +161,7 @@ impl<S: KeyStore, A: Aead> KeySealer<S, A> {
         // It counts once it reads back as written.
         match self.sector()? {
             Sector::Key(back) if Key(back).0 == key.0 => Ok(key),
-            _ => Err(paperpaw_native::host_glue::ERR_IO),
+            _ => Err(ERR_IO),
         }
     }
 
@@ -168,17 +175,18 @@ impl<S: KeyStore, A: Aead> KeySealer<S, A> {
             || out.iter().all(|&b| b == 0)
             || out.iter().all(|&b| b == 0xFF);
         self.last.set(*out);
-        if stuck { Err(ERR_STATE) } else { Ok(()) }
+        if stuck { Err(ERR_IO) } else { Ok(()) }
     }
 }
 
-/// No place for the key is `ERR_STATE` where a key is to be made (a seal) and
-/// "absent" where one is only read; `ERR_UNSUPPORTED` (decision 141) stays
-/// for a seal, so the host can tell the user to reinstall once.
+/// No place for the key is `ERR_UNSUPPORTED` where a key is to be made (a
+/// seal: the host tells the user to reinstall once, decision 141) and "absent"
+/// where one is only read. Never `ERR_STATE`, which asks for a radio that does
+/// not help here (Senior M1, #254).
 fn no_place(make: bool, error: i32) -> i32 {
     match (make, error) {
-        (true, ERR_NOT_FOUND) => ERR_STATE,
-        (false, paperpaw_native::host_glue::ERR_UNSUPPORTED) => ERR_NOT_FOUND,
+        (true, ERR_NOT_FOUND) => ERR_UNSUPPORTED,
+        (false, ERR_UNSUPPORTED) => ERR_NOT_FOUND,
         _ => error,
     }
 }
