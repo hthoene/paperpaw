@@ -16,9 +16,14 @@ use paperpaw_sdk::native::{
     Error, Host,
     commands::CommandSender,
     events::WifiDone,
+    formatting::copy_message,
+    reply::Reply,
     snapshot,
     storage::DataStorage,
-    ui::UiCursor,
+    ui::{
+        UiCursor,
+        stages::{StatusAnswer, StatusCall},
+    },
     work::{Work, WorkDue, WorkSpec},
 };
 use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
@@ -545,5 +550,47 @@ impl NativeWifi {
             self.policy.on_retry_timer(&seen.facts(), generation)?
         };
         self.act(host, actions)
+    }
+}
+
+/// The status item's own id: the plugin's `wifi.status`.
+const STATUS_ITEM: &str = "wifi.status";
+
+impl NativeWifi {
+    /// The status item: its name while a network is joined, nothing else
+    /// (interface 6 drew the Wi-Fi icon there; a drawn value needs the host's
+    /// status draw, so the name stands for it). A call that is not the host's
+    /// `core.status` is not ours.
+    pub(super) fn status(
+        &mut self,
+        host: &Host<'_>,
+        stage: &str,
+        payload: &[u8],
+        reply: &mut Reply<'_>,
+    ) -> Result<(), Error> {
+        if stage != "core.status" {
+            return Err(Error::Unsupported);
+        }
+        let call = StatusCall::decode(payload)?;
+        self.ensure(host)?;
+        let online = self.read_info(host)?.radio == Radio::Online;
+        let mut label = [0; 64];
+        let text = if online {
+            copy_message(host, "wifi.status.item", &mut label)?
+        } else {
+            ""
+        };
+        let mut answers = [None; 1];
+        for item in call.items() {
+            if item == STATUS_ITEM && answers[0].is_none() {
+                answers[0] = Some(StatusAnswer::text(item, text)?);
+            }
+        }
+        let [Some(answer)] = answers else {
+            return Ok(());
+        };
+        let mut out = [0; 512];
+        let length = call.reply(&[answer], &mut out)?;
+        reply.write(out.get(..length).ok_or(Error::NoSpace)?)
     }
 }
