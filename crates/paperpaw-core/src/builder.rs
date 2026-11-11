@@ -535,6 +535,10 @@ impl KernelBuilder {
     }
 }
 
+/// The most values kept for settings nobody had declared when the file was
+/// read (see `keep_config_value`): more are only warned about.
+const MAX_LATE_CONFIG: usize = 64;
+
 impl BuilderParts {
     /// The kernel, built where it is returned: it is large, and each copy
     /// would take room on the stack while it is built (the X4's is small).
@@ -872,10 +876,14 @@ impl BuilderParts {
             card_trouble: None,
             after_sleep: false,
             secrets_unreadable: false,
+            secrets_opened: false,
+            secrets_wired: None,
             pairing_nonce: None,
             plugin_defaults: Vec::new(),
             late_device_defaults: Vec::new(),
+            late_config: Vec::new(),
             plugin_choices: Vec::new(),
+            native_catalogs_added: false,
             now: Instant::default(),
         }
     }
@@ -885,14 +893,16 @@ impl BuilderParts {
 impl Kernel {
     /// Passwords and keys, as kept on the storage. A file that is there
     /// but cannot be read is said and not written over.
-    fn read_secrets(&mut self) {
-        use paperpaw_sdk::secrets::{FILE, Secrets};
+    pub(crate) fn read_secrets(&mut self) {
+        use paperpaw_sdk::secrets::FILE;
+        let host = self.secrets_host();
         let storage = self.shared.storage.as_ref();
         // Damaged text keeps what can be read: values are written in hex.
         match paperpaw_sdk::files::load_for_update(storage, FILE, MAX_SECRETS) {
             Ok(data) => {
                 let text = String::from_utf8_lossy(data.as_deref().unwrap_or_default());
-                self.shared.secrets = Secrets::decode(&text);
+                self.shared.secrets = Self::decode_secrets(&text, host.as_ref());
+                self.secrets_unreadable = false;
                 if let Some(radio) = &mut self.io.bluetooth {
                     let kept = self.shared.secrets.iter();
                     radio.load(kept.map(|s| (s.id.as_str(), s.value.as_str())));
@@ -1163,6 +1173,63 @@ impl Kernel {
             }
         }
         self.late_device_defaults = left;
+    }
+
+    /// Keeps a configuration value for a setting nobody has declared yet.
+    /// Without room it is only warned about, as before.
+    pub(crate) fn keep_config_value(&mut self, id: &str, value: &str, line: Option<u32>) {
+        let (mut own_id, mut own_value) = (String::new(), String::new());
+        if self.late_config.len() >= MAX_LATE_CONFIG
+            || own_id.try_reserve_exact(id.len()).is_err()
+            || own_value.try_reserve_exact(value.len()).is_err()
+            || self.late_config.try_reserve(1).is_err()
+        {
+            return;
+        }
+        own_id.push_str(id);
+        own_value.push_str(value);
+        self.late_config.push((own_id, own_value, line));
+    }
+
+    /// The configuration values kept for settings a plugin declares since
+    /// (`keep_config_value`), set now that it has: a native plugin declares
+    /// its settings after the kernel is built, when the file was read. The
+    /// warning "unknown setting" given then is taken back; a value that does
+    /// not fit is warned about as it is for any setting. Values are set in
+    /// the order the file had them (the device file, then the shell's), so
+    /// the later wins. Values for ids still undeclared stay kept.
+    pub(crate) fn apply_late_config(&mut self) {
+        if self.late_config.is_empty() {
+            return;
+        }
+        let waiting = mem::take(&mut self.late_config);
+        let mut left = Vec::new();
+        if left.try_reserve_exact(waiting.len()).is_err() {
+            self.late_config = waiting;
+            return;
+        }
+        let mut secrets = Vec::new();
+        for (id, value, line) in waiting {
+            let Some(spec) = self.shared.settings.spec(&id) else {
+                left.push((id, value, line));
+                continue;
+            };
+            let secret = spec.extra().secret;
+            let unknown = format!("`{id}`: {}", paperpaw_sdk::SettingError::Unknown);
+            self.warnings.retain(|warning| {
+                !(warning.line == line
+                    && matches!(warning.source, WarningSource::UserConfig)
+                    && warning.message == unknown)
+            });
+            // A secret goes to the secrets, as one read at the build does.
+            if secret {
+                secrets.push((id, value));
+            } else if let Err(error) = self.shared.settings.set_from_text(&id, &value) {
+                self.warn(WarningSource::UserConfig, line, format!("`{id}`: {error}"));
+            }
+        }
+        self.move_secrets(secrets);
+        self.late_config = left;
     }
 
     /// The language, night mode and colours the settings say.

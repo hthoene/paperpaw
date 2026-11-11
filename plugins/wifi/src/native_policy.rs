@@ -203,9 +203,7 @@ pub struct Policy {
 }
 
 fn steps(step: Step) -> Result<Vec<Step>, Error> {
-    let mut found = Vec::new();
-    push(&mut found, step)?;
-    Ok(found)
+    crate::native_model::one(step)
 }
 
 fn join(ssid: &str, password: &Password) -> Result<Step, Error> {

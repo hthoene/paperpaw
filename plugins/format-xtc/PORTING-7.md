@@ -48,4 +48,4 @@ shipped build: `NativeXtc` is not in `paperpaw_app::NATIVE_PLUGINS` yet). Remove
 ## Left in place (intermediate)
 
 The interface-6 `XtcFormat` registration and `XtcDocument::open` stay until the host activates native plugins.
-X4 `.ppn` size: not measurable yet (built in, no entry point).
+X4 `.ppn` (`tools/plugin-files7/build.sh x4 --only format-xtc`, version 1.0.2): 49,408 bytes; the packer accepts every frame (below 2,048 B). The `linked` hosted tests pass (`cargo test --features linked`).
