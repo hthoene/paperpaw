@@ -47,7 +47,12 @@ impl CatalogReads {
         }
         let mut best = None::<(u32, u64)>;
         catalog::try_each_at(&*self.storage, &mut |at, record| {
-            if record.series != series || record.status.progress.is_some() || hide(&record.path) {
+            // Opened is the flag or a progress: a book opened and closed
+            // before a position was kept has no progress but is opened, as
+            // in Beta 3 (`Index`'s unread) and as its `lib_entry` says (flag
+            // `opened`); it is not the next one.
+            let opened = record.status.opened || record.status.progress.is_some();
+            if record.series != series || opened || hide(&record.path) {
                 return;
             }
             let order = catalog::series_order(&record.number);
