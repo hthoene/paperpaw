@@ -403,7 +403,7 @@ asker learns its request id at once and long texts move in pages, never cut.
 - [D] What each kind answers: text, the request text (`length` its bytes); choice, `choice` (the
   line's index, `ERR_INVALID` past the list); confirm, `choice` 1 yes or 0 no; folder, the request
   text, a path on root 1 of at most 512 bytes (`ERR_INVALID` longer). Unused fields are 0.
-- [D] **No subscription** (draft 25): `event.answered` goes to the asking plugin by its request,
+- [D] **No subscription**: `event.answered` goes to the asking plugin by its request,
   through `dispatch_event`, without a `registration.event`; like 79 and 80 it is not registrable
   (`ERR_UNSUPPORTED` in `registration.event`; the SDK has no `EventKind` for it). The SDK hands
   addressed events (38, 39, 79, 80, 82, 109) to the plugin whatever kinds it subscribed to.
@@ -821,7 +821,7 @@ or guard rule: only the maker drops its instances.
   closes its own overlay by instance (section 1.3) and resets "seen" in its own data.
 - [D] **Messages.** `notify` shows `text` (display text the plugin formatted, at most 256 bytes)
   over any screen for a few seconds, host-drawn, never over a guarding instance (it waits until the
-  guard closes, at most 4 waiting, 2 on the X4, older ones dropped). `flags` bit 0 `announce`: also
+  guard closes, one after the other in the order they came, at most 4 waiting, 2 on the X4, older ones dropped; without a guard a new message replaces the one on screen and shows its full time). `flags` bit 0 `announce`: also
   from background work and when no screen of the plugin shows (interface 6 `Announce`: device
   messages and rules the user set up; never sync results or offers). Without bit 0 a message from a
   plugin with no instance on the stack is dropped (`OK`, logged). Other bits `ERR_INVALID`.
@@ -840,10 +840,16 @@ or guard rule: only the maker drops its instances.
   system clipboard into op 19 is a shell follow-up (Firmware todo 392).
 - [D] **Speech.** `speak` queues `text` (display text, at most 2,048 bytes) in `language` (a BCP
   47 tag, empty for the system's) at `rate` percent (50-300, else `ERR_INVALID`); `flags` bit 0
-  `queue` (after what is being spoken, else replacing it). `spoken` comes when it was spoken or
+  `queue` (after what is being spoken, else replacing it); at most 4 texts per plugin, the one
+  being spoken included: a queued `speak` beyond is `ERR_FULL` (nothing queued, no `spoken`), one
+  without `queue` replaces and never meets the cap. `spoken` comes when it was spoken or
   could not be (`status` 0 spoken, 1 replaced or stopped, 2 no voice for the language, 3 no speech
   on this device). Only `menu.need` 0 (`speech`) devices speak; elsewhere `spoken` status 3 at
-  once. `stop_speaking` stops the submitter's own speech only.
+  once. `stop_speaking` stops the submitter's own speech only: where its text is the one being
+  spoken the host's one voice stops, and what waited behind it (another plugin's too) ends with
+  `spoken` status 1; where its text only waits behind another's, it is dropped from the line
+  (status 1) and the voice goes on. `spoken` goes to plugins that subscribed to it (event 89),
+  the submitter alone.
 
 ## 8. Sizes and memory
 

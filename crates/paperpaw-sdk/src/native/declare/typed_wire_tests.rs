@@ -19,6 +19,7 @@ fn page_turned(path: &str) -> wire::EventPageTurned<'_> {
         page: Some(12),
         pages: None,
         insert: Some(1),
+        chapter_left: None,
     }
 }
 

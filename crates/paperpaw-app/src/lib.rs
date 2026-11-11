@@ -126,7 +126,7 @@ pub fn install(builder: KernelBuilder, fonts: Fonts) -> KernelBuilder {
 /// registers each through the kernel (`Kernel::register_native`); until a
 /// device activates them it only keeps them linked.
 #[cfg(feature = "native-linked")]
-pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 14] = [
+pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 16] = [
     ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
     ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
@@ -143,8 +143,49 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 14] = [
     ("power", &paperpaw_plugin_power::NATIVE_ENTRY),
     ("settings", &paperpaw_plugin_settings::NATIVE_ENTRY),
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
+    ("transfer", &paperpaw_plugin_transfer::NATIVE_ENTRY),
     ("update", &paperpaw_plugin_update::NATIVE_ENTRY),
+    ("wifi", &paperpaw_plugin_wifi::NATIVE_ENTRY),
 ];
+
+/// The settings and setting groups plugin `id` keeps in the program, as Beta 3
+/// did, instead of one copy on the heap for each it declares
+/// (`Kernel::register_linked`): the tables its build script makes of its own
+/// declarations. Empty for a plugin that has none; one that is not listed here
+/// only costs memory.
+#[cfg(feature = "native-linked")]
+pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
+    use paperpaw_core::native_host::FixedTables;
+    macro_rules! tables {
+        ($plugin:ident) => {
+            FixedTables::new($plugin::NATIVE_SETTINGS, $plugin::NATIVE_GROUPS)
+        };
+    }
+    match id {
+        "bluetooth" => tables!(paperpaw_plugin_bluetooth),
+        "file-manager" => tables!(paperpaw_plugin_file_manager),
+        "help" => tables!(paperpaw_plugin_help),
+        #[cfg(feature = "native-linked-reading")]
+        "home" => tables!(paperpaw_plugin_home),
+        "keyboard" => tables!(paperpaw_plugin_keyboard),
+        "lock" => tables!(paperpaw_plugin_lock),
+        "menu" => tables!(paperpaw_plugin_menu),
+        "opds" => tables!(paperpaw_plugin_opds),
+        "power" => tables!(paperpaw_plugin_power),
+        #[cfg(feature = "native-linked-reading")]
+        "reader" => tables!(paperpaw_plugin_reader),
+        "settings" => tables!(paperpaw_plugin_settings),
+        #[cfg(feature = "native-linked-store")]
+        "aids" => tables!(paperpaw_plugin_aids),
+        #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
+        "news" => tables!(paperpaw_plugin_news),
+        #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
+        "vocabulary" => tables!(paperpaw_plugin_vocabulary),
+        #[cfg(feature = "native-linked-store")]
+        "widgets" => tables!(paperpaw_plugin_widgets),
+        _ => FixedTables::NONE,
+    }
+}
 
 /// Registers every plugin of [`NATIVE_PLUGINS`] with `kernel` through
 /// `Kernel::register_linked`, before the kernel starts (the one path the X4,
@@ -164,7 +205,9 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 14] = [
 /// native factory contract and its code and static data stay for the whole
 /// run; the caller must not call this with a `host` that offers more than it
 /// backs: a service or a consent feature offered and not wired is a plugin
-/// that fails later.
+/// that fails later. `image` is the program's read-only data as a mapping that
+/// stays for the whole run (null and zero for none): the plugins' declarations
+/// are kept as offsets into it, not copied (`Kernel::register_linked`).
 #[cfg(feature = "native-linked")]
 #[allow(
     clippy::too_many_arguments,
@@ -178,6 +221,7 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
     mut services: impl FnMut() -> S,
     teardown: paperpaw_core::native_host::shell::Report<S>,
     report: fn(&S, u32, i32),
+    image: (*const u8, usize),
 ) -> alloc::vec::Vec<(
     &'static str,
     Result<(), paperpaw_core::native_host::shell::Error>,
@@ -204,6 +248,8 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
                 depth,
                 teardown,
                 report,
+                image,
+                fixed_tables(id),
             )
         };
         outcome.push((*id, status));
@@ -274,9 +320,13 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);
         b = offered(b, store, paperpaw_plugin_format_images::ImagesFormat);
     }
-    b = b
-        .plugin(paperpaw_plugin_wifi::Wifi)
-        .plugin(paperpaw_plugin_transfer::Transfer);
+    // Wi-Fi and Transfer are native plugins, linked (`NATIVE_PLUGINS`), where
+    // the feature says.
+    #[cfg(not(feature = "native-linked"))]
+    {
+        b = b.plugin(paperpaw_plugin_wifi::Wifi);
+        b = b.plugin(paperpaw_plugin_transfer::Transfer);
+    }
     b = b.plugin(paperpaw_plugin_store::Store);
     #[cfg(feature = "store-plugins")]
     {

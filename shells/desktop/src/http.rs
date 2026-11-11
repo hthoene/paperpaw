@@ -62,10 +62,11 @@ pub type Progress = (u32, u64, Option<u64>);
 /// Requests in flight and their answers.
 #[derive(Debug)]
 pub struct Http {
-    sender: Sender<HttpResponse>,
-    receiver: Receiver<HttpResponse>,
-    /// How far the answers that ask for it have come.
-    progress: (Sender<Progress>, Receiver<Progress>),
+    /// Made at the first request or answer: an emulator that never asks
+    /// holds no channel (each costs 512 B of the heap the budget counts).
+    answers: Option<(Sender<HttpResponse>, Receiver<HttpResponse>)>,
+    /// How far the answers that ask for it have come; made when one does.
+    progress: Option<(Sender<Progress>, Receiver<Progress>)>,
     pub in_flight: usize,
 }
 
@@ -77,13 +78,16 @@ impl Default for Http {
 
 impl Http {
     pub fn new() -> Self {
-        let (sender, receiver) = channel();
         Self {
-            sender,
-            receiver,
-            progress: channel(),
+            answers: None,
+            progress: None,
             in_flight: 0,
         }
+    }
+
+    /// Where answers are sent: the channel is made here, the first time.
+    fn sender(&mut self) -> &Sender<HttpResponse> {
+        &self.answers.get_or_insert_with(channel).0
     }
 
     /// Starts a request: on the route set, else on the system's network.
@@ -104,7 +108,7 @@ impl Http {
     /// next answers.
     pub fn answer_now(&mut self, response: HttpResponse) {
         self.in_flight += 1;
-        let _ = self.sender.send(response);
+        let _ = self.sender().send(response);
     }
 
     fn begin(&mut self, call: HttpCall, follow: bool) {
@@ -114,7 +118,7 @@ impl Http {
         let routed = ROUTE.with_borrow_mut(|route| Some(route.as_mut()?.start(call.take()?)));
         match (routed, call) {
             (Some(Some(answer)), _) => {
-                let _ = self.sender.send(answer);
+                let _ = self.sender().send(answer);
             }
             (Some(None), _) => {}
             (None, Some(call)) => self.system(call, follow),
@@ -125,8 +129,10 @@ impl Http {
     /// Runs a request with `curl` on a thread of its own.
     #[cfg(not(target_arch = "wasm32"))]
     fn system(&mut self, call: HttpCall, follow: bool) {
-        let sender = self.sender.clone();
-        let progress = call.progress.then(|| self.progress.0.clone());
+        let sender = self.sender().clone();
+        let progress = call
+            .progress
+            .then(|| self.progress.get_or_insert_with(channel).0.clone());
         thread::spawn(move || {
             let _ = sender.send(run(call, progress.as_ref(), follow));
         });
@@ -138,13 +144,13 @@ impl Http {
     fn system(&mut self, call: HttpCall, _follow: bool) {
         let reason = "no network in the browser's emulator";
         let failed = HttpResponse::failed(call.id, HttpError::NoNetwork, reason);
-        let _ = self.sender.send(failed);
+        let _ = self.sender().send(failed);
     }
 
     /// How far an answer that asks for it has come since the last call,
     /// if it did.
     pub fn next_progress(&mut self) -> Option<Progress> {
-        self.progress.1.try_recv().ok()
+        self.progress.as_ref()?.1.try_recv().ok()
     }
 
     /// An answer that has arrived, if any; waits up to `wait`.
@@ -154,9 +160,16 @@ impl Http {
         #[cfg(target_arch = "wasm32")]
         let wait: Option<Duration> = wait.and(None);
         let later = ROUTE.with_borrow_mut(|route| route.as_mut()?.later());
-        let response = later.or_else(|| match wait {
-            Some(wait) => self.receiver.recv_timeout(wait).ok(),
-            None => self.receiver.try_recv().ok(),
+        let response = later.or_else(|| match (&self.answers, wait) {
+            (Some((_, receiver)), Some(wait)) => receiver.recv_timeout(wait).ok(),
+            (Some((_, receiver)), None) => receiver.try_recv().ok(),
+            // Nothing was ever asked: nothing can come, and the wait is
+            // still the caller's to spend.
+            (None, Some(wait)) => {
+                std::thread::sleep(wait);
+                None
+            }
+            (None, None) => None,
         });
         if response.is_some() {
             self.in_flight -= 1;
@@ -356,6 +369,19 @@ fn curl_error(code: Option<i32>) -> HttpError {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn no_channel_is_made_until_a_request_or_answer() {
+        let mut http = Http::new();
+        assert!(http.answers.is_none() && http.progress.is_none());
+        assert!(http.next(None).is_none());
+        assert!(http.next(Some(Duration::from_millis(1))).is_none());
+        assert!(http.next_progress().is_none());
+        assert!(http.answers.is_none() && http.progress.is_none());
+        http.answer_now(HttpResponse::failed(3, HttpError::Io, "x"));
+        assert_eq!(http.next(None).map(|r| r.id), Some(3));
+        assert!(http.progress.is_none());
+    }
 
     fn call(save_to: Option<&str>) -> HttpCall {
         HttpCall {

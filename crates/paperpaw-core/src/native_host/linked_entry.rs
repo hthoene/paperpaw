@@ -32,12 +32,16 @@ impl Admitted {
     /// # Safety
     /// The linked factory must obey Hosted's native factory contract. Its code
     /// and static data must remain loaded for the entire program lifetime.
+    /// `image` is a read-only mapping of that many bytes that stays mapped for
+    /// the whole run (the program's read-only data), or a null pointer with
+    /// zero length (declarations are then copied).
     pub(crate) unsafe fn hosted<S: Services>(
         self,
         services: S,
         id: &str,
         report: shell::Report<S>,
         resources: super::HostResources,
+        image: (*const u8, usize),
     ) -> Result<shell::Hosted<S, ()>, shell::Error> {
         let declared =
             shell::DeclaredServices::try_from_iter(self.metadata.services()).map_err(|error| {
@@ -48,15 +52,15 @@ impl Admitted {
                     shell::DeclaredServicesError::NoMemory => shell::Error::Allocation,
                 }
             })?;
-        // SAFETY: the caller guarantees the factory contract and static code
-        // lifetime; linked entries retain no unloadable module or image range.
+        // SAFETY: the caller guarantees the factory contract, the static code
+        // lifetime and the image; a linked entry retains no unloadable module.
         unsafe {
             shell::Hosted::new(
                 services,
                 (),
                 self.make,
                 id,
-                (core::ptr::null(), 0),
+                image,
                 report,
                 resources,
                 declared.with_features(self.features),

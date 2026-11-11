@@ -1,6 +1,7 @@
 """Trusted Git references keep candidate edits from laundering interface changes."""
 import importlib.util
 from pathlib import Path
+import json
 import subprocess
 import tempfile
 import unittest
@@ -219,51 +220,20 @@ class DraftTests(Fixture):
     def test_an_unchanged_draft_passes(self):
         self.assertIn('draft-1 reference files match', self.check())
 
-    def test_an_addition_passes_when_named(self):
-        self.write(API, 'pub struct Api\npub struct Added\npub struct Other\n')
-        with self.assertRaisesRegex(ValueError, 'gains no line'):
-            self.check()
-        self.named('1 declare module (#180)')
-        self.assertIn('draft 1: additions named (1)', self.check())
-        # A new file and a line appended to another file are additions too.
-        self.write(reference.DIRECTORY + '/new.api', 'pub struct New\n')
-        self.write(reference.DIRECTORY + '/sample.shape', 'size=24\nsize=32\n')
-        self.assertIn('additions named (1)', self.check())
-
-    def test_a_removed_line_is_refused_whatever_is_named(self):
-        self.write(API, 'pub struct Api\n')
-        self.named('1 trim (#1)')
-        with self.assertRaisesRegex(ValueError, 'lost or changed a line.*next draft'):
-            self.check()
-
-    def test_a_changed_or_reordered_line_is_refused(self):
-        for text in ['pub struct Api2\npub struct Other\n', 'pub struct Other\npub struct Api\n',
-                     'pub struct Api\npub struct Other \n']:
-            with self.subTest(text=text):
-                self.write(API, text)
-                self.named('1 change (#1)')
-                with self.assertRaisesRegex(ValueError, 'lost or changed a line.*next draft'):
-                    self.check()
-
-    def test_a_removed_file_is_refused(self):
+    def test_any_change_passes_in_place_unnamed(self):
+        """One interface 7 until 1.0: additions, removals, changed or reordered
+        lines, a removed file and another fingerprint all pass at the draft."""
+        changes = [(API, 'pub struct Api\npub struct Added\npub struct Other\n'),
+                   (API, 'pub struct Other\npub struct Api\n'),
+                   (API, 'pub struct Other\n'),
+                   (reference.SUMMARY, summary(7, 1, fingerprint='other')),
+                   (reference.DIRECTORY + '/new.api', 'pub struct New\n')]
+        for name, text in changes:
+            with self.subTest(name=name, text=text):
+                self.write(name, text)
+                self.assertIn('changed in place', self.check())
         (self.root / API).unlink()
-        self.named('1 drop a crate (#1)')
-        with self.assertRaisesRegex(ValueError, 'is gone.*next draft'):
-            self.check()
-
-    def test_interface_txt_stays_byte_equal_at_the_same_draft(self):
-        self.write(reference.SUMMARY, summary(7, 1, fingerprint='other'))
-        self.named('1 new fingerprint (#1)')
-        with self.assertRaisesRegex(ValueError, 'interface.txt must stay as it is.*next draft'):
-            self.check()
-
-    def test_the_senior_experiment_fails(self):
-        """A removed `.api` line, another fingerprint and a line in blessings.txt."""
-        self.write(API, 'pub struct Other\n')
-        self.write(reference.SUMMARY, summary(7, 1, fingerprint='laundered'))
-        self.named('1 laundered (#228)')
-        with self.assertRaisesRegex(ValueError, 'next draft'):
-            self.check()
+        self.assertIn('changed in place', self.check())
 
     def test_a_history_rewrite_is_refused_even_where_nothing_else_changed(self):
         original = (self.root / SEVEN).read_text()
@@ -283,17 +253,11 @@ class DraftTests(Fixture):
         self.write(SEVEN, original)
         self.assertIn('draft-1 reference files match', self.check())
 
-    def test_the_next_draft_may_change_anything_when_named(self):
+    def test_the_next_draft_needs_no_name(self):
         self.write(reference.SOURCE, source(7, 2))
         self.write(reference.SUMMARY, summary(7, 2, fingerprint='moved'))
-        with self.assertRaisesRegex(ValueError, 'gains no line'):
-            self.check()
         self.write(API, 'pub struct Api2\n')
-        self.named('2 a signature changes (#1)')
-        self.assertIn('moved to the next draft 2, named (1)', self.check())
-        self.named('1 old draft (#1)')
-        with self.assertRaisesRegex(ValueError, 'another draft'):
-            self.check()
+        self.assertIn('moved to the next draft 2', self.check())
 
     def test_a_draft_cannot_skip_one_or_be_stated_wrongly(self):
         self.write(reference.SOURCE, source(7, 3))
@@ -312,9 +276,35 @@ class DraftTests(Fixture):
         with self.assertRaisesRegex(ValueError, 'still a draft'):
             self.check()
 
+    def lock(self, released, minor=1):
+        self.write(reference.LOCK, json.dumps({'released_minor': released,
+                                               'schema': {'minor': minor}}))
+
+    def test_the_freeze_releases_the_lock(self):
+        self.write(reference.SOURCE, source(7))
+        self.write(reference.SUMMARY, summary(7))
+        self.named('0 frozen by the owner (#228)')
+        for content in [None, '{', '{"released_minor": 0, "schema": {"minor": 1}}',
+                        '{"released_minor": 1, "schema": {"minor": 2}}']:
+            with self.subTest(content=content):
+                if content is None:
+                    (self.root / reference.LOCK).unlink(missing_ok=True)
+                else:
+                    self.write(reference.LOCK, content)
+                with self.assertRaisesRegex(ValueError, 'frozen'):
+                    self.check()
+        self.lock(released=1)
+        self.assertIn('moved to frozen', self.check())
+        # A draft needs no released lock.
+        self.write(reference.SOURCE, source(7, 1))
+        self.write(reference.SUMMARY, summary(7, 1))
+        self.lock(released=0)
+        self.assertIn('reference files', self.check())
+
     def test_freezing_is_its_own_named_step(self):
         self.write(reference.SOURCE, source(7))
         self.write(reference.SUMMARY, summary(7))
+        self.lock(released=1)
         with self.assertRaisesRegex(ValueError, 'gains no line'):
             self.check()
         self.named('0 frozen by the owner (#228)')
@@ -329,108 +319,6 @@ class DraftTests(Fixture):
         self.write(reference.SOURCE, source(7, 1))
         with self.assertRaisesRegex(ValueError, 'cannot become a draft'):
             self.check()
-
-
-class OrderedListTests(Fixture):
-    """Lists plugins index into only grow at their end at the same draft (#777 B1)."""
-    LISTS = {
-        'shared.list': 'text 1 A paperpaw_text::a\ntext 1 B paperpaw_text::b\nimage 1 C paperpaw_image::c\n',
-        'table.sig': 'text 1 A: fn a()\ntext 1 B: fn b()\nimage 1 C: fn c()\n',
-        'lang.list': 'script Adlm\nscript Afak\nregion AD\nregion AE\n',
-        'i18n.list': 'plural arabic\nplural hebrew\ndigits latn\ndigits arab\n',
-    }
-    FIRST = {'shared.list': 'text 1 NEW paperpaw_text::new\n', 'table.sig': 'text 1 NEW: fn new()\n',
-             'lang.list': 'script Aaaa\n', 'i18n.list': 'plural zzz\n'}
-    files = {reference.SOURCE: source(7, 1), reference.SUMMARY: summary(7, 1),
-             SEVEN: '1 early raise, draft baseline (#228)\n',
-             **{reference.DIRECTORY + '/' + name: text for name, text in LISTS.items()}}
-
-    def path(self, name):
-        return reference.DIRECTORY + '/' + name
-
-    def named(self):
-        self.write(SEVEN, '1 early raise, draft baseline (#228)\n1 more (#1)\n')
-
-    def test_an_insertion_at_the_start_or_in_the_middle_is_refused_in_each_list(self):
-        for name, text in self.LISTS.items():
-            lines = text.splitlines(keepends=True)
-            first = self.FIRST[name]
-            for where in (0, 1):
-                with self.subTest(name=name, where=where):
-                    self.write(self.path(name), ''.join(lines[:where]) + first + ''.join(lines[where:]))
-                    self.named()
-                    with self.assertRaisesRegex(ValueError, 'slipped in.*next draft'):
-                        self.check()
-            self.write(self.path(name), text)
-
-    def test_an_append_at_the_end_passes_in_each_list(self):
-        for name, text in self.LISTS.items():
-            with self.subTest(name=name):
-                self.write(self.path(name), text + self.FIRST[name])
-                self.named()
-                self.assertIn('additions named (1)', self.check())
-                self.write(self.path(name), text)
-
-    def test_an_append_to_one_kind_with_other_kinds_after_it_passes(self):
-        """lang.list and i18n.list are indexed within each kind."""
-        for name, new in (('lang.list', 'script Aaaa\n'), ('i18n.list', 'plural zzz\n')):
-            with self.subTest(name=name):
-                lines = self.LISTS[name].splitlines(keepends=True)
-                self.write(self.path(name), ''.join(lines[:2]) + new + ''.join(lines[2:]))
-                self.named()
-                self.assertIn('additions named (1)', self.check())
-                # A new line of the kind slipped in before an old one is not.
-                self.write(self.path(name), new + self.LISTS[name])
-                with self.assertRaisesRegex(ValueError, 'slipped in'):
-                    self.check()
-                self.write(self.path(name), self.LISTS[name])
-
-    def test_a_removed_or_changed_line_is_refused_in_each_list(self):
-        for name, text in self.LISTS.items():
-            lines = text.splitlines(keepends=True)
-            for edited in (lines[1:], [lines[0].rstrip('\n') + 'x\n'] + lines[1:], [lines[1], lines[0]] + lines[2:]):
-                with self.subTest(name=name, edited=edited):
-                    self.write(self.path(name), ''.join(edited))
-                    self.named()
-                    with self.assertRaisesRegex(ValueError, 'lost or changed a line'):
-                        self.check()
-            self.write(self.path(name), text)
-
-
-class CratePinsTests(Fixture):
-    """`crate-pins.list` is a set, as the SDK interface test reads it (#783)."""
-    PINS = reference.DIRECTORY + '/crate-pins.list'
-    files = {reference.SOURCE: source(7, 1), reference.SUMMARY: summary(7, 1),
-             SEVEN: '1 early raise, draft baseline (#228)\n',
-             PINS: 'paperpaw-text skrifa =0.48.0\npaperpaw-text read-fonts =0.45.1\n'
-                   'paperpaw-text font-types =0.12.7\n'}
-
-    def named(self):
-        self.write(SEVEN, '1 early raise, draft baseline (#228)\n1 more (#1)\n')
-
-    def test_a_reorder_passes(self):
-        self.write(self.PINS, 'paperpaw-text font-types =0.12.7\npaperpaw-text skrifa =0.48.0\n'
-                              'paperpaw-text read-fonts =0.45.1\n')
-        self.assertIn('draft-1 reference files match', self.check())
-
-    def test_a_removed_or_changed_pin_is_refused(self):
-        for text in ['paperpaw-text skrifa =0.48.0\npaperpaw-text read-fonts =0.45.1\n',
-                     'paperpaw-text skrifa =0.48.1\npaperpaw-text read-fonts =0.45.1\n'
-                     'paperpaw-text font-types =0.12.7\n']:
-            with self.subTest(text=text):
-                self.write(self.PINS, text)
-                self.named()
-                with self.assertRaisesRegex(ValueError, 'crate-pins.list lost or changed a line'):
-                    self.check()
-
-    def test_a_new_pin_needs_a_blessing(self):
-        old = (self.root / self.PINS).read_text()
-        # Added in the middle of a reorder: still only an addition.
-        self.write(self.PINS, 'paperpaw-text new =1.0.0\n' + old)
-        with self.assertRaisesRegex(ValueError, 'gains no line'):
-            self.check()
-        self.named()
-        self.assertIn('additions named (1)', self.check())
 
 
 class LaterDraftTests(Fixture):

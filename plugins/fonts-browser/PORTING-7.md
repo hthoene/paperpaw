@@ -79,7 +79,14 @@ not yet in `tools/plugin-files7/complete.txt`: list it when download, update and
   says which rows a page will have.
 - **Your own fonts:** the page of the help opens in the reader with `command.open` into `core.reader` (root 5
   "handed"; as About's licences): `Unsupported` until that merges.
-- **The font's own face** in the list and on the page: needs a font loaded at run time (`FONT-runtime`).
+- **The font's own face:** on the font's page the sentence is drawn in the font's own face
+  (`native_sample.rs`): the sample pack (one size, only the characters of the name and the sentence, asked
+  from the catalog's `sample` address with `core.net` `save_to` into `samples/` of the data folder) is
+  opened with `Font::acquire_data` (#1062) for the draw and released at once (a handle keeps up to 4 KiB of
+  glyphs on the X4); a file that is gone or no font any more leaves the plain line, as does a library
+  without samples or a device without a network. **Named differences:** the list's rows still show the
+  names in the menus' face (a row has one text; one handle per row would take the 8 font handles); the
+  sample is not held between screens (it is read from the card again).
 
 ## Old list of what was missing before slice 3 (kept for the record)
 

@@ -1119,6 +1119,8 @@ pub struct EventPageTurned<'a> {
     pub pages: Option<u32>,
     /// Little-endian u32. Appended and optional; `None` when absent.
     pub insert: Option<u32>,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub chapter_left: Option<u32>,
 }
 
 impl<'a> EventPageTurned<'a> {
@@ -1139,6 +1141,7 @@ impl<'a> EventPageTurned<'a> {
             page: body.maybe_u32(bits, 0x01)?,
             pages: body.maybe_u32(bits, 0x02)?,
             insert: body.maybe_u32(bits, 0x04)?,
+            chapter_left: body.maybe_u32(bits, 0x08)?,
         })
     }
 
@@ -1152,6 +1155,9 @@ impl<'a> EventPageTurned<'a> {
         }
         if self.insert.is_some() {
             bits |= 0x04;
+        }
+        if self.chapter_left.is_some() {
+            bits |= 0x08;
         }
         bits
     }
@@ -1176,6 +1182,9 @@ impl<'a> EventPageTurned<'a> {
         if bits & 0x04 != 0 {
             len += 4;
         }
+        if bits & 0x08 != 0 {
+            len += 4;
+        }
         Ok(len)
     }
 
@@ -1194,6 +1203,9 @@ impl<'a> EventPageTurned<'a> {
             write_bytes(&value.to_le_bytes(), out, offset);
         }
         if let Some(value) = self.insert {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+        if let Some(value) = self.chapter_left {
             write_bytes(&value.to_le_bytes(), out, offset);
         }
     }
@@ -3454,6 +3466,8 @@ pub struct EventBookOpened<'a> {
     pub pages: Option<u32>,
     /// Little-endian u32. Appended and optional; `None` when absent.
     pub insert: Option<u32>,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub chapter_left: Option<u32>,
 }
 
 impl<'a> EventBookOpened<'a> {
@@ -3475,6 +3489,7 @@ impl<'a> EventBookOpened<'a> {
             page: body.maybe_u32(bits, 0x01)?,
             pages: body.maybe_u32(bits, 0x02)?,
             insert: body.maybe_u32(bits, 0x04)?,
+            chapter_left: body.maybe_u32(bits, 0x08)?,
         })
     }
 
@@ -3488,6 +3503,9 @@ impl<'a> EventBookOpened<'a> {
         }
         if self.insert.is_some() {
             bits |= 0x04;
+        }
+        if self.chapter_left.is_some() {
+            bits |= 0x08;
         }
         bits
     }
@@ -3513,6 +3531,9 @@ impl<'a> EventBookOpened<'a> {
         if bits & 0x04 != 0 {
             len += 4;
         }
+        if bits & 0x08 != 0 {
+            len += 4;
+        }
         Ok(len)
     }
 
@@ -3532,6 +3553,9 @@ impl<'a> EventBookOpened<'a> {
             write_bytes(&value.to_le_bytes(), out, offset);
         }
         if let Some(value) = self.insert {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+        if let Some(value) = self.chapter_left {
             write_bytes(&value.to_le_bytes(), out, offset);
         }
     }
@@ -3597,6 +3621,8 @@ pub struct EventBookClosed<'a> {
     pub pages: Option<u32>,
     /// Little-endian u32. Appended and optional; `None` when absent.
     pub insert: Option<u32>,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub chapter_left: Option<u32>,
 }
 
 impl<'a> EventBookClosed<'a> {
@@ -3618,6 +3644,7 @@ impl<'a> EventBookClosed<'a> {
             page: body.maybe_u32(bits, 0x01)?,
             pages: body.maybe_u32(bits, 0x02)?,
             insert: body.maybe_u32(bits, 0x04)?,
+            chapter_left: body.maybe_u32(bits, 0x08)?,
         })
     }
 
@@ -3631,6 +3658,9 @@ impl<'a> EventBookClosed<'a> {
         }
         if self.insert.is_some() {
             bits |= 0x04;
+        }
+        if self.chapter_left.is_some() {
+            bits |= 0x08;
         }
         bits
     }
@@ -3656,6 +3686,9 @@ impl<'a> EventBookClosed<'a> {
         if bits & 0x04 != 0 {
             len += 4;
         }
+        if bits & 0x08 != 0 {
+            len += 4;
+        }
         Ok(len)
     }
 
@@ -3675,6 +3708,9 @@ impl<'a> EventBookClosed<'a> {
             write_bytes(&value.to_le_bytes(), out, offset);
         }
         if let Some(value) = self.insert {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+        if let Some(value) = self.chapter_left {
             write_bytes(&value.to_le_bytes(), out, offset);
         }
     }
@@ -3740,6 +3776,8 @@ pub struct EventBookFinished<'a> {
     pub pages: Option<u32>,
     /// Little-endian u32. Appended and optional; `None` when absent.
     pub insert: Option<u32>,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub chapter_left: Option<u32>,
 }
 
 impl<'a> EventBookFinished<'a> {
@@ -3761,6 +3799,7 @@ impl<'a> EventBookFinished<'a> {
             page: body.maybe_u32(bits, 0x01)?,
             pages: body.maybe_u32(bits, 0x02)?,
             insert: body.maybe_u32(bits, 0x04)?,
+            chapter_left: body.maybe_u32(bits, 0x08)?,
         })
     }
 
@@ -3774,6 +3813,9 @@ impl<'a> EventBookFinished<'a> {
         }
         if self.insert.is_some() {
             bits |= 0x04;
+        }
+        if self.chapter_left.is_some() {
+            bits |= 0x08;
         }
         bits
     }
@@ -3799,6 +3841,9 @@ impl<'a> EventBookFinished<'a> {
         if bits & 0x04 != 0 {
             len += 4;
         }
+        if bits & 0x08 != 0 {
+            len += 4;
+        }
         Ok(len)
     }
 
@@ -3818,6 +3863,9 @@ impl<'a> EventBookFinished<'a> {
             write_bytes(&value.to_le_bytes(), out, offset);
         }
         if let Some(value) = self.insert {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+        if let Some(value) = self.chapter_left {
             write_bytes(&value.to_le_bytes(), out, offset);
         }
     }
@@ -11775,10 +11823,12 @@ impl<'a> WireRecord<'a> for ServiceDocImageAsk {
 }
 /// Wire tag of the `event.image_ready` record.
 pub const EVENT_IMAGE_READY_TAG: u32 = 90;
+/// Maximum bytes of `event.image_ready.luma`.
+pub const EVENT_IMAGE_READY_LUMA_MAX_BYTES: usize = 64;
 
 /// The `event.image_ready` record, borrowed from its batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct EventImageReady {
+pub struct EventImageReady<'a> {
     /// Little-endian u64.
     pub now_ms: u64,
     /// Little-endian u32.
@@ -11791,15 +11841,17 @@ pub struct EventImageReady {
     pub width: u32,
     /// Little-endian u32.
     pub height: u32,
+    /// Opaque bytes, at most 64. Appended and optional; empty when absent.
+    pub luma: &'a [u8],
 }
 
-impl EventImageReady {
-    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+impl<'a> EventImageReady<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         Self::decode_fields(body).map(Record::EventImageReady)
     }
 
-    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
-        body.bitmap()?;
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
+        let bits = body.bitmap_bits()?;
         Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             cookie: u32::from_le_bytes(body.scalar()?),
@@ -11807,31 +11859,49 @@ impl EventImageReady {
             image: u32::from_le_bytes(body.scalar()?),
             width: u32::from_le_bytes(body.scalar()?),
             height: u32::from_le_bytes(body.scalar()?),
+            luma: body.opt_blob(bits, 0x01, EVENT_IMAGE_READY_LUMA_MAX_BYTES)?,
         })
     }
 
+    fn bits(&self) -> u8 {
+        let mut bits = 0;
+        if !self.luma.is_empty() {
+            bits |= 0x01;
+        }
+        bits
+    }
+
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
+        let bits = self.bits();
+        // The bitmap is one byte when any optional field is present.
+        let mut len = 1 + usize::from(bits != 0);
         len += 8;
         len += 4;
         len += 4;
         len += 4;
         len += 4;
         len += 4;
+        if bits & 0x01 != 0 {
+            len += blob_len(self.luma.len(), EVENT_IMAGE_READY_LUMA_MAX_BYTES)?;
+        }
         Ok(len)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
+        let bits = self.bits();
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
         write_bytes(&self.cookie.to_le_bytes(), out, offset);
         write_bytes(&self.status.to_le_bytes(), out, offset);
         write_bytes(&self.image.to_le_bytes(), out, offset);
         write_bytes(&self.width.to_le_bytes(), out, offset);
         write_bytes(&self.height.to_le_bytes(), out, offset);
+        if bits & 0x01 != 0 {
+            write_blob(self.luma, out, offset);
+        }
     }
 }
 
-impl WireEncode for EventImageReady {
+impl<'a> WireEncode for EventImageReady<'a> {
     fn wire_tag(&self) -> u32 {
         EVENT_IMAGE_READY_TAG
     }
@@ -11841,12 +11911,16 @@ impl WireEncode for EventImageReady {
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
+        let bits = self.bits();
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
         self.write(out, offset);
     }
 }
 
-impl<'a> WireRecord<'a> for EventImageReady {
+impl<'a> WireRecord<'a> for EventImageReady<'a> {
     const TAG: u32 = EVENT_IMAGE_READY_TAG;
 
     fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
@@ -20473,6 +20547,147 @@ impl<'a> WireRecord<'a> for EventDocumentChanged {
         Self::decode_fields(&mut Reader { remaining: body })
     }
 }
+/// Wire tag of the `service.doc_report` record.
+pub const SERVICE_DOC_REPORT_TAG: u32 = 1183;
+/// Maximum bytes of `service.doc_report.title`.
+pub const SERVICE_DOC_REPORT_TITLE_MAX_BYTES: usize = 256;
+/// Maximum bytes of `service.doc_report.chapter`.
+pub const SERVICE_DOC_REPORT_CHAPTER_MAX_BYTES: usize = 256;
+
+/// The `service.doc_report` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceDocReport<'a> {
+    /// Little-endian u32.
+    pub document: u32,
+    /// Little-endian u32.
+    pub section: u32,
+    /// Little-endian u32.
+    pub offset: u32,
+    /// Little-endian u32.
+    pub insert: u32,
+    /// Little-endian u32.
+    pub progress_ppm: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+    /// UTF-8 text of at most 256 bytes.
+    pub title: &'a str,
+    /// UTF-8 text of at most 256 bytes.
+    pub chapter: &'a str,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub page: Option<u32>,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub pages: Option<u32>,
+    /// Little-endian u32. Appended and optional; `None` when absent.
+    pub chapter_left: Option<u32>,
+}
+
+impl<'a> ServiceDocReport<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::ServiceDocReport)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
+        let bits = body.bitmap_bits()?;
+        Ok(Self {
+            document: u32::from_le_bytes(body.scalar()?),
+            section: u32::from_le_bytes(body.scalar()?),
+            offset: u32::from_le_bytes(body.scalar()?),
+            insert: u32::from_le_bytes(body.scalar()?),
+            progress_ppm: u32::from_le_bytes(body.scalar()?),
+            flags: u32::from_le_bytes(body.scalar()?),
+            title: body.string(SERVICE_DOC_REPORT_TITLE_MAX_BYTES)?,
+            chapter: body.string(SERVICE_DOC_REPORT_CHAPTER_MAX_BYTES)?,
+            page: body.maybe_u32(bits, 0x01)?,
+            pages: body.maybe_u32(bits, 0x02)?,
+            chapter_left: body.maybe_u32(bits, 0x04)?,
+        })
+    }
+
+    fn bits(&self) -> u8 {
+        let mut bits = 0;
+        if self.page.is_some() {
+            bits |= 0x01;
+        }
+        if self.pages.is_some() {
+            bits |= 0x02;
+        }
+        if self.chapter_left.is_some() {
+            bits |= 0x04;
+        }
+        bits
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let bits = self.bits();
+        // The bitmap is one byte when any optional field is present.
+        let mut len = 1 + usize::from(bits != 0);
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += 4;
+        len += blob_len(self.title.len(), SERVICE_DOC_REPORT_TITLE_MAX_BYTES)?;
+        len += blob_len(self.chapter.len(), SERVICE_DOC_REPORT_CHAPTER_MAX_BYTES)?;
+        if bits & 0x01 != 0 {
+            len += 4;
+        }
+        if bits & 0x02 != 0 {
+            len += 4;
+        }
+        if bits & 0x04 != 0 {
+            len += 4;
+        }
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.document.to_le_bytes(), out, offset);
+        write_bytes(&self.section.to_le_bytes(), out, offset);
+        write_bytes(&self.offset.to_le_bytes(), out, offset);
+        write_bytes(&self.insert.to_le_bytes(), out, offset);
+        write_bytes(&self.progress_ppm.to_le_bytes(), out, offset);
+        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        write_blob(self.title.as_bytes(), out, offset);
+        write_blob(self.chapter.as_bytes(), out, offset);
+        if let Some(value) = self.page {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+        if let Some(value) = self.pages {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+        if let Some(value) = self.chapter_left {
+            write_bytes(&value.to_le_bytes(), out, offset);
+        }
+    }
+}
+
+impl<'a> WireEncode for ServiceDocReport<'a> {
+    fn wire_tag(&self) -> u32 {
+        SERVICE_DOC_REPORT_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        let bits = self.bits();
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for ServiceDocReport<'a> {
+    const TAG: u32 = SERVICE_DOC_REPORT_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 
 /// A registration or declaration record, borrowed from one validated batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20779,7 +20994,7 @@ pub enum Record<'a> {
     /// A `ServiceDocImageAsk` record.
     ServiceDocImageAsk(ServiceDocImageAsk),
     /// A `EventImageReady` record.
-    EventImageReady(EventImageReady),
+    EventImageReady(EventImageReady<'a>),
     /// A `LookupSpec` record.
     LookupSpec(LookupSpec<'a>),
     /// A `ServiceLookupAsk` record.
@@ -21012,6 +21227,8 @@ pub enum Record<'a> {
     EventLookupReady(EventLookupReady<'a>),
     /// A `EventDocumentChanged` record.
     EventDocumentChanged(EventDocumentChanged),
+    /// A `ServiceDocReport` record.
+    ServiceDocReport(ServiceDocReport<'a>),
 }
 
 impl<'a> Reader<'a> {
@@ -21347,6 +21564,7 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         EVENT_TEXT_TYPED_TAG => EventTextTyped::decode(body)?,
         EVENT_LOOKUP_READY_TAG => EventLookupReady::decode(body)?,
         EVENT_DOCUMENT_CHANGED_TAG => EventDocumentChanged::decode(body)?,
+        SERVICE_DOC_REPORT_TAG => ServiceDocReport::decode(body)?,
         _ => return Err(-1),
     })
 }
@@ -21704,6 +21922,7 @@ impl Record<'_> {
             Record::EventTextTyped(_) => EVENT_TEXT_TYPED_TAG,
             Record::EventLookupReady(_) => EVENT_LOOKUP_READY_TAG,
             Record::EventDocumentChanged(_) => EVENT_DOCUMENT_CHANGED_TAG,
+            Record::ServiceDocReport(_) => SERVICE_DOC_REPORT_TAG,
         }
     }
 
@@ -21977,6 +22196,7 @@ impl Record<'_> {
             Record::EventTextTyped(record) => record.body_len(),
             Record::EventLookupReady(record) => record.body_len(),
             Record::EventDocumentChanged(record) => record.body_len(),
+            Record::ServiceDocReport(record) => record.body_len(),
         }
     }
 
@@ -22255,6 +22475,7 @@ impl Record<'_> {
             Record::EventTextTyped(record) => record.write(out, offset),
             Record::EventLookupReady(record) => record.write(out, offset),
             Record::EventDocumentChanged(record) => record.write(out, offset),
+            Record::ServiceDocReport(record) => record.write(out, offset),
         }
     }
 
@@ -22269,10 +22490,12 @@ impl Record<'_> {
             Record::EventBookClosed(record) => record.bits(),
             Record::EventBookFinished(record) => record.bits(),
             Record::ServiceRegWidget(record) => record.bits(),
+            Record::EventImageReady(record) => record.bits(),
             Record::ServiceLibRef(record) => record.bits(),
             Record::ServiceDevFirmware(record) => record.bits(),
             Record::ServiceDevCheck(record) => record.bits(),
             Record::ServiceFsEntry(record) => record.bits(),
+            Record::ServiceDocReport(record) => record.bits(),
             _ => 0,
         }
     }
@@ -22559,7 +22782,7 @@ where
 }
 
 /// The tags of the declared records, ascending (registrations are named by their constants).
-const RECORD_TAGS: [u16; 266] = [
+const RECORD_TAGS: [u16; 267] = [
     5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
     30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 52, 64, 65,
     66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 85, 86, 87, 88, 89, 90,
@@ -22574,7 +22797,7 @@ const RECORD_TAGS: [u16; 266] = [
     1125, 1126, 1127, 1128, 1129, 1130, 1131, 1132, 1133, 1134, 1135, 1136, 1137, 1138, 1139, 1140,
     1141, 1142, 1143, 1144, 1145, 1146, 1147, 1148, 1149, 1150, 1151, 1152, 1153, 1154, 1155, 1156,
     1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169, 1170, 1171, 1172,
-    1173, 1174, 1175, 1176, 1177, 1178, 1179, 1180, 1181, 1182,
+    1173, 1174, 1175, 1176, 1177, 1178, 1179, 1180, 1181, 1182, 1183,
 ];
 
 /// Whether `tag` names a record of this codec ([`Record`]), without decoding anything: a
@@ -22996,6 +23219,7 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         SERVICE_SOCK_BROADCAST_TAG => ServiceSockBroadcast::decode(body)?,
         SERVICE_SOCK_PORT_TAG => ServiceSockPort::decode(body)?,
         SERVICE_LIB_FIELD_PAGE_TAG => ServiceLibFieldPage::decode(body)?,
+        SERVICE_DOC_REPORT_TAG => ServiceDocReport::decode(body)?,
         EVENT_TICK_TAG
         | EVENT_STARTED_TAG
         | EVENT_RESUME_TAG

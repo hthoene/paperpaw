@@ -264,7 +264,10 @@ impl Kernel {
             self.open(id.clone(), slot.clone(), params);
         }
         match lease.wifi {
-            Some(WifiWas::Online) => self.output.commands.push(events::NETWORK_WANTED.emit(())),
+            Some(WifiWas::Online) => {
+                self.output.commands.push(events::NETWORK_WANTED.emit(()));
+                self.native_hint(crate::native_host::registrations::EVENT_NETWORK_WANTED_TAG);
+            }
             Some(WifiWas::On) => self.io.wifi_calls.push(WifiCommand::On),
             None => {}
         }

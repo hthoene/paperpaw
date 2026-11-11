@@ -65,6 +65,15 @@ impl NativeInstance for Probe {
                     key: self.setting,
                     value: crate::abi7::settings_wire::SettingValueRef::Bool(true),
                 },
+                // A notify with the announce bit, and a plain one.
+                4 => WireCommand::Notify {
+                    text: "from the run",
+                    flags: 1,
+                },
+                5 => WireCommand::Notify {
+                    text: "plain",
+                    flags: 0,
+                },
                 _ => WireCommand::Open {
                     target: "a.screen",
                     mode: 0,
@@ -99,6 +108,44 @@ impl Dispatch for Probe {
     fn dropped(&self, _: u32, _: i32) {}
 }
 
+/// A plugin that binds the notice slot to a plain overlay, so that a notice
+/// can show.
+struct NoticeSlot;
+
+struct Overlay;
+
+impl paperpaw_sdk::Screen for Overlay {
+    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+
+    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+        paperpaw_sdk::Handled::No
+    }
+}
+
+impl paperpaw_sdk::Plugin for NoticeSlot {
+    fn manifest(&self) -> paperpaw_sdk::Manifest {
+        paperpaw_sdk::Manifest::new(
+            Id::new_static("nt"),
+            "Notice",
+            paperpaw_sdk::Version::new(1, 0, 0),
+        )
+        .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
+    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+        r.add_screen(paperpaw_sdk::ScreenSpec::new(
+            Id::new_static("nt.notice"),
+            "notice",
+            alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Overlay)),
+        ))?;
+        r.bind_slot(
+            paperpaw_sdk::builtin::slots::NOTICE,
+            Id::new_static("nt.notice"),
+            paperpaw_sdk::Priority::DEFAULT,
+        )
+    }
+}
+
 struct World {
     kernel: crate::Kernel,
     owner: u64,
@@ -115,6 +162,7 @@ fn world(submits: bool) -> World {
 
 fn world_with(submits: bool, order: Option<Rc<RefCell<Vec<char>>>>) -> World {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .plugin(NoticeSlot)
         .build()
         .unwrap();
     // The plugin's screen is on the stack: a redraw is for it.
@@ -509,6 +557,29 @@ fn a_runs_network_events_are_quiet_too() {
     svc.run.set(None);
     pass(&mut w.kernel, &svc);
     assert_eq!(w.last.get(), ERR_NOT_FOUND);
+}
+
+#[test]
+fn a_run_may_announce_and_the_notice_shows_after_its_callback_but_may_not_notify_plainly() {
+    use paperpaw_native::host_glue::ERR_STATE;
+    // A plain notify from a run is refused at submit: nothing shows.
+    let mut w = world(true);
+    w.kernel.end_notice();
+    w.command.set(5);
+    run_work(&mut w);
+    assert_eq!(w.calls.get(), 1);
+    assert_eq!(w.last.get(), ERR_STATE);
+    assert!(w.kernel.notice.is_none());
+    assert!(!w.kernel.shared.native_instances.outbox.full());
+    // With the announce bit it is staged (`OK`), and the outbox's run, which
+    // the pump does between callbacks, shows it: the plugin shows no screen,
+    // and an announce does not need one.
+    let mut w = world(true);
+    w.kernel.shared.stack.clear();
+    w.command.set(4);
+    run_work(&mut w);
+    assert_eq!(w.last.get(), OK);
+    assert!(w.kernel.notice.is_some());
 }
 
 #[test]

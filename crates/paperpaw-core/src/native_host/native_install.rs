@@ -19,9 +19,25 @@ use paperpaw_sdk::{Contribution, Id, IdError, RegisterError};
 enum Owned {
     Screen(Callback),
     Action(Callback),
-    Setting(paperpaw_sdk::SettingSpec),
-    Group(paperpaw_sdk::SettingGroupSpec),
+    /// Boxed at once: a spec is large, and the list holds one place for each
+    /// declaration (the registration peak on the X4).
+    Setting(alloc::boxed::Box<paperpaw_sdk::SettingSpec>),
+    /// The settings equal to the entries `.1` of the plugin's table `.0` in the
+    /// program, in the table's order: no copy of them is kept
+    /// (`fixed_settings`). One place for all of them, not one of a spec's size
+    /// for each.
+    FixedSettings(&'static [paperpaw_sdk::SettingSpec], Vec<u16>),
+    Group(alloc::boxed::Box<paperpaw_sdk::SettingGroupSpec>),
+    /// A group equal to an entry of the plugin's table in the program: no
+    /// copy of it is kept.
+    FixedGroup(&'static paperpaw_sdk::SettingGroupSpec),
     Resource(super::native_resources::Resource),
+    /// A choice the plugin adds to another plugin's choice setting
+    /// (`setting.choice`; its title is read from the declaration store).
+    Choice {
+        setting: Id,
+        value: alloc::string::String,
+    },
     /// A screen the plugin offers for a slot (`slot.offer`).
     SlotOffer {
         slot: Id,
@@ -38,8 +54,12 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         | Record::SettingGroup(_) => match native_values::from_record(owner, record)? {
             Value::Screen(callback) => Ok(Some(Owned::Screen(callback))),
             Value::Action(callback) => Ok(Some(Owned::Action(callback))),
-            Value::Setting(spec) => Ok(Some(Owned::Setting(spec))),
-            Value::Group(group) => Ok(Some(Owned::Group(group))),
+            Value::Setting(spec) => Ok(Some(Owned::Setting(
+                super::shared::try_box(spec).ok_or(ERR_NO_MEMORY)?,
+            ))),
+            Value::Group(group) => Ok(Some(Owned::Group(
+                super::shared::try_box(group).ok_or(ERR_NO_MEMORY)?,
+            ))),
         },
         // The extras (section, editor, check) are presentation the settings
         // page reads from the declaration store; the store keeps the record.
@@ -102,11 +122,38 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         // An input of the plugin's own and a help hint stay in the declaration
         // store (`registry.md` op 14 reads the first; `ui.md` op 3 the second).
         Record::InputSpec(_) | Record::HelpHint(_) => Ok(None),
-        // A format and a reading app stay in the declaration store too
-        // (`document.md` section 1); the document service reads them there.
-        Record::FormatSpec(_) | Record::ReaderSpec(_) => Ok(None),
+        // A format, a reading app and a lookup provider stay in the
+        // declaration store too (`document.md` sections 1 and 7); the
+        // document and lookup services read them there.
+        Record::FormatSpec(_) | Record::ReaderSpec(_) | Record::LookupSpec(_) => Ok(None),
+        // A choice for another plugin's choice setting (`registry.md` section
+        // 6, foreign extensions): offered as interface 6's `add_choice` does,
+        // by the kernel once all plugins are in (one for a setting that does
+        // not exist is dropped there with a log line).
+        Record::SettingChoice(choice) => {
+            let mut value = alloc::string::String::new();
+            value
+                .try_reserve_exact(choice.value.len())
+                .map_err(|_| ERR_NO_MEMORY)?;
+            value.push_str(choice.value);
+            Ok(Some(Owned::Choice {
+                setting: native_values::checked_id(choice.key)?,
+                value,
+            }))
+        }
         _ => Err(ERR_UNSUPPORTED),
     }
+}
+
+/// Whether the plugin declared `uses.network` and `uses.install`.
+fn declared_uses<S: Services + 'static, M: 'static>(host: &shell::Hosted<S, M>) -> (bool, bool) {
+    let features = host.features();
+    (
+        features.feature(crate::work::USES_NETWORK).is_ok(),
+        features
+            .feature(super::commands::dev::FEATURE_INSTALL)
+            .is_ok(),
+    )
 }
 
 impl crate::Kernel {
@@ -125,6 +172,20 @@ impl crate::Kernel {
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
         self.register_native_in(host, depth, None, report)
+    }
+
+    /// [`Self::register_native`] for a linked plugin that keeps its settings
+    /// in `fixed`, a table in the program (`Kernel::register_linked`): a setting
+    /// it declares that equals an entry of the table is kept as that entry and
+    /// not as a copy on the heap.
+    pub(crate) fn register_native_fixed<S: Services + 'static, M: 'static>(
+        &mut self,
+        host: shell::Hosted<S, M>,
+        depth: &FlatDepth,
+        report: fn(&S, u32, i32),
+        fixed: super::FixedTables,
+    ) -> Result<(), shell::Error> {
+        self.register_native_with(host, depth, None, report, fixed)
     }
 
     /// [`Self::register_native`] for a plugin that lives in `folder` (the loader
@@ -150,10 +211,24 @@ impl crate::Kernel {
         folder: Option<&str>,
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
+        self.register_native_with(host, depth, folder, report, super::FixedTables::NONE)
+    }
+
+    fn register_native_with<S: Services + 'static, M: 'static>(
+        &mut self,
+        host: shell::Hosted<S, M>,
+        depth: &FlatDepth,
+        folder: Option<&str>,
+        report: fn(&S, u32, i32),
+        fixed: super::FixedTables,
+    ) -> Result<(), shell::Error> {
         let fonts_before = self.shared.fonts.ids().count();
         let offers_before = self.shared.registry.offers();
         let keys_before = self.native_key_count();
-        self.admit_native(host, depth, folder, report)?;
+        self.admit_native_with(host, depth, folder, report, fixed)?;
+        // `core.secrets` is the kernel's now: interface 6's passwords are
+        // read through its sealer too (`secrets_i6.rs`).
+        self.open_sealed_secrets();
         if self.native_key_count() != keys_before {
             // Its bindings are in the key map from now on.
             self.rebuild_keymap();
@@ -177,6 +252,7 @@ impl crate::Kernel {
 
     /// The admission of [`Self::register_native_in`], without the refresh of
     /// the font choices: all or nothing, and every allocation fallible.
+    #[cfg(test)]
     pub(crate) fn admit_native<S: Services + 'static, M: 'static>(
         &mut self,
         host: shell::Hosted<S, M>,
@@ -184,7 +260,20 @@ impl crate::Kernel {
         folder: Option<&str>,
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
-        let networked = host.features().feature(crate::work::USES_NETWORK).is_ok();
+        self.admit_native_with(host, depth, folder, report, super::FixedTables::NONE)
+    }
+
+    /// [`Self::admit_native`] for a plugin with a table of settings kept in the
+    /// program (`fixed`, empty for none).
+    fn admit_native_with<S: Services + 'static, M: 'static>(
+        &mut self,
+        host: shell::Hosted<S, M>,
+        depth: &FlatDepth,
+        folder: Option<&str>,
+        report: fn(&S, u32, i32),
+        fixed: super::FixedTables,
+    ) -> Result<(), shell::Error> {
+        let (networked, installer) = declared_uses(&host);
         self.shared
             .native_instances
             .adopt_pool(
@@ -223,12 +312,16 @@ impl crate::Kernel {
         // A batch refused at a declaration cap keeps which one, for the
         // plugin's `reg_plugin` row.
         let refused = self.shared.registry.native_declarations.as_ref();
-        let (retained, (owner, owned, tokens, declared), raw) =
-            Retained::make_native_stored(host, map_declarations, |plugin, cap| {
+        let (retained, (owner, owned, tokens, declared), raw) = Retained::make_native_stored(
+            host,
+            |view| map_declarations(view, fixed),
+            |plugin, cap| {
                 if let Some(refused) = refused {
                     refused.record_refusal(plugin, cap);
                 }
-            })?;
+            },
+        )?;
+        self.warn_unmatched(fixed, &owned);
         if folder.is_none()
             && owned
                 .iter()
@@ -285,9 +378,16 @@ impl crate::Kernel {
                 .abandon(key)
                 .map_err(shell::Error::Status)?;
         } else {
+            self.shared.native_instances.set_installer(key, installer);
             // With `uses.network` its network settings and policy (never a
             // refusal: a failure warns).
             self.admit_native_network(&owner, networked);
+            // What a power cut left of it in the services is cleaned up: only
+            // for a plugin that can use them (`uses.network` covers `core.net`
+            // and the sockets), so a plain plugin's start costs no card lookup.
+            if networked {
+                self.native_services_owner_started(key);
+            }
         }
         result
     }
@@ -476,6 +576,74 @@ impl crate::Kernel {
             .map(paperpaw_platform::Instant)
     }
 
+    /// What the plugin's declarations stage for the kernel's registries, and
+    /// its resource files: every value the host mapped, taken in order.
+    fn stage_owned(
+        &self,
+        owned: Vec<Owned>,
+        key: u64,
+        owner: &Id,
+        folder: &str,
+        instance: &NativeLease,
+    ) -> Result<(crate::registry::Staging, super::native_resources::Resources), shell::Error> {
+        let mut staging = crate::registry::Staging::default();
+        let mut resources = super::native_resources::Resources::default();
+        for value in owned {
+            match value {
+                Owned::Resource(resource) => resources
+                    .add(resource, folder)
+                    .map_err(shell::Error::Status)?,
+                Owned::Screen(callback) => {
+                    let screen = instance
+                        .try_clone()
+                        .and_then(|lease| NativeScreenSpec::new(callback, lease))
+                        .map_err(shell::Error::Status)?;
+                    staging
+                        .native_screen(owner, screen)
+                        .map_err(shell::Error::Status)?;
+                }
+                Owned::SlotOffer {
+                    slot,
+                    screen,
+                    priority,
+                } => staging
+                    .native_offer(owner, slot, screen, priority)
+                    .map_err(shell::Error::Status)?,
+                Owned::Action(callback) => {
+                    let action = instance
+                        .try_clone()
+                        .and_then(|lease| {
+                            let instances = &self.shared.native_instances;
+                            super::native_action::spec(callback, lease, key, instances)
+                        })
+                        .map_err(shell::Error::Status)?;
+                    let action = boxed(action)?;
+                    staging
+                        .native(owner, Contribution::Action(action))
+                        .map_err(shell::Error::Status)?;
+                }
+                Owned::Choice { setting, value } => staging
+                    .native_choice(setting, value)
+                    .map_err(shell::Error::Status)?,
+                Owned::Setting(spec) => {
+                    staging
+                        .native(owner, Contribution::Setting(spec))
+                        .map_err(shell::Error::Status)?;
+                }
+                Owned::FixedSettings(list, entries) => staging
+                    .native_fixed_entries(list, entries)
+                    .map_err(shell::Error::Status)?,
+                Owned::FixedGroup(group) => staging
+                    .native_group(owner, paperpaw_sdk::SettingGroup::from(group))
+                    .map_err(shell::Error::Status)?,
+                Owned::Group(group) => staging
+                    .native_group(owner, paperpaw_sdk::SettingGroup::from_boxed(group))
+                    .map_err(shell::Error::Status)?,
+            }
+        }
+        Ok((staging, resources))
+    }
+
     fn bind_native<S: Services + 'static, M: 'static>(
         &mut self,
         key: u64,
@@ -511,53 +679,7 @@ impl crate::Kernel {
             events,
         ))
         .map_err(shell::Error::Status)?;
-        let mut staging = crate::registry::Staging::default();
-        let mut resources = super::native_resources::Resources::default();
-        for value in owned {
-            match value {
-                Owned::Resource(resource) => resources
-                    .add(resource, folder)
-                    .map_err(shell::Error::Status)?,
-                Owned::Screen(callback) => {
-                    let screen = instance
-                        .try_clone()
-                        .and_then(|lease| NativeScreenSpec::new(callback, lease))
-                        .map_err(shell::Error::Status)?;
-                    staging
-                        .native_screen(owner, screen)
-                        .map_err(shell::Error::Status)?;
-                }
-                Owned::SlotOffer {
-                    slot,
-                    screen,
-                    priority,
-                } => staging
-                    .native_offer(owner, slot, screen, priority)
-                    .map_err(shell::Error::Status)?,
-                Owned::Action(callback) => {
-                    let action = instance
-                        .try_clone()
-                        .and_then(|lease| super::native_action::spec(callback, lease))
-                        .map_err(shell::Error::Status)?;
-                    let action = boxed(action)?;
-                    staging
-                        .native(owner, Contribution::Action(action))
-                        .map_err(shell::Error::Status)?;
-                }
-                Owned::Setting(spec) => {
-                    let spec = boxed(spec)?;
-                    staging
-                        .native(owner, Contribution::Setting(spec))
-                        .map_err(shell::Error::Status)?;
-                }
-                Owned::Group(group) => {
-                    let group = paperpaw_sdk::SettingGroup::from_boxed(boxed(group)?);
-                    staging
-                        .native(owner, Contribution::SettingGroup(group))
-                        .map_err(shell::Error::Status)?;
-                }
-            }
-        }
+        let (staging, resources) = self.stage_owned(owned, key, owner, folder, &instance)?;
         self.shared
             .native_instances
             .install(key, instance.try_clone().map_err(shell::Error::Status)?)
@@ -591,13 +713,51 @@ impl crate::Kernel {
 }
 
 impl crate::Kernel {
+    /// A table that does not equal what the plugin declares costs the memory it
+    /// should save: said in debug builds, where it is mended.
+    #[cfg(debug_assertions)]
+    fn warn_unmatched(&mut self, fixed: super::FixedTables, owned: &[Owned]) {
+        if !fixed.settings.is_empty()
+            && owned.iter().any(|value| matches!(value, Owned::Setting(_)))
+        {
+            self.warn_runtime(
+                "a linked plugin's settings table does not match some of its settings; they are copied",
+            );
+        }
+        if !fixed.groups.is_empty() && owned.iter().any(|value| matches!(value, Owned::Group(_))) {
+            self.warn_runtime(
+                "a linked plugin's groups table does not match some of its setting groups; they are copied",
+            );
+        }
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[allow(clippy::unused_self, reason = "the debug build says it")]
+    fn warn_unmatched(&mut self, _fixed: super::FixedTables, _owned: &[Owned]) {}
+}
+
+impl crate::Kernel {
     /// Publishes what a native plugin contributed: actions, screens, settings
     /// and groups. Every refusal (a duplicate, a default that does not fit, no
     /// room) comes before anything changes, and nothing allocates once
     /// publication starts, so a failure leaves no trace.
+    /// The shell has hosted its native plugins: the registries and the
+    /// tables of the host give back the room they kept while the plugins were
+    /// added one by one. The build shrank them before any native plugin was
+    /// there, so what they grew by since (the plugin list, the menus, the
+    /// subscriptions, the entries and owner rows) stood in reserve for good.
+    /// Called once by [`Kernel::start`](crate::Kernel::start); a later install
+    /// grows them again, as it always did.
+    pub(crate) fn native_hosted(&mut self) {
+        // Values for settings no plugin declared are not kept any longer.
+        self.late_config = Vec::new();
+        self.shrink_to_fit();
+        self.shared.native_instances.shrink_to_fit();
+    }
+
     fn publish_native(
         &mut self,
-        staging: crate::registry::Staging,
+        mut staging: crate::registry::Staging,
         owner: &Id,
         folder: &str,
         resources: super::native_resources::Resources,
@@ -606,7 +766,11 @@ impl crate::Kernel {
         let _bump = crate::native_host::registry_generation::BumpOnExit::new(
             &self.shared.registry_generation,
         );
-        for spec in staging.settings.iter().map(crate::registry::Staged::spec) {
+        for spec in staging
+            .settings
+            .iter()
+            .flat_map(crate::registry::Staged::specs)
+        {
             if self.shared.settings.get(spec.id.as_str()).is_some() {
                 return Err(duplicate(&spec.id));
             }
@@ -627,6 +791,7 @@ impl crate::Kernel {
             }
         }
         let (actions, settings, groups) = staging.native_counts();
+        let fixed = staging.native_fixed_count();
         let no_room = || RegisterError::Invalid {
             message: crate::registry::NATIVE_CAPACITY_UNAVAILABLE.into(),
         };
@@ -641,12 +806,26 @@ impl crate::Kernel {
             .map_err(|_| no_room())?;
         self.shared
             .settings
-            .try_reserve(settings, groups)
+            .try_reserve_with_fixed(settings, fixed, groups)
+            .map_err(|_| no_room())?;
+        // The choices it adds to other plugins' settings, with the plugin's
+        // name, and the room for them in the kernel's list (nothing fails
+        // for lack of either once publication starts).
+        let mut choices = Vec::new();
+        choices
+            .try_reserve_exact(staging.choices.len())
+            .map_err(|_| no_room())?;
+        for (setting, value) in staging.choices.drain(..) {
+            let plugin = owner.try_clone().ok_or_else(no_room)?;
+            choices.push((plugin, setting, value));
+        }
+        self.plugin_choices
+            .try_reserve(choices.len())
             .map_err(|_| no_room())?;
         self.reserve_resources(owner, folder, &resources)?;
         // Whatever refuses from here on takes the hyphenation tables out
         // again (nothing else is published before the merge).
-        let published = self.publish_rest(staging, owner, resources);
+        let published = self.publish_rest(staging, owner, resources, choices);
         if published.is_err() {
             self.undo_resources(owner);
         }
@@ -659,21 +838,31 @@ impl crate::Kernel {
         mut staging: crate::registry::Staging,
         owner: &Id,
         resources: super::native_resources::Resources,
+        mut choices: Vec<(Id, Id, alloc::borrow::Cow<'static, str>)>,
     ) -> Result<(), RegisterError> {
         staging.merge_into(&mut self.shared.registry, &mut self.shared.actions)?;
         for setting in staging.settings.drain(..) {
             // Checked above (no duplicate, a default that fits, a place
             // and the room); an error here would be a mistake in those.
-            match setting {
-                crate::registry::Staged::Owned(spec) => self.shared.settings.define(*spec),
-                crate::registry::Staged::Fixed(list, at) => {
-                    self.shared.settings.define_fixed(list, at)
-                }
-            }?;
+            setting.define_in(&mut self.shared.settings)?;
         }
         for group in staging.setting_groups.drain(..) {
             self.shared.settings.add_group(group)?;
         }
+        // The device's defaults for what the plugin has declared (the kernel
+        // was built before it, so they were not known then).
+        self.apply_late_defaults();
+        // The choices it adds to other plugins' settings, as interface 6's
+        // `add_choice` does (the kernel drops one for a setting that does not
+        // exist, a guarded one or a value outside the plugin's namespace, with
+        // a log line). Their `title` is not read here: the declaration store
+        // keeps it for the registry.
+        // (As the settings defined above, they stay if a later step of the
+        // publication fails.)
+        self.plugin_choices.append(&mut choices);
+        self.add_plugin_choices();
+        // After the choices: a configured value can name one.
+        self.apply_late_config();
         self.publish_fonts(owner, resources)
     }
 }
@@ -739,7 +928,14 @@ fn check_registrations<S: Services + 'static, M: 'static>(
 
 fn map_declarations(
     view: &super::declaration_checks::View<'_>,
+    tables: super::FixedTables,
 ) -> Result<(Id, Vec<Owned>, Vec<u32>, bool), i32> {
+    // Entries are numbered in two bytes; a longer table is not used.
+    let fixed = if tables.settings.len() > usize::from(u16::MAX) {
+        &[]
+    } else {
+        tables.settings
+    };
     // The host's own id is reserved: no plugin's action passes for a host
     // one (ui.md 4.3).
     if view.plugin == crate::RESERVED_PLUGIN_ID {
@@ -750,10 +946,35 @@ fn map_declarations(
         _ => ERR_INVALID,
     })?;
     let mut owned = Vec::new();
+    // Room for what will be listed, once: growing by doubling held both
+    // the old and the new list at the registration peak. A setting that a
+    // table in the program stands for takes a place only for a run of them.
+    let mut upcoming = usize::from(!fixed.is_empty());
+    let mut declared_settings = 0;
+    view.visit(&mut |record| match record {
+        Record::SettingSpec(_) if !fixed.is_empty() => declared_settings += 1,
+        Record::ScreenSpec(_)
+        | Record::ActionSpec(_)
+        | Record::SettingSpec(_)
+        | Record::SettingGroup(_)
+        | Record::ResourceFontFace(_)
+        | Record::ResourceFontExtension(_)
+        | Record::ResourceHyphenation(_)
+        | Record::SlotOffer(_) => upcoming += 1,
+        _ => {}
+    })?;
+    owned
+        .try_reserve_exact(upcoming)
+        .map_err(|_| ERR_NO_MEMORY)?;
     // The tokens of what the plugin draws itself (screens, widgets, status
     // items and status lines), which draws may name.
     let mut tokens = Vec::new();
     let mut any = false;
+    // The table entries the plugin's settings stand for.
+    let mut entries: Vec<u16> = Vec::new();
+    entries
+        .try_reserve_exact(fixed.len().min(declared_settings))
+        .map_err(|_| ERR_NO_MEMORY)?;
     let mut result: Result<(), i32> = Ok(());
     view.visit(&mut |record| {
         if result.is_err() {
@@ -769,6 +990,26 @@ fn map_declarations(
                 tokens.push(token);
             }
             if let Some(value) = map_record(view.plugin, record)? {
+                if let Owned::Setting(spec) = &value
+                    && let Some(at) = super::fixed_settings::find(fixed, spec)
+                {
+                    // Equal to an entry of the plugin's table: that entry is
+                    // kept, and the copy made here goes at once. The records
+                    // come in no order the table keeps; the entries are put
+                    // in the table's order below. A setting that matches
+                    // none stays a copy and is published before them.
+                    entries.push(u16::try_from(at).map_err(|_| ERR_INVALID)?);
+                    return Ok(());
+                }
+                let value = match value {
+                    Owned::Group(group) => {
+                        match super::fixed_settings::find_group(tables.groups, &group) {
+                            Some(kept) => Owned::FixedGroup(kept),
+                            None => Owned::Group(group),
+                        }
+                    }
+                    other => other,
+                };
                 owned.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
                 owned.push(value);
             }
@@ -777,6 +1018,12 @@ fn map_declarations(
         })();
     })?;
     result?;
+    if !entries.is_empty() {
+        // In the table's order, which is the order they were declared in.
+        entries.sort_unstable();
+        owned.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        owned.push(Owned::FixedSettings(fixed, entries));
+    }
     // Whether it declared anything is told with the result: a library that only
     // registers callbacks (an event, a tick) is admitted too; one with neither
     // is refused where the registrations are known ([`Kernel::admit_native`]).
@@ -801,6 +1048,47 @@ fn boxed<T>(value: T) -> Result<alloc::boxed::Box<T>, shell::Error> {
     super::shared::try_box(value).ok_or(shell::Error::Status(ERR_NO_MEMORY))
 }
 
+/// How many settings `fixed` (a plugin's table) takes in place of a copy, and
+/// how many stay owned copies, for the declarations in `view`.
+#[cfg(test)]
+pub(super) fn settings_paths(
+    view: &super::declaration_checks::View<'_>,
+    fixed: &'static [paperpaw_sdk::SettingSpec],
+) -> Result<(usize, usize), i32> {
+    let (_, owned, _, _) = map_declarations(view, super::FixedTables::new(fixed, &[]))?;
+    let kept = owned
+        .iter()
+        .map(|value| match value {
+            Owned::FixedSettings(_, entries) => entries.len(),
+            _ => 0,
+        })
+        .sum();
+    let copied = owned
+        .iter()
+        .filter(|value| matches!(value, Owned::Setting(_)))
+        .count();
+    Ok((kept, copied))
+}
+
+/// How many groups `groups` (a plugin's table) takes in place of a copy, and
+/// how many stay owned copies, for the declarations in `view`.
+#[cfg(test)]
+pub(super) fn group_paths(
+    view: &super::declaration_checks::View<'_>,
+    groups: &'static [paperpaw_sdk::SettingGroupSpec],
+) -> Result<(usize, usize), i32> {
+    let (_, owned, _, _) = map_declarations(view, super::FixedTables::new(&[], groups))?;
+    let kept = owned
+        .iter()
+        .filter(|value| matches!(value, Owned::FixedGroup(_)))
+        .count();
+    let copied = owned
+        .iter()
+        .filter(|value| matches!(value, Owned::Group(_)))
+        .count();
+    Ok((kept, copied))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -823,5 +1111,87 @@ mod tests {
             }),
             ERR_INVALID
         );
+    }
+    #[test]
+    fn a_setting_choice_is_taken_as_interface_6_adds_it() {
+        let record = Record::SettingChoice(wire::SettingChoice {
+            key: "sleep.show",
+            value: "vocabulary.sleep-card",
+            title: "vocabulary.sleep-card",
+        });
+        let Ok(Some(Owned::Choice { setting, value })) = map_record("vocabulary", record) else {
+            panic!("a choice is mapped");
+        };
+        assert_eq!(setting.as_str(), "sleep.show");
+        assert_eq!(value, "vocabulary.sleep-card");
+        let mut staging = crate::registry::Staging::default();
+        staging.native_choice(setting, value).unwrap();
+        assert_eq!(staging.choices.len(), 1);
+        assert_eq!(staging.choices[0].1, "vocabulary.sleep-card");
+        // A key that is no id is refused, not dropped.
+        let bad = Record::SettingChoice(wire::SettingChoice {
+            key: "Not An Id",
+            value: "x",
+            title: "x",
+        });
+        assert_eq!(map_record("vocabulary", bad).err(), Some(ERR_INVALID));
+    }
+    /// A kernel with the choice setting `host.show` (one value, `host.plain`)
+    /// and a plugin `vocab` that publishes `choices` for the settings named.
+    fn publish_choices(choices: &[(&'static str, &'static str)]) -> Vec<alloc::string::String> {
+        use paperpaw_sdk::{SettingKind, SettingSpec, SettingValue};
+        static MODES: [&str; 1] = ["host.plain"];
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        let mode = SettingSpec::new(
+            Id::new_static("host.show"),
+            "host.show",
+            SettingKind::Choice((&MODES[..]).into()),
+            SettingValue::Text("host.plain".into()),
+            paperpaw_sdk::builtin::groups::READING_BEHAVIOUR,
+        );
+        kernel.shared.settings.define(mode).unwrap();
+        let owner = Id::new_static("vocab");
+        let mut staging = crate::registry::Staging::default();
+        for (setting, value) in choices {
+            staging
+                .native_choice(Id::new_static(setting), (*value).into())
+                .unwrap();
+        }
+        kernel
+            .publish_native(staging, &owner, "", Default::default())
+            .unwrap();
+        assert!(kernel.plugin_choices.is_empty());
+        let Some(SettingKind::Choice(list)) =
+            kernel.shared.settings.spec("host.show").map(|s| &s.kind)
+        else {
+            panic!("a choice setting");
+        };
+        list.iter().map(alloc::string::String::from).collect()
+    }
+
+    #[test]
+    fn a_published_choice_is_offered_by_the_setting_it_names() {
+        let list = publish_choices(&[("host.show", "vocab.card")]);
+        assert_eq!(list, ["host.plain", "vocab.card"]);
+    }
+
+    #[test]
+    fn a_choice_for_an_unknown_setting_is_dropped_and_the_rest_published() {
+        let list = publish_choices(&[("host.missing", "vocab.card"), ("host.show", "vocab.card")]);
+        assert_eq!(list, ["host.plain", "vocab.card"]);
+    }
+
+    #[test]
+    fn a_duplicate_choice_or_one_outside_the_plugins_namespace_is_refused() {
+        // Twice: once. A value of another plugin's namespace: not added.
+        let list = publish_choices(&[
+            ("host.show", "vocab.card"),
+            ("host.show", "vocab.card"),
+            ("host.show", "other.card"),
+            ("host.show", "host.plain"),
+        ]);
+        assert_eq!(list, ["host.plain", "vocab.card"]);
     }
 }

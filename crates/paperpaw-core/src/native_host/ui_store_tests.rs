@@ -556,3 +556,56 @@ fn a_handed_file_goes_with_its_instance_and_a_busy_store_is_a_state_error() {
     s.instance_closed(6).unwrap();
     assert_eq!(handed(&s, 6), Err(ERR_DENIED));
 }
+
+#[test]
+fn the_host_makes_the_hand_over_of_a_dialog_with_the_params_a_plugin_cannot() {
+    let s = store();
+    // Op 16 refuses a `core.` key to a plugin.
+    assert_eq!(
+        s.handover_make(who(1, 1), &[p("core.request", "7")]),
+        Err(ERR_INVALID)
+    );
+    let id = s.handover_dialog("7", "0").unwrap();
+    // Claimed, so the stack's attach gives it to the dialog's instance.
+    s.attach(Some(id), 5).unwrap();
+    assert_eq!(
+        read_params(&s, 5, id).unwrap(),
+        [
+            ("core.request".into(), "7".into()),
+            ("core.kind".into(), "0".into())
+        ]
+    );
+    // One no screen took is freed by the release.
+    let loose = s.handover_dialog("8", "0").unwrap();
+    s.release(loose).unwrap();
+    assert_eq!(s.attach(Some(loose), 6), Err(ERR_STATE));
+}
+
+#[test]
+fn a_full_table_of_plugins_hand_overs_leaves_room_for_the_hosts_dialogs() {
+    let mut limits = Limits::ELSEWHERE;
+    limits.handovers = 1;
+    let s = UiStore::new(limits);
+    s.handover_make(who(1, 1), &[p("k", "v")]).unwrap();
+    // The plugins' table is full: another of theirs is refused.
+    assert_eq!(s.handover_make(who(1, 1), &[p("k", "w")]), Err(ERR_FULL));
+    // The host's dialogs still open, up to the room it has.
+    s.handover_dialog("1", "0").unwrap();
+    s.handover_dialog("2", "0").unwrap();
+    assert_eq!(s.handover_dialog("3", "0"), Err(ERR_FULL));
+}
+
+#[test]
+fn a_plugin_that_fills_the_params_pool_leaves_room_for_the_hosts_dialogs() {
+    let mut limits = Limits::ELSEWHERE;
+    limits.params_bytes = 300;
+    let s = UiStore::new(limits);
+    // One long value fills the pool as far as it goes.
+    let long = "x".repeat(250);
+    s.handover_make(who(1, 1), &[p("k", &long)]).unwrap();
+    assert_eq!(s.handover_make(who(1, 1), &[p("j", &long)]), Err(ERR_FULL));
+    // The host's dialog still gets its hand-over.
+    let id = s.handover_dialog("1", "0").unwrap();
+    s.attach(Some(id), 3).unwrap();
+    assert_eq!(read_params(&s, 3, id).unwrap().len(), 2);
+}

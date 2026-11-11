@@ -356,6 +356,20 @@
       "max_input": 256,
       "max_reply": 4096,
       "bound": "none"
+    },
+    {
+      "id": 22,
+      "name": "report",
+      "since": 0,
+      "effect": "mutate",
+      "feature": null,
+      "input": [
+        "service.doc_report"
+      ],
+      "reply": [],
+      "max_input": 1024,
+      "max_reply": 64,
+      "bound": "none"
     }
   ]
 }

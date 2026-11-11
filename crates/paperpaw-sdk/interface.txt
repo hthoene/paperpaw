@@ -3,10 +3,10 @@
 # without native::INTERFACE raised. Written by `PAPERPAW_BLESS=1
 # cargo test -p paperpaw-sdk --test interface`.
 interface = 7
-draft = 35
+draft = 36
 linker = b979ebf89df9ea9f
 x4 = rustc 1.99.0
 x4-pro = esp 1.97.0.0
 android = rustc 1.99.0
 third-party = ed25519-compact 2.6.0, font-types 0.12.7, miniz_oxide 0.9.1, read-fonts 0.45.1, skrifa 0.48.0
-fingerprint = x86_64 00078155e5a78fb8
+fingerprint = x86_64 0007f2953232969f

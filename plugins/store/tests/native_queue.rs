@@ -266,6 +266,7 @@ fn the_dialog_names_plugins_by_the_listing_not_by_the_ask() {
     let hooks = Hooks {
         author_of: &nobody,
         stopped: &none,
+        host_checks: false,
     };
     take(&storage, "list.json", device, hooks).unwrap().unwrap();
     let got = entries(&storage, &ask).unwrap();

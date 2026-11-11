@@ -101,14 +101,67 @@
     {
       "kind": "callback",
       "name": "input"
+    },
+    {
+      "kind": "host",
+      "name": "font.acquire"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.fill_rect"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.draw_line"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.fill_round"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.stroke_round"
+    },
+    {
+      "kind": "host",
+      "name": "text.measure"
+    },
+    {
+      "kind": "host",
+      "name": "text.draw"
+    },
+    {
+      "kind": "host",
+      "name": "text.metrics"
+    },
+    {
+      "kind": "host",
+      "name": "text.ink"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.clip"
     }
   ],
   "services": [
     "core.device",
+    "core.library",
     "core.net",
+    "core.ui",
     "core.work"
   ],
   "features": [
-    "uses.network"
+    {
+      "key": "uses.library",
+      "required": false
+    },
+    {
+      "key": "uses.network",
+      "required": false
+    },
+    {
+      "key": "uses.storage",
+      "required": false
+    }
   ]
 }

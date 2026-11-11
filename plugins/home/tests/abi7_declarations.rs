@@ -275,10 +275,14 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert_eq!(native.needs, ["home.focus-at-once|NoTouch"]);
     assert_eq!(native.actions, old.actions);
     assert_eq!(native.actions.len(), 2);
-    // The setting changes (the grid) and the minute tick (the time shown), in
-    // either order.
-    assert_eq!(native.events.len(), 2, "{:?}", native.events);
-    for token in [declarations::SETTING_CHANGED, declarations::TICK] {
+    // The setting changes (the grid), the minute tick (the time shown) and a
+    // widget that changed (`event.widget_changed`), in any order.
+    assert_eq!(native.events.len(), 3, "{:?}", native.events);
+    for token in [
+        declarations::SETTING_CHANGED,
+        declarations::TICK,
+        declarations::WIDGET_CHANGED,
+    ] {
         assert!(
             native
                 .events
@@ -290,4 +294,34 @@ fn the_decoded_batches_say_what_the_registration_says() {
     }
     // Nothing else was declared.
     assert!(native.others.is_empty(), "{:?}", native.others);
+}
+
+#[test]
+fn the_dashboards_help_hints_are_declared_and_worded_in_both_languages() {
+    // The nine hints of interface 6 (five for touch, four for buttons), in batches
+    // the host admits.
+    let batches = batches(|d| declarations::help(d).unwrap());
+    assert!(!batches.is_empty());
+    for key in [
+        "quick", "back", "home", "tools", "arrange", "move", "select", "menu", "panel",
+    ] {
+        let key = format!("home.tips.{key}");
+        assert!(
+            batches
+                .iter()
+                .any(|b| b.windows(key.len()).any(|w| w == key.as_bytes())),
+            "{key} declared"
+        );
+    }
+    for text in [
+        include_str!("../i18n/en.ini"),
+        include_str!("../i18n/de.ini"),
+    ] {
+        for key in [
+            "quick", "back", "home", "tools", "arrange", "move", "select", "menu", "panel",
+        ] {
+            let key = format!("home.tips.{key} =");
+            assert!(text.lines().any(|l| l.starts_with(&key)), "{key}");
+        }
+    }
 }

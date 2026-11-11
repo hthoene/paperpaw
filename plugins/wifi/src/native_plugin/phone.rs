@@ -33,7 +33,7 @@ use paperpaw_ui_kit::{
     text::{concat, copy},
 };
 
-use super::{Info, NativeWifi, PHONE_TOKEN, View};
+use super::{Named, NativeWifi, PHONE_TOKEN, View};
 use crate::native_own::{self, Own};
 use crate::native_phone::{
     Action, Effect, Failed, MAX_FORM, PORT, Page, Phone, Radio as PhoneRadio, Stage, Step,
@@ -318,7 +318,7 @@ impl NativeWifi {
 
     /// What the radio says, for the setup's decisions.
     fn with_radio<T>(
-        info: &Info,
+        info: &Named,
         f: impl FnOnce(&PhoneRadio<'_>) -> Result<T, Error>,
     ) -> Result<T, Error> {
         let radio = PhoneRadio {
@@ -357,7 +357,7 @@ impl NativeWifi {
     /// The radio changed: the own network opened, a phone joined, a network
     /// joined.
     pub(super) fn phone_changed(&mut self, host: &Host<'_>, now: u64) -> Result<(), Error> {
-        let info = self.read_info(host)?;
+        let info = self.read_named(host)?;
         self.phone_step(host, |phone| {
             Self::with_radio(&info, |radio| phone.radio_changed(now, radio))
         })
@@ -394,7 +394,7 @@ impl NativeWifi {
 
     /// The screen's timer came due.
     pub(super) fn phone_wake(&mut self, host: &Host<'_>, now: u64) -> Result<(), Error> {
-        let info = self.read_info(host)?;
+        let info = self.read_named(host)?;
         self.phone_step(host, |phone| {
             Self::with_radio(&info, |radio| phone.timer(now, radio))
         })
@@ -402,7 +402,7 @@ impl NativeWifi {
 
     /// A button: `Some` where it was the setup's.
     pub(super) fn phone_action(&mut self, host: &Host<'_>, action: Action) -> Result<bool, Error> {
-        let info = self.read_info(host)?;
+        let info = self.read_named(host)?;
         let Some(View::Phone(view)) = self.screens.top(PHONE_TOKEN) else {
             return Ok(false);
         };
@@ -454,7 +454,7 @@ impl NativeWifi {
     /// The screen closed: the page is not served, the own network closed, the
     /// radio as the user left it.
     pub(super) fn phone_closed(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        let info = self.read_info(host)?;
+        let info = self.read_named(host)?;
         let Some(View::Phone(view)) = self.screens.top(PHONE_TOKEN) else {
             return Ok(());
         };

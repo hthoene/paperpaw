@@ -28,6 +28,7 @@ macro_rules! book {
             chapter: $r.chapter,
             page: $r.page,
             pages: $r.pages,
+            chapter_left: $r.chapter_left,
         }
         .validate()?;
         let kind = BookKind::$kind;
@@ -188,9 +189,9 @@ event_fn!(served_request, wire::EventServedRequest<'_>, |r| {
     Event::ServedRequest(ServedRequest::decode(r)?)
 });
 
-event_fn!(image_ready, wire::EventImageReady, |r| Event::ImageReady(
-    ImageReady::decode(r)?
-));
+event_fn!(image_ready, wire::EventImageReady<'_>, |r| {
+    Event::ImageReady(ImageReady::decode(r)?)
+});
 
 event_fn!(socket, wire::EventSocket, |r| Event::Socket(
     SocketEvent::decode(r)?

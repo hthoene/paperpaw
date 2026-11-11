@@ -5,12 +5,29 @@ use alloc::string::ToString;
 use alloc::vec::Vec;
 use paperpaw_sdk::served::{LOCKED_FOR, WRONG_KEYS};
 
+/// The card as the host shows it. The files of a book format are books: they
+/// go through the library, which a log tells (`library.move`, `files.move`,
+/// ...), and `fail` is what the host refuses a change with.
 #[derive(Default)]
 struct Fake {
     entries: Vec<(String, bool, u64)>,
     free: Option<u64>,
     puts: Vec<(Option<String>, String)>,
+    log: Vec<String>,
+    fail: Option<Error>,
 }
+
+/// The fixtures and the log are the test's, not the code's allocations.
+fn kept<T>(build: impl FnOnce() -> T) -> T {
+    crate::fail_alloc::exempt(build)
+}
+
+fn is_book(path: &str) -> bool {
+    files::has_extension(path, "epub")
+}
+
+/// The library's folder, as the card's setting says.
+const LIBRARY: &str = "Books";
 
 impl Fake {
     fn with(entries: &[(&str, bool, u64)]) -> Self {
@@ -20,8 +37,16 @@ impl Fake {
                 .map(|(path, dir, size)| (path.to_string(), *dir, *size))
                 .collect(),
             free: Some(1 << 30),
-            puts: Vec::new(),
+            ..Self::default()
         }
+    }
+
+    fn has(&self, path: &str) -> bool {
+        self.entries.iter().any(|(at, ..)| at == path)
+    }
+
+    fn refuse(&self) -> Result<(), Error> {
+        self.fail.map_or(Ok(()), Err)
     }
 }
 
@@ -50,22 +75,68 @@ impl Card for Fake {
         Ok(())
     }
     fn make_dir(&mut self, path: &str) -> Result<(), Error> {
-        self.entries.push((path.to_string(), true, 0));
+        kept(|| self.entries.push((path.to_string(), true, 0)));
         Ok(())
     }
-    fn remove(&mut self, path: &str) -> Result<(), Error> {
-        let below = alloc::format!("{path}/");
-        self.entries
-            .retain(|(at, ..)| at != path && !at.starts_with(&below));
+    fn remove(&mut self, path: &str, is_dir: bool) -> Result<(), Error> {
+        self.refuse()?;
+        let book = !is_dir && is_book(path);
+        kept(|| {
+            self.log.push(alloc::format!(
+                "{} {path}",
+                if book {
+                    "library.delete"
+                } else {
+                    "files.remove"
+                }
+            ));
+            let below = alloc::format!("{path}/");
+            self.entries
+                .retain(|(at, ..)| at != path && !at.starts_with(&below));
+        });
+        Ok(())
+    }
+    fn move_to(&mut self, from: &str, to: &str, is_dir: bool) -> Result<(), Error> {
+        self.refuse()?;
+        if self.has(to) {
+            return Err(Error::State);
+        }
+        let book = !is_dir && is_book(from);
+        kept(|| {
+            self.log.push(alloc::format!(
+                "{} {from} -> {to}",
+                if book { "library.move" } else { "files.move" }
+            ));
+            let below = alloc::format!("{from}/");
+            for (at, ..) in &mut self.entries {
+                if at == from {
+                    *at = to.to_string();
+                } else if let Some(rest) = at.strip_prefix(&below) {
+                    *at = alloc::format!("{to}/{rest}");
+                }
+            }
+        });
         Ok(())
     }
     fn free(&mut self) -> Result<Option<u64>, Error> {
         Ok(self.free)
     }
-    fn put(&mut self, body: Option<&str>, path: &str) -> Result<(), Error> {
-        self.puts.push((body.map(str::to_string), path.to_string()));
-        self.entries.push((path.to_string(), false, 1));
-        Ok(())
+    fn put(&mut self, body: Option<&str>, path: &str) -> Result<String, Error> {
+        self.refuse()?;
+        let book = body.is_some()
+            && is_book(path)
+            && files::parent(path)
+                .get(..LIBRARY.len())
+                .is_some_and(|start| start.eq_ignore_ascii_case(LIBRARY));
+        kept(|| {
+            self.log.push(alloc::format!(
+                "{} {path}",
+                if book { "library.import" } else { "files.put" }
+            ));
+            self.puts.push((body.map(str::to_string), path.to_string()));
+            self.entries.push((path.to_string(), false, 1));
+            Ok(path.to_string())
+        })
     }
 }
 
@@ -337,18 +408,363 @@ fn a_folder_is_made_in_a_free_place_and_deleting_takes_what_is_in_it() {
 }
 
 #[test]
-fn moving_is_said_to_be_missing() {
+fn the_key_is_asked_for_first_and_unknown_requests_are_not_found() {
     let mut card = Fake::with(&[("a.epub", false, 5)]);
     assert_eq!(
-        run(&mut card, "POST", "/api/move?k=key&path=a.epub&to=")
-            .0
-            .status,
-        501
+        run(&mut card, "POST", "/api/move?path=a.epub&to=").0.status,
+        403
     );
-    // The key is asked for first, for the plugin requests too.
     assert_eq!(run(&mut card, "GET", "/api/plugins").0.status, 403);
     assert_eq!(run(&mut card, "GET", "/api/other?k=key").0.status, 404);
     assert_eq!(card.entries.len(), 1);
+}
+
+fn mv(card: &mut Fake, target: &str) -> Outcome {
+    run(card, "POST", &alloc::format!("/api/move?k=key&{target}"))
+}
+
+fn moved(card: &mut Fake, target: &str, name: &str) {
+    let (answer, done) = mv(card, target);
+    assert_eq!(answer.status, 200, "{target}");
+    assert_eq!(done, Some((Done::Moved, name.to_string())), "{target}");
+}
+
+#[test]
+fn a_file_is_moved_to_a_folder_and_renamed() {
+    let mut card = Fake::with(&[
+        ("Notes", true, 0),
+        ("Notes/old.txt", false, 5),
+        ("a.txt", false, 3),
+    ]);
+    moved(&mut card, "path=a.txt&to=Notes", "a.txt");
+    assert!(card.has("Notes/a.txt") && !card.has("a.txt"));
+    // Back to the top, under a new name: a rename.
+    moved(
+        &mut card,
+        "path=Notes%2Fa.txt&to=&name=b%20c.txt",
+        "b c.txt",
+    );
+    assert!(card.has("b c.txt") && !card.has("Notes/a.txt"));
+    // Renamed where it is.
+    moved(&mut card, "path=b%20c.txt&to=&name=d.txt", "d.txt");
+    // Not a book: the card's move, which the host's library follows.
+    assert_eq!(
+        card.log,
+        [
+            "files.move a.txt -> Notes/a.txt",
+            "files.move Notes/a.txt -> b c.txt",
+            "files.move b c.txt -> d.txt"
+        ]
+    );
+}
+
+#[test]
+fn a_book_is_moved_by_the_library_with_all_that_is_kept_for_it() {
+    let mut card = Fake::with(&[("Books", true, 0), ("Books/a.epub", false, 5)]);
+    moved(&mut card, "path=Books%2Fa.epub&to=&name=b.epub", "b.epub");
+    moved(&mut card, "path=b.epub&to=Books", "b.epub");
+    assert_eq!(
+        card.log,
+        [
+            "library.move Books/a.epub -> b.epub",
+            "library.move b.epub -> Books/b.epub"
+        ]
+    );
+}
+
+#[test]
+fn a_folder_is_moved_whole_by_the_card_whatever_is_in_it() {
+    let mut card = Fake::with(&[
+        ("Books", true, 0),
+        ("Books/Old", true, 0),
+        ("Books/Old/a.epub", false, 5),
+        ("Shelf", true, 0),
+    ]);
+    moved(&mut card, "path=Books%2FOld&to=Shelf", "Old");
+    assert!(card.has("Shelf/Old/a.epub") && !card.has("Books/Old"));
+    // The host's library follows a folder; no book is asked about.
+    assert_eq!(card.log, ["files.move Books/Old -> Shelf/Old"]);
+}
+
+#[test]
+fn nothing_is_moved_over_what_is_there() {
+    let mut card = Fake::with(&[
+        ("a.epub", false, 5),
+        ("Books", true, 0),
+        ("Books/a.epub", false, 6),
+        ("Books/a (2).epub", false, 7),
+        ("Dir", true, 0),
+        ("Books/Dir", true, 0),
+    ]);
+    moved(&mut card, "path=a.epub&to=Books", "a (3).epub");
+    assert!(card.has("Books/a (3).epub") && card.has("Books/a.epub"));
+    // A folder over a folder; a rename to a taken name.
+    moved(&mut card, "path=Dir&to=Books", "Dir (2)");
+    moved(
+        &mut card,
+        "path=Books%2Fa.epub&to=Books&name=A%20%282%29.EPUB",
+        "A (2) (2).EPUB",
+    );
+    assert!(card.has("Books/A (2) (2).EPUB") && card.has("Books/a (3).epub"));
+}
+
+#[test]
+fn the_same_place_is_no_change() {
+    let mut card = Fake::with(&[("Books", true, 0), ("Books/a.epub", false, 5)]);
+    for target in [
+        "path=Books%2Fa.epub&to=Books",
+        "path=Books%2Fa.epub&to=books&name=A.EPUB",
+        "path=Books%2Fa.epub&to=Books%2F&name=a.epub",
+        "path=Books&to=",
+    ] {
+        let (answer, done) = mv(&mut card, target);
+        assert_eq!((answer.status, done), (200, None), "{target}");
+    }
+    assert!(card.log.is_empty());
+}
+
+#[test]
+fn a_folder_never_goes_into_itself() {
+    let mut card = Fake::with(&[
+        ("A", true, 0),
+        ("A/B", true, 0),
+        ("A/B/C", true, 0),
+        ("AB", true, 0),
+    ]);
+    for target in [
+        "path=A&to=A%2FB%2FC",
+        "path=A&to=A%2FB",
+        "path=A%2FB&to=a%2Fb%2FC",
+    ] {
+        assert_eq!(mv(&mut card, target).0.status, 400, "{target}");
+    }
+    // Another folder that starts the same is another folder.
+    moved(&mut card, "path=A&to=AB", "A");
+    assert!(card.has("AB/A/B/C"));
+    assert_eq!(card.log.len(), 1);
+}
+
+#[test]
+fn the_settings_are_neither_moved_nor_a_target() {
+    let mut card = Fake::with(&[
+        ("paperpaw.ini", false, 5),
+        ("Books", true, 0),
+        ("Books/a.txt", false, 1),
+    ]);
+    for target in [
+        "path=paperpaw.ini&to=Books",
+        "path=PaperPaw.INI&to=&name=x.ini",
+        "path=PaperPaw.INI&to=Books&name=x.ini",
+    ] {
+        let (answer, done) = mv(&mut card, target);
+        assert_eq!((answer.status, done), (403, None), "{target}");
+    }
+    // Taken: the free name is not the settings.
+    moved(
+        &mut card,
+        "path=Books%2Fa.txt&to=&name=PAPERPAW.INI",
+        "PAPERPAW (2).INI",
+    );
+    assert!(card.has("paperpaw.ini"));
+    // Not there (a card without it): nothing is moved to be it.
+    let mut card = Fake::with(&[("Books", true, 0), ("Books/a.txt", false, 1)]);
+    let (answer, done) = mv(&mut card, "path=Books%2Fa.txt&to=&name=PAPERPAW.INI");
+    assert_eq!((answer.status, done), (403, None));
+    assert!(card.has("Books/a.txt") && card.log.is_empty());
+}
+
+#[test]
+fn the_target_must_be_a_folder_that_is_there_and_the_source_something_there() {
+    let mut card = Fake::with(&[("a.txt", false, 1), ("b.txt", false, 1), ("Books", true, 0)]);
+    for (target, status) in [
+        ("path=a.txt&to=none", 404),
+        ("path=a.txt&to=b.txt", 404),
+        ("path=none&to=Books", 404),
+        // Not everything at once.
+        ("to=Books", 404),
+        ("path=&to=Books", 404),
+        // The folder is not made on the way.
+        ("path=a.txt&to=Books%2Fnew", 404),
+    ] {
+        assert_eq!(mv(&mut card, target).0.status, status, "{target}");
+    }
+    assert!(card.log.is_empty());
+}
+
+#[test]
+fn hostile_names_and_paths_are_refused_before_the_card_is_asked() {
+    let mut card = Fake::with(&[("a.txt", false, 1), ("Books", true, 0)]);
+    for target in [
+        "path=a.txt&to=&name=..",
+        "path=a.txt&to=&name=..%2Fx",
+        "path=a.txt&to=&name=x%2Fy",
+        "path=a.txt&to=&name=x%5Cy",
+        "path=a.txt&to=&name=.hidden",
+        "path=a.txt&to=&name=x.",
+        "path=a.txt&to=&name=%20x",
+        "path=a.txt&to=&name=a%00b",
+        "path=a.txt&to=&name=a%3Ab",
+        "path=a.txt&to=&name=",
+        "path=a.txt&to=&name=%ff",
+        "path=..%2Fa.txt&to=",
+        "path=a.txt&to=..",
+        "path=a.txt&to=Books%2F..%2F..",
+        "path=a.txt&to=.paperpaw",
+        "path=.paperpaw&to=Books",
+        "path=a.txt&to=plugins",
+        "path=plugins&to=Books",
+    ] {
+        assert_eq!(mv(&mut card, target).0.status, 400, "{target}");
+    }
+    assert!(card.log.is_empty());
+    assert!(card.has("a.txt"));
+}
+
+#[test]
+fn what_the_host_refuses_a_change_with_is_said() {
+    for (error, status) in [
+        (Error::Busy, 409),
+        (Error::State, 409),
+        (Error::Denied, 403),
+        (Error::Full, 507),
+        (Error::NoMemory, 503),
+        (Error::Io, 500),
+    ] {
+        let mut card = Fake::with(&[("a.epub", false, 1), ("b.txt", false, 1), ("D", true, 0)]);
+        card.fail = Some(error);
+        for target in [
+            "/api/move?k=key&path=a.epub&to=D",
+            "/api/move?k=key&path=b.txt&to=D",
+            "/api/move?k=key&path=D&to=&name=E",
+            "/api/delete?k=key&path=a.epub",
+            "/api/delete?k=key&path=D",
+        ] {
+            let (answer, done) = run(&mut card, "POST", target);
+            assert_eq!((answer.status, done), (status, None), "{error:?} {target}");
+        }
+        // The host's own answers are said as plain words.
+        let (answer, done) = run(&mut card, "PUT", "/api/file?k=key&path=x.epub");
+        assert_eq!(answer.status, status, "{error:?}");
+        assert_eq!(done, Some((Done::NotReceived, "x.epub".to_string())));
+        assert_eq!(card.entries.len(), 3);
+    }
+    // A move onto a name taken meanwhile is the host's `State`.
+    let mut card = Fake::with(&[("a.txt", false, 1), ("D", true, 0), ("D/a.txt", false, 1)]);
+    assert_eq!(card.move_to("a.txt", "D/a.txt", false), Err(Error::State));
+    assert_eq!(Fail::from(Error::Busy).1, "busy, try again");
+}
+
+#[test]
+fn deleting_a_book_goes_through_the_library_and_a_folder_through_the_card() {
+    let mut card = Fake::with(&[
+        ("Books", true, 0),
+        ("Books/a.epub", false, 5),
+        ("Books/b.txt", false, 5),
+        ("Books/Old", true, 0),
+        ("Books/Old/c.epub", false, 5),
+    ]);
+    for (path, name) in [
+        ("Books%2Fa.epub", "a.epub"),
+        ("Books%2Fb.txt", "b.txt"),
+        ("Books%2FOld", "Old"),
+    ] {
+        let (answer, done) = run(
+            &mut card,
+            "POST",
+            &alloc::format!("/api/delete?k=key&path={path}"),
+        );
+        assert_eq!(
+            (answer.status, done),
+            (200, Some((Done::Deleted, name.to_string())))
+        );
+    }
+    assert_eq!(
+        card.log,
+        [
+            "library.delete Books/a.epub",
+            "files.remove Books/b.txt",
+            "files.remove Books/Old"
+        ]
+    );
+    assert_eq!(card.entries.len(), 1);
+}
+
+#[test]
+fn a_book_sent_into_the_library_folder_is_imported_and_others_are_put() {
+    let mut card = Fake::with(&[
+        ("Books", true, 0),
+        ("Books/Sub", true, 0),
+        ("Other", true, 0),
+    ]);
+    for (path, name) in [
+        ("Books%2Fa.epub", "a.epub"),
+        ("Books%2FSub%2Fb.epub", "b.epub"),
+        ("Other%2Fc.epub", "c.epub"),
+        ("Books%2Fd.txt", "d.txt"),
+    ] {
+        let (answer, done) = run(
+            &mut card,
+            "PUT",
+            &alloc::format!("/api/file?k=key&path={path}"),
+        );
+        assert_eq!(
+            (answer.status, done),
+            (200, Some((Done::Received, name.to_string())))
+        );
+    }
+    assert_eq!(
+        card.log,
+        [
+            "library.import Books/a.epub",
+            "library.import Books/Sub/b.epub",
+            "files.put Other/c.epub",
+            "files.put Books/d.txt"
+        ]
+    );
+}
+
+/// Every refusal of memory is an answer, never an abort, and a change is
+/// whole or not made.
+#[test]
+fn memory_that_runs_short_is_refused_not_aborted() {
+    let requests = [
+        ("GET", "/api/list?k=key&path=Books"),
+        (
+            "POST",
+            "/api/move?k=key&path=Books%2Fa.epub&to=Shelf&name=b.epub",
+        ),
+        ("POST", "/api/move?k=key&path=Books%2Fa.txt&to=Shelf"),
+        ("POST", "/api/move?k=key&path=Shelf&to=Books"),
+        ("POST", "/api/move?k=key&path=Books%2Fa.epub&to=Books"),
+        ("POST", "/api/delete?k=key&path=Books%2Fa.epub"),
+        ("POST", "/api/delete?k=key&path=Shelf"),
+        ("POST", "/api/mkdir?k=key&path=Shelf"),
+        ("PUT", "/api/file?k=key&path=Books%2Fa.epub"),
+    ];
+    for (method, target) in requests {
+        crate::fail_alloc::sweep(|| {
+            let (mut card, mut guard) = kept(|| {
+                let card = Fake::with(&[
+                    ("Books", true, 0),
+                    ("Books/a.epub", false, 5),
+                    ("Books/a.txt", false, 5),
+                    ("Shelf", true, 0),
+                ]);
+                (card, Guard::new("key".to_string()))
+            });
+            let before = card.entries.len();
+            let (answer, _) = ask(&mut card, &mut guard, method, target);
+            match answer.status {
+                200 => Ok(()),
+                503 => {
+                    // Nothing half done: a refused change is no change.
+                    assert!(card.log.is_empty() && card.entries.len() == before);
+                    Err(Error::NoMemory)
+                }
+                other => panic!("{method} {target}: {other}"),
+            }
+        });
+    }
 }
 
 #[test]

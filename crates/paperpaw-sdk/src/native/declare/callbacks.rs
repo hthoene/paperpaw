@@ -101,6 +101,12 @@ pub enum EventKind {
     /// A lookup provider's pending answer is kept (`event.lookup_ready`). Needed
     /// for the host to remember an ask that comes back `pending`.
     LookupReady,
+    /// A widget instance of this plugin changed (`event.widget_changed`, ui.md 5.2): a
+    /// widget a screen shows says its content changed, so the plugin refreshes its view.
+    WidgetChanged,
+    /// The host's answer to text handed to `command.speak` (`event.spoken`, ui.md 7):
+    /// it goes only to plugins that subscribed.
+    Spoken,
 }
 
 impl EventKind {
@@ -150,6 +156,8 @@ impl EventKind {
             Self::WorkRefused => records_wire::EVENT_WORK_REFUSED_TAG,
             Self::WorkAllowed => records_wire::EVENT_WORK_ALLOWED_TAG,
             Self::LookupReady => records_wire::EVENT_LOOKUP_READY_TAG,
+            Self::WidgetChanged => records_wire::EVENT_WIDGET_CHANGED_TAG,
+            Self::Spoken => records_wire::EVENT_SPOKEN_TAG,
         }
     }
 }

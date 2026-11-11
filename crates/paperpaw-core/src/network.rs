@@ -90,6 +90,7 @@ impl Kernel {
                 wifi.networks = networks;
                 wifi.scanning = false;
                 self.output.commands.push(events::WIFI_SCANNED.emit(()));
+                self.native_hint(crate::native_host::registrations::EVENT_WIFI_SCANNED_TAG);
             }
             WifiEvent::Failed { ssid, reason } => {
                 self.output
@@ -134,10 +135,12 @@ impl Kernel {
             return;
         };
         let waiting = work && !wifi.state.is_online();
+        let (mut wanted, mut idle) = (false, false);
         match (waiting, self.io.network_waiting) {
             (true, None) => {
                 self.io.network_waiting = Some(self.now);
                 self.output.commands.push(events::NETWORK_WANTED.emit(()));
+                wanted = true;
             }
             (false, Some(_)) => self.io.network_waiting = None,
             _ => {}
@@ -150,8 +153,16 @@ impl Kernel {
         wifi.busy = busy;
         if self.io.network_busy && !busy {
             self.output.commands.push(events::NETWORK_IDLE.emit(()));
+            idle = true;
         }
         self.io.network_busy = busy;
+        // The native network manager hears the same (`device.md` section 3).
+        if wanted {
+            self.native_hint(crate::native_host::registrations::EVENT_NETWORK_WANTED_TAG);
+        }
+        if idle {
+            self.native_hint(crate::native_host::registrations::EVENT_NETWORK_IDLE_TAG);
+        }
     }
 
     /// When network work that waits fails, if it does not get one first.
@@ -421,7 +432,7 @@ impl Kernel {
 
     /// Answers a [`Command::ReadClipboard`] with the text known here.
     pub(crate) fn reply_clipboard(&mut self, reply: Id, params: Params) {
-        let typed = paperpaw_sdk::Typed::new(self.shared.clipboard.clone(), params);
+        let typed = paperpaw_sdk::Typed::new(self.shared.clipboard.get(), params);
         self.output
             .commands
             .push(Command::Emit(reply, typed.to_params()));
@@ -466,7 +477,7 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         self.now = now;
         if let Some(text) = text {
-            self.shared.clipboard = crate::commands::clipped(&text);
+            self.shared.clipboard.set(crate::commands::clipped(&text));
         }
         for (reply, params) in self.io.clipboard.answered() {
             self.reply_clipboard(reply, params);
