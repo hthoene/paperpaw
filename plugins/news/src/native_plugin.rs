@@ -3,7 +3,7 @@
 //! `native_book`), and the work that fetches them in the background. The
 //! screen, the library import (the shelf) and the headlines widget follow
 //! (`PORTING-7.md`).
-use alloc::string::String;
+use alloc::{string::String, vec::Vec};
 use core::cell::RefCell;
 
 use paperpaw_sdk::Handled;
@@ -41,9 +41,9 @@ mod image {
     include!(concat!(env!("OUT_DIR"), "/news_declarations.rs"));
 }
 
-/// The interface-7 news plugin.
+/// The news plugin's state: made at the first need ([`NativeNews`]).
 #[derive(Debug, Default)]
-pub struct NativeNews {
+pub(crate) struct News {
     fetcher: Fetcher,
     shelf: Shelved,
     pub(crate) handles: Handles,
@@ -203,6 +203,29 @@ impl Volume for DataVolume<'_, '_> {
     }
 }
 
+/// The interface-7 news plugin. Idle, only the pointer to the state is held;
+/// the state (the fetch, the shelf, the handles, the screens and the widget) is
+/// made by the first event that needs it and kept.
+#[derive(Debug, Default)]
+pub struct NativeNews {
+    /// None before the first need; at most one.
+    state: Vec<News>,
+}
+
+impl NativeNews {
+    fn state(&mut self) -> Result<&mut News, Error> {
+        if self.state.is_empty() {
+            self.state
+                .try_reserve_exact(1)
+                .map_err(|_| Error::NoMemory)?;
+            // Made in place: built as a value first, it would be on the stack
+            // as large as it is, deep in a callback.
+            self.state.resize_with(1, News::default);
+        }
+        self.state.first_mut().ok_or(Error::State)
+    }
+}
+
 impl Plugin for NativeNews {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
         for batch in image::SETTINGS
@@ -225,6 +248,42 @@ impl Plugin for NativeNews {
         Ok(Self::default())
     }
 
+    fn event(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        incoming: Incoming<'_>,
+        reply: &mut Reply<'_>,
+    ) -> Result<(), Error> {
+        // Without state, the action that opens the list needs none.
+        if self.state.is_empty() && token == OPEN_TOKEN {
+            return open_list(host);
+        }
+        self.state()?.event(host, token, incoming, reply)
+    }
+
+    fn draw(&mut self, host: &Host<'_>, token: u32, frame: DrawFrame<'_>) -> Result<(), Error> {
+        self.state
+            .first_mut()
+            .ok_or(Error::State)?
+            .draw(host, token, frame)
+    }
+
+    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        match self.state.first_mut() {
+            Some(state) => state.input(host, token, input),
+            None => Ok(Handled::No),
+        }
+    }
+}
+
+/// Asks for the list of feeds.
+fn open_list(host: &Host<'_>) -> Result<(), Error> {
+    let mut scratch = [0; 128];
+    CommandSender::new(host, &mut scratch).open(Open::screen("news.list")?)
+}
+
+impl News {
     fn event(
         &mut self,
         host: &Host<'_>,
@@ -260,10 +319,7 @@ impl Plugin for NativeNews {
                         _ => Ok(()),
                     })
             }
-            Event::ActionRun { .. } if token == OPEN_TOKEN => {
-                let mut scratch = [0; 128];
-                CommandSender::new(host, &mut scratch).open(Open::screen("news.list")?)
-            }
+            Event::ActionRun { .. } if token == OPEN_TOKEN => open_list(host),
             Event::WorkDue(_) if token == WORK_TOKEN => self.start(host, 0, true),
             Event::HttpDone(done) if token == HTTP_TOKEN => {
                 let ended = self.ended(host, &done);
@@ -334,7 +390,7 @@ impl Plugin for NativeNews {
     }
 }
 
-impl NativeNews {
+impl News {
     /// Starts a fetch and says how it went.
     pub(crate) fn start(&mut self, host: &Host<'_>, from: usize, all: bool) -> Result<(), Error> {
         let mut wire = HostWire::new(host, &mut self.handles);
