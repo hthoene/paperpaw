@@ -219,19 +219,16 @@ impl crate::Kernel {
                 let widgets = stage.take_widget_changes();
                 let item_states = stage.take_item_states();
                 let answers = stage.take_answers();
-                // Its power and Wi-Fi commands, boxed when there are any (no
-                // memory for that fails the callback as well).
+                // Its power and Wi-Fi commands, in the box their submit made.
                 let dev = stage.take_dev_boxed();
-                let marked = match (&dev, instances.ui_services()) {
-                    (Err(error), _) => Err(*error),
-                    (Ok(_), Some(ui)) if !widgets.is_empty() => ui.widgets_changed(owner, &widgets),
+                let marked = match instances.ui_services() {
+                    Some(ui) if !widgets.is_empty() => ui.widgets_changed(owner, &widgets),
                     _ => Ok(()),
                 };
                 if let Err(error) = marked {
                     status = Err(error);
                     None
                 } else {
-                    let dev = dev.unwrap_or_default();
                     let (commands, redraw, _hop, opens) = stage.into_ui_output_with_opens();
                     (!commands.is_empty()
                         || dev.is_some()

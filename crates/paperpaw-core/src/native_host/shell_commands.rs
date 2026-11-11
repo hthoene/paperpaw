@@ -99,7 +99,7 @@ impl Kernel {
                 if !valid {
                     return Err(Error::Status(if status < 0 { status } else { ERR_INVALID }));
                 }
-                let staged = staged_of(stage, owner_key).map_err(Error::Status)?;
+                let staged = staged_of(stage, owner_key);
                 Ok::<_, Error>((status, owner, staged))
             })??
         };

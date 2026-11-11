@@ -290,6 +290,10 @@ pub(super) struct DevStage<'a> {
     token: u32,
     /// The firmware requests this stage accepted (given back when it drops).
     fw: Option<FwRelease>,
+    /// The box its batch will wait in for the kernel, made with the first
+    /// DEV command: that command answers `ERR_NO_MEMORY` where it cannot be,
+    /// and a batch answered `OK` needs nothing more to be kept.
+    boxed: Option<Box<DevBatch>>,
 }
 
 impl DevStage<'_> {
@@ -362,6 +366,7 @@ impl<'a> CommandStage<'a> {
             items: Vec::new(),
             token: 0,
             fw: None,
+            boxed: None,
         });
     }
 
@@ -375,21 +380,20 @@ impl<'a> CommandStage<'a> {
         (commands, redraw, hop, batch)
     }
 
-    /// [`Self::take_dev`] for a batch that waits for the kernel: boxed, and
-    /// only when it holds a command, so that a waiting batch without one
-    /// costs a pointer.
-    ///
-    /// # Errors
-    /// `ERR_NO_MEMORY` when the box cannot be made (the batch gives its
-    /// reservations back).
-    pub(crate) fn take_dev_boxed(&mut self) -> Result<Option<Box<DevBatch>>, i32> {
+    /// [`Self::take_dev`] for a batch that waits for the kernel: in the box
+    /// made with its first command (nothing is allocated here), and only when
+    /// it holds a command, so that a waiting batch without one costs a
+    /// pointer.
+    pub(crate) fn take_dev_boxed(&mut self) -> Option<Box<DevBatch>> {
+        let boxed = self.dev.as_mut().and_then(|dev| dev.boxed.take());
         let batch = self.take_dev();
         if batch.is_empty() {
-            return Ok(None);
+            return None;
         }
-        crate::native_host::shared::try_box(batch)
-            .map(Some)
-            .ok_or(ERR_NO_MEMORY)
+        // A kept command was staged after `dev_reserve` made the box.
+        let mut boxed = boxed?;
+        *boxed = batch;
+        Some(boxed)
     }
 
     /// The DEV commands to apply in order (call it before the stage is
@@ -542,8 +546,14 @@ impl<'a> CommandStage<'a> {
     pub(super) fn dev_reserve(&mut self, batch: &CommandBatch<'_>) -> Result<(), i32> {
         let count = batch.iter().filter(|command| is_dev(command)).count();
         match &mut self.dev {
-            Some(dev) => dev.items.try_reserve(count).map_err(|_| ERR_NO_MEMORY),
-            None => Ok(()),
+            Some(dev) if count > 0 => {
+                if dev.boxed.is_none() {
+                    let made = crate::native_host::shared::try_box(DevBatch::default());
+                    dev.boxed = Some(made.ok_or(ERR_NO_MEMORY)?);
+                }
+                dev.items.try_reserve(count).map_err(|_| ERR_NO_MEMORY)
+            }
+            _ => Ok(()),
         }
     }
 
@@ -761,6 +771,10 @@ impl crate::Kernel {
             DevOp::NetworkNone => self.apply(Command::NoNetwork),
             DevOp::GoOnline { for_ms } => self.apply_go_online(for_ms, host),
             DevOp::Sleep => self.apply(Command::Sleep),
+            // A guard that came up since the submit holds them too.
+            DevOp::PowerOff | DevOp::Restart if self.guarded_against(owner) => {
+                self.warn_runtime("native power-off or restart dropped: another plugin guards");
+            }
             DevOp::PowerOff => self.apply(Command::PowerOff),
             DevOp::Restart => self.apply(Command::Restart),
             DevOp::Wear { mode, automatic } => {
@@ -774,6 +788,13 @@ impl crate::Kernel {
             DevOp::Join(join) => self.apply_join(owner, join, host, token),
             DevOp::Firmware(op) => Self::apply_firmware(op, fw),
         }
+    }
+
+    /// Whether a screen of another plugin than `owner` guards the device now.
+    fn guarded_against(&self, owner: &Id) -> bool {
+        self.guard()
+            .and_then(|guard| self.stack.get(guard))
+            .is_some_and(|guard| guard.id.namespace() != owner.as_str())
     }
 
     fn radio_stops(&mut self, command: WifiCommand) {

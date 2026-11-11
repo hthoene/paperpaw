@@ -185,6 +185,8 @@ impl<S: 'static> super::Context<S> {
         );
         Some(match hosts.firmware_requests() {
             Some(driver) => {
+                // Allocates nothing: the driver is never borrowed across a
+                // callback, so it shares the driver's own skip counter.
                 context.with_firmware(super::super::commands::dev::FirmwareContext::new(
                     alloc::rc::Rc::clone(driver),
                     self.resources.owner_id(),
