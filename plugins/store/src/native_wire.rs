@@ -262,7 +262,7 @@ impl crate::native_install::Wire for InstallWire<'_, '_> {
 /// Whether the device has little memory (the X4): fewer pictures are kept.
 fn small_memory(host: &Host<'_>) -> bool {
     use paperpaw_sdk::native::device::{Device, DeviceClass};
-    let (Ok(device), Ok(mut out)) = (Device::open(host), mem::buffer(1024)) else {
+    let (Ok(device), Ok(mut out)) = (Device::open(host), mem::buffer(mem::SERVICE_BUFFER)) else {
         return false;
     };
     let mut input = [0; 256];

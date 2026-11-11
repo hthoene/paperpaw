@@ -79,6 +79,10 @@ pub struct NativeStore {
     pub(crate) activity: Activity,
     /// The plugin whose page is awaited to install it.
     pub(crate) want: Option<String>,
+    /// Whether the page the queue waits for was asked for again.
+    pub(crate) want_retried: bool,
+    /// The removal the host was asked for: its request and the plugin's name.
+    pub(crate) removing: Option<(u32, String)>,
     /// What the install under way needs of the page it comes from.
     pub(crate) installing: Option<crate::native_list::Page>,
     pub(crate) installing_version: Option<String>,
@@ -197,8 +201,10 @@ impl NativeStore {
     pub(crate) fn ensure_snapshot(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.snapshot.is_none() {
             let storage = DataStorage::new(host);
-            self.snapshot = Some(Snapshot::read(host, &storage)?);
+            let snapshot = Snapshot::read(host, &storage)?;
             self.refresh_activity(host)?;
+            self.activity.read_facts(host, &storage, Some(&snapshot))?;
+            self.snapshot = Some(snapshot);
         }
         Ok(())
     }
@@ -206,6 +212,13 @@ impl NativeStore {
     /// What was read of the device is stale (a plugin came or went).
     pub(crate) fn forget_snapshot(&mut self) {
         self.snapshot = None;
+    }
+
+    /// Whether a plugin's page is on a screen that is open.
+    pub(crate) fn has_page_screen(&mut self) -> bool {
+        self.screens
+            .all()
+            .any(|slot| matches!(slot.view, StoreView::Plugin(_)))
     }
 
     pub(crate) fn screens_empty(&self) -> bool {
@@ -368,10 +381,8 @@ impl NativeStore {
         if self.asking.as_ref().is_some_and(|a| a.instance == instance) {
             self.asking = None;
         }
-        if self.screens.is_empty() {
-            // Nothing of the device is kept while no screen is open.
-            self.forget_snapshot();
-        }
+        // Nothing of the device is kept while no screen is open.
+        self.release_idle();
         result
     }
 

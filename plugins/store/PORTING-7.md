@@ -356,6 +356,28 @@ in place; its removal comes with the PR that finishes the port).
   the host's request numbers with their ids, in memory: a restart drops them and the
   host fails the open ids. The network is not asked before the dialog (no call for it
   on the plugin side): a download the connection refuses ends as *failed*.
+- **Review of #1141 (Port Reviewer 2, seven must-fixes), what changed:**
+  - A step is synced from every end (`install_done`, `download_failed`, a stop): a
+    finished install no longer leaves the *Stop* row, a failed download is no longer
+    *Downloading*. The release of the page is kept for the install that outlives the page
+    screen (`installing_version`).
+  - The queue never waits for a page that is not coming: a page request the host
+    refuses, or a page screen that took the slot for another plugin (asked again once)
+    ends as *not installed* and the queue goes on (`want_failed`).
+  - `finish` abandons what it staged (the folder, the busy mark, what was kept) on
+    every early error (`abandon`).
+  - A removal says *removed* and lets go of the record only when the host says it
+    was done (reason 0); declined or dismissed nothing changes; a refusal says its reason.
+  - Memory (#248): the start reads only the rows of the plugins the offer names
+    (`Snapshot::read_some`), and an ask for plugins only the rows of the plugins it names;
+    nothing is held. The queue the screens read is read while they are open and dropped
+    with the snapshot when the last screen closes and no install goes on
+    (`release_idle`); a page held for the queue or the offer is let go when the install
+    ends and no page screen is open; what an install keeps of its page is the entry's
+    name, version and build flags and the library's word of its author, none of the files.
+  - The plugin's facts (`can_install`, `takes_betas`, the stock flash layout, the
+    actions, the plugins that wait for a restart) are read with the snapshot
+    (`Activity::read_facts`).
 - **Not run on a host**, and the store start heap (Beta 3: 99.9 KiB) is measured only
   when native plugins are activated (#243).
 

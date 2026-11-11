@@ -20,6 +20,7 @@ use paperpaw_ui_kit::mem::{copy_strings, push};
 use crate::native_ask::{self, Decision, Reply, Words};
 use crate::native_glue;
 use crate::native_index::Index;
+use crate::native_installs::Snapshot;
 use crate::native_plugin::NativeStore;
 use crate::native_queue::Queue;
 use crate::native_request::{self, Finished, Last, Request};
@@ -61,7 +62,8 @@ fn answer_ids<'a>(
 }
 
 impl NativeStore {
-    /// An ask for plugins (event 77).
+    /// An ask for plugins (event 77). Every id the host named gets an outcome
+    /// on every path: where the store cannot go on they are *failed*.
     pub(crate) fn plugins_requested(
         &mut self,
         host: &Host<'_>,
@@ -71,31 +73,13 @@ impl NativeStore {
         plugins: RequestedPlugins<'_>,
     ) -> Result<(), Error> {
         let storage = DataStorage::new(host);
-        self.ensure_snapshot(host)?;
-        let (wanted, left_out) = {
-            let snapshot = self.snapshot.as_ref().ok_or(Error::State)?;
-            let on_device = |id: &str| snapshot.have(id).is_some();
-            let wanted = native_ask::request_ids(plugins.iter(), &on_device)?;
-            // What the host named and the store does not take: on the device
-            // already, or no plugin's name.
-            let mut left_out: Vec<(String, PluginOutcome)> = Vec::new();
-            for id in plugins.iter().filter(|id| !wanted.iter().any(|w| w == id)) {
-                let outcome = if on_device(id) {
-                    PluginOutcome::Installed
-                } else {
-                    PluginOutcome::Failed
-                };
-                push(&mut left_out, (native_glue::own(id)?, outcome))?;
-            }
-            (wanted, left_out)
+        let Some(wanted) = self.take_wanted(host, request, plugins)? else {
+            return Ok(());
         };
-        for (id, outcome) in &left_out {
-            answer_ids(host, request, [id.as_str()], *outcome)?;
-        }
-        let index = Index::kept(&storage)?;
-        let open = Request::open(&storage)?.is_some();
-        let waiting = Queue::read(&storage)?.requested_waiting();
-        let reply = {
+        let asked = (|| {
+            let index = Index::kept(&storage)?;
+            let open = Request::open(&storage)?.is_some();
+            let waiting = Queue::read(&storage)?.requested_waiting();
             let mut words = Words::new(host)?;
             native_ask::asked(
                 &storage,
@@ -106,13 +90,78 @@ impl NativeStore {
                 now_ms,
                 // The network is found out when the download starts.
                 (true, open, waiting),
-            )?
+            )
+        })();
+        let asked = match asked {
+            Ok(asked) => asked,
+            Err(_) => {
+                return answer_ids(
+                    host,
+                    request,
+                    wanted.iter().map(String::as_str),
+                    PluginOutcome::Failed,
+                );
+            }
         };
-        let result = self.reply_to_ask(host, request, &wanted, reply);
-        if self.screens_empty() {
-            self.forget_snapshot();
+        self.answer_stale(host, &asked.stale);
+        self.reply_to_ask(host, request, &wanted, asked.reply)
+    }
+
+    /// The ids the store takes of an ask; the others are answered here, those
+    /// on the device installed, those that are no plugin's name failed. `None`
+    /// where the store could not even read what the device has: everything is
+    /// answered *failed*.
+    fn take_wanted(
+        &mut self,
+        host: &Host<'_>,
+        request: PluginRequestId,
+        plugins: RequestedPlugins<'_>,
+    ) -> Result<Option<Vec<String>>, Error> {
+        let fail_all = |host: &Host<'_>| {
+            answer_ids(host, request, plugins.iter(), PluginOutcome::Failed).map(|()| None)
+        };
+        let mut named: Vec<&str> = Vec::new();
+        if named.try_reserve_exact(plugins.len()).is_err() {
+            return fail_all(host);
         }
-        result
+        named.extend(plugins.iter());
+        // Only the rows of these plugins are read, not what the device has.
+        let Ok(present) = Snapshot::read_some(host, &named) else {
+            return fail_all(host);
+        };
+        let on_device = |id: &str| present.have(id).is_some();
+        let Ok(wanted) = native_ask::request_ids(plugins.iter(), &on_device) else {
+            return fail_all(host);
+        };
+        for id in plugins.iter().filter(|id| !wanted.iter().any(|w| w == id)) {
+            let outcome = if on_device(id) {
+                PluginOutcome::Installed
+            } else {
+                PluginOutcome::Failed
+            };
+            answer_ids(host, request, [id], outcome)?;
+        }
+        Ok(Some(wanted))
+    }
+
+    /// The ids of a request an earlier dialog left open are *declined* (the
+    /// host keeps a request open until each id has an outcome).
+    fn answer_stale(&mut self, host: &Host<'_>, stale: &[String]) {
+        if stale.is_empty() {
+            return;
+        }
+        self.asks.waiting.retain(|(request, ids)| {
+            if !ids.iter().any(|id| stale.contains(id)) {
+                return true;
+            }
+            let _ = answer_ids(
+                host,
+                *request,
+                ids.iter().map(String::as_str),
+                PluginOutcome::Declined,
+            );
+            false
+        });
     }
 
     fn reply_to_ask(
@@ -122,30 +171,37 @@ impl NativeStore {
         wanted: &[String],
         reply: Reply,
     ) -> Result<(), Error> {
+        let all = || wanted.iter().map(String::as_str);
         match reply {
-            Reply::Nothing => {
-                // Everything asked for is on the device.
-                answer_ids(
-                    host,
-                    request,
-                    wanted.iter().map(String::as_str),
-                    PluginOutcome::Installed,
-                )
-            }
-            Reply::Join => self.keep_waiting(request, wanted),
+            // Everything asked for is on the device (answered already).
+            Reply::Nothing => Ok(()),
+            Reply::Join => self.keep_or_fail(host, request, wanted),
             Reply::Answer { ids, outcome } => {
                 answer_ids(host, request, ids.iter().map(String::as_str), outcome)
             }
+            Reply::AnswerAll(outcome) => answer_ids(host, request, all(), outcome),
             Reply::Dialog(dialog) => {
-                // The library lacks what the dialog does not name.
-                let lacking = wanted.iter().filter(|id| !dialog.ids.contains(id));
                 answer_ids(
                     host,
                     request,
-                    lacking.map(String::as_str),
+                    dialog.declined.iter().map(String::as_str),
+                    PluginOutcome::Declined,
+                )?;
+                answer_ids(
+                    host,
+                    request,
+                    dialog.not_found.iter().map(String::as_str),
                     PluginOutcome::NotFound,
                 )?;
-                self.keep_waiting(request, &dialog.ids)?;
+                if self.keep_waiting(request, &dialog.ids).is_err() {
+                    native_request::Request::close(&DataStorage::new(host));
+                    return answer_ids(
+                        host,
+                        request,
+                        dialog.ids.iter().map(String::as_str),
+                        PluginOutcome::Failed,
+                    );
+                }
                 let asked = {
                     let ui = self.ui(host)?;
                     dialog
@@ -157,16 +213,34 @@ impl NativeStore {
                         self.asks.dialog = Some(id);
                         Ok(())
                     }
-                    Err(Error::NoMemory) => Err(Error::NoMemory),
                     // The dialog could not be shown: *Not now*.
                     Err(_) => self.decided(host, 0, Decision::NotNow),
                 }
             }
             Reply::Fetch(next) => {
-                self.keep_waiting(request, wanted)?;
+                self.keep_or_fail(host, request, wanted)?;
                 self.carry_fetch(host, next)
             }
         }
+    }
+
+    /// Keeps `request` to be answered when the plugins are; where it cannot be
+    /// kept every id is *failed* at once.
+    fn keep_or_fail(
+        &mut self,
+        host: &Host<'_>,
+        request: PluginRequestId,
+        ids: &[String],
+    ) -> Result<(), Error> {
+        if self.keep_waiting(request, ids).is_ok() {
+            return Ok(());
+        }
+        answer_ids(
+            host,
+            request,
+            ids.iter().map(String::as_str),
+            PluginOutcome::Failed,
+        )
     }
 
     fn keep_waiting(&mut self, request: PluginRequestId, ids: &[String]) -> Result<(), Error> {

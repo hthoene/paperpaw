@@ -115,3 +115,53 @@ fn the_activity_is_what_the_screens_read() {
     assert_eq!(busy.have("alpha").unwrap().version, "1.2.0");
     let _ = Queue::default();
 }
+
+#[test]
+fn the_notes_are_kept_once_and_the_job_follows_its_plugin() {
+    let mut activity = Activity::default();
+    activity.note_no_room("alpha").unwrap();
+    activity.note_no_room("alpha").unwrap();
+    activity.note_no_room("beta").unwrap();
+    activity.note_revoked("alpha").unwrap();
+    activity.note_revoked("alpha").unwrap();
+    assert_eq!(activity.no_room, ["alpha", "beta"]);
+    assert_eq!(activity.revoked, ["alpha"]);
+    activity.clear_no_room("alpha");
+    assert_eq!(activity.no_room, ["beta"]);
+    activity.set_other_job("alpha", "Alpha").unwrap();
+    activity.set_other_job("beta", "Beta").unwrap();
+    let snapshot = Snapshot::default();
+    let installs = HostInstalls::new(&snapshot, &activity);
+    assert_eq!(installs.other_job("alpha"), Some("Beta"));
+    assert_eq!(installs.other_job("beta"), None);
+    assert!(installs.no_room("beta") && !installs.no_room("alpha"));
+    assert!(installs.revoked("alpha") && !installs.revoked("beta"));
+    activity.clear_other_job();
+    assert_eq!(
+        HostInstalls::new(&snapshot, &activity).other_job("alpha"),
+        None
+    );
+}
+
+#[test]
+fn the_restart_list_is_the_snapshots_waiting_plugins() {
+    let card = MemoryStorage::new();
+    let snapshot = Snapshot::settle(rows(), &card).unwrap();
+    let mut activity = Activity::default();
+    activity.set_restart_needed(Some(&snapshot)).unwrap();
+    assert_eq!(activity.restart_needed, ["beta"]);
+    assert!(HostInstalls::new(&snapshot, &activity).restart_needed("beta"));
+    assert!(!HostInstalls::new(&snapshot, &activity).restart_needed("alpha"));
+    // Without a snapshot nothing waits.
+    activity.set_restart_needed(None).unwrap();
+    assert!(activity.restart_needed.is_empty());
+}
+
+#[test]
+fn a_pre_release_firmware_version_is_x_dash_y() {
+    use paperpaw_plugin_store::native_page::is_pre_release;
+    assert!(is_pre_release("0.5.0-beta.1"));
+    assert!(is_pre_release("0.5.0-beta.1+abc"));
+    assert!(!is_pre_release("0.5.0"));
+    assert!(!is_pre_release("0.5.0+build-7"));
+}

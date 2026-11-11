@@ -37,6 +37,12 @@ const REMOVE_REQUEST: u32 = 0x7000_0000;
 /// The setup's step, as the plugin's own item.
 const SETUP_ITEM: &str = "store.setup";
 
+/// What the device has of the plugin being installed, owned.
+struct Present {
+    version: Option<String>,
+    repairs: bool,
+}
+
 /// What a plugin's download or install ended in, for the one who asked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Result_ {
@@ -116,6 +122,7 @@ impl NativeStore {
     }
 
     /// The end of a request of the list or of a page.
+    #[inline(never)]
     pub(crate) fn http_done(
         &mut self,
         host: &Host<'_>,
@@ -141,6 +148,7 @@ impl NativeStore {
     }
 
     /// The page asked for came, or did not: the install it was asked for goes on.
+    #[inline(never)]
     fn page_arrived(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let Some(id) = self.want.clone() else {
             return Ok(());
@@ -151,24 +159,61 @@ impl NativeStore {
                 self.begin(host, &id)
             }
             (Some(of), Details::Offline | Details::Failed) if of == id => {
-                self.want = None;
-                self.not_installed(host, &id, "")?;
-                self.go_on(host)
+                self.want_failed(host, &id)
+            }
+            // A page screen took the slot for another plugin: ask for ours
+            // again, once; a second time the plugin counts as not installed
+            // (the queue never waits for a page that is not coming).
+            (Some(of), _) if of != id => {
+                if self.want_retried {
+                    return self.want_failed(host, &id);
+                }
+                self.want_retried = true;
+                match self.fetch_page(host, &id) {
+                    Ok(()) => Ok(()),
+                    Err(Error::NoMemory) => Err(Error::NoMemory),
+                    Err(_) => self.want_failed(host, &id),
+                }
             }
             _ => Ok(()),
         }
     }
 
+    /// The page of plugin `id`, which the queue waits for, is not coming: the
+    /// plugin is not installed and the queue goes on.
+    fn want_failed(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
+        self.want = None;
+        self.want_retried = false;
+        self.not_installed(host, id, "")?;
+        self.go_on(host)
+    }
+
+    /// Asks for the page of plugin `id` to install it; a request the host
+    /// refuses is the plugin not installed.
+    #[inline(never)]
+    fn want_page(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
+        self.want = Some(crate::native_glue::own(id)?);
+        self.want_retried = false;
+        match self.fetch_page(host, id) {
+            Ok(()) => Ok(()),
+            Err(Error::NoMemory) => {
+                self.want = None;
+                Err(Error::NoMemory)
+            }
+            Err(_) => self.want_failed(host, id),
+        }
+    }
+
     /// Installs plugin `id`, once its files are known: its page is fetched
     /// first where it is not here.
+    #[inline(never)]
     fn begin(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
         if self.download_busy() {
             let name = self.busy_name(host)?;
             return self.say_with(host, "store.busy", &name);
         }
         let Some(page) = self.loader.page(id) else {
-            self.want = Some(crate::native_glue::own(id)?);
-            return self.fetch_page(host, id);
+            return self.want_page(host, id);
         };
         // What the install needs of the page outlives it.
         let kept = lean(page)?;
@@ -181,6 +226,9 @@ impl NativeStore {
         let _ = storage;
         match started {
             Started::Downloading => {
+                self.installing_version = Some(crate::native_glue::own(&kept.entry.version)?);
+                self.activity.set_other_job(id, &name)?;
+                self.activity.clear_no_room(id);
                 self.installing = Some(kept);
                 self.sync_step(id);
                 redraw(host)
@@ -213,6 +261,7 @@ impl NativeStore {
     }
 
     /// A file of the download came, or did not.
+    #[inline(never)]
     fn file_done(&mut self, host: &Host<'_>, done: &HttpDone) -> Result<(), Error> {
         let saved = done.reason() == paperpaw_sdk::native::net::Reason::Ok
             && (200..300).contains(&done.status());
@@ -232,6 +281,7 @@ impl NativeStore {
     }
 
     /// All the files are here: the host installs them.
+    #[inline(never)]
     fn finish(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let storage = DataStorage::new(host);
         let Some(staged) = self.download.take_ready(&storage)? else {
@@ -239,24 +289,28 @@ impl NativeStore {
         };
         let Some(page) = self.installing.take() else {
             // Nothing is known of what the files are for: they go.
-            let _ = storage.remove_dir_all(&staged.folder);
-            self.download.set_step(DownStep::Idle);
+            self.abandon(host, &staged);
             return self.go_on(host);
         };
-        self.ensure_snapshot(host)?;
-        let snapshot = self.snapshot.as_ref().ok_or(Error::State)?;
-        let installed = snapshot.have(&page.entry.id);
-        let have = Have {
-            version: installed.as_ref().map(|i| i.version),
-            repairs: installed
-                .as_ref()
-                .is_some_and(|i| crate::native_page::repairs(&page.entry, i)),
+        let (name, id, installed) = match self.prepare_finish(host, &staged, &page) {
+            Ok(found) => found,
+            Err(error) => {
+                // The staged files and the busy mark must not outlive the
+                // install that could not start.
+                self.abandon(host, &staged);
+                let _ = self.go_on(host);
+                return Err(error);
+            }
         };
-        let name = crate::native_glue::own(&staged.name)?;
-        let id = crate::native_glue::own(&staged.plugin)?;
+        let have = Have {
+            version: installed.version.as_deref(),
+            repairs: installed.repairs,
+        };
         let step = {
             let mut wire = InstallWire::new(host);
             if let Err(Error::NoMemory) = hand_over(&mut wire, &[]) {
+                self.abandon(host, &staged);
+                let _ = self.go_on(host);
                 return Err(Error::NoMemory);
             }
             self.installer
@@ -264,13 +318,54 @@ impl NativeStore {
         };
         self.sync_step(&id);
         if matches!(step, DownStep::Failed(_)) {
+            self.installing_version = None;
             self.not_installed(host, &id, &name)?;
             return self.go_on(host);
         }
         redraw(host)
     }
 
+    /// What an install needs to be sent: the names and what is installed of the
+    /// plugin now.
+    #[inline(never)]
+    fn prepare_finish(
+        &mut self,
+        host: &Host<'_>,
+        staged: &crate::native_download::Staged,
+        page: &crate::native_list::Page,
+    ) -> Result<(String, String, Present), Error> {
+        self.ensure_snapshot(host)?;
+        let snapshot = self.snapshot.as_ref().ok_or(Error::State)?;
+        let installed = snapshot.have(&page.entry.id);
+        let found = Present {
+            version: installed
+                .as_ref()
+                .map(|i| crate::native_glue::own(i.version))
+                .transpose()?,
+            repairs: installed
+                .as_ref()
+                .is_some_and(|i| crate::native_page::repairs(&page.entry, i)),
+        };
+        Ok((
+            crate::native_glue::own(&staged.name)?,
+            crate::native_glue::own(&staged.plugin)?,
+            found,
+        ))
+    }
+
+    /// Lets go of an install that cannot go on: its staged files, its busy
+    /// mark, what was kept for it.
+    fn abandon(&mut self, host: &Host<'_>, staged: &crate::native_download::Staged) {
+        let storage = DataStorage::new(host);
+        let _ = storage.remove_dir_all(&staged.folder);
+        self.download.set_step(DownStep::Idle);
+        self.installing = None;
+        self.installing_version = None;
+        self.sync_step(&staged.plugin);
+    }
+
     /// The host's end of an install (`install_done`).
+    #[inline(never)]
     pub(crate) fn install_done(
         &mut self,
         host: &Host<'_>,
@@ -282,10 +377,7 @@ impl NativeStore {
         };
         let request = request.get();
         if request >= REMOVE_REQUEST {
-            let id = crate::native_glue::own(done.id())?;
-            let storage = DataStorage::new(host);
-            let _ = crate::native_install::Installs::forget(&storage, &id);
-            self.forget_snapshot();
+            self.removed(host, done)?;
             return self.forward(host, event);
         }
         let reason = reason_of(done);
@@ -303,6 +395,19 @@ impl NativeStore {
             )?
         };
         self.forget_snapshot();
+        self.installing_version = None;
+        self.sync_step(done.id());
+        // A page the queue or the offer installed from is not kept for nobody.
+        if !self.has_page_screen() {
+            self.loader.forget_page();
+        }
+        // No room (the code room, the card) and a withdrawn key are what the
+        // page of the plugin says of it afterwards.
+        match reason_of(done) {
+            7 => self.activity.note_revoked(done.id())?,
+            13 | 17 => self.activity.note_no_room(done.id())?,
+            _ => {}
+        }
         use crate::native_install::Outcome;
         let said = match outcome {
             Outcome::Installed {
@@ -338,14 +443,15 @@ impl NativeStore {
 
     /// The release of the page the plugin was installed from.
     fn loader_release(&self, id: &str) -> Option<String> {
-        self.loader
-            .page(id)
-            .map(|page| page.entry.version.clone())
-            .or_else(|| self.installing_version.clone())
+        // The version that was downloaded, whatever page is held now.
+        self.installing_version
+            .clone()
+            .or_else(|| self.loader.page(id).map(|page| page.entry.version.clone()))
     }
 
     /// Says what became of plugin `id`, or notes it for the end of a quiet
     /// queue or the request that asked for it.
+    #[inline(never)]
     fn noted(
         &mut self,
         host: &Host<'_>,
@@ -372,6 +478,7 @@ impl NativeStore {
         self.noted(host, id, name, "store.failed", Result_::NotInstalled)
     }
 
+    #[inline(never)]
     fn download_failed(&mut self, host: &Host<'_>, _why: Failure) -> Result<(), Error> {
         let storage = DataStorage::new(host);
         let (id, name) = match crate::native_download::Download::progress(&storage)? {
@@ -379,22 +486,30 @@ impl NativeStore {
             None => (String::new(), String::new()),
         };
         self.installing = None;
+        self.installing_version = None;
+        self.sync_step(&id);
         self.not_installed(host, &id, &name)?;
         self.go_on(host)
     }
 
     /// The queue goes on: the next plugin gets its turn.
     pub(crate) fn go_on(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let result = self.go_on_next(host);
+        // What the screens read of the queue follows it while they are open.
+        if !self.screens_empty() {
+            let _ = self.refresh_activity(host);
+        }
+        result
+    }
+
+    fn go_on_next(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.download_busy() || self.want.is_some() {
             return Ok(());
         }
         let storage = DataStorage::new(host);
         let mut queue = Queue::read(&storage)?;
         match queue_next(&mut queue, &storage)? {
-            Turn::FetchPage(id) => {
-                self.want = Some(crate::native_glue::own(&id)?);
-                self.fetch_page(host, &id)
-            }
+            Turn::FetchPage(id) => self.want_page(host, &id),
             _ => {
                 self.queue_ended(host, &queue)?;
                 redraw(host)
@@ -404,6 +519,7 @@ impl NativeStore {
 
     /// The queue is empty: what the plugins put in quietly became, and what a
     /// request's plugins became, is said.
+    #[inline(never)]
     fn queue_ended(&mut self, host: &Host<'_>, queue: &Queue) -> Result<(), Error> {
         let storage = DataStorage::new(host);
         if let Some(done) = crate::native_request::finished(&storage)? {
@@ -436,6 +552,7 @@ impl NativeStore {
     }
 
     /// *Update all*: every plugin with a newer version is queued.
+    #[inline(never)]
     fn update_all(&mut self, host: &Host<'_>) -> Result<(), Error> {
         self.ensure_snapshot(host)?;
         let storage = DataStorage::new(host);
@@ -447,6 +564,7 @@ impl NativeStore {
     }
 
     /// Fetch again the plugins `ids` that plugin `by` asked for.
+    #[inline(never)]
     fn again(&mut self, host: &Host<'_>, by: &str, ids: &[String]) -> Result<(), Error> {
         let storage = DataStorage::new(host);
         crate::native_request::Request::again(&storage, by, ids)?;
@@ -457,6 +575,7 @@ impl NativeStore {
     }
 
     /// The ids of the plugins that have a newer version in the library's list.
+    #[inline(never)]
     fn updates(&self, storage: &DataStorage<'_, '_>) -> Result<Vec<String>, Error> {
         let mut ids = Vec::new();
         let (Some(index), Some(snapshot)) = (self.loader.index(), self.snapshot.as_ref()) else {
@@ -475,6 +594,7 @@ impl NativeStore {
     }
 
     /// Stops the install of plugin `id`; the next one in the queue goes on.
+    #[inline(never)]
     fn stop(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
         {
             let mut wire = DownloadWire::new(host, &mut self.handles);
@@ -486,13 +606,16 @@ impl NativeStore {
         }
         self.download.set_step(DownStep::Idle);
         self.installing = None;
+        self.installing_version = None;
         self.want = None;
+        self.want_retried = false;
         self.sync_step(id);
         self.go_on(host)?;
         redraw(host)
     }
 
     /// Removes plugin `id`.
+    #[inline(never)]
     fn remove(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
         self.remove_count = self.remove_count.wrapping_add(1) & 0xffff;
         let request = REMOVE_REQUEST | self.remove_count.max(1);
@@ -500,15 +623,36 @@ impl NativeStore {
             let mut scratch = [0; 256];
             CommandSender::new(host, &mut scratch).remove_plugin(request, id)?;
         }
-        let name = self
-            .snapshot
-            .as_ref()
-            .and_then(|s| s.rows().iter().find(|r| r.id == id))
-            .map(|r| crate::native_glue::own(&r.id))
-            .transpose()?
-            .unwrap_or_default();
+        // The name the reader knows it by, kept until the host answers.
+        let name = match self.loader.page(id) {
+            Some(page) => crate::native_glue::own(&page.entry.name)?,
+            None => crate::native_glue::own(id)?,
+        };
+        self.removing = Some((request, name));
         self.forget_snapshot();
-        self.say_with(host, "store.removed", &name)
+        Ok(())
+    }
+
+    /// The host's end of a removal: said, and the record of the install let go,
+    /// only where it was removed (declined or dismissed, nothing changed).
+    #[inline(never)]
+    fn removed(&mut self, host: &Host<'_>, done: &InstallDone<'_>) -> Result<(), Error> {
+        use crate::native_refusal::{Outcome as Said, outcome};
+        let name = match self.removing.take() {
+            Some((_, name)) => name,
+            None => crate::native_glue::own(done.id())?,
+        };
+        self.forget_snapshot();
+        match outcome(reason_of(done), self.activity.flash_hint) {
+            Said::Done => {
+                let id = crate::native_glue::own(done.id())?;
+                let storage = DataStorage::new(host);
+                let _ = crate::native_install::Installs::forget(&storage, &id);
+                self.say_with(host, "store.removed", &name)
+            }
+            Said::Said(key) => self.say_with(host, key, &name),
+            _ => Ok(()),
+        }
     }
 
     fn switch_on(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
@@ -556,6 +700,7 @@ impl NativeStore {
     /// from its page, or first when the queue goes on; the plugins the setup
     /// put in quietly go on without the store being opened; the setup's card
     /// says whether it applies.
+    #[inline(never)]
     pub(crate) fn started(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let storage = DataStorage::new(host);
         let mut queue = Queue::read(&storage)?;
@@ -571,24 +716,25 @@ impl NativeStore {
         if quiet {
             self.go_on(host)?;
         }
-        self.forget_snapshot_if_idle();
+        self.release_idle();
         state
     }
 
     /// Whether the setup's step applies, and what it says of the plugins chosen
     /// (`command.set_item_state`).
+    #[inline(never)]
     pub(crate) fn setup_state(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        use crate::native_ask::{Badge, CHOSEN, badge, waiting_offered};
+        use crate::native_ask::{Badge, CHOSEN, OFFERED, badge, waiting_offered};
         use paperpaw_sdk::native::commands::ItemState;
-        self.ensure_snapshot(host)?;
-        let snapshot = self.snapshot.as_ref().ok_or(Error::State)?;
-        let installs = HostInstalls::new(snapshot, &self.activity);
-        let applies = crate::native_screen_offer::applies(&installs);
         let storage = DataStorage::new(host);
-        let how = badge(
-            waiting_offered(&self.activity.queue),
-            storage.exists(CHOSEN),
-        );
+        // The start reads the rows of the plugins the offer names, not what the
+        // device has, and none of it is kept.
+        let present = crate::native_installs::Snapshot::read_some(host, &OFFERED)?;
+        self.activity.read_facts(host, &storage, Some(&present))?;
+        let queue = Queue::read(&storage)?;
+        let installs = HostInstalls::new(&present, &self.activity);
+        let applies = crate::native_screen_offer::applies(&installs);
+        let how = badge(waiting_offered(&queue), storage.exists(CHOSEN));
         let mut scratch = [0; 256];
         let mut args = [0; 64];
         let mut sender = CommandSender::new(host, &mut scratch);
@@ -608,11 +754,20 @@ impl NativeStore {
         sender.set_item_state(SETUP_ITEM, &state, &mut args)
     }
 
-    /// Nothing of the device is kept while no screen of the store is open.
-    fn forget_snapshot_if_idle(&mut self) {
-        if self.screens_empty() {
-            self.forget_snapshot();
+    /// Nothing of the device or of the queue is kept while no screen of the
+    /// store is open and no install goes on (#248).
+    pub(crate) fn release_idle(&mut self) {
+        if !self.screens_empty() {
+            return;
         }
+        self.forget_snapshot();
+        if self.download_busy() || self.want.is_some() {
+            return;
+        }
+        self.activity.queue = Queue::default();
+        self.activity.step = Vec::new();
+        self.activity.actions = Vec::new();
+        self.activity.restart_needed = Vec::new();
     }
 
     /// Where the downloads and the installs stand, for the screens.
@@ -635,6 +790,9 @@ impl NativeStore {
             DownStep::Installed => Step::Installed,
             DownStep::Failed(_) => Step::Failed(1),
         };
+        if !self.download_busy() {
+            self.activity.clear_other_job();
+        }
         self.activity.step.retain(|(known, _)| known != id);
         if step != Step::Idle {
             let _ = push(
@@ -651,22 +809,26 @@ impl NativeStore {
     }
 }
 
-/// What an install needs of a page: its entry, its files and the library's word
-/// of its author, none of what the page shows.
+/// What an install needs of a page: the plugin's id, name and version, the
+/// flags of its build and the library's word of its author; none of what the page
+/// shows and none of the files (the download holds those on the card).
 fn lean(page: &crate::native_list::Page) -> Result<crate::native_list::Page, Error> {
-    let mut files = Vec::new();
-    files
-        .try_reserve_exact(page.files.len())
-        .map_err(|_| Error::NoMemory)?;
-    files.extend(page.files.iter().cloned());
     let mut rotations = Vec::new();
     rotations
         .try_reserve_exact(page.rotations.len())
         .map_err(|_| Error::NoMemory)?;
     rotations.extend(page.rotations.iter().copied());
     Ok(crate::native_list::Page {
-        entry: page.entry.clone(),
-        files,
+        entry: crate::native_model::Entry {
+            id: crate::native_glue::own(&page.entry.id)?,
+            name: crate::native_glue::own(&page.entry.name)?,
+            version: crate::native_glue::own(&page.entry.version)?,
+            code: page.entry.code,
+            needs_newer: page.entry.needs_newer,
+            waits_author: page.entry.waits_author,
+            ..crate::native_model::Entry::default()
+        },
+        files: Vec::new(),
         code: page.code,
         author_key: page.author_key,
         recovery_key: page.recovery_key,
