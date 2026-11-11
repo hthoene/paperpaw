@@ -64,6 +64,19 @@ activates native plugins (then it goes together, no shim; see the removal step).
 - Gaps: the host's questions are not wired to native
   plugins (H2), so no end-to-end run yet (`fonts-browser-install` stays ignored).
 
+## Your own fonts (`src/native_own.rs`)
+
+- As Beta 3: the part of *How it works* after the heading `fonts-browser.own.heading`, under the title
+  `fonts-browser.own`, is written to `own.txt` in the data folder and opened in the reader; where there is
+  no such part or the card refuses the file, the notice `fonts-browser.how-failed`. The language is the one
+  whose text has the heading shown (a language without a text of its own shows the English heading).
+- The file is handed to the reader as Files Engineer's ruling says (#2376, #1186): `core.ui` op 16 with
+  `root` `0` and `path` `own.txt`, then `command.open` into the slot `core.reader`.
+- Memory: the part is appended straight from the text in the program (in 4 KiB pieces); only the title's
+  line is allocated (a sweep pins one allocation). The `HOW` table is kept once for both entries.
+- Tests: `native_own` (part per language, page layout, refused write, sweep), `tests/hosted_own.rs` (en
+  and de through the kernel, nothing dropped).
+
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
 - **Download, update, remove (named blocked step):** *Download*/*Update*/*Stop*/*Remove* answer `Unsupported`.
@@ -76,8 +89,6 @@ activates native plugins (then it goes together, no shim; see the removal step).
   entry has no download yet, so it does not subscribe: it comes back with the download.
 - The *Download*/*Update*/*Stop*/*Remove* rows are not shown until then (no dead buttons); `native_view::rows` still
   says which rows a page will have.
-- **Your own fonts:** the page of the help opens in the reader with `command.open` into `core.reader` (root 5
-  "handed"; as About's licences): `Unsupported` until that merges.
 - **The font's own face:** on the font's page the sentence is drawn in the font's own face
   (`native_sample.rs`): the sample pack (one size, only the characters of the name and the sentence, asked
   from the catalog's `sample` address with `core.net` `save_to` into `samples/` of the data folder) is

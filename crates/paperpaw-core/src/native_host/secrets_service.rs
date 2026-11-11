@@ -79,6 +79,14 @@ pub(crate) trait SecretsHost {
     fn rng(&self) -> Option<&dyn Rng>;
     /// The file could not be read: show the user a notice (called once).
     fn unreadable(&self) {}
+    /// A sealed value did not open (another device's card, a lost key): the
+    /// kernel tells the user once per start ([`Self::take_unopened`]).
+    fn unopened(&self) {}
+    /// Whether a sealed value did not open since the start and the user was
+    /// not told yet; `true` once per start at most.
+    fn take_unopened(&self) -> bool {
+        false
+    }
 }
 
 /// The view wired under `core.secrets`.
@@ -487,6 +495,16 @@ struct File<'a> {
     read: Buf,
     scratch: Scratch,
     opener: Opener<'a>,
+}
+
+impl Drop for File<'_> {
+    /// A sealed value this call met that did not open: the kernel tells the
+    /// user (once per start).
+    fn drop(&mut self) {
+        if self.opener.unopened {
+            self.host.unopened();
+        }
+    }
 }
 
 impl<'a> File<'a> {

@@ -236,6 +236,8 @@ impl crate::Kernel {
         // The reading session's events are queued for the subscribers (the
         // reader's report raised them), before the pump that tells them.
         let reading_more = self.native_reading_pump();
+        // The native formats' files are books of the walk (`native_book_formats`).
+        self.native_book_formats_sync();
         // What the library says changed is queued for the subscribers
         // (`library_events`), before the pump that tells them.
         let library_more = self.native_library_pump();
@@ -275,6 +277,8 @@ impl crate::Kernel {
                 || wifi_more
                 || firmware_more,
         );
+        // Saved passwords that did not open here: said once per start.
+        self.secrets_notice();
     }
 
     /// When the pump wants to run again: now while events remain, else at
@@ -284,7 +288,9 @@ impl crate::Kernel {
     /// through its tick at once, so an idle socket costs no wake-up.
     pub(crate) fn service_due(&self) -> Option<Instant> {
         let instances = &self.shared.native_instances;
-        if instances.service_more() {
+        // An event queued after this call's pump ran (the commands that ran
+        // after it raised it) is told at once too.
+        if instances.service_more() || instances.setting_events.any_waiting() {
             return Some(self.now);
         }
         instances

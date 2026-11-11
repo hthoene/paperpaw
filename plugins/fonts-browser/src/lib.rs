@@ -31,6 +31,7 @@ mod declarations;
 pub mod native_catalog;
 mod native_entry;
 pub mod native_job;
+mod native_own;
 pub mod native_plan;
 /// The interface-7 plugin.
 pub mod native_plugin;
@@ -79,11 +80,8 @@ static SETTINGS: [SettingSpec; 1] = [SettingSpec::text(
 #[derive(Debug, Default)]
 pub struct FontsBrowser;
 
-/// How it works, by language (see `Manifest::how`).
-static HOW: [(&str, &str); 2] = [
-    ("en", include_str!("../how/en.txt")),
-    ("de", include_str!("../how/de.txt")),
-];
+/// How it works, by language (see `Manifest::how`), kept once for both entries.
+use native_own::HOW;
 
 static ACTIONS: [FixedAction; 2] = [
     FixedAction::new(OPEN, "fonts-browser.more")

@@ -297,6 +297,7 @@ pub(crate) mod linked_plugins;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
 mod moves_pump;
+pub(crate) mod native_book_formats;
 pub(crate) mod native_host_call;
 #[allow(
     dead_code,

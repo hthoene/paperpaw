@@ -123,7 +123,7 @@ impl View {
     pub fn count_step(&mut self, host: &Host<'_>, docs: &Documents) -> Option<u32> {
         match &mut self.body {
             Body::Open(open) => open.count_step(host, docs),
-            Body::Message(_) => None,
+            Body::Message(_) | Body::Preparing(_) => None,
         }
     }
 
