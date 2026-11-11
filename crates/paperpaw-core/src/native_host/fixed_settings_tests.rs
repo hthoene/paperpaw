@@ -42,12 +42,12 @@ fn any_field_that_differs_is_a_different_setting() {
 }
 
 #[test]
-fn the_entry_is_found_from_the_hint_or_anywhere_in_the_table() {
-    assert_eq!(find(&TABLE, &TABLE[1].clone(), 1), Some(1));
-    assert_eq!(find(&TABLE, &TABLE[0].clone(), 2), Some(0));
-    assert_eq!(find(&TABLE, &TABLE[2].clone(), 99), Some(2));
+fn the_entry_is_found_anywhere_in_the_table() {
+    assert_eq!(find(&TABLE, &TABLE[1].clone()), Some(1));
+    assert_eq!(find(&TABLE, &TABLE[0].clone()), Some(0));
+    assert_eq!(find(&TABLE, &TABLE[2].clone()), Some(2));
     let mut gone = TABLE[0].clone();
     gone.default = paperpaw_sdk::SettingValue::Bool(false);
-    assert_eq!(find(&TABLE, &gone, 0), None);
-    assert_eq!(find(&[], &gone, 0), None);
+    assert_eq!(find(&TABLE, &gone), None);
+    assert_eq!(find(&[], &gone), None);
 }

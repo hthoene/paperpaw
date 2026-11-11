@@ -1473,6 +1473,8 @@ impl Settings {
 mod declared;
 #[cfg(feature = "kernel")]
 mod fixed_table;
+#[cfg(any(test, feature = "kernel"))]
+mod same;
 mod specs;
 #[cfg(test)]
 mod tests;
