@@ -378,6 +378,22 @@ in place; its removal comes with the PR that finishes the port).
   - The plugin's facts (`can_install`, `takes_betas`, the stock flash layout, the
     actions, the plugins that wait for a restart) are read with the snapshot
     (`Activity::read_facts`).
+- **Untested on a host, named gates (review of #1141, remarks):**
+  - The job paths are covered by one unit test (`native_jobs::tests::lean`) and by the
+    pure decisions of `native_ask`/`native_install`/`native_download`; the scripted host
+    has no storage, so these have no test that runs them: the retry of `want_page`, `abandon`
+    after an early error in `finish`, `removed` saying and forgetting only on reason 0,
+    the answers of event 77 (`native_asks`). They run with the emulator once the store is
+    linked natively (#243).
+  - **Start-up time (X4 gate):** `setup_state` reads the facts (`core.device`,
+    `core.registry`, the settings, the code room: about four host opens) and the rows of the
+    four plugins the offer names (up to eight registry pages) at every start, and keeps
+    none of it. Its time on the device is not measured.
+  - **Unsupported device:** a device the libraries do not know has no state of its own in
+    the `Loader`/`Trouble` yet: the start would show *Loading*. The store stays out of
+    `NATIVE_PLUGINS` until it has one.
+  - The reader's frame size (`header::pager`) and the store start heap against
+    Beta 3's 99.9 KiB stay open gates.
 - **Not run on a host**, and the store start heap (Beta 3: 99.9 KiB) is measured only
   when native plugins are activated (#243).
 
