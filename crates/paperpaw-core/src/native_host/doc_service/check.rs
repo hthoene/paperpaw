@@ -209,6 +209,12 @@ fn block_rank(part: &Part<'_>) -> u8 {
 impl Fragment {
     /// One record of the list, in order. A fragment after the first starts
     /// anywhere in the list, so only its internal order is known.
+    /// A picture block that ended without its picture (left out, or never
+    /// sent): the host says so once.
+    pub(super) fn picture_missing(&self) -> bool {
+        self.kind == Some(3) && self.images == 0
+    }
+
     pub(super) fn feed(&mut self, part: &Part<'_>, first: bool, at: usize) -> Result<(), i32> {
         let rank = block_rank(part);
         if rank < self.rank || (first && at == 0) != (rank == 0) {
@@ -261,13 +267,16 @@ impl Fragment {
     }
 
     /// A block that goes no further (`more` clear), seen from its header: its
-    /// parts add up, and its kind has the records it needs and no others.
+    /// parts add up, and its kind has the records it needs and no others. A
+    /// picture block may come without its picture: one that failed the
+    /// image check was left out, and the block keeps its alt text
+    /// (`document.md` 5: it never fails the whole stream).
     pub(super) fn complete(&self) -> Result<(), i32> {
         // The header opened fragment 0 and the totals ran on across the rest.
         let kind = self.kind.ok_or(ERR_INVALID)?;
         require(
             self.parts == u64::from(self.text_bytes)
-                && (self.images == 1) == (kind == 3)
+                && (self.images == 0 || kind == 3)
                 && self.images <= 1
                 && (self.columns == 1) == (kind == 4)
                 && (kind == 4 || self.cells == 0),
