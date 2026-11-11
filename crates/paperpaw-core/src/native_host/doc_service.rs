@@ -278,7 +278,8 @@ pub(crate) trait DocHost {
     ) -> Result<Option<u32>, i32>;
     /// A picture of `document` was left out of a block stream (it failed the
     /// image check, or the format sent none): the block keeps its alt text.
-    /// The host says so once a document, never per picture.
+    /// The host says so once per run of left-out pictures of the same
+    /// document (it keeps the last document it named), never per picture.
     fn picture_left_out(&self, _document: u32) {}
     /// The format answered that the document is ready (the open, or the
     /// last preparing call): what the host keeps for it is complete now.

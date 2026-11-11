@@ -207,14 +207,14 @@ fn block_rank(part: &Part<'_>) -> u8 {
 }
 
 impl Fragment {
-    /// One record of the list, in order. A fragment after the first starts
-    /// anywhere in the list, so only its internal order is known.
     /// A picture block that ended without its picture (left out, or never
-    /// sent): the host says so once.
+    /// sent): the host notes it (once per run of the same document).
     pub(super) fn picture_missing(&self) -> bool {
         self.kind == Some(3) && self.images == 0
     }
 
+    /// One record of the list, in order. A fragment after the first starts
+    /// anywhere in the list, so only its internal order is known.
     pub(super) fn feed(&mut self, part: &Part<'_>, first: bool, at: usize) -> Result<(), i32> {
         let rank = block_rank(part);
         if rank < self.rank || (first && at == 0) != (rank == 0) {

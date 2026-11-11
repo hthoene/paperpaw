@@ -471,11 +471,13 @@ meaning (the format's own split of a very long paragraph).
 - [D] Order of the list: one `doc_block` (`text_bytes` the text's whole length), the text in
   `doc_text_part`s (each at most 3,072 bytes, cut at UTF-8 boundaries, joined in order to
   `text_bytes`), its `doc_run`s (sorted, not overlapping), `doc_map`s (the `OffsetMap` checkpoints),
-  for an image block one `doc_image` (section 5), for a table row one `doc_columns` (interface 6
-  `TableRow.columns`: up to 16 `u16` weights shared by the table's rows, little-endian) and its
-  `doc_cell`s (at most 16, `MAX_COLUMNS`; `flags` bits 8-10 header, first, last row), its
-  `doc_ruby`s and up to 15 `doc_inline_lang`s (`MAX_INLINE_LANGS`); the last fragment ends with
-  `service.end` (`flags` bit 0: the last block of the section; `next` the offset of the next block).
+  for an image block at most one `doc_image` (section 5: a picture that fails the image check is
+  left out and the block keeps its alt text, never `ERR_INVALID`), for a table row one
+  `doc_columns` (interface 6 `TableRow.columns`: up to 16 `u16` weights shared by the table's
+  rows, little-endian) and its `doc_cell`s (at most 16, `MAX_COLUMNS`; `flags` bits 8-10 header,
+  first, last row), its `doc_ruby`s and up to 15 `doc_inline_lang`s (`MAX_INLINE_LANGS`); the last
+  fragment ends with `service.end` (`flags` bit 0: the last block of the section; `next` the offset
+  of the next block).
   Runs, maps and rubies have no count cap (interface 6 has none); every record fits a fragment.
   Another order, an unknown record or a text whose parts do not add up is `ERR_INVALID` (the host
   checks the format's answer).

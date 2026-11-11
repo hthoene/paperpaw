@@ -149,7 +149,8 @@ pub(crate) struct DocState {
     /// A document's image ids could not be recorded as ended (logged once).
     images_lost: Cell<bool>,
     /// The document a left-out picture was last logged for (0 none): one
-    /// line a document, not one a picture.
+    /// line per run of the same document, not one a picture (a reader
+    /// switching between two documents logs each switch).
     pictures_logged: Cell<u32>,
     /// An event was raised since the pump's last pass: it asks for one. An
     /// event whose owner does not run stays queued without asking again, so
