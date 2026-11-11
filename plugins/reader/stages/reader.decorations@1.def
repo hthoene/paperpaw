@@ -14,10 +14,11 @@
     "decorate.tapped"
   ],
   "reply": [
-    "decorate.mark",
+    "decorate.look",
+    "decorate.marks",
     "decorate.taken"
   ],
-  "reply_rows": 32,
+  "reply_rows": 64,
   "records": [
     {
       "id": 1,
@@ -31,7 +32,7 @@
           "optional": false,
           "ordinal": null,
           "default": null,
-          "max_bytes": 256
+          "max_bytes": 512
         },
         {
           "name": "language",
@@ -117,7 +118,7 @@
           "optional": false,
           "ordinal": null,
           "default": null,
-          "max_bytes": 256
+          "max_bytes": 512
         },
         {
           "name": "section",
@@ -159,29 +160,11 @@
     },
     {
       "id": 4,
-      "name": "decorate.mark",
+      "name": "decorate.look",
       "since": 0,
       "fields": [
         {
-          "name": "run",
-          "type": "u32",
-          "since": 0,
-          "optional": false,
-          "ordinal": null,
-          "default": null,
-          "max_bytes": 0
-        },
-        {
-          "name": "from",
-          "type": "u32",
-          "since": 0,
-          "optional": false,
-          "ordinal": null,
-          "default": null,
-          "max_bytes": 0
-        },
-        {
-          "name": "to",
+          "name": "look",
           "type": "u32",
           "since": 0,
           "optional": false,
@@ -256,6 +239,31 @@
     },
     {
       "id": 5,
+      "name": "decorate.marks",
+      "since": 0,
+      "fields": [
+        {
+          "name": "look",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "ranges",
+          "type": "bytes",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 3600
+        }
+      ]
+    },
+    {
+      "id": 6,
       "name": "decorate.taken",
       "since": 0,
       "fields": [

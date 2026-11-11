@@ -110,32 +110,52 @@ relative to the data folder).
 
 Replaces the interface-6 decorators (`add_decorator`, `PageText`, `Decorated`) and the event
 `core.decoration-tapped` (Kernel ruling 334: a reader-defined stage, `document.md` 9). Schema
-`stages/reader.decorations@1.def`, codec `src/stages.rs`. Not declared or fired yet: the reader
-side follows once the schema is approved.
+`stages/reader.decorations@1.def`, codec `src/stages.rs`, look codes `src/native_marks_codes.rs`.
+Not declared or fired yet: the reader side follows once the schema is approved.
 
-- **Asking a page.** Once a page is laid out (and again when the reader screen comes back on
-  top, so a word added in a lookup shows), the reader fires the stage with one head record
-  `decorate.page` (`path` str 256, `language` str 16, `runs`: how many run rows follow) and
-  `runs` rows `decorate.run` (`section`, `offset`: where the run starts; `text` str 3,200: the
-  page's text of that section from there, words apart by one space, a word broken over two lines
-  once, whole). A page whose text is over the stage's 3,840 bytes is asked in several fires of
-  whole runs; at most 32 runs a fire. The answer is kept with the page; turning back to a page
-  asks again (no answers are kept between pages, #248).
-- **Marks.** A subscriber replies up to 32 rows `decorate.mark`: `run` (index of the run in this
-  fire), `from` and `to` (byte offsets in that run's `text`, on character boundaries, `from` <
-  `to`; else the row is dropped), `role` (str 64, `<plugin>.<name>`), and the look the plugin
-  resolved from its own role settings: `background` and `line_tone` (0 none, else 1 + the index in
-  `Tone::ALL`), `ink` (0 as it is, else 1 + the index), `line` (0 none, else 1 + the index in
-  `LineKind::ALL`), `thickness` (tenths of a millimetre, 0 the default, at most 20), `flags` (bit 0
-  frame, bit 1 struck, bit 2 the plugin takes taps on this mark; other bits 0). Values a reader
-  does not know draw as the default (`Tone::Other`, `LineKind::Other`). Where marks meet, the
-  subscriber answered first wins an aspect both set (Beta 3's decorator order).
-- **Taps.** A tap on a mark with bit 2 (or choosing it with the buttons) fires the stage again
-  with one record `decorate.tapped` (`role`, the mark's `text` str 256, `path`, start and end
-  place). Only the subscriber whose id is the role's plugin acts; it replies one
-  `decorate.taken` (`taken` 1) and opens what it shows itself (its lookup, its screen). The others
-  reply nothing. No answer, or `taken` 0: the tap goes on as a tap on the page.
-- **Bounds.** At most 4 subscribers; input and reply at most 3,840 bytes each, the reader holds
+- **Asking a page.** Only where a plugin subscribed (none: nothing is encoded, no buffer is
+  taken). Once a page is laid out, and again when the reader screen comes back on top (a word
+  added in a lookup shows), the reader fires one head record `decorate.page` (`path` str 512,
+  the library's path limit; `language` str 16; `runs`: how many run rows follow, which must equal
+  the rows sent, else the fire is invalid) and `runs` rows `decorate.run`. A run is `section`
+  and `offset`, the place of its first character in the document's anchor units (the same
+  section and offset as annotations and saved places), and `text` (str 3,200): the page's text
+  of that section from there, words apart by one space, a word broken over two lines once, whole.
+  `text` is normalized and is no anchor: a mark's place is its run's place plus its byte range.
+  A section's text over 3,200 bytes is split at a word boundary into several runs of the same
+  section, each with its own `offset`; a mark never crosses runs. A page over the stage's 3,840
+  bytes is asked in several fires of whole runs, at most 32 runs a fire. The answer is kept with
+  the page; turning back to a page asks again (nothing kept between pages, #248).
+- **Looks and marks.** A subscriber replies at most 64 rows: `decorate.look` rows, each a `look`
+  number of its own (0 to 63), its `role` (str 64) and the look it resolved from its own role
+  settings, then `decorate.marks` rows, each a `look` and `ranges` (bytes, at most 3,600): packed
+  marks of 6 bytes, little-endian `run` u16, `from` u16, `to` u16 (byte offsets in that run's
+  `text`), about 590 marks a fire. Checks: a `ranges` whose length is not a multiple of 6, or
+  whose `look` the same reply did not define, drops its row; a triple with `run` at or past the
+  runs sent, `from` >= `to`, `to` past its run's text or a bound not on a character boundary is
+  dropped alone, its neighbours stay. Where marks meet, the subscriber answered first wins an
+  aspect both set (Beta 3's order).
+- **Memory (#248).** The reader keeps at most 256 marks a page over all subscribers, packed as
+  they came (about 2 KiB at most); past them the rest is dropped in the order the subscribers
+  answered, and the count is logged. A look is kept only while a mark uses it. Marks are decoded
+  straight from the reply buffer, never into a list of rows. The X4 page-turn peaks (TXT, EPUB,
+  one subscriber, `--heap-report`) are measured before and after the reader side: input and reply
+  are about 7.5 KB at a turn.
+- **Roles are the subscriber's own.** A `role` must be `<subscriber id>.<name>`; a look with any
+  other role is dropped with its marks, so no plugin styles another's marks or takes its taps.
+- **Look codes** (fixed, never the order of `Tone::ALL` or `LineKind::ALL`): `background`,
+  `ink` and `line_tone`: 0 none (the ink: the text as it is), 1 light gray, 2 gray, 3 dark gray,
+  4 black, 5 white, 6 yellow, 7 green, 8 blue, 9 pink, 10 orange, 11 red; `line`: 0 none,
+  1 solid, 2 dotted, 3 dashed, 4 wavy, 5 double; `thickness` in tenths of a millimetre, 0 the
+  default, at most 20; `flags` bit 0 frame, bit 1 struck, bit 2 the subscriber takes taps on its
+  marks, other bits 0. A tone code a reader does not know draws gray, a line code solid.
+- **Taps.** A tap on a mark whose look has bit 2 (or choosing it with the buttons) fires the
+  stage again with one record `decorate.tapped` (`role`, the mark's `text` str 256, cut at a
+  character boundary, `path` str 512, start and end place in anchor units). Only the subscriber whose id is the role's plugin
+  acts; it replies one `decorate.taken` (`taken` 1) and opens what it shows itself. The reader
+  reads `decorate.taken` only from that subscriber; no answer or `taken` 0 and the tap goes on
+  as a tap on the page.
+- **Bounds.** At most 4 subscribers; input and reply at most 3,840 bytes each; the reader holds
   one reply buffer of that size while it fires and nothing between fires (#248). A subscriber's
   bad reply (framing, a tag it should not send) drops that subscriber's marks for the page only.
 

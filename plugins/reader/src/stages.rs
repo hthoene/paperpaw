@@ -98,11 +98,11 @@ pub mod reader_decorations_v1 {
     /// Schema max_reply.
     pub const MAX_REPLY: usize = 3840;
     /// Schema reply_rows.
-    pub const REPLY_ROWS: usize = 32;
+    pub const REPLY_ROWS: usize = 64;
     /// Schema input_tags.
     pub const INPUT_TAGS: &[u32] = &[1, 2, 3];
     /// Schema reply_tags.
-    pub const REPLY_TAGS: &[u32] = &[4, 5];
+    pub const REPLY_TAGS: &[u32] = &[4, 5, 6];
     /// Schema input_rows: the most records of one input batch.
     pub const INPUT_ROWS: usize = 33;
     struct Reader<'a> {
@@ -208,7 +208,7 @@ pub mod reader_decorations_v1 {
     /// Wire tag of the `decorate.page` record.
     pub const DECORATE_PAGE_TAG: u32 = 1;
     /// Maximum bytes of `decorate.page.path`.
-    pub const DECORATE_PAGE_PATH_MAX_BYTES: usize = 256;
+    pub const DECORATE_PAGE_PATH_MAX_BYTES: usize = 512;
     /// Maximum bytes of `decorate.page.language`.
     pub const DECORATE_PAGE_LANGUAGE_MAX_BYTES: usize = 16;
 
@@ -216,7 +216,7 @@ pub mod reader_decorations_v1 {
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     #[non_exhaustive]
     pub struct DecoratePage<'a> {
-        /// UTF-8 text of at most 256 bytes.
+        /// UTF-8 text of at most 512 bytes.
         pub path: &'a str,
         /// UTF-8 text of at most 16 bytes.
         pub language: &'a str,
@@ -318,7 +318,7 @@ pub mod reader_decorations_v1 {
     /// Maximum bytes of `decorate.tapped.text`.
     pub const DECORATE_TAPPED_TEXT_MAX_BYTES: usize = 256;
     /// Maximum bytes of `decorate.tapped.path`.
-    pub const DECORATE_TAPPED_PATH_MAX_BYTES: usize = 256;
+    pub const DECORATE_TAPPED_PATH_MAX_BYTES: usize = 512;
 
     /// The `decorate.tapped` record, borrowed from its batch.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -328,7 +328,7 @@ pub mod reader_decorations_v1 {
         pub role: &'a str,
         /// UTF-8 text of at most 256 bytes.
         pub text: &'a str,
-        /// UTF-8 text of at most 256 bytes.
+        /// UTF-8 text of at most 512 bytes.
         pub path: &'a str,
         /// Little-endian u32.
         pub section: u32,
@@ -399,21 +399,17 @@ pub mod reader_decorations_v1 {
             }
         }
     }
-    /// Wire tag of the `decorate.mark` record.
-    pub const DECORATE_MARK_TAG: u32 = 4;
-    /// Maximum bytes of `decorate.mark.role`.
-    pub const DECORATE_MARK_ROLE_MAX_BYTES: usize = 64;
+    /// Wire tag of the `decorate.look` record.
+    pub const DECORATE_LOOK_TAG: u32 = 4;
+    /// Maximum bytes of `decorate.look.role`.
+    pub const DECORATE_LOOK_ROLE_MAX_BYTES: usize = 64;
 
-    /// The `decorate.mark` record, borrowed from its batch.
+    /// The `decorate.look` record, borrowed from its batch.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     #[non_exhaustive]
-    pub struct DecorateMark<'a> {
+    pub struct DecorateLook<'a> {
         /// Little-endian u32.
-        pub run: u32,
-        /// Little-endian u32.
-        pub from: u32,
-        /// Little-endian u32.
-        pub to: u32,
+        pub look: u32,
         /// UTF-8 text of at most 64 bytes.
         pub role: &'a str,
         /// Little-endian u32.
@@ -430,14 +426,12 @@ pub mod reader_decorations_v1 {
         pub flags: u32,
     }
 
-    impl<'a> DecorateMark<'a> {
+    impl<'a> DecorateLook<'a> {
         fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
             body.bitmap()?;
-            Ok(Record::DecorateMark(Self {
-                run: u32::from_le_bytes(body.scalar()?),
-                from: u32::from_le_bytes(body.scalar()?),
-                to: u32::from_le_bytes(body.scalar()?),
-                role: body.string(DECORATE_MARK_ROLE_MAX_BYTES)?,
+            Ok(Record::DecorateLook(Self {
+                look: u32::from_le_bytes(body.scalar()?),
+                role: body.string(DECORATE_LOOK_ROLE_MAX_BYTES)?,
                 background: u32::from_le_bytes(body.scalar()?),
                 ink: u32::from_le_bytes(body.scalar()?),
                 line: u32::from_le_bytes(body.scalar()?),
@@ -450,9 +444,7 @@ pub mod reader_decorations_v1 {
         fn body_len(&self) -> Result<usize, i32> {
             let mut len = 1; // The initial bitmap is empty.
             len += 4;
-            len += 4;
-            len += 4;
-            len += blob_len(self.role.len(), DECORATE_MARK_ROLE_MAX_BYTES)?;
+            len += blob_len(self.role.len(), DECORATE_LOOK_ROLE_MAX_BYTES)?;
             len += 4;
             len += 4;
             len += 4;
@@ -463,9 +455,7 @@ pub mod reader_decorations_v1 {
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.run.to_le_bytes(), out, offset);
-            write_bytes(&self.from.to_le_bytes(), out, offset);
-            write_bytes(&self.to.to_le_bytes(), out, offset);
+            write_bytes(&self.look.to_le_bytes(), out, offset);
             write_blob(self.role.as_bytes(), out, offset);
             write_bytes(&self.background.to_le_bytes(), out, offset);
             write_bytes(&self.ink.to_le_bytes(), out, offset);
@@ -476,12 +466,10 @@ pub mod reader_decorations_v1 {
         }
     }
 
-    impl<'a> DecorateMark<'a> {
+    impl<'a> DecorateLook<'a> {
         /// Build a record; encoding validates its bounds.
         pub const fn new(
-            run: u32,
-            from: u32,
-            to: u32,
+            look: u32,
             role: &'a str,
             background: u32,
             ink: u32,
@@ -491,9 +479,7 @@ pub mod reader_decorations_v1 {
             flags: u32,
         ) -> Self {
             Self {
-                run,
-                from,
-                to,
+                look,
                 role,
                 background,
                 ink,
@@ -504,8 +490,51 @@ pub mod reader_decorations_v1 {
             }
         }
     }
+    /// Wire tag of the `decorate.marks` record.
+    pub const DECORATE_MARKS_TAG: u32 = 5;
+    /// Maximum bytes of `decorate.marks.ranges`.
+    pub const DECORATE_MARKS_RANGES_MAX_BYTES: usize = 3600;
+
+    /// The `decorate.marks` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct DecorateMarks<'a> {
+        /// Little-endian u32.
+        pub look: u32,
+        /// Opaque bytes, at most 3600.
+        pub ranges: &'a [u8],
+    }
+
+    impl<'a> DecorateMarks<'a> {
+        fn decode_body(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::DecorateMarks(Self {
+                look: u32::from_le_bytes(body.scalar()?),
+                ranges: body.blob(DECORATE_MARKS_RANGES_MAX_BYTES)?,
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            len += blob_len(self.ranges.len(), DECORATE_MARKS_RANGES_MAX_BYTES)?;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.look.to_le_bytes(), out, offset);
+            write_blob(self.ranges, out, offset);
+        }
+    }
+
+    impl<'a> DecorateMarks<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(look: u32, ranges: &'a [u8]) -> Self {
+            Self { look, ranges }
+        }
+    }
     /// Wire tag of the `decorate.taken` record.
-    pub const DECORATE_TAKEN_TAG: u32 = 5;
+    pub const DECORATE_TAKEN_TAG: u32 = 6;
 
     /// The `decorate.taken` record, borrowed from its batch.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -551,8 +580,10 @@ pub mod reader_decorations_v1 {
         DecorateRun(DecorateRun<'a>),
         /// A `decorate.tapped` record.
         DecorateTapped(DecorateTapped<'a>),
-        /// A `decorate.mark` record.
-        DecorateMark(DecorateMark<'a>),
+        /// A `decorate.look` record.
+        DecorateLook(DecorateLook<'a>),
+        /// A `decorate.marks` record.
+        DecorateMarks(DecorateMarks<'a>),
         /// A `decorate.taken` record.
         DecorateTaken(DecorateTaken),
     }
@@ -595,7 +626,8 @@ pub mod reader_decorations_v1 {
                 Record::DecoratePage(_) => DECORATE_PAGE_TAG,
                 Record::DecorateRun(_) => DECORATE_RUN_TAG,
                 Record::DecorateTapped(_) => DECORATE_TAPPED_TAG,
-                Record::DecorateMark(_) => DECORATE_MARK_TAG,
+                Record::DecorateLook(_) => DECORATE_LOOK_TAG,
+                Record::DecorateMarks(_) => DECORATE_MARKS_TAG,
                 Record::DecorateTaken(_) => DECORATE_TAKEN_TAG,
             }
         }
@@ -604,7 +636,8 @@ pub mod reader_decorations_v1 {
                 Record::DecoratePage(r) => r.body_len(),
                 Record::DecorateRun(r) => r.body_len(),
                 Record::DecorateTapped(r) => r.body_len(),
-                Record::DecorateMark(r) => r.body_len(),
+                Record::DecorateLook(r) => r.body_len(),
+                Record::DecorateMarks(r) => r.body_len(),
                 Record::DecorateTaken(r) => r.body_len(),
             }
         }
@@ -613,7 +646,8 @@ pub mod reader_decorations_v1 {
                 Record::DecoratePage(r) => r.write(out, offset),
                 Record::DecorateRun(r) => r.write(out, offset),
                 Record::DecorateTapped(r) => r.write(out, offset),
-                Record::DecorateMark(r) => r.write(out, offset),
+                Record::DecorateLook(r) => r.write(out, offset),
+                Record::DecorateMarks(r) => r.write(out, offset),
                 Record::DecorateTaken(r) => r.write(out, offset),
             }
         }
@@ -629,7 +663,8 @@ pub mod reader_decorations_v1 {
             DECORATE_PAGE_TAG => DecoratePage::decode_body(body)?,
             DECORATE_RUN_TAG => DecorateRun::decode_body(body)?,
             DECORATE_TAPPED_TAG => DecorateTapped::decode_body(body)?,
-            DECORATE_MARK_TAG => DecorateMark::decode_body(body)?,
+            DECORATE_LOOK_TAG => DecorateLook::decode_body(body)?,
+            DECORATE_MARKS_TAG => DecorateMarks::decode_body(body)?,
             DECORATE_TAKEN_TAG => DecorateTaken::decode_body(body)?,
             _ => return Err(-2),
         };
@@ -967,12 +1002,12 @@ pub mod reader_decorations_v1 {
             }
         }
     }
-    impl<'a> DecorateMark<'a> {
+    impl<'a> DecorateLook<'a> {
         /// Local tag of this record.
-        pub const TAG: u32 = DECORATE_MARK_TAG;
+        pub const TAG: u32 = DECORATE_LOOK_TAG;
         /// Encode this record as a one-record batch.
         pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
-            reply_encode(&[Record::DecorateMark(*self)], out)
+            reply_encode(&[Record::DecorateLook(*self)], out)
         }
         /// Decode a batch holding exactly this record.
         pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
@@ -981,7 +1016,26 @@ pub mod reader_decorations_v1 {
                 return Err(-2);
             }
             match records.next() {
-                Some(Ok(Record::DecorateMark(r))) => Ok(r),
+                Some(Ok(Record::DecorateLook(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> DecorateMarks<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = DECORATE_MARKS_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::DecorateMarks(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::DecorateMarks(r))) => Ok(r),
                 _ => Err(-2),
             }
         }
