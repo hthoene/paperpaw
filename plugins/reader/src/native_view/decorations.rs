@@ -158,6 +158,8 @@ fn ask(
     let stage = Stage::new(host, stage::KEY)?;
     // A device that runs no stages (the X4 until its stack gate) says so
     // before it looks at any buffer: nothing is encoded or taken there.
+    // Elsewhere this empty probe is `ERR_NO_SPACE`, never `ERR_NOT_FOUND`:
+    // "nobody subscribed" is only learned from a real fire at cursor 0.
     if matches!(stage.run(&[], &mut []).next(), Err(Error::Unsupported)) {
         NO_STAGES.store(true, Ordering::Relaxed);
         return Ok(None);
