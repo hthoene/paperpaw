@@ -2,6 +2,7 @@
 //! card, as the reader saves its place on a page turn.
 use super::*;
 use crate::native_host::lib_host::LibraryHost;
+use crate::native_host::lib_moves_service::LibraryMoves;
 use crate::native_host::lib_reads::tests::card;
 use crate::native_host::registrations::{
     ServiceLibPosition as Position, ServiceLibPositionSet as PositionSet, ServiceLibRef as Ref,
@@ -84,4 +85,20 @@ fn a_position_set_through_the_service_answers_ok_and_is_kept() {
         set(&host, by_path("books/none.epub"), 1),
         Err(ERR_NOT_FOUND)
     );
+}
+
+#[test]
+fn a_position_for_a_book_a_pending_delete_holds_is_not_found() {
+    let card = card();
+    let moves = Rc::new(LibraryMoves::new(card.storage.clone()));
+    let host = LibraryHost::new(card.storage.clone(), card.env.clone(), Some(moves.clone()));
+    assert_eq!(host.delete(&["books/e.epub"], false).unwrap()[0], OK);
+    assert!(moves.pending_delete("books/e.epub"));
+    let host: Rc<dyn LibHost> = Rc::new(host);
+    // The file is gone, the catalog's part waits for the pump: hidden, as
+    // for the reads.
+    assert_eq!(set(&host, by_path("books/e.epub"), 1), Err(ERR_NOT_FOUND));
+    // Another book is not the job's.
+    let reply = set(&host, by_path("books/a.epub"), 2).unwrap();
+    assert_eq!(result(&reply), ("books/a.epub".into(), OK));
 }
