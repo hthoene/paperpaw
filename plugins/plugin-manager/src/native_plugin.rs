@@ -36,6 +36,8 @@ mod image {
 
 /// Pages of one list read at most (the plugins are about seventy).
 const MOST_PAGES: usize = 16;
+/// The most plugin rows reserved at once from the registry's total.
+const MOST_ROWS: usize = 256;
 /// The longest description kept for a row: a note shows two lines.
 const MOST_DESCRIPTION: usize = 160;
 /// The places already seen, one `slot screen` a line, kept in the data folder.
@@ -303,6 +305,11 @@ impl NativePluginManager {
                     Err(Error::State) => continue 'again,
                     Err(error) => return Err(error),
                 };
+                // The registry says how many rows there are: reserve them once
+                // (a list that grows by doubling holds up to twice what it needs).
+                let wanted = usize::try_from(page.end().total()).unwrap_or(MOST_ROWS);
+                rows.try_reserve_exact(wanted.min(MOST_ROWS).saturating_sub(rows.len()))
+                    .map_err(|_| Error::NoMemory)?;
                 for plugin in page.rows() {
                     push(
                         &mut rows,
