@@ -62,6 +62,8 @@ mod dual;
 mod firmware;
 #[cfg(feature = "remote")]
 mod gray_test;
+#[cfg(feature = "test-image")]
+mod high_water;
 #[cfg(feature = "ppn5")]
 mod host_net;
 mod http;
@@ -482,6 +484,9 @@ fn prepare() -> Ready {
     paperpaw_sdk::memory::set_placer(native::api::alloc_in);
     esp_println::logger::init_logger_from_env();
     stack::report_band();
+    // The test image says what the run before ended with, and starts counting.
+    #[cfg(feature = "test-image")]
+    high_water::start();
     // What hot code in internal RAM gains on this chip (test builds).
     #[cfg(feature = "remote")]
     bench::run();

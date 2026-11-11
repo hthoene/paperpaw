@@ -383,7 +383,7 @@ jobs:
         # folder still changes the layout a little.)
         run: |
           remap="target.$FIRMWARE_TARGET.rustflags=[\"--remap-path-prefix=$GITHUB_WORKSPACE=/build\",\"--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo\"]"
-          cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --config "$remap" --features "$DEVICE"
+          cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --config "$remap" --features "$DEVICE,release"
           mkdir -p "$GITHUB_WORKSPACE/dist"
           elf="target/$FIRMWARE_TARGET/release/paperpaw-xteink"
           table=partitions.csv

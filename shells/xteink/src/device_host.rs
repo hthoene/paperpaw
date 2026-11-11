@@ -222,6 +222,7 @@ pub fn wired_secrets() {
 /// (`paperpaw_x4::native_offer`): `core.work` with `core.net` and
 /// `core.sockets` (one wiring), the card's three, and `core.secrets`. `wifi`:
 /// the kernel has a Wi-Fi model.
+#[cfg(all(feature = "native-on", feature = "esp32c3"))]
 pub fn wired_families(wifi: bool) -> paperpaw_x4::native_offer::Wired {
     use core::sync::atomic::Ordering::Relaxed;
     let wired = WIRED.load(Relaxed);

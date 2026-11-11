@@ -16,8 +16,10 @@ use alloc::string::String;
 use paperpaw_core::native_host::shell::inflight::Inflight;
 use paperpaw_sdk::native::{SafeMode, SafeModeReason};
 
-/// Failed starts with code plugins before one goes without them.
-pub const FAILED_STARTS: u8 = 2;
+/// Failed starts with code plugins before one goes without them
+/// (`paperpaw_x4::start_count`, where the rules are tested).
+#[allow(dead_code, reason = "named for the docs; the rules read it")]
+pub const FAILED_STARTS: u8 = paperpaw_x4::start_count::FAILED_STARTS;
 /// The key held at power-on for a start without code plugins: *Back* on
 /// the devices with the X4's buttons, *Home* on the X4 Pro.
 #[cfg(not(feature = "x4-pro"))]
@@ -120,6 +122,10 @@ fn set(field: &mut [u8; ID_LEN], id: &str) {
 /// anew from it.
 pub fn check(key_held: bool) -> Option<SafeMode> {
     let mut record = read();
+    let mut count = paperpaw_x4::start_count::Count {
+        failed: record.failed,
+        counted: false,
+    };
     record.counted = 0;
     // A reset in the middle of a call into a plugin (cutting the power clears
     // this record, so it was not that): that plugin is switched off now, not
@@ -127,13 +133,13 @@ pub fn check(key_held: bool) -> Option<SafeMode> {
     // plugin that crashes on its first event after the first frame is shown
     // would otherwise crash every start.
     let inflight = running(&record);
-    let reason = if key_held {
-        SafeModeReason::KeyHeld
-    } else if record.failed >= FAILED_STARTS || inflight.is_some() {
-        SafeModeReason::FailedStarts
-    } else {
-        write(record);
-        return None;
+    let reason = match count.decide(key_held, inflight.is_some()) {
+        Some(paperpaw_x4::start_count::Refusal::KeyHeld) => SafeModeReason::KeyHeld,
+        Some(paperpaw_x4::start_count::Refusal::FailedStarts) => SafeModeReason::FailedStarts,
+        None => {
+            write(record);
+            return None;
+        }
     };
     let mut safe_mode = SafeMode::new(reason);
     safe_mode.last_loaded = text(&record.loaded);
@@ -146,9 +152,13 @@ pub fn check(key_held: bool) -> Option<SafeMode> {
 /// it as one that may fail.
 pub fn loading(id: &str) {
     let mut record = read();
-    if record.counted == 0 {
+    let mut count = paperpaw_x4::start_count::Count {
+        failed: record.failed,
+        counted: record.counted != 0,
+    };
+    if count.loading() {
         record.counted = 1;
-        record.failed = record.failed.saturating_add(1);
+        record.failed = count.failed;
         record.crashed = [0; ID_LEN];
     }
     set(&mut record.loaded, id);
