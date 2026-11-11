@@ -129,10 +129,6 @@ struct Open {
     turned: bool,
     /// The pictures of the page on show: drawn a frame after its text (#252).
     pictures: pictures::Pass,
-    /// Where the last frame put the screen (its top left in screen pixels):
-    /// the pictures' boxes are asked for in screen pixels. None before the
-    /// first frame (the page is then drawn in one pass).
-    frame_at: Option<(i32, i32)>,
     /// A jump from another screen is not yet reported to the host.
     report_due: bool,
     /// The book's title as a report carries it.
@@ -367,7 +363,6 @@ impl View {
             unsaved: false,
             turned: false,
             pictures: pictures::Pass::Whole,
-            frame_at: None,
             report_due: false,
             said: false,
             title,
@@ -582,6 +577,12 @@ impl View {
             if open.has_pictures() {
                 open.redraw_page(host, RedrawMode::Partial).ok();
             }
+        } else if let Body::Open(open) = &mut self.body
+            && open.pictures_pending()
+        {
+            // Shown again while its pictures waited: the host dropped their
+            // follow-up when the screen left the top; they are asked for anew.
+            open.redraw_page(host, RedrawMode::Partial).ok();
         }
     }
 
@@ -1281,7 +1282,7 @@ impl Open {
             self.words = native_wordbox::word_boxes(&faces, page, area)?;
         }
         let rect = frame.rect;
-        self.frame_at = Some((rect.x, rect.y));
+        let follow_up = pictures::follow_up(frame);
         let canvas = frame.draw_canvas()?;
         canvas.fill_rectangle(rect, Color::WHITE)?;
         let look = Look::read(host, setup.display.display_gray_levels())?;
@@ -1290,7 +1291,7 @@ impl Open {
             rect.x as f32 + f32::from(area.x),
             rect.y as f32 + f32::from(area.y),
         );
-        let pictures = self.pictures.drawing((rect.x, rect.y));
+        let pictures = self.pictures.drawing(follow_up);
         draw_page(
             &mut ink,
             &faces,

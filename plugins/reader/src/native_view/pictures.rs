@@ -2,11 +2,11 @@
 //! the text and keeps each picture's place empty, exactly its size, so the
 //! page shows fast; the frame after draws the pictures in those places and
 //! nothing moves. The pictures' boxes are asked for when the page changes
-//! (a turn, a jump, a link, the book shown): a page laid out only in its draw
-//! (a changed setting, a turned screen) and a page without pictures have one
-//! frame, and so does the first page before the screen was ever drawn (its
-//! place on the screen is not known yet); a page turned before its pictures
-//! were drawn never draws them.
+//! (a turn, a jump, a link, the book shown) and again when the screen is
+//! shown while they wait (the host drops a follow-up of a screen that left
+//! the top). A page laid out only in its draw (a changed setting, a turned
+//! screen) and a page without pictures have one frame; a page turned before
+//! its pictures were drawn never draws them.
 use super::{Open, Setup, redraw};
 use crate::native_draw::{Pictures, picture_boxes};
 use paperpaw_sdk::native::{
@@ -20,32 +20,31 @@ use paperpaw_sdk::native::{
 pub(super) enum Pass {
     /// The pictures are drawn (or the page has none).
     Whole,
-    /// The page has pictures and its text is to be drawn first, in a frame
-    /// at this top left (screen pixels): the boxes were asked for there.
-    Text((i32, i32)),
-    /// The text is drawn and the host draws the pictures' boxes again in the
-    /// next frame: that frame draws them.
-    Due,
+    /// The page has pictures and the host draws their boxes again in a
+    /// follow-up frame: every draw before it (each band of a frame, the X4's
+    /// second send) keeps their places empty.
+    Pending,
 }
 
 impl Pass {
-    /// What a frame at `at` (its top left, screen pixels) draws of the
-    /// pictures: the text pass keeps their places empty and the frame after
-    /// (the host's follow-up of their boxes, or any later one) draws them. A
-    /// frame elsewhere than the boxes were asked for (the bars came or went)
-    /// draws them at once: the follow-up would draw other places.
-    pub(super) fn drawing(&mut self, at: (i32, i32)) -> Pictures {
-        match *self {
-            Self::Text(asked) if asked == at => {
-                *self = Self::Due;
-                Pictures::Places
-            }
-            Self::Text(_) | Self::Due | Self::Whole => {
+    /// What a draw puts in the pictures' places: while they are pending,
+    /// nothing, except in the host's follow-up of their boxes (`follow_up`,
+    /// each of its bands), which draws them; every draw after that does too.
+    pub(super) fn drawing(&mut self, follow_up: bool) -> Pictures {
+        match (*self, follow_up) {
+            (Self::Pending, false) => Pictures::Places,
+            (Self::Pending, true) | (Self::Whole, _) => {
                 *self = Self::Whole;
                 Pictures::Drawn
             }
         }
     }
+}
+
+/// Whether a draw is of the host's follow-up frame of the areas asked for
+/// (`queue_redraw_area`): bit 0 of a screen draw's id (`screens-input.md`).
+pub(super) const fn follow_up(frame: &paperpaw_sdk::native::callbacks::DrawFrame<'_>) -> bool {
+    frame.id & 1 == 1
 }
 
 impl Open {
@@ -56,40 +55,40 @@ impl Open {
             .is_some_and(|page| !page.images.is_empty())
     }
 
+    /// Whether the pictures of the page on show wait for the host's
+    /// follow-up frame.
+    pub(super) fn pictures_pending(&self) -> bool {
+        self.pictures == Pass::Pending
+    }
+
     /// The page on show is drawn again in `mode` (it was laid out in the
     /// callback: `announce`). Where it has pictures and the host takes their
-    /// boxes to draw again in the frame after, the page is drawn first
-    /// without them (#252); else with them.
+    /// boxes to draw again in a frame of their own after, the page is drawn
+    /// first without them (#252); else with them.
     ///
     /// # Errors
     /// The host's refusal to redraw.
     pub(super) fn redraw_page(&mut self, host: &Host<'_>, mode: RedrawMode) -> Result<(), Error> {
         redraw(host, mode)?;
         self.pictures = Pass::Whole;
-        // Before the first frame the screen's place is not known: one pass.
-        let Some(frame_at) = self.frame_at else {
-            return Ok(());
-        };
         let Some(page) = self.page.as_ref().filter(|_| self.has_pictures()) else {
             return Ok(());
         };
         let Some(area) = Setup::read(host).ok().and_then(|setup| self.area(&setup)) else {
             return Ok(());
         };
-        // The boxes in screen pixels, as the draw puts them (`draw_with`).
-        let origin = (
-            frame_at.0 as f32 + f32::from(area.x),
-            frame_at.1 as f32 + f32::from(area.y),
-        );
+        // The boxes from the top left of the screen's region, as its draw
+        // has them (`draw_with`: the content box, then the picture).
+        let origin = (f32::from(area.x), f32::from(area.y));
         if ask_second_pass(host, picture_boxes(page, origin)) {
-            self.pictures = Pass::Text(frame_at);
+            self.pictures = Pass::Pending;
         }
         Ok(())
     }
 }
 
-/// Asks the host to draw the pictures' boxes (`(x, y, width, height)` in the
-/// screen's coordinates, as its draw has them) again in a frame of their own
+/// Asks the host to draw the pictures' boxes (`(x, y, width, height)` from
+/// the top left of the screen's region) again in a frame of their own
 /// right after the one asked for, with a partial refresh of the boxes only
 /// (#252). Whether it takes every box.
 fn ask_second_pass(host: &Host<'_>, mut boxes: impl Iterator<Item = (i32, i32, u32, u32)>) -> bool {
@@ -111,22 +110,18 @@ mod tests {
     use crate::native_draw::Pictures;
 
     #[test]
-    fn the_text_is_drawn_first_and_the_pictures_in_the_frame_after() {
-        let mut pass = Pass::Text((0, 40));
-        assert_eq!(pass.drawing((0, 40)), Pictures::Places);
-        assert_eq!(pass, Pass::Due);
-        // The frame the host draws the boxes in again (or any later one): the
-        // pictures.
-        assert_eq!(pass.drawing((0, 40)), Pictures::Drawn);
-        assert_eq!(pass, Pass::Whole);
-        assert_eq!(pass.drawing((0, 40)), Pictures::Drawn);
-    }
-
-    #[test]
-    fn a_frame_elsewhere_than_the_boxes_were_asked_for_draws_the_pictures_at_once() {
-        // The bars went: the screen starts higher than when the boxes were asked for.
-        let mut pass = Pass::Text((0, 40));
-        assert_eq!(pass.drawing((0, 0)), Pictures::Drawn);
+    fn the_text_is_drawn_first_and_the_pictures_in_the_follow_up() {
+        let mut pass = Pass::Pending;
+        // Every band of the first frame (and its second send): no pictures.
+        for _ in 0..5 {
+            assert_eq!(pass.drawing(false), Pictures::Places);
+        }
+        assert_eq!(pass, Pass::Pending);
+        // The follow-up of the boxes, each of its bands: the pictures.
+        assert_eq!(pass.drawing(true), Pictures::Drawn);
+        assert_eq!(pass.drawing(true), Pictures::Drawn);
+        // Any frame after: with them.
+        assert_eq!(pass.drawing(false), Pictures::Drawn);
         assert_eq!(pass, Pass::Whole);
     }
 }
