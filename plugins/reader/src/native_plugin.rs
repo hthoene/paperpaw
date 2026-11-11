@@ -19,7 +19,7 @@ use crate::{
     native_skim_view,
     native_skim_view::SkimView,
     native_toc_view::{Outcome, TocView},
-    native_view::View,
+    native_view::{Handover, View, read_handover},
 };
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
@@ -34,14 +34,14 @@ use paperpaw_sdk::{
         library::Library,
         registrations,
         reply::Reply,
-        ui::{Question, RequestId as AskId, Ui, UiCursor},
+        ui::{Instance, Question, RequestId as AskId, Ui, UiCursor},
         work::{Work, WorkSpec},
     },
 };
 use paperpaw_ui_kit::{
     Messages, Screens,
-    mem::{SERVICE_BUFFER, buffer},
-    read_event,
+    mem::{self, SERVICE_BUFFER, buffer},
+    read_event, text,
 };
 
 mod image {
@@ -96,6 +96,11 @@ pub struct NativeReader {
     notes: Screens<Footnote>,
     /// The skim screens over the pages.
     skims: Screens<SkimView>,
+    /// Reading screens that gave their document back for another book's (the
+    /// host lets a plugin keep few documents open, one on the X4), with the
+    /// book they showed (path, root code): each opens it again, at its saved
+    /// place, when it is on top again (`wake`).
+    resting: Vec<(Instance, String, &'static str)>,
     /// *Go to the note* pressed: the book and the link, followed when its
     /// reading screen is shown again.
     follow: Option<(String, String)>,
@@ -122,7 +127,54 @@ impl NativeReader {
         let (Some(ui), Some(docs)) = (&self.ui, &self.docs) else {
             return Err(Error::State);
         };
-        let mut view = View::open(host, ui, (docs, self.library.as_ref()), handover)?;
+        let found = match handover {
+            Some(handover) => read_handover(host, ui, handover).unwrap_or_default(),
+            None => Handover::default(),
+        };
+        let library = self.library.as_ref();
+        // The screen opened again (the reader asked to open while it shows a
+        // book): the book it shows stays open; another book's document is
+        // given back first, so the host has room for the new one.
+        if let Some(view) = self.screens.get(instance) {
+            if view.keeps(&found)? {
+                self.start_count(host);
+                return Ok(());
+            }
+            view.close(host, (docs, library));
+        }
+        rest(
+            host,
+            (docs, library),
+            (&mut self.screens, &mut self.resting),
+            instance,
+        )?;
+        let mut view = View::open(host, (docs, library), found)?;
+        view.bind(instance.get());
+        self.resting.retain(|(at, ..)| *at != instance);
+        self.screens.open(instance, view)?;
+        self.start_count(host);
+        Ok(())
+    }
+
+    /// A reading screen that gave its document back is on top again: it opens
+    /// its book again, at its saved place (the others' documents are given
+    /// back first).
+    fn wake(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        let Some(at) = self.resting.iter().position(|(i, ..)| *i == instance) else {
+            return Ok(());
+        };
+        let (_, path, root) = self.resting.swap_remove(at);
+        let Some(docs) = &self.docs else {
+            return Err(Error::State);
+        };
+        let library = self.library.as_ref();
+        rest(
+            host,
+            (docs, library),
+            (&mut self.screens, &mut self.resting),
+            instance,
+        )?;
+        let mut view = View::open(host, (docs, library), Handover::of_book(path, root)?)?;
         view.bind(instance.get());
         self.screens.open(instance, view)?;
         self.start_count(host);
@@ -630,6 +682,7 @@ impl NativeReader {
         instance: paperpaw_sdk::native::ui::Instance,
     ) -> Result<(), Error> {
         self.screens.shown(SCREEN, instance)?;
+        self.wake(host, instance)?;
         if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
             view.shown(host, docs);
         }
@@ -639,6 +692,11 @@ impl NativeReader {
     /// The start of the device (`Event::Started`): the book read last opens again where the setting
     /// asks for it.
     fn reopen_last(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        // A book is on show already (opened before the start was told): it
+        // stays, and nothing opens over it.
+        if self.screens.all().any(|view| view.book().is_some()) {
+            return Ok(());
+        }
         // A convenience at the start never ends the callback with an error (that
         // would drop what other plugins staged in it); only a refused allocation does.
         let opened = self.open_ui(host).and_then(|()| {
@@ -665,7 +723,34 @@ impl NativeReader {
             view.close(host, (docs, self.library.as_ref()));
         }
         self.screens.close(instance);
+        self.resting.retain(|(at, ..)| *at != instance);
     }
+}
+
+/// Gives back the documents of the reading screens other than `instance`: the
+/// host lets a plugin keep few open (one on the X4). Each keeps its book in
+/// `resting` and opens it again when it is on top again.
+fn rest(
+    host: &Host<'_>,
+    (docs, library): (&Documents, Option<&Library>),
+    (screens, resting): (
+        &mut Screens<View>,
+        &mut Vec<(Instance, String, &'static str)>,
+    ),
+    instance: Instance,
+) -> Result<(), Error> {
+    for (other, view) in screens.all_with_instance() {
+        if other == instance {
+            continue;
+        }
+        let Some((path, root)) = view.book() else {
+            continue;
+        };
+        let path = text::copy(path)?;
+        mem::push(resting, (other, path, root))?;
+        view.close(host, (docs, library));
+    }
+    Ok(())
 }
 
 impl Plugin for NativeReader {
