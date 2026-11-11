@@ -13,9 +13,11 @@
 //! second reply buffer, and never leaves a half stream: on an error `out` is
 //! unspecified and its length is not used.
 //!
-//! Memory: the encoded call (at most 1,600 bytes, 3,840 for `open` with
-//! options) and what [`format_call::call`] takes (the framed call and the
-//! reply, 3,840 bytes), all fallible, freed before return; nothing is kept.
+//! Memory: the call is encoded into a buffer of at most 1,600 bytes (3,840
+//! for `open` with options), then only the encoded bytes are copied and the
+//! buffer is freed before the format runs. While it runs, the exact call and
+//! what [`format_call::call`] takes (the framed call and the reply, 3,840
+//! bytes) are held, all fallible, freed before return; nothing is kept.
 //! The 7-9 KiB of an ordinary call and 12 KiB of `open` are above the 6 KiB
 //! X4 gate of the DOC host side and are measured at activation.
 //!
