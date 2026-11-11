@@ -40,7 +40,7 @@ class SchemaTests(unittest.TestCase):
         ABI.compatible(self.base, copy.deepcopy(self.base))
         reordered = dict(reversed(list(self.base.items())))
         self.assertEqual(ABI.canonical(self.base), ABI.canonical(reordered))
-        self.assertEqual(len(self.base['host_entries']), 42)
+        self.assertEqual(len(self.base['host_entries']), 43)
 
     def test_each_existing_contract_is_frozen(self):
         changes = {'id': 400, 'name': 'renamed', 'since': 2,

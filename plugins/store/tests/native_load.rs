@@ -145,6 +145,8 @@ fn nothing_is_asked_where_the_library_does_not_know_the_device() {
     let mut loader = Loader::default();
     loader.start_list(&mut wire).unwrap();
     assert!(wire.asked.is_empty());
+    // The start says so instead of loading for ever.
+    assert_eq!(loader.trouble(), Trouble::Unsupported);
 }
 
 #[test]

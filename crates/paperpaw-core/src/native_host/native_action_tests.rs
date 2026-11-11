@@ -131,7 +131,7 @@ fn world(status: Result<i32, i32>) -> World {
 fn declare(w: &mut World) {
     let callback = Callback {
         id: Id::try_parse("n.open").unwrap(),
-        title: String::from("Open"),
+        title: "Open".into(),
         token: 7,
         flags: 0,
     };

@@ -367,7 +367,8 @@ fn mapping_of(maps: &str, address: usize) -> Option<(usize, usize)> {
     None
 }
 
-/// What is wired, from the wiring's own answer and the card's families.
+/// What is wired: the wiring's own answer for the services that may be left
+/// out, and the card's families (`on_card`).
 fn wired_services(wired: &WiredHosts, on_card: Wired) -> Wired {
     Wired {
         secrets: wired.secrets().is_some(),
