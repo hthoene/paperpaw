@@ -540,6 +540,17 @@ pub enum Event<'a> {
     /// it is told.
     #[non_exhaustive]
     LookupReady { now_ms: u64, provider: &'a str },
+    /// The state or the progress of a document this plugin opened moved while it
+    /// was being prepared (`event.document_changed`, 88, `document.md` 2.1): a
+    /// coalesced hint with the latest values; read the state again
+    /// (`Documents::state`). Only an opener subscribed to it is told.
+    #[non_exhaustive]
+    DocumentChanged {
+        now_ms: u64,
+        document: super::document::DocId,
+        state: super::document::Preparation,
+        progress_ppm: u32,
+    },
     /// A final answer or committed live update, readable in this callback.
     #[non_exhaustive]
     Answered { now_ms: u64, answer: Answered },

@@ -114,6 +114,7 @@ kinds! {
     WorkRefused => EVENT_WORK_REFUSED_TAG, core_events::work_refused, WorkRefused;
     WorkAllowed => EVENT_WORK_ALLOWED_TAG, core_events::work_allowed, WorkAllowed;
     LookupReady => EVENT_LOOKUP_READY_TAG, core_events::lookup_ready, LookupReady;
+    DocumentChanged => EVENT_DOCUMENT_CHANGED_TAG, core_events::document_changed, DocumentChanged;
     ScreenOpened => EVENT_SCREEN_OPENED_TAG, uix_events::screen_opened, ScreenOpened;
     ScreenClosed => EVENT_SCREEN_CLOSED_TAG, uix_events::screen_closed, ScreenClosed;
     StackChanged => EVENT_STACK_CHANGED_TAG, uix_events::stack_changed, StackChanged;

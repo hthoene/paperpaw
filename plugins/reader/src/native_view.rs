@@ -65,6 +65,10 @@ enum Body {
     Message(&'static str),
     /// The book, open.
     Open(Open),
+    /// The book opened for the first time, its document still prepared by the
+    /// format (`preparing.rs`): kept open until it is ready or failed, or the
+    /// screen closes.
+    Preparing(Preparing),
 }
 
 /// Why the place is written.
@@ -225,32 +229,69 @@ impl View {
         if found.path.is_empty() {
             return Ok(Self::message("reader.no-book"));
         }
-        let (mut input, mut out) = (buffer(256)?, buffer(4096)?);
         let root = found.root();
-        let book = OpenBook::new(&found.path).root(root).publisher_styles();
-        let state = match docs.open_book(host, &book, &mut input, &mut out) {
-            Ok(state) => (
-                state.id(),
-                state.preparation(),
-                state.whole_pages(),
-                state.conversion(),
-            ),
-            Err(Error::NoMemory) => return Err(Error::NoMemory),
-            Err(Error::Busy) => return Ok(Self::message("reader.not-ready")),
-            Err(_) => return Ok(Self::message("reader.error")),
+        let state = {
+            let (mut input, mut out) = (buffer(256)?, buffer(4096)?);
+            let book = OpenBook::new(&found.path).root(root).publisher_styles();
+            match docs.open_book(host, &book, &mut input, &mut out) {
+                Ok(state) => (
+                    state.id(),
+                    state.preparation(),
+                    state.whole_pages(),
+                    state.conversion(),
+                ),
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(Error::Busy) => return Ok(Self::message("reader.not-ready")),
+                Err(_) => return Ok(Self::message("reader.error")),
+            }
         };
         let (id, preparation, whole_pages, conversion) = state;
+        let book = Preparing {
+            id,
+            found,
+            whole_pages,
+            conversion,
+        };
         match preparation {
-            Preparation::Ready => {}
-            Preparation::Preparing => {
-                Self::forget(host, docs, id);
-                return Ok(Self::message("reader.preparing"));
-            }
+            Preparation::Ready => Self::opened(host, (docs, library), book),
+            // Opened for the first time: the format prepares the book (Beta 3's
+            // "Opening the book for the first time"); the document stays open
+            // and the book opens when the host says it is ready.
+            Preparation::Preparing => Ok(Self {
+                body: Body::Preparing(book),
+                speaker: Speaker::new(0),
+            }),
             _ => {
                 Self::forget(host, docs, id);
-                return Ok(Self::message("reader.error"));
+                Ok(Self::message("reader.error"))
             }
         }
+    }
+
+    /// The screen of a book whose document is ready: its title, sections and the
+    /// place it opens at. A refusal on the way gives the document back.
+    ///
+    /// # Errors
+    /// `NoMemory` and the host's refusals other than the book's own.
+    fn opened(
+        host: &Host<'_>,
+        (docs, library): (&Documents, Option<&Library>),
+        book: Preparing,
+    ) -> Result<Self, Error> {
+        let Preparing {
+            id,
+            found,
+            whole_pages,
+            conversion,
+        } = book;
+        let root = found.root();
+        let (mut input, mut out) = match (buffer(256), buffer(4096)) {
+            (Ok(input), Ok(out)) => (input, out),
+            _ => {
+                Self::forget(host, docs, id);
+                return Err(Error::NoMemory);
+            }
+        };
         let sections = match docs.metadata(host, id, &mut input, &mut out) {
             Ok(meta) => (
                 meta.sections().max(1),
@@ -283,7 +324,13 @@ impl View {
             }
         };
         let (at, stored_ppm) =
-            Self::starting_place(host, library, &found, (sections, conversion), &mut out)?;
+            match Self::starting_place(host, library, &found, (sections, conversion), &mut out) {
+                Ok(start) => start,
+                Err(error) => {
+                    Self::forget(host, docs, id);
+                    return Err(error);
+                }
+            };
         let mut open = Open {
             id,
             sections,
@@ -404,7 +451,7 @@ impl View {
     pub fn repaint(&self, host: &Host<'_>) -> Result<(), Error> {
         match &self.body {
             Body::Open(_) => redraw(host, RedrawMode::Full),
-            Body::Message(_) => Ok(()),
+            Body::Message(_) | Body::Preparing(_) => Ok(()),
         }
     }
 
@@ -413,7 +460,7 @@ impl View {
     pub fn take_turned(&mut self) -> bool {
         match &mut self.body {
             Body::Open(open) => core::mem::take(&mut open.turned),
-            Body::Message(_) => false,
+            Body::Message(_) | Body::Preparing(_) => false,
         }
     }
 
@@ -506,7 +553,7 @@ impl View {
     pub const fn doc_id(&self) -> Option<DocId> {
         match &self.body {
             Body::Open(open) => Some(open.id),
-            Body::Message(_) => None,
+            Body::Message(_) | Body::Preparing(_) => None,
         }
     }
 
@@ -530,11 +577,15 @@ impl View {
     pub fn close(&mut self, host: &Host<'_>, (docs, library): (&Documents, Option<&Library>)) {
         // Nothing is read aloud from a book that is closed.
         self.stop_aloud(host, (docs, library));
-        if let Body::Open(open) = &mut self.body {
-            open.save(host, library, When::Closing);
-            Self::forget(host, docs, open.id);
+        // The document is given back once: the body that holds it goes with it.
+        match core::mem::replace(&mut self.body, Body::Message("reader.no-book")) {
+            Body::Open(mut open) => {
+                open.save(host, library, When::Closing);
+                Self::forget(host, docs, open.id);
+            }
+            Body::Preparing(book) => Self::forget(host, docs, book.id),
+            Body::Message(_) => {}
         }
-        self.body = Body::Message("reader.no-book");
     }
 
     /// *Go to the note* of `path`'s book: follows `href`, and draws again
@@ -641,6 +692,7 @@ impl View {
         }
         let key = match &mut self.body {
             Body::Message(key) => *key,
+            Body::Preparing(_) => "reader.preparing",
             Body::Open(open) => match open.draw(host, (docs, ui), frame) {
                 Ok(()) => return Ok(()),
                 Err(Error::NoMemory) => "reader.no-memory",
@@ -1185,6 +1237,8 @@ fn say_with(
 
 mod aloud;
 mod count;
+mod preparing;
+use preparing::Preparing;
 mod r3;
 mod status;
 
