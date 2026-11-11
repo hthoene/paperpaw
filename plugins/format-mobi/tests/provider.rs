@@ -665,3 +665,43 @@ fn a_background_open_still_converts_the_book() {
     assert_eq!(s, 0);
     assert!(io.size("blocks.bin").is_ok());
 }
+
+/// A details open (with bit 2 too) of a book with a half made cache serves
+/// the cover from its own picture file (made once, then reused) and touches
+/// nothing else of the folder: the half made files stay as they are.
+#[test]
+fn a_details_open_leaves_a_half_made_cache_and_reuses_the_cover_file() {
+    let io = Roots::new(builder().build());
+    io.write("blocks.bin", b"half").unwrap();
+    io.write("info.txt", b"x").unwrap();
+    let mut p = MobiProvider::new();
+    let reply = run(
+        &mut p,
+        &io,
+        &call(2, 1, |c| {
+            c.cover_side = COVER;
+            c.flags = (1 << 3) | (1 << 2);
+        }),
+    )
+    .unwrap();
+    assert_eq!(state(&reply), (0, 0, 0, 0));
+    let first = run(&mut p, &io, &call(17, 1, |c| c.cover_side = COVER)).unwrap();
+    let stage::Record::FmtImage(one) = rows(&first)[0] else {
+        panic!("cover")
+    };
+    let (path, width, height) = (one.path.to_owned(), one.width, one.height);
+    let size = io.size(&path).unwrap();
+    let second = run(&mut p, &io, &call(17, 1, |c| c.cover_side = COVER)).unwrap();
+    let stage::Record::FmtImage(two) = rows(&second)[0] else {
+        panic!("cover")
+    };
+    assert_eq!(
+        (two.path, two.width, two.height),
+        (path.as_str(), width, height)
+    );
+    assert_eq!(io.size(&path).unwrap(), size);
+    // Nothing else was written or removed.
+    assert_eq!(io.size("blocks.bin").unwrap(), 4);
+    assert_eq!(io.size("info.txt").unwrap(), 1);
+    assert!(io.size("done").is_err());
+}
