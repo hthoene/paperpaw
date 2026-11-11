@@ -7,7 +7,8 @@
 //! The kernel keeps this copy up to date whenever the set of plugins changes
 //! ([`crate::Kernel::data_plugins_changed`]): a plugin that is switched off,
 //! removed, failed or a code plugin is not in it. Allocation is fallible and a
-//! set in use answers "no" (the safe side: the folder stays hidden).
+//! set in use answers "no" (the safe side: the folder stays hidden); a rebuild
+//! that runs out of memory clears it.
 use alloc::{string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
@@ -42,18 +43,30 @@ impl DataPluginFolders {
         })
     }
 
+    /// Forgets every folder (the safe side: all of them are hidden) and asks
+    /// the next sync to rebuild.
+    pub(crate) fn clear(&self) {
+        if let Ok(mut names) = self.names.try_borrow_mut() {
+            *names = Vec::new();
+            self.seen.set(0);
+        }
+    }
+
     /// Replaces the set with `names`, made for registry generation `seen`.
     ///
     /// # Errors
     /// `ERR_NO_MEMORY` (the set is kept as it was); `ERR_BUSY` (in use).
     pub(crate) fn replace<'a>(
         &self,
-        names: impl Iterator<Item = &'a str>,
+        names: impl Iterator<Item = &'a str> + Clone,
         seen: u32,
     ) -> Result<(), i32> {
+        // Counted first (the iterator is cheap to run twice), so the list
+        // takes exactly its room, once.
         let mut next: Vec<String> = Vec::new();
+        next.try_reserve_exact(names.clone().count())
+            .map_err(|_| ERR_NO_MEMORY)?;
         for name in names {
-            next.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
             let mut copy = String::new();
             copy.try_reserve_exact(name.len())
                 .map_err(|_| ERR_NO_MEMORY)?;
@@ -69,8 +82,9 @@ impl DataPluginFolders {
 impl crate::Kernel {
     /// Brings the data plugins' folders up to date with the plugins that run,
     /// when the registry changed since (a plugin loaded, switched off,
-    /// removed, failed or updated). Cheap otherwise: one compare. Fails soft:
-    /// a refusal leaves the set as it was and the next call tries again.
+    /// removed, failed or updated). Cheap otherwise: one compare. A rebuild
+    /// that runs out of memory clears the set and the next call tries again;
+    /// a busy set is kept as it was.
     pub(crate) fn native_data_plugins_sync(&self) {
         let Some(hosts) = self.shared.native_instances.hosts() else {
             return;
@@ -91,7 +105,12 @@ impl crate::Kernel {
             let name = folder.strip_prefix("plugins/")?;
             (running(id) && !name.is_empty() && !name.contains('/')).then_some(name)
         });
-        folders.replace(names, generation).ok();
+        // A rebuild that cannot be made (no memory) leaves no folder shown, never
+        // a plugin that was switched off or removed meanwhile; the next pass
+        // tries again. Busy keeps the set for that retry.
+        if folders.replace(names, generation) == Err(ERR_NO_MEMORY) {
+            folders.clear();
+        }
     }
 }
 
@@ -125,9 +144,11 @@ mod tests {
         use paperpaw_sdk::{Id, MemoryStorage};
         let storage = MemoryStorage::new()
             .with("plugins/owls/plugin.ini", "[plugin]\nname = Owls\n")
-            .with("plugins/moles/plugin.ini", "[plugin]\nname = Moles\n");
+            .with("plugins/moles/plugin.ini", "[plugin]\nname = Moles\n")
+            .with("plugins/quiet/plugin.ini", "[plugin]\nname = Quiet\n");
         let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
             .storage(storage)
+            .user_config("[plugins]\nquiet = off\n")
             .build()
             .unwrap();
         // No pool yet: nothing to keep.
@@ -145,13 +166,24 @@ mod tests {
                 set.contains("owls"),
                 set.contains("moles"),
                 set.contains("plugins"),
+                set.contains("quiet"),
             )
         };
-        assert_eq!(folders(&kernel), (true, true, false));
+        // `quiet` is switched off in the configuration: listed, not running, hidden.
+        assert_eq!(folders(&kernel), (true, true, false, false));
         // A plugin that is removed is no longer shown, the other stays.
         kernel.unload_plugin(&Id::try_parse("owls").unwrap());
         kernel.native_data_plugins_sync();
-        assert_eq!(folders(&kernel), (false, true, false));
+        assert_eq!(folders(&kernel), (false, true, false, false));
+    }
+
+    #[test]
+    fn a_cleared_set_shows_nothing_and_asks_for_a_rebuild() {
+        let set = DataPluginFolders::default();
+        set.replace(["owls"].into_iter(), 7).unwrap();
+        set.clear();
+        assert!(!set.contains("owls"));
+        assert_eq!(set.seen.get(), 0, "the next sync rebuilds");
     }
 
     #[test]
