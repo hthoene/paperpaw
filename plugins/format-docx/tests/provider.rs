@@ -729,3 +729,38 @@ fn blocks_across_the_flush_boundary_read_back_as_written() {
     assert_eq!(io.size("index.bin").unwrap(), 12 * seen as u64);
     assert_eq!(held, total as u64);
 }
+
+/// A long paragraph is cut at a space, never in a word; one with no space is
+/// cut where it is, at most 4,000 bytes a block.
+#[test]
+fn a_long_paragraph_is_cut_at_a_space_and_one_without_spaces_where_it_is() {
+    let words: Vec<String> = (0..1200).map(|n| format!("word{n}")).collect();
+    let spaced = words.join(" ");
+    let solid = "x".repeat(9_000);
+    let data = docx(&format!("{}{}", p(&spaced), p(&solid)));
+    let io = Roots::new(data);
+    let mut prov = DocxProvider::new();
+    assert_eq!(open_ready(&mut prov, &io).0, 0);
+    let (mut at, mut seen, mut pieces) = (0u32, 0, Vec::new());
+    while let Ok(got) = block(&mut prov, &io, 0, at) {
+        assert!(
+            got.text.len() <= 4_000,
+            "a block of {} bytes",
+            got.text.len()
+        );
+        pieces.push(got.text);
+        at = got.end;
+        seen += 1;
+        assert!(seen < 100);
+    }
+    let (spaced_pieces, solid_pieces): (Vec<_>, Vec<_>) =
+        pieces.iter().partition(|t| t.starts_with("word"));
+    assert!(spaced_pieces.len() >= 2, "the paragraph is cut");
+    let got: Vec<&str> = spaced_pieces.iter().flat_map(|t| t.split(' ')).collect();
+    assert_eq!(got, words.iter().map(String::as_str).collect::<Vec<_>>());
+    assert!(
+        spaced_pieces.iter().all(|t| t.len() <= 3_100),
+        "cut near 3,000"
+    );
+    assert_eq!(solid_pieces.iter().map(|t| t.len()).sum::<usize>(), 9_000);
+}

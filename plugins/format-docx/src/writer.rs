@@ -27,8 +27,9 @@ use crate::{
 };
 
 /// A paragraph is cut at the next space after this many bytes of text.
-const HARD: usize = 8000;
-/// Text with no space is cut here.
+const SOFT: usize = 3000;
+/// Text with no space is cut here (above `SOFT`: else the cut at a space never
+/// came, and every long paragraph was cut at this many bytes, in a word).
 const HARDEST: usize = 4000;
 /// A paragraph with more runs of its own style is cut here.
 const MOST_RUNS: usize = 512;
@@ -319,7 +320,7 @@ impl<'a> Writer<'a> {
                 return;
             }
             let len = self.text.len();
-            if (len >= HARD && c == ' ') || len >= HARDEST {
+            if (len >= SOFT && c == ' ') || len >= HARDEST {
                 self.flush(true);
                 self.run_style = style;
             }
