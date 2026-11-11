@@ -226,9 +226,16 @@ impl Wiped {
 
 /// The owner of what the host made itself (no plugin has this key).
 const HOST_OWNER: u64 = u64::MAX;
+/// Whether `owner` is the host's own key (no plugin's).
+pub(crate) const fn is_host_owner(owner: u64) -> bool {
+    owner == HOST_OWNER
+}
+
 /// `Entry::passed_on` of a hand-over that passes no file on (an owner key is
-/// a counter that never gets here).
-const NO_MAKER: u64 = HOST_OWNER;
+/// a counter that never gets here). Not the host's key: a hand-over the host
+/// made has [`HOST_OWNER`] as its maker, and the two must never be confused.
+const NO_MAKER: u64 = u64::MAX - 1;
+const _: () = assert!(NO_MAKER != HOST_OWNER);
 /// Hand-overs beyond the limit the host may make for its dialogs, so that a
 /// plugin that fills the table (`Limits::handovers`) cannot make every text
 /// question fail.
@@ -501,6 +508,12 @@ impl UiStore {
         params: &[Param<'_>],
         maker: u64,
     ) -> Result<u32, i32> {
+        // A file the host made a hand-over for is nobody's to pass on: a
+        // hand-over naming the host as its maker would resolve against the
+        // passing plugin's own folder.
+        if maker == HOST_OWNER || maker == NO_MAKER {
+            return Err(ERR_DENIED);
+        }
         self.handover_of(who, params, maker)
     }
 
@@ -709,7 +722,11 @@ impl UiStore {
             });
             used += codec::encode_one(&record, &mut block.0[used..])?;
         }
-        inner.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        // Exactly one more: the usual growth would take room for four.
+        inner
+            .entries
+            .try_reserve_exact(1)
+            .map_err(|_| ERR_NO_MEMORY)?;
         let id = self.alloc_id()?;
         inner.params_bytes += framed;
         inner.entries.push(Entry {
@@ -981,6 +998,10 @@ impl UiStore {
 
     fn free(inner: &mut Inner, at: usize) {
         let entry = inner.entries.remove(at);
+        if inner.entries.is_empty() {
+            // Hold nothing while no hand-over is kept.
+            inner.entries = Vec::new();
+        }
         inner.params_bytes -= entry.params.0.len();
         inner.text_memory -= entry.text.charged.min(inner.text_memory);
     }

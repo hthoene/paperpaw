@@ -151,7 +151,10 @@ impl Emulator {
         let night = if self.dark { "night-mode = on\n" } else { "" };
         // Started as the first-run setup left it, and without the tips on
         // gestures a new reader sees once.
-        let config = format!("[core]\nlanguage = {}\n{night}", self.language);
+        let config = format!(
+            "[core]\nlanguage = {}\n{night}[help]\nshow = false\n",
+            self.language
+        );
         let mut device = Device::in_memory(
             self.profile,
             Some(config),

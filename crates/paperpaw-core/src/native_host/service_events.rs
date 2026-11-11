@@ -21,6 +21,12 @@ pub(crate) const EVENT_BUFFER: usize = 1_280;
 /// the service's table: `ERR_BUSY` when the table is borrowed (call again
 /// on the next pass).
 pub(crate) trait ServiceEvents {
+    /// Whether its events go to the plugins that subscribed to their tag only
+    /// (the pump drops one for any other, uncalled). `false`: every event goes
+    /// to its owner (a request's replies).
+    fn subscribers_only(&self) -> bool {
+        false
+    }
     /// The oldest event of `owner`, encoded into `out` as a one-record batch;
     /// its length and the work run it belongs to (`None`: no run), or `None`
     /// when there is no event. A failure consumes nothing.
@@ -106,6 +112,12 @@ impl ServiceEvents for net_service::NetServices {
 }
 
 impl ServiceEvents for doc_service::DocServices {
+    /// A document's state and its end are told to an opener that subscribed
+    /// (`event.document_changed` 88, `event.document_closed` 108), as
+    /// `lookup_ready`: one that did not is not called for them.
+    fn subscribers_only(&self) -> bool {
+        true
+    }
     fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<(usize, Option<u64>)>, i32> {
         // Never in a work run: a document's events belong to no request.
         Ok(self.0.next_event(owner, out)?.map(|length| (length, None)))

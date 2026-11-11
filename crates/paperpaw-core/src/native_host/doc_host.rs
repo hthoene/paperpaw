@@ -17,10 +17,10 @@
 //!   declarations when the registry generation moved (one walk, never per
 //!   call); documents of a format that went end as the format stopped.
 //!
-//! Not served yet, each answered as the contract's "none" and never
-//! half-done: `event.document_changed` (88: nothing raises it before the
-//! preparing loop), root 5, and the preparing loop itself (`format.spec.flags`
-//! `prepared` formats open and answer as their op 2 does).
+//! The preparing loop (`doc_pump`, `doc_prepare`): a `prepared` format whose
+//! open answered state 1 gets op 3 `prepare` from the service pump, a step a
+//! pass, never inside a callback; the opener hears `event.document_changed`
+//! (88) with the latest state.
 //!
 //! Memory: the state is the table (about 40 bytes a document), one small
 //! index (under 100 bytes a format) and one `Book` per open document
@@ -31,7 +31,7 @@ use super::{
     },
     fmt_call::{FrameRoute, ImageMap, Opener, Stage},
     format_index::FormatIndex,
-    format_scope::{BookKind, FormatBook},
+    format_scope::BookKind,
     host_services::Caller,
     owner_paths::OwnerPaths,
     paths_in_use::PathsInUse,
@@ -92,6 +92,9 @@ struct Cache {
     finished: bool,
     /// The bytes the stamp says the cache holds.
     stamped: u64,
+    /// The card path of the user's CSS file the open named (root 4 of the
+    /// format's calls that may read it); `""` for none.
+    css: String,
 }
 
 impl Cache {
@@ -138,6 +141,9 @@ pub(crate) struct DocState {
     storage: Option<Rc<dyn Storage>>,
     /// The most bytes one document's cache may hold.
     cache_cap: u64,
+    /// The id of the document whose preparation was stepped last (the
+    /// turn goes on after it).
+    last_prepared: Cell<u32>,
     /// The books kept at most: the device's places for documents.
     books_max: usize,
     /// Whether the screen keeps colour (a picture's colour flag).
@@ -148,6 +154,10 @@ pub(crate) struct DocState {
     pending_images: RefCell<Vec<u32>>,
     /// A document's image ids could not be recorded as ended (logged once).
     images_lost: Cell<bool>,
+    /// The document a left-out picture was last logged for (0 none): one
+    /// line per run of the same document, not one a picture (a reader
+    /// switching between two documents logs each switch).
+    pictures_logged: Cell<u32>,
     /// An event was raised since the pump's last pass: it asks for one. An
     /// event whose owner does not run stays queued without asking again, so
     /// an idle device is not woken for it.
@@ -234,10 +244,12 @@ impl DocState {
             now: Cell::new(0),
             storage: None,
             cache_cap: limits.cache_bytes(),
+            last_prepared: Cell::new(0),
             books_max: limits.device,
             colour: false,
             pending_images: RefCell::new(images_pending),
             images_lost: Cell::new(false),
+            pictures_logged: Cell::new(0),
             fresh: Cell::new(false),
             reading: super::doc_reading::Reading::new(),
         })
@@ -281,16 +293,34 @@ impl DocState {
         }
     }
 
-    /// The oldest `event.document_closed` of `owner`, encoded into `out`. It
+    /// The oldest `event.document_closed` of `owner`, encoded into `out` as
+    /// the one-record batch a callback decodes (`codec::encode_event`). It
     /// is taken when it is encoded: a callback that refuses it does not get
     /// it again (as every service event).
     fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<usize>, i32> {
-        self.table.take_closed(owner, |event| {
-            codec::encode_one(
+        let closed = self.table.take_closed(owner, |event| {
+            codec::encode_event(
                 &Record::EventDocumentClosed(wire::EventDocumentClosed {
                     now_ms: self.now.get(),
                     document: event.document,
                     reason: event.reason,
+                }),
+                out,
+            )
+        })?;
+        if closed.is_some() {
+            return Ok(closed);
+        }
+        // The state or the progress of a preparing document moved: its latest
+        // values, one event for however many steps it took since (`document.md`
+        // 2.1).
+        self.table.take_changed(owner, |document| {
+            codec::encode_event(
+                &Record::EventDocumentChanged(wire::EventDocumentChanged {
+                    now_ms: self.now.get(),
+                    document: document.id,
+                    state: document.state,
+                    progress_ppm: document.progress_ppm,
                 }),
                 out,
             )
@@ -574,6 +604,16 @@ impl super::doc_service::DocHost for DocState {
     fn select_format(&self, _: u32, _: &str, _: &str) -> Result<FormatRef, i32> {
         Err(ERR_UNSUPPORTED)
     }
+    fn preparing(&self) -> bool {
+        self.table.any_preparing()
+    }
+    fn prepare_step(
+        &self,
+        hosts: &super::host_services::HostServices,
+        route: &dyn super::fmt_call::Route,
+    ) -> super::doc_service::PrepareStep {
+        self.prepare_next(hosts, route)
+    }
     fn call_format(&self, _: &FormatCall<'_>, _: &mut [u8]) -> Result<usize, i32> {
         Err(ERR_UNSUPPORTED)
     }
@@ -691,67 +731,18 @@ impl Bound<'_> {
                 content,
                 finished: made.bytes.is_some(),
                 stamped: made.bytes.unwrap_or(0),
+                css: copy(css)?,
             });
         }
         Ok(())
     }
 
-    /// The last document of a cache closes: what a format wrote after the
-    /// stamp was made is put in the stamp (so a reopen counts it), and the
-    /// folder's count goes (it is made again from the stamp at the next open).
-    /// A cache another open document uses is left as it is.
     fn finish_cache(&self, document: u32) {
-        let (Some(storage), Ok(books)) =
-            (self.state.storage.as_deref(), self.state.books.try_borrow())
-        else {
-            return;
-        };
-        let Some(cache) = books
-            .iter()
-            .find(|book| book.document == document)
-            .and_then(|book| book.cache.as_ref())
-        else {
-            return;
-        };
-        let shared = books.iter().any(|b| {
-            b.document != document && b.cache.as_ref().is_some_and(|c| c.folder == cache.folder)
-        });
-        if shared {
-            return;
-        }
-        let scope = self.who.hosts.format_scope();
-        let bytes = scope.total(&cache.folder);
-        if cache.finished && bytes != cache.stamped {
-            let _ = super::doc_cache::complete(storage, &cache.identity(), bytes);
-        }
-        scope.reset(&cache.folder);
+        self.state.finish_cache(self.who.hosts, document);
     }
 
-    /// A call answered `ERR_NO_SPACE` while the cache was being made: the
-    /// partial cache is removed (`document.md` 3, Cache quota), unless another
-    /// open document uses the folder. What a bounded removal leaves is
-    /// removed with the next open, as an unfinished folder.
     fn discard_cache(&self, document: u32) {
-        let (Some(storage), Ok(books)) =
-            (self.state.storage.as_deref(), self.state.books.try_borrow())
-        else {
-            return;
-        };
-        let Some(cache) = books
-            .iter()
-            .find(|book| book.document == document)
-            .and_then(|book| book.cache.as_ref())
-            .filter(|cache| !cache.finished)
-        else {
-            return;
-        };
-        let shared = books.iter().any(|b| {
-            b.document != document && b.cache.as_ref().is_some_and(|c| c.folder == cache.folder)
-        });
-        if !shared {
-            let _ = super::doc_cache::clear(storage, &cache.folder);
-            self.who.hosts.format_scope().reset(&cache.folder);
-        }
+        self.state.discard_cache(self.who.hosts, document);
     }
 
     /// The version of the plugin `plugin` as the registry says it (a new
@@ -805,8 +796,8 @@ impl Bound<'_> {
         super::owner_paths::OwnerPaths::join_for(self.who, call.css_root, call.css_path)
     }
 
-    /// The format's call for `call.document` begins: its roots 3, 4 (and later
-    /// 6) are the document's, until the guard is dropped.
+    /// The format's call for `call.document` begins: its roots 3, 4 and 6 are
+    /// the document's, until the guard is dropped.
     fn enter_scope(
         &self,
         owner: u64,
@@ -814,29 +805,8 @@ impl Bound<'_> {
         kind: BookKind,
         css: &str,
     ) -> Result<super::format_scope::Guard<'_>, i32> {
-        let books = self.state.books.try_borrow().map_err(|_| ERR_BUSY)?;
-        let book = books
-            .iter()
-            .find(|book| book.document == call.document)
-            .ok_or(ERR_CANCELLED)?;
-        let opened = if kind == BookKind::Siblings {
-            book.path.rsplit('/').next().unwrap_or("")
-        } else {
-            ""
-        };
-        self.who.hosts.format_scope().enter(
-            owner,
-            &FormatBook {
-                path: &book.path,
-                kind,
-                opened,
-                document: call.document,
-                cache: book.cache.as_ref().map_or("", |cache| &cache.folder),
-                css,
-                cache_cap: self.state.cache_cap,
-                quota: None,
-            },
-        )
+        self.state
+            .enter_scope(self.who.hosts, owner, call.document, kind, css)
     }
 
     /// The index in line with the declarations, if the registry changed since
@@ -986,6 +956,13 @@ impl super::doc_service::DocHost for Bound<'_> {
         self
     }
     frameless!();
+    fn picture_left_out(&self, document: u32) {
+        if self.state.pictures_logged.replace(document) != document {
+            self.frame.log(format_args!(
+                "document {document}: a picture was left out, its block keeps its text"
+            ));
+        }
+    }
     fn end_images(&self, document: &Document) {
         // The ids end now where the table can be had, else with the next call.
         if self
@@ -1093,17 +1070,7 @@ impl super::doc_service::DocHost for Bound<'_> {
     }
 
     fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32> {
-        let (target, kind) = {
-            let index = self.state.index()?;
-            let kind = if index.has_flag(call.format, FOLDER) {
-                BookKind::Folder
-            } else if index.has_flag(call.format, SIBLINGS) {
-                BookKind::Siblings
-            } else {
-                BookKind::File
-            };
-            (index.target(call.format).ok_or(ERR_CANCELLED)?, kind)
-        };
+        let (target, kind) = self.state.format_target(call.format)?;
         let siblings = kind == BookKind::Siblings;
         // The format's roots 3 and 4 are this call's book and CSS file for as
         // long as the guard lives.
@@ -1171,39 +1138,7 @@ impl super::doc_service::DocHost for Bound<'_> {
     }
 
     fn document_ready(&self, document: u32) {
-        let Some(storage) = self.state.storage.as_deref() else {
-            return;
-        };
-        let stamped = {
-            let Ok(books) = self.state.books.try_borrow() else {
-                return;
-            };
-            let Some(cache) = books
-                .iter()
-                .find(|book| book.document == document)
-                .and_then(|book| book.cache.as_ref())
-                // A finished cache found at the open keeps its stamp.
-                .filter(|cache| !cache.finished)
-            else {
-                return;
-            };
-            let bytes = self.who.hosts.format_scope().total(&cache.folder);
-            // A stamp that cannot be made leaves the cache unfinished: the next
-            // open makes it again.
-            if super::doc_cache::complete(storage, &cache.identity(), bytes).is_err() {
-                return;
-            }
-            bytes
-        };
-        if let Ok(mut books) = self.state.books.try_borrow_mut()
-            && let Some(cache) = books
-                .iter_mut()
-                .find(|book| book.document == document)
-                .and_then(|book| book.cache.as_mut())
-        {
-            cache.finished = true;
-            cache.stamped = stamped;
-        }
+        self.state.document_ready(self.who.hosts, document);
     }
 
     fn shows_screen(&self, owner: u64) -> bool {
@@ -1282,6 +1217,9 @@ impl super::doc_service::DocHost for Bound<'_> {
             .row(format, &mut |row| visit(self.translate_format(row)))
     }
 }
+
+#[path = "doc_prepare.rs"]
+mod prepare;
 
 #[cfg(test)]
 #[path = "doc_host_tests.rs"]

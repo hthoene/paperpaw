@@ -118,6 +118,18 @@ fn make_claim_attach_params_and_the_old_one_goes_after() {
 }
 
 #[test]
+fn the_entry_list_grows_by_one_and_is_given_back_when_empty() {
+    let s = store();
+    let a = s.handover_make(who(1, 1), &[p("k", "a")]).unwrap();
+    // One entry, room for exactly one (the usual growth takes four).
+    assert_eq!(s.inner.borrow().entries.capacity(), 1);
+    own(&s, who(1, 1), a, 5);
+    s.attach(None, 5).unwrap();
+    assert_eq!(s.inner.borrow().entries.len(), 0);
+    assert_eq!(s.inner.borrow().entries.capacity(), 0);
+}
+
+#[test]
 fn a_refused_batch_claims_nothing_and_the_old_data_stays() {
     let s = store();
     let old = s.handover_make(who(1, 1), &[p("k", "old")]).unwrap();
@@ -608,6 +620,21 @@ fn a_plugin_that_fills_the_params_pool_leaves_room_for_the_hosts_dialogs() {
     let id = s.handover_dialog("1", "0").unwrap();
     s.attach(Some(id), 3).unwrap();
     assert_eq!(read_params(&s, 3, id).unwrap().len(), 2);
+}
+
+#[test]
+fn the_hosts_key_is_no_maker_to_pass_a_handed_file_on_for() {
+    let s = store();
+    let params = [p("root", "5"), p("path", "a.txt")];
+    // A file the host made a hand-over for has the host's key as its maker:
+    // it would resolve against the passing plugin's own folder. The "no
+    // maker" mark is a value of its own, never the host's.
+    assert!(is_host_owner(u64::MAX));
+    assert_eq!(
+        s.handover_passing_on(who(3, 1), &params, u64::MAX),
+        Err(ERR_DENIED)
+    );
+    assert!(s.handover_passing_on(who(3, 1), &params, 9).is_ok());
 }
 
 #[test]

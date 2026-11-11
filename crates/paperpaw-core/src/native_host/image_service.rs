@@ -59,6 +59,8 @@ pub(crate) const MAX_SIDE: u32 = 1_600;
 /// The longest side of a document image (what the band drawer's one transient
 /// block takes: a colour row of 1,600 pixels is 4.7 KiB).
 pub(crate) const DOC_SIDE_MAX: u32 = 1_600;
+/// The `document` of an image the library's `cover` op made: no document.
+pub(crate) const LIBRARY_COVER: u32 = 0;
 /// The longest cache path.
 pub(crate) const PATH_MAX: usize = 512;
 
@@ -517,6 +519,48 @@ impl ImageTable {
             flags: doc.flags | u32::from(colour),
             ..doc
         }))
+    }
+
+    /// The picture `id` of `owner`, made by a document the library opened for
+    /// its `cover` op, as the library's own: it no longer ends with that
+    /// document (`document 0` is none) and the same cache file has one id. The
+    /// id to hand out: `id`, or the one the owner already has for that file
+    /// (`id` ends, its entry is dropped).
+    ///
+    /// # Errors
+    /// `ERR_NOT_FOUND` (not `owner`'s), `ERR_BUSY`.
+    pub(crate) fn adopt_cover(&self, owner: u64, id: u32) -> Result<u32, i32> {
+        let mut inner = self.lock()?;
+        let at = inner
+            .entries
+            .iter()
+            .position(|e| e.id == id && e.owner == owner)
+            .ok_or(ERR_NOT_FOUND)?;
+        let cover = Origin::Document {
+            document: LIBRARY_COVER,
+            index: u32::MAX,
+        };
+        let known = {
+            let path = &inner.entries[at].path;
+            inner
+                .entries
+                .iter()
+                .position(|e| e.owner == owner && e.origin == cover && e.path == *path)
+        };
+        match known {
+            Some(known) => {
+                // The file has its id already: this one ends and the old one
+                // is handed out again, protected until drawn once.
+                let old = inner.entries[known].id;
+                inner.entries[known].protected = true;
+                inner.entries.remove(at);
+                Ok(old)
+            }
+            None => {
+                inner.entries[at].origin = cover;
+                Ok(id)
+            }
+        }
     }
 
     /// `image_release`, or a reader giving a document image up.
