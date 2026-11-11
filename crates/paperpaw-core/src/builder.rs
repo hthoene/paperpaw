@@ -875,6 +875,7 @@ impl BuilderParts {
             pairing_nonce: None,
             plugin_defaults: Vec::new(),
             late_device_defaults: Vec::new(),
+            late_config: Vec::new(),
             plugin_choices: Vec::new(),
             now: Instant::default(),
         }
@@ -1163,6 +1164,56 @@ impl Kernel {
             }
         }
         self.late_device_defaults = left;
+    }
+
+    /// Keeps a configuration value for a setting nobody has declared yet.
+    /// Without room it is only warned about, as before.
+    pub(crate) fn keep_config_value(&mut self, id: &str, value: &str, line: Option<u32>) {
+        let (mut own_id, mut own_value) = (String::new(), String::new());
+        if own_id.try_reserve_exact(id.len()).is_err()
+            || own_value.try_reserve_exact(value.len()).is_err()
+            || self.late_config.try_reserve(1).is_err()
+        {
+            return;
+        }
+        own_id.push_str(id);
+        own_value.push_str(value);
+        self.late_config.push((own_id, own_value, line));
+    }
+
+    /// The configuration values kept for settings a plugin declares since
+    /// (`keep_config_value`), set now that it has: a native plugin declares
+    /// its settings after the kernel is built, when the file was read. The
+    /// warning "unknown setting" given then is taken back; a value that does
+    /// not fit is warned about as it is for any setting. Values are set in
+    /// the order the file had them (the device file, then the shell's), so
+    /// the later wins. Values for ids still undeclared stay kept.
+    pub(crate) fn apply_late_config(&mut self) {
+        if self.late_config.is_empty() {
+            return;
+        }
+        let waiting = mem::take(&mut self.late_config);
+        let mut left = Vec::new();
+        if left.try_reserve_exact(waiting.len()).is_err() {
+            self.late_config = waiting;
+            return;
+        }
+        for (id, value, line) in waiting {
+            if self.shared.settings.spec(&id).is_none() {
+                left.push((id, value, line));
+                continue;
+            }
+            let unknown = format!("`{id}`: {}", paperpaw_sdk::SettingError::Unknown);
+            self.warnings.retain(|warning| {
+                !(warning.line == line
+                    && matches!(warning.source, WarningSource::UserConfig)
+                    && warning.message == unknown)
+            });
+            if let Err(error) = self.shared.settings.set_from_text(&id, &value) {
+                self.warn(WarningSource::UserConfig, line, format!("`{id}`: {error}"));
+            }
+        }
+        self.late_config = left;
     }
 
     /// The language, night mode and colours the settings say.

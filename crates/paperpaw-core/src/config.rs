@@ -624,6 +624,10 @@ impl Kernel {
                                 paperpaw_sdk::builtin::settings::READING_APP.as_str()
                             )) => {}
                         Err(error) => {
+                            if matches!(error, paperpaw_sdk::SettingError::Unknown) {
+                                // A native plugin may declare it later.
+                                self.keep_config_value(&id, &value, line);
+                            }
                             self.warn(WarningSource::UserConfig, line, format!("`{id}`: {error}"));
                         }
                         Ok(()) => {}
