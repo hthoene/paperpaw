@@ -129,6 +129,8 @@ mod tests {
         }
         .build()
         .unwrap();
+        kernel.start(paperpaw_sdk::Instant(0));
+        kernel.render(&mut |_, _| {});
         let mut text = String::new();
         for part in kernel.describe() {
             text.push_str(&part.label);
