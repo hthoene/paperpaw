@@ -286,9 +286,7 @@ impl crate::Kernel {
                     .ok_or(shell::Error::Status(ERR_NO_MEMORY))?,
             )
             .map_err(shell::Error::Status)?;
-        self.shared
-            .native_instances
-            .attach_screens(&self.shared.stack_rows);
+        self.attach_native_hosts();
         if self.shared.registry.native_declarations.is_none() {
             self.shared.registry.native_declarations = Some(
                 super::shared::Shared::try_new(
@@ -426,8 +424,10 @@ impl crate::Kernel {
         if self.shared.native_instances.stop(key).is_err() {
             return None;
         }
-        // Its firmware requests and its confirmation go with it.
+        // Its firmware requests and its confirmation go with it, and its
+        // Wi-Fi requests, undelivered.
         self.firmware_sender_stopped(key);
+        self.radio_sender_stopped(owner.as_str());
         let _bump = crate::native_host::registry_generation::BumpOnExit::new(
             &self.shared.registry_generation,
         );
@@ -496,6 +496,18 @@ impl crate::Kernel {
             .defer_close(dialog, self.shared.stack_rows.generation())
         {
             self.shared.stack_rows.note_close_error(status);
+        }
+    }
+
+    /// The device's screens and Wi-Fi table, for the host views the pool
+    /// holds: the callbacks' stages reserve Wi-Fi requests in the kernel's
+    /// own table.
+    fn attach_native_hosts(&self) {
+        self.shared
+            .native_instances
+            .attach_screens(&self.shared.stack_rows);
+        if let Some(hosts) = self.shared.native_instances.hosts() {
+            hosts.wire_radio_requests(&self.radio_requests);
         }
     }
 

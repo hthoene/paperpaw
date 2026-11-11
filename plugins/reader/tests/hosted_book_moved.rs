@@ -64,7 +64,6 @@ fn after_move(last: &str, from: &str, to: &str) -> String {
 }
 
 #[test]
-#[ignore = "needs book_moved delivery (Services, #243)"]
 fn the_last_book_follows_a_move() {
     let state = after_move("books/a.epub", "books/a.epub", "books/new/a.epub");
     assert!(state.contains("books/new/a.epub"), "{state}");
@@ -72,7 +71,6 @@ fn the_last_book_follows_a_move() {
 }
 
 #[test]
-#[ignore = "needs book_moved delivery (Services, #243)"]
 fn the_move_of_another_book_changes_nothing() {
     let state = after_move("books/a.epub", "books/b.epub", "books/new/b.epub");
     assert!(state.contains("books/a.epub"), "{state}");

@@ -97,6 +97,8 @@ native-linked-store = [
     "dep:paperpaw-plugin-mail",
     "dep:paperpaw-plugin-notes-vault",
     "dep:paperpaw-plugin-widgets",
+    "dep:paperpaw-plugin-news",
+    "dep:paperpaw-plugin-vocabulary",
     "paperpaw-plugin-aids/linked",
     "paperpaw-plugin-mail/linked",
     "paperpaw-plugin-notes-vault/linked",

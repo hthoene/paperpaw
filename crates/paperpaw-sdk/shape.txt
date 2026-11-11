@@ -3247,7 +3247,7 @@ struct paperpaw_sdk::native::image::ImageId(0: core::num::nonzero::NonZeroU32)
 struct paperpaw_sdk::native::image::ImageInfo { width: u32, height: u32, colour: bool, not_decoded: bool }
 struct paperpaw_sdk::native::image::ImageReady { now_ms: u64, cookie: u32, status: paperpaw_sdk::native::image::ImageStatus, image: core::option::Option<paperpaw_sdk::native::image::ImageId>, width: u32, height: u32, luma: core::option::Option<[u8; 64]> }
 struct paperpaw_sdk::native::image::ImageStyle { flags: u32 }
-struct paperpaw_sdk::native::image::PrepareImage<'a> { root: paperpaw_sdk::native::image::PrepareRoot, path: &'a str, cookie: u32, side: u32, colour: bool, turn: bool, tone: core::option::Option<&'a [u8; 256]> }
+struct paperpaw_sdk::native::image::PrepareImage<'a> { root: paperpaw_sdk::native::image::PrepareRoot, path: &'a str, cookie: u32, side: u32, colour: bool, turn: bool, see_through: bool, tone: core::option::Option<&'a [u8; 256]> }
 struct paperpaw_sdk::native::keys::Revocation { plugin: alloc::string::String, key: [u8; 32], signature: [u8; 64] }
 struct paperpaw_sdk::native::library::BookRef<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibRef<'a>)
 struct paperpaw_sdk::native::library::Library { service: paperpaw_sdk::native::services::call::Service }

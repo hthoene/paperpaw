@@ -56,10 +56,6 @@ pub(crate) use nav::PolicyChange;
 mod open;
 pub(crate) use open::Opens;
 
-#[allow(
-    dead_code,
-    reason = "native screen dispatch installs DEV command authority next"
-)]
 #[path = "commands_dev.rs"]
 pub(crate) mod dev;
 
