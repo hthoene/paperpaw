@@ -4,34 +4,43 @@
 //! nothing moves. The pictures' boxes are asked for when the page changes
 //! (a turn, a jump, a link, the book shown): a page laid out only in its draw
 //! (a changed setting, a turned screen) and a page without pictures have one
-//! frame; a page turned before its pictures were drawn never draws them.
+//! frame, and so does the first page before the screen was ever drawn (its
+//! place on the screen is not known yet); a page turned before its pictures
+//! were drawn never draws them.
 use super::{Open, Setup, redraw};
 use crate::native_draw::{Pictures, picture_boxes};
-use paperpaw_sdk::native::{Error, Host, commands::RedrawMode};
+use paperpaw_sdk::native::{
+    Error, Host,
+    callbacks::FrameRect,
+    commands::{CommandSender, RedrawMode},
+};
 
 /// Where the page on show is in its two frames.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Pass {
     /// The pictures are drawn (or the page has none).
     Whole,
-    /// The page has pictures and its text is to be drawn first.
-    Text,
+    /// The page has pictures and its text is to be drawn first, in a frame
+    /// at this top left (screen pixels): the boxes were asked for there.
+    Text((i32, i32)),
     /// The text is drawn and the host draws the pictures' boxes again in the
     /// next frame: that frame draws them.
     Due,
 }
 
 impl Pass {
-    /// What a frame draws of the pictures: the text pass keeps their places
-    /// empty and the frame after (the host's follow-up of their boxes, or any
-    /// later one) draws them.
-    pub(super) fn drawing(&mut self) -> Pictures {
-        match self {
-            Self::Text => {
+    /// What a frame at `at` (its top left, screen pixels) draws of the
+    /// pictures: the text pass keeps their places empty and the frame after
+    /// (the host's follow-up of their boxes, or any later one) draws them. A
+    /// frame elsewhere than the boxes were asked for (the bars came or went)
+    /// draws them at once: the follow-up would draw other places.
+    pub(super) fn drawing(&mut self, at: (i32, i32)) -> Pictures {
+        match *self {
+            Self::Text(asked) if asked == at => {
                 *self = Self::Due;
                 Pictures::Places
             }
-            Self::Due | Self::Whole => {
+            Self::Text(_) | Self::Due | Self::Whole => {
                 *self = Self::Whole;
                 Pictures::Drawn
             }
@@ -50,6 +59,10 @@ impl Open {
     pub(super) fn redraw_page(&mut self, host: &Host<'_>, mode: RedrawMode) -> Result<(), Error> {
         redraw(host, mode)?;
         self.pictures = Pass::Whole;
+        // Before the first frame the screen's place is not known: one pass.
+        let Some(frame_at) = self.frame_at else {
+            return Ok(());
+        };
         let Some(page) = self.page.as_ref().filter(|page| !page.images.is_empty()) else {
             return Ok(());
         };
@@ -58,11 +71,11 @@ impl Open {
         };
         // The boxes in screen pixels, as the draw puts them (`draw_with`).
         let origin = (
-            self.frame_at.0 as f32 + f32::from(area.x),
-            self.frame_at.1 as f32 + f32::from(area.y),
+            frame_at.0 as f32 + f32::from(area.x),
+            frame_at.1 as f32 + f32::from(area.y),
         );
         if ask_second_pass(host, picture_boxes(page, origin)) {
-            self.pictures = Pass::Text;
+            self.pictures = Pass::Text(frame_at);
         }
         Ok(())
     }
@@ -72,11 +85,17 @@ impl Open {
 /// screen's coordinates, as its draw has them) again in a frame of their own
 /// right after the one asked for, with a partial refresh of the boxes only
 /// (#252). Whether it takes every box.
-fn ask_second_pass(host: &Host<'_>, boxes: impl Iterator<Item = (i32, i32, u32, u32)>) -> bool {
-    // Until the host takes areas to draw again (`queue_redraw_area`, Kernel's
-    // PR for #252), the pictures are drawn with the text.
-    let _ = (host, boxes.count());
-    false
+fn ask_second_pass(host: &Host<'_>, mut boxes: impl Iterator<Item = (i32, i32, u32, u32)>) -> bool {
+    let mut scratch = [0; 64];
+    let mut sender = CommandSender::new(host, &mut scratch);
+    // The host joins boxes past its eighth into the last; a refusal (an old
+    // host, no room) draws the pictures with the text, where the boxes
+    // already asked for are drawn again unchanged.
+    boxes.all(|(x, y, width, height)| {
+        sender
+            .queue_redraw_area(RedrawMode::Partial, FrameRect::new(x, y, width, height))
+            .is_ok()
+    })
 }
 
 #[cfg(test)]
@@ -86,13 +105,21 @@ mod tests {
 
     #[test]
     fn the_text_is_drawn_first_and_the_pictures_in_the_frame_after() {
-        let mut pass = Pass::Text;
-        assert_eq!(pass.drawing(), Pictures::Places);
+        let mut pass = Pass::Text((0, 40));
+        assert_eq!(pass.drawing((0, 40)), Pictures::Places);
         assert_eq!(pass, Pass::Due);
         // The frame the host draws the boxes in again (or any later one): the
         // pictures.
-        assert_eq!(pass.drawing(), Pictures::Drawn);
+        assert_eq!(pass.drawing((0, 40)), Pictures::Drawn);
         assert_eq!(pass, Pass::Whole);
-        assert_eq!(pass.drawing(), Pictures::Drawn);
+        assert_eq!(pass.drawing((0, 40)), Pictures::Drawn);
+    }
+
+    #[test]
+    fn a_frame_elsewhere_than_the_boxes_were_asked_for_draws_the_pictures_at_once() {
+        // The bars went: the screen starts higher than when the boxes were asked for.
+        let mut pass = Pass::Text((0, 40));
+        assert_eq!(pass.drawing((0, 0)), Pictures::Drawn);
+        assert_eq!(pass, Pass::Whole);
     }
 }
