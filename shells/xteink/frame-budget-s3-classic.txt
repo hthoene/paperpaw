@@ -797,11 +797,12 @@ allow indirect paperpaw_core::native_host::shell::canvas_describe 1 new in train
 allow indirect miniz_oxide::inflate::core::decompress 3 jump table of a `match` at miniz_oxide/inflate/core.rs:1461
 allow indirect paperpaw_core::native_host::commands::open::claim_handovers 3 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::shell::text_draw_inked 2 new in train 14: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect paperpaw_fat::remove_tree 9 literal call not proven on every path
 allow indirect paperpaw_sdk::action::Actions::find_native 1 new in train 14: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect paperpaw_text::font::Font::anchors 11 vtable or fn-pointer call at text/stored.rs:379, text/stored.rs:383: `paperpaw_text` font/strike trait objects (the font packs in use)
 allow indirect _ZN4core3ptr65drop_glue$LT$paperpaw_core..native_host..commands..dev..DevOp$GT$ 1 new in train 8: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_fat::settle::clean_old 1 literal call not proven on every path
 allow indirect _ZN91_$LT$core..str..iter..SplitN$LT$P$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4next 1 new in train 15: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::radio_requests::RadioRequests::discard_reserved 1 new in train 15: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::firmware_driver::Driver::take_slot 1 new in train 15: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_text::font::Font::anchors 10 vtable or fn-pointer call at text/stored.rs:379, text/stored.rs:383: `paperpaw_text` font/strike trait objects (the font packs in use)
+allow indirect paperpaw_fat::remove_tree 10 literal call not proven on every path
+allow indirect paperpaw_fat::write_whole 1 new in train 16: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4

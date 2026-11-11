@@ -320,6 +320,7 @@ impl Radio {
         mark(at::RADIO_STARTED);
         log::info!("wifi: on");
         let net = Self::station(self.host_option());
+        crate::entropy::wifi(true);
         self.on = Some(On {
             work: Work::Idle(Box::leak(Box::new(controller))),
             net,
@@ -620,6 +621,8 @@ impl Radio {
         let Some(on) = self.on.take() else {
             return;
         };
+        // From now the generator's numbers are no longer random.
+        crate::entropy::wifi(false);
         drop(on.net);
         if let Work::Idle(controller) = on.work {
             // SAFETY: made by `Box::leak` in `start` and back from its last

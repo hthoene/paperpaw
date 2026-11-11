@@ -1208,3 +1208,6 @@ mod root5_tests;
 mod prepare_tests;
 #[path = "doc_host_report_tests.rs"]
 mod report_tests;
+
+#[path = "doc_pump_tests.rs"]
+mod pump_tests;

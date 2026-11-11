@@ -17,6 +17,10 @@ fn every_event_kind_matches_its_generated_registration_bytes() {
         ),
         (EventKind::ScreenReady, records_wire::EVENT_SCREEN_READY_TAG),
         (EventKind::Spoken, records_wire::EVENT_SPOKEN_TAG),
+        (
+            EventKind::DocumentClosed,
+            records_wire::EVENT_DOCUMENT_CLOSED_TAG,
+        ),
         (EventKind::Tick, records_wire::EVENT_TICK_TAG),
         (
             EventKind::WidgetChanged,
