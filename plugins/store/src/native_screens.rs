@@ -22,6 +22,7 @@ use paperpaw_sdk::native::{
 
 use crate::native_index::Index;
 use crate::native_list::Page;
+use crate::native_page::Installed;
 
 /// Why the list is not there (what the loader says of it).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +45,13 @@ pub trait Loader {
     fn index(&self) -> Option<&Index>;
     /// The page of plugin `id`, when it was fetched.
     fn page(&self, id: &str) -> Option<&Page>;
+    /// Counts the lists taken: it changes each time a fresh list takes the
+    /// place of the one kept, so a screen that picked its plugins from the
+    /// list before picks them again. (Addition of the screens' port; the
+    /// default says the list never changes.)
+    fn generation(&self) -> u32 {
+        0
+    }
 }
 
 /// How the install of a plugin stands (Port E's steps).
@@ -67,6 +75,33 @@ pub trait Installs {
     fn step(&self, id: &str) -> Step;
     /// Whether the queue holds plugins to fetch and install (*Update all*).
     fn queued(&self) -> bool;
+    /// What the device has of plugin `id`, if anything: its kind, whether it
+    /// runs, its version and who put it there (interface 6's
+    /// `env.plugins().get(id)` with the origins). The lists mark the plugins
+    /// installed or with an update by it. The default says nothing is
+    /// installed. (Addition of the screens' port.)
+    fn have(&self, id: &str) -> Option<Installed<'_>> {
+        let _ = id;
+        None
+    }
+    /// Whether the device takes betas as updates. (Addition of the screens'
+    /// port.)
+    fn takes_betas(&self) -> bool {
+        false
+    }
+    /// Whether action `action` is registered (interface 6's
+    /// `env.actions().contains`): the *Fonts* row of the looks shows where the
+    /// fonts browser's is. (Addition of the screens' port.)
+    fn has_action(&self, action: &str) -> bool {
+        let _ = action;
+        false
+    }
+    /// Whether plugin `id` waits its turn in the queue. (Addition of the
+    /// screens' port.)
+    fn waiting(&self, id: &str) -> bool {
+        let _ = id;
+        false
+    }
 }
 
 /// What a screen may read.
@@ -79,6 +114,12 @@ pub struct Ctx<'a> {
     pub loader: &'a dyn Loader,
     /// The installs.
     pub installs: &'a dyn Installs,
+}
+
+impl core::fmt::Debug for Ctx<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Ctx").finish_non_exhaustive()
+    }
 }
 
 /// The declared screens of the store (`declarations::screens`): the id of each
@@ -131,6 +172,33 @@ pub enum Next {
     Notify(&'static str),
     /// Redraw this screen.
     Redraw,
+    /// Ask the reader something; the answer comes back to this screen through
+    /// [`Screen::answered`] with `tag`. (Addition of the screens' port.)
+    Ask { tag: u8, ask: Ask },
+    /// Close this screen and hand `value` (named `key`) to the screen below
+    /// through [`Screen::returned`]. (Addition of the screens' port.)
+    CloseWith { key: &'static str, value: String },
+}
+
+/// What a screen asks the reader. The texts are already in the reader's
+/// language.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Ask {
+    /// A text typed (`number`: digits only).
+    Text { title: String, number: bool },
+    /// One of `options` chosen, by its place.
+    Choice { title: String, options: Vec<String> },
+}
+
+/// The answer to an [`Ask`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Reply<'a> {
+    /// The text typed.
+    Text(&'a str),
+    /// The option chosen, counted from 0.
+    Choice(usize),
 }
 
 /// A screen of the store.
@@ -148,6 +216,17 @@ pub trait Screen: Sized {
     fn shown(&mut self, ctx: &Ctx<'_>) -> Result<(), Error> {
         let _ = ctx;
         Ok(())
+    }
+
+    /// The screen is on top for the first time, after `open`: what it asks of
+    /// the plugin at once (the list's fresh fetch). (Addition of the screens'
+    /// port.)
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    fn started(&mut self, ctx: &Ctx<'_>) -> Result<Next, Error> {
+        let _ = ctx;
+        Ok(Next::None)
     }
 
     /// Draws the screen.
@@ -169,6 +248,26 @@ pub trait Screen: Sized {
     /// `NoMemory`, or what the host refuses.
     fn event(&mut self, ctx: &Ctx<'_>, event: &Event<'_>) -> Result<Next, Error> {
         let _ = (ctx, event);
+        Ok(Next::None)
+    }
+
+    /// The reader answered the question `tag` of [`Next::Ask`]. (Addition of
+    /// the screens' port.)
+    ///
+    /// # Errors
+    /// `NoMemory`, or what the host refuses.
+    fn answered(&mut self, ctx: &Ctx<'_>, tag: u8, reply: Reply<'_>) -> Result<Next, Error> {
+        let _ = (ctx, tag, reply);
+        Ok(Next::None)
+    }
+
+    /// A screen above this one closed with [`Next::CloseWith`]. (Addition of
+    /// the screens' port.)
+    ///
+    /// # Errors
+    /// `NoMemory`, or what the host refuses.
+    fn returned(&mut self, ctx: &Ctx<'_>, key: &str, value: &str) -> Result<Next, Error> {
+        let _ = (ctx, key, value);
         Ok(Next::None)
     }
 }
@@ -273,6 +372,54 @@ impl StoreView {
             Self::Plugin(v) => v.event(ctx, event),
             Self::Shots(v) => v.event(ctx, event),
             Self::Fetch(v) => v.event(ctx, event),
+        }
+    }
+
+    /// The screen is on top for the first time.
+    ///
+    /// # Errors
+    /// What the screen says.
+    pub fn started(&mut self, ctx: &Ctx<'_>) -> Result<Next, Error> {
+        match self {
+            Self::List(v) => v.started(ctx),
+            Self::View(v) => v.started(ctx),
+            Self::Letters(v) => v.started(ctx),
+            Self::Source(v) => v.started(ctx),
+            Self::Plugin(v) => v.started(ctx),
+            Self::Shots(v) => v.started(ctx),
+            Self::Fetch(v) => v.started(ctx),
+        }
+    }
+
+    /// The reader answered a question of the screen.
+    ///
+    /// # Errors
+    /// What the screen says.
+    pub fn answered(&mut self, ctx: &Ctx<'_>, tag: u8, reply: Reply<'_>) -> Result<Next, Error> {
+        match self {
+            Self::List(v) => v.answered(ctx, tag, reply),
+            Self::View(v) => v.answered(ctx, tag, reply),
+            Self::Letters(v) => v.answered(ctx, tag, reply),
+            Self::Source(v) => v.answered(ctx, tag, reply),
+            Self::Plugin(v) => v.answered(ctx, tag, reply),
+            Self::Shots(v) => v.answered(ctx, tag, reply),
+            Self::Fetch(v) => v.answered(ctx, tag, reply),
+        }
+    }
+
+    /// A screen above closed with a value for this one.
+    ///
+    /// # Errors
+    /// What the screen says.
+    pub fn returned(&mut self, ctx: &Ctx<'_>, key: &str, value: &str) -> Result<Next, Error> {
+        match self {
+            Self::List(v) => v.returned(ctx, key, value),
+            Self::View(v) => v.returned(ctx, key, value),
+            Self::Letters(v) => v.returned(ctx, key, value),
+            Self::Source(v) => v.returned(ctx, key, value),
+            Self::Plugin(v) => v.returned(ctx, key, value),
+            Self::Shots(v) => v.returned(ctx, key, value),
+            Self::Fetch(v) => v.returned(ctx, key, value),
         }
     }
 }
