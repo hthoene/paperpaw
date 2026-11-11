@@ -208,6 +208,35 @@ impl crate::Kernel {
         status
     }
 
+    /// Delivers the actions native plugins ran since the last pass
+    /// (`event.action_run`), each as a staged callback whose batch is run
+    /// before the next: the plugin's `open` reaches the kernel in the call
+    /// that ran the action. Never inside a callback.
+    // Its own frame (the firmware's frame limit for host code).
+    #[inline(never)]
+    pub(crate) fn native_actions_run(&mut self) {
+        let Some(queue) = self.shared.native_instances.action_queue_made() else {
+            return;
+        };
+        while let Some(pending) = queue.take() {
+            if self.shared.native_instances.outbox.full() {
+                self.native_outbox_run();
+            }
+            let status = self.native_staged_call(pending.owner, |env, stage| {
+                pending
+                    .lease
+                    .event_staged(pending.token, &pending.bytes, env, stage)
+            });
+            if let Err(status) | Ok(status @ ..0) = status {
+                // A stopped or failing plugin leaves the action without
+                // effect; the report says why.
+                use super::native_screen::Dispatch as _;
+                pending.lease.dropped(pending.token, status);
+            }
+            self.native_outbox_run();
+        }
+    }
+
     /// The screen a background callback of `owner` speaks for: its own
     /// topmost one on the stack (a redraw is for it), none when it has none.
     fn event_screen(&self, owner: &paperpaw_sdk::Id) -> Option<paperpaw_sdk::ScreenKey> {

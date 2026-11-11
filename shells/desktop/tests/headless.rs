@@ -338,6 +338,28 @@ fn text_is_typed_into_the_keyboard_shown() {
     assert_ne!(typed.screen(), "keyboard.screen", "{}", typed.stdout);
 }
 
+/// `run:` reaches an action a native plugin declares, and what the plugin
+/// answers (`open` its screen) is done in the same call: the action of the
+/// transfer, about and Bluetooth plugins open their screens as `core.menu`
+/// opens the menu.
+#[test]
+fn an_action_a_native_plugin_declares_opens_its_screen() {
+    for (action, screen) in [
+        ("transfer.open", "transfer.screen"),
+        ("about.open", "about.screen"),
+        ("bluetooth.open", "bluetooth.page"),
+    ] {
+        let opened = run(
+            "native-action",
+            "xteink-x4",
+            &format!("run:{action},describe"),
+            &[],
+        );
+        assert!(opened.ok, "{action}: {}", opened.stderr);
+        assert_eq!(opened.screen(), screen, "{action}: {}", opened.stdout);
+    }
+}
+
 /// The screen turned, by the configuration at start or chosen in the
 /// settings while running: the panel trades width and height.
 #[test]

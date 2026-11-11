@@ -196,6 +196,8 @@ impl crate::Kernel {
         // below asks for another pass instead.
         if self.shared.native_instances.depth() == 0 {
             self.native_outbox_run();
+            // The actions run since: their callbacks, one at a time.
+            self.native_actions_run();
         }
         let more = {
             let env = self.shared.env(self.now);

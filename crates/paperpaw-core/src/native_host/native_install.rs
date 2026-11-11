@@ -596,9 +596,14 @@ impl crate::Kernel {
                     .native_offer(owner, slot, screen, priority)
                     .map_err(shell::Error::Status)?,
                 Owned::Action(callback) => {
+                    let queue = self
+                        .shared
+                        .native_instances
+                        .action_queue()
+                        .map_err(shell::Error::Status)?;
                     let action = instance
                         .try_clone()
-                        .and_then(|lease| super::native_action::spec(callback, lease))
+                        .and_then(|lease| super::native_action::spec(callback, lease, key, queue))
                         .map_err(shell::Error::Status)?;
                     let action = boxed(action)?;
                     staging
