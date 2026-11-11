@@ -114,6 +114,22 @@ list) is still in place beside the native one. It is removed in the PR that fini
   Not run on a host (the panel's wait, the work steps and the removal need a scripted host with `core.ui` and
   `core.files`: `tests/acceptance_pending.rs`).
 
+## Slice 6 (#257): *Online ›*
+
+- Where a screen is offered for the slot `core.lookup-online` (Wikipedia's; `native_online::offered`, the registry's
+  `slot_offers`, checked when the panel opens), the header says *Online ›* left of the page note, as Beta 3. A tap on
+  it, or the menu button (`core.menu`), closes the panel and opens the slot with a hand-over of the word and the
+  language (`native_online::go`; Beta 3: back, then `OpenSlot`). Not shown while the panel prepares indexes.
+  The service `core.registry` joins the metadata (regenerated).
+- Beta 3 asked network providers (providers that fetch, flag `online`) only on *Online ›* and showed their entries in the
+  panel, and its entries could end with a line that opens more (*Open Wikipedia ›*). The native lookup service calls a
+  provider that fetches itself whenever the network is up, and an entry has no "opens more": the line is replaced by
+  *Online ›* (the same screen), and no first-party provider that fetches exists (Wikipedia is the slot's screen).
+- Not done: the hint text of the menu button (*Online ›*; the host's hints, #892) and *Looking up …* while providers
+  answer later (todo 98).
+- Tests: `native_online` (what asks to go online), `native_popup` (the place of the label); not run on a host (the
+  slot's offer and the opening need a scripted host with `core.registry` and `core.ui`).
+
 ## What the slice loses (each returns in a later slice or with its host piece)
 
 - **Every lookup** (done in slice 2 for the provider).

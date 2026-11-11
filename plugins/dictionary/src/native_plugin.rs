@@ -299,7 +299,7 @@ impl Plugin for NativeDictionary {
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
         match self.screens.top(token) {
-            Some(view) => view.input(host, &input),
+            Some(view) => view.input(host, self.ui.as_ref().ok_or(Error::State)?, &input),
             None => Ok(Handled::No),
         }
     }

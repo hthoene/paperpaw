@@ -5,6 +5,7 @@ use crate::{
     native_disk::{HostRoot, Routed},
     native_folders::{self, Folders},
     native_model::{self, Listing},
+    native_online,
     native_panel::{Entry, MAX_ENTRIES, Panel, Step},
     native_source::{Dictionaries, Pending},
 };
@@ -33,6 +34,21 @@ use paperpaw_ui_kit::{
 struct Layout {
     region: Rect,
     rows: usize,
+    /// Where *Online ›* is in the header, if it is shown.
+    online: Option<Rect>,
+}
+
+/// The place *Online ›* answers a tap in: its text and a margin around it, the
+/// header's height.
+fn online_area(head: Rect, at: f32, width: f32, margin: f32) -> Rect {
+    let left = (at - margin / 2.0).max(0.0);
+    let right = (at + width + margin / 2.0).min(f32::from(head.width));
+    Rect::new(
+        left as u16,
+        head.y,
+        (right - left).max(1.0) as u16,
+        head.height,
+    )
 }
 
 /// One open panel.
@@ -46,6 +62,9 @@ pub struct View {
     none: Option<String>,
     /// The language of the word, for the providers.
     language: String,
+    /// A screen is offered to look the word up online (the slot
+    /// `core.lookup-online`): the header says *Online ›*.
+    online: bool,
     /// How far (percent) the indexes the lookup waits for are made; `None`
     /// once they are, or where none is being made.
     preparing: Option<u32>,
@@ -81,6 +100,7 @@ impl View {
         if own.pending.is_empty() || !indexing {
             view.look_up(host, own.count)?;
         }
+        view.online = !view.word.is_empty() && native_online::offered(host).unwrap_or(false);
         let pending = if indexing { own.pending } else { Vec::new() };
         Ok((view, pending))
     }
@@ -142,9 +162,13 @@ impl View {
     ///
     /// # Errors
     /// The host's refusals.
-    pub fn input(&mut self, host: &Host<'_>, input: &Input<'_>) -> Result<Handled, Error> {
+    pub fn input(&mut self, host: &Host<'_>, ui: &Ui, input: &Input<'_>) -> Result<Handled, Error> {
         if self.preparing.is_some() {
             return close_on_back(host, input);
+        }
+        if self.online && native_online::asks(input, self.layout.online) {
+            native_online::go(host, ui, &self.word, &self.language)?;
+            return Ok(Handled::Yes);
         }
         let Some(panel) = self.panel.as_mut() else {
             return Ok(Handled::No);
@@ -295,36 +319,12 @@ impl View {
         )?;
         let margin = f32::from(style.margin);
         let head = Rect::new(region.x, region.y, region.width, header);
-        let note_width = font.measure_text(style.small, &note)?;
-        let word = text::fit(
-            font,
-            style.title,
-            &self.word,
-            f32::from(width) - 3.0 * margin - note_width,
-        )?;
-        text::label(
-            &mut body,
-            font,
-            &word,
-            style.title,
-            margin,
-            head,
-            style.ink,
-            None,
-        )?;
-        if !note.is_empty() {
-            let x = f32::from(width) - margin - note_width;
-            text::label(
-                &mut body,
-                font,
-                &note,
-                style.small,
-                x,
-                head,
-                style.muted,
-                None,
-            )?;
-        }
+        let online = if self.online && self.preparing.is_none() {
+            messages.format(host, "dictionary.online", &[])?
+        } else {
+            String::new()
+        };
+        let area = self.draw_header(&mut body, font, &style, head, &note, &online)?;
         let mut y = region
             .y
             .saturating_add(header)
@@ -340,8 +340,77 @@ impl View {
             }
         }
         paint::replay(frame, font, body.iter())?;
-        self.layout = Layout { region, rows };
+        self.layout = Layout {
+            region,
+            rows,
+            online: area,
+        };
         Ok(())
+    }
+
+    /// The word at the left, the note at the right and *Online ›* left of it
+    /// (where it is offered); where *Online ›* is.
+    fn draw_header(
+        &self,
+        body: &mut Vec<Paint>,
+        font: &Font<'_>,
+        style: &Style,
+        head: Rect,
+        note: &str,
+        online: &str,
+    ) -> Result<Option<Rect>, Error> {
+        let margin = f32::from(style.margin);
+        let width = f32::from(head.width);
+        let note_width = font.measure_text(style.small, note)?;
+        let online_width = font.measure_text(style.small, online)?;
+        let note_at = width - margin - note_width;
+        let online_at = if note.is_empty() {
+            note_at
+        } else {
+            note_at - margin
+        } - online_width;
+        let right = if online.is_empty() {
+            note_at
+        } else {
+            online_at
+        };
+        let word = text::fit(font, style.title, &self.word, right - 2.0 * margin)?;
+        text::label(
+            body,
+            font,
+            &word,
+            style.title,
+            margin,
+            head,
+            style.ink,
+            None,
+        )?;
+        if !note.is_empty() {
+            text::label(
+                body,
+                font,
+                note,
+                style.small,
+                note_at,
+                head,
+                style.muted,
+                None,
+            )?;
+        }
+        if online.is_empty() {
+            return Ok(None);
+        }
+        text::label(
+            body,
+            font,
+            online,
+            style.small,
+            online_at,
+            head,
+            style.ink,
+            None,
+        )?;
+        Ok(Some(online_area(head, online_at, online_width, margin)))
     }
 }
 
@@ -590,6 +659,21 @@ mod tests {
         let panel = build_panel(&mut entries, "none", narrow, 100.0).unwrap();
         assert!(entries.is_empty());
         assert_eq!(panel.page(10).next().map(|(t, _)| t), Some("one"));
+    }
+
+    #[test]
+    fn the_place_of_online_is_its_text_and_a_margin_in_the_header_and_never_off_the_screen() {
+        let head = Rect::new(0, 100, 400, 30);
+        let area = online_area(head, 300.0, 60.0, 10.0);
+        assert_eq!(
+            (area.x, area.y, area.width, area.height),
+            (295, 100, 70, 30)
+        );
+        // At the left edge and past the right edge it is cut to the header.
+        let area = online_area(head, 2.0, 60.0, 10.0);
+        assert_eq!(area.x, 0);
+        let area = online_area(head, 380.0, 60.0, 10.0);
+        assert_eq!(area.right(), 400);
     }
 
     #[test]

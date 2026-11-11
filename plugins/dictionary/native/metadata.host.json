@@ -130,6 +130,7 @@
   "services": [
     "core.files",
     "core.lookup",
+    "core.registry",
     "core.ui",
     "core.work"
   ],
