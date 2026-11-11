@@ -28,6 +28,8 @@ pub(crate) const FORMAT_OWNER: u64 = 99;
 mod blocks;
 #[path = "tests/cover.rs"]
 mod cover;
+#[path = "tests/cover_details.rs"]
+mod cover_details;
 #[path = "tests/lists.rs"]
 mod lists;
 #[path = "tests/reader.rs"]

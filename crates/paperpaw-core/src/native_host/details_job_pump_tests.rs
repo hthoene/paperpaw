@@ -10,7 +10,7 @@ use super::*;
 use crate::native_host::{
     declaration_store::{Allocations, ImageOwner, PendingDeclarations},
     doc_host::DocState,
-    doc_service::{DocHost, FormatRef, Limits, PREPARING, READY},
+    doc_service::{DocHost, FAILED, FormatRef, Limits, PREPARING, READY},
     lib_host::LibraryHost,
     lib_reads::CatalogEnv,
     lib_service::LibQuery,
@@ -381,4 +381,116 @@ fn while_it_runs_the_catalog_is_wanted_at_most_once_in_two_minutes_and_none_when
     }
     assert_eq!(wanted(&w), 0);
     assert!(!w.docs.details_job().unwrap().run().armed());
+}
+
+#[test]
+fn no_job_starts_before_the_start_returned_nor_unarmed_nor_while_a_book_is_open_for_reading() {
+    let mut w = world(&["books/a.epub"]);
+    catalog(&w, &[("books/a.epub", false)]);
+    w.kernel.native_details_arm();
+    pump(&mut w, 1_000);
+    assert_eq!(w.format.opens(), 0, "the start has not returned");
+    started(&mut w);
+    w.docs.details_job().unwrap().run().disarm();
+    pump(&mut w, 2_000);
+    assert_eq!(w.format.opens(), 0, "not armed");
+    // A book open for reading (a document of a plugin that is not background).
+    let (reading, _) = w
+        .docs
+        .table()
+        .open(7, true, FormatRef(0), READY, 0, &|_| false)
+        .unwrap();
+    w.kernel.native_details_arm();
+    pump(&mut w, 3_000);
+    assert_eq!(w.format.opens(), 0, "a book is open for reading");
+    w.docs.table().close(7, reading).unwrap();
+    pump(&mut w, 4_000);
+    assert_eq!(w.format.opens(), 1);
+    assert_eq!(kept_title(&w, "books/a.epub").as_deref(), Some("Dune"));
+}
+
+#[test]
+fn a_book_whose_job_an_open_took_is_looked_at_again_and_never_holds_the_device_awake() {
+    let mut w = world(&["books/a.epub", "books/b.epub"]);
+    catalog(&w, &[("books/a.epub", false), ("books/b.epub", false)]);
+    started(&mut w);
+    w.format.open.set(PREPARING);
+    w.kernel.native_details_arm();
+    pump(&mut w, 1_000);
+    assert_eq!(w.format.opens(), 1);
+    assert!(w.docs.cover_job_active());
+    // The job prepares: nothing asks for another pass, no deadline.
+    assert!(!w.kernel.shared.native_instances.service_more());
+    assert_eq!(w.kernel.service_due(), None);
+    // A reader's open took its place (`doc_service::open`).
+    assert!(w.docs.table().take_cover_job().is_some());
+    w.format.open.set(READY);
+    pump(&mut w, 2_000);
+    pump(&mut w, 3_000);
+    // The same book again first, then the next.
+    assert_eq!(w.format.opens(), 3);
+    assert_eq!(kept_title(&w, "books/a.epub").as_deref(), Some("Dune"));
+    assert_eq!(kept_title(&w, "books/b.epub").as_deref(), Some("Dune"));
+}
+
+#[test]
+fn sleep_ends_the_job_and_none_starts_after_the_wake_until_armed_again() {
+    let mut w = world(&["books/a.epub"]);
+    catalog(&w, &[("books/a.epub", false)]);
+    started(&mut w);
+    w.format.open.set(PREPARING);
+    w.kernel.native_details_arm();
+    pump(&mut w, 1_000);
+    assert!(w.docs.cover_job_active());
+    w.kernel.native_cover_job_suspend();
+    assert!(!w.docs.cover_job_active(), "closed at the sleep");
+    assert_eq!(w.format.ops.borrow().last(), Some(&4), "the format's close");
+    w.format.open.set(READY);
+    pump(&mut w, 2_000);
+    pump(&mut w, 3_000);
+    assert_eq!(w.format.opens(), 1, "not restarted after the wake");
+    w.kernel.native_details_arm();
+    pump(&mut w, 4_000);
+    assert_eq!(w.format.opens(), 2);
+    assert_eq!(kept_title(&w, "books/a.epub").as_deref(), Some("Dune"));
+}
+
+#[test]
+fn a_book_the_format_failed_is_skipped_and_not_tried_again_in_this_run() {
+    let mut w = world(&["books/a.epub", "books/b.epub"]);
+    catalog(&w, &[("books/a.epub", false), ("books/b.epub", false)]);
+    started(&mut w);
+    w.format.open.set(FAILED);
+    w.format.status.set(ERR_INVALID);
+    w.kernel.native_details_arm();
+    pump(&mut w, 1_000);
+    assert!(w.library.book_failed(path_key("books/a.epub")));
+    assert_eq!(kept_title(&w, "books/a.epub"), None, "nothing kept");
+    w.format.open.set(READY);
+    w.format.status.set(0);
+    // Armed again (a walk): the failed book is passed by.
+    w.kernel.native_details_arm();
+    pump(&mut w, 2_000);
+    pump(&mut w, 3_000);
+    assert_eq!(w.format.opens(), 2);
+    assert_eq!(kept_title(&w, "books/a.epub"), None);
+    assert_eq!(kept_title(&w, "books/b.epub").as_deref(), Some("Dune"));
+}
+
+#[test]
+fn a_book_whose_job_a_reset_ended_is_skipped_from_the_start() {
+    let mut w = world(&["books/a.epub", "books/b.epub"]);
+    catalog(&w, &[("books/a.epub", false), ("books/b.epub", false)]);
+    // The format crashed the device in the job of `a`: its marker is left.
+    let marker = std::format!("{:016x}", path_key("books/a.epub"));
+    w.card
+        .write(".paperpaw/cover-job.txt", marker.as_bytes())
+        .unwrap();
+    started(&mut w);
+    assert!(w.library.book_failed(path_key("books/a.epub")));
+    w.kernel.native_details_arm();
+    pump(&mut w, 1_000);
+    assert_eq!(w.format.opens(), 1);
+    assert_eq!(kept_title(&w, "books/a.epub"), None);
+    assert_eq!(kept_title(&w, "books/b.epub").as_deref(), Some("Dune"));
 }
