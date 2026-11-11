@@ -20,7 +20,7 @@ use super::{
     registrations::{EventActionRun, Record},
     shared::try_box,
 };
-use alloc::{borrow::Cow, vec::Vec};
+use alloc::vec::Vec;
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, ERR_NO_SPACE};
 use paperpaw_sdk::{ActionHandler, ActionSpec};
@@ -135,7 +135,7 @@ pub(crate) fn spec(
         }
     };
     let handler: ActionHandler = try_box(run).ok_or(ERR_NO_MEMORY)?;
-    let mut action = ActionSpec::new(id, Cow::Owned(title));
+    let mut action = ActionSpec::new(id, title);
     action.handler = Some(handler);
     Ok(action)
 }

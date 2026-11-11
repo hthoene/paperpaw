@@ -37,12 +37,15 @@ impl crate::Kernel {
     /// `image` is a read-only mapping of that many bytes which stays mapped for
     /// the whole run and holds the plugin's declaration bytes (the program's
     /// read-only data): the declarations are then kept as offsets into it and
-    /// not copied, as for a loaded plugin. A null pointer with zero length gives
-    /// none (the declarations are copied, under the smaller owned-copy limits).
-    /// `fixed` is the plugin's tables of settings and setting groups kept in the
-    /// program (empty for none): a setting or group it declares that equals an
-    /// entry of its table is kept as that entry (Beta 3's way, about 4 bytes of
-    /// heap for a setting) and not as a copy; any other is copied as before.
+    /// not copied, as for a loaded plugin, and the titles and other texts they
+    /// hold are read from it where the registries keep them (no copy either,
+    /// #248). A null pointer with zero length gives none (the declarations are
+    /// copied, under the smaller owned-copy limits).
+    /// `fixed` is the plugin's tables of settings, setting groups and ids kept
+    /// in the program (empty for none): a setting or group it declares that
+    /// equals an entry of its table is kept as that entry (Beta 3's way, about
+    /// 4 bytes of heap for a setting) and not as a copy, an id found in its id
+    /// table is that entry; any other is copied as before.
     #[allow(
         clippy::too_many_arguments,
         reason = "admission supplies the shell host, the owner resources, both sinks and the metadata view"
@@ -91,6 +94,15 @@ impl crate::Kernel {
                 return Err(error);
             }
         };
+        let mut fixed = fixed;
+        if !image.0.is_null() && image.1 > 0 {
+            // SAFETY: this function's contract: `image` is a read-only mapping
+            // of `image.1` bytes that stays mapped, unchanged, for the whole
+            // run (the program's read-only data), so it is `'static`. The
+            // texts read from it are checked as UTF-8 once more where they
+            // are taken (`native_values::Kept`).
+            fixed.image = unsafe { core::slice::from_raw_parts(image.0, image.1) };
+        }
         let registered = self.register_native_fixed(host, depth, report, fixed);
         if registered.is_err() {
             linked.remove(id);
