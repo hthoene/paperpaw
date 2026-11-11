@@ -823,6 +823,25 @@ fn map_declarations(
         _ => ERR_INVALID,
     })?;
     let mut owned = Vec::new();
+    // Room for what will be listed, once: growing by doubling held both
+    // the old and the new list at the registration peak. A setting that a
+    // table in the program stands for takes a place only for a run of them.
+    let mut upcoming = usize::from(!fixed.is_empty());
+    view.visit(&mut |record| match record {
+        Record::SettingSpec(_) if !fixed.is_empty() => {}
+        Record::ScreenSpec(_)
+        | Record::ActionSpec(_)
+        | Record::SettingSpec(_)
+        | Record::SettingGroup(_)
+        | Record::ResourceFontFace(_)
+        | Record::ResourceFontExtension(_)
+        | Record::ResourceHyphenation(_)
+        | Record::SlotOffer(_) => upcoming += 1,
+        _ => {}
+    })?;
+    owned
+        .try_reserve_exact(upcoming)
+        .map_err(|_| ERR_NO_MEMORY)?;
     // The tokens of what the plugin draws itself (screens, widgets, status
     // items and status lines), which draws may name.
     let mut tokens = Vec::new();
