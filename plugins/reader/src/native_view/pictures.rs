@@ -3,8 +3,7 @@
 //! page shows fast; the frame after draws the pictures in those places and
 //! nothing moves. A page without pictures has one frame; a page turned before
 //! its pictures were drawn never draws them.
-use super::{Body, View};
-use crate::native_draw::{self, Pictures};
+use crate::native_draw::Pictures;
 use paperpaw_sdk::layout::Page;
 
 /// Where the page on show is in its two frames.
@@ -14,8 +13,9 @@ pub(super) enum Pass {
     Whole,
     /// The page has pictures and its text is to be drawn first.
     Text,
-    /// The text is drawn; the pictures wait for the next frame.
-    TextDrawn,
+    /// The text is drawn and the host draws the pictures' boxes again in the
+    /// next frame: that frame draws them.
+    Due,
 }
 
 impl Pass {
@@ -28,48 +28,34 @@ impl Pass {
         }
     }
 
-    /// What a frame draws of the pictures now; the text pass is noted drawn.
-    pub(super) fn drawing(&mut self) -> Pictures {
+    /// What a frame draws of the pictures: in the text pass the pictures'
+    /// places stay empty where the host takes the boxes to draw again
+    /// (`ask`); where it does not, they are drawn at once.
+    pub(super) fn drawing(&mut self, ask: impl FnOnce() -> bool) -> Pictures {
         match self {
-            Self::Whole => Pictures::Drawn,
-            Self::Text | Self::TextDrawn => {
-                *self = Self::TextDrawn;
+            Self::Text if ask() => {
+                *self = Self::Due;
                 Pictures::Places
+            }
+            Self::Text | Self::Due | Self::Whole => {
+                *self = Self::Whole;
+                Pictures::Drawn
             }
         }
     }
 }
 
-impl View {
-    /// Whether the page's pictures are due in a frame now: its text was drawn
-    /// without them. The next frame draws them (asked once).
-    pub fn pictures_due(&mut self) -> bool {
-        let Body::Open(open) = &mut self.body else {
-            return false;
-        };
-        if open.pictures != Pass::TextDrawn {
-            return false;
-        }
-        open.pictures = Pass::Whole;
-        true
-    }
-
-    /// Whether the page on show still waits to draw its pictures.
-    #[must_use]
-    pub fn pictures_waiting(&self) -> bool {
-        matches!(&self.body, Body::Open(open) if open.pictures != Pass::Whole)
-    }
-
-    /// The boxes the pictures of the page on show take in the content box
-    /// (`(x, y, width, height)`, relative to the content box's top left).
-    pub fn picture_boxes(&self) -> impl Iterator<Item = (i32, i32, u32, u32)> + '_ {
-        let page = match &self.body {
-            Body::Open(open) => open.page.as_ref(),
-            _ => None,
-        };
-        page.into_iter()
-            .flat_map(|page| native_draw::picture_boxes(page, (0.0, 0.0)))
-    }
+/// Asks the host to draw the pictures' boxes (`(x, y, width, height)` in the
+/// draw's coordinates) again in a frame of their own, right after this one,
+/// with a partial refresh of the boxes only (#252). Whether it will.
+pub(super) fn ask_second_pass(
+    host: &paperpaw_sdk::native::Host<'_>,
+    boxes: impl Iterator<Item = (i32, i32, u32, u32)>,
+) -> bool {
+    // Until the host takes areas to draw again (`queue_redraw_area`, Kernel's
+    // PR for #252), the pictures are drawn with the text.
+    let _ = (host, boxes);
+    false
 }
 
 #[cfg(test)]
@@ -78,15 +64,20 @@ mod tests {
     use crate::native_draw::Pictures;
 
     #[test]
-    fn the_text_is_drawn_first_and_the_pictures_after() {
+    fn the_text_is_drawn_first_and_the_pictures_in_the_frame_after() {
         let mut pass = Pass::Text;
-        assert_eq!(pass.drawing(), Pictures::Places);
-        assert_eq!(pass, Pass::TextDrawn);
-        // A frame again before the pictures are due (a mark, the status line):
-        // still without them.
-        assert_eq!(pass.drawing(), Pictures::Places);
-        let mut whole = Pass::Whole;
-        assert_eq!(whole.drawing(), Pictures::Drawn);
-        assert_eq!(whole, Pass::Whole);
+        assert_eq!(pass.drawing(|| true), Pictures::Places);
+        assert_eq!(pass, Pass::Due);
+        // The frame the host draws the boxes in again: the pictures.
+        assert_eq!(pass.drawing(|| unreachable!()), Pictures::Drawn);
+        assert_eq!(pass, Pass::Whole);
+        assert_eq!(pass.drawing(|| unreachable!()), Pictures::Drawn);
+    }
+
+    #[test]
+    fn a_host_that_does_not_draw_again_gets_the_pictures_at_once() {
+        let mut pass = Pass::Text;
+        assert_eq!(pass.drawing(|| false), Pictures::Drawn);
+        assert_eq!(pass, Pass::Whole);
     }
 }

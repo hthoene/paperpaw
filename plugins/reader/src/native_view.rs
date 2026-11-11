@@ -9,7 +9,7 @@ use crate::{
     native_actions,
     native_chapter::{self, Chapter},
     native_document::HostDocument,
-    native_draw::{HostInk, draw_page},
+    native_draw::{HostInk, draw_page, picture_boxes},
     native_index::Counter,
     native_links::DocRef,
     native_look::Look,
@@ -1267,7 +1267,9 @@ impl Open {
             rect.x as f32 + f32::from(area.x),
             rect.y as f32 + f32::from(area.y),
         );
-        let pictures = self.pictures.drawing();
+        let pictures = self
+            .pictures
+            .drawing(|| pictures::ask_second_pass(host, picture_boxes(page, origin)));
         draw_page(
             &mut ink,
             &faces,
