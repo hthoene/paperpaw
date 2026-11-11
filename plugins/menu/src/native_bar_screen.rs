@@ -544,21 +544,43 @@ fn measure(font: &Font<'_>, size: f32, text: &str) -> Result<f32, Error> {
     font.measure_text(size, text)
 }
 
-/// Each entry's title made short where the catalog has a short one (the
-/// entry's id followed by `.short`: `reader.read-aloud.short` = "Listen"), as
-/// Beta 3 labelled the bar; the descriptions, which the bar does not show, are
-/// let go.
+/// Each entry's title made short where the catalog has a short one, as
+/// Beta 3 labelled the bar: the entry's id followed by `.short`
+/// (`reader.read-aloud.short` = "Listen"), and for a setting its title key's
+/// (`core.night-mode` → `core.setting.night-mode.short` = "Night"). The
+/// descriptions, which the bar does not show, are let go.
 fn shorten(host: &Host<'_>, rows: &mut [Row]) -> Result<(), Error> {
     let mut messages = Messages::new()?;
     for row in rows.iter_mut() {
         row.describe = String::new();
         let key = text::concat(&[&row.item, ".short"])?;
-        match messages.copy(host, &key) {
-            Ok(short) if !short.is_empty() => row.title = short,
-            Err(Error::NoMemory) => return Err(Error::NoMemory),
-            // None, or a key the catalog cannot have: the title stays.
-            _ => {}
+        if let Some(short) = short_text(&mut messages, host, &key)? {
+            row.title = short;
+            continue;
+        }
+        let Some((space, name)) = row.item.split_once('.') else {
+            continue;
+        };
+        if row.kind == Kind::Setting {
+            let key = text::concat(&[space, ".setting.", name, ".short"])?;
+            if let Some(short) = short_text(&mut messages, host, &key)? {
+                row.title = short;
+            }
         }
     }
     Ok(())
+}
+
+/// The catalog's text for `key`, `None` where it has none (or the key is
+/// one it cannot have).
+fn short_text(
+    messages: &mut Messages,
+    host: &Host<'_>,
+    key: &str,
+) -> Result<Option<String>, Error> {
+    match messages.copy(host, key) {
+        Ok(short) if !short.is_empty() => Ok(Some(short)),
+        Err(Error::NoMemory) => Err(Error::NoMemory),
+        _ => Ok(None),
+    }
 }
