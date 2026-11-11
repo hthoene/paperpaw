@@ -8,7 +8,8 @@
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, Instances, KeyBindingDecl, Kind,
-    MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl, StageDecl,
+    MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl, StageDecl, StatusItemDecl, StatusLineDecl,
+    StatusPlaceDecl,
 };
 
 /// Callback tokens: stable within this plugin. Screens from 10, actions from
@@ -19,6 +20,10 @@ pub const ANNOTATIONS: u32 = 12;
 pub const SKIM: u32 = 13;
 pub const FOOTNOTE: u32 = 14;
 pub const SEARCH: u32 = 15;
+/// The status items and lines of the reader (the reader draws its own itself:
+/// the host never calls its caller back for them).
+pub const STATUS_ITEM: u32 = 16;
+pub const STATUS_LINE: u32 = 17;
 pub const STARTED: u32 = 3;
 pub const BOOK_MOVED: u32 = 4;
 /// The device goes to sleep, stops, or the quiet time after a page turn has
@@ -136,6 +141,168 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     );
     timer.help = "reader.setting.aloud-timer.help";
     d.spec(timer)?;
+    status_settings(d)
+}
+
+/// The settings group of the status lines (the kernel's).
+const STATUS_GROUP: &str = "core.group.status";
+/// The sections of the status settings: the line above the text and the one below.
+const SECTION_TOP: &str = "reader.status.section.top";
+const SECTION_BOTTOM: &str = "reader.status.section.bottom";
+
+/// The default of each part of the line of items, as interface 6 had them:
+/// above nothing; below the chapter on the left, the time in the middle, the
+/// page and the device's symbols on the right.
+const PARTS: [(&str, &str, &str); 6] = [
+    ("status.top-left", "reader.status.top-left", ""),
+    ("status.top-center", "reader.status.top-center", ""),
+    ("status.top-right", "reader.status.top-right", ""),
+    (
+        "status.bottom-left",
+        "reader.status.bottom-left",
+        "reader.status.aloud, reader.status.chapter",
+    ),
+    (
+        "status.bottom-center",
+        "reader.status.bottom-center",
+        "core.status.clock",
+    ),
+    (
+        "status.bottom-right",
+        "reader.status.bottom-right",
+        "lock.touch-status, wifi.status, power.status, core.status.battery, reader.status.page",
+    ),
+];
+
+/// The status lines' settings (interface 6's `status.rs`): the text size and the
+/// distance from the edge, the lines to switch between above and below the text,
+/// what each part of the line of items shows, and the battery's percent.
+pub fn status_settings<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    let number = |name, (default, min, max), title, help, unit, step| {
+        let mut spec = SpecDecl::new(name, Kind::Int { default, min, max }, STATUS_GROUP, title);
+        spec.help = help;
+        (spec, unit, step)
+    };
+    let (size, unit, step) = number(
+        "status.size",
+        (6, 5, 16),
+        "reader.status.size",
+        "reader.status.size.help",
+        "core.unit.pt",
+        1,
+    );
+    d.spec(size)?;
+    let mut extra = ExtraDecl::new("status.size");
+    extra.unit = unit;
+    extra.step = step;
+    d.extra(extra)?;
+    let (mut edge, unit, step) = number(
+        "status.edge",
+        (15, 0, 150),
+        "reader.status.edge",
+        "reader.status.edge.help",
+        "core.unit.tenth-mm",
+        5,
+    );
+    edge.advanced = true;
+    d.spec(edge)?;
+    let mut extra = ExtraDecl::new("status.edge");
+    extra.unit = unit;
+    extra.step = step;
+    d.extra(extra)?;
+    for (name, title, default, section) in [
+        (
+            "status.top-lines",
+            "reader.status.top-lines",
+            "",
+            SECTION_TOP,
+        ),
+        (
+            "status.bottom-lines",
+            "reader.status.bottom-lines",
+            "core.status-line.items, reader.status-line.progress, reader.status-line.empty",
+            SECTION_BOTTOM,
+        ),
+    ] {
+        let mut spec = SpecDecl::new(name, Kind::List(default), STATUS_GROUP, title);
+        spec.help = "reader.status.lines.help";
+        d.spec(spec)?;
+        let mut extra = ExtraDecl::new(name);
+        extra.section = section;
+        d.extra(extra)?;
+    }
+    for (at, (name, title, default)) in PARTS.into_iter().enumerate() {
+        let mut spec = SpecDecl::new(name, Kind::List(default), STATUS_GROUP, title);
+        spec.help = "reader.status.part.help";
+        d.spec(spec)?;
+        let mut extra = ExtraDecl::new(name);
+        extra.section = if at < 3 { SECTION_TOP } else { SECTION_BOTTOM };
+        d.extra(extra)?;
+    }
+    let mut percent = SpecDecl::new(
+        "status.battery-percent",
+        Kind::Bool(true),
+        STATUS_GROUP,
+        "reader.status.battery-percent",
+    );
+    percent.help = "reader.status.battery-percent.help";
+    d.spec(percent)?;
+    d.submit()
+}
+
+/// The status places (the lines above and below the text, each listing the items
+/// of its three parts), the reader's items and its two lines. The reader draws
+/// its own items and lines itself; they are declared so that the lists offer
+/// them (and other plugins' lines can show the reader's items by their id).
+pub fn status<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    let refused = |what| move |_| DeclareError::Empty(what);
+    for (name, title, parts) in [
+        (
+            "status.top",
+            "reader.status.section.top",
+            ["status.top-left", "status.top-center", "status.top-right"],
+        ),
+        (
+            "status.bottom",
+            "reader.status.section.bottom",
+            [
+                "status.bottom-left",
+                "status.bottom-center",
+                "status.bottom-right",
+            ],
+        ),
+    ] {
+        let [left, center, right] = parts.map(|part| ["reader.", part].concat());
+        let place = StatusPlaceDecl::new(name, title, &left, &center, &right)
+            .map_err(refused("status place"))?;
+        d.status_place(place)?;
+    }
+    // The book's and the chapter's titles give way first where a line has no
+    // room, the page last.
+    for (name, title, priority) in [
+        ("status.title", "reader.status.item.title", 64),
+        ("status.chapter", "reader.status.item.chapter", 64),
+        ("status.page", "reader.status.item.page", 224),
+        ("status.progress", "reader.status.item.progress", 128),
+    ] {
+        let item = StatusItemDecl::new(name, title, STATUS_ITEM)
+            .map_err(refused("status item"))?
+            .priority(priority);
+        d.status_item(item)?;
+    }
+    for (name, title) in [
+        ("status-line.progress", "reader.status.line.progress"),
+        ("status-line.empty", "reader.status.line.empty"),
+    ] {
+        // A line is as high as 2.1 times the text size.
+        let line =
+            StatusLineDecl::new(name, title, 2100, STATUS_LINE).map_err(refused("status line"))?;
+        d.status_line(line)?;
+    }
     d.submit()
 }
 
@@ -154,8 +321,8 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
         // One instance for each set of parameters (the book, the section), as in
         // interface 6.
         let decl = ScreenDecl::new(name, title, token).instances(Instances::PerParams);
-        // The note is laid over the page, which shows above it.
-        d.screen(if token == FOOTNOTE {
+        // The note and the skim bar are laid over the page, which shows above them.
+        d.screen(if matches!(token, FOOTNOTE | SKIM) {
             decl.overlay()
         } else {
             decl

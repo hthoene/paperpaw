@@ -24,6 +24,9 @@ pub struct Reading {
     pub margin_ends: u16,
     /// Lines as wide as the page.
     pub justify: bool,
+    /// The room the status line at the top and the one at the bottom keep,
+    /// from the display's edge, in pixels (0: none, `native_status`).
+    pub status: (u16, u16),
 }
 
 impl Reading {
@@ -54,7 +57,16 @@ impl Reading {
             margin: kept(margin, 0, 30, 4),
             margin_ends: kept(margin_ends, 0, 30, 4),
             justify,
+            status: (0, 0),
         }
+    }
+
+    /// The same with room for status lines `top` and `bottom` pixels from the
+    /// display's edges.
+    #[must_use]
+    pub const fn with_status(mut self, top: u16, bottom: u16) -> Self {
+        self.status = (top, bottom);
+        self
     }
 
     /// The factor of a space's width (`word_spacing` as a part of one).
@@ -91,15 +103,19 @@ pub struct Box {
 pub fn content_box(width: u16, height: u16, dpi: u16, reading: &Reading) -> Option<Box> {
     let tenth_mm = |mm: u16| (u32::from(mm) * 10 * u32::from(dpi) + 127) / 254;
     let (side, end) = (tenth_mm(reading.margin), tenth_mm(reading.margin_ends));
+    // The text never runs up to a status line: above or below it, the room the
+    // line keeps is the margin where that is more.
+    let top = end.max(u32::from(reading.status.0));
+    let bottom = end.max(u32::from(reading.status.1));
     let wide = u32::from(width).checked_sub(2 * side)?;
-    let high = u32::from(height).checked_sub(2 * end)?;
+    let high = u32::from(height).checked_sub(top + bottom)?;
     // Less than a letter of room is no page.
     if wide < 16 || high < 16 {
         return None;
     }
     Some(Box {
         x: u16::try_from(side).ok()?,
-        y: u16::try_from(end).ok()?,
+        y: u16::try_from(top).ok()?,
         width: u16::try_from(wide).ok()?,
         height: u16::try_from(high).ok()?,
     })
@@ -154,6 +170,10 @@ pub fn affects_layout(key: &str) -> bool {
                 | "core.hyphenate"
                 | "core.hyphen-min-left"
                 | "core.hyphen-min-right"
+                | "reader.status.size"
+                | "reader.status.edge"
+                | "reader.status.top-lines"
+                | "reader.status.bottom-lines"
         )
 }
 

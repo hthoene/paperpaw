@@ -118,6 +118,9 @@ pub(crate) trait LibWrite {
     fn now_ms(&self) -> u64 {
         0
     }
+    /// The receipts of `owner`'s committed transactions end: it begins a new
+    /// one, or it stopped. Default: none kept.
+    fn receipts_ended(&self, _owner: u64) {}
     /// The change of the library waiting to be told to the plugins
     /// (`event.library_changed`, 91): the bits raised since the last call and
     /// the catalog generation and the one book they were about (empty: none or

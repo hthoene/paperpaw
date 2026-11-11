@@ -306,6 +306,8 @@ pub fn install_in(
             &FlatDepth::try_new().map_err(|e| format!("{e:?}"))?,
             teardown,
             report,
+            (core::ptr::null(), 0),
+            &[],
         )
     }
     .map_err(|e| format!("{e:?}"))?;

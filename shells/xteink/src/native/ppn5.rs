@@ -486,6 +486,10 @@ mod x4 {
                     &depth,
                     report,
                     linked_report,
+                    // No image yet: the declarations are copied (the
+                    // firmware's read-only data range is Firmware's to give).
+                    (core::ptr::null(), 0),
+                    paperpaw_app::fixed_settings(id),
                 )
             };
             warn!("native: linked {id}: {status:?}");
