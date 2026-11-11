@@ -119,8 +119,11 @@ pub(crate) struct Document {
     /// 0 while open for use, else `event.document_closed.reason`: the host
     /// closed it and every call but `close` is `ERR_CANCELLED`.
     pub(crate) closed_by_host: u32,
-    /// Opened with `BACKGROUND` (an index build): its place may be taken for
-    /// a book to show. `flags` is the format's state, so this is kept apart.
+    /// Opened with `BACKGROUND` (an index build, or the library's cover open,
+    /// `doc_service::cover`): its place may be taken for a book to show, and
+    /// the format leaves out what only a shown book needs (its state's contents,
+    /// XPointers and page labels flags). `flags` is the format's state, so this
+    /// is kept apart.
     pub(crate) background: bool,
     /// The library's cover job (`lib_cover`): a preparing book kept open so
     /// that the preparing loop converts it, ended by the host when it is
