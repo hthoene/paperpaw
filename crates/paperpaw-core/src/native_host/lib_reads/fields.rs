@@ -4,7 +4,8 @@
 //!
 //! The values are read from the book's details (`paperpaw_sdk::library::
 //! try_book`, the one reader; a book's details are 16 KiB at most, and so is
-//! what a call holds, once); no list outlives the call. The field generation
+//! what a call holds, once; a book in the catalog without them has no
+//! fields); no list outlives the call. The field generation
 //! is a hash of the book's fields (their ids and values, in order), never 0,
 //! so it changes with every change of them: a `set_field` that changes a
 //! value, a removal, a move of the data that changes a field. (A `set_field`
@@ -17,7 +18,7 @@ use crate::native_host::lib_service::{BookRef, Rows};
 use crate::native_host::registrations::{self as wire, Record};
 use alloc::vec::Vec;
 use core::cmp::Ordering;
-use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE};
+use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_sdk::digest::Fnv1a64;
 use paperpaw_sdk::library;
 
@@ -50,15 +51,16 @@ impl CatalogReads {
         visit: Rows<'_>,
     ) -> Result<RowsEnd, i32> {
         self.with_path(book, |path| {
-            let held = library::try_book(&*self.storage, path)
-                .map_err(fail)?
-                .ok_or(ERR_NOT_FOUND)?;
+            // The book is in the catalog (`with_path`); one without its
+            // details file (never given a field, or a stale one) has none.
+            let held = library::try_book(&*self.storage, path).map_err(fail)?;
+            let fields = held.as_ref().map_or(&[][..], |book| &book.fields[..]);
             // The fields of the wire, by their places: indexes, put in order.
             let mut places: Vec<usize> = Vec::new();
             places
-                .try_reserve_exact(held.fields.len())
+                .try_reserve_exact(fields.len())
                 .map_err(|_| ERR_NO_MEMORY)?;
-            for (at, (id, _)) in held.fields.iter().enumerate() {
+            for (at, (id, _)) in fields.iter().enumerate() {
                 if listed(id) {
                     places.push(at);
                 }
@@ -67,16 +69,14 @@ impl CatalogReads {
             // standard library (its frames) is wanted here.
             for i in 1..places.len() {
                 let mut j = i;
-                while j > 0
-                    && order(&held.fields[places[j - 1]].0, &held.fields[places[j]].0).is_gt()
-                {
+                while j > 0 && order(&fields[places[j - 1]].0, &fields[places[j]].0).is_gt() {
                     places.swap(j - 1, j);
                     j -= 1;
                 }
             }
             let mut hash = Fnv1a64::new();
             for &at in &places {
-                let (id, value) = &held.fields[at];
+                let (id, value) = &fields[at];
                 for part in [id.as_bytes(), &[0], value.as_bytes(), &[0]] {
                     hash.feed(part);
                 }
@@ -92,7 +92,7 @@ impl CatalogReads {
             let start = cursor.min(total);
             let mut rows = 0_u32;
             for &at in places.iter().skip(start as usize) {
-                let (id, value) = &held.fields[at];
+                let (id, value) = &fields[at];
                 let mut title = [0_u8; TITLE];
                 let mut length = None;
                 self.env.field_title(id, &mut |text| {
