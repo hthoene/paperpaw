@@ -212,8 +212,9 @@ impl CommandSender<'_, '_> {
     ///
     /// # Errors
     /// Returns encoding or host errors: State unless this plugin owns the top
-    /// screen (and in a work run), Invalid for a path that names no book (absolute,
-    /// under `.paperpaw` or `plugins`, over 512 bytes).
+    /// screen (and in a work run), Unsupported outside a screen's callback (as
+    /// every UI command), Invalid for a path that names no book (absolute, under
+    /// `.paperpaw` or `plugins`, over 512 bytes).
     pub fn set_scope(&mut self, path: Option<&str>) -> Result<(), Error> {
         self.submit(wire::Command::SetScope {
             path: path.unwrap_or(""),

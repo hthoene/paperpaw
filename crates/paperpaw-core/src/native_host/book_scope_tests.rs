@@ -59,11 +59,16 @@ fn a_path_that_names_no_book_is_refused() {
 
 #[test]
 fn a_book_key_is_sixteen_hex_digits() {
-    assert!(could_be_key("0123456789abcdef"));
+    // FAT does not tell the cases apart: an upper-case key meets it too.
+    for name in ["0123456789abcdef", "0123456789ABCDEF", "0123456789AbCdEf"] {
+        assert!(could_be_key(name), "{name}");
+    }
     for name in [
         "0123456789abcde",
         "0123456789abcdef0",
         "0123456789abcdeg",
+        "0123456789ABCDEG",
+        "",
         "notes",
     ] {
         assert!(!could_be_key(name), "{name}");
@@ -301,9 +306,22 @@ fn a_move_never_replaces_and_beta_3s_other_data_keeps_its_folder() {
 
 /// A card as FAT is: a rename into a folder that is not there is refused
 /// (`NotFound`), and `size` of a path holding `flaky` fails for now (`Io`).
+/// `MemoryStorage` has its folders through their files, so the folders made
+/// are kept here.
 struct Fat<'a> {
     card: &'a MemoryStorage,
     flaky: &'static str,
+    made: core::cell::RefCell<Vec<String>>,
+}
+
+impl<'a> Fat<'a> {
+    fn new(card: &'a MemoryStorage, flaky: &'static str) -> Self {
+        Self {
+            card,
+            flaky,
+            made: core::cell::RefCell::default(),
+        }
+    }
 }
 
 impl Storage for Fat<'_> {
@@ -330,13 +348,16 @@ impl Storage for Fat<'_> {
     }
     fn rename(&self, f: &str, t: &str) -> Result<(), StorageError> {
         let parent = t.rsplit_once('/').map_or("", |(dir, _)| dir);
-        if !paperpaw_sdk::files::is_dir(self.card, parent) {
+        let made = self.made.borrow().iter().any(|dir| dir == parent);
+        if !made && !paperpaw_sdk::files::is_dir(self.card, parent) {
             return Err(StorageError::NotFound);
         }
         self.card.rename(f, t)
     }
     fn create_dir(&self, p: &str) -> Result<(), StorageError> {
-        self.card.create_dir(p)
+        self.card.create_dir(p)?;
+        self.made.borrow_mut().push(String::from(p));
+        Ok(())
     }
     fn remove_dir_all(&self, p: &str) -> Result<(), StorageError> {
         self.card.remove_dir_all(p)
@@ -354,10 +375,7 @@ fn a_move_makes_the_new_keys_folder_first_and_a_card_error_is_no_none() {
     card.write(&old, KEPT).unwrap();
     // A card error asking whether the file is there: a status, the file
     // where it was, and a repeat moves it.
-    let flaky = Fat {
-        card: &card,
-        flaky: "settings.ini",
-    };
+    let flaky = Fat::new(&card, "settings.ini");
     assert_eq!(
         move_data(&flaky, &[], BOOK, "books/b.epub"),
         Err(super::status(StorageError::Io))
@@ -368,10 +386,7 @@ fn a_move_makes_the_new_keys_folder_first_and_a_card_error_is_no_none() {
     let read = |path: &str| paperpaw_sdk::read_file(&card, path, 64);
     assert_eq!(read(&old).unwrap(), KEPT);
     // A card that renames into no folder: the new key's is made first.
-    let fat = Fat {
-        card: &card,
-        flaky: "",
-    };
+    let fat = Fat::new(&card, "");
     move_data(&fat, &[], BOOK, "books/b.epub").unwrap();
     assert!(read(&old).is_err(), "gone from the old key");
     assert_eq!(read(&new).unwrap(), KEPT);
@@ -381,16 +396,13 @@ fn a_move_makes_the_new_keys_folder_first_and_a_card_error_is_no_none() {
 fn a_move_never_goes_into_a_folders_or_a_files_place() {
     use crate::native_host::book_data_steps::move_data;
     let card = MemoryStorage::new();
-    let fat = Fat {
-        card: &card,
-        flaky: "",
-    };
+    let fat = Fat::new(&card, "");
     let old = file("reader", BOOK).unwrap();
     card.write(&old, KEPT).unwrap();
     let read = |path: &str| paperpaw_sdk::read_file(&card, path, 64);
     // A folder where the new file goes: the file stays.
     let new = file("reader", "books/b.epub").unwrap();
-    card.create_dir(&new).unwrap();
+    card.write(&alloc::format!("{new}/x"), b"x").unwrap();
     move_data(&fat, &[], BOOK, "books/b.epub").unwrap();
     assert_eq!(read(&old).unwrap(), KEPT);
     // A file where the new key's folder goes: the file stays.
@@ -399,4 +411,32 @@ fn a_move_never_goes_into_a_folders_or_a_files_place() {
     move_data(&fat, &[], BOOK, "books/c.epub").unwrap();
     assert_eq!(read(&old).unwrap(), KEPT);
     assert_eq!(read(&new[..new.len() - 13]).unwrap(), b"x");
+}
+
+#[test]
+fn a_removal_whose_budget_runs_out_part_way_finishes_when_repeated() {
+    use crate::native_host::book_data_steps::{Progress, remove_data_within};
+    let card = MemoryStorage::new();
+    let files = [
+        file("reader", BOOK).unwrap(),
+        file("comics", BOOK).unwrap(),
+        file("notes", BOOK).unwrap(),
+    ];
+    for path in &files {
+        card.write(path, KEPT).unwrap();
+    }
+    let left = || files.iter().filter(|path| card.exists(path)).count();
+    // Two pieces for three files: one is left, and nothing more is charged.
+    let mut budget = 2;
+    assert_eq!(
+        remove_data_within(&card, &[], BOOK, &mut budget),
+        Ok(Progress::More)
+    );
+    assert_eq!((budget, left()), (0, 1));
+    let mut budget = 2;
+    assert_eq!(
+        remove_data_within(&card, &[], BOOK, &mut budget),
+        Ok(Progress::Done)
+    );
+    assert_eq!((budget, left()), (1, 0));
 }

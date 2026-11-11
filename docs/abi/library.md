@@ -513,6 +513,8 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   moves `books/<key>/settings.ini` to the new key and removes it with the book, in the Data of
   every plugin that has one on the card (found there, so also after a restart; none is no error;
   one whose new name is taken stays). The folder `books/<key>/` goes when it is left empty.
+  The first 64 plugin folders on the card are looked into (more than a device installs); a file
+  in one past them, or one that stays, is left under the old key (orphaned, never read again).
 - [D] **Fields** (`lib_field`: `id`, `title` translated, `value: str 1024`): op 22 lists a book's
   fields of every plugin, paged (a book holds up to 64 fields, and only about 3 rows at their caps
   fit a reply): input `lib_ref` and `lib_field_page` (`cursor` the index of the page's first row,

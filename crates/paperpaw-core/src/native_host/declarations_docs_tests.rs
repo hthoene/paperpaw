@@ -215,8 +215,10 @@ fn a_book_data_name_is_one_folder_name_of_lowercase_letters_digits_and_dashes() 
         "-",
         "--",
         longest.as_str(),
+        // 15 and 17 hex digits, and 16 with a letter past `f`: no key.
         "0123456789abcde",
         "0123456789abcdef0",
+        "0123456789abcdeg",
     ] {
         assert_eq!(check(name), Ok(()), "{name}");
     }
@@ -225,6 +227,8 @@ fn a_book_data_name_is_one_folder_name_of_lowercase_letters_digits_and_dashes() 
         too_long.as_str(),
         // 16 hex digits: a book's scope folder `books/<key>/` (#257).
         "0123456789abcdef",
+        // Upper case is refused by the name rule anyway.
+        "0123456789ABCDEF",
         "Notes",
         "nOtes",
         "a/b",

@@ -84,10 +84,11 @@ pub(crate) fn file(plugin: &str, path: &str) -> Result<String, i32> {
     file_at(plugin, key_into(path, &mut digits))
 }
 
-/// Whether a `book_data.spec` name could be a book key (16 hex digits): its
-/// folder `books/<name>/` would meet a book's scope folder `books/<key>/`.
+/// Whether a `book_data.spec` name could be a book key (16 hex digits, in
+/// either case: FAT does not tell `ABC` from `abc`): its folder
+/// `books/<name>/` would meet a book's scope folder `books/<key>/`.
 pub(crate) fn could_be_key(name: &str) -> bool {
-    name.len() == KEY_LEN && name.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    name.len() == KEY_LEN && name.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 /// The plugins with a folder in the Data root (`.paperpaw/plugins/<id>`), at
@@ -215,3 +216,7 @@ pub(crate) fn remove_scopes(
 #[cfg(test)]
 #[path = "book_scope_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "book_scope_fat_tests.rs"]
+mod fat_tests;
