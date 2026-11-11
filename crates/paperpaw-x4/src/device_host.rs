@@ -362,15 +362,29 @@ impl DeviceHost for X4Device {
     }
 
     fn values(&self, visit: &mut dyn FnMut(&Reading<'_>) -> ControlFlow<()>) -> Result<(), i32> {
+        let mut sent = 0_u32;
         for slot in self.slots.iter().flatten() {
             let reading = Reading {
                 name: slot.name,
                 value: slot.value.get(),
             };
+            sent += 1;
             if visit(&reading).is_break() {
-                break;
+                return Ok(());
             }
         }
+        // A test image (the veiling sealer, decision 156) says so, for the
+        // diagnostics screen to show "secrets: veiled (test build)"; a release
+        // build has no such value (`docs/abi/device.md`: a build may add names).
+        // Op 2 lists at most `MAX_VALUES`: the marker only where there is room.
+        #[cfg(feature = "test-veil")]
+        if sent < MAX_VALUES {
+            let _ = visit(&Reading {
+                name: "secrets-veiled",
+                value: Some(1),
+            });
+        }
+        let _ = sent;
         Ok(())
     }
 
@@ -711,7 +725,10 @@ mod tests {
             let mut rows = Vec::new();
             device
                 .values(&mut |reading| {
-                    rows.push((reading.name.to_string(), reading.value));
+                    // The test image's marker is the next test's.
+                    if reading.name != "secrets-veiled" {
+                        rows.push((reading.name.to_string(), reading.value));
+                    }
                     ControlFlow::Continue(())
                 })
                 .unwrap();
@@ -729,6 +746,22 @@ mod tests {
         assert_eq!(read(&device)[1], ("usb-frames".to_string(), Some(7)));
         assert!(device.set_value("usb-frames", None));
         assert_eq!(read(&device)[1].1, None);
+    }
+
+    /// Only a test image (`test-veil`) says its secrets are veiled.
+    #[test]
+    fn only_a_test_image_says_its_secrets_are_veiled() {
+        let device = device(&[]);
+        let mut said = None;
+        device
+            .values(&mut |reading| {
+                if reading.name == "secrets-veiled" {
+                    said = Some(reading.value);
+                }
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+        assert_eq!(said, cfg!(feature = "test-veil").then_some(Some(1)));
     }
 
     /// More names than op 2 lists are not kept.
