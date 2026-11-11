@@ -197,8 +197,11 @@ impl<'h, 'cb> Reader<'h, 'cb> {
     }
 }
 
-/// Room for the longest value of a setting and its frame.
-const VALUE_BUFFER: usize = 4096 + 64;
+/// Room for the longest value of a setting and its frame: the most `settings.read`
+/// takes (`TEXT_MAX`, `max_bytes` 4096 in `abi.def`; a bigger output is
+/// `ERR_INVALID`, which no screen of this plugin could open with), and the most it
+/// gives (a value that does not fit it is `ERR_NO_SPACE`).
+const VALUE_BUFFER: usize = 4096;
 
 /// The value of one setting now (the effective one, previews included).
 pub fn read(host: &Host<'_>, key: &str) -> Result<Option<Val>, Error> {
