@@ -235,6 +235,7 @@ pub(crate) mod dialog_pump;
 pub(crate) mod dialogs;
 pub(crate) mod doc_cache;
 pub(crate) mod doc_host;
+mod doc_pump;
 pub(crate) mod doc_reading;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
@@ -294,6 +295,7 @@ pub(crate) mod linked_plugins;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
 mod moves_pump;
+pub(crate) mod native_host_call;
 #[allow(
     dead_code,
     reason = "the shell builds the pool with the NET host and the SOCK host charges it"

@@ -34,11 +34,12 @@ mod report;
 mod table;
 #[allow(unused_imports, reason = "the shell builds the table with its limits")]
 pub(crate) use args::ROOT_HANDED;
-pub(crate) use table::{Document, DocumentTable, FormatRef, Limits, PREPARING, READY};
+pub(crate) use table::{Document, DocumentTable, FAILED, FormatRef, Limits, PREPARING, READY};
 
 /// Operations of `core.format` the host calls (`document.md` 3).
 pub(crate) mod fmt {
     pub(crate) const OPEN: u32 = 2;
+    pub(crate) const PREPARE: u32 = 3;
     pub(crate) const META: u32 = 5;
     pub(crate) const META_TEXT: u32 = 6;
     pub(crate) const SECTIONS: u32 = 7;
@@ -102,7 +103,7 @@ pub(crate) struct FormatCall<'a> {
     pub(crate) css_path: &'a str,
 }
 impl FormatCall<'_> {
-    fn new(format: FormatRef, op: u32, document: u32) -> Self {
+    pub(crate) fn new(format: FormatRef, op: u32, document: u32) -> Self {
         Self {
             format,
             op,
@@ -228,6 +229,21 @@ pub(crate) trait DocHost {
     /// The kernel's clock, milliseconds, as the pump last read it: the time
     /// the events it delivers are stamped with.
     fn set_now(&self, _now_ms: u64) {}
+    /// One step of the preparing loop (`document.md` 2.1): the format of the
+    /// next preparing document gets op 3 `prepare`, between inputs, from the
+    /// kernel's pump (no opener callback runs), and its answer is recorded.
+    /// A host without a preparing loop has nothing to do.
+    /// Whether a document is preparing (the pump asks before it makes a route).
+    fn preparing(&self) -> bool {
+        false
+    }
+    fn prepare_step(
+        &self,
+        _hosts: &super::host_services::HostServices,
+        _route: &dyn super::fmt_call::Route,
+    ) -> PrepareStep {
+        PrepareStep::Idle
+    }
     /// An `open` is about to read the card path `path` of root `root`
     /// (document `document`): the host counts it so the file is not freed under
     /// the reader. `Err` refuses the open: nothing is opened and the error is
@@ -314,6 +330,45 @@ pub(crate) trait DocHost {
         sniff: bool,
         visit: &mut dyn FnMut(Record<'_>),
     ) -> Result<(), i32>;
+}
+
+/// What one step of the preparing loop did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PrepareStep {
+    /// No document is preparing.
+    Idle,
+    /// A step was made; the next may be made at once (the next pass).
+    More,
+    /// The step could not be made now (the format is not started, a table or
+    /// the card is busy): the loop tries again later, not at once.
+    Later,
+}
+
+/// The format's answer to a `prepare` of `document`, checked and recorded:
+/// the document's state, progress, status and flags are the format's, and
+/// the opener hears of a change (`event.document_changed`). Returns the new
+/// state, its status and whether the state or the progress moved. A
+/// preparation that answers "more" 32 times in a row without rising above its
+/// best progress fails with `ERR_TIMEOUT` (the returned state is then 2). A
+/// malformed answer is `ERR_INVALID` and records nothing.
+///
+/// # Errors
+/// `ERR_INVALID`, `ERR_BUSY` (the table is borrowed), `ERR_NOT_FOUND`.
+pub(crate) fn prepared(
+    table: &DocumentTable,
+    document: &Document,
+    answer: &[u8],
+) -> Result<(u32, i32, bool), i32> {
+    let state: wire::ServiceDocState<'_> = check::only(answer)?;
+    check::state(&state)?;
+    let (moved, now, status) = table.set_prepared(
+        document.id,
+        state.state,
+        state.progress_ppm,
+        state.status,
+        state.flags,
+    )?;
+    Ok((now, status, moved))
 }
 
 /// The opener stopped: its documents end, and each format gets op 4 `close`
