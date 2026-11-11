@@ -208,16 +208,25 @@ impl crate::Kernel {
         status
     }
 
-    /// Delivers the actions native plugins ran since the last pass
+    /// Delivers the actions native plugins ran since the last call
     /// (`event.action_run`), each as a staged callback whose batch is run
     /// before the next: the plugin's `open` reaches the kernel in the call
-    /// that ran the action. Never inside a callback.
+    /// that ran the action. `true` when one was delivered (its commands wait
+    /// for the next round of `run_commands`, the caller's). Never inside a
+    /// callback.
     // Its own frame (the firmware's frame limit for host code).
     #[inline(never)]
-    pub(crate) fn native_actions_run(&mut self) {
+    pub(crate) fn native_actions_run(&mut self) -> bool {
+        if self.shared.native_instances.depth() != 0 {
+            return false;
+        }
         let Some(queue) = self.shared.native_instances.action_queue_made() else {
-            return;
+            return false;
         };
+        for _ in 0..queue.refused() {
+            self.warn_runtime("a native plugin's action was not run: too many wait");
+        }
+        let mut delivered = false;
         while let Some(pending) = queue.take() {
             if self.shared.native_instances.outbox.full() {
                 self.native_outbox_run();
@@ -227,14 +236,18 @@ impl crate::Kernel {
                     .lease
                     .event_staged(pending.token, &pending.bytes, env, stage)
             });
-            if let Err(status) | Ok(status @ ..0) = status {
+            if let Err(status) | Ok(status) = status
+                && !matches!(status, 0 | 1)
+            {
                 // A stopped or failing plugin leaves the action without
                 // effect; the report says why.
                 use super::native_screen::Dispatch as _;
                 pending.lease.dropped(pending.token, status);
             }
             self.native_outbox_run();
+            delivered = true;
         }
+        delivered
     }
 
     /// The screen a background callback of `owner` speaks for: its own

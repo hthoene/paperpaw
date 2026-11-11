@@ -10,7 +10,9 @@
 //! delivers it from its pump, between callbacks (`Kernel::native_actions_run`),
 //! with the callback's command stage, as for every other callback, so that
 //! what the plugin asks (`open` its screen) reaches the kernel in the same
-//! call that ran the action.
+//! call that ran the action. The plugin's answer therefore comes after the
+//! rest of the dispatch that ran the action (what other plugins' observers
+//! asked for), not inside it.
 
 use super::{
     native_instances::NativeLease,
@@ -42,13 +44,31 @@ pub(crate) struct Pending {
     pub(crate) bytes: Vec<u8>,
 }
 
-/// The actions run and not yet delivered, in order.
+/// The actions run and not yet delivered, in order, and how many were
+/// refused for want of room or memory since the kernel last said so.
 #[derive(Default)]
-pub(crate) struct ActionQueue(RefCell<Vec<Pending>>);
+pub(crate) struct ActionQueue {
+    waiting: RefCell<Vec<Pending>>,
+    refused: core::cell::Cell<u32>,
+}
 
 impl ActionQueue {
-    fn push(&self, pending: Pending) -> Result<(), i32> {
-        let mut queue = self.0.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+    /// Keeps `pending` for the kernel; a refusal is counted ([`Self::refused`]).
+    pub(crate) fn push(&self, pending: Pending) -> Result<(), i32> {
+        let kept = self.keep(pending);
+        if kept.is_err() {
+            self.refused.set(self.refused.get().saturating_add(1));
+        }
+        kept
+    }
+
+    /// The refusals since the last call.
+    pub(crate) fn refused(&self) -> u32 {
+        self.refused.take()
+    }
+
+    fn keep(&self, pending: Pending) -> Result<(), i32> {
+        let mut queue = self.waiting.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         if queue.len() >= QUEUE_MAX {
             return Err(ERR_NO_SPACE);
         }
@@ -59,7 +79,7 @@ impl ActionQueue {
 
     /// The oldest action waiting.
     pub(crate) fn take(&self) -> Option<Pending> {
-        let mut queue = self.0.try_borrow_mut().ok()?;
+        let mut queue = self.waiting.try_borrow_mut().ok()?;
         (!queue.is_empty()).then(|| queue.remove(0))
     }
 }
@@ -114,3 +134,7 @@ pub(crate) fn spec(
     action.handler = Some(handler);
     Ok(action)
 }
+
+#[cfg(test)]
+#[path = "native_action_tests.rs"]
+mod tests;
