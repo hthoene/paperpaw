@@ -15,6 +15,9 @@
 )]
 
 use paperpaw_core::{Kernel, KernelBuilder};
+use paperpaw_platform::Storage;
+use paperpaw_sdk::MemoryStorage;
+use std::rc::Rc;
 
 /// Every consent feature, offered to plugins in these test kernels (they back
 /// none: the tests only need the plugins' screens; a shell offers only what it
@@ -82,10 +85,40 @@ impl BuildNative for KernelBuilder {
 /// test cannot go on then). A plugin the host refuses is named on stderr and
 /// its screens are missing, which the test that needs them reports.
 pub fn build(builder: KernelBuilder) -> Kernel {
+    build_with(builder, Rc::new(MemoryStorage::new()), false)
+}
+
+/// [`build`] where the linked plugins' files, library and documents are on
+/// `card`, a second handle on the card the kernel was given, as a shell wires
+/// them (a reader that opens the kernel's books needs it).
+///
+/// # Panics
+/// As [`build`].
+pub fn build_on(builder: KernelBuilder, card: Rc<dyn Storage>) -> Kernel {
+    build_with(builder, card, true)
+}
+
+/// [`build_on`], with the X4's Wi-Fi (managed by PaperPaw and on) where `wifi`
+/// says so: the native Wi-Fi plugin's list of networks closes itself where
+/// there is no radio to choose with. The screens measured without it (the
+/// store's partial redraws) stay as they were.
+fn build_with(builder: KernelBuilder, card: Rc<dyn Storage>, wifi: bool) -> Kernel {
+    #[cfg(feature = "native-linked")]
+    let builder = if wifi { builder.wifi(true) } else { builder };
     #[allow(unused_mut, reason = "only the native-linked build registers plugins")]
     let mut kernel = builder.build().unwrap();
     #[cfg(feature = "native-linked")]
-    linked::register(&mut kernel);
+    {
+        linked::register(&mut kernel, card);
+        if wifi {
+            let _ = kernel.wifi_event(
+                paperpaw_platform::Instant(0),
+                paperpaw_core::WifiEvent::State(paperpaw_core::WifiState::On),
+            );
+        }
+    }
+    #[cfg(not(feature = "native-linked"))]
+    let _ = (card, wifi);
     kernel
 }
 
@@ -99,7 +132,7 @@ mod linked {
 
         use paperpaw_core::native_host::HostWiring;
         use paperpaw_core::native_host::shell_wiring::{
-            CatalogEnv, HttpJob, NetInputs, NetLimits, Sealer, SecretsInputs, ServedReply,
+            CatalogEnv, HttpJob, NetInputs, NetLimits, Rng, Sealer, SecretsInputs, ServedReply,
             ServerReason, ShellHttp, ShellNetwork, WorkDevice, WorkInputs,
         };
         use paperpaw_native::host_glue::ERR_UNSUPPORTED;
@@ -161,6 +194,22 @@ mod linked {
             }
         }
 
+        /// A random source for tests: the same bytes every run (a counter), said
+        /// to be strong, as a device's source is (the Wi-Fi plugin draws its own
+        /// network's password from it).
+        struct Counter(std::cell::Cell<u8>);
+
+        impl Rng for Counter {
+            fn fill(&self, out: &mut [u8]) -> Result<bool, i32> {
+                for byte in out {
+                    let next = self.0.get().wrapping_add(1);
+                    self.0.set(next);
+                    *byte = next;
+                }
+                Ok(true)
+            }
+        }
+
         /// No walk under way, no date.
         struct NoCatalog;
 
@@ -179,7 +228,10 @@ mod linked {
                 .documents(MemoryClass::Small, 800)
                 .library(card.clone(), Rc::new(NoCatalog))
                 .files(card.clone())
-                .secrets(SecretsInputs::new(card.clone(), Rc::new(NoSeal)))
+                .secrets(
+                    SecretsInputs::new(card.clone(), Rc::new(NoSeal))
+                        .with_rng(Rc::new(Counter(std::cell::Cell::new(0)))),
+                )
                 .work(WorkInputs::new(Rc::new(Offline), MemoryClass::Small))
                 .net(NetInputs::new(
                     card,
@@ -200,7 +252,7 @@ mod linked {
         ];
     }
     use paperpaw_core::Kernel;
-    use paperpaw_core::native_host::device_service::{DEVICE_SERVICES, DeviceHost};
+    use paperpaw_core::native_host::device_service::{DEVICE_SERVICES, DeviceFacts, DeviceHost};
     use paperpaw_core::native_host::flat::FlatDepth;
     use paperpaw_core::native_host::shell::DATA_SERVICES;
     use paperpaw_core::native_host::{HostResources, HostWiring, TeardownStep};
@@ -230,10 +282,27 @@ mod linked {
         }
     }
 
-    /// A device that has no part to tell about: every question is "no such
-    /// part" (the default of `DeviceHost`).
+    /// A device that tells what it is (op 1, as every shell does: the Wi-Fi
+    /// plugin names its own network after the model) and has no part to tell
+    /// about: every other question is "no such part" (the default of
+    /// `DeviceHost`).
     struct NoParts;
-    impl DeviceHost for NoParts {}
+    impl DeviceHost for NoParts {
+        fn device(&self, visit: &mut dyn FnMut(&DeviceFacts<'_>)) -> Result<(), i32> {
+            visit(&DeviceFacts {
+                id: "test-device",
+                model: "Test device",
+                catalog: "",
+                class: 0,
+                caps: 0,
+                controls: 0,
+                tls_sessions: 0,
+                start: 0,
+                slept_ms: None,
+            });
+            Ok(())
+        }
+    }
 
     fn teardown(_: &Heap, id: &str, step: TeardownStep, why: paperpaw_core::native_host::Error) {
         eprintln!("native plugin {id}: teardown step {step:?} failed: {why:?}");
@@ -265,7 +334,7 @@ mod linked {
         Box::leak(all.into_boxed_slice())
     }
 
-    pub fn register(kernel: &mut Kernel) {
+    pub fn register(kernel: &mut Kernel, card: Rc<dyn paperpaw_platform::Storage>) {
         let resources = HostResources::try_new().expect("the table of handles");
         let device: Rc<dyn DeviceHost> = Rc::new(NoParts);
         resources
@@ -273,7 +342,7 @@ mod linked {
                 HostWiring::new()
                     .ui(paperpaw_platform::MemoryClass::Small)
                     .device(device),
-                Rc::new(paperpaw_sdk::MemoryStorage::new()),
+                card,
             ))
             .expect("core.ui and core.device wired");
         let depth = FlatDepth::try_new().expect("the dispatch budget");

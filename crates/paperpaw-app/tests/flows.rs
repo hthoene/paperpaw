@@ -106,6 +106,18 @@ impl Storage for Card {
     fn create_dir(&self, path: &str) -> Result<(), StorageError> {
         self.0.create_dir(path)
     }
+    fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> Result<(), StorageError> {
+        self.0.write_at(path, offset, data)
+    }
+    fn truncate(&self, path: &str, len: u64) -> Result<(), StorageError> {
+        self.0.truncate(path, len)
+    }
+    fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
+        self.0.remove_dir_all(path)
+    }
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        self.0.entry_identity(path)
+    }
 }
 
 fn fonts() -> paperpaw_app::Fonts {
@@ -125,9 +137,19 @@ impl App {
     fn start(device: DeviceInfo, card: &Card) -> Self {
         let builder = Kernel::builder(device)
             .storage(card.clone())
-            // Without the tips on gestures over everything on touch screens.
-            .user_config("[core]\nlanguage = en\n");
-        let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
+            // Without the tips on gestures over everything on touch screens, and
+            // without the native help's first-time hints (`help.show`, a setting
+            // of the native help only), which take the next button over the first
+            // screen, as in the headless tests (#2411).
+            .user_config(if cfg!(feature = "native-linked") {
+                "[core]\nlanguage = en\n[help]\nshow = false\n"
+            } else {
+                "[core]\nlanguage = en\n"
+            });
+        let mut kernel = native_activation::build_on(
+            paperpaw_app::install(builder, fonts()),
+            Rc::new(card.clone()),
+        );
         let effects = kernel.start(Instant(0));
         let mut app = Self { kernel, now: 0 };
         app.settle(effects);
