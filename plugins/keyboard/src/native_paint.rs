@@ -250,11 +250,14 @@ fn button(
     label: &str,
     focused: bool,
 ) -> Result<(), Error> {
+    // A line of text is a little taller than this button: the part reaches the
+    // text's box too, or the field around it would be told the label.
+    let around = area.grow(style.line.max(2));
     describe(
         out,
         style.describing,
         PartRole::Button,
-        area,
+        around,
         focused,
         false,
     )?;
