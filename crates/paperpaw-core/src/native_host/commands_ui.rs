@@ -1018,17 +1018,18 @@ mod tests {
             paperpaw_platform::Rect::new(content.x + 2, content.y + 3, 10, 8),
             paperpaw_platform::Rect::new(content.x + 40, content.y + 30, 20, 15),
         );
+        // From the region's corner (the content here: no screen in the stack).
         let area = |r: paperpaw_platform::Rect| {
             super::super::Area::new(
-                i32::from(r.x),
-                i32::from(r.y),
+                i32::from(r.x - content.x),
+                i32::from(r.y - content.y),
                 u32::from(r.width),
                 u32::from(r.height),
             )
             .unwrap()
         };
         // One far outside the screen marks nothing.
-        let outside = super::super::Area::new(-500, -500, 100, 100).unwrap();
+        let outside = super::super::Area::new(500, 500, 100, 100).unwrap();
         kernel.frame.pending = None;
         kernel.frame.pending_weight = 0;
         kernel.output.redraw = false;
@@ -1066,8 +1067,8 @@ mod tests {
         let content = kernel.content();
         let picture = paperpaw_platform::Rect::new(content.x + 5, content.y + 10, 30, 20);
         let area = super::super::Area::new(
-            i32::from(picture.x),
-            i32::from(picture.y),
+            i32::from(picture.x - content.x),
+            i32::from(picture.y - content.y),
             u32::from(picture.width),
             u32::from(picture.height),
         )
@@ -1098,6 +1099,12 @@ mod tests {
         kernel.run_followup();
         assert_eq!(kernel.frame.pending, Some(picture));
         assert_eq!(kernel.frame.pending_weight, 30 * 20);
+        // Its frame is the follow-up's: the screen's draws are marked while
+        // it is drawn (and drawn again for the panel), not after.
+        assert_eq!(kernel.frame.followup_frame, Some(key));
+        kernel.frame.unrendered = kernel.frame.pending.take();
+        kernel.render(&mut |_, _| {});
+        assert!(!kernel.shared.stack_rows.is_followup(key));
         assert_eq!(kernel.output.refresh, Some(RefreshMode::Partial));
         assert_eq!(
             (kernel.frame.followup.is_none(), kernel.followup_due(false)),

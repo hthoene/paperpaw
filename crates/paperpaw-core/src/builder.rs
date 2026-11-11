@@ -780,6 +780,7 @@ impl BuilderParts {
                 deferred: None,
                 defers: 0,
                 followup: None,
+                followup_frame: None,
             },
             input: gestures::InputState {
                 recognizer: Recognizer::default(),
