@@ -251,6 +251,10 @@ pub(crate) struct NativeInstances {
     /// The hand-over the staged `open` being applied names: `Some(None)` an
     /// open of none, `None` no staged open (see `Kernel::drain_native_opens`).
     pending_handover: Cell<Option<Option<u32>>>,
+    /// The kernel handles every plugin's dispatch reads (meter, stack rows,
+    /// declaration directory …): one for all, made with the first plugin
+    /// (`Kernel::shared_flat_host`), so each keeps a handle, not a copy.
+    pub(super) flat_host: Option<super::shared::Shared<super::FlatHost>>,
     #[cfg(test)]
     fixture_pool: Option<super::HostResources>,
 }
