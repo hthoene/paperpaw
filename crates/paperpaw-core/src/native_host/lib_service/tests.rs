@@ -148,6 +148,7 @@ fn a_frame_without_the_host_refuses_the_family() {
     let env = kernel.shared.env(Instant(0));
     let view = View {
         env: &env,
+        settings: Settings::new(),
         hosts: crate::native_host::host_services::HostServices::new(),
         granted: true,
         storage: true,
