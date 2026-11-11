@@ -49,7 +49,12 @@ Then press reset (or unplug and plug in). If `espflash` cannot reach the X4, see
   block); after a restart the first lines say `high-water: the run before …`.
   Copy those lines if anything looks wrong.
 - Open a book, turn some pages, put the X4 to sleep and wake it again.
-- Wi-Fi: connect once, restart the X4, check it still has the password.
+- Wi-Fi: save a Wi-Fi password, restart the X4: it reconnects without asking (the password is
+  readable only through the sealer). If Beta 3 had saved passwords, they still work, and the log
+  says `secrets: veiled values sealed` once, after Wi-Fi first comes on (not at power-on). A clean
+  device prints no secrets line at all: that is normal, not a failure. The lines
+  `secrets: no place for the device key` and `secrets: veiled values not sealed (...)` are
+  problems: keep the log.
 
 Please note anything that looks wrong, with the log lines if you can.
 

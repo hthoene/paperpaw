@@ -45,7 +45,12 @@ Danach Reset drücken (oder USB abziehen und wieder anstecken).
   Block); nach einem Neustart sagen die ersten Zeilen `high-water: the run before …`.
   Bei Auffälligkeiten diese Zeilen kopieren.
 - Ein Buch öffnen, ein paar Seiten blättern, den X4 schlafen legen und wecken.
-- WLAN: einmal verbinden, X4 neu starten, prüfen, dass das Passwort noch da ist.
+- WLAN: ein WLAN-Passwort speichern, X4 neu starten: er verbindet sich ohne Nachfrage wieder
+  (das Passwort ist nur über den Sealer lesbar). Hatte Beta 3 schon Passwörter gespeichert,
+  funktionieren sie weiter, und das Log sagt einmal `secrets: veiled values sealed`, nachdem
+  WLAN zum ersten Mal an ist (nicht beim Einschalten). Ein sauberes Gerät schreibt gar keine
+  secrets-Zeile: das ist normal, kein Fehler. Die Zeilen `secrets: no place for the device key`
+  und `secrets: veiled values not sealed (...)` sind Probleme: Log aufheben.
 
 Bitte alles notieren, was falsch aussieht, möglichst mit den Log-Zeilen.
 
