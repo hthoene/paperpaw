@@ -89,8 +89,8 @@ that fit 4,096 bytes). Three kinds of generation, never mixed up:
   `lib_edit_head.annotation_generation`): it changes on every committed annotation change of that
   book only.
 - the **field generation** of one book (`lib_field_page.generation`, the `service.end.generation`
-  of op 22 `fields`): it changes on every `set_field` on that book and every move of its data
-  (section 4). A later `fields` page asked with a stale field generation is `ERR_STATE`.
+  of op 22 `fields`): it changes when the content of the book's fields changes (a `set_field`
+  that changes a value or removes a field, a move of its data that changes them; section 4). A later `fields` page asked with a stale field generation is `ERR_STATE`.
 
 | Op | Name | Input | Reply | Effect |
 | --- | --- | --- | --- | --- |
@@ -233,9 +233,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   nor every ancestor.
 - [D] `next_in_series` (interface 6 `Index::next_in_series`, Port Reviewer on #696): the series'
   **lowest unread book**, not the book after the given one: of the books in the given book's series
-  never opened (`progress` 255), the one with the lowest series number, ties by catalog key; the
-  given book itself when it is that one. `ERR_NOT_FOUND` when the book has no series or every book
-  of it was opened. Interface 6 listed this for every series begun; a plugin that wants that list
+  never opened (`progress` 255 and `lib_entry` flag `opened` clear), the one with the lowest series
+  number, ties by catalog key; the given book itself when it is that one. `ERR_NOT_FOUND` when the
+  book has no series or every book of it was opened. Interface 6 listed this for every series begun; a plugin that wants that list
   asks op 6 with a book of each series it shows.
 - [D] **Paging of `query` and `facets`** (interface 6's keyset paging, `catalog::query_in`):
   `cursor` is the index in the result of the page's first row (0 for the first page). Under one
@@ -466,9 +466,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   fit a reply): input `lib_ref` and `lib_field_page` (`cursor` the index of the page's first row,
   0 to start, then `service.end.next`; `generation` 0 to start, then the `service.end.generation`
   of the first page). Rows are ordered by owning plugin id, then field name. `end.generation` is
-  the book's field generation, which every `set_field` on the book and every move of its data
-  advances; a later page asked with another generation answers `ERR_STATE` (start again at 0), as
-  annotations do. A page holds as many whole rows as fit in 4,096 bytes; `flags` bit 0 `last` on
+  the book's field generation, which changes when the content of the book's fields changes; a
+  later page asked with another generation answers `ERR_STATE` (start again at 0), as annotations
+  do. A page holds as many whole rows as fit in 4,096 bytes; `flags` bit 0 `last` on
   the last page. `set_field` (`lib_field_set`: `lib_ref`, `field` one of the caller's own,
   `value`, empty removes) changes the caller's only (`ERR_DENIED` for another's). In-catalog fields
   over 64 bytes `ERR_NO_SPACE`.

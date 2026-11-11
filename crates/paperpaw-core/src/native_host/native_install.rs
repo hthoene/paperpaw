@@ -13,7 +13,7 @@ use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED, Services,
 };
-use paperpaw_sdk::{Contribution, Id, RegisterError};
+use paperpaw_sdk::{Contribution, Id, NativeAction, RegisterError};
 
 /// Owned mapping results; future declaration families extend this one dispatch.
 enum Owned {
@@ -286,9 +286,7 @@ impl crate::Kernel {
                     .ok_or(shell::Error::Status(ERR_NO_MEMORY))?,
             )
             .map_err(shell::Error::Status)?;
-        self.shared
-            .native_instances
-            .attach_screens(&self.shared.stack_rows);
+        self.attach_native_hosts();
         if self.shared.registry.native_declarations.is_none() {
             self.shared.registry.native_declarations = Some(
                 super::shared::Shared::try_new(
@@ -426,8 +424,10 @@ impl crate::Kernel {
         if self.shared.native_instances.stop(key).is_err() {
             return None;
         }
-        // Its firmware requests and its confirmation go with it.
+        // Its firmware requests and its confirmation go with it, and its
+        // Wi-Fi requests, undelivered.
         self.firmware_sender_stopped(key);
+        self.radio_sender_stopped(owner.as_str());
         let _bump = crate::native_host::registry_generation::BumpOnExit::new(
             &self.shared.registry_generation,
         );
@@ -496,6 +496,18 @@ impl crate::Kernel {
             .defer_close(dialog, self.shared.stack_rows.generation())
         {
             self.shared.stack_rows.note_close_error(status);
+        }
+    }
+
+    /// The device's screens and Wi-Fi table, for the host views the pool
+    /// holds: the callbacks' stages reserve Wi-Fi requests in the kernel's
+    /// own table.
+    fn attach_native_hosts(&self) {
+        self.shared
+            .native_instances
+            .attach_screens(&self.shared.stack_rows);
+        if let Some(hosts) = self.shared.native_instances.hosts() {
+            hosts.wire_radio_requests(&self.radio_requests);
         }
     }
 
@@ -614,19 +626,14 @@ impl crate::Kernel {
                 } => staging
                     .native_offer(owner, slot, screen, priority)
                     .map_err(shell::Error::Status)?,
-                Owned::Action(callback) => {
-                    let action = instance
-                        .try_clone()
-                        .and_then(|lease| {
-                            let instances = &self.shared.native_instances;
-                            super::native_action::spec(callback, lease, key, instances)
-                        })
-                        .map_err(shell::Error::Status)?;
-                    let action = boxed(action)?;
-                    staging
-                        .native(owner, Contribution::Action(action))
-                        .map_err(shell::Error::Status)?;
-                }
+                // Kept without a handler: the kernel runs it by the plugin's
+                // key and token (`native_action::queue_run`, #248).
+                Owned::Action(callback) => staging
+                    .native_action(
+                        owner,
+                        NativeAction::new(callback.id, callback.title, key, callback.token),
+                    )
+                    .map_err(shell::Error::Status)?,
                 Owned::Choice { setting, value } => staging
                     .native_choice(setting, value)
                     .map_err(shell::Error::Status)?,
@@ -808,6 +815,10 @@ impl crate::Kernel {
         self.shared
             .actions
             .try_reserve(actions)
+            .map_err(|_| no_room())?;
+        self.shared
+            .actions
+            .try_reserve_native(staging.native_action_count())
             .map_err(|_| no_room())?;
         self.shared
             .settings
@@ -1044,12 +1055,6 @@ fn merge_status(error: &RegisterError) -> i32 {
         }
         _ => ERR_INVALID,
     }
-}
-
-/// One owned contribution in a fallible box: no room is an error, never an
-/// abort.
-fn boxed<T>(value: T) -> Result<alloc::boxed::Box<T>, shell::Error> {
-    super::shared::try_box(value).ok_or(shell::Error::Status(ERR_NO_MEMORY))
 }
 
 /// How many settings `fixed` (a plugin's table) takes in place of a copy, and

@@ -650,11 +650,13 @@ fn a_text_answer_follows_the_offset_and_cut_rules() {
 }
 
 #[test]
-fn next_in_series_is_another_book() {
+fn next_in_series_is_the_lowest_unread_book_which_may_be_the_given_one() {
     let fake = Fake::new();
     fake.say(&[Record::ServiceLibEntry(entry(8))]);
+    // Another book of the series ...
     assert!(ask(&fake, 6, &[key_ref(4, 5)]).is_ok());
-    assert_eq!(ask(&fake, 6, &[key_ref(8, 5)]), Err(ERR_INVALID));
+    // ... or the given book itself, when it is the lowest unread one.
+    assert!(ask(&fake, 6, &[key_ref(8, 5)]).is_ok());
     fake.say(&[Record::ServiceLibEntry(Entry {
         progress: 200,
         ..entry(8)
@@ -877,8 +879,13 @@ impl LibQuery for Fake {
     fn state(&self, visit: One<'_>) -> Result<(), i32> {
         self.deal(visit)
     }
-    fn query(&self, q: &Query<'_>, visit: Rows<'_>) -> Result<RowsEnd, i32> {
-        self.note(std::format!("query {}", describe(q)));
+    fn query(&self, q: &Query<'_>, archive: &str, visit: Rows<'_>) -> Result<RowsEnd, i32> {
+        let archive = if archive.is_empty() {
+            String::new()
+        } else {
+            std::format!(" archive={archive}")
+        };
+        self.note(std::format!("query {}{archive}", describe(q)));
         self.page(q.cursor, q.generation, visit)
     }
     fn book(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
@@ -1199,4 +1206,30 @@ fn field_row(n: u32, value: usize) -> Vec<u8> {
         title: "Field",
         value: filler(value),
     })])
+}
+
+#[test]
+fn the_archive_setting_reaches_the_host_only_for_a_query_that_leaves_it_out() {
+    super::ARCHIVE.with(|archive| archive.set("books/old"));
+    let fake = Fake::new();
+    // Flag bit 1 set: the host is told the folder.
+    ask(&fake, 2, &[query(|q| q.flags = 0b10)]).unwrap();
+    assert!(
+        fake.log
+            .borrow()
+            .last()
+            .unwrap()
+            .ends_with(" archive=books/old")
+    );
+    // Not set: the setting is not looked at, the host gets none.
+    ask(&fake, 2, &[query(|q| q.flags = 0b01)]).unwrap();
+    assert!(!fake.log.borrow().last().unwrap().contains("archive"));
+}
+
+#[test]
+fn an_undeclared_archive_setting_with_the_flag_set_leaves_nothing_out() {
+    // No `files.archive` at all: the host is told no folder.
+    let fake = Fake::new();
+    ask(&fake, 2, &[query(|q| q.flags = 0b10)]).unwrap();
+    assert!(!fake.log.borrow().last().unwrap().contains("archive"));
 }

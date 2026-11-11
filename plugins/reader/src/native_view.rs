@@ -166,10 +166,15 @@ pub(crate) struct Handover {
 
 impl Handover {
     /// The root the book is opened on (the library's unless the hand-over says).
+    ///
+    /// A plugin that hands a file of its own over names its folder: `0` (data)
+    /// or `2` (install), with the `path` (`document.md` 1, root 5). The reader
+    /// reads it as the handed file (`doc_open` root 5), never from its own
+    /// data folder. `5` is the reader's own code for a book it opened that
+    /// way (`root_code`, for its table-of-contents screen).
     pub(crate) fn root(&self) -> Root {
         match self.root.as_deref() {
-            Some("0") => Root::Data,
-            Some("5") => Root::Handed,
+            Some("0" | "2" | "5") => Root::Handed,
             _ => Root::Library,
         }
     }
@@ -611,6 +616,18 @@ impl View {
             Outcome::Turn { forward: true } => open.next()?,
             Outcome::Turn { forward: false } => open.previous(host, docs)?,
             _ => match native_pages::turn(input) {
+                // Select or Menu with nothing chosen: the reader's menu bar.
+                Turn::Ignored
+                    if matches!(
+                        input,
+                        Input::Action {
+                            action: "core.menu" | "core.confirm",
+                            ..
+                        }
+                    ) =>
+                {
+                    return open.menu_bar(host, ui);
+                }
                 Turn::Ignored => return Ok(Handled::No),
                 Turn::Next => open.next()?,
                 Turn::Previous => open.previous(host, docs)?,
@@ -1185,6 +1202,7 @@ fn say_with(
 
 mod aloud;
 mod count;
+mod menu_bar;
 mod r3;
 mod status;
 

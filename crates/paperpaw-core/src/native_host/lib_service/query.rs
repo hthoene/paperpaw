@@ -7,11 +7,15 @@
 //! An unknown book is the host's `ERR_NOT_FOUND`, a stale generation its
 //! `ERR_STATE`; both pass through.
 use super::{BookRef, Caller, ServiceOp, args};
+use crate::abi7::context::Frame;
 use crate::abi7::context::RowsEnd;
 use crate::native_host::lib_cover::CoverCx;
 use crate::native_host::registrations::{self as wire, Record};
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED};
+
+/// The files plugin's archive folder setting: the folder a query may leave out.
+const ARCHIVE_SETTING: &str = "files.archive";
 
 mod check;
 mod page;
@@ -38,8 +42,15 @@ pub(crate) trait LibQuery {
     }
     /// Op 2: `lib_entry` rows of the query from its cursor under its
     /// generation (0: the current one). `total` is the number found; the
-    /// generation is the catalog's, never 0.
-    fn query(&self, _query: &wire::ServiceLibQuery<'_>, _visit: Rows<'_>) -> Result<RowsEnd, i32> {
+    /// generation is the catalog's, never 0. `archive` is the archive folder
+    /// setting (`files.archive`, root 1) when the query leaves it out (flags
+    /// bit 1), else empty.
+    fn query(
+        &self,
+        _query: &wire::ServiceLibQuery<'_>,
+        _archive: &str,
+        _visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
         Err(ERR_UNSUPPORTED)
     }
     /// Op 3: one `lib_book`.
@@ -151,6 +162,7 @@ mod op {
 }
 
 pub(super) fn run(
+    frame: &dyn Frame,
     host: &dyn super::LibHost,
     who: &Caller<'_>,
     cx: &CoverCx<'_>,
@@ -161,7 +173,7 @@ pub(super) fn run(
     let rows = usize::from(op.reply_rows);
     match op.id {
         op::STATE => state(host, input, out),
-        op::QUERY | op::FACETS => catalog(host, op.id, rows, input, out),
+        op::QUERY | op::FACETS => catalog(frame, host, op.id, rows, input, out),
         op::BOOK | op::NEXT_IN_SERIES | op::POSITION | op::BOOK_KEY => {
             book_alone(host, op.id, input, out)
         }
@@ -225,6 +237,7 @@ fn check_query(query: &wire::ServiceLibQuery<'_>, facets: bool) -> Result<(), i3
 
 /// Ops 2 and 5: one `lib_query`.
 fn catalog(
+    frame: &dyn Frame,
     host: &dyn super::LibHost,
     id: u32,
     rows: usize,
@@ -243,8 +256,14 @@ fn catalog(
             host.facets(&query, visit)
         })
     } else {
+        // The setting is read only for a query that leaves the archive out.
+        let archive = if query.flags & 0b10 != 0 {
+            frame.settings().text(ARCHIVE_SETTING)
+        } else {
+            ""
+        };
         page::list(out, rows, check::Row::Entry, request, |visit| {
-            host.query(&query, visit)
+            host.query(&query, archive, visit)
         })
     }
 }
@@ -263,11 +282,9 @@ fn book_alone(
             out,
             |visit| host.next_in_series(book, visit),
             |record| match record {
-                // The next book is another one.
-                Record::ServiceLibEntry(row) => {
-                    check::entry(row)?;
-                    require(!matches!(book, BookRef::Key { key, .. } if key == row.key))
-                }
+                // The series' lowest unread book: the given one when it is that
+                // one (library.md 2.1), so no check against the asked key.
+                Record::ServiceLibEntry(row) => check::entry(row),
                 _ => Err(ERR_INVALID),
             },
         ),

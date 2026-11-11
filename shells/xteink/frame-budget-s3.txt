@@ -401,6 +401,9 @@ allow call paperpaw_core::native_host::fonts::draw -> __floatdisf the chip's ROM
 allow call paperpaw_graphics::canvas::bounded::try_describe -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call miniz_oxide::inflate::core::decompress -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call miniz_oxide::inflate::core::decompress -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_core::native_host::shell::text_draw_inked -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_core::native_host::fonts::draw_inked -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_sdk::action::Actions::find_native -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 
 # Privileged forms of the critical-section code (esp-hal's `critical_section`/`esp_sync`).
 # `rsil aN, 5` raises the interrupt level and saves PS in aN; `wsr.scompare1` sets the compare
@@ -639,7 +642,6 @@ allow indirect paperpaw_fat::walk::descend 3 literal call not proven on every pa
 allow indirect paperpaw_fat::walk::work 5 literal call not proven on every path
 allow indirect paperpaw_fat::walk::finish_tree 1 literal call not proven on every path
 allow indirect paperpaw_fat::settle::clean_old 1 literal call not proven on every path
-allow indirect paperpaw_fat::fnv 1 vtable or fn-pointer call at core/char/methods.rs:1540, core/char/mod.rs:398: a `char` predicate closure of a `str` method in the caller; 1 call(s) through a register reloaded from this function's own stack at core/char/methods.rs:1540: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect fatfs::dir::validate_long_name 1 jump table of a `match` at patches/fatfs/dir.rs:1065
 allow indirect fatfs::dir_entry::eq_name 3 literal call not proven on every path
 allow indirect fatfs::dir::remove_entries 2 literal call not proven on every path
@@ -793,7 +795,10 @@ allow indirect paperpaw_core::native_host::declaration_store::DeclarationStore::
 allow indirect paperpaw_core::native_host::declaration_store::OwnerRef::generation 1 vtable calls at core/native_host/declaration_store.rs: `owner.source.owner_id()`/`.generation()`/`.native_lease()` on the owner's declaration source (small accessors of the plugin's owner record)
 allow indirect paperpaw_core::native_host::commands::answers::validate_answers 2 new in train 12: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::commands::ui::owned_ui 3 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect paperpaw_core::native_host::shell::font_acquire 6 vtable or fn-pointer call at core/native_host/fonts.rs:115, core/native_host/fonts.rs:123: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables); jump table of a `match` at core/slice/cmp.rs:21
 allow indirect paperpaw_core::native_host::shell::canvas_describe 1 new in train 13: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect miniz_oxide::inflate::core::decompress 3 jump table of a `match` at miniz_oxide/inflate/core.rs:1461
 allow indirect paperpaw_core::native_host::commands::open::claim_handovers 3 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_core::native_host::shell::font_acquire 5 vtable or fn-pointer call at core/native_host/fonts.rs:115, core/native_host/fonts.rs:123: calls on the host's `&dyn Frame` (`abi7::context::Frame`) and its fixed fn tables (`Backend`, the command and service tables); jump table of a `match` at core/slice/cmp.rs:21
+allow indirect paperpaw_core::native_host::shell::text_draw_inked 2 new in train 14: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_sdk::action::Actions::find_native 1 new in train 14: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_fat::fnv 2 vtable or fn-pointer call at core/char/methods.rs:1540, core/char/mod.rs:398: a `char` predicate closure of a `str` method in the caller; 1 call(s) through a register reloaded from this function's own stack at core/char/methods.rs:1540: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)

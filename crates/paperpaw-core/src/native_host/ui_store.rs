@@ -226,6 +226,16 @@ impl Wiped {
 
 /// The owner of what the host made itself (no plugin has this key).
 const HOST_OWNER: u64 = u64::MAX;
+/// Whether `owner` is the host's own key (no plugin's).
+pub(crate) const fn is_host_owner(owner: u64) -> bool {
+    owner == HOST_OWNER
+}
+
+/// `Entry::passed_on` of a hand-over that passes no file on (an owner key is
+/// a counter that never gets here). Not the host's key: a hand-over the host
+/// made has [`HOST_OWNER`] as its maker, and the two must never be confused.
+const NO_MAKER: u64 = u64::MAX - 1;
+const _: () = assert!(NO_MAKER != HOST_OWNER);
 /// Hand-overs beyond the limit the host may make for its dialogs, so that a
 /// plugin that fills the table (`Limits::handovers`) cannot make every text
 /// question fail.
@@ -273,6 +283,10 @@ const DESCRIPTOR: usize = core::mem::size_of::<Wiped>();
 pub(super) struct Entry {
     pub(super) id: u32,
     state: State,
+    /// The maker of the handed file this hand-over passes on (see
+    /// [`UiStore::handover_passing_on`]); [`NO_MAKER`] for a hand-over of the
+    /// maker's own.
+    passed_on: u64,
     /// The params as `ui_param` records, framed.
     params: Wiped,
     count: u32,
@@ -478,6 +492,32 @@ impl UiStore {
     /// that is not allowed, `ERR_NO_SPACE` over the byte cap, `ERR_FULL` when
     /// the device's params are full, `ERR_NO_MEMORY`.
     pub(crate) fn handover_make(&self, who: Stamp, params: &[Param<'_>]) -> Result<u32, i32> {
+        self.handover_of(who, params, NO_MAKER)
+    }
+
+    /// Op 16 for a reader instance that holds a handed file and hands it on
+    /// (to its table-of-contents screen): the host has checked that `params`
+    /// name that file (`root` `5`, the same `path`) and rewrites `root` to the
+    /// file's own, so the new hand-over names the same file of `maker`, the
+    /// plugin that handed it first, and the instance it opens reads the file
+    /// as root 5 too ([`Self::handed_file`]). No plugin can make one: only
+    /// the service calls this, after the check.
+    pub(crate) fn handover_passing_on(
+        &self,
+        who: Stamp,
+        params: &[Param<'_>],
+        maker: u64,
+    ) -> Result<u32, i32> {
+        // A file the host made a hand-over for is nobody's to pass on: a
+        // hand-over naming the host as its maker would resolve against the
+        // passing plugin's own folder.
+        if maker == HOST_OWNER || maker == NO_MAKER {
+            return Err(ERR_DENIED);
+        }
+        self.handover_of(who, params, maker)
+    }
+
+    fn handover_of(&self, who: Stamp, params: &[Param<'_>], passed_on: u64) -> Result<u32, i32> {
         if params.len() > PARAMS_MAX {
             return Err(ERR_NO_SPACE);
         }
@@ -501,6 +541,7 @@ impl UiStore {
                 epoch: who.epoch,
             },
             (0, 0),
+            passed_on,
         )
     }
 
@@ -532,12 +573,19 @@ impl UiStore {
                 batch: u64::MAX,
             },
             (HOST_ROOM, HOST_BYTES),
+            NO_MAKER,
         )
     }
 
     /// Keeps a hand-over of `params` (checked) in `state`, `room` (hand-overs,
     /// bytes) beyond the limits allowed.
-    fn insert(&self, params: &[Param<'_>], state: State, room: (usize, usize)) -> Result<u32, i32> {
+    fn insert(
+        &self,
+        params: &[Param<'_>],
+        state: State,
+        room: (usize, usize),
+        passed_on: u64,
+    ) -> Result<u32, i32> {
         // Encode once into a block of exactly the size.
         let mut framed = 0_usize;
         for param in params {
@@ -564,12 +612,17 @@ impl UiStore {
             });
             used += codec::encode_one(&record, &mut block.0[used..])?;
         }
-        inner.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        // Exactly one more: the usual growth would take room for four.
+        inner
+            .entries
+            .try_reserve_exact(1)
+            .map_err(|_| ERR_NO_MEMORY)?;
         let id = self.alloc_id()?;
         inner.params_bytes += framed;
         inner.entries.push(Entry {
             id,
             state,
+            passed_on,
             params: block,
             count: u32::try_from(params.len()).map_err(|_| ERR_INVALID)?,
             text: Text::default(),
@@ -835,6 +888,10 @@ impl UiStore {
 
     fn free(inner: &mut Inner, at: usize) {
         let entry = inner.entries.remove(at);
+        if inner.entries.is_empty() {
+            // Hold nothing while no hand-over is kept.
+            inner.entries = Vec::new();
+        }
         inner.params_bytes -= entry.params.0.len();
         inner.text_memory -= entry.text.charged.min(inner.text_memory);
     }
@@ -903,6 +960,12 @@ impl UiStore {
             .ok_or(ERR_DENIED)?;
         let State::Owned { maker, .. } = entry.state else {
             return Err(ERR_DENIED);
+        };
+        // A hand-over that passes a handed file on names the first maker's.
+        let maker = if entry.passed_on == NO_MAKER {
+            maker
+        } else {
+            entry.passed_on
         };
         let (mut root, mut path) = (None, None);
         let mut rest = &entry.params.0[..];

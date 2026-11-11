@@ -399,7 +399,6 @@ fn the_cover_survives_the_close_that_ends_the_documents_pictures() {
 /// host on a card catalog, the document service and the format behind it.
 /// The reply is checked as the dispatcher checks it, and is the picture.
 #[test]
-#[ignore = "needs LibraryHost::screen_long_side (Host's #2348): the op checks `side` against it first and answers ERR_UNSUPPORTED until then; remove this attribute with that slice"]
 fn the_wire_call_of_op_7_reaches_the_format_and_answers_the_picture() {
     use crate::abi7::services_wire;
     use crate::native_host::{
@@ -409,11 +408,11 @@ fn the_wire_call_of_op_7_reaches_the_format_and_answers_the_picture() {
         lib_service::{LibHost, backend},
     };
     let card = card();
-    let library: Rc<dyn LibHost> = Rc::new(LibraryHost::new(
-        card.storage.clone(),
-        card.env.clone(),
-        None,
-    ));
+    // What the documents wiring tells the library: the screen's long side.
+    let policy = Rc::new(crate::native_host::lib_edits::EditPolicy::default());
+    policy.set_long_side(800);
+    let library: Rc<dyn LibHost> =
+        Rc::new(LibraryHost::new(card.storage.clone(), card.env.clone(), None).with_policy(policy));
     let fake = Fake::new(Limits::X4);
     with(&fake, |view| {
         view.hosts.wire_library(library).unwrap();

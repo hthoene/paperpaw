@@ -56,6 +56,23 @@ fn a_page_is_laid_out_again_when_the_reading_or_the_display_changes() {
 }
 
 #[test]
+fn a_file_a_plugin_hands_over_is_the_handed_file() {
+    let handed = |root: Option<&str>| Handover {
+        path: "own.txt".into(),
+        root: root.map(Into::into),
+        ..Handover::default()
+    };
+    // A maker's data (`0`) or install (`2`) folder, and the reader's own code.
+    for root in ["0", "2", "5"] {
+        assert_eq!(handed(Some(root)).root(), Root::Handed, "{root}");
+    }
+    // No root, the library's `1` and anything else: a book of the library.
+    for root in [None, Some("1"), Some("3"), Some("")] {
+        assert_eq!(handed(root).root(), Root::Library, "{root:?}");
+    }
+}
+
+#[test]
 fn the_root_of_a_hand_over_is_written_as_it_is_read() {
     assert_eq!(root_code(Root::Data), "0");
     assert_eq!(root_code(Root::Library), "1");

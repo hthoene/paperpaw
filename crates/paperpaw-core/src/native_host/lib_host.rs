@@ -48,6 +48,8 @@ pub(crate) struct LibraryHost {
     /// it stops telling, so a start that never ends cannot loop a caller
     /// that redraws on the event. A cover made starts it again.
     cover_retries: core::cell::Cell<u8>,
+    /// What the device's wirings told (the screen's long side for op 7).
+    policy: Option<Rc<super::lib_edits::EditPolicy>>,
 }
 
 /// How often in a row a busy `cover` raises bit 6 (the format's start is
@@ -68,6 +70,7 @@ impl LibraryHost {
             sources: None,
             changes: Changes::default(),
             cover_retries: core::cell::Cell::new(0),
+            policy: None,
         }
     }
 
@@ -92,7 +95,8 @@ impl LibraryHost {
     /// said ([`EditPolicy`]), whenever they came.
     #[must_use]
     pub(crate) fn with_policy(mut self, policy: Rc<super::lib_edits::EditPolicy>) -> Self {
-        self.edits = self.edits.with_policy(policy);
+        self.edits = self.edits.with_policy(policy.clone());
+        self.policy = Some(policy);
         self
     }
 
@@ -139,12 +143,44 @@ impl LibraryHost {
 }
 
 impl LibQuery for LibraryHost {
+    /// As `documents` named it, in whichever wiring call; unsupported (and so
+    /// op 7) before.
+    fn screen_long_side(&self) -> Result<u32, i32> {
+        self.policy
+            .as_ref()
+            .and_then(|policy| policy.long_side())
+            .ok_or(ERR_UNSUPPORTED)
+    }
     fn state(&self, visit: One<'_>) -> Result<(), i32> {
         self.reads.state(visit)
     }
-    fn query(&self, query: &wire::ServiceLibQuery<'_>, visit: Rows<'_>) -> Result<RowsEnd, i32> {
+    fn query(
+        &self,
+        query: &wire::ServiceLibQuery<'_>,
+        archive: &str,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        self.reads.query_hiding(
+            query,
+            archive,
+            &|path| self.deleted(BookRef::Path(path)),
+            visit,
+        )
+    }
+    fn next_in_series(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
+        self.visible(book)?;
         self.reads
-            .query_hiding(query, &|path| self.deleted(BookRef::Path(path)), visit)
+            .next_in_series_hiding(book, &|path| self.deleted(BookRef::Path(path)), visit)
+    }
+    fn fields(
+        &self,
+        book: BookRef<'_>,
+        cursor: u32,
+        generation: u32,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        self.visible(book)?;
+        self.reads.fields(book, cursor, generation, visit)
     }
     fn book(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         self.visible(book)?;

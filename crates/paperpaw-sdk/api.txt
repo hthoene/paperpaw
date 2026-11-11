@@ -3676,6 +3676,7 @@ pub paperpaw_sdk::native::declare::ScreenDecl::title: &'a str
 pub paperpaw_sdk::native::declare::ScreenDecl::token: u32
 impl paperpaw_sdk::native::declare::ScreenDecl<'_>
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::guards(self) -> Self
+pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::hints_hidden(self) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::holds_edges(self) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::instances(self, paperpaw_sdk::native::declare::Instances) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::overlay(self) -> Self
@@ -10314,6 +10315,7 @@ pub macro paperpaw_sdk::role_settings!
 pub macro paperpaw_sdk::service_type!
 #[non_exhaustive] pub enum paperpaw_sdk::Action<'a>
 pub paperpaw_sdk::Action::Fixed(&'static paperpaw_sdk::FixedAction)
+pub paperpaw_sdk::Action::Native(&'a paperpaw_sdk::NativeAction)
 pub paperpaw_sdk::Action::Spec(&'a paperpaw_sdk::ActionSpec)
 impl<'a> paperpaw_sdk::Action<'a>
 pub fn paperpaw_sdk::Action<'a>::description(self) -> core::option::Option<&'a str>
@@ -11393,6 +11395,7 @@ pub const fn paperpaw_sdk::Metrics::mm(&self, u32) -> u32
 pub const fn paperpaw_sdk::Metrics::new(u16) -> Self
 pub fn paperpaw_sdk::Metrics::pt(&self, f32) -> f32
 pub const fn paperpaw_sdk::Metrics::tenth_mm(&self, u32) -> u32
+pub struct paperpaw_sdk::NativeAction
 #[non_exhaustive] pub struct paperpaw_sdk::ObserverSpec
 pub paperpaw_sdk::ObserverSpec::id: paperpaw_sdk::Id
 pub paperpaw_sdk::ObserverSpec::observer: paperpaw_sdk::Observer

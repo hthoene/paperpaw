@@ -576,3 +576,13 @@ card, shelf and status line visible on the home screen and in the gallery) is ba
   touch, `.move`, `.select`, `.menu`, `.panel` for buttons) are declared natively (`declarations::help`,
   batches submitted at `make`) as interface 6 declared them; `tests/abi7_declarations.rs` pins the
   nine and their texts in both languages.
+
+## Home state while another screen is over it (#248)
+
+The dashboard holds its laid-out page (cells, targets, texts, the widgets made for it) only while it
+is on top. `event.stack_changed` (token `STACK_CHANGED`) reads the stack top; a dashboard under
+another screen lets its page and widgets go (`Dashboard::cover`) and sets `stale`, so the next
+`ScreenShown` lays it out again, which it always did (`shown()` marks the page stale). A page with
+options open, an item being moved or a finger's drag is kept. The stack is read only when a page is
+held; the request buffer is 256 bytes, the reply 4,096.
+`Screens::open` grows exactly since #1184 (a dashboard's state is 600 bytes).

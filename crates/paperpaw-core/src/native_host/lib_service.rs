@@ -95,7 +95,7 @@ pub(crate) fn backend(
     match op.id {
         1..=7 | 13 | 15 | 16 | 22 | 25 => {
             let cx = CoverCx { frame, caller };
-            query::run(host, &who, &cx, op, input, out)
+            query::run(frame, host, &who, &cx, op, input, out)
         }
         8..=12 | 14 | 17..=21 | 23 | 24 | 26 => write::run(host, &who, op, input, out),
         _ => Err(ERR_UNSUPPORTED),
