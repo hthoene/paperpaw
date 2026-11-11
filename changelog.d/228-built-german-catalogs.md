@@ -1,0 +1,3 @@
+### Changed
+
+- **The German texts of the plugins built in are one catalog, kept in the program** (#228, #248). The English catalogs of the first-party plugins were already indexed together at build time; the German ones now are too, in a table of their own (`BuiltCatalogs` has a language and a name, the builder takes one table for each language). Starting in German no longer makes a catalog for each plugin, and the texts with escape sequences are no longer copied onto the heap. A source a table cannot take (a key another has, a direction or digits of its own, another name) stays a catalog of its own, as before.

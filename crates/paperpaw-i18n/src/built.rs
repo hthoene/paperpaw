@@ -1,14 +1,17 @@
-//! The English catalogs built into the program as one table
-//! ([`BuiltCatalogs`]): a build script indexes them together, so a
-//! translator keeps one catalog for all of them, each plugin's source a
-//! word or two, rather than a catalog for each (a hundred bytes and more
-//! each, for some eighty plugins on the X4).
+//! The catalogs of one language built into the program as one table
+//! ([`BuiltCatalogs`]; English, and German where a program has it too): a
+//! build script indexes them together, so a translator keeps one catalog for
+//! all of a language's, each plugin's source a word or two, rather than a
+//! catalog for each (a hundred bytes and more each, for some eighty plugins
+//! on the X4), and the values a source does not give plainly (escape
+//! sequences) are kept in the program, not made on the heap.
 
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 
 use crate::catalog::{Catalog, CatalogError, cmp_plain_key, fingerprint, plain_key, plain_value};
+use crate::plural::PluralRule;
 
 /// In an entry of [`BuiltCatalogs::entries`]: its message is
 /// `decoded[low bits]`, not a plain line of a source.
@@ -27,7 +30,8 @@ const fn low_of(entry: u32) -> u32 {
     entry & ((1 << OFFSET_BITS) - 1)
 }
 
-/// The English catalogs of the plugins built in, indexed together by a
+/// The catalogs of one language of the plugins built in (English unless
+/// [`in_language`](Self::in_language) says another), indexed together by a
 /// build script (`paperpaw-app`'s, with [`BuiltTable`]): kept in the
 /// program, handed to the translator
 /// ([`Translator::built_catalogs`](crate::Translator::built_catalogs)).
@@ -44,6 +48,9 @@ pub struct BuiltCatalogs {
     /// Keys and messages a source does not give plainly (quoted values,
     /// escape sequences), decoded.
     pub decoded: &'static [(&'static str, &'static str)],
+    /// Their language (`en`) and the name it calls itself by.
+    pub language: &'static str,
+    pub name: &'static str,
 }
 
 impl BuiltCatalogs {
@@ -52,6 +59,8 @@ impl BuiltCatalogs {
         prints: &[],
         entries: &[],
         decoded: &[],
+        language: "en",
+        name: "English",
     };
 
     /// Made of what a build script wrote.
@@ -64,7 +73,17 @@ impl BuiltCatalogs {
             prints,
             entries,
             decoded,
+            language: "en",
+            name: "English",
         }
+    }
+
+    /// Of the catalogs of `language`, which calls itself `name` (all with
+    /// the plural rule of English, one and other).
+    pub const fn in_language(mut self, language: &'static str, name: &'static str) -> Self {
+        self.language = language;
+        self.name = name;
+        self
     }
 }
 
@@ -83,9 +102,9 @@ impl Built {
         }
     }
 
-    /// Takes `source` into its slot, where the table holds it.
-    pub(crate) fn take(&mut self, source: &'static str) -> bool {
-        let print = fingerprint(source);
+    /// Takes `source` (of this [`fingerprint`]) into its slot, where the
+    /// table holds it.
+    pub(crate) fn take(&mut self, print: u64, source: &'static str) -> bool {
         let Some(slot) = self.table.prints.iter().position(|p| *p == print) else {
             return false;
         };
@@ -180,29 +199,62 @@ impl Built {
     }
 }
 
-/// [`BuiltCatalogs`] being made by a build script: the English catalogs
-/// added together ([`BuiltTable::add`]), written as Rust
+/// [`BuiltCatalogs`] being made by a build script: the catalogs of one
+/// language added together ([`BuiltTable::add`]), written as Rust
 /// ([`BuiltTable::to_rust`]).
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct BuiltTable {
+    language: String,
+    /// The name of the first source's language; the others must say it.
+    name: Option<String>,
     prints: Vec<u64>,
     /// Key, then the entry.
     entries: Vec<(String, u32)>,
     decoded: Vec<(String, String)>,
 }
 
+impl Default for BuiltTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BuiltTable {
+    /// For English.
     pub fn new() -> Self {
-        Self::default()
+        Self::for_language("en")
     }
 
-    /// Adds the English catalog `source`; `false`, leaving it out (it then
-    /// stays a catalog of its own), where it is not English, holds a key
-    /// another source added holds, or its slot or an offset would not fit.
+    /// For the catalogs of `language` (as a catalog's `[meta] language`).
+    pub fn for_language(language: &str) -> Self {
+        Self {
+            language: String::from(language),
+            name: None,
+            prints: Vec::new(),
+            entries: Vec::new(),
+            decoded: Vec::new(),
+        }
+    }
+
+    /// Adds the catalog `source` of the table's language; `false`, leaving
+    /// it out (it then stays a catalog of its own), where it is of another
+    /// language or name, has another plural rule than English's or a
+    /// direction, script, digits or calendar of its own (the table says
+    /// none), holds a key another source added holds, or its slot or an
+    /// offset would not fit.
     pub fn add(&mut self, source: &str) -> Result<bool, CatalogError> {
         let catalog = Catalog::parse(String::from(source))?;
         let print = fingerprint(source);
-        if catalog.language() != "en" || self.prints.contains(&print) {
+        if catalog.language() != self.language
+            || self.prints.contains(&print)
+            || catalog.plural_rule() != PluralRule::OneOther
+            || catalog.says_more_than_language()
+            || (self.language != "en"
+                && self
+                    .name
+                    .as_deref()
+                    .is_some_and(|name| name != catalog.name()))
+        {
             return Ok(false);
         }
         let slot = self.prints.len() as u32;
@@ -232,6 +284,11 @@ impl BuiltTable {
             return Ok(false);
         }
         self.prints.push(print);
+        // English is always called English (a source may not say its name).
+        if self.language != "en" {
+            self.name
+                .get_or_insert_with(|| String::from(catalog.name()));
+        }
         for (key, message) in decoded {
             let entry = DECODED | slot << OFFSET_BITS | self.decoded.len() as u32;
             self.decoded.push((key.clone(), message));
@@ -259,6 +316,10 @@ impl BuiltTable {
             let _ = write!(out, "({key:?}, {message:?}),");
         }
         out.push_str("])");
+        if self.language != "en" {
+            let name = self.name.as_deref().unwrap_or_default();
+            let _ = write!(out, ".in_language({:?}, {name:?})", self.language);
+        }
         out
     }
 
@@ -280,9 +341,14 @@ impl BuiltTable {
             })
             .collect();
         let decoded = alloc::boxed::Box::leak(decoded.into_boxed_slice());
-        alloc::boxed::Box::leak(alloc::boxed::Box::new(BuiltCatalogs::new(
-            prints, entries, decoded,
-        )))
+        let language = &*alloc::boxed::Box::leak(self.language.into_boxed_str());
+        let name = self
+            .name
+            .unwrap_or_else(|| String::from(if language == "en" { "English" } else { "" }));
+        let name = &*alloc::boxed::Box::leak(name.into_boxed_str());
+        alloc::boxed::Box::leak(alloc::boxed::Box::new(
+            BuiltCatalogs::new(prints, entries, decoded).in_language(language, name),
+        ))
     }
 
     /// Sources added.

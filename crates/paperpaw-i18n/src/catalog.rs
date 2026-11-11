@@ -757,11 +757,15 @@ impl Catalog {
         matches!(self.card.as_deref(), Some(Elsewhere::Card(_)))
     }
 
-    /// The English catalogs built in, indexed together: one catalog for
-    /// all of them, whose sources fill it as they are added
+    /// The catalogs of a language built in, indexed together: one catalog
+    /// for all of them, whose sources fill it as they are added
     /// ([`Translator::built_catalogs`](crate::Translator::built_catalogs)).
     pub(crate) fn built(table: &'static BuiltCatalogs) -> Option<Catalog> {
-        let meta = "[meta]\nlanguage = en\nname = English\nplural = one-other\n";
+        let meta = alloc::format!(
+            "[meta]\nlanguage = {}\nname = {}\nplural = one-other\n",
+            table.language,
+            table.name
+        );
         let mut catalog = Catalog::parse(meta).ok()?;
         catalog.card = Some(Box::new(Elsewhere::Built(Built::new(table))));
         Some(catalog)
@@ -774,11 +778,16 @@ impl Catalog {
 
     /// Takes `source` into the built catalogs' slot for it, where this is
     /// that catalog and holds it.
-    pub(crate) fn take_built(&mut self, source: &'static str) -> bool {
+    pub(crate) fn take_built(&mut self, print: u64, source: &'static str) -> bool {
         match self.card.as_deref_mut() {
-            Some(Elsewhere::Built(built)) => built.take(source),
+            Some(Elsewhere::Built(built)) => built.take(print, source),
             _ => false,
         }
+    }
+
+    /// Whether `[meta]` says a direction, script, digits or calendar.
+    pub(crate) fn says_more_than_language(&self) -> bool {
+        self.direction != 0 || self.script != 0 || self.digits != 0 || self.calendar != 0
     }
 
     /// Its source, where it is kept in the program.
