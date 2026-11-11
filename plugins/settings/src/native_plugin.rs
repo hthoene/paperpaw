@@ -1277,9 +1277,6 @@ impl NativeSettings {
         for key in &keys {
             commands.reset_setting(ResetTarget::Setting(key))?;
         }
-        // "Only this book" last: clearing it first would send later resets to
-        // the global settings instead of the book's values.
-        commands.reset_setting(ResetTarget::Setting(model::SCOPE_ONLY))?;
         Self::notify(host, "settings.reset-done")
     }
 }
