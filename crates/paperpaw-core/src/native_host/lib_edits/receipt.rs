@@ -34,7 +34,7 @@ pub(super) fn write(
         .try_reserve_exact(HEADER + rows.len() * ROW)
         .map_err(|_| ERR_NO_MEMORY)?;
     bytes.extend_from_slice(&owner.to_le_bytes());
-    bytes.extend_from_slice(&host.now_ms().to_le_bytes());
+    bytes.extend_from_slice(&host.clock_ms().to_le_bytes());
     bytes.extend_from_slice(&generation.to_le_bytes());
     bytes.extend_from_slice(&edits.to_le_bytes());
     for (id, action) in rows {
@@ -63,7 +63,7 @@ struct Header {
 
 fn header(host: &LibEdits, file: &str) -> Option<Header> {
     let mut bytes = [0_u8; HEADER];
-    let read = host.stage.storage().read_at(file, 0, &mut bytes).ok()?;
+    let read = stage::read_full(host.stage.storage(), file, 0, &mut bytes).ok()?;
     if read < HEADER {
         return None;
     }
@@ -81,7 +81,7 @@ fn header(host: &LibEdits, file: &str) -> Option<Header> {
 
 /// Whether the receipt made at `committed` is out of time.
 fn expired(host: &LibEdits, committed: u64) -> bool {
-    let now = host.now_ms();
+    let now = host.clock_ms();
     now != 0 && now.saturating_sub(committed) > LIFE_MS
 }
 
@@ -112,11 +112,7 @@ pub(super) fn read(
     let mut row = [0_u8; ROW];
     while next < head.edits {
         let at = (HEADER + next as usize * ROW) as u64;
-        let read = host
-            .stage
-            .storage()
-            .read_at(&file, at, &mut row)
-            .map_err(stage::status)?;
+        let read = stage::read_full(host.stage.storage(), &file, at, &mut row)?;
         if read < ROW {
             return Err(ERR_INVALID);
         }

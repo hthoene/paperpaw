@@ -259,11 +259,12 @@ fn with_edit<R>(
 ) -> Result<R, i32> {
     let file = stage::path(request.transaction, "stage")?;
     let mut chunk = stage::buffer(stage::RECORD_MAX)?;
-    let read = host
-        .stage
-        .storage()
-        .read_at(&file, u64::from(item.offset), &mut chunk)
-        .map_err(stage::status)?;
+    let read = stage::read_full(
+        host.stage.storage(),
+        &file,
+        u64::from(item.offset),
+        &mut chunk,
+    )?;
     let (raw, _) = wire::RawRecord::prefix(&chunk[..read]).map_err(|_| ERR_INVALID)?;
     visit(&crate::native_host::codec::decode(raw)?)
 }
@@ -320,9 +321,7 @@ impl Merge<'_> {
         let file = stage::path(self.transaction, "stage")?;
         let chunk = self.record.as_mut().ok_or(ERR_NO_MEMORY)?;
         let storage = self.host.stage.storage();
-        let read = storage
-            .read_at(&file, u64::from(item.offset), chunk)
-            .map_err(stage::status)?;
+        let read = stage::read_full(storage, &file, u64::from(item.offset), chunk)?;
         let (raw, used) = wire::RawRecord::prefix(&chunk[..read]).map_err(|_| ERR_INVALID)?;
         let edit: wire::ServiceLibEdit<'_> = crate::native_host::codec::decode(raw)?;
         // The texts that arrived in parts: up to a line, never more.
@@ -333,9 +332,7 @@ impl Merge<'_> {
             let mut edits_after = 0;
             let mut part_chunk = stage::buffer(stage::RECORD_MAX)?;
             while at < size && edits_after < 3 {
-                let read = storage
-                    .read_at(&file, at, &mut part_chunk)
-                    .map_err(stage::status)?;
+                let read = stage::read_full(storage, &file, at, &mut part_chunk)?;
                 let (raw, used) =
                     wire::RawRecord::prefix(&part_chunk[..read]).map_err(|_| ERR_INVALID)?;
                 if raw.tag() == <wire::ServiceLibEdit<'_> as wire::WireRecord<'_>>::TAG {

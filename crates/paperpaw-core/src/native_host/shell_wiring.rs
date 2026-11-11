@@ -503,7 +503,15 @@ impl HostResources {
             // job carries is in use for `provide`.
             // (Also the job an earlier wiring's `files` made.)
             let moves = library_moves.or_else(|| hosts.library_moves().cloned());
-            hosts.wire_library(Rc::new(LibraryHost::new(storage, env, moves)))?;
+            let mut library = LibraryHost::new(storage, env, moves);
+            if let Some(inputs) = &wiring.work {
+                // An idle transaction runs out by the device's clock.
+                library = library.with_clock(inputs.device());
+            }
+            if wiring.ui == Some(true) || wiring.work.as_ref().is_some_and(WorkInputs::small) {
+                library = library.small();
+            }
+            hosts.wire_library(Rc::new(library))?;
         }
         if let Some(x4) = wiring.ui {
             let limits = if x4 { Limits::X4 } else { Limits::ELSEWHERE };

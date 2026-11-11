@@ -42,6 +42,27 @@ pub(super) fn path(transaction: u32, extension: &str) -> Result<String, i32> {
     Ok(name)
 }
 
+/// Reads from `at` until `buf` is full or the file ends: the card may answer
+/// a read short in the middle of a file.
+pub(super) fn read_full(
+    storage: &dyn Storage,
+    file: &str,
+    at: u64,
+    buf: &mut [u8],
+) -> Result<usize, i32> {
+    let mut done = 0;
+    while done < buf.len() {
+        let n = storage
+            .read_at(file, at + done as u64, &mut buf[done..])
+            .map_err(status)?;
+        if n == 0 {
+            break;
+        }
+        done += n;
+    }
+    Ok(done)
+}
+
 /// A buffer of `len` zero bytes, reserved fallibly.
 pub(super) fn buffer(len: usize) -> Result<Vec<u8>, i32> {
     let mut bytes = Vec::new();
@@ -135,10 +156,7 @@ impl Stage {
         let mut chunk = buffer(RECORD_MAX)?;
         let mut at = 0_u64;
         while at < size {
-            let read = self
-                .storage
-                .read_at(&file, at, &mut chunk)
-                .map_err(status)?;
+            let read = read_full(&*self.storage, &file, at, &mut chunk)?;
             let (raw, used) = RawRecord::prefix(&chunk[..read]).map_err(|_| ERR_INVALID)?;
             let item = if raw.tag() == wire::ServiceLibEdit::TAG {
                 Staged::Edit(codec::decode(raw)?)

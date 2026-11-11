@@ -20,10 +20,12 @@ use super::lib_reads::CatalogEnv;
 use super::lib_service::{BookId, CommitRequest, Committed, StageItem, Transactions};
 use crate::native_host::registrations::Record;
 use alloc::{rc::Rc, string::String, vec::Vec};
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::ERR_NO_MEMORY;
 use paperpaw_platform::Storage;
+
+use super::shell_wiring::WorkDevice;
 
 mod commit;
 mod receipt;
@@ -33,10 +35,19 @@ mod stage;
 /// lives for 10 minutes at most and the device holds two.
 const PATHS: usize = 4;
 
+/// What one call of the transaction service adds to the logical clock where
+/// the host has none: the 10 minutes of idle time are 60 calls.
+const TICK_MS: u64 = 10_000;
+
 pub(crate) struct LibEdits {
     stage: stage::Stage,
     transactions: Option<Transactions>,
     env: Rc<dyn CatalogEnv>,
+    /// The device's monotonic clock where the shell wired `core.work`: the
+    /// clock of the idle time and of the receipts' life.
+    clock: Option<Rc<dyn WorkDevice>>,
+    /// The logical clock of a host that has none ([`TICK_MS`] per call).
+    ticks: Cell<u64>,
     /// The books transactions were begun on, by [`BookId`]: the commit
     /// names the book by its key, the change event by its path.
     paths: RefCell<Vec<(u64, String)>>,
@@ -52,16 +63,50 @@ impl LibEdits {
             stage,
             transactions: Transactions::try_new().ok(),
             env,
+            clock: None,
+            ticks: Cell::new(0),
             paths: RefCell::new(Vec::new()),
         }
+    }
+
+    /// The X4's smaller transactions: a commit's memory grows with its edits.
+    pub(crate) fn small(self) -> Self {
+        if let Some(transactions) = &self.transactions {
+            transactions.limit_to_x4();
+        }
+        self
+    }
+
+    /// Reads time from the device's monotonic clock instead of the catalog's.
+    pub(crate) fn with_clock(mut self, clock: Rc<dyn WorkDevice>) -> Self {
+        self.clock = Some(clock);
+        self
     }
 
     pub(crate) fn transactions(&self) -> Option<&Transactions> {
         self.transactions.as_ref()
     }
 
+    /// The clock of the receipts: the device's, else the catalog's; 0 where
+    /// the host has none (a receipt then ends at the next begin or the stop).
+    pub(crate) fn clock_ms(&self) -> u64 {
+        self.clock
+            .as_ref()
+            .map_or_else(|| self.env.now_ms(), |clock| clock.now_ms())
+    }
+
+    /// The clock of the transactions' idle time. Where the host has no clock
+    /// (0) every call of the transaction service counts [`TICK_MS`]: an
+    /// abandoned transaction still ends, after 60 calls by anyone, instead of
+    /// holding its slot for good.
     pub(crate) fn now_ms(&self) -> u64 {
-        self.env.now_ms()
+        let real = self.clock_ms();
+        if real != 0 {
+            return real;
+        }
+        let ticks = self.ticks.get().saturating_add(TICK_MS);
+        self.ticks.set(ticks);
+        ticks
     }
 
     /// The identity of the book at `path` for as long as a transaction on it

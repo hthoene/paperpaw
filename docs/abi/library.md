@@ -365,11 +365,13 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
 - [D] **Sizes of one edit:** an XPointer at most 1,024 bytes (as `doc_xpointer`), a note at most
   3 KiB (interface 6), a highlighted text bounded only by the transaction's cap (interface 6 caps
   it by the annotation file alone); each part of `edit_text` at most 3,072
-  bytes, joined in order. A transaction's staged bytes are capped as a whole (below), so no count
-  of edits or parts is capped by itself.
+  bytes, joined in order. A transaction's staged bytes are capped as a whole (below), and its edits are
+  too: 1,024, and 128 on the X4 (`ERR_NO_SPACE` at the `edit_add` that passes it), because a commit
+  holds a 40-byte row per edit while it merges (40 KiB at 1,024, 5 KiB on the X4; besides a 5 KiB record buffer and the text of one row, at most a line of 8 KiB; unmeasured on the device, #250).
 - [D] Transaction limits and lifetime: one open transaction per plugin and two device-wide
   (`ERR_FULL`); it lives across callbacks until commit, abort or 10 minutes without a call (then
-  aborted, logged) or the plugin stops; staged edits are kept in a host temp file on the card, not
+  aborted, logged; a host with no clock counts 10 s for every call of the transaction ops by anyone,
+  so 60 calls) or the plugin stops; staged edits are kept in a host temp file on the card, not
   in memory (at most the annotation file's 1 MiB cap, `annotations.rs:45`, `ERR_NO_SPACE` beyond). A
   power cut aborts every open transaction (the temp file is removed at start); the book's
   annotations stay as they were. Notes keep interface 6's 3 KiB cap per note.

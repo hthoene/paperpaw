@@ -265,7 +265,6 @@ impl LibQuery for CatalogReads {
 }
 
 impl CatalogReads {
-    /// Calls `f` with the root-1 path of the book, which is in the catalog.
     /// The book's root-1 path, for the host's own bookkeeping.
     pub(crate) fn path_of<R>(
         &self,
@@ -275,6 +274,7 @@ impl CatalogReads {
         self.with_path(book, f)
     }
 
+    /// Calls `f` with the root-1 path of the book, which is in the catalog.
     fn with_path<R>(
         &self,
         book: BookRef<'_>,

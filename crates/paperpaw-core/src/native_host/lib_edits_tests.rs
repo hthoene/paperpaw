@@ -521,3 +521,103 @@ fn a_book_the_move_job_holds_cannot_begin_a_transaction() {
         Err(ERR_NOT_FOUND)
     );
 }
+
+/// A card that answers a read with at most 7 bytes, as FAT may in the middle
+/// of a file.
+struct Short(Rc<paperpaw_sdk::MemoryStorage>);
+
+impl Storage for Short {
+    fn read_at(
+        &self,
+        path: &str,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> Result<usize, paperpaw_platform::StorageError> {
+        let end = buf.len().min(7);
+        self.0.read_at(path, offset, &mut buf[..end])
+    }
+    fn size(&self, path: &str) -> Result<u64, paperpaw_platform::StorageError> {
+        self.0.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.append(path, data)
+    }
+    fn list(
+        &self,
+        dir: &str,
+        visit: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+    ) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.remove(path)
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), paperpaw_platform::StorageError> {
+        self.0.rename(from, to)
+    }
+}
+
+#[test]
+fn a_card_that_answers_reads_short_does_not_fail_a_commit_or_its_receipt() {
+    let card = card();
+    let clock = Rc::new(Clocked {
+        inner: card.env.clone(),
+        now: Cell::new(1_000),
+    });
+    let host = LibraryHost::new(Rc::new(Short(card.storage.clone())), clock.clone(), None);
+    let t = Fixture {
+        card,
+        clock,
+        host,
+        next: Cell::new(1),
+    };
+    let mut keyed = edit(3);
+    keyed.client_key = "kr-1";
+    keyed.start_offset = 30;
+    keyed.end_offset = 40;
+    keyed.text = "a note of a good length to cross a few short reads";
+    let (committed, transaction) = t.transact(1, &[edit(0), keyed], &[]).unwrap();
+    assert_eq!((committed.edits, committed.added), (2, 2));
+    assert_eq!(t.receipt(transaction, 0).unwrap().0, [(0, 1, 0), (1, 2, 0)]);
+    assert_eq!(t.annotations().len(), 2);
+}
+
+#[test]
+fn the_devices_monotonic_clock_is_the_one_of_the_transactions_when_the_shell_has_one() {
+    struct Device(Cell<u64>);
+    impl crate::native_host::shell_wiring::WorkDevice for Device {
+        fn now_ms(&self) -> u64 {
+            self.0.get()
+        }
+        fn network_up(&self) -> bool {
+            false
+        }
+        fn radio_on(&self) -> bool {
+            false
+        }
+    }
+    let card = card();
+    let device = Rc::new(Device(Cell::new(5_000)));
+    // The catalog's own clock is 0 (none): the device's is the one.
+    let host =
+        LibraryHost::new(card.storage.clone(), card.env.clone(), None).with_clock(device.clone());
+    assert_eq!(host.now_ms(), 5_000);
+    device.0.set(7_000);
+    assert_eq!(host.now_ms(), 7_000);
+}
+
+#[test]
+fn a_host_without_a_clock_ends_an_idle_transaction_after_60_calls() {
+    let card = card();
+    let host = LibraryHost::new(card.storage.clone(), card.env.clone(), None);
+    let first = host.now_ms();
+    let mut last = first;
+    for _ in 0..60 {
+        last = host.now_ms();
+    }
+    // The idle time of the transactions is 10 minutes.
+    assert!(last - first >= 600_000, "{first} {last}");
+}

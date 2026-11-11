@@ -424,7 +424,8 @@ pub fn rewrite(
     storage.remove(tmp)?;
     let made = merge(storage, file, tmp, (info, adds), edits);
     let done = made.and_then(|generation| {
-        storage.sync().ok();
+        // Before the rename: a name must not point at data still kept back.
+        storage.sync()?;
         storage.rename(tmp, file)?;
         Ok(generation)
     });

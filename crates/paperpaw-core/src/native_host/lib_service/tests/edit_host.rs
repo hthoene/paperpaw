@@ -8,7 +8,7 @@ use crate::native_host::registrations::{
     ServiceLibEdit as Edit, ServiceLibEditHead as Head, ServiceLibEditText as EditText,
     ServiceLibReceiptAsk as ReceiptAsk, ServiceLibRef as Ref, ServiceLibTransactionRef as TRef,
 };
-use paperpaw_native::host_glue::ERR_NOT_FOUND;
+use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_NOT_FOUND};
 
 fn book() -> Record<'static> {
     Record::ServiceLibRef(Ref {
@@ -123,4 +123,28 @@ fn a_plugin_runs_a_transaction_on_the_card_and_reads_its_receipt() {
     // The transaction is open on the book: it cannot be deleted meanwhile
     // (the service's own check), and an abort drops what it staged.
     call(&host, 21, &[tref(second)]).unwrap();
+}
+
+#[test]
+fn the_x4_holds_a_transaction_to_128_edits_and_elsewhere_it_is_1024() {
+    for (small, cap) in [(true, 128_u32), (false, 1024)] {
+        let card = card();
+        let library = LibraryHost::new(card.storage.clone(), card.env.clone(), None);
+        let host: Rc<dyn LibHost> = Rc::new(if small { library.small() } else { library });
+        let t = begin(&host, 1);
+        // Every edit is a call of its own; the one after the cap is refused.
+        for _ in 0..cap {
+            let mut one = edit();
+            one.text_bytes = 0;
+            one.text = "x";
+            call(&host, 18, &[tref(t), Record::ServiceLibEdit(one)]).unwrap();
+        }
+        let mut one = edit();
+        one.text_bytes = 0;
+        one.text = "x";
+        assert_eq!(
+            call(&host, 18, &[tref(t), Record::ServiceLibEdit(one)]),
+            Err(ERR_NO_SPACE)
+        );
+    }
 }

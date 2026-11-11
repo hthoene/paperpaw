@@ -31,6 +31,8 @@ pub(crate) const STAGED_CAP: u32 = 1 << 20;
 /// Edits one transaction may stage: every edit costs its record, so the count
 /// is bounded besides the bytes.
 const EDITS_CAP: u32 = 1024;
+/// The same on the X4: a commit holds a row per edit while it merges.
+const EDITS_CAP_X4: u32 = 128;
 /// A note's cap (interface 6).
 const NOTE_CAP: u32 = 3 * 1024;
 /// An XPointer's cap (`doc_xpointer`).
@@ -117,6 +119,8 @@ struct Transaction {
 #[derive(Debug)]
 pub(crate) struct Transactions {
     next_id: Cell<u32>,
+    /// Edits one transaction may stage (`EDITS_CAP`, less on the X4).
+    edits_cap: Cell<u32>,
     rows: RefCell<Vec<Transaction>>,
 }
 
@@ -128,8 +132,14 @@ impl Transactions {
         rows.try_reserve_exact(DEVICE).map_err(|_| ERR_NO_MEMORY)?;
         Ok(Self {
             next_id: Cell::new(1),
+            edits_cap: Cell::new(EDITS_CAP),
             rows: RefCell::new(rows),
         })
+    }
+
+    /// The X4's cap on the edits of one transaction.
+    pub(crate) fn limit_to_x4(&self) {
+        self.edits_cap.set(EDITS_CAP_X4);
     }
 
     fn rows(&self) -> Result<core::cell::RefMut<'_, Vec<Transaction>>, i32> {
@@ -458,7 +468,7 @@ fn add(
         transaction
             .edits
             .checked_add(calls)
-            .is_some_and(|sum| sum <= EDITS_CAP),
+            .is_some_and(|sum| sum <= table.edits_cap.get()),
     )
     .map_err(|_| ERR_NO_SPACE)?;
     let mut planned = [(0_u32, None); EDITS_PER_CALL];

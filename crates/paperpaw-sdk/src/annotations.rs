@@ -45,7 +45,9 @@ const MAX_TEXT: usize = 240;
 const MAX_NOTE: usize = 3 * 1024;
 /// Longest annotations file changed.
 const MAX_FILE: u64 = 1 << 20;
-/// The version of the file with conversions and XPointers.
+/// The version of the file with conversions and XPointers, the newest this
+/// module starts a file with; one of [`FILE_VERSION`] (ids and client keys,
+/// written by [`write`](self::write)) is read and kept by it as it is.
 const VERSION: u32 = 2;
 /// How the line saying which book the file is of begins.
 const BOOK: &str = "# book ";
@@ -141,6 +143,15 @@ struct Anchor {
     end: String,
 }
 
+/// The id and client key of a row of a file of version 3 (`id` 0 and an empty
+/// key: a row that has none yet, as every row of an older file); a change
+/// here keeps them.
+#[derive(Debug, Clone, Default)]
+struct Ident {
+    id: u32,
+    key: String,
+}
+
 /// What an annotation is told by: its kind and place.
 type Key = (Kind, Locator, Locator);
 
@@ -203,12 +214,17 @@ fn each<T>(
     let read = files::for_each_line(storage, &file(book), &mut |line| {
         if core::mem::take(&mut first) && line.starts_with(crate::data::MARK) {
             version = crate::data::Format::version_of(line);
-            newer = !(1..=VERSION).contains(&version);
+            newer = !(1..=FILE_VERSION).contains(&version);
             return if newer {
                 ControlFlow::Break(())
             } else {
                 ControlFlow::Continue(())
             };
+        }
+        // The header lines of version 3 are no rows and are written anew.
+        let header = ["# next-id ", "# generation "];
+        if version >= FILE_VERSION && header.iter().any(|h| line.starts_with(h)) {
+            return ControlFlow::Continue(());
         }
         all.extend(parse(line, version));
         ControlFlow::Continue(())
@@ -237,8 +253,16 @@ fn letter(kind: Kind) -> Option<char> {
 /// The mark a line of a file of `version` describes, and the line's
 /// fields.
 fn fields(line: &str, version: u32) -> Option<(Mark, Vec<&str>)> {
-    let most = if version >= VERSION { 13 } else { 10 };
-    let fields: Vec<&str> = line.splitn(most, '\t').collect();
+    let fields: Vec<&str> = if version >= FILE_VERSION {
+        line.split('\t').collect()
+    } else {
+        line.splitn(if version >= VERSION { 13 } else { 10 }, '\t')
+            .collect()
+    };
+    // A row of version 3 has its 15 columns, the id and key among them.
+    if version >= FILE_VERSION && (fields.len() != 15 || ident(&fields).is_none()) {
+        return None;
+    }
     let kind = match *fields.first()? {
         "b" => Kind::Bookmark,
         "h" => Kind::Highlight,
@@ -260,12 +284,28 @@ fn fields(line: &str, version: u32) -> Option<(Mark, Vec<&str>)> {
     Some((mark, fields))
 }
 
+/// The id and key of a row of 15 fields (as [`is_row`] takes them: an id from
+/// 1 on, a key of at most [`KEY_MAX`] bytes); none for the other shapes.
+fn ident(fields: &[&str]) -> Option<Ident> {
+    let [.., id, key] = fields else {
+        return None;
+    };
+    if fields.len() != 15 {
+        return Some(Ident::default());
+    }
+    let id = id.parse::<u32>().ok().filter(|id| *id >= 1)?;
+    (key.len() <= KEY_MAX).then(|| Ident {
+        id,
+        key: (*key).to_string(),
+    })
+}
+
 /// Where the text is among a line's fields: before times were kept, it
 /// followed the progress; from version 2 on, the conversion and the
 /// XPointers come before it.
 fn text_field(fields: &[&str]) -> usize {
     match fields.len() {
-        13 => 11,
+        13 | 15 => 11,
         10 => 8,
         _ => 6,
     }
@@ -276,12 +316,12 @@ fn text_field(fields: &[&str]) -> usize {
 /// [`is_row`]. They stay until the writes slice replaces them with that one
 /// definition (todo: one rule, then ids on write cannot drift from the reads).
 fn parse(line: &str, version: u32) -> Option<Annotation> {
-    parse_anchored(line, version).map(|(a, _)| a)
+    parse_anchored(line, version).map(|(a, ..)| a)
 }
 
-/// The annotation a line describes, and where it was made; `None` for
-/// one added since (in the conversion of whoever added it).
-fn parse_anchored(line: &str, version: u32) -> Option<(Annotation, Option<Anchor>)> {
+/// The annotation a line describes, and where it was made (`None` for
+/// one added since, in the conversion of whoever added it), and its [`Ident`].
+fn parse_anchored(line: &str, version: u32) -> Option<(Annotation, Option<Anchor>, Ident)> {
     let (mark, fields) = fields(line, version)?;
     let number = |i: usize| fields.get(i)?.parse::<i64>().ok();
     let percent = number(5)?.clamp(0, 100) as u8;
@@ -315,14 +355,14 @@ fn parse_anchored(line: &str, version: u32) -> Option<(Annotation, Option<Anchor
         text: field(rest),
         note: field(rest + 1),
     };
-    Some((annotation, anchor))
+    Some((annotation, anchor, ident(&fields)?))
 }
 
 /// A line of the file as [`save`] keeps it: one it does not read, or
 /// where an annotation was made.
 enum Kept {
     Unread(String),
-    Anchor(Key, Anchor),
+    Anchor(Key, Option<Anchor>, Ident),
 }
 
 /// Keeps `annotations` as those of the book at `book`, sorted by
@@ -335,8 +375,9 @@ enum Kept {
 /// same place as before.
 pub fn save(storage: &dyn Storage, book: &str, annotations: &[Annotation]) -> Result<(), Error> {
     let kept = |line: &str, version| match parse_anchored(line, version) {
-        Some((a, Some(anchor))) => Some(Kept::Anchor(key(&a.mark), anchor)),
-        Some((_, None)) => None,
+        Some((a, Some(anchor), ident)) => Some(Kept::Anchor(key(&a.mark), Some(anchor), ident)),
+        // Without an id (before version 3) it has nothing to keep.
+        Some((a, None, ident)) => (ident.id != 0).then(|| Kept::Anchor(key(&a.mark), None, ident)),
         None => (!line.trim().is_empty()).then(|| Kept::Unread(line.to_string())),
     };
     let kept = each(storage, book, kept)?;
@@ -344,14 +385,17 @@ pub fn save(storage: &dyn Storage, book: &str, annotations: &[Annotation]) -> Re
     for line in kept {
         match line {
             Kept::Unread(line) => unread.push(line),
-            Kept::Anchor(key, anchor) => anchors.push((key, anchor)),
+            Kept::Anchor(key, anchor, ident) => anchors.push((key, anchor, ident)),
         }
     }
     let all = annotations
         .iter()
         .map(|a| {
-            let found = anchors.iter().position(|(k, _)| *k == key(&a.mark));
-            (a, found.map(|i| anchors.swap_remove(i).1))
+            let found = anchors.iter().position(|(k, ..)| *k == key(&a.mark));
+            match found.map(|i| anchors.remove(i)) {
+                Some((_, anchor, ident)) => (a, anchor, ident),
+                None => (a, None, Ident::default()),
+            }
         })
         .collect();
     write(storage, book, all, &unread, None)
@@ -364,11 +408,28 @@ pub fn save(storage: &dyn Storage, book: &str, annotations: &[Annotation]) -> Re
 fn write(
     storage: &dyn Storage,
     book: &str,
-    mut all: Vec<(&Annotation, Option<Anchor>)>,
+    mut all: Vec<(&Annotation, Option<Anchor>, Ident)>,
     unread: &[String],
     fingerprint: Option<&Fingerprint>,
 ) -> Result<(), Error> {
-    paperpaw_sort::sort_by_cached_key(&mut all, |(a, _)| (a.mark.start, a.mark.end));
+    paperpaw_sort::sort_by_cached_key(&mut all, |(a, ..)| (a.mark.start, a.mark.end));
+    let path = file(book);
+    // A file of version 3 stays one: its ids and keys are kept, new rows take
+    // ids from `# next-id` on, and the generation goes up.
+    let head = read::head_of(storage, &path)?;
+    let v3 = head.version >= FILE_VERSION;
+    let mut next_id = 0_u32;
+    if v3 {
+        next_id = next_id_of(storage, &path)?;
+        let highest = all.iter().map(|(.., ident)| ident.id).max();
+        next_id = next_id.max(highest.map_or(1, |id| id.saturating_add(1)));
+        for (a, _, ident) in &mut all {
+            if ident.id == 0 && letter(a.mark.kind).is_some() {
+                ident.id = next_id;
+                next_id = next_id.checked_add(1).ok_or(Error::Unreadable)?;
+            }
+        }
+    }
     // After the version, wherever it was (PaperPaw of before put it
     // last).
     let (books, unread): (Vec<&String>, Vec<&String>) =
@@ -379,17 +440,24 @@ fn write(
     // Only those of before: version 1, as they were.
     let anchored = all
         .iter()
-        .any(|(_, anchor)| anchor.as_ref().is_none_or(|x| x.conversion.is_some()));
+        .any(|(_, anchor, _)| anchor.as_ref().is_none_or(|x| x.conversion.is_some()));
     let mut out = String::new();
-    if anchored {
+    if v3 {
+        let generation = next_generation(head.generation);
+        out.push_str(&format!(
+            "{}{FILE_VERSION}\n# next-id {next_id}\n# generation {generation}\n",
+            crate::data::MARK
+        ));
+    } else if anchored {
         out.push_str(&format!("{}{VERSION}\n", crate::data::MARK));
     }
-    let none = all.is_empty() && unread.is_empty();
+    // A file of version 3 is never removed: its numbers must go on.
+    let none = all.is_empty() && unread.is_empty() && !v3;
     if let Some(line) = fingerprint.filter(|_| !none) {
         out.push_str(&line);
         out.push('\n');
     }
-    for (a, anchor) in all {
+    for (a, anchor, ident) in all {
         // A kind without a letter of its own is left out.
         let Some(kind) = letter(a.mark.kind) else {
             continue;
@@ -405,7 +473,7 @@ fn write(
             a.updated,
         ));
         match anchor {
-            Some(x) if anchored => match x.conversion {
+            Some(x) if anchored || v3 => match x.conversion {
                 Some(conversion) => {
                     out.push_str(&format!("{conversion:016x}\t{}\t{}\t", x.start, x.end));
                 }
@@ -414,23 +482,35 @@ fn write(
             None => out.push_str("\t\t\t"),
             Some(_) => {}
         }
-        out.push_str(&format!(
-            "{}\t{}\n",
-            one_line(&a.text),
-            stored_note(&a.note)
-        ));
+        out.push_str(&format!("{}\t{}", one_line(&a.text), stored_note(&a.note)));
+        if v3 {
+            out.push_str(&format!("\t{}\t{}", ident.id, ident.key));
+        }
+        out.push('\n');
     }
     for line in unread {
         out.push_str(line);
         out.push('\n');
     }
-    let path = file(book);
     if none {
         storage.remove(&path)?;
     } else {
         storage.write(&path, out.as_bytes())?;
     }
     Ok(())
+}
+
+/// The `# next-id` the file `path` says (0 where it says none; the last
+/// one counts, as [`write::try_info`] takes it).
+fn next_id_of(storage: &dyn Storage, path: &str) -> Result<u32, StorageError> {
+    let mut next = 0;
+    files::for_each_line(storage, path, &mut |line| {
+        if let Some(n) = line.strip_prefix("# next-id ") {
+            next = n.trim().parse().unwrap_or(0);
+        }
+        ControlFlow::Continue(())
+    })?;
+    Ok(next)
 }
 
 /// `text` on one line, at most 240 bytes (with the `…` that ends a cut
@@ -570,7 +650,7 @@ pub fn relocate(
     let elsewhere =
         |x: &Anchor| x.conversion.is_some_and(|c| c != conversion) && !x.start.is_empty();
     let due = |line: &str, version| {
-        let (_, anchor) = parse_anchored(line, version)?;
+        let (_, anchor, _) = parse_anchored(line, version)?;
         anchor.as_ref().is_none_or(elsewhere).then_some(())
     };
     if each(storage, book, due)?.is_empty() {
@@ -588,7 +668,7 @@ pub fn relocate(
         }
     }
     let mut changed = false;
-    for (a, anchor) in &mut all {
+    for (a, anchor, _) in &mut all {
         match anchor {
             Some(x) if !elsewhere(x) => {}
             Some(x) => {
@@ -607,7 +687,10 @@ pub fn relocate(
     if !changed {
         return Ok(false);
     }
-    let all = all.iter_mut().map(|(a, x)| (&*a, x.take())).collect();
+    let all = all
+        .iter_mut()
+        .map(|(a, x, id)| (&*a, x.take(), core::mem::take(id)))
+        .collect();
     if write(storage, book, all, &unread, None).is_ok() {
         Ok(true)
     } else {
@@ -696,7 +779,10 @@ pub fn stamp(
     if all.is_empty() && unread.iter().all(|line| line.starts_with(BOOK)) {
         return Ok(false);
     }
-    let all = all.iter_mut().map(|(a, x)| (&*a, x.take())).collect();
+    let all = all
+        .iter_mut()
+        .map(|(a, x, id)| (&*a, x.take(), core::mem::take(id)))
+        .collect();
     if write(storage, book, all, &unread, Some(fingerprint)).is_ok() {
         Ok(true)
     } else {
@@ -725,6 +811,7 @@ mod tests {
     use super::*;
     use crate::MemoryStorage;
     use crate::memory_storage::Unreadable;
+    use alloc::vec;
 
     fn highlight(start: u32, end: u32, text: &str) -> Annotation {
         Annotation {
@@ -788,7 +875,7 @@ mod tests {
         assert!(set_note(&storage, book, Locator::new(1, 10), "x", 0).is_err());
         assert_eq!(storage.0.get(&file(book)), Some(before));
         // Written by a newer PaperPaw: left as it is.
-        let newer = MemoryStorage::new().with(&file(book), "# format 3\nh\t1\t2\t1\t3\t0\tx\t");
+        let newer = MemoryStorage::new().with(&file(book), "# format 4\nh\t1\t2\t1\t3\t0\tx\t");
         assert!(add(&newer, book, highlight(1, 2, "x")).is_err());
         assert!(load(&newer, book).is_empty());
         assert_eq!(
@@ -912,5 +999,142 @@ mod tests {
             ("some text", "its note")
         );
         assert_eq!(a.mark.end, Locator::new(1, 20));
+    }
+
+    const BOOK_V3: &str = "books/v3.epub";
+    const TMP: &str = ".paperpaw/library/edits/v3.new";
+
+    /// The native writer's rows, all merged in at the end.
+    struct Put(Vec<write::Spec<'static>>);
+
+    impl write::Edits for Put {
+        fn keeps(&mut self, _: &write::Existing<'_>) -> Result<bool, Error> {
+            Ok(true)
+        }
+        fn next_new(
+            &mut self,
+            limit: Option<(Locator, Locator)>,
+            put: &mut dyn FnMut(&write::Spec<'_>) -> Result<(), Error>,
+        ) -> Result<bool, Error> {
+            if limit.is_some() || self.0.is_empty() {
+                return Ok(false);
+            }
+            put(&self.0.remove(0))?;
+            Ok(true)
+        }
+    }
+
+    /// A file of version 3 as the native writer makes it: ids 1, 2 and 5,
+    /// next-id 6, generation 3.
+    fn native() -> MemoryStorage {
+        let storage = MemoryStorage::new();
+        let at = |a, b| Locator::new(a, b);
+        let mut one = write::Spec::new(1, Kind::Highlight, at(1, 10), at(1, 20));
+        (one.text, one.note, one.key) = ("one", "n1", "k1");
+        (one.conversion, one.start_xpointer, one.end_xpointer) = (Some(0xab), "/a", "/b");
+        let mut two = write::Spec::new(2, Kind::Bookmark, at(2, 0), at(2, 0));
+        two.created = 7;
+        let mut five = write::Spec::new(5, Kind::Highlight, at(3, 0), at(3, 5));
+        (five.text, five.key) = ("five", "k5");
+        let info = write::try_info(&storage, &file(BOOK_V3)).unwrap();
+        let mut put = Put(vec![one, two, five]);
+        let rewrite = write::rewrite(&storage, &file(BOOK_V3), TMP, (&info, 5), &mut put);
+        assert_eq!(rewrite, Ok(3));
+        storage
+    }
+
+    /// Every row as the native reader sees it, and the file's numbers.
+    fn seen(storage: &MemoryStorage) -> (Vec<String>, (u32, u32, u32, u32)) {
+        let windows = Windows::new()
+            .text(Window::new(0, 64))
+            .note(Window::new(0, 64))
+            .key(Window::new(0, 65))
+            .xpointers(Window::new(0, 64), Window::new(0, 64));
+        let mut scratch = vec![0_u8; windows.scratch().unwrap()];
+        let mut rows = Vec::new();
+        try_rows(storage, BOOK_V3, &windows, &mut scratch, &mut |_, row| {
+            rows.push(format!("{row:?}"));
+            ControlFlow::Continue(())
+        })
+        .unwrap();
+        let info = write::try_info(storage, &file(BOOK_V3)).unwrap();
+        (
+            rows,
+            (info.version, info.generation, info.next_id, info.rows),
+        )
+    }
+
+    #[test]
+    fn a_file_of_version_3_loads_like_one_of_version_2() {
+        let storage = native();
+        let all = load(&storage, BOOK_V3);
+        let texts: Vec<&str> = all.iter().map(|a| a.text.as_str()).collect();
+        assert_eq!(texts, ["one", "", "five"]);
+        assert_eq!((all[0].note.as_str(), all[1].created), ("n1", 7));
+        let marks = marks(&storage, BOOK_V3);
+        assert_eq!(marks, all.iter().map(|a| a.mark).collect::<Vec<_>>());
+        assert!(load_for_update(&storage, BOOK_V3).is_ok());
+    }
+
+    #[test]
+    fn the_old_path_keeps_ids_keys_and_next_id_of_version_3_and_bumps_the_generation() {
+        let storage = native();
+        storage
+            .append(&file(BOOK_V3), b"x\tfrom a later build\n")
+            .unwrap();
+        let (rows, numbers) = seen(&storage);
+        assert_eq!(numbers, (3, 3, 6, 3));
+        // Saved as it was: only the generation changes.
+        save(&storage, BOOK_V3, &load(&storage, BOOK_V3)).unwrap();
+        assert_eq!(seen(&storage), (rows.clone(), (3, 4, 6, 3)));
+        // An added row takes the next id and has no key.
+        add(&storage, BOOK_V3, highlight(5, 6, "old")).unwrap();
+        let (added, numbers) = seen(&storage);
+        assert_eq!(numbers, (3, 5, 7, 4));
+        assert_eq!(added.len(), 4);
+        // In reading order: the new row (section 1, offset 5) is the first.
+        assert_eq!(
+            (added[1].as_str(), added[2].as_str()),
+            (&*rows[0], &*rows[1])
+        );
+        assert!(added[0].contains("id: 6") && added[0].contains("text: Part { text: \"old\""));
+        assert!(added[0].contains("key: Part { text: \"\", whole: 0 }"));
+        // A note changed on a row keeps its id and key.
+        assert!(set_note(&storage, BOOK_V3, Locator::new(1, 10), "n2", 9).unwrap());
+        let (changed, _) = seen(&storage);
+        assert!(
+            changed
+                .iter()
+                .any(|row| row.contains("id: 1,") && row.contains("k1") && row.contains("n2"))
+        );
+        // Removed rows are gone, and their ids are not given again.
+        assert!(remove(&storage, BOOK_V3, |m| m.start.section != 3).unwrap());
+        assert_eq!(seen(&storage).1, (3, 7, 7, 1));
+        add(&storage, BOOK_V3, highlight(1, 2, "again")).unwrap();
+        assert_eq!(seen(&storage).1, (3, 8, 8, 2));
+        // What it does not read stays, byte for byte.
+        let text = storage.get(&file(BOOK_V3)).unwrap();
+        assert!(
+            String::from_utf8(text)
+                .unwrap()
+                .contains("\nx\tfrom a later build\n")
+        );
+        // The last row removed leaves the numbers.
+        assert!(remove(&storage, BOOK_V3, |_| true).unwrap());
+        assert_eq!(seen(&storage), (vec![], (3, 9, 8, 0)));
+    }
+
+    #[test]
+    fn a_file_of_version_2_stays_one() {
+        let book = "books/v2.epub";
+        let v2 = "# format 2\nh\t1\t10\t1\t20\t5\t100\t200\t00000000000000ab\t/a\t/b\tone\tn\n";
+        let storage = MemoryStorage::new().with(&file(book), v2);
+        add(&storage, book, highlight(30, 40, "two")).unwrap();
+        let text = String::from_utf8(storage.get(&file(book)).unwrap()).unwrap();
+        assert!(text.starts_with(
+            "# format 2\nh\t1\t10\t1\t20\t5\t100\t200\t00000000000000ab\t/a\t/b\tone\tn\n"
+        ));
+        assert!(!text.contains("next-id") && !text.contains("generation"));
+        assert_eq!(load(&storage, book).len(), 2);
     }
 }
