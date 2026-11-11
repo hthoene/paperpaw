@@ -42,9 +42,13 @@ fn started(language: &str) -> Kernel {
     kernel
 }
 
-/// Without the native-linked feature the legacy plugins add their own: the
-/// same keys resolve there, so the test holds in both builds.
+/// Without the native-linked feature the legacy plugins added their own; with
+/// the interface-6 keyboard and settings removed the test needs native-linked.
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "re-enable at native activation (#228, todo 380): the interface-6 keyboard and settings, which added these texts without native-linked, are removed"
+)]
 fn the_texts_of_the_linked_plugins_resolve_in_english() {
     let kernel = started("en");
     let translator = kernel.translator();
@@ -56,6 +60,10 @@ fn the_texts_of_the_linked_plugins_resolve_in_english() {
 }
 
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "re-enable at native activation (#228, todo 380): the interface-6 keyboard and settings, which added these texts without native-linked, are removed"
+)]
 fn and_in_the_language_chosen_with_english_behind_it() {
     let kernel = started("de");
     let translator = kernel.translator();
