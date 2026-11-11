@@ -544,6 +544,34 @@ fn a_book_opened_while_the_reader_shows_one() {
     assert!(warnings.is_empty(), "{warnings:?}");
 }
 
+/// The page's bookmark toggled on and off again: added, then removed, each in
+/// its own committed transaction of the library (with the native reader, ops
+/// 15, 17, 18 and 20 on the host); the other page's bookmark stays.
+#[test]
+fn a_bookmark_toggled_twice_is_gone_and_the_others_stay() {
+    let card = Card::new(true);
+    let mut app = App::start(BUTTONS, &card);
+    app.now += 100;
+    let open = Params::new().with(paperpaw_sdk::builtin::params::PATH, ALICE);
+    let effects =
+        app.kernel
+            .open_slot(Instant(app.now), paperpaw_sdk::builtin::slots::READER, open);
+    app.settle(effects);
+    let bookmark = Id::new_static("reader.toggle-bookmark");
+    let marks = |card: &Card| paperpaw_sdk::annotations::load(card, ALICE).len();
+    app.kernel.render(&mut |_, _| {});
+    app.run(bookmark.clone());
+    app.run(actions::NEXT_PAGE);
+    app.kernel.render(&mut |_, _| {});
+    app.run(bookmark.clone());
+    assert_eq!(marks(&card), 2, "one on each page");
+    app.kernel.render(&mut |_, _| {});
+    app.run(bookmark);
+    assert_eq!(marks(&card), 1, "this page's is gone, the first page's stays");
+    let warnings = app.warnings();
+    assert!(warnings.is_empty(), "{warnings:?}");
+}
+
 /// Opens each row of the menu that `open` shows, one after the other,
 /// with the buttons (`buttons`) or by touch, and goes home after each:
 /// every entry leads somewhere, and nothing it opens panics or warns.
