@@ -141,12 +141,12 @@ pub const fn default_store() -> StorePlugins<'static> {
 /// The plugins the store offers as files too ([`STORE_PLUGINS`]) are in the
 /// list only with the feature `native-linked-store`; whether one registers is
 /// [`native_default_on`]. Not in the list yet, because their ports are not
-/// finished (each one's `PORTING-7.md` says what is open) or the interface-6
-/// reader still reads books through their interface-6 forms: the formats (epub
-/// family, docx, images, mobi), sleep, dictionary, store, fonts-browser,
-/// picture-home. Format TXT and XTC are linked with the reader
-/// (`native-linked-reading`): the native reader opens books through the
-/// formats the document service finds among the native plugins. Home, reader, news and vocabulary are linked since their
+/// finished (each one's `PORTING-7.md` says what is open): sleep, dictionary,
+/// store, fonts-browser, picture-home. Every format (txt, xtc, the epub family,
+/// and where the store's plugins are built in docx, images and mobi) is linked
+/// with the reader (`native-linked-reading`): the native reader opens books
+/// through the formats the document service finds among the native plugins.
+/// Home, reader, news and vocabulary are linked since their
 /// settings tables are kept in the program (`fixed_tables`): without them
 /// linking costs about 39 KiB of heap (Core's measurement on #1140).
 #[cfg(feature = "native-linked")]
@@ -160,6 +160,28 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("help", &paperpaw_plugin_help::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-reading")]
     ("home", &paperpaw_plugin_home::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-reading")]
+    ("format-cbz", &paperpaw_plugin_format_cbz::NATIVE_ENTRY),
+    #[cfg(all(feature = "native-linked-reading", feature = "store-plugins"))]
+    ("format-docx", &paperpaw_plugin_format_docx::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-reading")]
+    ("format-epub", &paperpaw_plugin_format_epub::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-reading")]
+    ("format-fb2", &paperpaw_plugin_format_fb2::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-reading")]
+    ("format-html", &paperpaw_plugin_format_html::NATIVE_ENTRY),
+    #[cfg(all(feature = "native-linked-reading", feature = "store-plugins"))]
+    (
+        "format-images",
+        &paperpaw_plugin_format_images::NATIVE_ENTRY,
+    ),
+    #[cfg(feature = "native-linked-reading")]
+    (
+        "format-markdown",
+        &paperpaw_plugin_format_markdown::NATIVE_ENTRY,
+    ),
+    #[cfg(all(feature = "native-linked-reading", feature = "store-plugins"))]
+    ("format-mobi", &paperpaw_plugin_format_mobi::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-reading")]
     ("format-txt", &paperpaw_plugin_format_txt::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-reading")]
@@ -507,13 +529,16 @@ pub fn install_with(
             .plugin(paperpaw_plugin_format_txt::TxtFormat)
             .plugin(paperpaw_plugin_format_xtc::XtcFormat);
     }
-    b = b
-        .plugin(paperpaw_epub_family::EpubFormat)
-        .plugin(paperpaw_epub_family::HtmlFormat)
-        .plugin(paperpaw_epub_family::Fb2Format)
-        .plugin(paperpaw_epub_family::MarkdownFormat)
-        .plugin(paperpaw_epub_family::CbzFormat)
-        .plugin(paperpaw_plugin_dictionary::DictionaryPlugin);
+    #[cfg(not(feature = "native-linked-reading"))]
+    {
+        b = b
+            .plugin(paperpaw_epub_family::EpubFormat)
+            .plugin(paperpaw_epub_family::HtmlFormat)
+            .plugin(paperpaw_epub_family::Fb2Format)
+            .plugin(paperpaw_epub_family::MarkdownFormat)
+            .plugin(paperpaw_epub_family::CbzFormat);
+    }
+    b = b.plugin(paperpaw_plugin_dictionary::DictionaryPlugin);
     // Reader and Home keep their order; they are native plugins, linked
     // (`NATIVE_PLUGINS`), where the feature says (`native-linked-reading`);
     // Menu where `native-linked` says.
@@ -535,7 +560,7 @@ pub fn install_with(
     {
         b = offered_replacing_home(b, store, paperpaw_plugin_picture_home::PictureHome);
     }
-    #[cfg(feature = "store-plugins")]
+    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-reading")))]
     {
         b = offered(b, store, paperpaw_plugin_format_mobi::MobiFormat);
         b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);

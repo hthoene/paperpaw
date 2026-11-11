@@ -457,7 +457,10 @@ impl DocHost for Cx<'_> {
         self.host.conversion_key(open, format, options)
     }
     fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32> {
-        self.host.call_format(call, out)
+        let r = self.host.call_format(call, out);
+        extern crate std;
+        std::eprintln!("DBG fmt op {} -> {:?}", call.op, r);
+        r
     }
     fn close_format(&self, document: &Document) {
         self.host.close_format(document);
@@ -585,6 +588,8 @@ pub(crate) fn backend(
             _ => Err(ERR_UNSUPPORTED),
         };
     });
+    extern crate std;
+    std::eprintln!("DBG doc op {} -> {:?}", op.id, result);
     result
 }
 
