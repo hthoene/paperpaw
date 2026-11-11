@@ -13,6 +13,7 @@ use crate::{
     native_source::{Dictionaries, Pending},
 };
 use alloc::vec::Vec;
+use paperpaw_sdk::Storage;
 use paperpaw_sdk::{
     Handled,
     native::{
@@ -208,7 +209,12 @@ impl NativeDictionary {
             .pending
             .iter()
             .filter(|p| p.cache == cache)
-            .map(|p| p.builder.progress().1.saturating_sub(p.builder.progress().0))
+            .map(|p| {
+                p.builder
+                    .progress()
+                    .1
+                    .saturating_sub(p.builder.progress().0)
+            })
             .sum();
         self.index.total = self.index.total.saturating_sub(rest);
         self.index.pending.retain(|p| p.cache != cache);
@@ -296,5 +302,22 @@ impl Plugin for NativeDictionary {
             Some(view) => view.input(host, &input),
             None => Ok(Handled::No),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_percent_of_the_indexes_is_what_is_read_of_what_there_is() {
+        let mut index = Index::default();
+        assert_eq!(index.percent(), 0, "nothing to read is not a division by zero");
+        (index.done, index.total) = (50, 200);
+        assert_eq!(index.percent(), 25);
+        index.done = 200;
+        assert_eq!(index.percent(), 100);
+        index.clear();
+        assert!(index.pending.is_empty());
     }
 }

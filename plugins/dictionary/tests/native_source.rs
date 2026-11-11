@@ -177,7 +177,10 @@ fn a_dictionary_that_failed_before_from_the_same_files_is_not_indexed_again() {
     // What the work keeps when the index is damaged: the files' sizes.
     let (cache, stamp) = (first[0].cache.clone(), first[0].stamp.clone());
     assert_eq!(cache, cache_of("dicts/en/small.ifo").unwrap());
-    assert!(stamp.chars().all(|c| c.is_ascii_digit() || c == ' '), "{stamp}");
+    assert!(
+        stamp.chars().all(|c| c.is_ascii_digit() || c == ' '),
+        "{stamp}"
+    );
     storage
         .write(&failed_file(&cache).unwrap(), stamp.as_bytes())
         .unwrap();

@@ -78,9 +78,9 @@ impl<'h, 'cb> Folders<'h, 'cb> {
             }
         }
         for name in gone {
-            let removed = self
-                .files
-                .remove_tree(self.host, Root::Data, &name, &mut input, &mut out);
+            let removed =
+                self.files
+                    .remove_tree(self.host, Root::Data, &name, &mut input, &mut out);
             if removed == Err(Error::NoMemory) {
                 return Err(Error::NoMemory);
             }
