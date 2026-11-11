@@ -184,7 +184,8 @@ impl NativeReader {
             (&mut self.screens, &mut self.resting),
             instance,
         )?;
-        let mut view = View::open(host, (docs, library), Handover::of_book(path, root)?)
+        let mut view = Handover::of_book(path, root)
+            .and_then(|found| View::open(host, (docs, library), found))
             .or_else(View::when_full)?;
         view.bind(instance.get());
         self.screens.open(instance, view)?;
