@@ -79,8 +79,9 @@ pub struct Style {
     /// mirror each part with [`Style::flip`] and [`Style::flip_x`].
     pub rtl: bool,
     /// Somebody asks what the screen shows (`canvas.describe`): the parts
-    /// told with [`crate::paint::describe`] are queued only then. True until a
-    /// draw callback has asked ([`crate::paint::asking`]).
+    /// told with [`crate::paint::describe`] are queued only then. False until a
+    /// draw callback has asked ([`crate::paint::asking`]): a screen that does
+    /// not ask queues nothing.
     pub describing: bool,
 }
 
@@ -166,7 +167,7 @@ impl Style {
             on_dark_muted: color("on-dark-muted", Color::gray(200)),
             strong,
             rtl: ui_language_is_rtl(host),
-            describing: true,
+            describing: false,
         })
     }
 

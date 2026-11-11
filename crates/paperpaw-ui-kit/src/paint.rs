@@ -303,11 +303,12 @@ pub fn replay_icons<'a>(
         match op {
             Paint::Describe { role, flags, rect } => {
                 if asked {
-                    // A part the host refuses (an empty area) is left out;
-                    // what is drawn does not depend on it.
-                    asked = canvas
-                        .describe_part(*role, "", frame_rect(*rect), *flags)
-                        .unwrap_or(true);
+                    // Only a refused area leaves the part out and goes on;
+                    // nobody asking, or a host that cannot be asked, ends it.
+                    asked = matches!(
+                        canvas.describe_part(*role, "", frame_rect(*rect), *flags),
+                        Ok(true) | Err(Error::Invalid)
+                    );
                 }
             }
             Paint::Fill(rect, color) => canvas.fill_rectangle(frame_rect(*rect), *color)?,

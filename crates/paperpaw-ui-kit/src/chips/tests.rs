@@ -303,12 +303,25 @@ fn the_mirror_image_of_the_left_to_right_layout() {
 }
 
 #[test]
+fn chips_tell_nothing_unless_somebody_asked() {
+    let style = style();
+    assert!(!style.describing);
+    let height = Chips::height(&style, 0);
+    let area = Rect::new(0, 0, 400, height);
+    let chips = Chips::from_widths(&style, 0, area, &[height * 2, height * 2]).unwrap();
+    let mut paint = Vec::new();
+    chips.frames(&mut paint, 0, Some(1)).unwrap();
+    assert!(paint.iter().all(|op| !matches!(op, Paint::Describe { .. })));
+}
+
+#[test]
 fn each_chip_tells_it_is_a_button_before_its_frame_where_somebody_asks() {
     let mut style = style();
     style.describing = true;
     let height = Chips::height(&style, 0);
     let area = Rect::new(0, 0, 400, height);
-    let chips = Chips::from_widths(&style, 0, area, &[height * 2, height * 2]).unwrap();
+    let mut chips = Chips::from_widths(&style, 0, area, &[height * 2, height * 2]).unwrap();
+    chips.set_describing(true);
     let mut paint = Vec::new();
     chips.frames(&mut paint, 0, Some(1)).unwrap();
     let told: Vec<_> = paint

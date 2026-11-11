@@ -287,6 +287,12 @@ impl Chips {
         }
     }
 
+    /// Sets whether the chips tell what they are (`canvas.describe`): from
+    /// [`paint::asking`] in the draw callback; off unless set.
+    pub fn set_describing(&mut self, describing: bool) {
+        self.describing = describing;
+    }
+
     /// The frames of the chips: the chosen one filled, the others on paper,
     /// each outlined, and a frame outside the one `focus` is on.
     ///

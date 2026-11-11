@@ -104,7 +104,8 @@ impl ItemList {
     ) -> Result<Rect, Error> {
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
-        let style = Style::read(host, &display, &font)?;
+        let mut style = Style::read(host, &display, &font)?;
+        style.describing = matches!(frame.purpose, DrawPurpose::Screen) && paint::asking(frame);
         let (width, height) = (display.display_width(), display.display_height());
         let mut heights = Vec::new();
         heights

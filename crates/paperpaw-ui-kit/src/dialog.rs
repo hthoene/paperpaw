@@ -408,6 +408,12 @@ impl Dialog {
         }
     }
 
+    /// Sets whether the dialog tells what it is (`canvas.describe`): from
+    /// [`paint::asking`] in the draw callback; off unless set.
+    pub fn set_describing(&mut self, describing: bool) {
+        self.describing = describing;
+    }
+
     /// Prepares its drawing, button `focus` focused.
     ///
     /// # Errors
@@ -559,7 +565,7 @@ mod tests {
             room: 800,
             stacked,
             rtl: false,
-            describing: true,
+            describing: false,
             small_text: false,
             title_size: 24.0,
             text_size: 16.0,

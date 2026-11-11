@@ -221,7 +221,8 @@ impl WindowList {
         }
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
-        let style = Style::read(host, &display, &font)?;
+        let mut style = Style::read(host, &display, &font)?;
+        style.describing = paint::asking(frame);
         let (width, height) = (display.display_width(), display.display_height());
         let top = style.header.saturating_add(style.gap);
         let area = Rect::new(0, top, width, height.saturating_sub(top));
