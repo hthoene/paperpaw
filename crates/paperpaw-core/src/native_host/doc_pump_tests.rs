@@ -244,6 +244,34 @@ fn the_cover_job_goes_on_by_timed_wakes_on_an_idle_device_and_holds_no_timer_off
 }
 
 #[test]
+fn a_cover_job_held_for_a_list_wakes_the_device_when_the_quiet_moment_is_over() {
+    world(|w| {
+        let log = Rc::new(Log::default());
+        let (mut kernel, opener) = kernel(w, &log);
+        let document = open(w, &kernel, opener, "books/a.epub");
+        assert!(w.state.table.start_cover_job(opener, document));
+        kernel.now = Instant(10_000);
+        w.state.now.set(10_000);
+        // The list was up a moment ago (the test kernel has no stack, so the
+        // pass finds it gone): the job waits for the quiet moment, and the
+        // device is woken at its end, not at some later tick.
+        w.state.cover_job_list(true);
+        kernel.native_cover_list();
+        assert!(!kernel.native_doc_pump());
+        assert!(log.calls.borrow().is_empty(), "held");
+        assert_eq!(kernel.shared.native_instances.doc_retry(), Some(12_000));
+        assert!(kernel.service_due().is_some_and(|at| at.millis() == 12_000));
+        // At the wake the job takes its step.
+        kernel.now = Instant(12_000);
+        w.state.now.set(12_000);
+        *log.reply.borrow_mut() = fmt_state(PREPARING, 100_000);
+        kernel.native_cover_list();
+        assert!(!kernel.native_doc_pump());
+        assert_eq!(log.calls.borrow().len(), 1, "resumed at once");
+    });
+}
+
+#[test]
 fn a_book_that_is_not_the_cover_job_is_stepped_at_once_again() {
     world(|w| {
         let log = Rc::new(Log::default());

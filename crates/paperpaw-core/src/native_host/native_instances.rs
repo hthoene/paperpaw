@@ -308,6 +308,13 @@ impl NativeInstances {
             .is_some_and(|directory| directory.with_id(key, visit).is_ok())
     }
 
+    /// Whether the enabled plugin `id` has a screen on the stack
+    /// ([`OwnerDirectory::plugin_has_screen`]).
+    pub(crate) fn plugin_has_screen(&self, id: &str) -> bool {
+        self.directory()
+            .is_some_and(|directory| directory.plugin_has_screen(id))
+    }
+
     /// How many owner-directory updates were skipped since the last call.
     pub(crate) fn take_directory_missed(&self) -> u32 {
         self.directory()

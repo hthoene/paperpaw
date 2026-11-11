@@ -131,8 +131,8 @@ struct Open {
     report_due: bool,
     /// The book's title as a report carries it.
     title: String,
-    /// The book's language (a BCP 47 tag), empty where the format names none:
-    /// the voice reading aloud speaks it.
+    /// The book's language (a BCP 47 tag), the UI language where the format
+    /// names none (`book_language`): the voice reading aloud speaks it.
     language: String,
     /// The words of the page on show the sentence read aloud underlines.
     mark: Option<Range<usize>>,
@@ -157,6 +157,9 @@ pub struct View {
     body: Body,
     /// Reading aloud, where the book is read aloud (`native_view/aloud.rs`).
     speaker: Speaker,
+    /// *Read aloud* was asked while the book was prepared: it starts once the
+    /// book is open and the reading screen is on top (`take_aloud_kept`).
+    aloud_kept: bool,
 }
 
 /// The hand-over's values, as far as the screen reads them.
@@ -271,6 +274,7 @@ impl View {
             Preparation::Preparing => Ok(Self {
                 body: Body::Preparing(book),
                 speaker: Speaker::new(0),
+                aloud_kept: false,
             }),
             _ => {
                 Self::forget(host, docs, id);
@@ -308,7 +312,7 @@ impl View {
                 meta.sections().max(1),
                 // The path stands for a title the format does not give.
                 text::copy(native_place::title_of(meta.title(), &found.path)),
-                text::copy(meta.language()),
+                book_language(host, meta.language()),
             ),
             Err(Error::NoMemory) => {
                 Self::forget(host, docs, id);
@@ -379,6 +383,7 @@ impl View {
         Ok(Self {
             body: Body::Open(open),
             speaker: Speaker::new(0),
+            aloud_kept: false,
         })
     }
 
@@ -417,10 +422,24 @@ impl View {
         )
     }
 
+    /// A screen that had no room to open its book says so in a few words, as
+    /// Beta 3 did (the callback then ends well and the screen is kept, so the
+    /// run goes on); other errors stay.
+    ///
+    /// # Errors
+    /// `error` itself, unless it is `NoMemory`.
+    pub fn when_full(error: Error) -> Result<Self, Error> {
+        match error {
+            Error::NoMemory => Ok(Self::message("reader.no-memory")),
+            other => Err(other),
+        }
+    }
+
     const fn message(key: &'static str) -> Self {
         Self {
             body: Body::Message(key),
             speaker: Speaker::new(0),
+            aloud_kept: false,
         }
     }
 
@@ -1322,6 +1341,21 @@ mod count;
 mod menu_bar;
 mod preparing;
 use preparing::Preparing;
+
+/// The language a book is read in: its own, or the UI language where the
+/// format names none (a text file), as in Beta 3, so the voice reading aloud
+/// is the reader's. Empty only where the UI language cannot be read either
+/// (the host's voice then).
+///
+/// # Errors
+/// `NoMemory`.
+fn book_language(host: &Host<'_>, declared: &str) -> Result<String, Error> {
+    if !declared.is_empty() {
+        return text::copy(declared);
+    }
+    let mut scratch = [0; 64];
+    text::copy(paperpaw_sdk::native::i18n::language(host, &mut scratch).unwrap_or(""))
+}
 mod r3;
 mod status;
 

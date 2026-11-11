@@ -14,8 +14,12 @@
 //! `doc_open` (the path and a few bytes). Nothing is kept between calls. The
 //! format call is the document service's own, through the caller's frame
 //! (a nested callback like the reader's own `doc_open`).
-use super::{Caller, Cx, DocHost, Frame, READY, Record, close, codec, op, open, read, wire};
+use super::{
+    Caller, Cx, DocHost, Frame, READY, Record, close, codec, op, open, read, table::BACKGROUND,
+    wire,
+};
 use crate::abi7::services_wire;
+use crate::native_host::doc_host::CoverAt;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE};
 
@@ -57,10 +61,14 @@ pub(crate) fn make(
     side: u32,
 ) -> Result<Made, i32> {
     let services = caller.hosts.documents().ok_or(ERR_STATE)?;
-    // The book the cover job is converting: nothing to open again.
-    if services.0.cover_job_path_is(path) {
-        return Ok(Made::Queued);
-    }
+    // The book the cover job is converting: nothing to open again. A cover
+    // the job has not made is not made here either: no picture is decoded in
+    // the asking list's frame (`doc_cover_make`).
+    let inline = match services.0.cover_at(path) {
+        CoverAt::Job | CoverAt::Wait => return Ok(Made::Queued),
+        CoverAt::Made => true,
+        CoverAt::Unmade => false,
+    };
     let mut scratch = bytes(SCRATCH)?;
     let mut result = Err(ERR_STATE);
     services.0.serve(frame, caller, &mut |bound| {
@@ -79,7 +87,7 @@ pub(crate) fn make(
                 .adopt_cover(caller.owner, image.image)?;
             Ok(wire::ServiceDocImage { image: id, ..image })
         };
-        result = covered(&host, path, side, &mut scratch, &adopt);
+        result = covered(&host, (path, inline), side, &mut scratch, &adopt);
     });
     result
 }
@@ -88,7 +96,7 @@ pub(crate) fn make(
 /// happened in between.
 fn covered(
     host: &dyn DocHost,
-    path: &str,
+    (path, inline): (&str, bool),
     side: u32,
     out: &mut [u8],
     adopt: &dyn Fn(wire::ServiceDocImage) -> Result<wire::ServiceDocImage, i32>,
@@ -100,7 +108,10 @@ fn covered(
             root: 1,
             path,
             format: "",
-            flags: 0,
+            // Not for showing: a format skips what only a shown book needs
+            // (contents, positions, page labels), and the open takes no
+            // place another opener's document needs (`document.md` 2.1).
+            flags: BACKGROUND,
             image_side: 0,
             cover_side: side,
             css_root: 0,
@@ -126,7 +137,7 @@ fn covered(
     let document = state.document;
     let ready = state.state == READY;
     let failed = state.state == super::table::FAILED;
-    let asked = if ready {
+    let asked = if ready && inline {
         // A picture whose id cannot be adopted is not handed out: the close
         // below ends it with the document.
         cover_of(host, document, out)
@@ -134,12 +145,23 @@ fn covered(
             .map(Made::Image)
     } else if failed {
         Err(ERR_NOT_FOUND)
+        // Below: preparing, or ready with a cover not made yet.
     } else if !host.cover_jobs_allowed() || host.table().reading_besides(document) {
         // The kernel is still starting (a crash of the format in a job there
         // would count as a failed start), or a book is open for reading (the
         // job takes no step then). Not now: the host raises the change when
         // jobs may begin, and the book is asked for again.
         host.cover_job_held_back();
+        Ok(Made::Queued)
+    } else if ready {
+        // Ready, its cover not made yet: the document stays open as the
+        // host's cover to make, beside any cover job (one the list holds back
+        // never keeps it waiting); the pump's next look asks the format for
+        // the cover and ends it (`doc_cover_make`). Where one waits already,
+        // this book is asked for again when that ends.
+        if host.table().start_cover_make(host.owner(), document) {
+            return Ok(Made::Queued);
+        }
         Ok(Made::Queued)
     } else {
         // Preparing: the document stays open as the cover job, which the

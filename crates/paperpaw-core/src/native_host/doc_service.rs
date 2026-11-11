@@ -263,9 +263,10 @@ pub(crate) trait DocHost {
     fn details_job(&self) -> Option<&dyn details::DetailsJob> {
         None
     }
-    /// Whether the cover job is the document of the book at `path`.
-    fn cover_job_path_is(&self, _path: &str) -> bool {
-        false
+    /// Where the cover of the book at `path` stands (`doc_cover_make`): a
+    /// host without the cover job answers every cover inline.
+    fn cover_at(&self, _path: &str) -> super::doc_host::CoverAt {
+        super::doc_host::CoverAt::Made
     }
     /// Whether the only document that prepares is the cover job: the pump's
     /// "more" then does not hold the device awake.
@@ -303,6 +304,16 @@ pub(crate) trait DocHost {
     /// what displaced it is done before it starts again from the beginning (a
     /// cache is whole or not used: nothing of the job's work is kept).
     fn cover_job_displaced(&self, _kind: JobKind) {}
+    /// A library list screen is up (`up`) or is not: the cover job takes no
+    /// *preparing* step (a conversion) while one is up and for a quiet moment
+    /// after it closes, so that no conversion peaks beside the list's
+    /// buffers. A job whose book is ready is not held (its cover is made). The time held does not
+    /// count toward the job's awake time. Said by the pump before it steps.
+    /// Answers when the quiet moment of a waiting job ends (kernel clock, ms),
+    /// if that is what holds it: the pump wakes then.
+    fn cover_job_list(&self, _up: bool) -> Option<u64> {
+        None
+    }
     /// The key of a book whose job was displaced too often in a row (0: none):
     /// the library counts it as failed (no cover until the next start).
     fn cover_job_given_up(&self) -> u64 {
@@ -644,6 +655,9 @@ impl DocHost for Cx<'_> {
     }
     fn details_job(&self) -> Option<&dyn details::DetailsJob> {
         self.host.details_job()
+    }
+    fn cover_at(&self, path: &str) -> super::doc_host::CoverAt {
+        self.host.cover_at(path)
     }
     fn cover_jobs_allowed(&self) -> bool {
         self.host.cover_jobs_allowed()
