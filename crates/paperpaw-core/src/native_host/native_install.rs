@@ -1085,6 +1085,8 @@ impl crate::Kernel {
     /// registry's, which is set before the first plugin and never replaced.
     fn shared_flat_host(&mut self) -> Result<super::shared::Shared<super::FlatHost>, shell::Error> {
         if self.shared.native_instances.flat_host.is_none() {
+            // `admit_native_with` makes the directory before the first plugin.
+            debug_assert!(self.shared.registry.native_declarations.is_some());
             let mut host = self.flat_host();
             host.directory = self
                 .shared
