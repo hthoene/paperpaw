@@ -448,6 +448,18 @@ impl LibQuery for Host {
     ) -> Result<RowsEnd, i32> {
         self.0.query(query, archive, visit)
     }
+    fn next_in_series(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
+        self.0.next_in_series(book, visit)
+    }
+    fn fields(
+        &self,
+        book: BookRef<'_>,
+        cursor: u32,
+        generation: u32,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        self.0.fields(book, cursor, generation, visit)
+    }
     fn state(&self, visit: One<'_>) -> Result<(), i32> {
         self.0.state(visit)
     }

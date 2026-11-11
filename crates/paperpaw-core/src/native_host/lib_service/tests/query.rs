@@ -650,11 +650,13 @@ fn a_text_answer_follows_the_offset_and_cut_rules() {
 }
 
 #[test]
-fn next_in_series_is_another_book() {
+fn next_in_series_is_the_lowest_unread_book_which_may_be_the_given_one() {
     let fake = Fake::new();
     fake.say(&[Record::ServiceLibEntry(entry(8))]);
+    // Another book of the series ...
     assert!(ask(&fake, 6, &[key_ref(4, 5)]).is_ok());
-    assert_eq!(ask(&fake, 6, &[key_ref(8, 5)]), Err(ERR_INVALID));
+    // ... or the given book itself, when it is the lowest unread one.
+    assert!(ask(&fake, 6, &[key_ref(8, 5)]).is_ok());
     fake.say(&[Record::ServiceLibEntry(Entry {
         progress: 200,
         ..entry(8)

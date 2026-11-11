@@ -278,11 +278,9 @@ fn book_alone(
             out,
             |visit| host.next_in_series(book, visit),
             |record| match record {
-                // The next book is another one.
-                Record::ServiceLibEntry(row) => {
-                    check::entry(row)?;
-                    require(!matches!(book, BookRef::Key { key, .. } if key == row.key))
-                }
+                // The series' lowest unread book: the given one when it is that
+                // one (library.md 2.1), so no check against the asked key.
+                Record::ServiceLibEntry(row) => check::entry(row),
                 _ => Err(ERR_INVALID),
             },
         ),
