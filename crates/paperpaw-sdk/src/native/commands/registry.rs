@@ -201,10 +201,19 @@ impl CommandSender<'_, '_> {
         self.submit(wire::Command::PreviewEnd { flags: 0 })
     }
 
-    /// Use a root-1 book scope while this screen is open. None ends the scope.
+    /// Keep a book's own settings while this screen is open (`registry.md`
+    /// 4.1): the book's root-1 `path`, or `None` to end it. The settings
+    /// declared [`scoped`](crate::native::declare::SpecDecl::scoped) then read
+    /// the book's value where it has one ("Only this book" in the settings
+    /// editor) and the global value otherwise, and the editor writes there. The
+    /// host picks the file (in this plugin's data, by the book's key: where
+    /// Beta 3's reader kept it) and moves and removes it with the book. The
+    /// scope also ends when the screen closes or the plugin stops.
     ///
     /// # Errors
-    /// Returns encoding or host errors, including State unless this plugin owns the top screen.
+    /// Returns encoding or host errors: State unless this plugin owns the top
+    /// screen (and in a work run), Invalid for a path that names no book (absolute,
+    /// under `.paperpaw` or `plugins`, over 512 bytes).
     pub fn set_scope(&mut self, path: Option<&str>) -> Result<(), Error> {
         self.submit(wire::Command::SetScope {
             path: path.unwrap_or(""),

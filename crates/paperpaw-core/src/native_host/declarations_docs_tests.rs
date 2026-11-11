@@ -207,12 +207,24 @@ fn a_book_data_name_is_one_folder_name_of_lowercase_letters_digits_and_dashes() 
     let check = |name| book_data_check("notes-vault", &BookDataSpec { name, kind: 0 });
     let longest = "a".repeat(96);
     let too_long = "a".repeat(97);
-    for name in ["notes", "a", "0", "notes-2", "-", "--", longest.as_str()] {
+    for name in [
+        "notes",
+        "a",
+        "0",
+        "notes-2",
+        "-",
+        "--",
+        longest.as_str(),
+        "0123456789abcde",
+        "0123456789abcdef0",
+    ] {
         assert_eq!(check(name), Ok(()), "{name}");
     }
     for name in [
         "",
         too_long.as_str(),
+        // 16 hex digits: a book's scope folder `books/<key>/` (#257).
+        "0123456789abcdef",
         "Notes",
         "nOtes",
         "a/b",

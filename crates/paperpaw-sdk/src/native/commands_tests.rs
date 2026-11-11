@@ -474,6 +474,7 @@ fn registry_defaults_and_empty_customization_remain_distinct() {
     sender
         .set_plugin_enabled("dictionary", PluginEnabled::Off)
         .unwrap();
+    sender.set_scope(Some("books/a.epub")).unwrap();
     sender.set_scope(None).unwrap();
     sender.end_preview().unwrap();
     let expected = [
@@ -515,6 +516,9 @@ fn registry_defaults_and_empty_customization_remain_distinct() {
         wire::Command::SetPluginEnabled {
             plugin: "dictionary",
             enabled: 0,
+        },
+        wire::Command::SetScope {
+            path: "books/a.epub",
         },
         wire::Command::SetScope { path: "" },
         wire::Command::PreviewEnd { flags: 0 },
