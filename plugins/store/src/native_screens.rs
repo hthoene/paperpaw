@@ -22,6 +22,7 @@ use paperpaw_sdk::native::{
 
 use crate::native_index::Index;
 use crate::native_list::Page;
+use crate::native_page::Installed;
 
 /// Why the list is not there (what the loader says of it).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +45,21 @@ pub trait Loader {
     fn index(&self) -> Option<&Index>;
     /// The page of plugin `id`, when it was fetched.
     fn page(&self, id: &str) -> Option<&Page>;
+    /// How the page of plugin `id` stands (a screen that waits for it says so):
+    /// here, still coming (the default where it is not here), offline, or
+    /// failed (the library no longer offers it).
+    fn page_state(&self, id: &str) -> Trouble {
+        if self.page(id).is_some() {
+            Trouble::None
+        } else {
+            Trouble::Loading
+        }
+    }
+    /// Whether the device has little memory (the pictures of a page are then
+    /// kept small). Unknown reads as small.
+    fn small_memory(&self) -> bool {
+        true
+    }
 }
 
 /// How the install of a plugin stands (Port E's steps).
@@ -67,6 +83,36 @@ pub trait Installs {
     fn step(&self, id: &str) -> Step;
     /// Whether the queue holds plugins to fetch and install (*Update all*).
     fn queued(&self) -> bool;
+    /// What the device has of plugin `id`, if anything (a plugin's page).
+    fn have(&self, id: &str) -> Option<Installed<'_>> {
+        let _ = id;
+        None
+    }
+    /// Whether the kernel stopped plugin `id`: the key its author signed it
+    /// with was withdrawn.
+    fn revoked(&self, id: &str) -> bool {
+        let _ = id;
+        false
+    }
+    /// Whether a check (`check_file`) said there is no room for plugin `id`.
+    fn no_room(&self, id: &str) -> bool {
+        let _ = id;
+        false
+    }
+    /// Whether the device takes betas as updates.
+    fn takes_betas(&self) -> bool {
+        false
+    }
+    /// The name of the plugin whose install goes on, when it is not `id`.
+    fn other_job(&self, id: &str) -> Option<&str> {
+        let _ = id;
+        None
+    }
+    /// The device runs the stock layout of the code flash (*no room* says the
+    /// full layout gives much more).
+    fn flash_hint(&self) -> bool {
+        false
+    }
 }
 
 /// What a screen may read.
@@ -79,6 +125,12 @@ pub struct Ctx<'a> {
     pub loader: &'a dyn Loader,
     /// The installs.
     pub installs: &'a dyn Installs,
+}
+
+impl core::fmt::Debug for Ctx<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Ctx").finish_non_exhaustive()
+    }
 }
 
 /// The declared screens of the store (`declarations::screens`): the id of each
@@ -131,6 +183,14 @@ pub enum Next {
     Notify(&'static str),
     /// Redraw this screen.
     Redraw,
+    /// Show the text file `path` of the data folder in the reader.
+    Read(String),
+    /// Restart the device.
+    Restart,
+    /// Switch on the built-in plugin `id`.
+    SwitchOn(String),
+    /// Say text `key` of the catalog with `name` for its `{name}`, once.
+    Said { key: &'static str, name: String },
 }
 
 /// A screen of the store.
@@ -161,6 +221,16 @@ pub trait Screen: Sized {
     /// # Errors
     /// `NoMemory`, or what the host refuses.
     fn input(&mut self, ctx: &Ctx<'_>, input: &Input<'_>) -> Result<(Handled, Next), Error>;
+
+    /// The screen is closed: it gives back what it holds (a picture the host
+    /// keeps, a request going on, a file it wrote).
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    fn closed(&mut self, ctx: &Ctx<'_>) -> Result<(), Error> {
+        let _ = ctx;
+        Ok(())
+    }
 
     /// An event that may concern the screen (an answer, a download's end, an
     /// install's step).
@@ -225,6 +295,22 @@ impl StoreView {
             Self::Plugin(v) => v.shown(ctx),
             Self::Shots(v) => v.shown(ctx),
             Self::Fetch(v) => v.shown(ctx),
+        }
+    }
+
+    /// The screen is closed.
+    ///
+    /// # Errors
+    /// What the screen says.
+    pub fn closed(&mut self, ctx: &Ctx<'_>) -> Result<(), Error> {
+        match self {
+            Self::List(v) => v.closed(ctx),
+            Self::View(v) => v.closed(ctx),
+            Self::Letters(v) => v.closed(ctx),
+            Self::Source(v) => v.closed(ctx),
+            Self::Plugin(v) => v.closed(ctx),
+            Self::Shots(v) => v.closed(ctx),
+            Self::Fetch(v) => v.closed(ctx),
         }
     }
 
