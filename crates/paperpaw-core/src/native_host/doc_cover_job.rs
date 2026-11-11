@@ -22,7 +22,7 @@ use crate::native_host::{
     host_services::HostServices,
 };
 use alloc::vec::Vec;
-use paperpaw_native::host_glue::{ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND};
+use paperpaw_native::host_glue::{ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_TIMEOUT};
 
 /// The steps in a row that could not be made (the format is not started, no
 /// memory for the buffer) after which the job's book counts as failed: only
@@ -54,8 +54,30 @@ impl DocState {
         })
     }
 
+    /// What the job that runs has run since it began (or since this was last
+    /// asked) is added to its book's total.
+    fn add_used(&self) {
+        let (key, used) = self.job_used.get();
+        let now = self.now.get();
+        if key == self.job_key.get() {
+            let ran = now.saturating_sub(self.job_started.get());
+            self.job_used.set((key, used.saturating_add(ran)));
+        }
+        self.job_started.set(now);
+    }
+
+    /// Whether the book of the job that runs has used its awake time.
+    fn over_awake_budget(&self) -> bool {
+        let (key, used) = self.job_used.get();
+        self.job_guarded.get()
+            && key == self.job_key.get()
+            && used.saturating_add(self.now.get().saturating_sub(self.job_started.get()))
+                >= super::JOB_AWAKE_MAX_MS
+    }
+
     /// The cover job was displaced (`DocHost::cover_job_displaced`).
     pub(super) fn displaced(&self) {
+        self.add_used();
         let key = self.job_key.get();
         let (last, times) = self.job_displaced.get();
         let times = if last == key {
@@ -82,6 +104,10 @@ impl DocState {
         let key = crate::native_host::lib_cover::path_key(path);
         crate::native_host::cover_job_marker::write(storage, key)?;
         self.job_key.set(key);
+        if self.job_used.get().0 != key {
+            self.job_used.set((key, 0));
+        }
+        self.job_started.set(self.now.get());
         self.job_guarded.set(true);
         Ok(())
     }
@@ -142,6 +168,12 @@ impl DocState {
     /// made, [`LATER_MAX`] in a row while only the job prepares, fail it (its
     /// book alone counts as failed, the format plugin is left as it is).
     pub(super) fn cover_job_stepped(&self, step: PrepareStep) {
+        // A job that has run its book's awake time fails that book alone.
+        if self.over_awake_budget() {
+            self.job_later.set(0);
+            self.fail_job(ERR_TIMEOUT);
+            return;
+        }
         if step != PrepareStep::Later || !self.table.only_cover_job_preparing() {
             self.job_later.set(0);
             return;
@@ -152,11 +184,17 @@ impl DocState {
             return;
         }
         self.job_later.set(0);
+        self.fail_job(ERR_NO_MEMORY);
+    }
+
+    /// The job that prepares fails with `status` (its book alone counts as
+    /// failed; the host ends it at the pump's next look).
+    fn fail_job(&self, status: i32) {
         if let Some(job) = self.table.cover_job()
             && job.state == PREPARING
             && self
                 .table
-                .set_prepared(job.id, FAILED, job.progress_ppm, ERR_NO_MEMORY, job.flags)
+                .set_prepared(job.id, FAILED, job.progress_ppm, status, job.flags)
                 .is_ok_and(|(moved, ..)| moved)
         {
             self.fresh.set(true);
@@ -167,6 +205,9 @@ impl DocState {
     /// goes and the format gets its `close`. Nothing is restarted.
     pub(super) fn cover_job_end(&self, hosts: &HostServices, route: &dyn Route) {
         self.job_later.set(0);
+        if self.table.cover_job().is_some() {
+            self.add_used();
+        }
         if let Some(job) = self.table.take_cover_job() {
             self.end_job(hosts, route, &job);
         }
