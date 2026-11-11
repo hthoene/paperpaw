@@ -75,6 +75,8 @@ pub(crate) struct HostServices {
     /// The ids of the plugins linked into the firmware (root 2 of the file
     /// service has no install folder for them).
     linked: OnceCell<Rc<super::linked_plugins::LinkedPlugins>>,
+    /// The folders of the running data plugins (root 1 shows them read only).
+    data_plugins: OnceCell<Rc<super::data_plugin_folders::DataPluginFolders>>,
     /// The device's facts the library's transactions read (memory class,
     /// clock), told by the wirings in any order.
     edit_policy: OnceCell<Rc<super::lib_edits::EditPolicy>>,
@@ -151,6 +153,7 @@ impl HostServices {
             library_moves: OnceCell::new(),
             busy: OnceCell::new(),
             linked: OnceCell::new(),
+            data_plugins: OnceCell::new(),
             edit_policy: OnceCell::new(),
             in_use: OnceCell::new(),
             policy: OnceCell::new(),
@@ -437,6 +440,11 @@ impl HostServices {
     /// The linked plugin ids, made on first use.
     pub(crate) fn linked(&self) -> &Rc<super::linked_plugins::LinkedPlugins> {
         self.linked.get_or_init(Default::default)
+    }
+
+    /// The running data plugins' folders, made on first use.
+    pub(crate) fn data_plugins(&self) -> &Rc<super::data_plugin_folders::DataPluginFolders> {
+        self.data_plugins.get_or_init(Default::default)
     }
 
     /// The device's network pool, if a service has made it.

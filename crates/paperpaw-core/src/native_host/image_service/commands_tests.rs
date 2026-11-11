@@ -66,7 +66,9 @@ fn admission_checks_shape_roots_flags_and_room_without_side_effects() {
     assert_eq!(a.room, 8, "a refused command took no room");
     let mut with_card = admit(true, 4);
     for bad in [
-        "plugins/x/a.png",
+        // The plugins folder itself and a plugin's folder are no picture.
+        "plugins",
+        "plugins/x",
         "Plugins/a.png",
         ".paperpaw/cache/a.png",
         // The kernel's settings file, in any case and as the driver folds.
@@ -78,6 +80,15 @@ fn admission_checks_shape_roots_flags_and_room_without_side_effects() {
             with_card.admit(&prepare_cmd(1, bad, 0)),
             Some(Err(ERR_INVALID)),
             "{bad:?}"
+        );
+    }
+    // A file in a plugin's folder is the host's to resolve (a data plugin's is
+    // shown read only, any other is "not found" then).
+    for open in ["plugins/x/a.png", "PLUGINS/x/deep/a.png"] {
+        assert_eq!(
+            with_card.admit(&prepare_cmd(1, open, 0)),
+            Some(Ok(())),
+            "{open:?}"
         );
     }
     assert_eq!(
