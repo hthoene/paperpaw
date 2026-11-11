@@ -140,7 +140,7 @@ pub const fn default_store() -> StorePlugins<'static> {
 ///
 /// The plugins the store offers as files too ([`STORE_PLUGINS`]) are in the
 /// list only with the feature `native-linked-store`; whether one registers is
-/// [`native_registers`]. Not in the list yet, because their ports are not
+/// [`native_default_on`]. Not in the list yet, because their ports are not
 /// finished (each one's `PORTING-7.md` says what is open) or the interface-6
 /// reader still reads books through their interface-6 forms: the formats (txt,
 /// xtc, docx, images, mobi), sleep, dictionary, store, fonts-browser,
@@ -412,7 +412,7 @@ fn list(
 
 /// The translation catalogs plugin `id` brings built in, as the texts of its
 /// `i18n/<language>.ini` files (a linked native plugin has no code file to
-/// carry them: `screens-input.md` [D]). Empty for a plugin with none.
+/// carry them: `screens-input.md` \[D\]). Empty for a plugin with none.
 #[cfg(feature = "native-linked")]
 #[must_use]
 pub fn native_catalogs(id: &str) -> &'static [&'static str] {
