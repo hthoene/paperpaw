@@ -1,6 +1,8 @@
 //! Private single-threaded shared ownership with checked allocation and counts.
 //!
-//! Production values are a dispatch budget or a boxed FlatInstance; plugin
+//! Production values are a dispatch budget, a boxed FlatInstance or the one
+//! `FlatHost` all native plugins' dispatches share (`Kernel::shared_flat_host`,
+//! made with the first plugin; the kernel and each dispatch hold a handle); plugin
 //! contexts stay inside PinnedOwner, never a bare HostOwner in Shared. The
 //! instance holds no Shared back-pointer. Subscription closures hold handles
 //! outside the instance, so teardown removes subscriptions to release them.

@@ -34,7 +34,7 @@ the kernel's settings (`core.*`); the reader declares none of them and adds no d
   declaration; `LIB-position`), the screens, input and dialogs (H1–H4), reading aloud (a speech
   facade) and the timers.
 - **No native declaration exists yet for** (the status lines are declared since R2b-2, see the end): the sample widget above the
-  reading settings (`previews(groups::READING)`), the reading app (`readers::ReaderSpec`), the screen
+  reading settings (`previews(groups::READING)`), the screen
   hints (*on press*) and the first-run help. The setup step *text size* is pending the host (op 22,
   Host todo 99); at P6 time its title reuses an existing reader title string, with no new text. Each
   is a gap in the declaration set; the declaration test counts the status settings so they cannot be
@@ -118,7 +118,7 @@ relative to the data folder).
   screens it offers would be empty. The views come next: the annotations screen (model in
   `native_annotations.rs`), then TOC, skim, search, footnote and the reading screen with the
   document host.
-- Still undeclared: the slice-1 list (status places, the sample widget, the reading app, screen hints,
+- Still undeclared: the slice-1 list (status places, the sample widget, screen hints,
   first-run help, the setup step). `tests/hosted_construction.rs` runs `make` in the registered scope
   of the kernel's native host.
 - Metadata asks `core.ui` and no features yet; it grows with the views (storage for the last book,
