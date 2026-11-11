@@ -16,6 +16,7 @@
 )]
 
 use paperpaw_emulator::{device::Device, linked, profiles};
+use paperpaw_platform::{ButtonState, InputEvent, buttons};
 use paperpaw_sdk::{Id, MemoryStorage, Params};
 use std::rc::Rc;
 
@@ -25,6 +26,22 @@ fn settle(device: &mut Device, seconds: u32) {
         device.advance(1_000);
         device.tick_if_due();
     }
+}
+
+/// The plugins that have no screen of their own; any other without one is a
+/// finding (its screen failed to declare).
+const WITHOUT_SCREEN: [&str; 1] = ["power"];
+
+/// Presses back, so the stack does not grow across the plugins and hide later
+/// findings behind a cap.
+fn back(device: &mut Device) {
+    for state in [ButtonState::Pressed, ButtonState::Released] {
+        device.input(InputEvent::Button {
+            name: buttons::BACK,
+            state,
+        });
+    }
+    settle(device, 1);
 }
 
 /// What was reported since the last look: the host's lines about the linked
@@ -48,7 +65,7 @@ fn took(device: &mut Device, phase: &str, findings: &mut Vec<String>) {
 // for a device fact the desktop shell does not answer. Run it with `--ignored`; it must go green
 // before native plugins are on by default.
 #[test]
-#[ignore = "needs the linked catalogs (Core) and about; run with --ignored"]
+#[ignore = "#243: needs the linked catalogs (Core: core/linked-catalogs-228) and about (Port C); run with --ignored"]
 fn every_linked_plugin_starts_and_its_first_screen_opens_without_a_failure() {
     let files = Rc::new(
         MemoryStorage::new()
@@ -74,10 +91,11 @@ fn every_linked_plugin_starts_and_its_first_screen_opens_without_a_failure() {
     settle(&mut device, 5);
     took(&mut device, "start", &mut findings);
     let screens: Vec<Id> = device.kernel.known_screens().cloned().collect();
-    let mut without_screen = Vec::new();
     for (plugin, _) in &paperpaw_app::NATIVE_PLUGINS {
         let Some(screen) = screens.iter().find(|id| id.namespace() == *plugin) else {
-            without_screen.push(*plugin);
+            if !WITHOUT_SCREEN.contains(plugin) {
+                findings.push(format!("{plugin}: declared no screen"));
+            }
             continue;
         };
         let phase = format!("{plugin}: opening {screen}");
@@ -89,9 +107,9 @@ fn every_linked_plugin_starts_and_its_first_screen_opens_without_a_failure() {
                 device.kernel.active_screen().map(Id::as_str)
             ));
         }
+        back(&mut device);
         took(&mut device, &phase, &mut findings);
     }
-    eprintln!("plugins with no screen of their own: {without_screen:?}");
     assert!(
         findings.is_empty(),
         "{} finding(s):\n{}",
