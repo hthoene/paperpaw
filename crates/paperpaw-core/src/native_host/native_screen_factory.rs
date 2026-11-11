@@ -15,8 +15,9 @@ pub(crate) struct NativeScreenSpec {
     pub(crate) made: NativeMade,
 }
 
+/// What makes a native screen; its id is the registry's ([`crate::registry`]
+/// keeps it once, with the title, #248).
 pub(crate) struct NativeMade {
-    id: Id,
     token: u32,
     flags: u32,
     instance: NativeLease,
@@ -31,12 +32,10 @@ impl NativeScreenSpec {
             2 => Instances::MANY,
             _ => return Err(ERR_UNSUPPORTED),
         };
-        let id = callback.id.try_clone().ok_or(ERR_NO_MEMORY)?;
         Ok(Self {
             id: callback.id,
             title: callback.title,
             made: NativeMade {
-                id,
                 token: callback.token,
                 flags: callback.flags,
                 instance,
@@ -51,11 +50,16 @@ impl NativeMade {
         (self.flags & 1 != 0).then_some(paperpaw_sdk::RefreshMode::Full)
     }
 
-    pub(crate) fn make(&self, params: &paperpaw_sdk::Params) -> Result<Box<dyn Screen>, i32> {
+    /// The screen `id` (this one's) for `params`.
+    pub(crate) fn make(
+        &self,
+        id: &Id,
+        params: &paperpaw_sdk::Params,
+    ) -> Result<Box<dyn Screen>, i32> {
         let result = (|| {
             self.instance.live()?;
             let count = u32::try_from(params.iter().count()).map_err(|_| ERR_INVALID)?;
-            let id = self.id.try_clone().ok_or(ERR_NO_MEMORY)?;
+            let id = id.try_clone().ok_or(ERR_NO_MEMORY)?;
             let instance = self.instance.try_clone()?;
             let screen = NativeScreen::new(id, self.token, instance)
                 .with_flags(self.flags)

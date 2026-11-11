@@ -5,8 +5,7 @@
 extern crate std;
 use super::*;
 use crate::native_host::{
-    native_instances::NativeInstance, native_screen::Dispatch, native_values::Callback,
-    registrations as wire,
+    native_instances::NativeInstance, native_screen::Dispatch, registrations as wire,
 };
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
@@ -127,22 +126,12 @@ fn world(status: Result<i32, i32>) -> World {
     }
 }
 
-/// The action `n.open` (token 7) as an install makes it, in the registry.
+/// The action `n.open` (token 7) as an install makes it, in the registry:
+/// without a handler, run by the plugin's key and token (#248).
 fn declare(w: &mut World) {
-    let callback = Callback {
-        id: Id::try_parse("n.open").unwrap(),
-        title: "Open".into(),
-        token: 7,
-        flags: 0,
-    };
-    let spec = spec(
-        callback,
-        w.lease.try_clone().unwrap(),
-        w.owner,
-        &w.kernel.shared.native_instances,
-    )
-    .unwrap();
-    w.kernel.shared.actions.insert(spec);
+    let id = Id::try_parse("n.open").unwrap();
+    let action = paperpaw_sdk::NativeAction::new(id, "Open".into(), w.owner, 7);
+    w.kernel.shared.actions.insert_native(action);
 }
 
 #[test]
@@ -232,4 +221,26 @@ fn an_action_that_runs_itself_does_not_hang_the_run() {
     assert!(delivered <= crate::MAX_COMMAND_ROUNDS, "{delivered}");
     // Not a cycle past the test.
     *w.again.borrow_mut() = None;
+}
+
+/// The action of a plugin that is no longer there finds no plugin to run:
+/// nothing waits, nothing breaks, and a warning says so (Code Reviewer, #1177).
+#[test]
+fn the_action_of_a_plugin_not_installed_does_nothing() {
+    let mut w = world(Ok(0));
+    let id = Id::try_parse("gone.open").unwrap();
+    let action = paperpaw_sdk::NativeAction::new(id.clone(), "Open".into(), w.owner + 1, 7);
+    w.kernel.shared.actions.insert_native(action);
+    let _ = w.kernel.run_action(Instant(10), id);
+    assert!(w.seen.borrow().is_empty());
+    // Said once, not dropped silently.
+    let said = w
+        .kernel
+        .take_warnings()
+        .into_iter()
+        .filter(|warning| alloc::format!("{warning:?}").contains("its plugin is not running"))
+        .count();
+    assert_eq!(said, 1);
+    let queue = w.kernel.shared.native_instances.action_queue().unwrap();
+    assert!(queue.take().is_none());
 }

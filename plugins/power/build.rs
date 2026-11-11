@@ -31,7 +31,10 @@ fn main() -> Result<(), String> {
     }
     source.push_str("];\n");
     let mut ui_count = 0;
+    // The UI batches too name ids (actions, screens) for the id table.
+    let mut ui_batches: Vec<Vec<u8>> = Vec::new();
     declarations::ui(|batch| {
+        ui_batches.push(batch.to_vec());
         writeln!(
             source,
             "pub static UI_{ui_count}: [u8; {}] = {batch:?};",
@@ -80,10 +83,12 @@ fn main() -> Result<(), String> {
     if !rest.is_empty() {
         return Err("bytes left after the last batch of the golden".into());
     }
+    let mut named = batches.clone();
+    named.extend(ui_batches.iter().map(Vec::as_slice));
     let table =
         paperpaw_sdk::native::declare::fixed_settings_source("power", "SETTINGS", &batches)?
             + &paperpaw_sdk::native::declare::fixed_groups_source("power", "GROUPS", &batches)?
-            + &paperpaw_sdk::native::declare::fixed_ids_source("power", "IDS", &batches)?;
+            + &paperpaw_sdk::native::declare::fixed_ids_source("power", "IDS", &named)?;
     std::fs::write(out.join("power_settings.rs"), table)
         .map_err(|error| format!("write settings table: {error}"))?;
     std::fs::write(out.join("power_declarations.rs"), source)
