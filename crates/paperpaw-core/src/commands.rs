@@ -628,6 +628,18 @@ impl Kernel {
         if *event == events::BOOK_CLOSED {
             self.shared.hyphenation.close_tables();
         }
+        // A walk wanted sees every native format admitted by now.
+        if *event == events::CATALOG_WANTED {
+            self.native_book_formats_sync();
+        }
+        // Woken: the next native view of the library wants the catalog again.
+        if *event == events::RESUME {
+            self.native_library_woke();
+        }
+        // The catalog the walk made reaches the native views too.
+        if *event == events::CATALOG_CHANGED {
+            self.native_library_catalog_changed();
+        }
         self.tasks_follow_books(event, params);
         let guarded = self.guarded_screens();
         if let Some(screens) = guarded {
