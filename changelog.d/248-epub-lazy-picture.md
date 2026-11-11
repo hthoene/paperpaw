@@ -1,0 +1,2 @@
+### Changed
+- EPUB, HTML, FB2 and Markdown books no longer decode a picture while the first block of a page is being answered. A picture whose file is not made yet goes out flagged "not decoded yet", at the size it will be decoded to, and the reader asks for it by its number when the page shows it, so the page's text comes first and no decode buffer is held while it is made (#248, #252). A picture whose size the host would not take is left out, as before (the block keeps its alt text).

@@ -723,9 +723,15 @@ impl FormatProvider {
             .block_at(io, at)
             .map_err(|e| document_error(&e))?
             .ok_or(Error::NotFound)?;
-        // The pictures of a book are decoded when a page shows them: the
-        // file of this one may not be there yet (`decoded`).
-        block.image = decoded(document, io, block.image.take());
+        // The pictures of a book are decoded when a page shows them (op 18),
+        // not here: a block goes out with the name of a file that may not be
+        // there yet, flagged "not decoded yet" (`undecoded`), so the first
+        // page is text first and no decode buffer is held while it is made.
+        let (image, pending) = match undecoded(io, block.image.take()) {
+            Some((image, pending)) => (Some(image), pending),
+            None => (None, false),
+        };
+        block.image = image;
         let generation = generation(call.section, block.start, call.conversion);
         if call.cursor != 0 && call.generation != generation {
             return Err(Error::State);
@@ -747,13 +753,43 @@ impl FormatProvider {
         } else {
             block.start
         };
-        records(&block, cache, &weights, &mut tags, image_index, &mut list)?;
+        records(
+            &block,
+            cache,
+            &weights,
+            &mut tags,
+            (image_index, pending),
+            &mut list,
+        )?;
         let last = document
             .block_at(io, Locator::new(call.section, block.end))
             .map_err(|e| document_error(&e))?
             .is_none();
         fragment(&list, call.cursor, generation, block.end, last, out)
     }
+}
+
+/// The largest side the host takes of a picture not decoded yet
+/// (`docs/abi/document.md` section 5).
+const PENDING_SIDE: u32 = 1_600;
+
+/// `image` as a block states it, without decoding anything: the picture and
+/// whether its cache file is not there yet (`fmt.image` bit 0). A picture whose
+/// file is there is served as it is; one that is not is passed on by its name
+/// and the size it will be decoded to, which the host takes (1 to 1,600 a
+/// side) and the reader asks for again by its index (op 18). A size the host
+/// would refuse is none: the caller leaves the picture out.
+fn undecoded(io: &dyn Storage, image: Option<ImageRef>) -> Option<(ImageRef, bool)> {
+    let image = image?;
+    if ImageFile::try_open(io, &image.path)
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        return Some((image, false));
+    }
+    let side = |n: u32| (1..=PENDING_SIDE).contains(&n);
+    (side(image.width) && side(image.height)).then_some((image, true))
 }
 
 /// `image` with its cache file made: the document decodes a picture when a page
@@ -819,7 +855,7 @@ fn records<'a>(
     cache: &'a str,
     weights: &'a [u8],
     tags: &'a mut [[u8; 16]; 16],
-    image_index: u32,
+    (image_index, pending): (u32, bool),
     list: &mut Vec<Record<'a>>,
 ) -> Result<(), Error> {
     let (first, others) = tags.split_first_mut().ok_or(Error::Invalid)?;
@@ -910,7 +946,7 @@ fn records<'a>(
             image_index,
             image.width,
             image.height,
-            0,
+            u32::from(pending),
         )));
     }
     table_records(block, weights, list);

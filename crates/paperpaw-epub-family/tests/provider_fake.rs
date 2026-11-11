@@ -18,6 +18,10 @@ use paperpaw_sdk::image::{GrayWriter, ImageSink};
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::stage_schemas::core_format_v1 as stage;
 use paperpaw_sdk::{Env, MemoryStorage, OpenOptions, Storage};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// How many times a block or an ask made the document decode a picture.
+static DECODES: AtomicUsize = AtomicUsize::new(0);
 
 struct Fake {
     meta: Metadata,
@@ -91,13 +95,13 @@ impl Document for Fake {
                 });
                 Some(b)
             }
-            // A picture of the cache whose file is not there and cannot be
-            // made (a failed decode): the same, a paragraph.
+            // A picture of the cache whose file is not there and whose size the
+            // host would not take (over 1,600 a side): the same, a paragraph.
             40..=49 => {
                 let mut b = Block::new(BlockKind::Image, 40, 50, "a dog".into());
                 b.image = Some(ImageRef {
                     path: format!("{}/missing.gray", cache()),
-                    width: 30,
+                    width: 2_000,
                     height: 40,
                 });
                 Some(b)
@@ -106,6 +110,7 @@ impl Document for Fake {
         })
     }
     fn prepare_image(&self, _: &dyn Storage, image: &ImageRef) -> Option<ImageRef> {
+        DECODES.fetch_add(1, Ordering::SeqCst);
         image.path.ends_with("/lazy.gray").then(|| ImageRef {
             path: format!("{}/decoded.gray", cache()),
             width: 30,
@@ -331,18 +336,37 @@ fn pictures_match_kind(reply: &[u8]) {
 }
 
 #[test]
-fn a_picture_the_document_decodes_late_is_decoded_before_its_block_goes_out() {
+fn a_picture_the_document_decodes_late_goes_out_undecoded_and_is_decoded_by_its_index() {
     let (mut p, io) = opened();
+    let before = DECODES.load(Ordering::SeqCst);
     let reply = block_at(&mut p, &io, 20);
     pictures_match_kind(&reply);
-    let rows = rows(&reply);
-    let stage::Record::FmtBlock(block) = rows[0] else {
+    let list = rows(&reply);
+    let stage::Record::FmtBlock(block) = list[0] else {
         panic!("block")
     };
     assert_eq!(block.kind, 3);
-    assert!(rows.iter().any(|r| matches!(
+    // Named by its file that is not there yet, flagged "not decoded yet", at
+    // the size it will be decoded to; nothing was decoded for the block.
+    assert!(list.iter().any(|r| matches!(
         r,
-        stage::Record::FmtImage(i) if i.path == "decoded.gray" && (i.width, i.height) == (30, 40)
+        stage::Record::FmtImage(i)
+            if i.path == "lazy.gray" && (i.width, i.height) == (30, 40) && i.flags & 1 == 1
+            && i.index == 20
+    )));
+    assert_eq!(DECODES.load(Ordering::SeqCst), before);
+    // The reader asks again by the picture's number: that decodes it.
+    let reply = run(&mut p, &io, &call(18, |c| c.index = 20)).unwrap();
+    assert!(matches!(
+        rows(&reply)[0],
+        stage::Record::FmtImage(i) if i.path == "decoded.gray" && i.flags == 0
+    ));
+    assert_eq!(DECODES.load(Ordering::SeqCst), before + 1);
+    // A picture whose file is in the cache is served as it was, not flagged.
+    let reply = block_at(&mut p, &io, 10);
+    assert!(rows(&reply).iter().any(|r| matches!(
+        r,
+        stage::Record::FmtImage(i) if i.path == "pic.gray" && i.flags == 0
     )));
 }
 
@@ -362,7 +386,8 @@ fn a_picture_that_cannot_be_served_costs_the_picture_only_never_the_book() {
         r,
         stage::Record::FmtTextPart(t) if t.text == "a cat on a mat"
     )));
-    // A picture of the cache with no file, and none to be made, goes the same way.
+    // A picture of the cache with no file and a size the host would not take
+    // goes the same way.
     let reply = block_at(&mut p, &io, 40);
     pictures_match_kind(&reply);
     let dog = rows(&reply);
