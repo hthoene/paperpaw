@@ -405,3 +405,35 @@ fn registry_and_preview_bits_are_held_while_all_sixteen_edges_are_held() {
     ));
     assert!(queue.take().is_none());
 }
+
+#[test]
+fn the_radio_hints_are_pending_bits_that_keep_the_order_and_fit_with_every_other_bit() {
+    let budget = EventBudget::try_new().unwrap();
+    let mut queue = budget.pending().unwrap();
+    for tag in [92, 94, 95, 92, 94] {
+        queue.hint(tag).unwrap();
+    }
+    // Each once, in the order of the last time it was raised.
+    for want in [95, 92, 94] {
+        assert!(matches!(queue.take(), Some(Ready::Hint(tag)) if tag == want));
+    }
+    assert!(queue.take().is_none());
+    // Every bit and every edge together: none overwrites another.
+    for at in 0..16 {
+        raise(&mut queue, at);
+    }
+    for tag in (70..=74).chain([92, 94, 95, wire::EVENT_PREVIEW_CHANGED_TAG]) {
+        queue.hint(tag).unwrap();
+    }
+    for tag in CORE_TAGS {
+        queue.core(tag).unwrap();
+    }
+    queue.registry(1);
+    let mut hints = 0;
+    let mut told = 0;
+    while let Some(ready) = queue.take() {
+        told += 1;
+        hints += usize::from(matches!(ready, Ready::Hint(_)));
+    }
+    assert_eq!((told, hints), (16 + 5 + 3 + 1 + 4 + 1, 9));
+}

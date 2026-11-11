@@ -743,12 +743,17 @@ impl crate::Kernel {
         self.shared.reader = reader;
     }
 
+    /// The plugin the user chose as network manager (`core.network-manager`).
+    pub(crate) fn network_manager(&self) -> Option<&str> {
+        match self.shared.settings.global(NETWORK_MANAGER) {
+            Some(SettingValue::Text(text)) if !text.is_empty() => Some(&**text),
+            _ => None,
+        }
+    }
+
     /// Whether `owner` is the plugin the user chose as network manager.
     fn is_network_manager(&self, owner: &Id) -> bool {
-        matches!(
-            self.shared.settings.global(NETWORK_MANAGER),
-            Some(SettingValue::Text(text)) if &**text == owner.as_str()
-        )
+        self.network_manager() == Some(owner.as_str())
     }
 
     fn apply_join(&mut self, owner: &Id, join: JoinOp, host: &DevHost<'_>, token: u32) {
