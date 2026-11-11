@@ -285,3 +285,32 @@ in place; its removal comes with the PR that finishes the port).
   (`native/metadata.json`) for any host call a screen makes that slice 1 did not
   (Port A regenerates it); the lazy `ItemList` (ui-kit has none: rows of a page of the
   index are built eagerly, as Wi-Fi's).
+
+### Review of #1136: what was fixed, and what the wiring must do
+
+- The ask dialog of requested plugins names every plugin it lets through (no cut
+  text); plugins that do not fit are answered *declined*, not fetched (consent).
+  *Remove* on a plugin's page asks keep or remove again (`store.remove-question`).
+  Every id of a request gets an outcome on every path (partial list: not found;
+  closed dialog, stale request, refused queue: declined or failed; no memory:
+  `Reply::AnswerAll`).
+- The shots' `closed` cannot be refused: the image id and the net handle are released
+  first with stack buffers. Download progress redraws one row of the page
+  (`ItemList::set_value`, an additive ui-kit change) instead of rebuilding all rows.
+  The offer's choice and its rows never disagree (`toggled`, `chosen_of`).
+- Shots and fetch hold one `Messages` while they are on top (given back when covered
+  or closed): about 5 KiB held, not made each frame; the other per-frame
+  allocations (strings, paint ops) are as in the other screens. To measure on a
+  device after activation.
+- **For the wiring (`native_plugin.rs`, Port A):** answer `Dialog.not_found` and
+  `Dialog.declined` at once, handle `Reply::AnswerAll` and `Asked::stale`; route the
+  Remove question's answer (`answered`, tag `REMOVE`); release the image id of an
+  `ImageReady` that arrives for a closed shots screen; call `forget_page` when a page
+  screen closes; the install's trust check needs the page's author key
+  (`trust::expect`). The store stays out of `NATIVE_PLUGINS` until the screens are
+  routed.
+- Differences from Beta 3, on purpose or open: the screens read what the plugin
+  passes in (`Installs`, `LoaderView`) instead of `env`; the free-space/room notes
+  and the offline offer depend on the facts the wiring provides (`flash_hint`,
+  `no_room`, `can_install`); the setup step's applicability and badge are pushed by
+  the plugin (`set_item_state`) because they cannot be declared.
