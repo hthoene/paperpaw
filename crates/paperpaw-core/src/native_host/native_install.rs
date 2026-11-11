@@ -602,6 +602,18 @@ impl crate::Kernel {
     /// and groups. Every refusal (a duplicate, a default that does not fit, no
     /// room) comes before anything changes, and nothing allocates once
     /// publication starts, so a failure leaves no trace.
+    /// The shell has hosted its native plugins: the registries and the
+    /// tables of the host give back the room they kept while the plugins were
+    /// added one by one. The build shrank them before any native plugin was
+    /// there, so what they grew by since (the plugin list, the menus, the
+    /// subscriptions, the entries and owner rows) stood in reserve for good.
+    /// Called once by [`Kernel::start`](crate::Kernel::start); a later install
+    /// grows them again, as it always did.
+    pub(crate) fn native_hosted(&mut self) {
+        self.shrink_to_fit();
+        self.shared.native_instances.shrink_to_fit();
+    }
+
     fn publish_native(
         &mut self,
         staging: crate::registry::Staging,

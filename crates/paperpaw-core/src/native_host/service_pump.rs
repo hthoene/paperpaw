@@ -15,13 +15,19 @@ use super::{
     native_instances::NativeInstances,
     service_events::{EVENT_BUFFER, ServiceEvents},
 };
-use paperpaw_native::host_glue::ERR_BUSY;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_SPACE};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::Env;
 
 /// The wait before the pump tries again for its buffer after it was refused
 /// (the buffer is made once, on the first pass with a service wired, and kept).
 const RETRY_MS: u64 = 2_000;
+/// What the buffer keeps between passes: nearly every event (a finished
+/// request, a progress, a closed document) is smaller. The largest
+/// ([`EVENT_BUFFER`], a served request) is made when an event asks for it
+/// (`ERR_NO_SPACE`, which consumes nothing) and given back when the pass is
+/// over, so the device holds 256 bytes, not 1,280, while it is idle.
+const EVENT_SMALL: usize = 256;
 
 /// Events of one service for one plugin in one pass.
 const PER_OWNER: usize = 4;
@@ -57,17 +63,17 @@ pub(super) fn pump(
     let Ok(mut buffer) = instances.service_buffer().try_borrow_mut() else {
         return true;
     };
-    if buffer.len() != EVENT_BUFFER {
-        let made =
-            super::net_service::gate().is_ok() && buffer.try_reserve_exact(EVENT_BUFFER).is_ok();
-        if !made {
-            instances.set_service_retry(Some(now.saturating_add(RETRY_MS)));
-            return false;
-        }
-        buffer.resize(EVENT_BUFFER, 0);
+    if buffer.len() < EVENT_SMALL && !grow(&mut buffer, EVENT_SMALL) {
+        instances.set_service_retry(Some(now.saturating_add(RETRY_MS)));
+        return false;
     }
     instances.set_service_retry(None);
-    let sched = instances.work_services().map(|work| &*work.sched);
+    let delivery = Delivery {
+        sched: instances.work_services().map(|work| &*work.sched),
+        instances,
+        call,
+        now,
+    };
     let mut more = false;
     let running = (0..)
         .take_while(|&n| instances.running_nth(n).is_some())
@@ -82,7 +88,7 @@ pub(super) fn pump(
             break;
         };
         for service in services.iter().flatten() {
-            more |= drain(*service, key, lease, &mut buffer, sched, instances, call);
+            more |= drain(*service, (key, lease), &mut buffer, &delivery);
             if instances.outbox.full() {
                 break;
             }
@@ -94,21 +100,49 @@ pub(super) fn pump(
         }
     }
     instances.set_service_cursor(0);
+    // What the largest event asked for is given back with the pass.
+    if buffer.len() > EVENT_SMALL {
+        buffer.truncate(EVENT_SMALL);
+        buffer.shrink_to(EVENT_SMALL);
+    }
     more
+}
+
+/// What one pass hands each event to.
+#[derive(Clone, Copy)]
+struct Delivery<'a> {
+    sched: Option<&'a super::work_sched::WorkSched>,
+    instances: &'a NativeInstances,
+    call: &'a dyn Fn(u64, &super::native_instances::NativeLease, &[u8]),
+    now: u64,
+}
+
+/// Makes the buffer `size` bytes (fallibly); `false` where it is refused.
+fn grow(buffer: &mut alloc::vec::Vec<u8>, size: usize) -> bool {
+    let wanted = size.saturating_sub(buffer.len());
+    if super::net_service::gate().is_err() || buffer.try_reserve_exact(wanted).is_err() {
+        return false;
+    }
+    buffer.resize(size, 0);
+    true
 }
 
 /// Up to [`PER_OWNER`] events of `service` for `owner`; `true` when more may
 /// wait (the cap was reached, or the table was busy).
 fn drain(
     service: &dyn ServiceEvents,
-    owner: u64,
-    lease: &super::native_instances::NativeLease,
-    buffer: &mut [u8],
-    sched: Option<&super::work_sched::WorkSched>,
-    instances: &NativeInstances,
-    call: &dyn Fn(u64, &super::native_instances::NativeLease, &[u8]),
+    (owner, lease): (u64, &super::native_instances::NativeLease),
+    buffer: &mut alloc::vec::Vec<u8>,
+    delivery: &Delivery<'_>,
 ) -> bool {
-    for _ in 0..PER_OWNER {
+    let Delivery {
+        sched,
+        instances,
+        call,
+        now,
+    } = *delivery;
+    let mut taken = 0;
+    while taken < PER_OWNER {
         match service.next_event(owner, buffer) {
             Ok(Some((len, run))) => {
                 // The events of a work run's request or socket come in the
@@ -130,8 +164,18 @@ fn drain(
                 }
             }
             Ok(None) => return false,
+            // The event is larger than the buffer kept: it is made larger
+            // for this pass; where that is refused the event waits.
+            Err(ERR_NO_SPACE) if buffer.len() < EVENT_BUFFER => {
+                if !grow(buffer, EVENT_BUFFER) {
+                    instances.set_service_retry(Some(now.saturating_add(RETRY_MS)));
+                    return false;
+                }
+                continue;
+            }
             Err(status) => return status == ERR_BUSY,
         }
+        taken += 1;
     }
     true
 }
