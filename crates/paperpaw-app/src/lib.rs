@@ -220,6 +220,20 @@ pub fn native_version(id: &str) -> Option<&'static str> {
         .find_map(|(plugin, version)| (*plugin == id).then_some(*version))
 }
 
+/// The settings plugin `id` keeps in the program, as Beta 3 did, instead of
+/// one copy on the heap for each it declares (`Kernel::register_linked`): the
+/// table its build script makes of its own declarations. Empty for a plugin
+/// that has none; one that is not listed here only costs memory.
+#[cfg(feature = "native-linked")]
+pub fn fixed_settings(id: &str) -> &'static [paperpaw_core::sdk::SettingSpec] {
+    #[cfg(feature = "native-linked-store")]
+    if id == "widgets" {
+        return paperpaw_plugin_widgets::NATIVE_SETTINGS;
+    }
+    let _ = id;
+    &[]
+}
+
 /// Registers every plugin of [`NATIVE_PLUGINS`] with `kernel` through
 /// `Kernel::register_linked`, before the kernel starts (the one path the X4,
 /// the emulator and the tests share). `host` is what the shell offers
@@ -238,7 +252,9 @@ pub fn native_version(id: &str) -> Option<&'static str> {
 /// native factory contract and its code and static data stay for the whole
 /// run; the caller must not call this with a `host` that offers more than it
 /// backs: a service or a consent feature offered and not wired is a plugin
-/// that fails later.
+/// that fails later. `image` is the program's read-only data as a mapping that
+/// stays for the whole run (null and zero for none): the plugins' declarations
+/// are kept as offsets into it, not copied (`Kernel::register_linked`).
 #[cfg(feature = "native-linked")]
 #[allow(
     clippy::too_many_arguments,
@@ -253,6 +269,7 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
     teardown: paperpaw_core::native_host::shell::Report<S>,
     report: fn(&S, u32, i32),
     default_on: impl Fn(&str) -> Option<bool>,
+    image: (*const u8, usize),
 ) -> alloc::vec::Vec<(
     &'static str,
     Result<(), paperpaw_core::native_host::shell::Error>,
@@ -297,6 +314,8 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
                 depth,
                 teardown,
                 report,
+                image,
+                fixed_settings(id),
             )
         };
         let state = if status.is_ok() {

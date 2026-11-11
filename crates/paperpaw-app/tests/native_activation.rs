@@ -196,6 +196,7 @@ mod linked {
                 teardown,
                 report,
                 |id| paperpaw_app::native_default_on(id, store),
+                (std::ptr::null(), 0),
             )
         };
         for (id, status) in outcome {

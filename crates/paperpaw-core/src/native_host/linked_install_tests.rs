@@ -214,6 +214,8 @@ fn install_depth(
             depth,
             |_, _, _, _| {},
             |_, _, _| {},
+            (core::ptr::null(), 0),
+            &[],
         )
     }
 }
