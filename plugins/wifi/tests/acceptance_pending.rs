@@ -1,24 +1,16 @@
 //! Acceptance of the interface-7 port, pending on the host. The interface-6
 //! Wi-Fi plugin is pinned by `radio.rs`, `networks.rs` and `phone.rs` on a
 //! kernel; these cases are the same behaviours through the production loader
-//! with the native plugin. They never pass by themselves.
+//! with the native plugin. They never pass by themselves. (The Wi-Fi page and the
+//! networks in reach are no case any more: `tests/scripted_networks.rs` draws
+//! them from the plugin's own catalogs on the scripted host, which answers
+//! `i18n.copy` and `i18n.format`.)
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
 #[path = "../../test-support/pending.rs"]
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 6] = [
-    // The Wi-Fi page and the networks in reach draw as before; choosing a
-    // network, typing its password and forgetting one work. The screens are
-    // `native_plugin`; `tests/scripted_networks.rs` runs what they ask the
-    // device and the secrets. The scripted host does not answer
-    // `i18n.copy` and `i18n.format` yet, so the rows' texts, the drawing and
-    // the answers to the password question are not run.
-    Case {
-        name: "wifi-pages",
-        golden: None,
-        blocked_by: &["SCRIPTED-i18n"],
-    },
+const CASES: [Case; 5] = [
     // The setup with a phone: the device's own network and a page it serves
     // at port 80 (`core.net` `serve` / `respond`). Its decisions and pages are
     // `native_phone` (compared with the old screen); serving them and
@@ -81,37 +73,31 @@ fn the_cases_name_what_they_wait_for() {
 }
 
 #[test]
-#[ignore = "BLOCKED SCRIPTED-i18n: the scripted host does not answer i18n.copy and i18n.format"]
-fn wifi_pages() {
-    CASES[0].refuse().unwrap();
-}
-
-#[test]
 #[ignore = "BLOCKED H3: the screen with its join and page codes is drawn by the host's compose"]
 fn wifi_phone() {
-    CASES[1].refuse().unwrap();
+    CASES[0].refuse().unwrap();
 }
 
 #[test]
 #[ignore = "BLOCKED SCRIPTED-typed-password: the typed password kept once online is not run over the scripted dialogs"]
 fn wifi_passwords() {
-    CASES[2].refuse().unwrap();
+    CASES[1].refuse().unwrap();
 }
 
 #[test]
 #[ignore = "BLOCKED H4: the radio opening the own network for real; the scripted host cannot stage Wi-Fi commands"]
 fn wifi_own_network() {
-    CASES[3].refuse().unwrap();
+    CASES[2].refuse().unwrap();
 }
 
 #[test]
 #[ignore = "BLOCKED NET-serve-event: the host takes `serve` only from a screen callback, not yet from the radio's event"]
 fn wifi_phone_serve_from_event() {
-    CASES[4].refuse().unwrap();
+    CASES[3].refuse().unwrap();
 }
 
 #[test]
 #[ignore = "BLOCKED H1: status item callbacks are not qualified"]
 fn wifi_status_item() {
-    CASES[5].refuse().unwrap();
+    CASES[4].refuse().unwrap();
 }

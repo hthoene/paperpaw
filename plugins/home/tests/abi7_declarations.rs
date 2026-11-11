@@ -275,10 +275,14 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert_eq!(native.needs, ["home.focus-at-once|NoTouch"]);
     assert_eq!(native.actions, old.actions);
     assert_eq!(native.actions.len(), 2);
-    // The setting changes (the grid) and the minute tick (the time shown), in
-    // either order.
-    assert_eq!(native.events.len(), 2, "{:?}", native.events);
-    for token in [declarations::SETTING_CHANGED, declarations::TICK] {
+    // The setting changes (the grid), the minute tick (the time shown) and a
+    // widget that changed (`event.widget_changed`), in any order.
+    assert_eq!(native.events.len(), 3, "{:?}", native.events);
+    for token in [
+        declarations::SETTING_CHANGED,
+        declarations::TICK,
+        declarations::WIDGET_CHANGED,
+    ] {
         assert!(
             native
                 .events

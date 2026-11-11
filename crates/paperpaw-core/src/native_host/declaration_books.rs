@@ -138,8 +138,8 @@ impl DeclarationStore {
                 for slot in owner.of_kind(kind) {
                     let key = super::DeclKey {
                         owner: u16::try_from(index).unwrap_or(u16::MAX),
-                        batch: slot.batch,
-                        record: slot.record,
+                        batch: slot.batch(),
+                        record: slot.record(),
                         generation: owner.generation,
                         incarnation: owner.incarnation,
                     };

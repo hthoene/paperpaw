@@ -32,6 +32,22 @@ fn fonts() -> paperpaw_app::Fonts {
     return paperpaw_app::Fonts::Outline;
 }
 
+/// Whether `plugin` is a linked native plugin in this build: it has its
+/// network settings when the host admits it (`Kernel::admit_native_network`,
+/// tested in the core), and this fixture's host wires no network, so the
+/// plugin is not admitted here.
+fn is_native(plugin: &str) -> bool {
+    #[cfg(feature = "native-linked")]
+    return paperpaw_app::NATIVE_PLUGINS
+        .iter()
+        .any(|(id, _)| *id == plugin);
+    #[cfg(not(feature = "native-linked"))]
+    {
+        let _ = plugin;
+        false
+    }
+}
+
 /// The standard app, started with `config`.
 fn app(config: &str) -> Kernel {
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
@@ -55,6 +71,7 @@ fn fixed_network_settings_cover_the_plugins() {
     let mut fixed: Vec<&str> = paperpaw_app::NETWORK_SETTINGS
         .iter()
         .map(|(p, _)| *p)
+        .filter(|p| !is_native(p))
         .collect();
     fixed.sort_unstable();
     assert_eq!(
@@ -68,6 +85,9 @@ fn fixed_network_settings_cover_the_plugins() {
 fn network_settings_keep_their_ids_defaults_and_values() {
     let kernel = app("");
     for (plugin, _) in paperpaw_app::NETWORK_SETTINGS {
+        if is_native(plugin) {
+            continue;
+        }
         let network = format!("core.network.{plugin}");
         let saving = format!("core.saving.{plugin}");
         let settings = kernel.settings();

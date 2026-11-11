@@ -15,8 +15,8 @@
 //! once to learn what they need (a probe), then stream the old lines into a
 //! new file with the one change and replace the old file by rename: a power cut
 //! leaves the old file or the new, never half of either. Memory per call: the
-//! 4 KiB read buffer, one line, and two 1 KiB value buffers; no allocation per
-//! secret. A line the host cannot open (another device's sealed value) is
+//! read buffer (one line and a little room), two 1 KiB value buffers, and for
+//! `keep` and `remove` one line besides; no allocation per secret. A line the host cannot open (another device's sealed value) is
 //! absent for every op and written back unchanged by every rewrite.
 //!
 //! Order: the order of the lines in the file, so a page is streamed without
@@ -479,13 +479,14 @@ enum Change<'a> {
     DropOwner(&'a str),
 }
 
-/// The buffers of one call.
+/// The buffers of one call. The line a rewrite builds is not among them: it
+/// is made by [`File::rewrite`] only, so that `get` and `list` (the settings
+/// screen's calls) do not hold it.
 struct File<'a> {
     host: &'a dyn SecretsHost,
     read: Buf,
     scratch: Scratch,
     opener: Opener<'a>,
-    line: Buf,
 }
 
 impl<'a> File<'a> {
@@ -495,7 +496,6 @@ impl<'a> File<'a> {
             read: Buf::new(READ_BUF)?,
             scratch: Scratch::new()?,
             opener: Opener::new(host.sealer())?,
-            line: Buf::new(LINE_MAX + 1)?,
         })
     }
 
@@ -552,9 +552,10 @@ impl<'a> File<'a> {
     /// Streams the old file with `change` into the new file and replaces the
     /// old by rename. On any failure the new file is removed and the old stays.
     fn rewrite(&mut self, change: &Change<'_>) -> Result<(), i32> {
+        let mut line = Buf::new(LINE_MAX + 1)?;
         let storage = self.host.storage();
         storage.write(file::TEMP, b"").map_err(file::status)?;
-        let result = self.stream(change).and_then(|written| {
+        let result = self.stream(change, &mut line).and_then(|written| {
             let old = storage.size(file::FILE).unwrap_or(0);
             if matches!(change, Change::Put { .. }) && written > file::FILE_MAX && written > old {
                 return Err(ERR_FULL);
@@ -571,13 +572,12 @@ impl<'a> File<'a> {
         result
     }
 
-    fn stream(&mut self, change: &Change<'_>) -> Result<u64, i32> {
+    fn stream(&mut self, change: &Change<'_>, line: &mut Buf) -> Result<u64, i32> {
         let Self {
             host,
             read,
             scratch,
             opener,
-            line,
         } = self;
         let storage = host.storage();
         let sealer = host.sealer();

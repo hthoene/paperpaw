@@ -127,7 +127,7 @@ pub fn install(builder: KernelBuilder, fonts: Fonts) -> KernelBuilder {
 /// registers each through the kernel (`Kernel::register_native`); until a
 /// device activates them it only keeps them linked.
 #[cfg(feature = "native-linked")]
-pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 15] = [
+pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 16] = [
     ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
     ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
@@ -146,20 +146,46 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 15] = [
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
     ("transfer", &paperpaw_plugin_transfer::NATIVE_ENTRY),
     ("update", &paperpaw_plugin_update::NATIVE_ENTRY),
+    ("wifi", &paperpaw_plugin_wifi::NATIVE_ENTRY),
 ];
 
-/// The settings plugin `id` keeps in the program, as Beta 3 did, instead of
-/// one copy on the heap for each it declares (`Kernel::register_linked`): the
-/// table its build script makes of its own declarations. Empty for a plugin
-/// that has none; one that is not listed here only costs memory.
+/// The settings and setting groups plugin `id` keeps in the program, as Beta 3
+/// did, instead of one copy on the heap for each it declares
+/// (`Kernel::register_linked`): the tables its build script makes of its own
+/// declarations. Empty for a plugin that has none; one that is not listed here
+/// only costs memory.
 #[cfg(feature = "native-linked")]
-pub fn fixed_settings(id: &str) -> &'static [paperpaw_core::sdk::SettingSpec] {
-    #[cfg(feature = "native-linked-store")]
-    if id == "widgets" {
-        return paperpaw_plugin_widgets::NATIVE_SETTINGS;
+pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
+    use paperpaw_core::native_host::FixedTables;
+    macro_rules! tables {
+        ($plugin:ident) => {
+            FixedTables::new($plugin::NATIVE_SETTINGS, $plugin::NATIVE_GROUPS)
+        };
     }
-    let _ = id;
-    &[]
+    match id {
+        "bluetooth" => tables!(paperpaw_plugin_bluetooth),
+        "file-manager" => tables!(paperpaw_plugin_file_manager),
+        "help" => tables!(paperpaw_plugin_help),
+        #[cfg(feature = "native-linked-reading")]
+        "home" => tables!(paperpaw_plugin_home),
+        "keyboard" => tables!(paperpaw_plugin_keyboard),
+        "lock" => tables!(paperpaw_plugin_lock),
+        "menu" => tables!(paperpaw_plugin_menu),
+        "opds" => tables!(paperpaw_plugin_opds),
+        "power" => tables!(paperpaw_plugin_power),
+        #[cfg(feature = "native-linked-reading")]
+        "reader" => tables!(paperpaw_plugin_reader),
+        "settings" => tables!(paperpaw_plugin_settings),
+        #[cfg(feature = "native-linked-store")]
+        "aids" => tables!(paperpaw_plugin_aids),
+        #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
+        "news" => tables!(paperpaw_plugin_news),
+        #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
+        "vocabulary" => tables!(paperpaw_plugin_vocabulary),
+        #[cfg(feature = "native-linked-store")]
+        "widgets" => tables!(paperpaw_plugin_widgets),
+        _ => FixedTables::NONE,
+    }
 }
 
 /// Registers every plugin of [`NATIVE_PLUGINS`] with `kernel` through
@@ -224,7 +250,7 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
                 teardown,
                 report,
                 image,
-                fixed_settings(id),
+                fixed_tables(id),
             )
         };
         outcome.push((*id, status));
@@ -302,8 +328,12 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);
         b = offered(b, store, paperpaw_plugin_format_images::ImagesFormat);
     }
-    b = b.plugin(paperpaw_plugin_wifi::Wifi);
-    // Transfer is a native plugin, linked (`NATIVE_PLUGINS`).
+    // Wi-Fi is a native plugin, linked (`NATIVE_PLUGINS`), where the feature
+    // says; Transfer is native only.
+    #[cfg(not(feature = "native-linked"))]
+    {
+        b = b.plugin(paperpaw_plugin_wifi::Wifi);
+    }
     #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);

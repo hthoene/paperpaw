@@ -71,6 +71,7 @@ impl Cursor {
 
     /// The run's first entry not taken yet; `None` at its end or where the
     /// card does not answer.
+    #[inline(never)]
     pub fn head(&mut self, storage: &dyn Storage, path: &str) -> Option<Keyed> {
         if self.next == self.len {
             let want = usize::try_from(self.left).map_or(MERGE_READ, |l| l.min(MERGE_READ));
