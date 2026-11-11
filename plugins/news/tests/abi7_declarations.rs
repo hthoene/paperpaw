@@ -1,4 +1,5 @@
-//! The native declarations name what the interface-6 registration names: the
+//! The native declarations name what the interface-6 registration named (kept
+//! as data, `interface_6`, since the plugin is gone): the
 //! setting (kind, range, default, flags, title, help, the part and step it is
 //! edited in), the screen and its instance policy, the actions, the place in
 //! the tools and the icons; and the host's rules accept or refuse them as they
@@ -11,14 +12,40 @@ mod declarations;
 #[path = "../../test-support/declared.rs"]
 mod declared;
 use paperpaw_core::native_host::registrations::{Record, records_decode};
-use paperpaw_plugin_news::News;
 use paperpaw_sdk::native::declare::Declarations;
-use paperpaw_sdk::{Contribution, Id, Plugin, Registrar};
 
-fn legacy() -> Vec<Contribution> {
-    let mut r = Registrar::new(Id::new_static("news"));
-    News.register(&mut r).unwrap();
-    r.into_contributions()
+/// What the interface-6 registration of the plugin declared (it was decoded
+/// with `declared::legacy` before the plugin was removed), kept as data.
+mod interface_6 {
+    pub const LIBRARY_SPECS: &[&str] = &[
+        "articles|1|16|core.group.library|news.setting.articles|news.setting.articles.help|i:30|5|200|\"\"",
+    ];
+    pub const LIBRARY_EXTRAS: &[&str] = &["articles||news.plugin.name||=|0:|5|0"];
+    pub const WIDGET_SPECS: &[&str] = &[
+        "widget.headlines.frame|2|0|news.widget.headlines|core.setting.frame|core.setting.frame.help|t:core.frame.none|0|0|\"core.frame.none\\ncore.frame.line\\ncore.frame.card\\ncore.frame.dark\"",
+        "widget.headlines.padding|2|0|news.widget.headlines|core.setting.padding|core.setting.padding.help|t:core.padding.auto|0|0|\"core.padding.auto\\ncore.padding.none\\ncore.padding.small\\ncore.padding.normal\\ncore.padding.large\"",
+        "widget.headlines.paper|2|0|news.widget.headlines|core.setting.paper|core.setting.paper.help|t:core.plate.normal|0|0|\"core.plate.normal\\ncore.plate.inverted\\ncore.plate.light-gray\\ncore.plate.dark-gray\\ncore.plate.none\"",
+        "widget.headlines.ink|2|0|news.widget.headlines|core.setting.ink|core.setting.ink.help|t:core.ink.auto|0|0|\"core.ink.auto\\ncore.tone.black\\ncore.tone.white\"",
+        "widget.headlines.corners|2|0|news.widget.headlines|core.setting.corners|core.setting.corners.help|t:core.corners.auto|0|0|\"core.corners.auto\\ncore.corners.square\\ncore.corners.small\\ncore.corners.round\\ncore.corners.soft\"",
+        "widget.headlines.frame-line|2|0|news.widget.headlines|core.setting.frame-line|core.setting.frame-line.help|t:core.lines.auto|0|0|\"core.lines.auto\\ncore.lines.thin\\ncore.lines.medium\\ncore.lines.thick\"",
+        "widget.headlines.drop-shadow|2|0|news.widget.headlines|core.setting.shadow|core.setting.shadow.help|t:core.shadow.none|0|0|\"core.shadow.none\\ncore.shadow.hard\"",
+        "widget.headlines.size|2|0|news.widget.headlines|core.setting.size|core.setting.size.help|t:core.size.small|0|0|\"core.size.small\\ncore.size.medium\\ncore.size.large\"",
+        "widget.headlines.align|2|0|news.widget.headlines|core.setting.align|core.setting.align.help|t:core.align.left|0|0|\"core.align.left\\ncore.align.center\\ncore.align.right\"",
+        "widget.headlines.count|2|0|news.widget.headlines|news.setting.count|news.setting.count.help|t:news.count.4|0|0|\"news.count.2\\nnews.count.3\\nnews.count.4\\nnews.count.6\\nnews.count.8\"",
+        "widget.headlines.lines|2|0|news.widget.headlines|news.setting.lines|news.setting.lines.help|t:news.lines.1|0|0|\"news.lines.1\\nnews.lines.2\"",
+        "widget.headlines.caption|0|0|news.widget.headlines|news.part.caption|core.setting.part.help|b:1|0|0|\"\"",
+        "widget.headlines.source|0|0|news.widget.headlines|news.part.source|core.setting.part.help|b:0|0|0|\"\"",
+        "widget.headlines.rules|0|0|news.widget.headlines|news.part.rules|core.setting.part.help|b:1|0|0|\"\"",
+    ];
+    pub const WIDGET_EXTRAS: &[&str] = &[
+        "widget.headlines.paper||||=|0:|0|4",
+        "widget.headlines.ink||||=|0:|0|4",
+    ];
+    pub const WIDGET_GROUPS: &[&str] = &["widget.headlines|news.widget.headlines|0||"];
+    pub const SCREENS: &[&str] = &["list|news.title"];
+    pub const ACTIONS: &[&str] = &["fetch|news.fetch", "open|news.title"];
+    pub const MENU_ENTRIES: &[&str] = &["core.tools|news.open|44"];
+    pub const ICONS: &[&str] = &["news.fetch|refresh", "news.open|rss"];
 }
 
 fn batches(
@@ -37,58 +64,49 @@ fn batches(
 }
 
 /// What the batches say, decoded and checked by the host's rules, is what the
-/// interface-6 registration says.
+/// interface-6 registration said.
 #[test]
-fn the_decoded_batches_say_what_the_registration_says() {
+fn the_decoded_batches_say_what_the_registration_said() {
     let mut all = Vec::new();
     all.extend(batches(|d| declarations::settings(d).unwrap()));
     all.extend(batches(|d| declarations::screens(d).unwrap()));
     all.extend(batches(|d| declarations::navigation(d).unwrap()));
     all.extend(batches(|d| declarations::widgets(d).unwrap()));
     let native = declared::native("news", &all);
-    let old = declared::legacy("news", "core.group.library", legacy());
     // The widget's group and its fourteen settings, after the one in the library's.
-    let widget = declared::legacy("news", "news.widget.headlines", legacy());
-    assert_eq!(native.groups, widget.groups);
+    assert_eq!(native.groups, interface_6::WIDGET_GROUPS);
     assert_eq!(
         native.groups,
         ["widget.headlines|news.widget.headlines|0||"]
     );
-    assert_eq!(old.specs.len(), 1);
-    assert_eq!(widget.specs.len(), 14);
-    assert_eq!(native.specs, [old.specs.clone(), widget.specs].concat());
+    assert_eq!(interface_6::LIBRARY_SPECS.len(), 1);
+    assert_eq!(interface_6::WIDGET_SPECS.len(), 14);
+    assert_eq!(
+        native.specs,
+        [interface_6::LIBRARY_SPECS, interface_6::WIDGET_SPECS].concat()
+    );
     // Paper and ink keep colours their choices lack (the widget's extras).
-    assert_eq!(native.extras, [old.extras.clone(), widget.extras].concat());
+    assert_eq!(
+        native.extras,
+        [interface_6::LIBRARY_EXTRAS, interface_6::WIDGET_EXTRAS].concat()
+    );
     assert_eq!(native.extras.len(), 3);
     assert!(native.extras[0].contains("news.plugin.name"));
-    assert_eq!(native.screens, old.screens);
-    assert_eq!(native.actions, old.actions);
-    assert_eq!(native.menu_entries, old.menu_entries);
+    assert_eq!(native.screens, interface_6::SCREENS);
+    assert_eq!(native.actions, interface_6::ACTIONS);
+    assert_eq!(native.menu_entries, interface_6::MENU_ENTRIES);
     assert_eq!(native.menu_entries, ["core.tools|news.open|44"]);
-    assert_eq!(native.icons, old.icons);
+    assert_eq!(native.icons, interface_6::ICONS);
     assert_eq!(native.icons.len(), 2);
     // The widget record is the one the comparison does not read.
     assert_eq!(native.others, ["WidgetSpec"]);
 }
 
-/// The list opens one at a time: the decoded `screen.spec` flags (bits 6 and
-/// 7: 0 per parameters, 1 single, 2 many) say what the registration says.
+/// The list opens one at a time, as the interface-6 screen did (single
+/// instance): the decoded `screen.spec` flags (bits 6 and 7: 0 per parameters,
+/// 1 single, 2 many).
 #[test]
 fn the_list_opens_one_at_a_time() {
-    let mut old = Vec::new();
-    for contribution in legacy() {
-        if let Contribution::FixedScreens(list) = contribution {
-            for s in list.iter() {
-                let policy = match s.how_many() {
-                    i if i == paperpaw_sdk::Instances::PER_PARAMS => 0,
-                    i if i == paperpaw_sdk::Instances::SINGLE => 1,
-                    i if i == paperpaw_sdk::Instances::MANY => 2,
-                    other => panic!("{other:?}"),
-                };
-                old.push((s.id().as_str().to_string(), policy));
-            }
-        }
-    }
     let mut new = Vec::new();
     for batch in batches(|d| declarations::screens(d).unwrap()) {
         for record in records_decode(&batch).unwrap().iter() {
@@ -97,6 +115,5 @@ fn the_list_opens_one_at_a_time() {
             }
         }
     }
-    assert_eq!(new, old);
     assert_eq!(new, [("news.list".to_string(), 1)]);
 }

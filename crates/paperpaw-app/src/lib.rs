@@ -78,14 +78,13 @@ impl core::fmt::Debug for StorePlugins<'_> {
 
 /// The ids of the plugins the store offers as files too: built in only
 /// with the feature `store-plugins`.
-pub const STORE_PLUGINS: [&str; 11] = [
+pub const STORE_PLUGINS: [&str; 10] = [
     "aids",
     "fonts-browser",
     "format-docx",
     "format-images",
     "format-mobi",
     "mail",
-    "news",
     "notes-vault",
     "picture-home",
     "vocabulary",
@@ -315,7 +314,6 @@ pub fn add_native_catalogs(kernel: &mut paperpaw_core::Kernel) {
 pub static NETWORK_SETTINGS: &[paperpaw_core::NetworkSettings] = paperpaw_core::network_settings!(
     "fonts-browser",
     "mail",
-    "news",
     "store",
     "transfer",
     "vocabulary",
@@ -398,7 +396,6 @@ pub fn install_with(
     b = b.plugin(paperpaw_plugin_sleep::Sleep);
     #[cfg(feature = "store-plugins")]
     {
-        b = offered(b, store, paperpaw_plugin_news::News);
         b = offered(b, store, paperpaw_plugin_widgets::Widgets);
         b = offer_shipped_off(b, store);
     }

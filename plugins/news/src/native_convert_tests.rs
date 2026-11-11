@@ -1,16 +1,15 @@
-//! The native converter (`native_convert`) against the interface-6 one
-//! (`convert.rs`): the same page and the same result for the same feed, at
-//! any size of the pieces it comes in, and refusing instead of aborting when
-//! memory runs short.
-use crate::convert;
+//! The native converter (`native_convert`) against what the interface-6 one
+//! (`convert.rs`, removed with its plugin) gave, recorded in `native_golden`:
+//! the same page and the same result for the same feed, at any size of the
+//! pieces it comes in, and refusing instead of aborting when memory runs short.
 use crate::fail_alloc::sweep;
 use crate::native_convert::{Converter, HEAD, TAIL, paragraphs};
+use crate::native_golden::{CONVERTED, PARAGRAPHS};
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use paperpaw_sdk::native::Error;
-use paperpaw_sdk::{MemoryStorage, Storage};
 
 /// The date as the plugin's own text would be, kept fallibly: the sweeps
 /// must see a refusal here as one, not as an abort.
@@ -22,28 +21,26 @@ pub(crate) fn day_text(year: i32, month: u8, day: u8) -> Result<String, Error> {
     Ok(out)
 }
 
-pub(crate) fn old(
-    feed: &[u8],
-    max_articles: usize,
-    max_text: usize,
-) -> (Result<convert::Converted, ()>, Vec<u8>) {
-    let storage = MemoryStorage::new();
-    storage.write("feed.xml", feed).unwrap();
-    let result = convert::convert(
-        &storage,
-        "feed.xml",
-        "out.html",
-        max_articles,
-        max_text,
-        &|y, m, d| day_text(y, m, d).unwrap(),
-    );
-    (
-        result.map_err(|_| ()),
-        storage.get("out.html").unwrap_or_default(),
-    )
+/// FNV-1a over `bytes`: how the recorded pages are kept.
+pub(crate) fn fnv(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
-fn new(
+/// What interface 6 made of feed `feed` of [`feeds`] with these limits.
+pub(crate) fn recorded(
+    feed: usize,
+    articles: usize,
+    text: usize,
+) -> &'static crate::native_golden::Conv {
+    CONVERTED
+        .iter()
+        .find(|row| (row.0, row.1, row.2) == (feed, articles, text))
+        .expect("a recorded conversion")
+}
+
+pub(crate) fn new(
     feed: &[u8],
     piece: usize,
     max_articles: usize,
@@ -122,33 +119,19 @@ pub(crate) fn feeds() -> Vec<String> {
 
 #[test]
 fn feeds_become_the_pages_of_interface_6() {
-    for feed in feeds() {
-        for (max_articles, max_text) in [
-            (10, 10_000),
-            (5, 100),
-            (1, 8 * 1024),
-            (200, 64 * 1024),
-            (0, 100),
-        ] {
-            let (want, page) = old(feed.as_bytes(), max_articles, max_text);
-            for piece in [1, 5, 64, 512, 2048] {
-                let got = new(feed.as_bytes(), piece, max_articles, max_text);
-                match (&want, &got) {
-                    (Ok(w), Ok((g, got_page))) => {
-                        assert_eq!(
-                            (&w.title, w.articles, &w.headlines),
-                            (&g.title, g.articles, &g.headlines),
-                            "{piece} {max_articles} {max_text} {feed:.60}"
-                        );
-                        assert_eq!(
-                            String::from_utf8_lossy(&page),
-                            String::from_utf8_lossy(got_page),
-                            "{piece} {max_articles} {max_text} {feed:.60}"
-                        );
-                    }
-                    other => panic!("{other:?} {feed:.60}"),
-                }
-            }
+    let feeds = feeds();
+    for &(feed, max_articles, max_text, title, articles, headlines, len, hash) in CONVERTED {
+        let feed_text = &feeds[feed];
+        for piece in [1, 5, 64, 512, 2048] {
+            let (g, got_page) = new(feed_text.as_bytes(), piece, max_articles, max_text).unwrap();
+            let what = format!("{piece} {max_articles} {max_text} {feed_text:.60}");
+            let shown: Vec<&str> = g.headlines.iter().map(String::as_str).collect();
+            assert_eq!(
+                (g.title.as_str(), g.articles, shown.as_slice()),
+                (title, articles, headlines),
+                "{what}"
+            );
+            assert_eq!((got_page.len(), fnv(&got_page)), (len, hash), "{what}");
         }
     }
 }
@@ -159,12 +142,14 @@ fn a_page_begins_and_ends_as_ever() {
     let page = String::from_utf8(page).unwrap();
     assert!(page.starts_with(HEAD));
     assert!(page.ends_with(TAIL));
-    assert_eq!(HEAD, convert::HEAD);
+    assert_eq!(
+        HEAD,
+        "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\"/>\n<title>"
+    );
 }
 
-#[test]
-fn paragraphs_are_those_of_interface_6() {
-    for markup in [
+pub(crate) fn markups() -> Vec<String> {
+    let mut all: Vec<String> = [
         "",
         "<p>One</p><p>Two &amp; <b>three</b></p>",
         "text <br> more <BR/> end",
@@ -172,16 +157,23 @@ fn paragraphs_are_those_of_interface_6() {
         "<ul><li>a</li><li>b</li></ul>",
         "&lt;p&gt;not markup&lt;/p&gt;",
         "<![CDATA[raw <b>]]>",
-        &"word ".repeat(3000),
-    ] {
-        for max in [0, 10, 100, 10_000] {
-            let want = convert::paragraphs(markup, max);
-            assert_eq!(
-                paragraphs(markup, max).unwrap(),
-                want.unwrap(),
-                "{markup:.40} {max}"
-            );
-        }
+    ]
+    .iter()
+    .map(ToString::to_string)
+    .collect();
+    all.push("word ".repeat(3000));
+    all
+}
+
+#[test]
+fn paragraphs_are_those_of_interface_6() {
+    let markups = markups();
+    for &(markup, max, want) in PARAGRAPHS {
+        let got = paragraphs(&markups[markup], max).ok().map(|list| {
+            let joined = list.join("\u{1f}");
+            (list.len(), fnv(joined.as_bytes()))
+        });
+        assert_eq!(got, want, "{:.40} {max}", markups[markup]);
     }
 }
 

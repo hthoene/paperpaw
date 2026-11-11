@@ -29,12 +29,6 @@ test = false
 bench = false
 
 [[bin]]
-name = "news"
-path = "src/bin/news.rs"
-test = false
-bench = false
-
-[[bin]]
 name = "picture-home"
 path = "src/bin/picture-home.rs"
 test = false
@@ -86,7 +80,6 @@ paperpaw-plugin-format-docx = { path = "../../plugins/format-docx" }
 paperpaw-plugin-format-images = { path = "../../plugins/format-images" }
 paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser" }
 paperpaw-plugin-mail = { path = "../../plugins/mail" }
-paperpaw-plugin-news = { path = "../../plugins/news" }
 paperpaw-plugin-vocabulary = { path = "../../plugins/vocabulary", default-features = false }
 paperpaw-plugin-widgets = { path = "../../plugins/widgets", default-features = false }
 

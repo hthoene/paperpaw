@@ -1,7 +1,7 @@
 //! Acceptance of the interface-7 port, pending on the host. The interface-6
-//! plugin is pinned by `fetch.rs`, `fetching.rs` and `widgets.rs` on a kernel;
-//! these cases are the same behaviours through the production loader with the
-//! native plugin. They never pass by themselves.
+//! plugin was pinned by `fetch.rs`, `fetching.rs` and `widgets.rs` on a kernel
+//! (removed with it, #244); these cases are the same behaviours through the
+//! production loader with the native plugin. They never pass by themselves.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
 #[path = "../../test-support/pending.rs"]
 mod pending;

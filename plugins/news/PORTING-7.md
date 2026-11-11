@@ -1,11 +1,36 @@
-# Interface-7 port (slice 5: the shelf, the list of feeds and the headlines widget; the removal of interface 6 follows)
+# Interface-7 port (the whole plugin; the interface-6 code is removed, HELD until native activation)
 
-Version 1.0.10. Partial: the list of feeds, the library import and the headlines widget are native now; the
-interface-6 `News` and everything of it stays until the host activates native plugins (then it goes
-together, no shim). `tools/plugin-files7` builds and packs the native file for the X4
-(`news-1.0.10-x4.ppn`, 196,112 bytes: 157,540 code, 33,408 data; the packer accepts it, no frame over 2,048 B);
-it is not in `complete.txt` (a partial port). The page's read buffer is on the heap (a 2 KiB array
-made the frame 2,368 bytes, over the packer's limit of 2,048).
+Version 1.0.10. Status: **complete, native only** (ticket #244). The native plugin (`native_plugin`, `NATIVE_ENTRY`,
+feature `linked`) is the whole plugin: the list of feeds, the fetch, the library import and the headlines widget.
+The interface-6 plugin is gone: `News` with its registration (`lib.rs`), its list screen and widget (`widget.rs`),
+its converter (`convert.rs`), the interface-6 tests (`tests/fetch.rs`, `fetching.rs`, `widgets.rs`, `src/feeds_tests.rs`
+and the tests of `lib.rs`), its place in `paperpaw-app` (`install_with`, `STORE_PLUGINS`, `NETWORK_SETTINGS`) and its
+store-file builder in `tools/plugin-files` (`plugins.txt` keeps a comment line). **HELD until native activation
+(#243):** the interface-6 app would lose News before; this PR must not merge before. `tools/plugin-files7` builds and
+packs the native file for the X4 (`news-1.0.10-x4.ppn`, 196,112 bytes before this change: 157,540 code, 33,408 data;
+the removal changes no native code, so the size is the same; the packer accepts it, no frame over 2,048 B). The page's
+read buffer is on the heap (a 2 KiB array made the frame 2,368 bytes, over the packer's limit of 2,048).
+
+## What replaced the interface-6 tests
+
+The interface-6 code is gone, so what it gave is kept as data and the native code is tested against it:
+`src/native_golden.rs` holds what the interface-6 converter, `mark`, `short_title`, `without_mark`, `load`/`save` of
+`feeds.txt`, `headlines`, `read_date`, `cut`, `one_line`, `escape` and `is_block` gave for fixed inputs (pages as
+their length and FNV-1a hash; made with the interface-6 code before its removal), used by
+`native_convert_tests`, `native_book_tests` and `native_rules_tests` (the same cases as the former parity tests, at
+the same piece sizes). `native_convert_hostile_tests` runs the former hostile-feed tests (whole pages, no markup of
+the feed's, limits; proptest) through the native converter. `tests/abi7_declarations.rs` compares the declarations with
+the interface-6 registration kept as data (`mod interface_6`). The feeds file of version 1 is still read and written
+alike (`feeds_of_version_1_are_written_alike`, `testdata/feeds.txt.v1`). `HOW` (the help texts) stays, published by the
+host at admission as in the other native plugins.
+
+The behaviour the removed integration tests pinned on a real kernel (`fetching.rs`, `fetch.rs`, `widgets.rs`) is
+covered by the native tests that exist (`native_fetch_tests`: one feed after the other, a failed one does not stop the
+rest, a feed removed meanwhile, ends not under way ignored, the counts; `native_book_tests`: page and cut power;
+`native_books`: the book of a feed by its mark; `native_screen`: the rows and an address is a web address;
+`native_widgets`) and by the cases in `tests/acceptance_pending.rs`, which stay ignored, each `BLOCKED` on the host,
+with their assertions: the integration with the real host (hostile titles through the library import, the widget's
+draw and tap) is not run until native activation.
 
 ## Ported
 
@@ -137,11 +162,7 @@ made the frame 2,368 bytes, over the packer's limit of 2,048).
 
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
-- The book's name (`Feed::file_name`/`book`, which need a fallible `clean_name`: a gap
-  for Kernel, the SDK's allocates and the reserved-name list is in `paperpaw-platform`). Next slice.
-- The fetch itself (one feed after the other, the network and files, the page's rename, the
-  retirement of version 1's book) and its notices.
-- The list screen (H1, H2: *Fetch the news*, the feeds, *Add a feed*, the choices on a feed) and the
-  keyboard slot for the address.
-- The headlines widget (its group and 14 settings): with the widget pack's kit (H1, H3).
-- The fetch started by a rule as declared work (no native work declaration yet).
+Nothing of the plugin is missing natively (the screen, the fetch, the book's name, the widget and the declared work
+are in; see the slices above). What waits is the host: the four acceptance cases (`news-feeds`, `news-fetch`,
+`news-headlines-widget`, `news-fetch-due`) stay `#[ignore = "BLOCKED …"]` until the host qualifies H1/H2/H3, the
+network, the files and declared work for native plugins.
