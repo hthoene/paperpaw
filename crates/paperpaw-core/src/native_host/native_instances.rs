@@ -214,6 +214,8 @@ pub(crate) struct NativeInstances {
     /// The plugin requests under way (`plugin_requests.rs`); nothing is
     /// allocated before the first request.
     pub(crate) plugin_requests: core::cell::RefCell<super::plugin_requests::PluginRequests>,
+    /// The callbacks of plugins that failed (`event_failures.rs`).
+    pub(crate) event_failures: super::event_failures::EventFailures,
     callbacks: CallbackClock,
     pool: Option<OwnerResourceView>,
     orphan_retry_at: Cell<u64>,
@@ -543,6 +545,8 @@ impl NativeInstances {
             return Err(ERR_STATE);
         }
         entry.instance = Some(instance);
+        // A plugin that starts again may fail anew, and be said.
+        self.event_failures.forget(key);
         if let Some(directory) = self.directory() {
             directory.subscribe(key, subscribed);
         }
