@@ -127,7 +127,7 @@ pub fn install(builder: KernelBuilder, fonts: Fonts) -> KernelBuilder {
 /// registers each through the kernel (`Kernel::register_native`); until a
 /// device activates them it only keeps them linked.
 #[cfg(feature = "native-linked")]
-pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 15] = [
+pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 16] = [
     ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
     ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
@@ -146,6 +146,7 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 15] = [
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
     ("transfer", &paperpaw_plugin_transfer::NATIVE_ENTRY),
     ("update", &paperpaw_plugin_update::NATIVE_ENTRY),
+    ("wifi", &paperpaw_plugin_wifi::NATIVE_ENTRY),
 ];
 
 /// The settings plugin `id` keeps in the program, as Beta 3 did, instead of
@@ -312,10 +313,11 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);
         b = offered(b, store, paperpaw_plugin_format_images::ImagesFormat);
     }
-    b = b.plugin(paperpaw_plugin_wifi::Wifi);
-    // Transfer is a native plugin, linked (`NATIVE_PLUGINS`), where the feature says.
+    // Wi-Fi and Transfer are native plugins, linked (`NATIVE_PLUGINS`), where
+    // the feature says.
     #[cfg(not(feature = "native-linked"))]
     {
+        b = b.plugin(paperpaw_plugin_wifi::Wifi);
         b = b.plugin(paperpaw_plugin_transfer::Transfer);
     }
     #[cfg(feature = "store-plugins")]
