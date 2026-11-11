@@ -26,6 +26,7 @@ paperpaw-sdk = { workspace = true, features = ["kernel"] }
 paperpaw-core.workspace = true
 paperpaw-native.workspace = true
 paperpaw-i18n.workspace = true
+paperpaw-scripted-host = { path = "../../crates/paperpaw-scripted-host" }
 
 [lints]
 workspace = true
