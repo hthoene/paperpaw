@@ -91,6 +91,114 @@ pub fn build(builder: KernelBuilder) -> Kernel {
 
 #[cfg(feature = "native-linked")]
 mod linked {
+    /// What the harness wires the families of files, library, documents, secrets,
+    /// work and HTTP with, so that every linked plugin registers as it does in a
+    /// shell (#248: the owned-ids test covers all of them). Nothing here does
+    /// work: the card is in memory, the network is down, nothing is sealed.
+    mod fakes {
+
+        use paperpaw_core::native_host::HostWiring;
+        use paperpaw_core::native_host::shell_wiring::{
+            CatalogEnv, HttpJob, NetInputs, NetLimits, Sealer, SecretsInputs, ServedReply,
+            ServerReason, ShellHttp, ShellNetwork, WorkDevice, WorkInputs,
+        };
+        use paperpaw_native::host_glue::ERR_UNSUPPORTED;
+        use paperpaw_platform::{MemoryClass, Storage};
+        use std::rc::Rc;
+
+        /// No network, no clock, no radio.
+        struct Offline;
+
+        impl WorkDevice for Offline {
+            fn now_ms(&self) -> u64 {
+                0
+            }
+            fn network_up(&self) -> bool {
+                false
+            }
+            fn radio_on(&self) -> bool {
+                false
+            }
+        }
+
+        impl ShellNetwork for Offline {
+            fn now_ms(&self) -> u64 {
+                0
+            }
+            fn network_up(&self) -> bool {
+                false
+            }
+            fn network_demand(&self, _: bool) {}
+        }
+
+        impl ShellHttp for Offline {
+            fn start(&self, _: &HttpJob<'_>) -> Result<(), i32> {
+                Err(ERR_UNSUPPORTED)
+            }
+            fn abort(&self, _: u32) {}
+            fn listen(&self, _: u32, _: u32, _: &mut [u8]) -> Result<usize, ServerReason> {
+                Err(ServerReason::Refused)
+            }
+            fn unlisten(&self, _: u32) {}
+            fn reply(&self, _: u32, _: &ServedReply<'_>) -> Result<(), i32> {
+                Err(ERR_UNSUPPORTED)
+            }
+            fn close_served(&self, _: u32, _: u32) {}
+        }
+
+        /// A sealer that seals nothing: secrets are refused, not kept open.
+        struct NoSeal;
+
+        impl Sealer for NoSeal {
+            fn seals(&self) -> bool {
+                false
+            }
+            fn seal(&self, _: &[u8], _: &[u8], _: &mut [u8]) -> Result<usize, i32> {
+                Err(ERR_UNSUPPORTED)
+            }
+            fn open(&self, _: &[u8], _: &[u8], _: &mut [u8]) -> Result<usize, i32> {
+                Err(ERR_UNSUPPORTED)
+            }
+        }
+
+        /// No walk under way, no date.
+        struct NoCatalog;
+
+        impl CatalogEnv for NoCatalog {
+            fn walking(&self) -> Option<u32> {
+                None
+            }
+            fn today(&self) -> Option<u32> {
+                None
+            }
+        }
+
+        /// `wiring` with the families a shell wires over its card, on `card`.
+        pub fn wire(wiring: HostWiring, card: Rc<dyn Storage>) -> HostWiring {
+            wiring
+                .documents(MemoryClass::Small, 800)
+                .library(card.clone(), Rc::new(NoCatalog))
+                .files(card.clone())
+                .secrets(SecretsInputs::new(card.clone(), Rc::new(NoSeal)))
+                .work(WorkInputs::new(Rc::new(Offline), MemoryClass::Small))
+                .net(NetInputs::new(
+                    card,
+                    Rc::new(Offline),
+                    Rc::new(Offline),
+                    NetLimits::new(0, 8),
+                ))
+        }
+
+        /// The keys of the families [`wire`] wires.
+        pub const WIRED: &[&str] = &[
+            "core.document",
+            "core.library",
+            "core.files",
+            "core.secrets",
+            "core.work",
+            "core.net",
+        ];
+    }
     use paperpaw_core::Kernel;
     use paperpaw_core::native_host::device_service::{DEVICE_SERVICES, DeviceHost};
     use paperpaw_core::native_host::flat::FlatDepth;
@@ -142,12 +250,17 @@ mod linked {
             .iter()
             .chain(DEVICE_SERVICES)
             .copied()
-            .chain(["core.ui", "core.registry"].into_iter().map(|key| Service {
-                key,
-                major: 1,
-                semantic_revision: 0,
-                min_table_bytes: 0,
-            }))
+            .chain(
+                ["core.ui", "core.registry"]
+                    .into_iter()
+                    .chain(fakes::WIRED.iter().copied())
+                    .map(|key| Service {
+                        key,
+                        major: 1,
+                        semantic_revision: 0,
+                        min_table_bytes: 0,
+                    }),
+            )
             .collect();
         Box::leak(all.into_boxed_slice())
     }
@@ -156,11 +269,12 @@ mod linked {
         let resources = HostResources::try_new().expect("the table of handles");
         let device: Rc<dyn DeviceHost> = Rc::new(NoParts);
         resources
-            .wire(
+            .wire(fakes::wire(
                 HostWiring::new()
                     .ui(paperpaw_platform::MemoryClass::Small)
                     .device(device),
-            )
+                Rc::new(paperpaw_sdk::MemoryStorage::new()),
+            ))
             .expect("core.ui and core.device wired");
         let depth = FlatDepth::try_new().expect("the dispatch budget");
         let host = Host {
