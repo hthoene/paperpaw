@@ -314,7 +314,7 @@ static RODATA_ANCHOR: [u8; 16] = *b"paperpaw-rodata\0";
 /// linked plugins keep their declarations as offsets into it, not as copies
 /// (`Kernel::register_linked`).
 ///
-/// Found as the mapping of this process that holds [`RODATA_ANCHOR`] and is
+/// Found as the mapping of this process that holds `RODATA_ANCHOR` and is
 /// readable, not writable and not executable (`/proc/self/maps`, Linux).
 pub fn rodata_image() -> (*const u8, usize) {
     #[cfg(target_os = "linux")]
