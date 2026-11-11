@@ -94,20 +94,15 @@ fn the_ids_of_the_table_are_the_plugins_ids_and_there_are_no_two() {
         assert!(STORE_PLUGINS.contains(&id), "{id}");
     }
     // The ones that are not finished are not.
-    for id in [
-        "picture-home",
-        "dictionary",
-        "format-docx",
-        "format-images",
-        "format-mobi",
-        "sleep",
-    ] {
+    for id in ["picture-home", "dictionary", "sleep"] {
         assert!(!ids.contains(&id), "{id}");
     }
     // The ones linked with the reader (`native-linked-reading`: home, reader,
-    // the formats TXT and XTC, and with the store's plugins news and
-    // vocabulary) are in the table where that feature is on and not otherwise:
-    // the interface-6 reader still needs their interface-6 forms then.
+    // the formats TXT, XTC, EPUB, HTML, FB2, Markdown and CBZ, and with the
+    // store's plugins news, vocabulary and the formats DOCX, images and MOBI)
+    // are in the table where that feature is on and not otherwise: the
+    // interface-6 reader still needs their interface-6 forms then. This test
+    // runs only with the store linked, so the store's are in with the reader.
     for id in [
         "home",
         "reader",
@@ -115,6 +110,14 @@ fn the_ids_of_the_table_are_the_plugins_ids_and_there_are_no_two() {
         "vocabulary",
         "format-txt",
         "format-xtc",
+        "format-epub",
+        "format-html",
+        "format-fb2",
+        "format-markdown",
+        "format-cbz",
+        "format-docx",
+        "format-images",
+        "format-mobi",
     ] {
         assert_eq!(
             ids.contains(&id),
