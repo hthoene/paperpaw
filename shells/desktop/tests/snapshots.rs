@@ -847,6 +847,11 @@ fn screens_look_as_before() {
     let failed_dir = root().join("target/snapshots");
     let mut failures = Vec::new();
     for case in CASES {
+        // The transfer screen is native only: it is there where native
+        // plugins are linked (needs native activation, todo 380).
+        if case.name == "x4-transfer" && !cfg!(feature = "native-linked") {
+            continue;
+        }
         let (width, height, gray, colourful) = draw(case);
         if colourful < gray.len() * case.colour / 10_000 {
             failures.push(format!(

@@ -282,6 +282,10 @@ allocation-refusal sweeps). `data/page.html` and `data/phone.html` stay. What th
 through a kernel is in the native unit tests (`native_web`, `native_install`, `native_cable`, `native_key`) and, through
 the production loader, in `tests/cable_native.rs` and `tests/acceptance_pending.rs` (ignored until native activation).
 The app has no transfer until `native-linked` is on, so the PR is HELD until activation.
+Goldens at activation: `shells/desktop/tests/snapshots/x4-transfer.png` is kept as it was and its case is skipped
+unless `native-linked` (the screen is not there without it); `boox-keyboard.png` lost the *Phone* button (the phone's
+keyboard is the transfer's slot), and `tools.txt`, `boox-all-tools.png`, `x4-tools.png` and `x4-drawer-de.png` lost the
+transfer row: re-bless all of them with native on at activation (todo 380).
 
 ## `uses.install` is optional (#243)
 
