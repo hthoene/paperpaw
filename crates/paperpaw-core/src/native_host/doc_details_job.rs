@@ -145,7 +145,14 @@ struct Reader<'a> {
 impl Reader<'_> {
     /// One call of `op` (`flags` the text's kind); the answer is at the front
     /// of `out`.
-    fn ask(&self, op: u32, flags: u32, index: u32, offset: u32, out: &mut [u8]) -> Result<usize, i32> {
+    fn ask(
+        &self,
+        op: u32,
+        flags: u32,
+        index: u32,
+        offset: u32,
+        out: &mut [u8],
+    ) -> Result<usize, i32> {
         let mut call = FormatCall::new(self.document.format, op, self.document.id);
         call.conversion = self.document.conversion;
         call.flags = flags;
@@ -215,7 +222,10 @@ impl Reader<'_> {
         if authors > 0 {
             let author = self.text(AUTHOR, 0, TEXT_CAP, out)?;
             if !author.is_empty() {
-                metadata.authors.try_reserve_exact(1).map_err(|_| ERR_NO_MEMORY)?;
+                metadata
+                    .authors
+                    .try_reserve_exact(1)
+                    .map_err(|_| ERR_NO_MEMORY)?;
                 metadata.authors.push(author);
             }
         }
@@ -289,7 +299,11 @@ impl DocState {
             self.read_details(hosts, route, job)
         } else {
             // A failed preparation: a card that failed is no fault of the book.
-            Err(if job.status == ERR_IO { ERR_IO } else { ERR_STATE })
+            Err(if job.status == ERR_IO {
+                ERR_IO
+            } else {
+                ERR_STATE
+            })
         };
         let key = match &read {
             Err(status) if !not_the_books(*status) => self.book_key(job.id),

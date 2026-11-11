@@ -331,7 +331,11 @@ fn native_books_are_read_one_at_a_time_and_the_catalog_is_wanted_once_at_its_end
     let mut w = world(&["books/a.epub", "books/b.docx", "books/c.epub"]);
     catalog(
         &w,
-        &[("books/a.epub", false), ("books/b.docx", false), ("books/c.epub", true)],
+        &[
+            ("books/a.epub", false),
+            ("books/b.docx", false),
+            ("books/c.epub", true),
+        ],
     );
     started(&mut w);
     w.kernel.native_details_arm();
@@ -356,7 +360,12 @@ fn native_books_are_read_one_at_a_time_and_the_catalog_is_wanted_once_at_its_end
 #[test]
 fn while_it_runs_the_catalog_is_wanted_at_most_once_in_two_minutes_and_none_when_nothing_was_kept()
 {
-    let books = ["books/a.epub", "books/b.epub", "books/c.epub", "books/d.epub"];
+    let books = [
+        "books/a.epub",
+        "books/b.epub",
+        "books/c.epub",
+        "books/d.epub",
+    ];
     let mut w = world(&books);
     catalog(&w, &books.map(|book| (book, false)));
     started(&mut w);

@@ -45,7 +45,8 @@ fn prepare(w: &World<'_>) {
 }
 
 fn look(w: &World<'_>) -> JobStep {
-    w.state.cover_job_step(&w.hosts, &FrameRoute(w), &mut |_, _| false)
+    w.state
+        .cover_job_step(&w.hosts, &FrameRoute(w), &mut |_, _| false)
 }
 
 fn ops(w: &World<'_>) -> Vec<u32> {

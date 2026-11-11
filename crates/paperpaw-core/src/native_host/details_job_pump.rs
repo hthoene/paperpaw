@@ -33,20 +33,15 @@
 //! timer off: the job goes on at the pump's passes that come for any other
 //! reason, as the cover job does.
 use super::{
-    admitted_features::AdmittedFeatures,
-    doc_service::details::DetailsJob,
-    host_services::Caller,
-    lib_cover::path_key,
-    native_declarations::NativeDeclarations,
-    native_host_call::HostRoute,
-    registry_service::Sources,
-    ui_store::HOST_OWNER,
+    admitted_features::AdmittedFeatures, doc_service::details::DetailsJob, host_services::Caller,
+    lib_cover::path_key, native_declarations::NativeDeclarations, native_host_call::HostRoute,
+    registry_service::Sources, ui_store::HOST_OWNER,
 };
 use crate::abi7::context::{Frame, registry_views::RegistryView};
 use alloc::string::String;
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_CANCELLED, ERR_DENIED, ERR_FULL, ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND,
-    ERR_STATE, ERR_UNSUPPORTED,
+    ERR_BUSY, ERR_CANCELLED, ERR_DENIED, ERR_FULL, ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE,
+    ERR_UNSUPPORTED,
 };
 use paperpaw_platform::{Storage, StorageError};
 use paperpaw_sdk::builtin::events;
