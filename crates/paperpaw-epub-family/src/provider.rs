@@ -56,6 +56,9 @@ const MAX_FACES: usize = 124;
 const MAX_FONT_BYTES: u64 = 32 * 1024 * 1024;
 const END_LAST: u32 = 1;
 const END_MORE: u32 = 2;
+/// The `generation` of a paged list (`document.md` section 3: the format's own for the
+/// document, never 0): the lists of a document do not change, so one value serves.
+const LIST_GENERATION: u32 = 1;
 const FLAG_WHOLE_PAGES: u32 = 1;
 const FLAG_TOC: u32 = 1 << 1;
 const FLAG_XPOINTERS: u32 = 1 << 2;
@@ -759,9 +762,9 @@ fn page(rows: &[Record<'_>], from: usize, total: usize, out: &mut [u8]) -> Resul
         frame.clear();
         frame.extend(rows.iter().take(take).cloned());
         frame.push(Record::FmtEnd(stage::FmtEnd::new(
-            if more { END_MORE } else { 0 },
+            if more { 0 } else { END_LAST },
             u32::try_from(total).map_err(|_| Error::Invalid)?,
-            0,
+            LIST_GENERATION,
             u32::try_from(next).map_err(|_| Error::Invalid)?,
             None,
         )));
