@@ -305,6 +305,31 @@ fn settings_paths(table: &'static [paperpaw_sdk::SettingSpec]) -> (usize, usize)
     paths
 }
 
+/// The (kept, copied) groups of the pack for `table`.
+fn group_paths(table: &'static [paperpaw_sdk::SettingGroupSpec]) -> (usize, usize) {
+    // SAFETY: as in `construct`.
+    let hosted = unsafe {
+        shell::Hosted::new(
+            Heap,
+            (),
+            NATIVE_ENTRY.entry().make.unwrap(),
+            "widgets",
+            (image().as_ptr(), image().len()),
+            report,
+            HostResources::try_new().unwrap(),
+            declared_services(),
+        )
+    }
+    .unwrap();
+    let (_retained, paths, _raw) = Retained::make_native_stored(
+        hosted,
+        |view| super::native_install::group_paths(view, table),
+        |_, _| {},
+    )
+    .unwrap();
+    paths
+}
+
 #[test]
 fn every_setting_of_the_widget_pack_takes_its_table_entry() {
     // The table the build script makes of the declarations: a spec that
@@ -368,4 +393,46 @@ fn the_table_defines_the_same_settings_as_the_copies_do() {
     copied.remove_plugin("widgets");
     assert_eq!(kept.specs().count(), 0);
     assert_eq!(copied.specs().count(), 0);
+}
+
+#[test]
+fn a_whole_table_is_staged_as_one_entry() {
+    use crate::registry::{Staged, Staging};
+    use paperpaw_sdk::Settings;
+    let table = paperpaw_plugin_widgets::NATIVE_SETTINGS;
+    let all: std::vec::Vec<u16> = (0..table.len())
+        .map(|at| u16::try_from(at).unwrap())
+        .collect();
+    let mut staging = Staging::default();
+    staging.native_fixed_entries(table, all).unwrap();
+    // One entry for all of them, none of them a copy.
+    assert_eq!(staging.settings.len(), 1);
+    assert_eq!(staging.native_fixed_count(), table.len());
+    assert_eq!(staging.native_counts().1, 0);
+    let staged: std::vec::Vec<_> = staging.settings.iter().flat_map(Staged::specs).collect();
+    assert_eq!(staged.len(), table.len());
+    assert!(staged.iter().zip(table).all(|(a, b)| a.id == b.id));
+    // An entry past the table is refused, whatever the plugin declared.
+    let past = std::vec![u16::try_from(table.len()).unwrap()];
+    assert!(staging.native_fixed_entries(table, past).is_err());
+    assert_eq!(staging.settings.len(), 1);
+    // And defined, they are the table's settings in the table's order.
+    let mut settings = Settings::new();
+    settings.try_reserve_with_fixed(0, table.len(), 0).unwrap();
+    for entry in staging.settings.drain(..) {
+        entry.define_in(&mut settings).unwrap();
+    }
+    assert_eq!(settings.specs().count(), table.len());
+    assert!(settings.specs().zip(table).all(|(a, b)| a.id == b.id));
+}
+
+#[test]
+fn every_group_of_the_widget_pack_takes_its_table_entry() {
+    let table = paperpaw_plugin_widgets::NATIVE_GROUPS;
+    let (kept, copied) = group_paths(table);
+    assert!(kept > 0, "{kept} groups kept, {copied} copied");
+    assert_eq!(copied, 0, "{copied} groups of the pack are copies");
+    assert_eq!(kept, table.len(), "every entry of the table is taken once");
+    // Without a table every one is a copy, as before.
+    assert_eq!(group_paths(&[]), (0, kept));
 }

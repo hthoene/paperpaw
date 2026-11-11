@@ -51,6 +51,30 @@ mod declarations;
 mod native_entry;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
+
+/// The settings the plugin declares, made by its build script from the same
+/// declarations as a table.
+#[cfg(feature = "linked")]
+mod native_settings {
+    use paperpaw_sdk::{Id, SettingSpec};
+    include!(concat!(env!("OUT_DIR"), "/home_settings.rs"));
+}
+
+/// The settings the plugin declares as a table kept in the program (as Beta 3
+/// kept them), for a linked build to use in place of a copy on the heap of
+/// each (`Kernel::register_linked`). Only a linked plugin has it.
+#[cfg(feature = "linked")]
+pub static NATIVE_SETTINGS: &[paperpaw_sdk::SettingSpec] = &native_settings::SETTINGS;
+
+/// The setting groups the plugin declares, as a table kept in the program
+/// like [`NATIVE_SETTINGS`].
+#[cfg(feature = "linked")]
+pub static NATIVE_GROUPS: &[paperpaw_sdk::SettingGroupSpec] = &native_settings::GROUPS;
+
+/// The full ids the plugin declares, sorted, as a table kept in the program
+/// like [`NATIVE_SETTINGS`] (the kernel takes them in place of copies).
+#[cfg(feature = "linked")]
+pub static NATIVE_IDS: &[paperpaw_sdk::Id] = &native_settings::IDS;
 pub mod native_add;
 pub mod native_add_screen;
 pub use paperpaw_ui_kit::dashboard::arrange as native_arrange;

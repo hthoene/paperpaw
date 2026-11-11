@@ -18,6 +18,7 @@ mod firmware;
 use crate::native_host::{admitted_features::AdmittedFeatures, radio_requests::*};
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::{cell::RefCell, fmt, time::Duration};
+pub use firmware::FEATURE_INSTALL;
 pub(crate) use firmware::{FirmwareContext, FirmwareOp, FwRelease};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED,
@@ -743,12 +744,17 @@ impl crate::Kernel {
         self.shared.reader = reader;
     }
 
+    /// The plugin the user chose as network manager (`core.network-manager`).
+    pub(crate) fn network_manager(&self) -> Option<&str> {
+        match self.shared.settings.global(NETWORK_MANAGER) {
+            Some(SettingValue::Text(text)) if !text.is_empty() => Some(&**text),
+            _ => None,
+        }
+    }
+
     /// Whether `owner` is the plugin the user chose as network manager.
     fn is_network_manager(&self, owner: &Id) -> bool {
-        matches!(
-            self.shared.settings.global(NETWORK_MANAGER),
-            Some(SettingValue::Text(text)) if &**text == owner.as_str()
-        )
+        self.network_manager() == Some(owner.as_str())
     }
 
     fn apply_join(&mut self, owner: &Id, join: JoinOp, host: &DevHost<'_>, token: u32) {

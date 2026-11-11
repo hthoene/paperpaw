@@ -258,3 +258,28 @@ fn goldens_of_other_depths_and_colors_compare_as_grays() {
     );
     let _ = std::fs::remove_dir_all(&folder);
 }
+
+/// The kit wires host services as a shell does (`Setup::wired`) and lets the start's callbacks
+/// run (`Session::settle`): a plugin that makes service calls there meets the real call path,
+/// with its reply-buffer check (`files/tests/hosted_undersized.rs` proves a refusal is
+/// reported). Battery declares no call service: `lookup()` is wired here only to exercise the
+/// two helpers together on a plugin that starts and draws.
+#[test]
+fn a_wired_start_settles_without_a_refused_callback() {
+    let setup = hosted::Setup::x4()
+        .with_kernel(|b| {
+            b.plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
+                .plugin(Catalogs)
+        })
+        .wired(|w| w.lookup());
+    let mut session = Session::start(
+        setup,
+        paperpaw_plugin_battery::NATIVE_ENTRY.entry(),
+        "battery",
+        SERVICES,
+    )
+    .unwrap();
+    session.settle();
+    assert_eq!(session.dropped(), []);
+    assert_eq!(session.warnings(), Vec::<String>::new());
+}

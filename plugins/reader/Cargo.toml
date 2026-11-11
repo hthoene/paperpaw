@@ -20,14 +20,14 @@ paperpaw-sdk = { workspace = true, features = ["unstable"] }
 paperpaw-ui-kit.workspace = true
 
 [build-dependencies]
-paperpaw-sdk = { workspace = true, features = ["unstable"] }
+paperpaw-sdk = { workspace = true, features = ["unstable", "kernel"] }
 
 [dev-dependencies]
 paperpaw-i18n.workspace = true
 paperpaw-core.workspace = true
 paperpaw-native.workspace = true
 paperpaw-platform.workspace = true
-paperpaw-plugin-format-epub.workspace = true
+paperpaw-epub-family.workspace = true
 paperpaw-plugin-format-txt.workspace = true
 # Its Markdown (wikilinks) for the tests of links to other notes.
 # By path alone, with no version: the vault needs the reader, and a

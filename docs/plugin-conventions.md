@@ -211,9 +211,10 @@ small).
   empty line, at least 120 characters, `paperpaw-dev` warns about a short
   one), registered with `Manifest::how` through `include_str!`. A data
   plugin gives it as `<id>.plugin.how` in its catalogs instead. A crate
-  that ships several plugins (`format-epub` ships the formats EPUB,
-  HTML, FB2, Markdown and CBZ) has one folder for each:
-  `how/<plugin-id>/<lang>.txt`.
+  that ships several plugins has one folder for each:
+  `how/<plugin-id>/<lang>.txt`. (The EPUB, HTML, FB2, Markdown and CBZ
+  formats are five plugins, each a crate of its own, `plugins/format-*`,
+  over the shared conversion of `crates/paperpaw-epub-family`.)
 - A crate with several parts that are one plugin (`widgets`) has one
   catalog a language, `i18n/<lang>.ini`, not one a part.
 - Put the same `how/` files into what you upload: the store shows them.

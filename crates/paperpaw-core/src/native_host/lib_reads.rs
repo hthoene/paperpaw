@@ -55,6 +55,7 @@ mod importer;
 mod jobs;
 mod position;
 mod provide;
+mod query;
 mod removal;
 mod status;
 mod write;
@@ -92,6 +93,10 @@ pub trait CatalogEnv {
     fn book_data_kept(&self, _path: &str) -> Result<bool, i32> {
         Ok(false)
     }
+    /// The archive folder setting (`files.archive`), a root-1 path: the books
+    /// in it are left out of a query that says so (`lib_query.flags` bit 1).
+    /// Where the host says nothing there is no archive.
+    fn archive_folder(&self, _visit: &mut dyn FnMut(&str)) {}
     /// The library folder setting (`library.folder`): a root-1 path, empty for
     /// the card's top. Where the host says nothing the library is the top.
     fn library_folder(&self, visit: &mut dyn FnMut(&str)) {
@@ -106,6 +111,17 @@ pub(crate) struct CatalogReads {
 }
 
 impl CatalogReads {
+    /// Op 2 `query`, leaving out the books `hide` names (a pending delete
+    /// holds them).
+    pub(crate) fn query_hiding(
+        &self,
+        query: &wire::ServiceLibQuery<'_>,
+        hide: &dyn Fn(&str) -> bool,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        query::query(self, query, hide, visit)
+    }
+
     /// The library folder setting ([`CatalogEnv::library_folder`]).
     pub(crate) fn library_folder(&self, visit: &mut dyn FnMut(&str)) {
         self.env.library_folder(visit);
@@ -227,6 +243,10 @@ impl LibQuery for CatalogReads {
             walk_ppm,
         }));
         Ok(())
+    }
+
+    fn query(&self, query: &wire::ServiceLibQuery<'_>, visit: Rows<'_>) -> Result<RowsEnd, i32> {
+        query::query(self, query, &|_| false, visit)
     }
 
     fn book(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {

@@ -24,7 +24,7 @@ use paperpaw_ui_kit::{
     text::{concat, copy, decimal_u64},
 };
 
-use super::{Ask, NativeOpds, Pending, View};
+use super::{Ask, Opds, Pending, View};
 use crate::native_browse::{Browser, Note, Row, Step};
 use crate::native_catalogs as catalogs;
 use crate::native_covers::{self as covers, Covers, MAX_LIVE};
@@ -309,7 +309,7 @@ fn size_text(bytes: u64, mark: &str) -> Result<String, Error> {
     }
 }
 
-impl NativeOpds {
+impl Opds {
     /// The browse screen opened for the catalog that was asked for.
     pub(super) fn opened_browse(
         &mut self,

@@ -87,6 +87,10 @@
       "name": "canvas.clip"
     },
     {
+      "kind": "host",
+      "name": "canvas.draw_image"
+    },
+    {
       "kind": "callback",
       "name": "drop"
     },
@@ -101,8 +105,54 @@
     {
       "kind": "callback",
       "name": "input"
+    },
+    {
+      "kind": "host",
+      "name": "services.query"
+    },
+    {
+      "kind": "host",
+      "name": "storage.size"
+    },
+    {
+      "kind": "host",
+      "name": "storage.read_at"
+    },
+    {
+      "kind": "host",
+      "name": "storage.write"
+    },
+    {
+      "kind": "host",
+      "name": "storage.remove"
+    },
+    {
+      "kind": "host",
+      "name": "storage.append"
+    },
+    {
+      "kind": "host",
+      "name": "storage.rename"
+    },
+    {
+      "kind": "host",
+      "name": "storage.sync"
     }
   ],
-  "services": [],
-  "features": []
+  "services": [
+    "core.device",
+    "core.net",
+    "core.registry",
+    "core.ui"
+  ],
+  "features": [
+    {
+      "key": "uses.install",
+      "required": false
+    },
+    {
+      "key": "uses.network",
+      "required": false
+    }
+  ]
 }

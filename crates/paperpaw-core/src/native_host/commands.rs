@@ -42,6 +42,8 @@ pub(crate) use items::ItemAdmit;
 )]
 pub(crate) use items::ItemRoom;
 
+#[path = "commands_answers.rs"]
+mod answers;
 #[path = "commands_presets.rs"]
 mod preset;
 #[cfg(test)]
@@ -139,6 +141,16 @@ pub struct CommandStage<'a> {
     images_held: usize,
     /// Texts of the plugin the kernel's speech holds (being spoken or waiting).
     speech_held: usize,
+    /// Plugin requests open device-wide (`plugin_requests.rs`).
+    requests_open: usize,
+    /// How many of them are this plugin's (at most [`super::plugin_requests::MAX_PER_PLUGIN`]
+    /// may be open).
+    own_requests: u8,
+    /// What the kernel knows of the plugin requests and of the submitter's
+    /// right to answer them (`commands_answers.rs`).
+    answer_view: super::plugin_requests::AnswerView,
+    /// The answers to apply after the callback (`commands_answers.rs`).
+    staged_answers: Vec<super::plugin_requests::Answer>,
     /// The callback belongs to a work run (`work.md` section 2, "background
     /// work is quiet"): commands that show something are refused.
     quiet: bool,
@@ -193,6 +205,10 @@ impl<'a> CommandStage<'a> {
             quiet: false,
             images_held: 0,
             speech_held: 0,
+            requests_open: 0,
+            own_requests: 0,
+            answer_view: super::plugin_requests::AnswerView::default(),
+            staged_answers: Vec::new(),
             staged_images: Vec::new(),
             items: None,
             staged_items: Vec::new(),
@@ -227,6 +243,12 @@ impl<'a> CommandStage<'a> {
     /// The picture requests of the plugin that wait outside the table.
     pub(crate) fn set_images_held(&mut self, held: usize) {
         self.images_held = held;
+    }
+
+    /// The plugin requests open device-wide.
+    pub(crate) fn set_requests_open(&mut self, open: usize, own: usize) {
+        self.requests_open = open;
+        self.own_requests = u8::try_from(own).unwrap_or(u8::MAX);
     }
 
     /// The texts of the plugin that the kernel's speech holds.
@@ -307,12 +329,18 @@ impl<'a> CommandStage<'a> {
             Ok(checked) => checked,
             Err(status) => return status,
         };
+        // Answers to plugin requests (`commands_answers.rs`): checked, copied.
+        let (answers, answer_bytes) = match self.validate_answers(batch) {
+            Ok(checked) => checked,
+            Err(status) => return status,
+        };
         // Registration, scalar ranges and the byte budget, without allocating.
         let mut bytes = self
             .bytes
             .saturating_add(dev_bytes)
             .saturating_add(item_bytes)
-            .saturating_add(preset_bytes);
+            .saturating_add(preset_bytes)
+            .saturating_add(answer_bytes);
         if bytes > self.byte_limit {
             return ERR_NO_SPACE;
         }
@@ -326,6 +354,7 @@ impl<'a> CommandStage<'a> {
             || self.staged_images.try_reserve(image_commands).is_err()
             || self.staged_items.try_reserve(item_states.len()).is_err()
             || self.staged_presets.try_reserve(presets.len()).is_err()
+            || self.staged_answers.try_reserve(answers.len()).is_err()
         {
             return ERR_NO_MEMORY;
         }
@@ -369,6 +398,7 @@ impl<'a> CommandStage<'a> {
         // Capacity is reserved, so this cannot reallocate.
         self.staged_items.extend(item_states);
         self.staged_presets.extend(presets);
+        self.staged_answers.extend(answers);
         self.keep_claims(claims);
         for command in batch.iter() {
             if let WireCommand::Redraw { mode } = command {
@@ -413,6 +443,7 @@ impl<'a> CommandStage<'a> {
                 let checked = if dev::is_dev(&command)
                     || Self::is_item_state(&command)
                     || Self::is_preset(&command)
+                    || Self::is_answer(&command)
                 {
                     Ok(0)
                 } else {
@@ -426,15 +457,16 @@ impl<'a> CommandStage<'a> {
             };
             self.validate_setting(key, value, bytes)?;
         }
-        self.validate_speech_room(batch)
+        self.validate_speech_room(batch)?;
+        self.validate_plugin_requests(batch)
     }
 
     /// A batch refused whole, whatever else it holds, the stage as it was.
     #[inline(never)]
     fn refused_before_checks(&self, batch: &CommandBatch<'_>) -> Option<i32> {
-        // `answer_plugin` and a write of a grant are refused for every plugin
-        // (`refused_outright`).
-        if let Some(status) = refused_outright(batch) {
+        // A write of a grant is refused for every plugin (`refused_outright`),
+        // `answer_plugin` for one that did not declare `uses.install`.
+        if let Some(status) = refused_outright(batch).or_else(|| self.answers_denied(batch)) {
             return Some(status);
         }
         // In a work run's callback only the listed commands are staged (the
@@ -457,6 +489,7 @@ impl<'a> CommandStage<'a> {
                 ) && !dev::is_dev(command)
                     && !Self::is_item_state(command)
                     && !Self::is_preset(command)
+                    && !Self::is_answer(command)
             })
             .count()
     }
@@ -514,6 +547,7 @@ impl<'a> CommandStage<'a> {
             if matches!(command, WireCommand::Redraw { .. })
                 || Self::is_item_state(&command)
                 || Self::is_preset(&command)
+                || Self::is_answer(&command)
             {
                 continue;
             }
@@ -741,21 +775,15 @@ impl CommandScope {
 
 /// A batch no plugin may send: `ERR_DENIED` for the whole of it.
 ///
-/// `answer_plugin` needs the install feature (`uses.install`, DEV,
-/// `docs/abi/device.md` section 1). Until command staging checks features (DEV
-/// host side), it is refused for every plugin, wherever it sits in the batch.
+/// (`answer_plugin` needs the install feature, `uses.install`: refused for
+/// the others in `commands_answers.rs`.)
 ///
 /// User grants are the host's alone (`screens-input.md`, guarded grants): a
 /// command that sets, resets or previews a `core.grant.*` setting refuses the
 /// whole batch, for every plugin, the one the grant names and the settings
 /// editor included.
 fn refused_outright(batch: &CommandBatch<'_>) -> Option<i32> {
-    batch
-        .iter()
-        .any(|command| {
-            matches!(command, WireCommand::AnswerPlugin { .. }) || touches_grant(command)
-        })
-        .then_some(ERR_DENIED)
+    batch.iter().any(touches_grant).then_some(ERR_DENIED)
 }
 
 /// Whether `command` writes a user grant (`core.grant.*`). `ApplyPreset` names
