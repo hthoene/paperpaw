@@ -488,6 +488,9 @@ mod x4 {
         let (Some(depth), Some(resources)) = (table.depth(), table.share()) else {
             return;
         };
+        // The texts the linked plugins bring built in (`screens-input.md` [D]):
+        // none of them is found otherwise.
+        paperpaw_app::add_native_catalogs(kernel);
         for (id, linked) in paperpaw_app::NATIVE_PLUGINS.iter() {
             let Some(share) = resources.try_clone() else {
                 return;

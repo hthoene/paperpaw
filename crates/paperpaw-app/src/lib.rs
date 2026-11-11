@@ -316,6 +316,7 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
     if outcome.try_reserve_exact(NATIVE_PLUGINS.len()).is_err() {
         return outcome;
     }
+    add_native_catalogs(kernel);
     for (id, linked) in NATIVE_PLUGINS {
         // Not linked here (a store plugin the store installs as a file): not
         // hosted, not listed, whatever the configuration says.
@@ -395,6 +396,43 @@ fn list(
         None,
     );
     let _ = kernel.list_native(info);
+}
+
+/// The translation catalogs plugin `id` brings built in, as the texts of its
+/// `i18n/<language>.ini` files (a linked native plugin has no code file to
+/// carry them: `screens-input.md` [D]). Empty for a plugin with none.
+#[cfg(feature = "native-linked")]
+#[must_use]
+pub fn native_catalogs(id: &str) -> &'static [&'static str] {
+    const CATALOGS: &[(&str, &[&str])] = include!(concat!(env!("OUT_DIR"), "/native_catalogs.rs"));
+    CATALOGS
+        .iter()
+        .find_map(|(plugin, catalogs)| (*plugin == id).then_some(*catalogs))
+        .unwrap_or(&[])
+}
+
+/// Adds the catalogs of every linked plugin of [`NATIVE_PLUGINS`] to the
+/// kernel's translator, before the kernel starts (one call for a shell that
+/// registers the plugins itself, `register_native_plugins` makes it for its
+/// own; a second call adds nothing): without them the texts of a linked plugin (a title, a key's label) are
+/// not found. The room for them is asked for once.
+#[cfg(feature = "native-linked")]
+pub fn add_native_catalogs(kernel: &mut paperpaw_core::Kernel) {
+    // Once: a shell that calls it after `register_native_plugins` (which does)
+    // adds nothing twice.
+    if !kernel.claim_native_catalogs() {
+        return;
+    }
+    let plugins = NATIVE_PLUGINS
+        .iter()
+        .filter(|(id, _)| !native_catalogs(id).is_empty())
+        .count();
+    kernel.reserve_catalogs(plugins);
+    for (id, _) in NATIVE_PLUGINS {
+        for source in native_catalogs(id) {
+            kernel.add_catalog(source);
+        }
+    }
 }
 
 /// The network settings of every networked first-party plugin, kept in
