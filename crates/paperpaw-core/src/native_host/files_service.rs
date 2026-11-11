@@ -60,6 +60,13 @@ pub(crate) trait FilesHost {
     /// Required: a host that forgets it would let an alias reach them.
     fn excluded(&self, root: u32, parent: &str, first_segment: &str) -> bool;
 
+    /// Whether `name` is the folder of a running data plugin (`plugins/<name>`):
+    /// root 1 shows it, read only (`files.md` 1.1). Data plugins hold published
+    /// files only; the folders of code plugins stay hidden. The default is "no".
+    fn data_folder(&self, _name: &str) -> bool {
+        false
+    }
+
     /// Whether `plugin` is built into the firmware (a linked plugin). Its
     /// install folder (root 2) counts as empty whatever the card holds at
     /// `plugins/<id>/` (a leftover of an older install): every path in it is

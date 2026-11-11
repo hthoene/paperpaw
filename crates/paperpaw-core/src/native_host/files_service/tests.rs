@@ -29,6 +29,8 @@ mod dispatch;
 mod hostile;
 #[path = "tests/oom.rs"]
 mod oom;
+#[path = "tests/peer_data.rs"]
+mod peer_data;
 #[path = "tests/read.rs"]
 mod read;
 
@@ -449,6 +451,8 @@ pub(super) struct TestHost {
     pub(super) library_moves: Cell<u32>,
     /// Plugins built into the firmware.
     pub(super) built_in: RefCell<Vec<&'static str>>,
+    /// Folders (below `plugins/`) of the running data plugins.
+    pub(super) data_folders: RefCell<Vec<&'static str>>,
 }
 
 impl TestHost {
@@ -461,6 +465,7 @@ impl TestHost {
             journal: RefCell::default(),
             library_moves: Cell::new(0),
             built_in: RefCell::default(),
+            data_folders: RefCell::default(),
         })
     }
 
@@ -477,6 +482,14 @@ impl TestHost {
 impl FilesHost for TestHost {
     fn built_in(&self, plugin: &str) -> bool {
         self.built_in.borrow().contains(&plugin)
+    }
+
+    fn data_folder(&self, name: &str) -> bool {
+        // As the real set: names compared case folded.
+        self.data_folders
+            .borrow()
+            .iter()
+            .any(|have| have.eq_ignore_ascii_case(name))
     }
 
     fn excluded(&self, root: u32, _parent: &str, first: &str) -> bool {

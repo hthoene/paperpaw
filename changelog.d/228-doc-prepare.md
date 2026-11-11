@@ -1,0 +1,3 @@
+### Added
+
+- **A book a format is still preparing is stepped by the kernel** (#228, `docs/abi/document.md` section 2.1). A format whose `open` answered `state` 1 gets op 3 `prepare` between inputs, one document and one call a pass (one book at a time on the X4, in open order). The answer is checked and recorded, the opener hears of a change with `event.document_changed` (one per document, the latest values), a finished preparation stamps the cache, and a failure (the format's own status, a malformed answer, `ERR_NO_SPACE` which also removes the partial cache) makes the document `failed`. The format runs as its own and is metered to itself.

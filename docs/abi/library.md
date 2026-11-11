@@ -265,6 +265,16 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   (DOC op 15) on first use and kept in the host's cover cache; `ERR_NOT_FOUND` for a book without
   one; while it is being made `ERR_BUSY` and `event.library_changed` bit 6 when it is ready
   (interface 6 lazy covers).
+  **First host version: synchronous.** The host makes the cover inside the asking call, in the
+  caller's frame: it opens the book as the caller (root 1, no `uses.storage`), asks the format
+  (DOC op 15), adopts the picture as the caller's own id (the same cover file has one id) and closes
+  the document. A format that is not running yet is `ERR_BUSY` with bit 6 raised, so the caller
+  asks again (one counter for the whole library host, not per book: after 6 raises in a row it
+  raises no more until a cover is made); a full document table is `ERR_BUSY` and **raises nothing**
+  (it does not clear by itself: the caller closes a document); a format whose first `open` is still *preparing*
+  (a conversion not yet in the cache: DOCX, MOBI) is `ERR_NOT_FOUND` for now, and the cover appears
+  after the book has been prepared once (reading it). The background job that makes those covers
+  and raises bit 6 when they are ready is the contract's own design and comes later.
 
 ### 2.2 Status, positions, annotations
 
