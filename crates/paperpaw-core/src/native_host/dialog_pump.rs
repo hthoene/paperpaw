@@ -157,11 +157,14 @@ impl crate::Kernel {
     /// no notice), and the dialog opens in the keyboard slot with the params
     /// `core.request` and `core.kind`, from the pump below. `secret` asks for
     /// a secret text. Nothing of the stack's admission (the guard's rules)
-    /// is applied.
+    /// is applied. For shells and tools only: no plugin asks this way (a
+    /// plugin's question is its `ui.ask`).
     ///
     /// # Errors
     /// Why not: no native keyboard serves the slot, no `ui` service is
-    /// wired, or the question was not taken (memory, the limits).
+    /// wired, a question of this one is open already (it is not replaced; the
+    /// caller may open the bare screen, which an interface-6 keyboard takes),
+    /// or the question was not taken (memory, the limits).
     pub fn stage_text_question(
         &mut self,
         now: paperpaw_platform::Instant,
@@ -182,17 +185,24 @@ impl crate::Kernel {
             .ui_services()
             .and_then(|ui| ui.store.try_clone())
             .ok_or("no ui service is wired")?;
+        if store.open_requests(owner).1 {
+            return Err("a question is open already");
+        }
         let who = super::ui_store::Stamp::new(owner, 1).map_err(|_| "no stamp")?;
         let question = super::ui_requests::Question {
             kind: 0,
-            flags: if secret { 1 << 2 } else { 0 },
+            flags: if secret {
+                super::ui_requests::SECRET
+            } else {
+                0
+            },
             remote: false,
             title,
             text: "",
             choices: "",
         };
         store
-            .ask(who, None, &question, secret, None, true)
+            .ask(who, None, &question, secret, None, false)
             .map_err(|_| "the question was not taken")?;
         self.shared.reader = true;
         self.now = now;

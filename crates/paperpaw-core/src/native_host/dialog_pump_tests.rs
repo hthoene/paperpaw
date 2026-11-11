@@ -788,3 +788,42 @@ fn a_tool_stages_a_text_question_and_the_keyboard_slot_opens_for_it() {
         assert!(w.store.is_request(opened[0].0.parse().unwrap()));
     });
 }
+
+#[test]
+fn a_staged_secret_question_is_secret_and_a_second_one_is_refused() {
+    let mut w = world(Ok(OK));
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    w.kernel
+        .shared
+        .native_instances
+        .test_insert(
+            Id::try_parse("d").unwrap(),
+            Some(
+                NativeLease::try_new(Asker {
+                    seen: Rc::clone(&seen),
+                    status: Ok(OK),
+                })
+                .unwrap(),
+            ),
+            true,
+        )
+        .unwrap();
+    w.kernel
+        .stage_text_question(Instant(10), "PIN", true)
+        .unwrap();
+    assert_eq!(w.kernel.active_screen(), Some(&KEYBOARD_SCREEN));
+    let request = OPENED.with(|opened| opened.borrow()[0].0.parse::<u32>().unwrap());
+    let top = w.kernel.stack.last().unwrap().serial;
+    assert!(
+        w.store
+            .question(top, request, |shown| shown.flags & 4 != 0)
+            .unwrap()
+    );
+    // One open: another is refused, nothing is replaced.
+    assert!(
+        w.kernel
+            .stage_text_question(Instant(20), "Again", false)
+            .is_err()
+    );
+    assert_eq!(w.store.request_count(), 1);
+}
