@@ -402,3 +402,40 @@ mod readers;
 mod formats_tests;
 #[path = "document_report_tests.rs"]
 mod report_tests;
+
+#[test]
+fn ask_image_asks_for_one_picture_by_its_index() {
+    setup!(table, state, host, docs);
+    let (mut input, mut out) = ([0; 64], [0; 4096]);
+    let row = |index| {
+        Record::ServiceDocImage(wire::ServiceDocImage {
+            image: 7,
+            index,
+            width: 200,
+            height: 100,
+            flags: 0,
+        })
+    };
+    reply(&state, &[row(3)]);
+    let image = docs
+        .ask_image(&host, DocId(4), (3, 0), &mut input, &mut out)
+        .unwrap();
+    assert_eq!(
+        (image.image(), image.index(), image.width(), image.height()),
+        (7, 3, 200, 100)
+    );
+    assert_eq!(state.op.get(), schema::OP_IMAGE);
+    {
+        let bytes = state.input.borrow();
+        assert!(matches!(
+            wire::records_decode(&bytes).unwrap().iter().next(),
+            Some(Record::ServiceDocImageAsk(a)) if (a.document, a.index, a.side) == (4, 3, 0)
+        ));
+    }
+    // Another picture's answer is no answer.
+    reply(&state, &[row(5)]);
+    assert_eq!(
+        docs.ask_image(&host, DocId(4), (3, 0), &mut input, &mut out),
+        Err(Error::Invalid)
+    );
+}

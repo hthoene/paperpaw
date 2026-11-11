@@ -580,7 +580,7 @@ impl View {
             // The book or a place in it is shown: its pictures follow its text
             // (the show draws it anyway: asked for only where there are any).
             if open.has_pictures() {
-                open.redraw_page(host, RedrawMode::Partial).ok();
+                open.redraw_page(host, docs, RedrawMode::Partial).ok();
             }
         } else if let Body::Open(open) = &mut self.body
             && open.pictures_pending()
@@ -588,7 +588,7 @@ impl View {
             // Opened with pictures, or shown again while they waited (the
             // host dropped their follow-up when the screen left the top): they
             // are asked for now.
-            open.redraw_page(host, RedrawMode::Partial).ok();
+            open.redraw_page(host, docs, RedrawMode::Partial).ok();
         }
     }
 
@@ -684,7 +684,7 @@ impl View {
         open.unsaved = true;
         open.turned = true;
         open.announce(host, docs);
-        open.redraw_page(host, RedrawMode::Partial)
+        open.redraw_page(host, docs, RedrawMode::Partial)
     }
 
     /// What an input did: turns the page.
@@ -895,7 +895,7 @@ impl Open {
         self.turned = true;
         self.save(host, library, When::Turn);
         self.announce(host, docs);
-        self.redraw_page(host, RedrawMode::Partial)
+        self.redraw_page(host, docs, RedrawMode::Partial)
     }
 
     /// Says that the place could not be saved; after the screen closed the
@@ -1054,7 +1054,7 @@ impl Open {
         self.turned = true;
         self.save(host, library, When::Turn);
         self.announce(host, docs);
-        self.redraw_page(host, RedrawMode::Partial)
+        self.redraw_page(host, docs, RedrawMode::Partial)
     }
 
     /// What the marking makes of `input` on the page on show (nothing where the

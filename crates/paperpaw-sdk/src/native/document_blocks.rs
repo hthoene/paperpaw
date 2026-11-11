@@ -573,4 +573,39 @@ impl Documents {
         let n = self.call(host, schema::OP_BLOCK, &[&ask], input, out)?;
         BlockFragment::decode(out.get(..n).ok_or(Error::Invalid)?, cursor)
     }
+
+    /// Has the format decode picture `index` of `document` now (op 16,
+    /// `document.md` 5): for a picture whose block came without an image id
+    /// (`BlockImage::image` 0: none was free, or it was not decoded yet) or
+    /// whose id has ended (`NotFound` at a draw). `side` 0 is the page's
+    /// size, else the longest side for a zoom (at most 1,600; larger is
+    /// clamped). The picture with its new image id, or the live one where
+    /// nothing was to do. `input` is 64 bytes; `out` 4,096.
+    ///
+    /// # Errors
+    /// Busy while all of the plugin's image ids are out and none drawn yet
+    /// (draw, then ask again); NotFound for an index the document does not
+    /// have; Invalid for a malformed reply; otherwise the host's refusals.
+    pub fn ask_image(
+        &self,
+        host: &Host<'_>,
+        document: DocId,
+        (index, side): (u32, u32),
+        input: &mut [u8],
+        out: &mut [u8],
+    ) -> Result<BlockImage, Error> {
+        let ask = wire::ServiceDocImageAsk {
+            document: document.0,
+            index,
+            side,
+        };
+        let n = self.call(host, schema::OP_IMAGE, &[&ask], input, out)?;
+        let row = one(out.get(..n).ok_or(Error::Invalid)?)?
+            .decode::<wire::ServiceDocImage>()
+            .map_err(|_| Error::Invalid)?;
+        if row.index != index {
+            return Err(Error::Invalid);
+        }
+        Ok(BlockImage(row))
+    }
 }
