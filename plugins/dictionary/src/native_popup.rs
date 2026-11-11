@@ -1,7 +1,13 @@
 //! The lookup panel as a native overlay screen filling `core.lookup`: the word
 //! and its entries from the providers (`core.lookup` service, one page per
 //! provider) over the lower part of the screen, scrolled by button or tap.
-use crate::native_panel::{Entry, MAX_ENTRIES, Panel, Step};
+use crate::{
+    native_disk::{HostRoot, Routed},
+    native_folders::{self, Folders},
+    native_model::{self, Listing},
+    native_panel::{Entry, MAX_ENTRIES, Panel, Step},
+    native_source::Dictionaries,
+};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled, Rect,
@@ -33,8 +39,11 @@ struct Layout {
 #[derive(Debug, Default)]
 pub struct View {
     word: String,
-    /// The folder the dictionaries are in, for the message when there are none.
+    /// What the dictionaries and the providers found.
     entries: Vec<Entry>,
+    /// The folder, where none holds a dictionary and nothing else answered:
+    /// the message says so.
+    none: Option<String>,
     /// Built at the first draw, when the font is there to measure with.
     panel: Option<Panel>,
     layout: Layout,
@@ -56,7 +65,15 @@ impl View {
         }
         view.word = clean_word(&view.word)?;
         language = clean_language(language);
-        view.entries = entries(host, &view.word, &language)?;
+        let found = own_entries(host, &view.word, &mut view.entries)?;
+        let own = core::mem::take(&mut view.entries);
+        view.entries = entries(host, &view.word, &language, own)?;
+        if found == 0 && view.entries.is_empty() && !view.word.is_empty() {
+            let mut scratch = [0u8; 300];
+            view.none = Some(text::copy(
+                native_folders::folder_setting(host, &mut scratch)?.trim_matches('/'),
+            )?);
+        }
         Ok(view)
     }
 
@@ -97,17 +114,28 @@ impl View {
         if self.panel.is_some() {
             return Ok(());
         }
-        let empty = messages.format(
-            host,
-            "dictionary.not-found",
-            &[Arg::Text {
-                name: "word",
-                value: &self.word,
-            }],
-        )?;
+        let empty = match &self.none {
+            Some(folder) => messages.format(
+                host,
+                "dictionary.none",
+                &[Arg::Text {
+                    name: "folder",
+                    value: folder,
+                }],
+            )?,
+            None => messages.format(
+                host,
+                "dictionary.not-found",
+                &[Arg::Text {
+                    name: "word",
+                    value: &self.word,
+                }],
+            )?,
+        };
         let wide = f32::from(width.saturating_sub(2 * style.margin)).max(1.0);
+        let entries = core::mem::take(&mut self.entries);
         self.panel = Some(Panel::new(
-            &self.entries,
+            &entries,
             &empty,
             |t| font.measure_text(style.text, t),
             wide,
@@ -228,10 +256,75 @@ impl View {
     }
 }
 
-/// What the providers answer for `word`, one page each, up to [`MAX_ENTRIES`];
-/// providers that found nothing are left out. No providers is no entries.
-fn entries(host: &Host<'_>, word: &str, language: &str) -> Result<Vec<Entry>, Error> {
-    let mut found = Vec::new();
+/// What the plugin's own dictionaries say of `word`, every definition whole
+/// (the entry limit of the lookup service is for what other plugins are given;
+/// the panel reads what a lookup reads at most, [`BUDGET`] bytes, together),
+/// kept in `found`; how many dictionaries the folder holds, ready or not. A
+/// folder that cannot be listed holds none.
+///
+/// # Errors
+/// `NoMemory` and the host's refusal to open the files.
+fn own_entries(host: &Host<'_>, word: &str, found: &mut Vec<Entry>) -> Result<usize, Error> {
+    if word.is_empty() {
+        return Ok(0);
+    }
+    let mut scratch = [0u8; 300];
+    let folder = native_folders::folder_setting(host, &mut scratch)?;
+    let (files, data) = (HostRoot::files(host), HostRoot::data(host));
+    let storage = Routed {
+        files: &files,
+        data: &data,
+    };
+    let mut folders = Folders::open(host)?;
+    let outcome = read_own(&mut folders, &storage, folder, word, found);
+    let released = folders.finish();
+    let count = outcome?;
+    released?;
+    Ok(count)
+}
+
+/// The bytes of definitions the panel reads at most, over all dictionaries.
+pub const BUDGET: usize = paperpaw_stardict::LOOKUP_BUDGET;
+
+/// [`own_entries`] over any listing and storage.
+///
+/// # Errors
+/// `NoMemory` only.
+pub fn read_own(
+    listing: &mut impl Listing,
+    storage: &dyn paperpaw_sdk::Storage,
+    folder: &str,
+    word: &str,
+    found: &mut Vec<Entry>,
+) -> Result<usize, Error> {
+    let mut source = Dictionaries::new(listing, storage, folder)?;
+    let count = match source.found() {
+        Ok(count) => count,
+        Err(Error::NoMemory) => return Err(Error::NoMemory),
+        Err(_) => return Ok(0),
+    };
+    let mut budget = BUDGET;
+    for definition in native_model::all_within(&mut source, word, &mut budget)? {
+        push(
+            found,
+            Entry {
+                source: definition.title,
+                text: definition.text,
+            },
+        )?;
+    }
+    Ok(count)
+}
+
+/// What the providers answer for `word`, one page each, up to [`MAX_ENTRIES`],
+/// after the entries already in `found`; providers that found nothing are left
+/// out. No providers is no entries.
+fn entries(
+    host: &Host<'_>,
+    word: &str,
+    language: &str,
+    mut found: Vec<Entry>,
+) -> Result<Vec<Entry>, Error> {
     if word.is_empty() {
         return Ok(found);
     }
