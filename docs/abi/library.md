@@ -243,7 +243,7 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   the host walks the catalog in the query's order and skips `cursor` matches. A cursor of an older
   catalog generation is `ERR_STATE`: ask again from 0. `end.total` counts every match, not only the
   pages read. Sort 4 (recently opened) orders by the opened rank first, then title, then path, so
-  equal ranks keep one order. Facets page the same way; for tags and folders `first` is
+  equal ranks keep one order. A sort key is the lowercase text of its order (title; author and title; series and number) **cut at 96 bytes**, and a tie, a cut included, goes by path, so the order stays fixed under one generation. Facets page the same way; for tags and folders `first` is
   `0xFFFF_FFFF` (no jump: a book can carry several). Where a device cap stops a walk early (a cap of
   the X4, never a memory shortage), `service.end.flags` bit 3 `partial` says the result is cut.
 - [D] **Checkpoints are a cache, never needed.** To spare the skip, the host may keep checkpoints in

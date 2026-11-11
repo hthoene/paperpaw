@@ -11,6 +11,9 @@
 //! catalog and never a list of the result. The first pass counts what is
 //! found (`end.total`). The rows are made from the slots of the last pass,
 //! one line of the catalog a row (title, author and series read into 288 bytes).
+//! A book that is not kept costs no allocation: its key is made in one scratch
+//! key (the buffers of the slot it pushes out come back to it) and compared
+//! with the worst slot before it is moved into one.
 //! Checkpoints (library.md 2.1) are a cache the contract leaves out; none yet.
 //!
 //! The order is the SDK's `Query::key` (title, author then title, series then
@@ -54,7 +57,7 @@ const NEVER_OPENED: u32 = 255;
 
 /// Where a book stands in the order: the first key, the lowercase text and the
 /// path. Compared as they are laid out.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 struct Key {
     first: u32,
     text: String,
@@ -77,10 +80,7 @@ struct Selection {
 impl Selection {
     fn new(want: usize, descending: bool) -> Result<Self, i32> {
         let mut slots = Vec::new();
-        // One more than the window: a slot goes in before the last is dropped.
-        slots
-            .try_reserve_exact(want + 1)
-            .map_err(|_| ERR_NO_MEMORY)?;
+        slots.try_reserve_exact(want).map_err(|_| ERR_NO_MEMORY)?;
         Ok(Self {
             slots,
             want,
@@ -92,24 +92,44 @@ impl Selection {
         if self.descending { b.cmp(a) } else { a.cmp(b) }
     }
 
-    /// Takes the book if it is after `after` and among the first `want`.
-    fn offer(&mut self, key: Key, offset: u64, after: Option<&Key>) {
-        if self.want == 0 || after.is_some_and(|a| self.order(&key, a) != Ordering::Greater) {
+    /// Takes the book whose key is in `scratch` if it is after `after` and
+    /// before the worst slot kept (or the window is not full): the key moves
+    /// into the slot and the scratch takes the dropped slot's buffers, so a
+    /// book that is not kept costs no allocation.
+    fn offer(&mut self, scratch: &mut Key, offset: u64, after: Option<&Key>) {
+        if self.want == 0 || after.is_some_and(|a| self.order(scratch, a) != Ordering::Greater) {
+            return;
+        }
+        let full = self.slots.len() >= self.want;
+        if full
+            && self
+                .slots
+                .last()
+                .is_none_or(|worst| self.order(scratch, &worst.key) != Ordering::Less)
+        {
             return;
         }
         let at = self
             .slots
-            .partition_point(|s| self.order(&s.key, &key) == Ordering::Less);
-        if at < self.want {
-            self.slots.insert(at, Slot { key, offset });
-            self.slots.truncate(self.want);
-        }
+            .partition_point(|s| self.order(&s.key, scratch) == Ordering::Less);
+        let fresh = if full {
+            self.slots.pop().map(|slot| slot.key).unwrap_or_default()
+        } else {
+            Key::default()
+        };
+        let key = core::mem::replace(scratch, fresh);
+        // The room is there: the window was reserved, and one slot is out.
+        self.slots.insert(at, Slot { key, offset });
     }
 }
 
-/// `text` appended to `out` in lowercase, reserved as it grows.
-fn push_lower(out: &mut String, text: &str) -> Result<(), i32> {
+/// `text` appended to `out` in lowercase, reserved as it grows, until `out`
+/// is `cap` bytes (a character may pass it by two).
+fn push_lower(out: &mut String, text: &str, cap: usize) -> Result<(), i32> {
     for ch in text.chars() {
+        if out.len() >= cap {
+            break;
+        }
         for low in ch.to_lowercase() {
             out.try_reserve(4).map_err(|_| ERR_NO_MEMORY)?;
             out.push(low);
@@ -197,7 +217,7 @@ impl<'a> Engine<'a> {
         for word in q.words.split_whitespace() {
             words.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
             let mut lower = String::new();
-            push_lower(&mut lower, word)?;
+            push_lower(&mut lower, word, usize::MAX)?;
             words.push(lower);
         }
         let mut archive = None;
@@ -234,7 +254,7 @@ impl<'a> Engine<'a> {
     }
 
     /// Whether the book is found.
-    fn keeps(&self, record: &catalog::Record) -> Result<bool, i32> {
+    fn keeps(&self, record: &catalog::Record, words: &mut String) -> Result<bool, i32> {
         if (self.hide)(&record.path) || !self.base.finds(record) {
             return Ok(false);
         }
@@ -249,86 +269,93 @@ impl<'a> Engine<'a> {
                 return Ok(false);
             }
         }
-        self.has_words(record)
+        self.has_words(record, words)
     }
 
     /// Whether every word is in the title, author, series, tags or file name.
-    fn has_words(&self, record: &catalog::Record) -> Result<bool, i32> {
+    fn has_words(&self, record: &catalog::Record, text: &mut String) -> Result<bool, i32> {
         if self.words.is_empty() {
             return Ok(true);
         }
-        let mut text = String::new();
+        // One buffer for every book of the pass.
+        text.clear();
         for piece in [&record.title, &record.author, &record.series] {
-            push_lower(&mut text, piece)?;
-            push(&mut text, " ")?;
+            push_lower(text, piece, usize::MAX)?;
+            push(text, " ")?;
         }
         for tag in record.tags() {
-            push_lower(&mut text, tag)?;
-            push(&mut text, " ")?;
+            push_lower(text, tag, usize::MAX)?;
+            push(text, " ")?;
         }
         push_lower(
-            &mut text,
+            text,
             record.path.rsplit('/').next().unwrap_or_default(),
+            usize::MAX,
         )?;
         Ok(self.words.iter().all(|word| text.contains(word.as_str())))
     }
 
-    /// Where the book goes in the order.
-    fn key(&self, record: &catalog::Record) -> Result<Key, i32> {
-        let mut text = String::new();
-        let mut first = 0;
+    /// Where the book goes in the order, made in `key` (its buffers are
+    /// reused, and the text stops at [`KEY_TEXT`] bytes).
+    fn fill(&self, record: &catalog::Record, key: &mut Key) -> Result<(), i32> {
+        key.text.clear();
+        key.path.clear();
+        key.first = 0;
+        let text = &mut key.text;
         match self.order {
-            Order::Title => push_lower(&mut text, &record.title)?,
+            Order::Title => push_lower(text, &record.title, KEY_TEXT)?,
             Order::Author => {
-                push_lower(&mut text, &record.author)?;
-                push(&mut text, "\u{1}")?;
-                push_lower(&mut text, &record.title)?;
+                push_lower(text, &record.author, KEY_TEXT)?;
+                push(text, "\u{1}")?;
+                push_lower(text, &record.title, KEY_TEXT)?;
             }
             Order::Series => {
-                push_lower(&mut text, &record.series)?;
-                push(&mut text, "\u{1}")?;
+                // The ten digits of the number are kept whole.
+                push_lower(text, &record.series, KEY_TEXT - 11)?;
+                text.truncate(head(text, KEY_TEXT - 11).len());
+                push(text, "\u{1}")?;
                 let mut digits = [b'0'; 10];
                 let mut rest = catalog::series_order(&record.number);
                 for slot in digits.iter_mut().rev() {
                     *slot = b'0' + (rest % 10) as u8;
                     rest /= 10;
                 }
-                push(&mut text, core::str::from_utf8(&digits).unwrap_or_default())?;
+                push(text, core::str::from_utf8(&digits).unwrap_or_default())?;
             }
             Order::Added => {
-                first = u32::MAX - record.added.unwrap_or(0);
-                push_lower(&mut text, &record.title)?;
+                key.first = u32::MAX - record.added.unwrap_or(0);
+                push_lower(text, &record.title, KEY_TEXT)?;
             }
             Order::Recent => {
                 let hash = fnv1a64(&record.path);
-                first = self
+                key.first = self
                     .opened
                     .iter()
                     .position(|h| *h == hash)
                     .and_then(|at| u32::try_from(at).ok())
                     .unwrap_or(u32::MAX);
-                push_lower(&mut text, &record.title)?;
+                push_lower(text, &record.title, KEY_TEXT)?;
             }
         }
-        text.truncate(head(&text, KEY_TEXT).len());
-        Ok(Key {
-            first,
-            text,
-            path: copy(&record.path)?,
-        })
+        text.truncate(head(text, KEY_TEXT).len());
+        push(&mut key.path, &record.path)
     }
 
     /// One scan of the catalog: the books found are offered to `selection`
     /// (those after `after`); returns how many were found in all.
     fn pass(&self, selection: &mut Selection, after: Option<&Key>) -> Result<u32, i32> {
         let (mut found, mut failure) = (0_u32, None);
+        // The key of the book being looked at and the text the words are
+        // looked for in: made once, filled for each book.
+        let (mut scratch, mut words) = (Key::default(), String::new());
         catalog::try_each_at(&*self.reads.storage, &mut |offset, record| {
             if failure.is_some() {
                 return;
             }
-            let outcome = self.keeps(&record).and_then(|kept| {
+            let outcome = self.keeps(&record, &mut words).and_then(|kept| {
                 if kept {
-                    selection.offer(self.key(&record)?, offset, after);
+                    self.fill(&record, &mut scratch)?;
+                    selection.offer(&mut scratch, offset, after);
                 }
                 Ok(kept)
             });
