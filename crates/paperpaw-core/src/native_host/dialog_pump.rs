@@ -280,8 +280,8 @@ impl crate::Kernel {
             (None, None)
         };
         let params = Params::new()
-            .with("core.request", request)
-            .with("core.kind", kind);
+            .with("core.request", request.as_str())
+            .with("core.kind", kind.as_str());
         let own = self.guard().is_some_and(|guard| {
             self.shared
                 .native_instances
@@ -290,11 +290,27 @@ impl crate::Kernel {
         });
         // Serials only grow: what is at or past this was opened just now.
         let first = self.next_serial;
+        // The params a native dialog reads come from a hand-over of the
+        // host's (`ui.md` 3.2), named by the open as a plugin's `open` names
+        // its own; a dialog that is not native keeps the params. Without
+        // memory for it the dialog opens without (the keyboard refuses it).
+        let handover = store.handover_dialog(&request, &kind).ok();
+        self.shared
+            .native_instances
+            .set_pending_handover(handover.map(Some));
+        // Open for the instance about to be made, so that a native dialog
+        // reads its question in its `screen_opened`, inside the open.
+        let _ = store.dialog_opening(start.request, first);
         self.from_guard = own;
         self.from_guard_own = own;
         self.apply(Command::OpenSlot(slot.clone(), params));
         self.from_guard = false;
         self.from_guard_own = false;
+        // Not named by any later open; freed where no screen took it.
+        self.shared.native_instances.set_pending_handover(None);
+        if let Some(id) = handover {
+            let _ = store.release(id);
+        }
         // Looked up at once, before the commands the open led to run: one of
         // them may open the same slot again (another plugin's, which waits
         // below a guard), and the question must not be bound to that instance.

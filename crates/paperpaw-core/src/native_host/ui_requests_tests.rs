@@ -806,3 +806,32 @@ fn a_restart_that_does_not_fit_beside_the_old_text_frees_the_old_one_first() {
     assert_eq!(inner.requests[0].text.bytes, 0);
     assert_eq!(inner.text_memory, 0);
 }
+
+#[test]
+fn a_dialog_reads_its_question_while_it_opens_and_a_failed_open_cancels_it() {
+    let s = store();
+    let id = ask(&s, 1, 1, &q(0, 0, ""));
+    let mut started = Vec::new();
+    s.callback_returned(who(1, 1), false, &mut |start| started.push(start.request))
+        .unwrap();
+    assert_eq!(started, [id]);
+    // Before the open ran, the dialog has no question to read.
+    assert_eq!(s.question(7, id, |_| ()), Err(ERR_STATE));
+    // Named open for the instance about to be made: its `screen_opened`
+    // reads the question, inside the open.
+    s.dialog_opening(id, 7).unwrap();
+    assert_eq!(s.question(7, id, |shown| shown.kind), Ok(0));
+    // Another instance does not (the request is the dialog's alone).
+    assert_eq!(s.question(8, id, |_| ()), Err(ERR_STATE));
+    // The open made it: told the same instance, nothing changes; another
+    // instance (the stack made a screen before it) takes it over.
+    s.dialog_opened(id, 7).unwrap();
+    s.dialog_opened(id, 9).unwrap();
+    assert_eq!(s.question(9, id, |shown| shown.kind), Ok(0));
+    // An open that did not come cancels what was opened for it.
+    let second = ask(&s, 2, 1, &q(0, 0, ""));
+    s.callback_returned(who(2, 1), false, &mut |_| {}).unwrap();
+    s.dialog_opening(second, 11).unwrap();
+    s.dialog_failed(second).unwrap();
+    assert_eq!(s.question(11, second, |_| ()), Err(ERR_STATE));
+}
