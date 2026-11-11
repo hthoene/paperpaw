@@ -695,14 +695,37 @@ impl Staging {
         )
     }
 
-    /// How many actions, settings and setting groups are staged: what a
-    /// native publication must make room for before it merges.
+    /// How many actions, settings made on the heap and setting groups are
+    /// staged: what a native publication must make room for before it merges
+    /// (the settings kept in the program need only a place in the indexes:
+    /// [`Self::native_fixed_count`]).
     pub(crate) fn native_counts(&self) -> (usize, usize, usize) {
         (
             self.actions.len(),
-            self.settings.len(),
+            self.settings
+                .iter()
+                .filter(|setting| matches!(setting, Staged::Owned(_)))
+                .count(),
             self.setting_groups.len(),
         )
+    }
+
+    /// How many staged settings are kept in the program.
+    pub(crate) fn native_fixed_count(&self) -> usize {
+        self.settings
+            .iter()
+            .filter(|setting| matches!(setting, Staged::Fixed(..)))
+            .count()
+    }
+
+    /// Stages spec `at` of `list`, a table in the program that equals what the
+    /// plugin declared, without a copy of it on the heap.
+    pub(crate) fn native_fixed(
+        &mut self,
+        list: &'static [SettingSpec],
+        at: usize,
+    ) -> Result<(), i32> {
+        push_native(&mut self.settings, Staged::Fixed(list, at))
     }
 
     /// Stage already decoded native contributions without infallible growth.

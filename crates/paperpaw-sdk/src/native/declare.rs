@@ -52,6 +52,11 @@ pub(crate) mod records_wire;
 )]
 pub(crate) mod settings_value;
 
+#[cfg(feature = "kernel")]
+mod fixed_table;
+#[cfg(feature = "kernel")]
+pub use fixed_table::fixed_settings_source;
+
 use records_wire::{
     ActionSpec, ResourceFontExtension, ResourceFontFace, ResourceHyphenation, ScreenSpec,
     SettingExtra, SettingGroup, SettingSpec, WireEncode, records_encode_of,

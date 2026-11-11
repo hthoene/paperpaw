@@ -388,11 +388,9 @@ fn index_size(batches: usize, names: usize) -> Result<usize, i32> {
 fn growth(current: [usize; 2], needed: [usize; 2], budget: usize) -> Result<[usize; 2], i32> {
     let base = core::array::from_fn::<_, 2, _>(|i| current[i].max(needed[i]));
     let desired = core::array::from_fn::<_, 2, _>(|i| {
-        if needed[i] > current[i] {
-            current[i].saturating_mul(2).max(needed[i])
-        } else {
-            current[i]
-        }
+        // Exactly what is needed: doubling left a 512-name vector for 407
+        // names and no room for the pack's 65th batch under the budget.
+        current[i].max(needed[i])
     });
     let used = index_size(base[0], base[1])?;
     let spare = budget.checked_sub(used).ok_or(ERR_NO_SPACE)?;

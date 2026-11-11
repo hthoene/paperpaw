@@ -312,6 +312,49 @@ fn on_the_card(
 /// # Errors
 /// [`Unavailable`] where the shared host views cannot be made; then nothing is
 /// registered.
+/// A value the linker puts in this program's read-only data (the same segment
+/// as the plugins' declaration bytes), to find that segment by.
+static RODATA_ANCHOR: [u8; 16] = *b"paperpaw-rodata\0";
+
+/// The program's read-only data as a mapping (address and length) that stays
+/// mapped for the whole run, or `(null, 0)` where it cannot be found: the
+/// linked plugins keep their declarations as offsets into it, not as copies
+/// (`Kernel::register_linked`).
+///
+/// Found as the mapping of this process that holds [`RODATA_ANCHOR`] and is
+/// readable, not writable and not executable (`/proc/self/maps`, Linux).
+pub fn rodata_image() -> (*const u8, usize) {
+    #[cfg(target_os = "linux")]
+    {
+        let anchor = std::ptr::addr_of!(RODATA_ANCHOR) as usize;
+        if let Some((start, len)) = std::fs::read_to_string("/proc/self/maps")
+            .ok()
+            .and_then(|maps| mapping_of(&maps, anchor))
+        {
+            return (start as *const u8, len);
+        }
+    }
+    (std::ptr::null(), 0)
+}
+
+/// The `(start, length)` of the read-only, non-executable mapping in `maps`
+/// (the text of `/proc/self/maps`) that holds `address`.
+#[cfg(any(target_os = "linux", test))]
+fn mapping_of(maps: &str, address: usize) -> Option<(usize, usize)> {
+    for line in maps.lines() {
+        let mut parts = line.split_ascii_whitespace();
+        let (range, perms) = (parts.next()?, parts.next()?);
+        let (start, end) = range.split_once('-')?;
+        let start = usize::from_str_radix(start, 16).ok()?;
+        let end = usize::from_str_radix(end, 16).ok()?;
+        if address < start || address >= end {
+            continue;
+        }
+        return (perms.starts_with("r--")).then_some((start, end - start));
+    }
+    None
+}
+
 pub fn register(
     kernel: &mut Kernel,
     profile: &'static Profile,
@@ -418,6 +461,7 @@ pub fn register(
             DesktopServices::new,
             teardown_report,
             linked_report,
+            rodata_image(),
         )
     };
     let mut registered = 0;
@@ -433,6 +477,33 @@ pub fn register(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_read_only_mapping_is_the_one_that_holds_the_address() {
+        let maps = "\
+55d0c8a00000-55d0c8a50000 r--p 00000000 08:01 123 /bin/x
+55d0c8a50000-55d0c8b50000 r-xp 00050000 08:01 123 /bin/x
+55d0c8b50000-55d0c8b60000 rw-p 00150000 08:01 123 /bin/x
+";
+        assert_eq!(
+            mapping_of(maps, 0x55d0_c8a0_1000),
+            Some((0x55d0_c8a0_0000, 0x5_0000))
+        );
+        // Executable or writable: none; no mapping: none.
+        assert_eq!(mapping_of(maps, 0x55d0_c8a6_0000), None);
+        assert_eq!(mapping_of(maps, 0x55d0_c8b5_0000), None);
+        assert_eq!(mapping_of(maps, 0x1000), None);
+        assert_eq!(mapping_of("garbage", 0x1000), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn this_programs_read_only_data_is_found_and_holds_the_anchor() {
+        let (start, len) = rodata_image();
+        assert!(len > 0, "no read-only mapping found");
+        let anchor = std::ptr::addr_of!(RODATA_ANCHOR) as usize;
+        assert!(start as usize <= anchor && anchor < start as usize + len);
+    }
 
     fn keys(wired: Wired) -> Vec<&'static str> {
         offered(wired).iter().map(|service| service.key).collect()
