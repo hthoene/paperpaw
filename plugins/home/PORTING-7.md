@@ -584,5 +584,5 @@ is on top. `event.stack_changed` (token `STACK_CHANGED`) reads the stack top; a 
 another screen lets its page and widgets go (`Dashboard::cover`) and sets `stale`, so the next
 `ScreenShown` lays it out again, which it always did (`shown()` marks the page stale). A page with
 options open, an item being moved or a finger's drag is kept. The stack is read only when a page is
-held; the request buffer is 256 bytes, the reply 4,096. `Screens::open` reserves exactly one slot
-(the state of a dashboard is 600 bytes; growth by the usual rule took four).
+held; the request buffer is 256 bytes, the reply 4,096.
+`Screens::open` grows exactly since #1184 (a dashboard's state is 600 bytes).
