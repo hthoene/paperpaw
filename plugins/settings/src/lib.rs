@@ -100,6 +100,11 @@ mod native_settings {
 #[cfg(feature = "linked")]
 pub static NATIVE_SETTINGS: &[paperpaw_sdk::SettingSpec] = &native_settings::SETTINGS;
 
+/// The setting groups the plugin declares, as a table kept in the program
+/// like [`NATIVE_SETTINGS`].
+#[cfg(feature = "linked")]
+pub static NATIVE_GROUPS: &[paperpaw_sdk::SettingGroupSpec] = &native_settings::GROUPS;
+
 /// Catalog sources published before native screen callbacks.
 pub static CATALOGS: [(&str, &str); 2] = [
     ("en", include_str!("../i18n/en.ini")),
