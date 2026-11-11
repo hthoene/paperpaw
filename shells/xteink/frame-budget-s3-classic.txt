@@ -797,4 +797,4 @@ allow indirect paperpaw_core::native_host::shell::canvas_describe 1 new in train
 allow indirect paperpaw_fat::remove_tree 10 literal call not proven on every path
 allow indirect miniz_oxide::inflate::core::decompress 3 jump table of a `match` at miniz_oxide/inflate/core.rs:1461
 allow indirect paperpaw_core::native_host::commands::open::claim_handovers 3 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect paperpaw_text::stored::index::IndexBuilder::finish 1 new in train 13: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect _ZN4core3ptr41drop_glue$LT$paperpaw_sdk..work..Work$GT$ 1 new with #1209 (moved from `IndexBuilder::finish` in that build): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4

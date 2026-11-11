@@ -829,9 +829,13 @@ reply 4,096 bytes, stage payload 3,840.
   for `image_prepare` uses one band buffer of at most 4 KiB plus the decoder's transient state, one
   decode at a time, fallible (`status` 5 when the heap cannot). The state differs per format: PNG
   the 32 KiB inflate window plus two source rows; **on the X4 a PNG's source row is capped at 8
-  KiB** (2,048 pixels of 8-bit RGBA, 1,024 at 16 bits; wider is `status` 3 too large), so the peak
-  is at most 32 + 2 × 8 = 48 KiB, about 45 KiB at a 1,600-pixel row (Senior's remark: without the
-  cap an 8 Mpx source could reach about 160 KiB; other devices keep the 8 Mpx limit only);
+  KiB** (2,048 pixels of 8-bit RGBA, 1,024 at 16 bits; wider is `status` 3 too large), so the
+  window and the rows are at most 32 + 2 × 8 = 48 KiB (Senior's remark: without the cap an 8 Mpx
+  source could reach about 160 KiB; other devices keep the 8 Mpx limit only). **Measured, the
+  whole prepare** (inflate state, rows, downscaler, the 8 KiB append chunk, the grid's row) of a
+  full-screen 480 × 800 PNG at the X4's limits **peaks at about 63 KiB** (63,123 bytes), about 66
+  KiB (66,003) see-through (`prepare_tests.rs`,
+  `a_full_screen_see_through_picture_on_the_x4_stays_within_the_opaque_bounds`);
   progressive JPEG a coefficient store the decoder sizes from the free heap (it keeps only the
   frequencies the output size needs); interlaced GIF the rows of the part on the screen; baseline
   JPEG and BMP a few rows. **This transient peak (PNG the largest) is an X4 gate item**, measured
@@ -844,7 +848,7 @@ reply 4,096 bytes, stage payload 3,840.
   of whole source columns (a tile is at most **32 KiB** on the X4, the draw's own ceiling, and at
   least one column of `height × channels` bytes, at most 4,800), after the decoder has freed its
   state, so the peak is the tile + one output row (at most 4,800) + the append chunk (8 KiB): **at
-  most about 45 KiB** at 1,600 pixels, below the PNG decode's 48 KiB peak, and never at the same
+  most about 45 KiB** at 1,600 pixels, below the PNG prepare's measured peak, and never at the same
   time as a decode or a draw. The brightness grid is 8 sums of 8 bytes and the grid's 64 bytes on
   the stack (about 130 bytes) and one source row (at most 4,800 bytes) on the heap. **See-through**
   (bit 2) adds no block a colour picture lacks: the cache writer's append chunk stays 8 KiB, and
