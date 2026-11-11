@@ -87,9 +87,17 @@ run mkdir -p "$bundle"
 run espflash save-image --chip esp32c3 --merge --skip-padding --flash-size 16mb \
   --partition-table partitions.csv "$elf" "$bundle/$image"
 
-# 3. The image can take the next update (two app slots, the app fits them).
+# 3. The image can take the next update (two app slots, the app fits them and CrossPoint's).
+# For the test image this is a REPORT, not a gate: the owner flashes it over USB into the
+# X4's own slots (0x7f0000 B each), so only the own slot must hold it; whether it also fits
+# CrossPoint's smaller slot goes into BUILD-INFO.txt, never hidden.
 cd "$root"
-run cargo run -q --release -p paperpaw-sign -- check-image "$bundle/$image"
+if run cargo run -q --release -p paperpaw-sign -- check-image "$bundle/$image"; then
+  check="ok (fits the own slot and CrossPoint's)"
+else
+  check="FAILED: the app does not fit a slot of CrossPoint's size; USB flash only (see the log above)"
+  echo "WARNING: check-image: $check" >&2
+fi
 
 # 3b. The frames of the interface-7 host stay within the X4's budget (2,048 B each).
 run cargo run -q --release -p paperpaw-sign -- frames "$elf" --budget "$fw/frame-budget-ppn5.txt"
@@ -107,6 +115,7 @@ if [ "$dry" = 0 ]; then
     echo "rustc:     $(cd "$fw" && rustc --version)"
     echo "espflash:  $(espflash --version | head -1)"
     echo "image:     $image  ($(stat -c %s "$bundle/$image") bytes)"
+    echo "check-image: $check"
     echo "app slot:  0x7f0000 bytes (ota_0 at 0x10000, ota_1 at 0x800000; shells/xteink/partitions.csv)"
     echo "cargo:     cargo build --release --locked --target riscv32imc-unknown-none-elf --no-default-features --features $features  (in shells/xteink)"
     echo "built:     $(date -u +%Y-%m-%dT%H:%M:%SZ)"

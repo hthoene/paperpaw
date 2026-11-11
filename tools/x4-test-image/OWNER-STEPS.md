@@ -23,7 +23,8 @@ sha256sum -c SHA256SUMS            # every line must say OK
 # Windows PowerShell:  Get-FileHash <IMAGE> -Algorithm SHA256   (compare with SHA256SUMS)
 ```
 
-Stop if a line says FAILED. The commit and the features are in `BUILD-INFO.txt`
+Stop if a line says FAILED. `BUILD-INFO.txt` also says whether the app fits CrossPoint's smaller
+slot; if it does not, this image can only be flashed over USB, never from CrossPoint's menu. The commit and the features are in `BUILD-INFO.txt`
 (features contain `test-image`, never `release`).
 
 ## 2. Save what the X4 has now (do not skip)
