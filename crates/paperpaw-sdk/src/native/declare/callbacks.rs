@@ -107,6 +107,10 @@ pub enum EventKind {
     /// The host's answer to text handed to `command.speak` (`event.spoken`, ui.md 7):
     /// it goes only to plugins that subscribed.
     Spoken,
+    /// A document this plugin opened moved in its preparation
+    /// (`event.document_changed`, document.md 2.1): it goes only to openers that
+    /// subscribed, so without it a book being prepared is never heard of again.
+    DocumentChanged,
 }
 
 impl EventKind {
@@ -158,6 +162,7 @@ impl EventKind {
             Self::LookupReady => records_wire::EVENT_LOOKUP_READY_TAG,
             Self::WidgetChanged => records_wire::EVENT_WIDGET_CHANGED_TAG,
             Self::Spoken => records_wire::EVENT_SPOKEN_TAG,
+            Self::DocumentChanged => records_wire::EVENT_DOCUMENT_CHANGED_TAG,
         }
     }
 }

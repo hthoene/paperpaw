@@ -220,6 +220,15 @@ event_fn!(lookup_ready, wire::EventLookupReady<'_>, |r| {
     }
 });
 
+event_fn!(document_changed, wire::EventDocumentChanged, |r| {
+    Event::DocumentChanged {
+        now_ms: r.now_ms,
+        document: crate::native::document::DocId::from_wire(r.document),
+        state: crate::native::document::Preparation::of(r.state),
+        progress_ppm: r.progress_ppm,
+    }
+});
+
 fn old_value(bytes: &[u8]) -> Result<Option<SettingValue<'_>>, Error> {
     if bytes.is_empty() {
         return Ok(None);

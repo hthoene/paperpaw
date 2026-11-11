@@ -7,8 +7,8 @@
 //! `native_*` models, tested without one.
 use crate::{
     declarations::{
-        ANNOTATIONS, BOOK_MOVED, FOOTNOTE, SCREEN, SEARCH, SEARCH_WORK, SETTING_CHANGED, SKIM,
-        SPOKEN, STACK_CHANGED, STARTED, STOPPING, SUSPEND, TOC, WORK_DUE,
+        ANNOTATIONS, BOOK_MOVED, DOCUMENT_CHANGED, FOOTNOTE, SCREEN, SEARCH, SEARCH_WORK,
+        SETTING_CHANGED, SKIM, SPOKEN, STACK_CHANGED, STARTED, STOPPING, SUSPEND, TOC, WORK_DUE,
     },
     native_annotations_view::{AnnotationsView, Outcome as NotesOutcome},
     native_footnote::{Footnote, Pressed},
@@ -191,6 +191,25 @@ impl NativeReader {
             SEARCH => self.open_search(host, instance, handover),
             FOOTNOTE => self.open_note(host, instance, handover),
             SKIM => self.open_skim(host, instance, handover),
+            _ => Ok(()),
+        }
+    }
+
+    /// A screen of the reader came to the top.
+    fn screen_shown(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        instance: paperpaw_sdk::native::ui::Instance,
+        now_ms: u64,
+    ) -> Result<(), Error> {
+        match token {
+            SCREEN => self.reading_shown(host, instance, now_ms),
+            TOC => self.tocs.shown(TOC, instance),
+            SEARCH => self.searches.shown(SEARCH, instance),
+            ANNOTATIONS => self.annotations.shown(ANNOTATIONS, instance),
+            FOOTNOTE => self.notes.shown(FOOTNOTE, instance),
+            SKIM => self.skims.shown(SKIM, instance),
             _ => Ok(()),
         }
     }
@@ -656,6 +675,15 @@ impl NativeReader {
                 view.start_aloud(host, (docs, self.library.as_ref()));
             }
         }
+        // A book still prepared asks its state again: a hint the host lost
+        // (`event.document_changed`) never leaves the screen waiting.
+        if self
+            .screens
+            .get(instance)
+            .is_some_and(|view| view.preparing())
+        {
+            self.document_changed(host);
+        }
         self.follow_note(host, instance)
     }
 
@@ -691,6 +719,30 @@ impl NativeReader {
                 Ok(())
             }
             Err(_) => Ok(()),
+        }
+    }
+
+    /// A document's state moved (`event.document_changed`, a hint): the reading
+    /// screens that wait for their book to be prepared ask its state; one that
+    /// opened or failed is drawn again. A refusal on the way (no memory) is
+    /// said on the screen: the callback ends well, so the redraw staged here
+    /// is kept.
+    fn document_changed(&mut self, host: &Host<'_>) {
+        let Some(docs) = &self.docs else {
+            return;
+        };
+        let library = self.library.as_ref();
+        let mut redraw = false;
+        for view in self.screens.all().filter(|view| view.preparing()) {
+            // An error has set the screen's message already.
+            redraw |= view.prepared(host, (docs, library)).unwrap_or(true);
+        }
+        if redraw {
+            let mut scratch = [0; 64];
+            CommandSender::new(host, &mut scratch)
+                .queue_redraw(RedrawMode::Partial)
+                .ok();
+            self.start_count(host);
         }
     }
 
@@ -742,7 +794,8 @@ impl Plugin for NativeReader {
             kinds::Answered,
             kinds::SettingChanged,
             kinds::Spoken,
-            kinds::StackChanged
+            kinds::StackChanged,
+            kinds::DocumentChanged
         ) else {
             return Ok(());
         };
@@ -758,6 +811,10 @@ impl Plugin for NativeReader {
                 Ok(())
             }
             Event::Started { .. } if token == STARTED => self.reopen_last(host),
+            Event::DocumentChanged { .. } if token == DOCUMENT_CHANGED => {
+                self.document_changed(host);
+                Ok(())
+            }
             Event::BookMoved { from, path, .. } if token == BOOK_MOVED => {
                 self.moved(host, from, path)
             }
@@ -805,15 +862,7 @@ impl Plugin for NativeReader {
                 instance: Some(instance),
                 now_ms,
                 ..
-            } => match token {
-                SCREEN => self.reading_shown(host, instance, now_ms),
-                TOC => self.tocs.shown(TOC, instance),
-                SEARCH => self.searches.shown(SEARCH, instance),
-                ANNOTATIONS => self.annotations.shown(ANNOTATIONS, instance),
-                FOOTNOTE => self.notes.shown(FOOTNOTE, instance),
-                SKIM => self.skims.shown(SKIM, instance),
-                _ => Ok(()),
-            },
+            } => self.screen_shown(host, token, instance, now_ms),
             Event::ScreenClosed { instance, .. } => {
                 match token {
                     SCREEN => {

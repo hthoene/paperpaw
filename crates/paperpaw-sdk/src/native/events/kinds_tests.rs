@@ -329,6 +329,12 @@ fn fixtures() -> Vec<Vec<u8>> {
                 cookie: 8,
                 status: 1,
             }),
+            Record::EventDocumentChanged(EventDocumentChanged {
+                now_ms: 42,
+                document: 3,
+                state: 1,
+                progress_ppm: 250_000,
+            }),
         ]
         .into_iter()
         .map(encode),

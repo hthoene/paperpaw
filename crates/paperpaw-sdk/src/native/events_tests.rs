@@ -850,3 +850,57 @@ fn every_failed_reason_of_a_server_is_told_as_the_http_reasons() {
         assert_eq!(got.state(), ServerState::Failed { reason });
     }
 }
+
+#[test]
+fn document_changed_reads_the_document_its_state_and_progress() {
+    use crate::native::document::{DocId, Preparation};
+    let encode = |state| {
+        let mut bytes = [0; 64];
+        let n = wire::records_encode(
+            &[wire::Record::EventDocumentChanged(
+                wire::EventDocumentChanged {
+                    now_ms: 5,
+                    document: 3,
+                    state,
+                    progress_ppm: 250_000,
+                },
+            )],
+            &mut bytes,
+        )
+        .unwrap();
+        (bytes, n)
+    };
+    for (state, preparation) in [
+        (0, Preparation::Ready),
+        (1, Preparation::Preparing),
+        (2, Preparation::Failed),
+        // A state this SDK does not know reads as failed, as `DocState` does.
+        (9, Preparation::Failed),
+    ] {
+        let (bytes, n) = encode(state);
+        assert_eq!(
+            Event::decode(&bytes[..n]),
+            Ok(Event::DocumentChanged {
+                now_ms: 5,
+                document: DocId::from_wire(3),
+                state: preparation,
+                progress_ppm: 250_000,
+            })
+        );
+        let decoded = Incoming::new(&bytes[..n])
+            .unwrap()
+            .decode_as::<kinds::DocumentChanged>();
+        assert!(
+            matches!(decoded, Ok(Some(Event::DocumentChanged { .. }))),
+            "{decoded:?}"
+        );
+    }
+    // Every truncation and a byte too many are refused, never a panic.
+    let (bytes, n) = encode(1);
+    for end in 0..n {
+        assert!(Event::decode(&bytes[..end]).is_err(), "{end}");
+    }
+    let mut longer = bytes[..n].to_vec();
+    longer.push(0);
+    assert!(Event::decode(&longer).is_err());
+}

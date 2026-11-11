@@ -18,6 +18,10 @@ const IMAGE_SIDE_MAX: u32 = 1600;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct DocId(u32);
 impl DocId {
+    /// The id a host record names (`event.document_changed`).
+    pub(crate) const fn from_wire(document: u32) -> Self {
+        Self(document)
+    }
     fn record(self) -> wire::ServiceDocRef {
         wire::ServiceDocRef { document: self.0 }
     }
@@ -140,6 +144,17 @@ pub enum Preparation {
     /// Failed; [`DocState::status`] says why. The id stays until it is closed.
     Failed,
 }
+impl Preparation {
+    /// The wire's `state` (`doc_state`, `event.document_changed`): 0 ready, 1
+    /// preparing; a state this SDK does not know reads as failed.
+    pub(crate) const fn of(state: u32) -> Self {
+        match state {
+            0 => Self::Ready,
+            1 => Self::Preparing,
+            _ => Self::Failed,
+        }
+    }
+}
 impl<'a> DocState<'a> {
     /// The document's id.
     #[must_use]
@@ -149,11 +164,7 @@ impl<'a> DocState<'a> {
     /// Ready, preparing or failed. A state this SDK does not know reads as failed.
     #[must_use]
     pub const fn preparation(&self) -> Preparation {
-        match self.0.state {
-            0 => Preparation::Ready,
-            1 => Preparation::Preparing,
-            _ => Preparation::Failed,
-        }
+        Preparation::of(self.0.state)
     }
     /// Progress in millionths while preparing.
     #[must_use]
