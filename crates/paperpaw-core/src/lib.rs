@@ -342,6 +342,11 @@ pub struct Kernel {
     /// Setting defaults from plugins, applied once all are registered:
     /// `(plugin, setting, value)`.
     plugin_defaults: Vec<(Id, Id, Cow<'static, str>)>,
+    /// The device's defaults for settings no plugin had declared when they
+    /// were applied (a native plugin declares its settings after the kernel
+    /// is built): `(setting, value)`, applied as the declaring plugin is
+    /// published (`native_install`).
+    late_device_defaults: Vec<(String, String)>,
     /// Values plugins offer among other plugins' choices, added once all
     /// are registered: `(plugin, setting, value)`.
     plugin_choices: Vec<(Id, Id, Cow<'static, str>)>,

@@ -693,6 +693,9 @@ impl crate::Kernel {
         for group in staging.setting_groups.drain(..) {
             self.shared.settings.add_group(group)?;
         }
+        // The device's defaults for what the plugin has declared (the kernel
+        // was built before it, so they were not known then).
+        self.apply_late_defaults();
         self.publish_fonts(owner, resources)
     }
 }
