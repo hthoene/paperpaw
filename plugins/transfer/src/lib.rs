@@ -35,6 +35,7 @@ mod declarations;
 
 mod cable;
 mod link;
+mod native_cable;
 mod native_draw;
 mod native_entry;
 mod native_files;

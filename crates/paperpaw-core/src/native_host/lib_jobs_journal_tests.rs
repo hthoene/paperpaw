@@ -3,6 +3,7 @@ extern crate std;
 use super::*;
 use crate::native_host::lib_moves_journal::{Opened, SET_ASIDE};
 use crate::native_host::lib_service::moves::Entry;
+use paperpaw_native::host_glue::ERR_STATE;
 use paperpaw_sdk::{MemoryStorage, Storage};
 use std::{string::ToString, vec};
 
@@ -18,6 +19,7 @@ fn delete() -> JobRecord {
     JobRecord::Delete {
         with_notes: true,
         books: vec![book("books/a.epub", 5, 6), book("books/sub/b.txt", 0, 0)],
+        removed: 0b01,
     }
 }
 
@@ -55,16 +57,19 @@ fn limits_are_refused() {
         books: (0..=DELETE_MAX)
             .map(|n| book(&std::format!("b{n}.txt"), 1, 0))
             .collect(),
+        removed: 0,
     };
     assert_eq!(encode(&many), Err(ERR_INVALID));
     let none = JobRecord::Delete {
         with_notes: false,
         books: vec![],
+        removed: 0,
     };
     assert_eq!(encode(&none), Err(ERR_INVALID));
     let long = JobRecord::Delete {
         with_notes: false,
         books: vec![book(&"x".repeat(MAX_PATH + 1), 1, 1)],
+        removed: 0,
     };
     assert_eq!(encode(&long), Err(ERR_INVALID));
     // Seven paths of the longest size fit the reader's bound.
@@ -73,7 +78,15 @@ fn limits_are_refused() {
         books: (0..DELETE_MAX)
             .map(|_| book(&"x".repeat(MAX_PATH), u64::MAX, u64::MAX))
             .collect(),
+        removed: 0x7f,
     };
+    // A bit past the books is no record.
+    let past = JobRecord::Delete {
+        with_notes: false,
+        books: vec![book("a.txt", 1, 0)],
+        removed: 0b10,
+    };
+    assert_eq!(encode(&past), Err(ERR_INVALID));
     assert!(encode(&widest).unwrap().len() <= crate::native_host::lib_moves_journal::MAX_RECORD);
 }
 
@@ -120,6 +133,34 @@ fn one_entry_of_one_kind() {
     journal.write_entry(&entry).unwrap();
     assert_eq!(journal.read_job().unwrap(), None);
     assert_eq!(journal.write_job(&delete()), Err(ERR_BUSY));
+}
+
+#[test]
+fn the_removed_mask_is_written_whole_again() {
+    let card = MemoryStorage::new();
+    let journal = Journal(&card);
+    // No entry, a move's, an import: no delete to mark.
+    assert_eq!(journal.mark_removed(1), Err(ERR_STATE));
+    journal.write_job(&import()).unwrap();
+    assert_eq!(journal.mark_removed(1), Err(ERR_STATE));
+    journal.clear_entry().unwrap();
+    journal.write_job(&delete()).unwrap();
+    journal.mark_removed(0b11).unwrap();
+    let Some(JobRecord::Delete {
+        removed,
+        books,
+        with_notes,
+    }) = journal.read_job().unwrap()
+    else {
+        panic!("a delete");
+    };
+    assert_eq!((removed, books.len(), with_notes), (0b11, 2, true));
+    // A bit past the books is refused and changes nothing.
+    assert_eq!(journal.mark_removed(0b100), Err(ERR_INVALID));
+    assert!(matches!(
+        journal.read_job().unwrap(),
+        Some(JobRecord::Delete { removed: 0b11, .. })
+    ));
 }
 
 #[test]

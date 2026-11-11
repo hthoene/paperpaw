@@ -389,7 +389,7 @@ relative to the data folder).
   `core.publisher-styles` is applied when the book opens (`open_book`), so a change of it takes effect when the
   book is opened again, not by a reflow. X4 list: every setting change wakes the plugin, and the page is laid
   out in the event callback.
-- **Not yet:** pictures and table rows (see below), hands-free and auto-turn, read-aloud. Unmeasured: the time of a reflow on the X4 and the heap of laying out twice.
+- **Not yet:** hands-free and auto-turn, read-aloud (pictures and table rows: see the section after the decorations). Unmeasured: the time of a reflow on the X4 and the heap of laying out twice.
 
 ## Lines under, over and through text, and table rules (view slice R8b, Port E)
 
@@ -405,6 +405,29 @@ relative to the data folder).
   (the existing gap), so a line follows the run's place in that order.
 - X4 gate: Beta 3 skipped lines outside the clip; every draw band here sends all fills (the host clips).
   Beta 3 drew no `Page::rules`: they occur only once table rows are carried over.
+- Pictures and table rows: see the next section.
+
+## Pictures and table rows (view slice R8e, Port E)
+
+- `native_block.rs`: a block whose head says picture and that brings its `doc_image` record is kept as a picture
+  block: `Block::image` is the picture's host handle (the decimal text of `ImageRef::path`) with its size; the
+  layout scales it into the content box as before. A table row (`doc_columns` weights, up to 16, and its
+  `doc_cell` records, up to 16, with the head's header/first/last flags) is kept as `Block::table`; the cells'
+  ends must not go back and must lie in the text on character boundaries, else the row reads as a paragraph of
+  its text (as does a picture or row block that brings none of its records). More than 16 cells is `NoSpace`.
+- `native_draw.rs`: `Ink::image` draws each `Page::images` entry with `canvas.draw_image` (scaled into the box the
+  layout gave it, centred, default style). A handle the host no longer knows (`NotFound`) or a host that draws
+  no pictures (`Unsupported`) leaves the place empty; any other refusal ends the drawing. With rows carried over,
+  the layout's table rules (`Page::rules`) are now filled by the decorations' rule drawing.
+- **Not yet:** a picture the format has not decoded (`pending`) is not asked for again (op 16 `image`), and a handle
+  that ended is not renewed by its `index`: both leave the place empty until the next layout; the view does not
+  release pictures (they end with the document). Unmeasured on the X4: the drawing time of a full-page picture
+  and the heap of a 16-cell row (a `Vec` of cells and one of weights per row being assembled).
+- The metadata asks for the host call `canvas.draw_image` (slot 37) for the pictures.
+- A picture with host handle 0 (the host had no id left: eight are out and none drawn yet) is left empty, the page
+  still draws. Differences: pictures are drawn with the default style, so Beta 3's `core.pictures-in-grays` setting
+  is not applied yet.
+
 - **Not yet:** pictures (`Page::images` through `canvas.draw_image`) and table rows: the block assembler turns
   both into paragraphs (`native_block::start`), so a table's rules never occur yet; carrying them over needs the
   `doc_image` and `doc_columns` pieces of the document service (docs/abi/document.md section 5).
@@ -477,3 +500,61 @@ relative to the data folder).
   the library's preview (512 bytes), not whole (`annotation_text` would read it whole: the export uses the preview, as
   Beta 3's snippet was short too). Editing a note, deleting one and the bookmark toggle are not in this screen (Beta 3 had none
   here); `reader.toggle-bookmark` belongs to the reading screen.
+## Search (native model, `native_search.rs`)
+
+- Host-free: the text looked for (trimmed, compared by lower case, whole characters, hits do not overlap,
+  walked in place without collecting a block's characters), the snippet round a hit (24 characters before,
+  48 after, marks `…`, white space as spaces) and its cut to the row (`with_hit`, over a `Measure` the screen
+  backs with the font), the hits kept (100 at most, in the order of the book; more are counted as "100+"),
+  and the background scan, `Search::step`, that reads 24 blocks of a book (`Blocks`, backed by
+  `core.document` with the filters of the page applied) and keeps their hits. Allocation is fallible and
+  tested refused in turn; a block whose hits could not all be kept is read again and none is kept twice.
+- The text looked for counts its first 32 characters (`MAX_NEEDLE`), so a snippet is at most 24 + 32 + 48
+  characters and the 100 hits stay under about 41 KB even in four-byte characters (typically 10–20 KB); this
+  worst case belongs on the X4 list when the screen lands. A step that fails with an error other than the
+  three that end a section (e.g. `NoSpace` on a block over the caps) leaves the scan where it was, and a
+  screen that gets the same error again must end the search with a notice, not step for ever; as `step`
+  does not return `first_new` after an error, the screen compares `hits().len()` before and after.
+- Differences from interface 6, on purpose: a query longer than 32 characters is cut to them (so the text looked for
+  can match more than was typed): the screen limits what can be typed to 32 characters, or shows the cut, so that
+  the header never counts hits for text the user did not type; a block that cannot be read is skipped as an end of the section
+  only for `NotFound`, `Invalid` and `Denied` (a refused allocation stops the step and is not taken for the
+  end of the book); the matches are an iterator (interface 6 collected them); the hit's place is the
+  `native_open::Place` the document host counts with.
+- **The screen is `native_search_view.rs` (R7, below).** (It needed the document's block, progress and section ops (`core.document`, #2223),
+  the font measures (`Measure`), the timer (`core.work`) that drives `step` (interface 6 woke itself every
+  2 ms), the list, and, to choose a hit, going back and to the place with the match marked (the successor of
+  `core.goto`, not declared yet). Choosing a hit is `Search::target`: where the match begins and ends.)
+
+## The search screen (`native_search_view.rs`, R7)
+
+- Flow: the action `reader.search` on the reading screen asks a text question (`core.ui` ask, `reader.search.prompt`;
+  the keyboard plugin answers it), the answer (cut to `MAX_NEEDLE` = 32 characters, so the screen searches what it
+  says) opens `reader.search-results` with the contents screen's hand-over plus a `query` param (one instance per
+  text), and `SearchView::open` takes the text the plugin kept. Choosing a hit goes to where the match begins
+  (`View::go_to`) and closes the screen, as the contents screen does.
+- The scan: `core.work` key `search`, token `SEARCH_WORK` (9, a token of the work itself: the reader hears
+  `event.work_due` with its single `WORK_DUE` subscription and tells the two works apart by the event's token, so there is
+  no new subscription and the declaration test is unchanged). A step reads 24 blocks of the **reading screen's**
+  document (`HostDocument::read_at`, new: the block with the host's refusal as it is), redraws when the header's
+  progress (tens of a percent) or the hits changed, and is declared again after 50 ms while the book is read. A failure
+  that repeats twice in a row ends the search with `reader.search.failed`; the hits so far stay.
+- Snippets are cut to the row with the UI font at the UI size (`Style`), the display's width less the margins and the
+  room for "100 %"; where the font cannot be asked, half the size is a letter's width and 300 px a row's room.
+- How far in a hit is: by the sections' lengths (`Progress`) where the book has few enough sections, else by the
+  section.
+- **Differences / gaps (named, not hidden):**
+  - *No match mark.* Choosing a hit goes to the place only: there is no successor of `core.goto` to mark the match; a
+    `go_to_match(place, end)` with a highlight is a follow-up in the page drawing (Port E).
+  - *Text filters are not applied* to the blocks the scan reads (interface 6 searched the text as the page shows it,
+    after the filters); `core.input-filter` is Port C's.
+  - A search needs the reading screen's document: from no reading screen it does nothing (interface 6 opened the book
+    itself); the X4 holds one open document per plugin.
+  - **Memory (Port Reviewer's must-fix, Beta 3 held only the hits):** a hit's snippet lives in its list row only: when a
+    step finds hits, `extend_list` takes each snippet out of the model (`Search::take_snippet`, the hit keeps its place
+    and progress), makes its row (`ItemList::push`, the list grows in place, never rebuilt) and keeps the hit's start in
+    `places` (8 bytes a row) for the choice. A refused allocation in that ends the search with `reader.search.failed`
+    (the hits so far stay). Worst case 100 rows of at most 24 + 32 + 48 characters: about 20-40 KB. **X4 gate:**
+    measure it with `--heap-report`; `ItemList` still lays out every row (a row source would build per page).
+  - Each step builds a `HostDocument` (a 4 KiB reply buffer and a 256 B one) and acquires the UI font; the text size and
+    the row room are read from the display once per screen.

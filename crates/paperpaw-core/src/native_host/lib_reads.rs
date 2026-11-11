@@ -113,7 +113,7 @@ impl CatalogReads {
     /// The catalog generation of the wire: it changes whenever the
     /// catalog's own generation or its log of changes does (a book added,
     /// removed, its status changed); never 0.
-    fn generation(&self) -> Result<u32, i32> {
+    pub(super) fn generation(&self) -> Result<u32, i32> {
         Ok(self.snapshot()?.0)
     }
 
@@ -343,19 +343,6 @@ fn storage_status(error: StorageError) -> i32 {
         StorageError::TooLarge | StorageError::Full => ERR_NO_SPACE,
         StorageError::OutOfMemory => ERR_NO_MEMORY,
         _ => ERR_IO,
-    }
-}
-
-/// The status of a step of a delete or an import that the journal repeats:
-/// data that cannot be read (`InvalidData`: a list of a newer version,
-/// damaged) is `ERR_INVALID`, a final code, as no retry changes it; every other
-/// error is the card's, as `core.storage` says it (a full card is `ERR_FULL`,
-/// which passes when room is made, so the step repeats; `TooLarge` is the
-/// permanent `ERR_NO_SPACE`). Files' `lib_jobs::carry_status` is the same map.
-pub(super) fn carry_status(error: StorageError) -> i32 {
-    match error {
-        StorageError::InvalidData => ERR_INVALID,
-        other => super::storage::status(other),
     }
 }
 

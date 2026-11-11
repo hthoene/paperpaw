@@ -72,7 +72,7 @@ const MAX_PATH: usize = 640;
 /// The most a record holds: a delete of 7 paths, which is more than a move's
 /// head, two paths and the check (read into a buffer of the record's own size,
 /// fallible, so the usual record costs what its paths do).
-pub(super) const MAX_RECORD: usize = PREFIX + 1 + 7 * (2 + MAX_PATH + 16) + 8;
+pub(super) const MAX_RECORD: usize = PREFIX + 2 + 7 * (2 + MAX_PATH + 16) + 8;
 
 /// FNV-1a 64 of `bytes`.
 pub(super) fn check(bytes: &[u8]) -> u64 {

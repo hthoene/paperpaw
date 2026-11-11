@@ -12,7 +12,8 @@
 //!   imported it.
 //!
 //! Plugins' book data and the document caches are the job's own.
-use super::{carry_status, importer, kept_file, position};
+use super::{importer, kept_file, position};
+use crate::native_host::lib_jobs::carry_status;
 use paperpaw_platform::Storage;
 use paperpaw_sdk::{library, library::catalog};
 

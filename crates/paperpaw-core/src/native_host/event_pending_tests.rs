@@ -178,10 +178,26 @@ fn producer_reports_every_unrepresentable_edge_and_never_truncates_old() {
 
 #[test]
 fn the_events_of_subscription_checked_services_can_be_registered() {
-    // 90 `image_ready`, 108 `document_closed` and 110 `lookup_ready`: their
-    // producers deliver only to a plugin that subscribed.
-    for tag in [90, 108, 110] {
+    // 89 `spoken`, 90 `image_ready`, 91 `library_changed`, 108 `document_closed` and 110
+    // `lookup_ready`: their producers deliver only to a plugin that subscribed
+    // (the native `files` plugin is refused at admission without 91).
+    for tag in [89, 90, 91, 108, 110] {
         assert!(super::super::events::is_event_tag(tag), "{tag}");
+    }
+}
+
+#[test]
+fn the_wifi_hints_and_the_registry_requests_can_be_registered_and_38_and_39_cannot() {
+    // 92 `wifi_scanned`, 94 `network_wanted`, 95 `network_idle` (the native
+    // wifi plugin was refused at `make` without them), 77 `plugins_requested`
+    // and 78 `plugin_answered`: `device.md` 4, `registry.md` 5.
+    for tag in [77, 78, 92, 94, 95] {
+        assert!(super::super::events::is_event_tag(tag), "{tag}");
+    }
+    // 38 and 39 go to the token of the declaration they name, never to a
+    // registration (`screens-input.md` section 2); 98 waits for its delivery.
+    for tag in [38, 39, 98] {
+        assert!(!super::super::events::is_event_tag(tag), "{tag}");
     }
 }
 

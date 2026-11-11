@@ -101,6 +101,7 @@ impl LibraryMoves {
     /// # Errors
     /// `ERR_BUSY` while a move, a delete or an import is open; as
     /// [`Jobs::begin_delete`].
+    #[allow(dead_code, reason = "wired by the LIB write half (Services, #1050)")]
     pub(crate) fn begin_delete(
         &self,
         paths: &[&str],
@@ -118,6 +119,7 @@ impl LibraryMoves {
     /// # Errors
     /// `ERR_BUSY` while a move, a delete or an import is open; as
     /// [`Jobs::begin_import`].
+    #[allow(dead_code, reason = "wired by the LIB write half (Services, #1050)")]
     pub(crate) fn begin_import(
         &self,
         from: &str,
@@ -134,6 +136,7 @@ impl LibraryMoves {
 
     /// Whether `path` is a book of a delete whose catalog part is not done:
     /// lists and stats hide it.
+    #[allow(dead_code, reason = "wired by the LIB write half (Services, #1050)")]
     pub(crate) fn pending_delete(&self, path: &str) -> bool {
         let path = path.trim_matches('/');
         self.jobs

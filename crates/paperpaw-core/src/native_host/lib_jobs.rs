@@ -45,7 +45,8 @@ use super::{
 use alloc::{string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
+    ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
+    ERR_UNSUPPORTED,
 };
 use paperpaw_platform::{Storage, StorageError};
 
@@ -66,7 +67,10 @@ pub(crate) trait RemovalCarry {
     /// One bounded step of `phase` for the deleted book `path`: the phase to
     /// run next (`Done` once `Marks` is finished). `with_notes`: annotations
     /// go too. An error (the card, memory) repeats the step; the entry is
-    /// never dropped for it.
+    /// never dropped for it. **Except** a status that is final
+    /// ([`is_final`]: the card refuses the entry for good, e.g. a damaged
+    /// list): the part is left as it is and not repeated. Map card errors with
+    /// [`carry_status`] so that this one can be told from a fault that passes.
     ///
     /// # Errors
     /// `ERR_NO_MEMORY`, the card's status.
@@ -81,7 +85,8 @@ pub(crate) trait RemovalCarry {
 /// The catalog's side of an import (Services).
 pub(crate) trait ImportCarry {
     /// The imported file at `path` is catalogued (a note, the importer's id
-    /// kept by path). Idempotent.
+    /// kept by path). Idempotent. A final status ([`is_final`], from
+    /// [`carry_status`]) is left, not repeated.
     ///
     /// # Errors
     /// `ERR_NO_MEMORY`, the card's status.
@@ -147,6 +152,9 @@ struct Job {
     at: usize,
     /// Books whose file the card refuses for good: left as they are.
     skipped: u8,
+    /// The books' mask the journal holds (a delete): what is done with and
+    /// what is not yet written.
+    saved: u8,
 }
 
 /// The one delete or import in progress, if any.
@@ -171,6 +179,25 @@ fn is_folder(storage: &dyn Storage, path: &str) -> Result<bool, i32> {
         Err(StorageError::NotFound | StorageError::InvalidPath) => Ok(false),
         Err(error) => Err(status(error)),
     }
+}
+
+/// The status a catalog part (`RemovalCarry`, `ImportCarry`) answers for a
+/// card error: [`status`], except that a damaged entry (`InvalidData`), which
+/// `status` calls `ERR_IO` like any card fault, is `ERR_INVALID`, so that
+/// [`is_final`] can tell it from a fault that may pass.
+pub(crate) fn carry_status(error: StorageError) -> i32 {
+    match error {
+        StorageError::InvalidData => ERR_INVALID,
+        other => status(other),
+    }
+}
+
+/// Whether a status of a catalog part is for good: the card refuses the entry
+/// whatever is tried (`book_data_steps::permanent`, as [`carry_status`] maps
+/// it). Such a part is left as it is and never repeated; any other status
+/// repeats the step.
+pub(crate) const fn is_final(status: i32) -> bool {
+    matches!(status, ERR_INVALID | ERR_UNSUPPORTED | ERR_NO_SPACE)
 }
 
 /// How removing a file went.
@@ -306,17 +333,21 @@ impl Jobs {
         if books.is_empty() {
             return Ok(answers);
         }
-        let record = JobRecord::Delete { with_notes, books };
+        let mut record = JobRecord::Delete {
+            with_notes,
+            books,
+            removed: 0,
+        };
         // Written, synced, before the first file goes; refused while any
         // entry is there.
         Journal(storage).write_job(&record)?;
-        let JobRecord::Delete { books, .. } = &record else {
+        let JobRecord::Delete { books, removed, .. } = &mut record else {
             return Err(ERR_INVALID);
         };
         let mut skipped = 0_u8;
         for (at, book) in books.iter().enumerate() {
             match remove_files(storage, book) {
-                Ok(Removed::Gone | Removed::Replaced) => {}
+                Ok(Removed::Gone | Removed::Replaced) => *removed |= 1 << at,
                 Ok(Removed::Left) => {
                     skipped |= 1 << at;
                     answers[which[at]] = ERR_IO;
@@ -324,6 +355,16 @@ impl Jobs {
                 Err(error) => answers[which[at]] = error,
             }
         }
+        // Written again with the books that are done with, so that no replay
+        // looks at their paths: on FAT the identity is the first cluster, and
+        // a later file may have taken the one the book freed. Best effort
+        // here (the answers are due); the step retries it before it goes on.
+        let removed = *removed;
+        let saved = if Journal(storage).mark_removed(removed).is_ok() {
+            removed
+        } else {
+            0
+        };
         *slot = Some(Job {
             record,
             // The files are done; the first step starts the first book's
@@ -331,6 +372,7 @@ impl Jobs {
             phase: Phase::Files,
             at: 0,
             skipped,
+            saved,
         });
         Ok(answers)
     }
@@ -393,6 +435,7 @@ impl Jobs {
             phase: Phase::Catalogue,
             at: 0,
             skipped: 0,
+            saved: 0,
         };
         match moved {
             Ok(()) => {
@@ -454,11 +497,16 @@ impl Jobs {
             JobRecord::Import { arrived: true, .. } => Phase::Catalogue,
             JobRecord::Import { .. } => Phase::Decide,
         };
+        let saved = match &record {
+            JobRecord::Delete { removed, .. } => *removed,
+            JobRecord::Import { .. } => 0,
+        };
         *slot = Some(Job {
             record,
             phase,
             at: 0,
             skipped: 0,
+            saved,
         });
         Ok(())
     }
@@ -542,7 +590,10 @@ impl Jobs {
     }
 
     fn delete_step(job: &mut Job, host: &dyn JobHost) -> Result<(), i32> {
-        let JobRecord::Delete { with_notes, books } = &job.record else {
+        let JobRecord::Delete {
+            with_notes, books, ..
+        } = &job.record
+        else {
             return Ok(());
         };
         if job.phase == Phase::Changed {
@@ -555,19 +606,20 @@ impl Jobs {
             return Ok(());
         };
         let path = book.path.as_str();
-        let left = job.skipped & (1 << job.at) != 0;
         job.phase = match job.phase {
-            // A replay removes again; what is gone is done. A refusal for
-            // good leaves the book and its data.
-            Phase::Files => match remove_files(host.storage(), book)? {
-                Removed::Gone | Removed::Replaced if !left => Phase::Forget(RemovalPhase::Details),
-                _ => {
-                    job.skipped |= 1 << job.at;
-                    next_book(job)
-                }
-            },
+            Phase::Files => Self::files_phase(job, host)?,
             Phase::Forget(RemovalPhase::Done) => Phase::Kept,
-            Phase::Forget(phase) => Phase::Forget(host.forget(path, *with_notes, phase)?),
+            Phase::Forget(phase) => match host.forget(path, *with_notes, phase) {
+                Ok(next) => Phase::Forget(next),
+                // A part the card refuses for good (a damaged list) stays as
+                // it is: nothing repeats it, and the rest of the book goes on
+                // (the file is gone; its data and its event must follow).
+                Err(status) if is_final(status) => Phase::Forget(match phase {
+                    RemovalPhase::Details => RemovalPhase::Marks,
+                    _ => RemovalPhase::Done,
+                }),
+                Err(status) => return Err(status),
+            },
             Phase::Kept => match host.remove_kept(path)? {
                 Progress::More => Phase::Kept,
                 Progress::Done => Phase::Event,
@@ -579,6 +631,35 @@ impl Jobs {
             _ => Phase::Done,
         };
         Ok(())
+    }
+
+    /// The files of book `at`: removed unless the entry says they are done
+    /// with, then the books done with are made durable before the catalog's
+    /// part starts. A replay removes again only what is not marked; a refusal
+    /// for good leaves the book and its data.
+    fn files_phase(job: &mut Job, host: &dyn JobHost) -> Result<Phase, i32> {
+        let bit = 1_u8 << job.at;
+        let JobRecord::Delete { books, removed, .. } = &mut job.record else {
+            return Ok(Phase::Done);
+        };
+        let Some(book) = books.get(job.at) else {
+            return Ok(Phase::Done);
+        };
+        if *removed & bit == 0 {
+            match remove_files(host.storage(), book)? {
+                Removed::Gone | Removed::Replaced if job.skipped & bit == 0 => *removed |= bit,
+                _ => {
+                    job.skipped |= bit;
+                    return Ok(next_book(job));
+                }
+            }
+        }
+        let mask = *removed;
+        if job.saved != mask {
+            Journal(host.storage()).mark_removed(mask)?;
+            job.saved = mask;
+        }
+        Ok(Phase::Forget(RemovalPhase::Details))
     }
 
     fn import_step(job: &mut Job, host: &dyn JobHost) -> Result<(), i32> {
@@ -593,7 +674,13 @@ impl Jobs {
         };
         job.phase = match job.phase {
             Phase::Catalogue => {
-                host.catalogue(to, importer)?;
+                // The importer's note refused for good (a damaged file) is
+                // left: the book is in, and a repeat changes nothing.
+                match host.catalogue(to, importer) {
+                    Ok(()) => {}
+                    Err(status) if is_final(status) => {}
+                    Err(status) => return Err(status),
+                }
                 if *replace {
                     Phase::Cache
                 } else {

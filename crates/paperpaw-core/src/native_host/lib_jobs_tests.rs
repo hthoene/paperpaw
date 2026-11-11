@@ -79,6 +79,10 @@ struct Host<'a> {
     log: std::cell::RefCell<Vec<std::string::String>>,
     /// Pieces of kept data a book has: the step answers `More` this often.
     pieces: Cell<u32>,
+    /// The status `forget` answers in a phase, and `catalogue` (`None`:
+    /// none).
+    forget_fails: Cell<Option<(RemovalPhase, i32)>>,
+    catalogue_fails: Cell<Option<i32>>,
 }
 
 impl<'a> Host<'a> {
@@ -87,6 +91,8 @@ impl<'a> Host<'a> {
             card,
             log: Default::default(),
             pieces: Cell::new(0),
+            forget_fails: Cell::new(None),
+            catalogue_fails: Cell::new(None),
         }
     }
     fn saw(&self, what: &str) -> usize {
@@ -104,6 +110,11 @@ impl<'a> Host<'a> {
 impl RemovalCarry for Host<'_> {
     fn forget(&self, path: &str, notes: bool, phase: RemovalPhase) -> Result<RemovalPhase, i32> {
         self.note(std::format!("forget {path} {notes} {phase:?}"));
+        if let Some((fails, status)) = self.forget_fails.get()
+            && fails == phase
+        {
+            return Err(status);
+        }
         Ok(match phase {
             RemovalPhase::Details => RemovalPhase::Marks,
             _ => RemovalPhase::Done,
@@ -114,7 +125,7 @@ impl RemovalCarry for Host<'_> {
 impl ImportCarry for Host<'_> {
     fn catalogue(&self, path: &str, importer: &str) -> Result<(), i32> {
         self.note(std::format!("catalogue {path} {importer}"));
-        Ok(())
+        self.catalogue_fails.get().map_or(Ok(()), Err)
     }
 }
 
@@ -553,4 +564,203 @@ fn nothing_is_made_of_a_move_entry() {
     let jobs = Jobs::default();
     // Not whole: the move machine sets it aside; this one has no job.
     assert!(jobs.start(&card).is_err() || !jobs.active());
+}
+
+/// A card whose identity is a function of the name, as FAT's first cluster is
+/// once the freed one is reused: a file put at a path after the book went has
+/// the book's identity.
+struct Reuse<'a>(&'a MemoryStorage);
+
+impl Storage for Reuse<'_> {
+    fn read_at(&self, p: &str, a: u64, b: &mut [u8]) -> Result<usize, StorageError> {
+        self.0.read_at(p, a, b)
+    }
+    fn size(&self, p: &str) -> Result<u64, StorageError> {
+        self.0.size(p)
+    }
+    fn write(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.0.write(p, d)
+    }
+    fn append(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.0.append(p, d)
+    }
+    fn list(&self, d: &str, v: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.0.list(d, v)
+    }
+    fn remove(&self, p: &str) -> Result<(), StorageError> {
+        self.0.remove(p)
+    }
+    fn rename(&self, f: &str, t: &str) -> Result<(), StorageError> {
+        self.0.rename(f, t)
+    }
+    fn create_dir(&self, p: &str) -> Result<(), StorageError> {
+        self.0.create_dir(p)
+    }
+    fn sync(&self) -> Result<(), StorageError> {
+        self.0.sync()
+    }
+    fn entry_identity(&self, p: &str) -> Result<Option<u64>, StorageError> {
+        // The journal's own files keep the card's identities; the books' are
+        // by name.
+        if p.starts_with("books/") && self.0.exists(p) {
+            return Ok(Some(100 + p.len() as u64));
+        }
+        self.0.entry_identity(p)
+    }
+}
+
+/// R1 (Senior): after the files went, the entry says so. A cut after that, a
+/// file put at the path that has the book's identity (FAT reuses clusters),
+/// and a restart: the new file stays.
+#[test]
+fn a_book_that_is_removed_is_never_looked_at_again() {
+    let memory = card();
+    let card = Reuse(&memory);
+    let jobs = Jobs::default();
+    jobs.begin_delete(&card, &BOOKS[..2], false).unwrap();
+    assert!(!memory.exists(BOOKS[0]) && !memory.exists(BOOKS[1]));
+    // Cut here: the entry is on the card and says both are done with.
+    drop(jobs);
+    assert!(matches!(
+        Journal(&card).read_job().unwrap(),
+        Some(JobRecord::Delete { removed: 0b11, .. })
+    ));
+    memory.write(BOOKS[0], b"copied back").unwrap();
+    assert_eq!(
+        card.entry_identity(BOOKS[0]).unwrap(),
+        Some(100 + BOOKS[0].len() as u64),
+        "the same identity as the book had"
+    );
+    let again = Jobs::default();
+    again.start(&card).unwrap();
+    let host = Host::new(&card);
+    run(&again, &host);
+    let mut buffer = [0_u8; 16];
+    let n = memory.read_at(BOOKS[0], 0, &mut buffer).unwrap();
+    assert_eq!(&buffer[..n], b"copied back");
+    // What was kept for the deleted book went all the same.
+    assert_eq!(host.saw(&std::format!("kept {}", BOOKS[0])), 1);
+    assert!(!memory.exists(JOURNAL));
+}
+
+/// A book the card refused at the call and removes at a step is marked then.
+#[test]
+fn a_book_removed_by_a_step_is_marked_too() {
+    let memory = card();
+    let cut = Cut::after(&memory, 3);
+    let jobs = Jobs::default();
+    let _ = jobs.begin_delete(&cut, &BOOKS[..1], false);
+    cut.heal();
+    let again = Jobs::default();
+    again.start(&cut).unwrap();
+    let host = Host::new(&cut);
+    assert!(again.step(&host).unwrap());
+    assert!(!memory.exists(BOOKS[0]));
+    assert!(matches!(
+        Journal(&cut).read_job().unwrap(),
+        Some(JobRecord::Delete { removed: 1, .. })
+    ));
+    run(&again, &host);
+    assert!(!memory.exists(JOURNAL));
+}
+
+/// A part the card refuses for good (a damaged list) is final: the delete
+/// finishes, the rest of the book goes, the part is asked once and left; a
+/// fault that may pass is repeated.
+#[test]
+fn a_damaged_part_is_final_and_never_repeated() {
+    for phase in [RemovalPhase::Details, RemovalPhase::Marks] {
+        let card = card();
+        card.write("data/favourites.txt", b"\xff damaged").unwrap();
+        let jobs = Jobs::default();
+        jobs.begin_delete(&card, &BOOKS[..2], false).unwrap();
+        let host = Host::new(&card);
+        host.forget_fails.set(Some((phase, ERR_INVALID)));
+        run(&jobs, &host);
+        // Asked once per book, no more; the other phase and the rest ran.
+        assert_eq!(
+            host.saw(&std::format!("forget {} false {phase:?}", BOOKS[0])),
+            1
+        );
+        assert_eq!(
+            host.saw(&std::format!("forget {} false {phase:?}", BOOKS[1])),
+            1
+        );
+        for book in &BOOKS[..2] {
+            assert_eq!(host.saw(&std::format!("kept {book}")), 1, "{phase:?}");
+            assert_eq!(host.saw(&std::format!("removed {book}")), 1, "{phase:?}");
+        }
+        assert_eq!(host.saw("changed"), 1);
+        assert_eq!(
+            card.read_at("data/favourites.txt", 0, &mut [0; 16])
+                .unwrap(),
+            9,
+            "the list is untouched"
+        );
+        assert!(!card.exists(JOURNAL) && !jobs.active(), "{phase:?}");
+    }
+    // A fault that may pass: the step fails each time, the job stays and the
+    // entry with it; when the card heals the job finishes.
+    let card = card();
+    let jobs = Jobs::default();
+    jobs.begin_delete(&card, &BOOKS[..1], false).unwrap();
+    let host = Host::new(&card);
+    host.forget_fails.set(Some((RemovalPhase::Details, ERR_IO)));
+    assert_eq!(jobs.step(&host), Ok(true));
+    for _ in 0..4 {
+        assert_eq!(jobs.step(&host), Err(ERR_IO));
+    }
+    assert!(jobs.active() && card.exists(JOURNAL));
+    host.forget_fails.set(None);
+    run(&jobs, &host);
+    assert!(!card.exists(JOURNAL));
+}
+
+/// An import's note the card refuses for good is left; the book is in.
+#[test]
+fn a_damaged_importer_note_is_final() {
+    let card = card();
+    let jobs = Jobs::default();
+    jobs.begin_import(
+        &card,
+        "data/feed/new.epub",
+        "books/feeds/n.epub",
+        "feed",
+        false,
+    )
+    .unwrap();
+    let host = Host::new(&card);
+    host.catalogue_fails.set(Some(ERR_INVALID));
+    run(&jobs, &host);
+    assert_eq!(host.saw("catalogue books/feeds/n.epub feed"), 1);
+    assert_eq!(host.saw("changed"), 1);
+    assert!(card.exists("books/feeds/n.epub") && !card.exists(JOURNAL));
+}
+
+/// `carry_status` and `is_final` agree with the storage steps' `permanent`.
+#[test]
+fn the_catalog_statuses_agree_with_what_is_permanent() {
+    for error in [
+        StorageError::Io,
+        StorageError::CARD_GONE,
+        StorageError::InvalidData,
+        StorageError::InvalidPath,
+        StorageError::Unsupported,
+        StorageError::TooLarge,
+        StorageError::Full,
+        StorageError::NotFound,
+        StorageError::OutOfMemory,
+    ] {
+        assert_eq!(
+            is_final(carry_status(error)),
+            book_data_steps::permanent(error),
+            "{error:?}"
+        );
+    }
+    assert!(
+        !is_final(ERR_NO_MEMORY)
+            && !is_final(ERR_BUSY)
+            && !is_final(ERR_IO)
+            && !is_final(ERR_STATE)
+    );
 }
