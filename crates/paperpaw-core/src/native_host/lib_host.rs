@@ -25,7 +25,7 @@ use super::registrations::{self as wire};
 use super::storage_files::{BusySources, excluded_on};
 use crate::abi7::context::RowsEnd;
 use alloc::rc::Rc;
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_NOT_FOUND, ERR_UNSUPPORTED, OK};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NOT_FOUND, ERR_UNSUPPORTED, OK};
 use paperpaw_platform::Storage;
 
 /// `core.library` over the catalog on `storage`.
@@ -166,14 +166,21 @@ impl LibQuery for LibraryHost {
         // The path is copied out of the catalog read: the format call takes
         // the frame, not a borrow of the catalog.
         let path = self.reads.path_of(book, lib_cover::owned)?;
-        let made = lib_cover::make(cx, who, &path, side, visit);
-        if made == Err(paperpaw_native::host_glue::ERR_BUSY) {
-            // Nothing makes the cover in the background in this version: the
-            // plugin that was told "busy" is told to ask again (bit 6), for
-            // the places and formats that are there a moment later.
-            self.changes.raise(lib_changed::COVER, &path);
+        match lib_cover::make(cx, who, &path, side, visit) {
+            // A format that is not running yet (its start is requested) is
+            // there a moment later: the plugin that was told "busy" is told
+            // to ask again (bit 6). Nothing makes the cover in the background
+            // in this version.
+            Err(ERR_BUSY) => {
+                self.changes.raise(lib_changed::COVER, &path);
+                Err(ERR_BUSY)
+            }
+            // No place in the caller's document table does not clear by
+            // itself (the caller closes a document): busy, and no event, or
+            // a caller that redraws on it would ask again for ever.
+            Err(ERR_FULL) => Err(ERR_BUSY),
+            made => made,
         }
-        made
     }
     fn position(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         self.visible(book)?;

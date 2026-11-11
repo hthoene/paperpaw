@@ -17,9 +17,7 @@
 use super::{Caller, Cx, DocHost, Frame, READY, Record, close, codec, op, open, read, wire};
 use crate::abi7::services_wire;
 use alloc::vec::Vec;
-use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE,
-};
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE};
 
 /// The scratch a document call needs (the dispatcher's own).
 const SCRATCH: usize = 4_096;
@@ -34,8 +32,9 @@ fn bytes(size: usize) -> Result<Vec<u8>, i32> {
 /// The cover of the library book at `path` as an image id of `caller`
 /// (`side` as `doc_open.cover_side`: 0 for the default). `ERR_NOT_FOUND` for
 /// a book without one or whose format is still preparing, `ERR_BUSY` when
-/// the document table has no place for the caller now or the format is not
-/// running yet; the format's and the card's own statuses otherwise.
+/// the format is not running yet (its start is requested), `ERR_FULL` when
+/// the document table has no place for the caller now; the format's and the
+/// card's own statuses otherwise.
 pub(crate) fn make(
     frame: &dyn Frame,
     caller: &Caller<'_>,
@@ -90,11 +89,9 @@ fn covered(
         })],
         &mut input,
     )?;
-    // No place in the caller's table is a thing to ask about later.
-    let length = open(host, &input[..used], out).map_err(|error| match error {
-        ERR_FULL => ERR_BUSY,
-        other => other,
-    })?;
+    // `ERR_FULL`: no place in the caller's table (the library host answers
+    // that `ERR_BUSY` and raises nothing: it does not clear by itself).
+    let length = open(host, &input[..used], out)?;
     // Replies are bare records.
     let (state, _): (wire::ServiceDocState<'_>, usize) =
         codec::prefix(out.get(..length).ok_or(ERR_INVALID)?)?;

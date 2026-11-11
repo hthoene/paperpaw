@@ -184,7 +184,7 @@ fn a_format_that_does_not_open_is_the_formats_status_and_nothing_stays_open() {
 }
 
 #[test]
-fn no_place_in_the_callers_table_is_busy() {
+fn no_place_in_the_callers_table_is_full_for_the_library_host_to_call_busy() {
     let fake = Fake::new(Limits::X4);
     with(&fake, |view| {
         // The caller holds the one place an opener may take on the X4.
@@ -193,7 +193,7 @@ fn no_place_in_the_callers_table_is_busy() {
         fake.queue.borrow_mut().push(Ok(state_answer(0, 0)));
         assert_eq!(
             make_cover(view, &caller(view), BOOK, 0).unwrap_err(),
-            ERR_BUSY
+            ERR_FULL
         );
         assert_eq!(fake.calls.borrow().len(), 1, "only the first open");
     });
@@ -278,6 +278,26 @@ fn the_library_host_makes_the_cover_of_a_catalog_book() {
             told = Some((what, std::string::String::from(path)));
         }));
         assert_eq!(told, Some((1 << 6, std::string::String::from(BOOK))));
+        // Asked again while the format is still not running: busy again, and
+        // the one change for the book is raised again (a format that starts
+        // ends it; a caller is not looped by anything else).
+        fake.fails.set(Some(ERR_BUSY));
+        for _ in 0..2 {
+            let again = library.cover(&who, BookRef::Path(BOOK), 0, &cx, &mut |_| {});
+            assert_eq!(again, Err(ERR_BUSY));
+            assert!(library.take_changed(&mut |what, _, _| assert_eq!(what, 1 << 6)));
+        }
+        fake.fails.set(None);
+        // No place in the caller's table is busy too, but raises nothing: it
+        // does not clear by itself, and a plugin that redraws on the event
+        // would ask for ever.
+        let held = opened(&fake);
+        fake.queue.borrow_mut().push(Ok(state_answer(0, 0)));
+        let full = library.cover(&who, BookRef::Path(BOOK), 0, &cx, &mut |_| {});
+        assert_eq!(full, Err(ERR_BUSY));
+        assert!(!library.take_changed(&mut |_, _, _| {}));
+        assert!(view.fake.table.close(OWNER, held).is_ok());
+        fake.queue.borrow_mut().clear();
         // Not in the catalog: not found, no document opened.
         let calls = fake.calls.borrow().len();
         let none = library.cover(&who, BookRef::Path("books/none.epub"), 0, &cx, &mut |_| {});
