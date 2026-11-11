@@ -27,25 +27,51 @@ use crate::native_host::{
     host_services::HostServices,
 };
 use alloc::vec::Vec;
-use paperpaw_native::host_glue::{ERR_IO, ERR_NO_MEMORY};
+use paperpaw_native::host_glue::{ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_TIMEOUT};
 
 /// The steps in a row that could not be made (the format is not started, no
 /// memory for the buffer) after which the job's book counts as failed: only
 /// that book, nothing else, whatever the cause (`ERR_NO_MEMORY`).
 const LATER_MAX: u8 = 8;
 
+/// The most a job may keep the device awake for one book this start
+/// (`ERR_TIMEOUT`): the kernel's clock while the job's book prepares, summed
+/// over its jobs (only the last book's sum is kept).
+const AWAKE_MAX_MS: u64 = 10 * 60 * 1000;
+
 /// The reply buffer of the format's close (as a step's).
 const SCRATCH: usize = 4096;
 
 impl DocState {
-    /// Whether the cover job is the document of the book at `path`.
-    pub(super) fn cover_job_path_is(&self, path: &str) -> bool {
+    /// Whether the job is a job of `kind` and the document of the book at
+    /// `path`.
+    pub(super) fn job_book_is(&self, path: &str, kind: JobKind) -> bool {
         let Some(job) = self.table.cover_job() else {
             return false;
         };
-        self.books
-            .try_borrow()
-            .is_ok_and(|books| books.iter().any(|b| b.document == job.id && b.path == path))
+        job.job_kind == kind
+            && self
+                .books
+                .try_borrow()
+                .is_ok_and(|books| books.iter().any(|b| b.document == job.id && b.path == path))
+    }
+
+    /// Whether a job of either kind may begin now: the kernel's start
+    /// returned, no job runs and no book is open for reading (else `Err
+    /// (None)`), and the quiet moment after a displacement is over (else
+    /// `Err(Some(at))`, its end).
+    pub(super) fn job_may_begin(&self) -> Result<(), Option<u64>> {
+        if !self.jobs_allowed.get()
+            || self.table.cover_job().is_some()
+            || self.table.reading_besides(0)
+        {
+            return Err(None);
+        }
+        let at = self.job_resume_at.get();
+        if self.now.get() < at {
+            return Err(Some(at));
+        }
+        Ok(())
     }
 
     /// The key of the path of the book of document `document` (what the
@@ -57,6 +83,48 @@ impl DocState {
                 .find(|b| b.document == document)
                 .map_or(0, |b| crate::native_host::lib_cover::path_key(&b.path))
         })
+    }
+
+    /// The job, of `kind`, was displaced (`DocHost::cover_job_displaced`).
+    /// A details job is not held back: nothing waits for it (`cover_jobs_
+    /// released` raises bit 6 for a held-back cover), it waits the quiet
+    /// moment only (`DetailsJob::start`).
+    pub(super) fn displaced(&self, kind: JobKind) {
+        let key = self.job_key.get();
+        let (last, times) = self.job_displaced.get();
+        let times = if last == key {
+            times.saturating_add(1)
+        } else {
+            1
+        };
+        self.job_displaced.set((key, times));
+        if times >= super::DISPLACED_MAX {
+            // Displaced again and again: its conversion would start over
+            // for ever. No job for it until the next start.
+            self.job_given_up.set(key);
+            return;
+        }
+        if kind == JobKind::Cover {
+            self.job_held_back.set(true);
+        }
+        self.job_resume_at
+            .set(self.now.get().saturating_add(super::RESUME_AFTER_MS));
+    }
+
+    /// Writes the marker for the job of the book at `path`
+    /// (`DocHost::cover_job_guard`).
+    pub(super) fn guard(&self, path: &str) -> Result<(), i32> {
+        let storage = self.storage.as_deref().ok_or(ERR_NOT_FOUND)?;
+        let key = crate::native_host::lib_cover::path_key(path);
+        crate::native_host::cover_job_marker::write(storage, key)?;
+        self.job_key.set(key);
+        self.job_guarded.set(true);
+        // The awake time is counted per book: another book starts at 0.
+        if self.job_awake.get().0 != key {
+            self.job_awake.set((key, 0));
+        }
+        self.job_seen.set(self.now.get());
+        Ok(())
     }
 
     /// The job has left the table, however it did: its marker goes.
@@ -77,6 +145,12 @@ impl DocState {
         route: &dyn Route,
         keep: &mut details::Keep<'_>,
     ) -> JobStep {
+        // A sleep that came inside a callback: the job ends now, and nothing
+        // restarts it.
+        if self.job_suspend.replace(false) {
+            self.cover_job_end(hosts, route);
+            return JobStep::None;
+        }
         let Some(job) = self.table.cover_job() else {
             // A job that an open took the place of: its marker is left.
             self.unguard();
@@ -92,6 +166,8 @@ impl DocState {
         if job.state == PREPARING {
             return JobStep::Wait;
         }
+        // It comes to an end by itself: displacements are not in a row.
+        self.job_displaced.set((0, 0));
         if job.job_kind == JobKind::Details {
             return self.details_end(hosts, route, &job, keep);
         }
@@ -112,10 +188,18 @@ impl DocState {
         }
     }
 
-    /// Notes what a preparing step did for the cover job: steps that cannot be
-    /// made, [`LATER_MAX`] in a row while only the job prepares, fail it (its
-    /// book alone counts as failed, the format plugin is left as it is).
+    /// Notes what a preparing step did for the job: a book whose job has
+    /// been awake for [`AWAKE_MAX_MS`] this start fails (a conversion that
+    /// outlasts every awake session would start over after each wake, for
+    /// ever); steps that cannot be made, [`LATER_MAX`] in a row while only the
+    /// job prepares, fail it too (its book alone counts as failed, the format
+    /// plugin is left as it is).
     pub(super) fn cover_job_stepped(&self, step: PrepareStep) {
+        if self.awake_over() {
+            self.job_later.set(0);
+            self.fail_job(ERR_TIMEOUT);
+            return;
+        }
         if step != PrepareStep::Later || !self.table.only_cover_job_preparing() {
             self.job_later.set(0);
             return;
@@ -126,11 +210,31 @@ impl DocState {
             return;
         }
         self.job_later.set(0);
+        self.fail_job(ERR_NO_MEMORY);
+    }
+
+    /// Counts the job's awake time to now (the kernel's clock, from its start
+    /// or its last count): `true` once its book's reached [`AWAKE_MAX_MS`].
+    /// The device sleeps only after the job ended, so it is awake all along.
+    fn awake_over(&self) -> bool {
+        if self.table.cover_job().is_none_or(|job| job.state != PREPARING) {
+            return false;
+        }
+        let now = self.now.get();
+        let (key, spent) = self.job_awake.get();
+        let spent = spent.saturating_add(now.saturating_sub(self.job_seen.replace(now)));
+        self.job_awake.set((key, spent));
+        spent >= AWAKE_MAX_MS
+    }
+
+    /// The job's preparation fails with `status` (the pump's next look ends
+    /// it, and its book counts as failed).
+    fn fail_job(&self, status: i32) {
         if let Some(job) = self.table.cover_job()
             && job.state == PREPARING
             && self
                 .table
-                .set_prepared(job.id, FAILED, job.progress_ppm, ERR_NO_MEMORY, job.flags)
+                .set_prepared(job.id, FAILED, job.progress_ppm, status, job.flags)
                 .is_ok_and(|(moved, ..)| moved)
         {
             self.fresh.set(true);

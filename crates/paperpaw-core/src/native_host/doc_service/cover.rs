@@ -34,9 +34,13 @@ pub(crate) enum Made {
     /// The picture, as an image id of the caller.
     Image(wire::ServiceDocImage),
     /// The book is still preparing: its document is the library's cover job
-    /// (or waits behind the one that runs); the library tells when to ask
-    /// again (`library_changed` bit 6).
+    /// (or waits behind the cover job that runs; the host's details job gives
+    /// way to it); the library tells when to ask again (`library_changed` bit
+    /// 6).
     Queued,
+    /// The book's job could not begin: its marker cannot be written (the
+    /// card). The library counts the book as failed.
+    Failed,
 }
 
 /// The cover of the library book at `path` as an image id of `caller`
@@ -104,6 +108,15 @@ fn covered(
         })],
         &mut input,
     )?;
+    // The host's details job gives way first where it converts this very
+    // book (a second document would prepare the same cache beside it), or
+    // holds the place the cover needs (no cover is busy for it).
+    if host
+        .details_job()
+        .is_some_and(|details| details.preparing(path) || host.table().full())
+    {
+        super::details::give_way(host);
+    }
     // `ERR_FULL`: no place in the caller's table (the library host answers
     // that `ERR_BUSY` and raises nothing: it does not clear by itself).
     let length = open(host, &input[..used], out)?;
@@ -121,10 +134,11 @@ fn covered(
             .map(Made::Image)
     } else if failed {
         Err(ERR_NOT_FOUND)
-    } else if !host.cover_jobs_allowed() {
-        // The kernel is still starting: a crash of the format in a job there
-        // would count as a failed start. Not now; the host raises the change
-        // once start has returned and the book is asked for again.
+    } else if !host.cover_jobs_allowed() || host.table().reading_besides(document) {
+        // The kernel is still starting (a crash of the format in a job there
+        // would count as a failed start), or a book is open for reading (the
+        // job takes no step then). Not now: the host raises the change when
+        // jobs may begin, and the book is asked for again.
         host.cover_job_held_back();
         Ok(Made::Queued)
     } else {
@@ -134,14 +148,19 @@ fn covered(
         // again when that ends.
         // The marker is written only where a job really begins, before its
         // first preparing step; where it cannot be written, the job does not
-        // begin (busy, nothing raised).
-        if host.table().cover_job().is_none() && host.cover_job_guard(path).is_ok() {
-            if host.table().start_cover_job(host.owner(), document) {
-                return Ok(Made::Queued);
-            }
+        // begin and the book counts as failed ([`Made::Failed`]: no loop of
+        // asking again). The host's details job is no cover: it gives way.
+        super::details::give_way(host);
+        if host.table().cover_job().is_some() {
+            Ok(Made::Queued)
+        } else if host.cover_job_guard(path).is_err() {
+            Ok(Made::Failed)
+        } else if host.table().start_cover_job(host.owner(), document) {
+            return Ok(Made::Queued);
+        } else {
             host.cover_job_unguard();
+            Ok(Made::Queued)
         }
-        Ok(Made::Queued)
     };
     let reference = codec::encode_batch(
         &[Record::ServiceDocRef(wire::ServiceDocRef { document })],

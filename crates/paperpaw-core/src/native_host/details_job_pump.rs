@@ -10,10 +10,13 @@
 //! (`library_events`), disarmed when the catalog has no book left to read. A
 //! book's job begins from the service pump, never in a callback, only once the
 //! kernel's start has returned, when no background job of either kind runs (it
-//! is the device's one slot, `doc_cover_job`), and when no book is open for
-//! reading or showing. A reader's open takes its place at once (the book is
-//! looked at again later); the device's sleep ends it, and nothing starts one
-//! after the wake until a walk arms it again.
+//! is the device's one slot, `doc_cover_job`), when no book is open for
+//! reading or showing, and not in the quiet moment after a displacement: the
+//! cover job's rules. A reader's open takes its place at once (a displacement:
+//! the book is looked at again later, and given up, as a failed book, after
+//! three in a row); a cover that needs the slot makes it give way (`cover`:
+//! looked at again later, counted as nothing); the device's sleep ends it, and
+//! nothing starts one after the wake until a walk arms it again.
 //!
 //! **Which.** The catalog is read from a byte cursor, a line at a time (a 256
 //! byte chunk and the SDK's line view on the stack, nothing kept): a book of a
@@ -30,12 +33,15 @@
 //! nothing arms a pass that finds nothing and wants nothing: no loop.
 //!
 //! **Power.** Nothing here asks for another pass or holds the idle or sleep
-//! timer off: the job goes on at the pump's passes that come for any other
-//! reason, as the cover job does.
+//! timer off: the job's book prepares at the cover job's pace (`doc_pump`: a
+//! timed wake after each step, 100 ms, 1 s at a saving power level, and at
+//! most ten minutes awake for one book in a start), and the next look waits
+//! as long, a timed wake too ([`DetailsRun::wake_at`]), or the end of the
+//! quiet moment, so that the job goes on on an idle device.
 use super::{
     admitted_features::AdmittedFeatures, doc_service::details::DetailsJob, host_services::Caller,
-    lib_cover::path_key, native_declarations::NativeDeclarations, native_host_call::HostRoute,
-    registry_service::Sources, ui_store::HOST_OWNER,
+    doc_service::HOST_JOB, lib_cover::path_key, native_declarations::NativeDeclarations,
+    native_host_call::HostRoute, registry_service::Sources,
 };
 use crate::abi7::context::{Frame, registry_views::RegistryView};
 use alloc::string::String;
@@ -102,6 +108,8 @@ enum Look {
 /// What became of a pass.
 enum Pass {
     Nothing,
+    /// Nothing now; the next look at `at` (a timed wake).
+    Wait(u64),
     End,
     Started,
     /// The open of the book at `line` (the next at `next`, its key `key`)
@@ -197,14 +205,25 @@ impl crate::Kernel {
     #[inline(never)]
     pub(crate) fn native_details_job_pump(&mut self) {
         let pass = self.native_details_pass();
-        match pass {
-            Pass::Nothing => {}
-            Pass::End => self.native_details_wanted(true),
+        let wake = match pass {
+            Pass::Nothing => None,
+            Pass::Wait(at) => Some(at),
+            Pass::End => {
+                self.native_details_wanted(true);
+                None
+            }
             Pass::Started => {
                 // What the format staged runs now; a book that is ready at
-                // once is read in this pass.
+                // once is read in this pass, and the next is looked for soon.
                 self.native_outbox_run();
                 self.native_cover_job_pump();
+                let active = self
+                    .shared
+                    .native_instances
+                    .hosts()
+                    .and_then(|hosts| hosts.documents())
+                    .is_some_and(|documents| documents.0.cover_job_active());
+                (!active).then(|| self.native_job_next())
             }
             Pass::Refused {
                 status,
@@ -213,9 +232,29 @@ impl crate::Kernel {
                 key,
             } => {
                 self.native_outbox_run();
-                self.native_details_refused(status, line, next, key);
+                Some(self.native_details_refused(status, line, next, key))
             }
+        };
+        if let Some(at) = wake
+            && let Some(job) = self.native_details_job()
+        {
+            job.run().wake_at(at);
         }
+    }
+
+    /// The details job, where the documents have one.
+    fn native_details_job(&self) -> Option<&dyn DetailsJob> {
+        self.shared
+            .native_instances
+            .hosts()?
+            .documents()?
+            .0
+            .details_job()
+    }
+
+    /// The next look's timed wake, where one waits (`service_due`).
+    pub(crate) fn native_details_due(&self) -> Option<u64> {
+        self.native_details_job()?.run().wake()
     }
 
     /// One pass's look: the book whose job begins, if any.
@@ -240,8 +279,13 @@ impl crate::Kernel {
         if run.running() && !active {
             run.gone();
         }
-        if !run.armed() || active || !documents.0.cover_jobs_allowed() || job.reading_open() {
+        if !run.armed() || active || !run.due(self.now.millis()) {
             return Pass::Nothing;
+        }
+        match job.may_begin() {
+            Ok(()) => {}
+            Err(Some(at)) => return Pass::Wait(at),
+            Err(None) => return Pass::Nothing,
         }
         let natives = &self.shared.registry.native_book_formats;
         if natives.is_empty() {
@@ -260,13 +304,14 @@ impl crate::Kernel {
             Ok(Look::Book { path, line, next }) => (path, line, next),
             Ok(Look::More(at)) => {
                 run.set_cursor(at);
-                return Pass::Nothing;
+                return Pass::Wait(self.native_job_next());
             }
             Ok(Look::End) => {
                 run.disarm();
                 return Pass::End;
             }
-            // The card or the memory: the next pass looks again.
+            // The card or the memory: a later pass looks again (no timed
+            // wake, a card that fails is not tried in a loop).
             Err(_) => return Pass::Nothing,
         };
         let directory = self.shared.registry.native_declarations.as_deref();
@@ -281,7 +326,7 @@ impl crate::Kernel {
             log: self.shared.device_log,
         };
         let who = Caller {
-            owner: HOST_OWNER,
+            owner: HOST_JOB,
             plugin: "",
             features: AdmittedFeatures::NONE,
             hosts,
@@ -306,22 +351,20 @@ impl crate::Kernel {
     }
 
     /// The open of a book answered `status`: tried again later where nothing
-    /// was wrong with the book, else passed by (and remembered as failed where
-    /// the format failed it).
-    fn native_details_refused(&self, status: i32, line: u64, next: u64, key: u64) {
-        let Some(hosts) = self.shared.native_instances.hosts() else {
-            return;
-        };
-        let Some(run) = hosts
-            .documents()
-            .and_then(|documents| documents.0.details_job())
-            .map(DetailsJob::run)
-        else {
-            return;
+    /// was wrong with the book (after the preparing loop's wait for a step
+    /// that could not be made, `doc_pump`), else passed by (and remembered as
+    /// failed where the format failed it). When the next look is due.
+    fn native_details_refused(&self, status: i32, line: u64, next: u64, key: u64) -> u64 {
+        let soon = self.native_job_next();
+        let Some(run) = self.native_details_job().map(DetailsJob::run) else {
+            return soon;
         };
         match status {
             // The format not started yet, no place, no memory: again later.
-            ERR_BUSY | ERR_FULL | ERR_NO_MEMORY => run.later(line, next),
+            ERR_BUSY | ERR_FULL | ERR_NO_MEMORY => {
+                let tries = run.later(line, next);
+                return self.now.millis().saturating_add(super::doc_pump::wait(tries));
+            }
             // No fault of the book (its file, the card, a format that left).
             ERR_NOT_FOUND | ERR_IO | ERR_CANCELLED | ERR_STATE | ERR_DENIED | ERR_UNSUPPORTED => {
                 run.set_cursor(next);
@@ -329,11 +372,12 @@ impl crate::Kernel {
             // The format failed the book.
             _ => {
                 run.set_cursor(next);
-                if let Some(library) = hosts.library() {
-                    library.0.details_job_ended(key);
+                if let Some(library) = self.shared.native_instances.hosts().and_then(|h| h.library()) {
+                    library.0.cover_job_left(key);
                 }
             }
         }
+        soon
     }
 
     /// The details job ended (`cover_job_pump`): `filled` where its book's
@@ -342,8 +386,10 @@ impl crate::Kernel {
         let Some(hosts) = self.shared.native_instances.hosts() else {
             return;
         };
-        if let Some(library) = hosts.library() {
-            library.0.details_job_ended(key);
+        if key != 0
+            && let Some(library) = hosts.library()
+        {
+            library.0.cover_job_left(key);
         }
         if let Some(run) = hosts
             .documents()

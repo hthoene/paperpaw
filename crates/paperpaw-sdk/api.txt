@@ -3436,6 +3436,8 @@ pub paperpaw_sdk::native::declare::EventKind::BookOpened
 pub paperpaw_sdk::native::declare::EventKind::BookRemoved
 pub paperpaw_sdk::native::declare::EventKind::Broadcast
 pub paperpaw_sdk::native::declare::EventKind::ChargeChanged
+pub paperpaw_sdk::native::declare::EventKind::DocumentChanged
+pub paperpaw_sdk::native::declare::EventKind::DocumentClosed
 pub paperpaw_sdk::native::declare::EventKind::FirmwareChanged
 pub paperpaw_sdk::native::declare::EventKind::HttpDone
 pub paperpaw_sdk::native::declare::EventKind::HttpProgress
@@ -4065,6 +4067,11 @@ pub paperpaw_sdk::native::document::BlockRecord::Map(paperpaw_sdk::native::docum
 pub paperpaw_sdk::native::document::BlockRecord::Ruby(paperpaw_sdk::native::document::BlockRuby<'a>)
 pub paperpaw_sdk::native::document::BlockRecord::Run(paperpaw_sdk::native::document::BlockRun)
 pub paperpaw_sdk::native::document::BlockRecord::Text(&'a str)
+#[non_exhaustive] pub enum paperpaw_sdk::native::document::DocClosedReason
+pub paperpaw_sdk::native::document::DocClosedReason::BookGone
+pub paperpaw_sdk::native::document::DocClosedReason::CardRemoved
+pub paperpaw_sdk::native::document::DocClosedReason::FormatStopped
+pub paperpaw_sdk::native::document::DocClosedReason::Needed
 #[non_exhaustive] pub enum paperpaw_sdk::native::document::LinkKind
 pub paperpaw_sdk::native::document::LinkKind::External
 pub paperpaw_sdk::native::document::LinkKind::Footnote
@@ -4356,6 +4363,12 @@ pub const paperpaw_sdk::native::events::kinds::Broadcast::TAG: u32
 pub struct paperpaw_sdk::native::events::kinds::ChargeChanged
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ChargeChanged
 pub const paperpaw_sdk::native::events::kinds::ChargeChanged::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::DocumentChanged
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::DocumentChanged
+pub const paperpaw_sdk::native::events::kinds::DocumentChanged::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::DocumentClosed
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::DocumentClosed
+pub const paperpaw_sdk::native::events::kinds::DocumentClosed::TAG: u32
 pub struct paperpaw_sdk::native::events::kinds::FirmwareChanged
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::FirmwareChanged
 pub const paperpaw_sdk::native::events::kinds::FirmwareChanged::TAG: u32
@@ -4509,6 +4522,10 @@ impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events:
 pub const paperpaw_sdk::native::events::kinds::Broadcast::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ChargeChanged
 pub const paperpaw_sdk::native::events::kinds::ChargeChanged::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::DocumentChanged
+pub const paperpaw_sdk::native::events::kinds::DocumentChanged::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::DocumentClosed
+pub const paperpaw_sdk::native::events::kinds::DocumentClosed::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::FirmwareChanged
 pub const paperpaw_sdk::native::events::kinds::FirmwareChanged::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::HttpDone
@@ -4657,6 +4674,15 @@ pub paperpaw_sdk::native::events::Event::Broadcast(paperpaw_sdk::native::sockets
 #[non_exhaustive] pub paperpaw_sdk::native::events::Event::ChargeChanged
 pub paperpaw_sdk::native::events::Event::ChargeChanged::flags: paperpaw_sdk::native::events::ChargeFlags
 pub paperpaw_sdk::native::events::Event::ChargeChanged::now_ms: u64
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::DocumentChanged
+pub paperpaw_sdk::native::events::Event::DocumentChanged::document: paperpaw_sdk::native::document::DocId
+pub paperpaw_sdk::native::events::Event::DocumentChanged::now_ms: u64
+pub paperpaw_sdk::native::events::Event::DocumentChanged::progress_ppm: u32
+pub paperpaw_sdk::native::events::Event::DocumentChanged::state: paperpaw_sdk::native::document::Preparation
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::DocumentClosed
+pub paperpaw_sdk::native::events::Event::DocumentClosed::document: paperpaw_sdk::native::document::DocId
+pub paperpaw_sdk::native::events::Event::DocumentClosed::now_ms: u64
+pub paperpaw_sdk::native::events::Event::DocumentClosed::reason: paperpaw_sdk::native::document::DocClosedReason
 #[non_exhaustive] pub paperpaw_sdk::native::events::Event::FirmwareChanged
 pub paperpaw_sdk::native::events::Event::FirmwareChanged::now_ms: u64
 pub paperpaw_sdk::native::events::Event::FirmwareChanged::request: core::option::Option<paperpaw_sdk::native::device::DeviceRequest>

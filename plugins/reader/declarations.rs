@@ -41,6 +41,10 @@ pub const STACK_CHANGED: u32 = 17;
 /// only to plugins that subscribed (`docs/abi/ui.md` 7), so without this
 /// reading aloud stops after one sentence.
 pub const SPOKEN: u32 = 16;
+/// A document's state moved (`event.document_changed`, 88): a book opened for
+/// the first time opens when its preparation is done (`native_view/preparing.rs`).
+/// It goes only to plugins that subscribed.
+pub const DOCUMENT_CHANGED: u32 = 18;
 /// The token of the search's background scan (`core.work`, key `search`): a step
 /// of the book is read each time. Not a subscription: the work's own token comes
 /// back in `event.work_due`, which the reader hears as `WORK_DUE`.
@@ -538,6 +542,7 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.subscribe_event(EventKind::SettingChanged, SETTING_CHANGED)?;
     d.subscribe_event(EventKind::StackChanged, STACK_CHANGED)?;
     d.subscribe_event(EventKind::Spoken, SPOKEN)?;
+    d.subscribe_event(EventKind::DocumentChanged, DOCUMENT_CHANGED)?;
     d.submit()
 }
 

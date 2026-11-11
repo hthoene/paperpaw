@@ -91,18 +91,16 @@ pub(crate) trait LibQuery {
     /// Cover jobs may begin now (the kernel's start has returned): the screens
     /// that were told "busy" meanwhile ask again (bit 6).
     fn cover_jobs_began(&self) {}
-    /// A reset ended the cover job of the book with `key` (a marker left on
-    /// the card): it counts as failed (`doc_cover_job`).
+    /// The book with `key` counts as failed (`doc_cover_job`): a reset ended
+    /// its job (a marker left on the card), its job was given up, or its
+    /// format failed it in the host's details job (`doc_details_job`). 0
+    /// names no book.
     fn cover_job_left(&self, _key: u64) {}
     /// Whether the book with `key` (`lib_cover::path_key`) failed in a job of
     /// this run (or a reset ended its job): no job, of either kind, for it.
     fn book_failed(&self, _key: u64) -> bool {
         false
     }
-    /// The host's details job ended (`doc_details_job`): `key` is its book's
-    /// where the format failed it (0: not failed). A `cover` that waited for
-    /// the job's slot meanwhile is asked again (bit 6).
-    fn details_job_ended(&self, _key: u64) {}
     /// Op 7: the `doc_image` of the book's cover for `who`, `side` 0 for the
     /// list's size, else at most the screen's long side. `ERR_NOT_FOUND` for
     /// none, `ERR_BUSY` while it is made. `cx` is the call's frame and

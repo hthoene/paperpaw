@@ -1,16 +1,16 @@
 //! The host's details job, the document service's side (`doc_details_job`,
 //! `docs/abi/library.md` 2.1): a native format's book of the catalog whose
 //! details were never read is opened by the host itself, as its own background
-//! document (owner [`HOST_OWNER`], root 1, the defaults of a reader's open), in
+//! document (owner [`HOST_JOB`], root 1, the defaults of a reader's open), in
 //! the background job's one slot (`DocumentTable::start_job`), and read through
 //! ops 5 `meta` and 6 `meta_text` once it is ready.
 //!
 //! Here: the open and the checks of the two answers (the same the service
 //! makes of a plugin's call), and the run's few numbers ([`DetailsRun`]),
 //! which the kernel's pump keeps and reads. No list, nothing that grows.
-use super::{Cx, DocHost, Record, check, close, codec, open, wire};
+use super::{Cx, DocHost, HOST_JOB, JobKind, Record, check, close, codec, open, wire};
 use crate::abi7::context::Frame;
-use crate::native_host::{fmt_call::Route, host_services::Caller, ui_store::HOST_OWNER};
+use crate::native_host::{fmt_call::Route, host_services::Caller};
 use alloc::vec::Vec;
 use core::cell::Cell;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY};
@@ -33,8 +33,16 @@ pub(crate) const WANTED_MS: u64 = 120_000;
 pub(crate) trait DetailsJob {
     /// The run's numbers.
     fn run(&self) -> &DetailsRun;
-    /// Whether a book is open for reading or showing (no job begins then).
-    fn reading_open(&self) -> bool;
+    /// Whether a job may begin now, as for a cover (`doc_cover_job`): `Err
+    /// (Some(at))` not before `at` (the quiet moment after a displacement),
+    /// `Err(None)` not now (the kernel's start has not returned, a job runs,
+    /// a book is open for reading).
+    fn may_begin(&self) -> Result<(), Option<u64>>;
+    /// Whether the details job prepares the book at `path`.
+    fn preparing(&self, path: &str) -> bool;
+    /// The details job left the slot to a cover that needs it ([`give_way`]):
+    /// its marker goes, and its book is looked at again later.
+    fn gave_way(&self);
     /// Opens the book at `path` (root 1) as the host's own document and makes
     /// it the details job: its marker is written first, so that a format that
     /// crashes in the open counts the book as failed at the next start.
@@ -49,6 +57,33 @@ pub(crate) trait DetailsJob {
         route: &dyn Route,
         path: &str,
     ) -> Result<(), i32>;
+}
+
+/// The details job leaves the slot to a cover that needs it (`cover`): its
+/// document ends as one whose place was taken ends, its book is looked at
+/// again later and is not counted as failed or displaced. Nothing where the
+/// job is a cover job.
+pub(crate) fn give_way(host: &dyn DocHost) {
+    let Some(details) = host.details_job() else {
+        return;
+    };
+    let table = host.table();
+    let Some(job) = table.cover_job().filter(|job| job.job_kind == JobKind::Details) else {
+        return;
+    };
+    if job.closed_by_host != 0 {
+        // Closed by the host already: only its row is left.
+        let _ = table.close(job.owner, job.id);
+    } else if let Some(job) = table.take_cover_job() {
+        host.end_images(&job);
+        if !job.format_gone {
+            host.close_format(&job);
+        }
+        if job.reader_held {
+            host.reader_closed(job.id);
+        }
+    }
+    details.gave_way();
 }
 
 fn buffer(size: usize) -> Result<Vec<u8>, i32> {
@@ -66,7 +101,7 @@ fn buffer(size: usize) -> Result<Vec<u8>, i32> {
 pub(crate) fn open_book(host: &dyn DocHost, path: &str) -> Result<u32, i32> {
     let cx = Cx {
         host,
-        owner: HOST_OWNER,
+        owner: HOST_JOB,
         library: true,
     };
     let mut input = buffer(path.len().saturating_add(96))?;
@@ -95,7 +130,7 @@ pub(crate) fn open_book(host: &dyn DocHost, path: &str) -> Result<u32, i32> {
 pub(crate) fn close_book(host: &dyn DocHost, document: u32) {
     let cx = Cx {
         host,
-        owner: HOST_OWNER,
+        owner: HOST_JOB,
         library: true,
     };
     let mut input = [0_u8; 32];
@@ -153,6 +188,9 @@ pub(crate) struct DetailsRun {
     /// The kernel's clock (ms) at the last `core.catalog-wanted`, or where
     /// the job was armed from rest.
     since: Cell<u64>,
+    /// The timed wake of the next look (the kernel's clock, ms), where one
+    /// waits (`details_job_pump`).
+    wake: Cell<Option<u64>>,
 }
 
 impl DetailsRun {
@@ -165,6 +203,7 @@ impl DetailsRun {
         self.cursor.set(0);
         self.line.set(0);
         self.later.set(0);
+        self.wake.set(None);
     }
     /// Nothing more to read in the catalog.
     pub(crate) fn disarm(&self) {
@@ -175,6 +214,7 @@ impl DetailsRun {
     pub(crate) fn suspend(&self) {
         self.armed.set(false);
         self.running.set(false);
+        self.wake.set(None);
     }
     pub(crate) fn armed(&self) -> bool {
         self.armed.get()
@@ -205,9 +245,10 @@ impl DetailsRun {
         self.running.set(false);
         self.cursor.set(self.line.get());
     }
-    /// The book at `line` could not be opened now: looked at again at the next
-    /// pass, [`LATER_MAX`] times in a row at most, then passed by (`next`).
-    pub(crate) fn later(&self, line: u64, next: u64) {
+    /// The book at `line` could not be opened now: looked at again later,
+    /// [`LATER_MAX`] times in a row at most, then passed by (`next`). The
+    /// tries in a row so far.
+    pub(crate) fn later(&self, line: u64, next: u64) -> u8 {
         let later = self.later.get().saturating_add(1);
         if later >= LATER_MAX {
             self.later.set(0);
@@ -216,6 +257,24 @@ impl DetailsRun {
             self.later.set(later);
             self.cursor.set(line);
         }
+        later
+    }
+    /// The next look is due at `at` (a timed wake of the pump).
+    pub(crate) fn wake_at(&self, at: u64) {
+        self.wake.set(Some(at));
+    }
+    /// The wake where the run is armed and one waits.
+    pub(crate) fn wake(&self) -> Option<u64> {
+        self.wake.get().filter(|_| self.armed.get())
+    }
+    /// Whether the look may be made at `now_ms`: not before its wake, which
+    /// is spent then.
+    pub(crate) fn due(&self, now_ms: u64) -> bool {
+        if self.wake.get().is_some_and(|at| now_ms < at) {
+            return false;
+        }
+        self.wake.set(None);
+        true
     }
     /// A book's details were kept.
     pub(crate) fn filled(&self) {

@@ -244,13 +244,14 @@ fn seconds(host: &Host<'_>) -> i64 {
 /// Declares the work again: due in `seconds`.
 fn arm(host: &Host<'_>, work: &Work, seconds: i64) -> Result<(), Error> {
     let spec = WorkSpec::new(KEY, WORK_DUE)?.after_ms(interval_ms(seconds));
-    work.declare(host, &spec, &mut [0; 256], &mut [])
+    // The host asks for room for the op's answer (`max_reply` 64).
+    work.declare(host, &spec, &mut [0; 256], &mut [0; 64])
 }
 
 /// Takes the work back; a refusal leaves a due call the model ignores.
 fn disarm(host: &Host<'_>, work: Option<&Work>) {
     if let Some(work) = work {
-        work.cancel(host, KEY, &mut [0; 256], &mut []).ok();
+        work.cancel(host, KEY, &mut [0; 256], &mut [0; 64]).ok();
     }
 }
 

@@ -850,3 +850,105 @@ fn every_failed_reason_of_a_server_is_told_as_the_http_reasons() {
         assert_eq!(got.state(), ServerState::Failed { reason });
     }
 }
+
+#[test]
+fn document_changed_reads_the_document_its_state_and_progress() {
+    use crate::native::document::{DocId, Preparation};
+    let encode = |state| {
+        let mut bytes = [0; 64];
+        let n = wire::records_encode(
+            &[wire::Record::EventDocumentChanged(
+                wire::EventDocumentChanged {
+                    now_ms: 5,
+                    document: 3,
+                    state,
+                    progress_ppm: 250_000,
+                },
+            )],
+            &mut bytes,
+        )
+        .unwrap();
+        (bytes, n)
+    };
+    for (state, preparation) in [
+        (0, Preparation::Ready),
+        (1, Preparation::Preparing),
+        (2, Preparation::Failed),
+        // A state this SDK does not know reads as failed, as `DocState` does.
+        (9, Preparation::Failed),
+    ] {
+        let (bytes, n) = encode(state);
+        assert_eq!(
+            Event::decode(&bytes[..n]),
+            Ok(Event::DocumentChanged {
+                now_ms: 5,
+                document: DocId::from_wire(3),
+                state: preparation,
+                progress_ppm: 250_000,
+            })
+        );
+        let decoded = Incoming::new(&bytes[..n])
+            .unwrap()
+            .decode_as::<kinds::DocumentChanged>();
+        assert!(
+            matches!(decoded, Ok(Some(Event::DocumentChanged { .. }))),
+            "{decoded:?}"
+        );
+    }
+    // Every truncation and a byte too many are refused, never a panic.
+    let (bytes, n) = encode(1);
+    for end in 0..n {
+        assert!(Event::decode(&bytes[..end]).is_err(), "{end}");
+    }
+    let mut longer = bytes[..n].to_vec();
+    longer.push(0);
+    assert!(Event::decode(&longer).is_err());
+}
+
+/// `event.document_closed` alone in its batch, as the host delivers it: read whole
+/// and by its kind, both give `expected`.
+fn check_document_closed(document: u32, reason: u32, expected: Result<Event<'static>, Error>) {
+    let mut bytes = [0; 64];
+    let n = wire::records_encode(
+        &[wire::Record::EventDocumentClosed(
+            wire::EventDocumentClosed {
+                now_ms: 9,
+                document,
+                reason,
+            },
+        )],
+        &mut bytes,
+    )
+    .unwrap();
+    assert_eq!(Event::decode(&bytes[..n]), expected);
+    let incoming = Incoming::new(&bytes[..n]).unwrap();
+    assert_eq!(
+        incoming.decode_as::<kinds::DocumentClosed>(),
+        expected.map(Some)
+    );
+    assert_eq!(incoming.decode_as::<kinds::LookupReady>(), Ok(None));
+}
+
+#[test]
+fn document_closed_names_the_document_and_why() {
+    use crate::native::document::{DocClosedReason as Why, DocId};
+    for (wire_reason, reason) in [
+        (1, Why::FormatStopped),
+        (2, Why::CardRemoved),
+        (3, Why::BookGone),
+        (4, Why::Needed),
+        // Reasons the SDK does not know count as 1 (`document.md` 2.1).
+        (0, Why::FormatStopped),
+        (5, Why::FormatStopped),
+        (u32::MAX, Why::FormatStopped),
+    ] {
+        let expected = Event::DocumentClosed {
+            now_ms: 9,
+            document: DocId::named(7).unwrap(),
+            reason,
+        };
+        check_document_closed(7, wire_reason, Ok(expected));
+    }
+    // 0 is never a document id: refused, not a closed document.
+    check_document_closed(0, 1, Err(Error::Invalid));
+}

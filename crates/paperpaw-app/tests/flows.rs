@@ -389,6 +389,59 @@ fn bookmarks_keep_words_broken_across_lines_whole() {
     assert!(broken.is_empty(), "words broken in bookmarks: {broken:#?}");
 }
 
+/// The reader asked to open a book while it shows one (a book opened from
+/// another screen while the reader is still on the stack): the same book
+/// stays open where it was; another book opens, and the first one again
+/// after it. Bookmarks land in the book on show,
+/// nothing says the book could not be opened, nothing warns.
+#[test]
+fn a_book_opened_while_the_reader_shows_one() {
+    fn open(app: &mut App, path: &str) {
+        app.now += 100;
+        let params = Params::new().with(paperpaw_sdk::builtin::params::PATH, path);
+        let effects = app.kernel.open_slot(
+            Instant(app.now),
+            paperpaw_sdk::builtin::slots::READER,
+            params,
+        );
+        app.settle(effects);
+        app.kernel.render(&mut |_, _| {});
+    }
+    fn mark(app: &mut App) {
+        app.kernel.render(&mut |_, _| {});
+        app.run(Id::new_static("reader.toggle-bookmark"));
+    }
+    let marks = |card: &Card, book: &str| paperpaw_sdk::annotations::load(card, book).len();
+    let card = Card::new(true);
+    let mut app = App::start(BUTTONS, &card);
+    let cannot = "could not be opened";
+
+    // The same book again: it stays open.
+    open(&mut app, ALICE);
+    app.run(actions::NEXT_PAGE);
+    open(&mut app, ALICE);
+    assert_eq!(app.screen(), "reader.screen");
+    assert!(!app.shows(cannot));
+    mark(&mut app);
+    assert_eq!(marks(&card, ALICE), 1);
+
+    // Another book, and the first one again.
+    open(&mut app, GREGOR);
+    assert_eq!(app.screen(), "reader.screen");
+    assert!(!app.shows(cannot));
+    mark(&mut app);
+    assert_eq!(marks(&card, GREGOR), 1);
+    open(&mut app, ALICE);
+    assert_eq!(app.screen(), "reader.screen");
+    assert!(!app.shows(cannot));
+    app.run(actions::NEXT_PAGE);
+    mark(&mut app);
+    assert_eq!(marks(&card, ALICE), 2);
+    assert_eq!(marks(&card, GREGOR), 1);
+    let warnings = app.warnings();
+    assert!(warnings.is_empty(), "{warnings:?}");
+}
+
 /// Opens each row of the menu that `open` shows, one after the other,
 /// with the buttons (`buttons`) or by touch, and goes home after each:
 /// every entry leads somewhere, and nothing it opens panics or warns.

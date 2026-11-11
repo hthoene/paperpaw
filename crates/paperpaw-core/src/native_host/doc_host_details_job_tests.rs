@@ -5,12 +5,13 @@
 //! is named for the library's failed ring; any other open takes its place.
 use super::*;
 use crate::native_host::{
-    doc_service::{FAILED, JobKind, JobStep, PREPARING, READY, details::DetailsJob},
+    doc_service::{
+        FAILED, HOST_JOB, JobKind, JobStep, PREPARING, READY, cover, details::DetailsJob,
+    },
     fmt_call::FrameRoute,
     lib_cover::path_key,
-    ui_store::HOST_OWNER,
 };
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NOT_FOUND};
 use paperpaw_sdk::document::Metadata;
 
 fn encoded(record: local::Record<'_>) -> Vec<u8> {
@@ -55,7 +56,7 @@ fn script(w: &World<'_>, answers: Vec<Vec<u8>>) {
 
 fn who<'w>(w: &'w World<'_>) -> Caller<'w> {
     Caller {
-        owner: HOST_OWNER,
+        owner: HOST_JOB,
         plugin: "",
         features: AdmittedFeatures::NONE,
         hosts: &w.hosts,
@@ -106,7 +107,7 @@ fn a_ready_book_is_read_through_meta_and_meta_text_and_its_details_kept() {
         begin(w, "books/a.epub", READY);
         let job = w.state.table.cover_job().unwrap();
         assert_eq!(job.job_kind, JobKind::Details);
-        assert!(job.background && job.owner == HOST_OWNER);
+        assert!(job.background && job.owner == HOST_JOB);
         assert_eq!(
             marker(w).unwrap(),
             std::format!("{:016x}", path_key("books/a.epub"))
@@ -266,10 +267,30 @@ fn no_details_job_begins_before_the_start_returned_nor_beside_another_job() {
         assert_eq!(w.calls.borrow().len(), calls, "nothing opened");
         // And the other way round: the slot is the details job's.
         w.state.cover_job_end(&w.hosts, &FrameRoute(w));
-        *w.reply.borrow_mut() = Ok(fmt_state(PREPARING, 0));
-        let cover = w.open(1, "books/c.epub").unwrap();
         start(w, "books/a.epub", PREPARING).unwrap();
+        // A background document (`doc_open.flags` bit 2) is no reading.
+        let (cover, _) = w
+            .state
+            .table
+            .open(OPENER, true, FormatRef(0), PREPARING, 1 << 2, &|_| true)
+            .unwrap();
         assert!(!w.state.table.start_cover_job(OPENER, cover), "one slot");
+        // Nor beside a book open for reading, nor in the quiet moment after
+        // a displacement.
+        w.state.cover_job_end(&w.hosts, &FrameRoute(w));
+        w.state.table.close(OPENER, cover).unwrap();
+        assert_eq!(w.state.may_begin(), Ok(()));
+        *w.reply.borrow_mut() = Ok(fmt_state(READY, 0));
+        let reader = w.open(1, "books/c.epub").unwrap();
+        assert_eq!(start(w, "books/a.epub", READY), Err(ERR_BUSY));
+        w.state.table.close(OPENER, reader).unwrap();
+        w.state.now.set(5_000);
+        w.state.cover_job_displaced(JobKind::Details);
+        assert!(!w.state.job_held_back.get(), "no cover waits for it");
+        assert_eq!(w.state.may_begin(), Err(Some(7_000)));
+        assert_eq!(start(w, "books/a.epub", READY), Err(ERR_BUSY));
+        w.state.now.set(7_000);
+        assert_eq!(w.state.may_begin(), Ok(()));
     });
 }
 
@@ -278,10 +299,10 @@ fn an_open_that_is_not_the_librarys_takes_the_details_jobs_place_at_once() {
     world(|w| {
         w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
         begin(w, "books/a.epub", PREPARING);
-        assert!(!w.state.reading_open());
+        assert!(!w.state.table.reading_besides(0));
         *w.reply.borrow_mut() = Ok(fmt_state(READY, 0));
         w.open(1, "books/b.epub").unwrap();
-        assert!(w.state.reading_open(), "a book is open for reading");
+        assert_eq!(w.state.may_begin(), Err(None), "a book is open for reading");
         assert!(w.state.table.cover_job().is_none());
         // The host hears nothing of its own document's end.
         assert!(!w.state.table.has_closed());
@@ -304,5 +325,105 @@ fn an_open_that_fails_leaves_no_job_and_no_marker() {
         assert_eq!(w.state.table.len(), 0);
         assert_eq!(marker(w), None);
         assert!(!w.state.cover_job_active());
+    });
+}
+
+/// The opener of a screen, as the library's `cover` runs for it.
+fn opener<'w>(w: &'w World<'_>) -> Caller<'w> {
+    Caller {
+        owner: OPENER,
+        plugin: "opener",
+        features: AdmittedFeatures::NONE,
+        hosts: &w.hosts,
+    }
+}
+
+/// The details job's book is looked at again later: it is not running, the
+/// cursor is back at its line, and nothing counts it as failed or displaced.
+fn gave_way(w: &World<'_>, line: u64) {
+    assert!(!w.state.details.running());
+    assert_eq!(w.state.details.cursor(), line);
+    assert_eq!(w.state.job_displaced.get(), (0, 0));
+    assert!(!w.state.job_held_back.get(), "no cover was held back");
+    assert_eq!(w.state.cover_job_given_up(), 0);
+}
+
+#[test]
+fn a_cover_that_needs_the_slot_makes_the_details_job_give_way() {
+    use crate::native_host::{
+        lib_cover::CoverCx,
+        lib_host::LibraryHost,
+        lib_reads::tests::card,
+        lib_service::{BookRef, Caller as Who, LibQuery},
+    };
+    let card = card();
+    let library = LibraryHost::new(card.storage.clone(), card.env.clone(), None);
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        begin(w, "books/b.epub", PREPARING);
+        w.state.details.started(10, 20);
+        let who = Who {
+            owner: OPENER,
+            plugin: "opener",
+            storage: Err(paperpaw_native::host_glue::ERR_DENIED),
+        };
+        let host = opener(w);
+        let cx = CoverCx {
+            frame: w,
+            caller: &host,
+        };
+        // Book A prepares: its cover needs the slot, and takes it.
+        *w.reply.borrow_mut() = Ok(fmt_state(PREPARING, 0));
+        let queued = library.cover(&who, BookRef::Path("books/a.epub"), 0, &cx, &mut |_| {});
+        assert_eq!(queued, Err(ERR_BUSY), "its own job converts it");
+        let job = w.state.table.cover_job().unwrap();
+        assert_eq!(job.job_kind, JobKind::Cover);
+        assert!(w.state.cover_job_path_is("books/a.epub"));
+        assert_eq!(w.state.table.len(), 1, "the details job's document ended");
+        // Open B, open A, then B's close.
+        assert_eq!(ops(w), [2, 2, 4]);
+        assert_eq!(
+            marker(w).unwrap(),
+            std::format!("{:016x}", path_key("books/a.epub"))
+        );
+        gave_way(w, 10);
+        assert!(!library.book_failed(path_key("books/b.epub")));
+    });
+}
+
+#[test]
+fn the_details_job_of_the_very_book_gives_way_before_the_covers_open() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        begin(w, "books/a.epub", PREPARING);
+        w.state.details.started(10, 20);
+        *w.reply.borrow_mut() = Ok(fmt_state(PREPARING, 0));
+        let made = cover::make(w, &opener(w), "books/a.epub", 0);
+        assert!(matches!(made, Ok(cover::Made::Queued)));
+        assert_eq!(w.state.table.cover_job().unwrap().job_kind, JobKind::Cover);
+        // A's close came before the cover's open: one document of it at a
+        // time.
+        assert_eq!(ops(w), [2, 4, 2]);
+        assert_eq!(w.state.table.len(), 1);
+        gave_way(w, 10);
+    });
+}
+
+#[test]
+fn a_ready_cover_is_asked_beside_the_details_job_never_busy() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        begin(w, "books/b.epub", PREPARING);
+        w.state.details.started(10, 20);
+        // A is ready: its format is asked for the cover (it has none) and
+        // the details job keeps the slot.
+        script(w, vec![fmt_state(READY, 0)]);
+        *w.reply.borrow_mut() = Err(ERR_NOT_FOUND);
+        let made = cover::make(w, &opener(w), "books/a.epub", 0);
+        assert!(matches!(made, Err(ERR_NOT_FOUND)));
+        let job = w.state.table.cover_job().unwrap();
+        assert_eq!(job.job_kind, JobKind::Details);
+        assert!(w.state.details.running());
+        assert_eq!(ops(w), [2, 2, 17, 4]);
     });
 }

@@ -24,6 +24,11 @@ pub(crate) const STALL_CAP: u8 = 32;
 const EVICTED: usize = 4;
 /// `doc_open.flags` bit 2: an open for an index build, never for a book to show.
 pub(crate) const BACKGROUND: u32 = 1 << 2;
+/// The owner of the host's own background job (the library's covers, book
+/// details): no opener, so it takes no opener's cap and hears no
+/// `event.document_closed`. No plugin has this key (`ui_store` checks it
+/// against the host's other keys).
+pub(crate) const HOST_JOB: u64 = u64::MAX - 2;
 /// `event.document_closed.reason` 4 `needed`: its place went to a book to show.
 pub(crate) const NEEDED: u32 = 4;
 
@@ -280,9 +285,12 @@ impl DocumentTable {
                 return Err(ERR_FULL);
             }
             let live = |d: &&Document| d.owner != owner && d.closed_by_host == 0;
+            // The host's own job goes first, then an opener's background
+            // document, then one whose opener shows no screen.
             let at = rows
                 .iter()
-                .position(|d| live(&d) && d.background)
+                .position(|d| live(&d) && d.cover_job)
+                .or_else(|| rows.iter().position(|d| live(&d) && d.background))
                 .or_else(|| rows.iter().position(|d| live(&d) && !shows(d.owner)))
                 .ok_or(ERR_FULL)?;
             let mut victim = rows.remove(at);
@@ -339,6 +347,8 @@ impl DocumentTable {
                 document.cover_job = true;
                 document.job_kind = kind;
                 document.background = true;
+                // The host's own job: no opener's cap, no close event.
+                document.owner = HOST_JOB;
                 true
             }
             _ => false,
@@ -487,12 +497,21 @@ impl DocumentTable {
             .any(|d| !d.cover_job && !d.background && d.closed_by_host == 0)
     }
 
-    /// Whether a book is open for reading or showing (a held table counts as
-    /// one): no details job begins then (`doc_details_job`).
-    pub(crate) fn any_reading(&self) -> bool {
+    /// Whether a book is open for reading or showing, besides the document
+    /// `besides` (0: none): a table that is held counts as one.
+    pub(crate) fn reading_besides(&self, besides: u32) -> bool {
+        self.documents.try_borrow().map_or(true, |rows| {
+            rows.iter()
+                .any(|d| d.id != besides && !d.cover_job && !d.background && d.closed_by_host == 0)
+        })
+    }
+
+    /// Whether every place is taken (a held table counts as full): an open
+    /// takes one then, or is refused.
+    pub(crate) fn full(&self) -> bool {
         self.documents
             .try_borrow()
-            .map_or(true, |rows| Self::reading(&rows))
+            .map_or(true, |rows| rows.len() >= self.limits.device)
     }
 
     /// Whether every preparing document is the cover job (and one is): the
@@ -608,8 +627,8 @@ impl DocumentTable {
     /// Keep `event.document_closed` for `document`'s opener. Never fails for
     /// a document that was live: `open` left room for it.
     pub(crate) fn raise_closed(&self, document: &Document, reason: u32) {
-        // The host's own document (the details job) has no opener to tell.
-        if crate::native_host::ui_store::is_host_owner(document.owner) {
+        // The host's own job has no opener to tell.
+        if document.owner == HOST_JOB {
             return;
         }
         let Ok(mut events) = self.closed.try_borrow_mut() else {

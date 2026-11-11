@@ -27,6 +27,7 @@ fn make_cover(
     match cover::make(view, caller, path, side)? {
         Made::Image(image) => Ok(image),
         Made::Queued => Err(QUEUED),
+        Made::Failed => Err(ERR_NOT_FOUND),
     }
 }
 
@@ -199,7 +200,11 @@ fn a_format_still_preparing_is_kept_open_as_the_cover_job_and_asks_to_come_back(
         assert!(fake.released.borrow().is_empty());
         let job = view.fake.table.cover_job().unwrap();
         assert!(job.background && job.cover_job);
-        assert_eq!((job.id, job.owner), (1, OWNER));
+        // The host's own job, no opener's.
+        assert_eq!(
+            (job.id, job.owner),
+            (1, crate::native_host::doc_service::HOST_JOB)
+        );
     });
 }
 
@@ -489,9 +494,166 @@ fn start_runs_no_cover_job() {
     });
 }
 
-/// The marker cannot be written: the job does not begin, the book is busy
-/// with nothing raised and its document is closed again; a book that waits
-/// behind a running job writes no marker.
+/// A book open for reading holds the job back: the preparing book is closed
+/// again, busy with nothing raised, and begins its job when asked again once the
+/// reader has closed.
+#[test]
+fn a_book_open_for_reading_holds_the_job_back() {
+    use crate::native_host::{
+        lib_cover::CoverCx,
+        lib_host::LibraryHost,
+        lib_reads::tests::card,
+        lib_service::{BookRef, Caller as Who, LibQuery},
+    };
+    let card = card();
+    let library = LibraryHost::new(card.storage.clone(), card.env.clone(), None);
+    let fake = Fake::new(Limits::LARGE);
+    with(&fake, |view| {
+        let who = Who {
+            owner: OWNER,
+            plugin: "home",
+            storage: Err(ERR_DENIED),
+        };
+        let host = caller(view);
+        let cx = CoverCx {
+            frame: view,
+            caller: &host,
+        };
+        // Another opener's book, shown.
+        let (reader, _) = fake
+            .table()
+            .open(OWNER + 1, true, FormatRef(0), READY, 0, &|_| true)
+            .unwrap();
+        fake.queue.borrow_mut().push(Ok(state_answer(1, 0)));
+        let asked = library.cover(&who, BookRef::Path(BOOK), 0, &cx, &mut |_| {});
+        assert_eq!(asked, Err(ERR_BUSY));
+        assert!(fake.held_back.get(), "held back");
+        assert!(fake.table().cover_job().is_none(), "no job began");
+        assert!(fake.guarded.borrow().is_empty(), "no marker");
+        assert!(!library.take_changed(&mut |_, _, _| {}), "nothing raised");
+        fake.table().close(OWNER + 1, reader).unwrap();
+        fake.queue.borrow_mut().push(Ok(state_answer(1, 0)));
+        let asked = library.cover(&who, BookRef::Path(BOOK), 0, &cx, &mut |_| {});
+        assert_eq!(asked, Err(ERR_BUSY));
+        assert!(fake.table().cover_job().is_some(), "the job began");
+    });
+}
+
+/// On the X4 the job is the first document a book to show takes (before an
+/// opener's background index), and takes no opener's cap: a ready cover of the
+/// same plugin that asked for the job gets its picture, not `ERR_FULL`.
+#[test]
+fn the_job_is_taken_first_and_a_ready_cover_is_not_full_beside_it() {
+    use crate::native_host::{
+        lib_cover::CoverCx,
+        lib_host::LibraryHost,
+        lib_reads::tests::card,
+        lib_service::{BookRef, Caller as Who, LibQuery},
+    };
+    let card = card();
+    let library = LibraryHost::new(card.storage.clone(), card.env.clone(), None);
+    let fake = Fake::new(Limits::X4);
+    with(&fake, |view| {
+        let id = mapped(view, &fake, 1, "cache/b/cover.gray");
+        let who = Who {
+            owner: OWNER,
+            plugin: "home",
+            storage: Err(ERR_DENIED),
+        };
+        let host = caller(view);
+        let cx = CoverCx {
+            frame: view,
+            caller: &host,
+        };
+        // A DOCX that prepares: the job (one place), the caller holds none.
+        fake.queue.borrow_mut().push(Ok(state_answer(1, 0)));
+        let asked = library.cover(&who, BookRef::Path("books/b.epub"), 0, &cx, &mut |_| {});
+        assert_eq!(asked, Err(ERR_BUSY));
+        let job = fake.table().cover_job().unwrap();
+        assert_ne!(job.owner, OWNER, "the host's own");
+        // A ready EPUB of the same plugin: its picture, not busy.
+        fake.queue
+            .borrow_mut()
+            .extend([Ok(state_answer(0, 0)), Ok(picture(100))]);
+        let mut got = None;
+        library
+            .cover(&who, BookRef::Path(BOOK), 0, &cx, &mut |record| {
+                if let Record::ServiceDocImage(image) = record {
+                    got = Some(image.image);
+                }
+            })
+            .unwrap();
+        assert_eq!(got, Some(id));
+        assert_eq!(
+            fake.table().cover_job().map(|j| j.id),
+            Some(job.id),
+            "still runs"
+        );
+        // The device is full now (the job and a background index of another
+        // opener): the reader's book takes the job's place, not the index's.
+        let (index, _) = fake
+            .table()
+            .open(OWNER + 1, false, FormatRef(0), READY, 1 << 2, &|_| true)
+            .unwrap();
+        let (_, taken) = fake
+            .table()
+            .open(OWNER + 2, true, FormatRef(0), READY, 0, &|_| true)
+            .unwrap();
+        assert_eq!(taken.map(|d| d.id), Some(job.id), "the job is taken first");
+        assert!(
+            fake.table().lease(OWNER + 1, index).is_ok(),
+            "the index stays"
+        );
+    });
+}
+
+/// The failure ring keeps 8 books: the oldest gives way, and is asked for again.
+#[test]
+fn the_failure_ring_keeps_eight_books_and_the_oldest_gives_way() {
+    use crate::native_host::{
+        lib_cover::{CoverCx, path_key},
+        lib_host::LibraryHost,
+        lib_reads::tests::card,
+        lib_service::{BookRef, Caller as Who, LibQuery},
+    };
+    let card = card();
+    let library = LibraryHost::new(card.storage.clone(), card.env.clone(), None);
+    let fake = Fake::new(Limits::X4);
+    with(&fake, |view| {
+        let who = Who {
+            owner: OWNER,
+            plugin: "home",
+            storage: Err(ERR_DENIED),
+        };
+        let host = caller(view);
+        let cx = CoverCx {
+            frame: view,
+            caller: &host,
+        };
+        let mut paths: Vec<std::string::String> =
+            (1..9).map(|i| std::format!("books/{i}.epub")).collect();
+        paths.insert(0, BOOK.into());
+        for path in &paths {
+            library.cover_job_left(path_key(path));
+        }
+        let calls = fake.calls.borrow().len();
+        // The newest 8 are not found, nothing opened.
+        for path in &paths[1..] {
+            let asked = library.cover(&who, BookRef::Path(path), 0, &cx, &mut |_| {});
+            assert_eq!(asked, Err(ERR_NOT_FOUND), "{path}");
+        }
+        assert_eq!(fake.calls.borrow().len(), calls, "nothing opened");
+        // The oldest was given way to: asked for again (it is opened).
+        fake.queue.borrow_mut().push(Ok(state_answer(1, 0)));
+        let asked = library.cover(&who, BookRef::Path(&paths[0]), 0, &cx, &mut |_| {});
+        assert_ne!(asked, Err(ERR_NOT_FOUND));
+        assert!(fake.calls.borrow().len() > calls, "opened");
+    });
+}
+
+/// The marker cannot be written: the job does not begin, the book counts as
+/// failed (not found, not opened again) and its document is closed again; a
+/// book that waits behind a running job writes no marker.
 #[test]
 fn a_job_whose_marker_cannot_be_written_does_not_begin() {
     use crate::native_host::{
@@ -517,16 +679,23 @@ fn a_job_whose_marker_cannot_be_written_does_not_begin() {
         };
         fake.queue.borrow_mut().push(Ok(state_answer(1, 0)));
         let asked = library.cover(&who, BookRef::Path(BOOK), 0, &cx, &mut |_| {});
-        assert_eq!(asked, Err(ERR_BUSY));
+        assert_eq!(asked, Err(ERR_NOT_FOUND));
         assert!(fake.table().cover_job().is_none(), "no job, unguarded");
         assert!(!library.take_changed(&mut |_, _, _| {}), "nothing raised");
-        // Marked, a job runs; a second book behind it writes no marker.
+        // Not asked for again: the book counts as failed, not found, and its
+        // document is not opened any more.
+        let calls = fake.calls.borrow().len();
+        let asked = library.cover(&who, BookRef::Path(BOOK), 0, &cx, &mut |_| {});
+        assert_eq!(asked, Err(ERR_NOT_FOUND));
+        assert_eq!(fake.calls.borrow().len(), calls);
+        // Marked, a job runs (another book); a second behind it writes no
+        // marker.
         fake.guard_fails.set(false);
         fake.queue.borrow_mut().push(Ok(state_answer(1, 0)));
-        let _ = library.cover(&who, BookRef::Path(BOOK), 0, &cx, &mut |_| {});
+        let _ = library.cover(&who, BookRef::Path("books/c.epub"), 0, &cx, &mut |_| {});
         fake.queue.borrow_mut().push(Ok(state_answer(1, 0)));
         let _ = library.cover(&who, BookRef::Path("books/b.epub"), 0, &cx, &mut |_| {});
-        assert_eq!(&*fake.guarded.borrow(), &[BOOK]);
+        assert_eq!(&*fake.guarded.borrow(), &["books/c.epub"]);
     });
 }
 

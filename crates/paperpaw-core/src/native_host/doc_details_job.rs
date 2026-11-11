@@ -23,14 +23,13 @@ use super::{BookKind, Bound, DocState, NoImages};
 use crate::abi7::context::Frame;
 use crate::native_host::{
     doc_service::{
-        DocHost, Document, FormatCall, JobKind, JobStep, READY,
+        DocHost, Document, FormatCall, HOST_JOB, JobKind, JobStep, PREPARING, READY,
         details::{self, DetailsJob, DetailsRun},
         fmt,
     },
     fmt_call::{Opener, Route, Stage},
     format_call::Target,
     host_services::{Caller, HostServices},
-    ui_store::HOST_OWNER,
 };
 use alloc::{string::String, vec::Vec};
 use paperpaw_native::host_glue::{
@@ -62,8 +61,19 @@ impl DetailsJob for DocState {
         &self.details
     }
 
-    fn reading_open(&self) -> bool {
-        self.table.any_reading()
+    fn may_begin(&self) -> Result<(), Option<u64>> {
+        self.job_may_begin()
+    }
+
+    fn preparing(&self, path: &str) -> bool {
+        self.table.cover_job().is_some_and(|job| job.state == PREPARING)
+            && self.job_book_is(path, JobKind::Details)
+    }
+
+    fn gave_way(&self) {
+        self.job_later.set(0);
+        self.unguard();
+        self.details.gone();
     }
 
     fn start(
@@ -76,7 +86,7 @@ impl DetailsJob for DocState {
         if !self.jobs_allowed.get() {
             return Err(ERR_STATE);
         }
-        if self.table.cover_job().is_some() || self.job_guarded.get() {
+        if self.job_may_begin().is_err() || self.job_guarded.get() {
             return Err(ERR_BUSY);
         }
         // Before the open: a format that crashes in it leaves the marker.
@@ -88,7 +98,7 @@ impl DetailsJob for DocState {
             route: Some(route),
         };
         let started = details::open_book(&bound, path).and_then(|document| {
-            if self.table.start_job(HOST_OWNER, document, JobKind::Details) {
+            if self.table.start_job(HOST_JOB, document, JobKind::Details) {
                 Ok(())
             } else {
                 details::close_book(&bound, document);
