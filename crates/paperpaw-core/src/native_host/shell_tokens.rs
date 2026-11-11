@@ -48,6 +48,9 @@ pub(crate) fn dispatch_token_staged<S: 'static, M>(
 ) -> Result<i32, Error> {
     batch.dispatch_owner(depth, |context| {
         stage.admit_images(context.image_admit());
+        if let Some(dev) = context.dev_context() {
+            stage.admit_dev(dev);
+        }
         // SAFETY: the admitted owner structurally pins the command scope.
         let scope = unsafe { context.map_unchecked(|value| &value.commands) };
         scope.scope(stage, || invoke_token(context, token, frame, invocation))?
@@ -167,5 +170,27 @@ impl<S: 'static> super::Context<S> {
                 .images()
                 .prepare_room(self.resources.owner_id()),
         }
+    }
+
+    /// What a command stage judges the plugin's power, Wi-Fi and firmware
+    /// commands with (`commands_dev.rs`): its admitted features, the
+    /// kernel's Wi-Fi table and, where wired, the firmware table. Built for
+    /// one callback; none before the kernel wired its Wi-Fi table, and then
+    /// those commands stay `ERR_UNSUPPORTED`.
+    pub(crate) fn dev_context(&self) -> Option<super::super::commands::dev::DevContext<'static>> {
+        let hosts = self.resources.hosts();
+        let context = super::super::commands::dev::DevContext::new(
+            self.declared_services.features(),
+            hosts.radio_requests()?,
+        );
+        Some(match hosts.firmware_requests() {
+            Some(driver) => {
+                context.with_firmware(super::super::commands::dev::FirmwareContext::new(
+                    alloc::rc::Rc::clone(driver),
+                    self.resources.owner_id(),
+                ))
+            }
+            None => context,
+        })
     }
 }

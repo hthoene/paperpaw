@@ -31,6 +31,9 @@ pub(crate) struct Staged {
     /// The hand-overs its opens name, and the screens they replace: for the
     /// drain (`Kernel::drain_native_opens`).
     pub(crate) opens: super::commands::Opens,
+    /// Its power and Wi-Fi commands, applied in their place among the
+    /// commands (`commands_dev.rs`).
+    pub(crate) dev: Option<alloc::boxed::Box<super::commands::dev::DevBatch>>,
     /// What a screen's callback stages besides (empty for a service's event,
     /// whose stage admits none of it).
     pub(crate) screen: ScreenEffects,
@@ -68,6 +71,7 @@ impl Staged {
     /// Whether it holds nothing to apply.
     pub(crate) fn is_empty(&self) -> bool {
         self.commands.is_empty()
+            && self.dev.is_none()
             && self.redraw.is_none()
             && self.images.is_empty()
             && self.screen.is_empty()
@@ -86,6 +90,7 @@ impl Staged {
             redraw,
             images,
             opens: super::commands::Opens::default(),
+            dev: None,
             screen: ScreenEffects::default(),
         }
     }
@@ -214,16 +219,22 @@ impl crate::Kernel {
                 let widgets = stage.take_widget_changes();
                 let item_states = stage.take_item_states();
                 let answers = stage.take_answers();
-                let marked = match instances.ui_services() {
-                    Some(ui) if !widgets.is_empty() => ui.widgets_changed(owner, &widgets),
+                // Its power and Wi-Fi commands, boxed when there are any (no
+                // memory for that fails the callback as well).
+                let dev = stage.take_dev_boxed();
+                let marked = match (&dev, instances.ui_services()) {
+                    (Err(error), _) => Err(*error),
+                    (Ok(_), Some(ui)) if !widgets.is_empty() => ui.widgets_changed(owner, &widgets),
                     _ => Ok(()),
                 };
                 if let Err(error) = marked {
                     status = Err(error);
                     None
                 } else {
+                    let dev = dev.unwrap_or_default();
                     let (commands, redraw, _hop, opens) = stage.into_ui_output_with_opens();
                     (!commands.is_empty()
+                        || dev.is_some()
                         || redraw.is_some()
                         || !images.is_empty()
                         || !item_states.0.is_empty()
@@ -233,6 +244,7 @@ impl crate::Kernel {
                         staged.screen.item_states = item_states;
                         staged.screen.answers = answers;
                         staged.opens = opens;
+                        staged.dev = dev;
                         staged
                     })
                 }

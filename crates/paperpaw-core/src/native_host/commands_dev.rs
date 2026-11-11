@@ -16,7 +16,7 @@ use super::{CommandBatch, CommandStage, WireCommand, ui};
 #[path = "commands_dev_firmware.rs"]
 mod firmware;
 use crate::native_host::{admitted_features::AdmittedFeatures, radio_requests::*};
-use alloc::{rc::Rc, string::String, vec::Vec};
+use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
 use core::{cell::RefCell, fmt, time::Duration};
 pub use firmware::FEATURE_INSTALL;
 pub(crate) use firmware::{FirmwareContext, FirmwareOp, FwRelease};
@@ -229,6 +229,13 @@ impl Drop for Release {
     }
 }
 
+impl DevBatch {
+    /// Whether it holds no command to apply.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+}
+
 /// What [`CommandStage::into_dev_output`] returns.
 #[cfg(test)]
 pub(crate) type DevBatchOutput = (Vec<Command>, Option<ui::Redraw>, u8, DevBatch);
@@ -277,7 +284,6 @@ impl<'a> DevContext<'a> {
 /// The stage's DEV state. Dropping it with items still reserved gives their
 /// table entries back.
 pub(super) struct DevStage<'a> {
-    owner: &'a Id,
     ctx: DevContext<'a>,
     items: Vec<DevItem>,
     /// The token its table entries carry; 0 until it reserves the first.
@@ -336,36 +342,73 @@ impl<'a> CommandStage<'a> {
     /// submitting instance's features and the kernel's table). The stage
     /// gives back its own reservations when dropped; it never touches those
     /// of another stage.
+    #[cfg(test)]
     pub(crate) fn with_dev(mut self, ctx: DevContext<'a>) -> Self {
+        self.admit_dev(ctx);
+        self
+    }
+
+    /// As [`Self::with_dev`], on a stage already lent (the instance's
+    /// features are known only inside its callback scope). While no guard
+    /// was named, the guard is read from the stage's own stack.
+    pub(crate) fn admit_dev(&mut self, mut ctx: DevContext<'a>) {
+        if ctx.guard_owner.is_none()
+            && let Some(ui) = &self.ui
+        {
+            ctx = ctx.guarded_by(ui.env().stack());
+        }
         self.dev = Some(DevStage {
-            owner: self.owner,
             ctx,
             items: Vec::new(),
             token: 0,
             fw: None,
         });
-        self
     }
 
     /// Like `into_ui_output`, with the DEV commands to apply in order. The
     /// reservations pass to the returned batch, which gives back the ones it
     /// never applied when dropped.
+    #[cfg(test)]
     pub(crate) fn into_dev_output(mut self) -> (Vec<Command>, Option<ui::Redraw>, u8, DevBatch) {
-        let fw = self.dev.as_mut().and_then(|dev| dev.fw.take());
-        let (items, release) = match self.dev.as_mut() {
-            Some(dev) => (
-                core::mem::take(&mut dev.items),
-                // The token moves to the batch; the stage must not give back
-                // what the batch now owns.
-                Some(Release {
-                    table: Rc::clone(&dev.ctx.requests),
-                    token: core::mem::take(&mut dev.token),
-                }),
-            ),
-            None => (Vec::new(), None),
-        };
+        let batch = self.take_dev();
         let (commands, redraw, hop) = self.into_ui_output();
-        (commands, redraw, hop, DevBatch { items, release, fw })
+        (commands, redraw, hop, batch)
+    }
+
+    /// [`Self::take_dev`] for a batch that waits for the kernel: boxed, and
+    /// only when it holds a command, so that a waiting batch without one
+    /// costs a pointer.
+    ///
+    /// # Errors
+    /// `ERR_NO_MEMORY` when the box cannot be made (the batch gives its
+    /// reservations back).
+    pub(crate) fn take_dev_boxed(&mut self) -> Result<Option<Box<DevBatch>>, i32> {
+        let batch = self.take_dev();
+        if batch.is_empty() {
+            return Ok(None);
+        }
+        crate::native_host::shared::try_box(batch)
+            .map(Some)
+            .ok_or(ERR_NO_MEMORY)
+    }
+
+    /// The DEV commands to apply in order (call it before the stage is
+    /// turned into its output). The reservations pass to the batch, which
+    /// gives back the ones it never applied when dropped.
+    pub(crate) fn take_dev(&mut self) -> DevBatch {
+        let Some(dev) = self.dev.as_mut() else {
+            return DevBatch::default();
+        };
+        DevBatch {
+            items: core::mem::take(&mut dev.items),
+            // The token moves to the batch; the stage must not give back
+            // what the batch now owns.
+            release: Some(Release {
+                table: Rc::clone(&dev.ctx.requests),
+                token: core::mem::take(&mut dev.token),
+            }),
+            fw: dev.fw.take(),
+        }
     }
 
     /// Check the DEV commands of a batch without keeping anything; the bytes
@@ -667,27 +710,39 @@ impl crate::Kernel {
     /// is applied after every command before it in its batch; the shell acts
     /// on the kernel's sleep, power-off and restart flags once the frame is
     /// shown (`Effects`).
+    #[cfg(test)]
     pub(crate) fn drain_native_dev(
         &mut self,
         owner: &Id,
         commands: Vec<Command>,
         redraw: Option<ui::Redraw>,
-        mut batch: DevBatch,
+        batch: DevBatch,
+        host: &DevHost<'_>,
+    ) {
+        let opens = super::Opens::default();
+        self.drain_native_batch(owner, (commands, redraw, opens), batch, host);
+    }
+
+    /// Applies the DEV items of `batch` whose place is at or before the
+    /// ordinary command `index` (`None`: all that are left).
+    pub(crate) fn apply_dev_until(
+        &mut self,
+        owner: &Id,
+        batch: &mut DevBatch,
+        index: Option<usize>,
         host: &DevHost<'_>,
     ) {
         let token = batch.release.as_ref().map_or(0, |release| release.token);
+        let due = batch
+            .items
+            .iter()
+            .take_while(|item| index.is_none_or(|index| item.at <= index))
+            .count();
         let mut fw = batch.fw.take();
-        let mut items = core::mem::take(&mut batch.items).into_iter().peekable();
-        for (index, command) in commands.into_iter().enumerate() {
-            while let Some(item) = items.next_if(|item| item.at <= index) {
-                self.apply_dev(owner, item.op, host, token, &mut fw);
-            }
-            self.drain_native_command(owner, command);
-        }
-        for item in items {
+        for item in batch.items.drain(..due) {
             self.apply_dev(owner, item.op, host, token, &mut fw);
         }
-        self.finish_native_redraw(owner, redraw);
+        batch.fw = fw;
     }
 
     fn apply_dev(

@@ -191,7 +191,11 @@ pub(crate) fn build_stage<'a>(parts: StageParts<'a>) -> CommandStage<'a> {
 
 /// What the callback staged, after it returned `0` or `1`: the stage consumed
 /// into a batch for the kernel.
-pub(crate) fn staged_of(mut stage: CommandStage<'_>, owner_key: u64) -> Staged {
+///
+/// # Errors
+/// `ERR_NO_MEMORY` when its power and Wi-Fi commands cannot be kept (the
+/// whole batch is dropped, as for a failed callback).
+pub(crate) fn staged_of(mut stage: CommandStage<'_>, owner_key: u64) -> Result<Staged, i32> {
     let policies = stage.take_policies();
     let item_states = stage.take_item_states();
     let presets = stage.take_presets();
@@ -199,9 +203,11 @@ pub(crate) fn staged_of(mut stage: CommandStage<'_>, owner_key: u64) -> Staged {
     let images = stage.take_image_commands();
     let hints = stage.take_hint_sets();
     let widgets = stage.take_widget_changes();
+    let dev = stage.take_dev_boxed()?;
     let (commands, redraw, _hop, opens) = stage.into_ui_output_with_opens();
     let mut staged = Staged::new(owner_key, commands, redraw, images);
     staged.opens = opens;
+    staged.dev = dev;
     staged.screen = ScreenEffects {
         policies,
         item_states,
@@ -210,7 +216,7 @@ pub(crate) fn staged_of(mut stage: CommandStage<'_>, owner_key: u64) -> Staged {
         hints,
         widgets,
     };
-    staged
+    Ok(staged)
 }
 
 #[cfg(test)]

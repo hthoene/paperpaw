@@ -86,6 +86,9 @@ impl Kernel {
                     admit.room = admit.room.saturating_sub(inputs.images_held);
                     admit
                 });
+                if let Some(dev) = context.dev_context() {
+                    stage.admit_dev(dev);
+                }
                 // SAFETY: the admitted owner structurally pins the command scope.
                 let scope = unsafe { context.map_unchecked(|value| &value.commands) };
                 // A failed callback applies nothing: the stage's room guard
@@ -96,7 +99,7 @@ impl Kernel {
                 if !valid {
                     return Err(Error::Status(if status < 0 { status } else { ERR_INVALID }));
                 }
-                let staged = staged_of(stage, owner_key);
+                let staged = staged_of(stage, owner_key).map_err(Error::Status)?;
                 Ok::<_, Error>((status, owner, staged))
             })??
         };

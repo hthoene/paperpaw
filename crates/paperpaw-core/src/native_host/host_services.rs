@@ -63,6 +63,9 @@ pub(crate) struct HostServices {
     /// The firmware request table (op 13 reads the state of a request and the
     /// outcome kept for it). One per device.
     firmware_requests: OnceCell<Rc<RefCell<super::firmware_driver::Driver>>>,
+    /// The kernel's table of Wi-Fi requests, which a callback's stage
+    /// reserves `join` and `host` in (`commands_dev.rs`). One per device.
+    radio_requests: OnceCell<Rc<RefCell<super::radio_requests::RadioRequests>>>,
     net: OnceCell<NetServices>,
     sockets: OnceCell<SockServices>,
     work: OnceCell<WorkServices>,
@@ -144,6 +147,7 @@ impl HostServices {
             device: OnceCell::new(),
             firmware: OnceCell::new(),
             firmware_requests: OnceCell::new(),
+            radio_requests: OnceCell::new(),
             net: OnceCell::new(),
             sockets: OnceCell::new(),
             work: OnceCell::new(),
@@ -369,6 +373,22 @@ impl HostServices {
     /// The firmware request table, where wired.
     pub(crate) fn firmware_requests(&self) -> Option<&Rc<RefCell<super::firmware_driver::Driver>>> {
         self.firmware_requests.get()
+    }
+
+    /// Wire the kernel's Wi-Fi request table; the first wiring stays (the
+    /// kernel has one table).
+    pub(crate) fn wire_radio_requests(
+        &self,
+        table: &Rc<RefCell<super::radio_requests::RadioRequests>>,
+    ) {
+        let _ = self.radio_requests.set(Rc::clone(table));
+    }
+
+    /// The kernel's Wi-Fi request table, where wired.
+    pub(crate) fn radio_requests(
+        &self,
+    ) -> Option<&Rc<RefCell<super::radio_requests::RadioRequests>>> {
+        self.radio_requests.get()
     }
 
     /// Wire the firmware install machine once.

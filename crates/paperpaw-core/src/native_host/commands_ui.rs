@@ -467,9 +467,29 @@ impl crate::Kernel {
         redraw: Option<Redraw>,
         opens: super::Opens,
     ) {
-        let mut opens = opens;
+        let clock = self.dev_clock();
+        let host = super::dev::DevHost {
+            clock: &clock,
+            stored: &super::dev::NoStoredNetworks,
+        };
+        let dev = super::dev::DevBatch::default();
+        self.drain_native_batch(owner, (commands, redraw, opens), dev, &host);
+    }
+
+    /// As [`Self::drain_native_opens`], with the DEV commands of the batch
+    /// applied in their place among the others (`commands_dev.rs`): a power
+    /// command after every command before it. The shell acts on the
+    /// kernel's sleep, power-off and restart flags once the frame is shown.
+    pub(crate) fn drain_native_batch(
+        &mut self,
+        owner: &Id,
+        (commands, redraw, mut opens): (Vec<Command>, Option<Redraw>, super::Opens),
+        mut dev: super::dev::DevBatch,
+        host: &super::dev::DevHost<'_>,
+    ) {
         let (at, claims) = opens.take();
         for (index, command) in commands.into_iter().enumerate() {
+            self.apply_dev_until(owner, &mut dev, Some(index), host);
             let staged = at.iter().find(|open| open.index == index);
             // A replace is the submitter's own top screen's, nobody else's: if
             // another is on top by now (an earlier open of the same batch), it
@@ -491,6 +511,7 @@ impl crate::Kernel {
             // its claim is freed and the instance's old hand-over stays.
             self.release_pending_handover();
         }
+        self.apply_dev_until(owner, &mut dev, None, host);
         // Nothing stays claimed once the batch is applied.
         let mut kept = false;
         if let Some(store) = self.shared.native_instances.ui_store() {
