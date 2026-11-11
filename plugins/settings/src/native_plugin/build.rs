@@ -215,12 +215,14 @@ pub(super) fn build_list(
     reader: &mut Reader<'_, '_>,
     view: &mut ListView,
 ) -> Result<(), Error> {
+    // The secrets are asked first, through the reader's buffers: the service
+    // holds its own while it answers, and the group list is not built yet.
+    let pages = reader.menu(model::PAGES_MENU)?;
+    let secrets_kept = crate::native_secrets::shown(host, &pages, reader.buffers())?;
     let groups = reader.groups()?;
     let cx = context(host, false)?;
     let held = holding(reader, &groups, cx, false)?;
     let widgets = reader.widget_ids()?;
-    let pages = reader.menu(model::PAGES_MENU)?;
-    let secrets_kept = crate::native_secrets::shown(host, &pages)?;
     let mut messages = Messages::new()?;
     // (order, headings before entries of the same order, link or heading, title)
     let mut placed: Vec<(i32, bool, Option<Link>, String)> = Vec::new();

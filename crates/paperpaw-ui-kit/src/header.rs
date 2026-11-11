@@ -5,7 +5,7 @@ use paperpaw_sdk::{
     native::{
         Error, Host,
         fonts::{Font, TextOrigin},
-        formatting::Arg,
+        formatting::{self, Arg, FormatBuffers},
     },
 };
 #[allow(
@@ -99,6 +99,36 @@ pub fn prepare(
     });
     Ok(())
 }
+/// The pager's label (`2 / 5`): said through two small stack buffers, so that a
+/// frame makes no 4 KiB buffer for it; a label that does not fit them (none of
+/// the catalogs' does) is said through `m`.
+fn page_label(
+    host: &Host<'_>,
+    m: &mut Messages,
+    index: usize,
+    count: usize,
+) -> Result<alloc::string::String, Error> {
+    let args = [
+        Arg::Int {
+            name: "page",
+            value: index.saturating_add(1) as i64,
+        },
+        Arg::Int {
+            name: "pages",
+            value: count as i64,
+        },
+    ];
+    let (mut scratch, mut out) = ([0; 96], [0; 128]);
+    let mut buffers = FormatBuffers::new(&mut scratch, &mut out);
+    if let Ok(length) = formatting::format_message(host, "core.page-of", &args, &mut buffers)
+        && let Some(bytes) = out.get(..length)
+        && let Ok(label) = core::str::from_utf8(bytes)
+    {
+        return text::copy(label);
+    }
+    m.format(host, "core.page-of", &args)
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "paging geometry and localized label inputs"
@@ -120,20 +150,7 @@ fn pager(
     let mut right = width;
     let reach = ((s.title * 0.38) as i32 * 4 / 5) / 2;
     if count > 1 {
-        let label = m.format(
-            host,
-            "core.page-of",
-            &[
-                Arg::Int {
-                    name: "page",
-                    value: index.saturating_add(1) as i64,
-                },
-                Arg::Int {
-                    name: "pages",
-                    value: count as i64,
-                },
-            ],
-        )?;
+        let label = page_label(host, m, index, count)?;
         let label_width = font.measure_text(s.small, &label)? as u16;
         let next_x = i32::from(width) - i32::from(s.margin) - reach - 1;
         let arrow_width = if touch {

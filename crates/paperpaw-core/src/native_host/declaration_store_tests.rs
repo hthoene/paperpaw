@@ -307,7 +307,7 @@ fn corrupted_image_is_revalidated_each_time_and_never_cached() {
         .commit();
     let key = keys(&store)[0];
     assert!(store.with_record(key, &mut |_| {}));
-    let offset = usize::from(key.record);
+    let offset = image_offset(&source, key);
     let first = source.bytes.borrow()[offset];
     source.bytes.borrow_mut()[offset] = 0xff;
     assert!(!store.with_record(key, &mut |_| panic!("corrupt image")));
@@ -375,7 +375,7 @@ fn layout_is_measured_instead_of_assuming_a_twelve_byte_entry() {
         size_of::<StoredOwner>(),
         size_of::<PendingDeclarations>()
     );
-    assert_eq!(size_of::<Slot>(), 8);
+    assert_eq!(size_of::<Slot>(), 4);
 }
 
 #[test]
@@ -721,7 +721,23 @@ fn lookup_does_not_decode_an_unrelated_record_in_the_same_batch() {
             extra
         })
         .unwrap();
-    source.bytes.borrow_mut()[1] = 0xff;
+    // Damage the group's body (its name), not the frame headers a lookup
+    // walks to reach the extra.
+    {
+        let mut bytes = source.bytes.borrow_mut();
+        let from = |index| {
+            bytes.len()
+                - super::super::raw_declarations::record_at(&bytes, index)
+                    .unwrap()
+                    .len()
+        };
+        let (start, end) = (from(0), from(1));
+        let name = bytes[start..end]
+            .windows(5)
+            .position(|window| window == b"group")
+            .unwrap();
+        bytes[start + name] = 0xff;
+    }
     assert!(store.with_record(extra, &mut |r| assert!(matches!(
         r,
         Record::SettingExtra(_)
@@ -821,7 +837,7 @@ fn shifted_image_bytes_fail_at_still_in_bounds_offsets() {
     }
     let bytes = source.bytes.borrow();
     for key in keys(&store) {
-        assert!(usize::from(key.record) < bytes.len());
+        assert!(usize::from(key.record) < REGISTRATION_MAX_RECORDS);
         assert!(!store.with_record(key, &mut |_| panic!("shifted frame")));
     }
     for entry in &raw.index {
@@ -1066,7 +1082,6 @@ fn unnamed_fixture(owned: bool) -> (Rc<Image>, DeclarationStore, DeclKey) {
     let mut bytes = vec![0; REGISTRATION_MAX_BYTES];
     let len = records_encode(&records, &mut bytes).unwrap();
     bytes.truncate(len);
-    let offset = super::super::raw_declarations::offsets(&bytes, records.len()).unwrap()[1];
     *source.bytes.borrow_mut() = bytes;
     let mut store = DeclarationStore::default();
     let mut allocations = Allocations::default();
@@ -1077,8 +1092,9 @@ fn unnamed_fixture(owned: bool) -> (Rc<Image>, DeclarationStore, DeclKey) {
         )
         .unwrap()
         .commit();
+    // The draw registration: the second record of the batch.
     let key = DeclKey {
-        record: offset,
+        record: 1,
         ..keys(&store)[0]
     };
     (source, store, key)
@@ -1158,7 +1174,7 @@ fn unnamed_visit_rejects_stale_missing_and_reused_owner_keys() {
 #[test]
 fn unnamed_visit_revalidates_image_bytes_instead_of_caching_the_record() {
     let (source, store, key) = unnamed_fixture(false);
-    let offset = usize::from(key.record);
+    let offset = image_offset(&source, key);
     let byte = source.bytes.borrow()[offset];
     source.bytes.borrow_mut()[offset] = 0xff;
     assert!(!store.visit_record(key, &mut |_| panic!("corrupt record")));
@@ -1329,37 +1345,51 @@ fn an_owner_costs_a_flat_amount_however_many_kinds_exist() {
 fn slot_keys_keep_kinds_apart_and_the_hash_order_inside_a_kind() {
     // A kind's keys come before the next kind's, whatever the hash.
     assert!(Kind::Group.slot_key(u32::MAX) < Kind::Spec.slot_key(0));
-    // The top bits of the hash order a kind; the low bits share a key.
+    // The top ten bits of the hash order a kind; the low bits share a key.
     assert_eq!(
         Kind::Spec.slot_key(0x8000_0000),
-        Kind::Spec.slot_key(0x8000_003f)
+        Kind::Spec.slot_key(0x803f_ffff)
     );
-    assert!(Kind::Spec.slot_key(0x8000_003f) < Kind::Spec.slot_key(0x8000_0040));
+    assert!(Kind::Spec.slot_key(0x803f_ffff) < Kind::Spec.slot_key(0x8040_0000));
+    // The last kind and the largest hash still fit the 16-bit key.
+    assert_eq!(
+        Kind::BookBadge.slot_key(u32::MAX) >> KIND_SHIFT,
+        Kind::BookBadge as u16
+    );
     let mut owner = PendingDeclarations::new(Id::new_static("fixture"), image()).kept;
     owner.slots.reserve_exact(5);
     for (kind, hash, record) in [
-        (Kind::Spec, 0x40, 0),
+        (Kind::Spec, 0x0040_0000, 0),
         (Kind::Lookup, 0, 1),
         (Kind::Group, u32::MAX, 2),
-        (Kind::Spec, 0x3f, 3),
+        (Kind::Spec, 0x003f_ffff, 3),
         (Kind::Spec, 0, 4),
     ] {
         owner.add_slot(Slot {
             hash: kind.slot_key(hash),
-            batch: 0,
-            record,
+            place: record,
         });
     }
-    let records = |slots: &[Slot]| slots.iter().map(|slot| slot.record).collect::<Vec<_>>();
+    let records = |slots: &[Slot]| slots.iter().map(|slot| slot.record()).collect::<Vec<_>>();
     assert_eq!(records(owner.of_kind(Kind::Group)), [2]);
     // Equal keys stay in the order they were added.
     assert_eq!(records(owner.of_kind(Kind::Spec)), [3, 4, 0]);
     assert_eq!(records(owner.of_kind(Kind::Lookup)), [1]);
     assert!(owner.of_kind(Kind::Extra).is_empty());
     // A run holds every slot of the key: the lookup compares their names.
-    assert_eq!(records(owner.run(Kind::Spec, 0x3f)), [3, 4]);
-    assert_eq!(records(owner.run(Kind::Spec, 0x40)), [0]);
-    assert!(owner.run(Kind::Group, 0x40).is_empty());
+    assert_eq!(records(owner.run(Kind::Spec, 0x003f_ffff)), [3, 4]);
+    assert_eq!(records(owner.run(Kind::Spec, 0x0040_0000)), [0]);
+    assert!(owner.run(Kind::Group, 0x0040_0000).is_empty());
+}
+
+#[test]
+fn a_slot_keeps_the_batch_and_the_place_in_it() {
+    let slot = Slot {
+        hash: 0,
+        place: 4095 << RECORD_BITS | 7,
+    };
+    assert_eq!((slot.batch(), slot.record()), (4095, 7));
+    assert_eq!(BATCHES_MAX, 8192);
 }
 
 /// An image of `records` for the fixture owner.
@@ -1443,3 +1473,14 @@ fn inputs_and_hints_are_kept_listed_and_removed_with_their_owner() {
         0
     );
 }
+
+/// Where record `key` starts in the fixture's image, whose first batch is at
+/// its start (a key names the record's place in its batch, not a byte).
+fn image_offset(source: &Image, key: DeclKey) -> usize {
+    let bytes = source.bytes.borrow();
+    let rest = super::super::raw_declarations::record_at(&bytes, usize::from(key.record)).unwrap();
+    bytes.len() - rest.len()
+}
+
+#[path = "declaration_slots_tests.rs"]
+mod slots;

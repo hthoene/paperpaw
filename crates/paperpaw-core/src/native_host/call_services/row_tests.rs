@@ -1,6 +1,7 @@
 //! Generated service row budgets apply before dispatch and publication.
 use super::*;
 use crate::native_host::host_services::Caller;
+use alloc::vec::Vec;
 use registrations::{Record, ServiceEnd, ServiceUiParam, ServiceUiTarget};
 
 fn params(count: usize) -> Vec<u8> {
