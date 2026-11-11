@@ -14,6 +14,8 @@ use paperpaw_native::host_glue::{
 const COLOUR: u32 = 1;
 /// Bit 1: turn a JPEG as its EXIF orientation says.
 const TURN: u32 = 1 << 1;
+/// Bit 2: keep a PNG's or GIF's transparency (see-through, gray).
+const SEE_THROUGH: u32 = 1 << 2;
 
 /// What the stage checks a batch against.
 #[derive(Clone, Copy, Debug)]
@@ -103,7 +105,7 @@ impl ImageAdmit {
             2 => {}
             _ => return Err(ERR_UNSUPPORTED),
         }
-        if flags & !(COLOUR | TURN) != 0 {
+        if flags & !(COLOUR | TURN | SEE_THROUGH) != 0 {
             return Err(ERR_UNSUPPORTED);
         }
         // A tone table is all 256 values, or none.
@@ -167,6 +169,7 @@ pub(crate) fn owned(command: &WireCommand<'_>) -> Option<Result<ImageCommand, i3
                 colour: *flags & COLOUR != 0,
                 recipe: super::recipe::Recipe {
                     turn: *flags & TURN != 0,
+                    see_through: *flags & SEE_THROUGH != 0,
                     tone: table,
                 },
             }))

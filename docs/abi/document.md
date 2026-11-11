@@ -588,7 +588,7 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   that root, every root alike; an older SDK reads it as 2). Unknown values read as 2. There is no
   prepare from bytes: a plugin writes them to a file in root 0 first. At
   most 4 waiting per plugin (`ERR_FULL`), 8 prepared images per plugin. `flags` bit 0 colour
-  (where the screen has it), bit 1 `turn`; other bits are `ERR_UNSUPPORTED`.
+  (where the screen has it), bit 1 `turn`, bit 2 `see-through`; other bits are `ERR_UNSUPPORTED`.
 - [D] **The picture recipe** (picture-home): `image_prepare` carries what a plugin needs to make
   its picture the way it shows it, so it never reads one into memory.
   - **`turn`** (`flags` bit 1): the host applies a JPEG's EXIF orientation (tag 0x0112, 2 to 8, read
@@ -603,6 +603,11 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
     and nothing is turned; ask for the screen's side (`side` 0) with `turn` on the X4. Its time
     below the budget is a measured gate (#250). `event.image_ready` reports the size **after** the turn, `side`
     limits the longest side before and after alike. PNG and GIF are never turned.
+  - **`see-through`** (`flags` bit 2): a PNG's or GIF's transparency is kept: the picture is made
+    in gray with how opaque each pixel is (two bytes a pixel on the card, never colour: bit 0 is
+    then ignored), and `canvas.draw_image` blends it over what is below (a sleep picture over the
+    page). A JPEG has none and is made as without the bit; `tone` maps the gray, not the opacity,
+    and `luma` is the gray's, the opacity not counted. The decode's peak is unchanged.
   - **`tone: bytes 256`**, empty for none, else exactly 256 bytes (`ERR_INVALID` otherwise): a luma
     table the host applies while it decodes: every gray value `v` becomes `tone[v]`, and for
     a colour picture every channel. The host defines no brightness or contrast: the plugin's table

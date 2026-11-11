@@ -867,3 +867,148 @@ fn the_longest_side_is_1600_everywhere() {
         "a prepared image over 1,600 is never kept"
     );
 }
+
+/// A PNG of gray and opacity (colour type 4, 8 bits), its data stored
+/// uncompressed: `pixels` are `(gray, opacity)` row by row.
+fn gray_alpha_png(width: u32, height: u32, pixels: &[(u8, u8)]) -> std::vec::Vec<u8> {
+    fn crc(bytes: &[u8]) -> u32 {
+        let mut crc = !0_u32;
+        for &byte in bytes {
+            crc ^= u32::from(byte);
+            for _ in 0..8 {
+                crc = if crc & 1 != 0 {
+                    (crc >> 1) ^ 0xedb8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        !crc
+    }
+    fn chunk(out: &mut std::vec::Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+        out.extend_from_slice(&u32::try_from(data.len()).unwrap().to_be_bytes());
+        let start = out.len();
+        out.extend_from_slice(kind);
+        out.extend_from_slice(data);
+        let sum = crc(&out[start..]);
+        out.extend_from_slice(&sum.to_be_bytes());
+    }
+    let mut raw = std::vec::Vec::new();
+    for row in pixels.chunks(width as usize) {
+        raw.push(0);
+        for &(gray, opacity) in row {
+            raw.extend_from_slice(&[gray, opacity]);
+        }
+    }
+    let (mut a, mut b) = (1_u32, 0_u32);
+    for &byte in &raw {
+        a = (a + u32::from(byte)) % 65_521;
+        b = (b + a) % 65_521;
+    }
+    let len = u16::try_from(raw.len()).unwrap();
+    let mut zlib = std::vec![0x78, 0x01, 1];
+    zlib.extend_from_slice(&len.to_le_bytes());
+    zlib.extend_from_slice(&(!len).to_le_bytes());
+    zlib.extend_from_slice(&raw);
+    zlib.extend_from_slice(&((b << 16) | a).to_be_bytes());
+    let mut png = std::vec::Vec::from(*b"\x89PNG\r\n\x1a\n");
+    let mut header = std::vec::Vec::new();
+    header.extend_from_slice(&width.to_be_bytes());
+    header.extend_from_slice(&height.to_be_bytes());
+    header.extend_from_slice(&[8, 4, 0, 0, 0]);
+    chunk(&mut png, b"IHDR", &header);
+    chunk(&mut png, b"IDAT", &zlib);
+    chunk(&mut png, b"IEND", &[]);
+    png
+}
+
+/// The kind and the bytes of the cache file of `owner`'s first prepared image.
+fn cache_of(
+    t: &ImageTable,
+    storage: &MemoryStorage,
+) -> (paperpaw_sdk::ui::PictureKind, std::vec::Vec<u8>) {
+    let file = {
+        let inner = t.lock().unwrap();
+        file_name(inner.entries[0].owner, inner.entries[0].seq).unwrap()
+    };
+    let (kind, _, _) = paperpaw_sdk::ui::probe_picture(storage, &file).unwrap();
+    let size = usize::try_from(storage.size(&file).unwrap()).unwrap();
+    let mut bytes = std::vec![0_u8; size];
+    assert_eq!(storage.read_at(&file, 0, &mut bytes).unwrap(), size);
+    (kind, bytes)
+}
+
+fn see_through() -> Recipe {
+    Recipe {
+        see_through: true,
+        ..Recipe::default()
+    }
+}
+
+#[test]
+fn a_see_through_png_keeps_its_opacity_and_is_gray() {
+    let pixels = [(0, 0), (0, 255), (200, 128), (100, 255)];
+    let storage = MemoryStorage::new();
+    storage
+        .write("a.png", &gray_alpha_png(2, 2, &pixels))
+        .unwrap();
+    let t = ImageTable::new();
+    // Colour asked too: a see-through picture is gray.
+    t.prepare(A, "a.png", 0, 1, true, &see_through()).unwrap();
+    let ready = step(&t, &storage).unwrap();
+    assert_eq!((ready.status, ready.width, ready.height), (READY, 2, 2));
+    let (kind, bytes) = cache_of(&t, &storage);
+    assert_eq!(kind, paperpaw_sdk::ui::PictureKind::Alpha);
+    assert_eq!(&bytes[..4], b"PPGA");
+    assert_eq!(&bytes[12..], &[0, 0, 0, 255, 200, 128, 100, 255]);
+    assert_eq!(t.info(A, ready.image).unwrap().flags & 1, 0, "never colour");
+    // The brightness grid reads the gray, not the opacity.
+    let luma = ready.luma.unwrap();
+    assert_eq!((luma[0], luma[63]), (0, 100));
+}
+
+#[test]
+fn without_the_bit_a_png_is_over_white_and_a_jpeg_ignores_the_bit() {
+    let storage = MemoryStorage::new();
+    storage
+        .write("a.png", &gray_alpha_png(2, 1, &[(0, 0), (0, 255)]))
+        .unwrap();
+    let t = ImageTable::new();
+    t.prepare(A, "a.png", 0, 1, false, &Recipe::default())
+        .unwrap();
+    assert_eq!(step(&t, &storage).unwrap().status, READY);
+    let (kind, bytes) = cache_of(&t, &storage);
+    assert_eq!(kind, paperpaw_sdk::ui::PictureKind::Gray);
+    assert_eq!(&bytes[12..], &[255, 0], "transparent is white");
+    // A JPEG has no transparency to keep: gray, as without the bit.
+    let storage = MemoryStorage::new();
+    storage
+        .write("w.jpg", include_bytes!("fixtures/wide.jpg"))
+        .unwrap();
+    let t = ImageTable::new();
+    t.prepare(A, "w.jpg", 64, 1, false, &see_through()).unwrap();
+    assert_eq!(step(&t, &storage).unwrap().status, READY);
+    assert_eq!(
+        cache_of(&t, &storage).0,
+        paperpaw_sdk::ui::PictureKind::Gray
+    );
+}
+
+#[test]
+fn a_tone_table_maps_a_see_through_pictures_gray_and_keeps_its_opacity() {
+    let storage = MemoryStorage::new();
+    storage
+        .write("a.png", &gray_alpha_png(2, 1, &[(10, 0), (200, 77)]))
+        .unwrap();
+    let inverted: std::vec::Vec<u8> = (0..=255_u8).rev().collect();
+    let recipe = Recipe {
+        see_through: true,
+        tone: Some(inverted),
+        ..Recipe::default()
+    };
+    let t = ImageTable::new();
+    t.prepare(A, "a.png", 0, 1, false, &recipe).unwrap();
+    assert_eq!(step(&t, &storage).unwrap().status, READY);
+    let (_, bytes) = cache_of(&t, &storage);
+    assert_eq!(&bytes[12..], &[245, 0, 55, 77]);
+}
