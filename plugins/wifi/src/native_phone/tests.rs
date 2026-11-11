@@ -286,38 +286,78 @@ fn requests_are_answered_as_the_old_screen_answers_them() {
     assert_eq!(status(&mut p, "POST", "/join", Some("t=&ssid=a")), 403);
 }
 
+/// What the interface-6 screen read of these forms (fixed when its code went):
+/// the fields `t`, `ssid`, `other`, `password`, then the network chosen.
 #[test]
-fn the_form_is_read_as_the_old_screen_reads_it() {
-    let forms = [
-        "ssid=Home+Net&other=&password=p%26ss+w",
-        "ssid=Home&other=+Cafe+&password=",
-        "other=&password=x",
-        "t=abc&ssid=%E2%82%AC&password=%ZZ",
-        "ssid=a%FFb&password=",
-        "ssid=Home&password=%FF",
-        "ssid=Home&password=%FE%FFab%C3",
-        "ssid=Home&password=%E2%82",
-        "ssid=&password=x",
-        "",
-        "noequals&ssid=x",
-        "ssid=a&ssid=b",
-    ];
+fn the_form_is_read_as_the_old_screen_read_it() {
+    type Fields<'a> = [Option<&'a str>; 4];
+    type Case<'a> = (&'a str, Fields<'a>, Option<(&'a str, &'a str)>);
     let long = format!("other={}", "n".repeat(33));
-    for form in forms.iter().copied().chain(core::iter::once(long.as_str())) {
-        for name in ["t", "ssid", "other", "password", "none"] {
+    let cases: [Case<'_>; 13] = [
+        (
+            "ssid=Home+Net&other=&password=p%26ss+w",
+            [None, Some("Home Net"), Some(""), Some("p&ss w")],
+            Some(("Home Net", "p&ss w")),
+        ),
+        (
+            "ssid=Home&other=+Cafe+&password=",
+            [None, Some("Home"), Some(" Cafe "), Some("")],
+            Some(("Cafe", "")),
+        ),
+        ("other=&password=x", [None, None, Some(""), Some("x")], None),
+        (
+            "t=abc&ssid=%E2%82%AC&password=%ZZ",
+            [Some("abc"), Some("€"), None, Some("%ZZ")],
+            Some(("€", "%ZZ")),
+        ),
+        (
+            "ssid=a%FFb&password=",
+            [None, Some("a\u{fffd}b"), None, Some("")],
+            Some(("a\u{fffd}b", "")),
+        ),
+        (
+            "ssid=Home&password=%FF",
+            [None, Some("Home"), None, Some("\u{fffd}")],
+            Some(("Home", "\u{fffd}")),
+        ),
+        (
+            "ssid=Home&password=%FE%FFab%C3",
+            [None, Some("Home"), None, Some("\u{fffd}\u{fffd}ab\u{fffd}")],
+            Some(("Home", "\u{fffd}\u{fffd}ab\u{fffd}")),
+        ),
+        (
+            "ssid=Home&password=%E2%82",
+            [None, Some("Home"), None, Some("\u{fffd}")],
+            Some(("Home", "\u{fffd}")),
+        ),
+        ("ssid=&password=x", [None, Some(""), None, Some("x")], None),
+        ("", [None, None, None, None], None),
+        (
+            "noequals&ssid=x",
+            [None, Some("x"), None, None],
+            Some(("x", "")),
+        ),
+        (
+            "ssid=a&ssid=b",
+            [None, Some("a"), None, None],
+            Some(("a", "")),
+        ),
+        (&long, [None, None, Some(&long[6..]), None], None),
+    ];
+    for (form, fields, chosen_is) in cases {
+        for (name, expected) in ["t", "ssid", "other", "password"].into_iter().zip(fields) {
             assert_eq!(
-                field(form, name).unwrap(),
-                crate::phone::field(form, name),
+                field(form, name).unwrap().as_deref(),
+                expected,
                 "{form} {name}"
             );
         }
-        let old = crate::phone::chosen(form);
+        assert_eq!(field(form, "none").unwrap(), None, "{form}");
         let new = chosen(form).unwrap();
         assert_eq!(
             new.as_ref()
                 .map(|(ssid, password)| (ssid.as_str(), password.as_str())),
-            old.as_ref()
-                .map(|(ssid, password)| (ssid.as_str(), password.as_str())),
+            chosen_is,
             "{form}"
         );
     }
