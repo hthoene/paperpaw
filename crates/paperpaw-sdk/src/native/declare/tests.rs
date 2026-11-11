@@ -705,6 +705,31 @@ fn screen_and_action_tokens_and_flags_round_trip() {
 }
 
 #[test]
+fn a_screen_declared_with_its_hints_hidden_has_flag_bit_8() {
+    let mut batches = Vec::new();
+    let mut d = collecting(&mut batches);
+    d.screen(ScreenDecl::new("sleep", "demo.sleep.title", 1).hints_hidden())
+        .unwrap();
+    d.screen(
+        ScreenDecl::new("lock", "demo.lock.title", 2)
+            .guards()
+            .hints_hidden(),
+    )
+    .unwrap();
+    d.submit().unwrap();
+    drop(d);
+    let batch = records_decode(&batches[0]).unwrap();
+    let flags: Vec<u32> = batch
+        .iter()
+        .filter_map(|record| match record {
+            Record::ScreenSpec(screen) => Some(screen.flags),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(flags, [0x100, 0x102]);
+}
+
+#[test]
 fn screen_and_action_generated_caps_are_inclusive() {
     let screen_name = "n".repeat(records_wire::SCREEN_SPEC_NAME_MAX_BYTES);
     let screen_title = "t".repeat(records_wire::SCREEN_SPEC_TITLE_MAX_BYTES);

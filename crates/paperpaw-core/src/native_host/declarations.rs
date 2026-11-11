@@ -595,6 +595,10 @@ fn extension_check(plugin_id: &str, extension: &ResourceFontExtension<'_>) -> Ch
 
 /// `screen.spec` flag bit 0: full refresh when the screen opens.
 pub const SCREEN_FULL_REFRESH_ON_OPEN: u32 = 1;
+/// `screen.spec` flag bit 8: the screen shows no row of button hints.
+pub const SCREEN_HINTS_HIDDEN: u32 = 1 << 8;
+/// Every `screen.spec` flag bit this host knows.
+const SCREEN_FLAGS_KNOWN: u32 = 0x1ff;
 /// `action.spec` flag bit 0: runs only while one of the plugin's screens is on top.
 pub const ACTION_NEEDS_SCREEN: u32 = 1;
 
@@ -609,7 +613,7 @@ fn screen_check(plugin_id: &str, screen: &ScreenSpec<'_>) -> Check {
     relative(plugin_id, name)?;
     ensure(!title.is_empty())?;
     // Ready notification is not connected to the host help policy yet.
-    if flags & !0xff != 0 || flags & (1 << 3) != 0 {
+    if flags & !SCREEN_FLAGS_KNOWN != 0 || flags & (1 << 3) != 0 {
         return Err(ERR_UNSUPPORTED);
     }
     if (flags >> 6) & 3 == 3 {
