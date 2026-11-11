@@ -346,6 +346,17 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   card until the plugin's next `edit_begin`, 10 minutes, or
   the plugin stops (`ERR_NOT_FOUND` after). A plugin advances its own sync state only after a commit
   answered `OK`.
+- [D] **What the host checks at the commit, beyond the above:** an `id` named by two edits of one
+  transaction, a `client_key` named by two adds or upserts of it, and an `add` (action 0) whose
+  `client_key` the book already has are `ERR_INVALID` (a repeated import uses upsert); an `upsert`
+  whose key the book has replaces that annotation and keeps its id (receipt `action` 3). A row is
+  one line of the file (`annotations.rs` reads lines of at most 8 KiB): an annotation whose text,
+  note, key and XPointers make a longer line is `ERR_NO_SPACE`. The host checks nothing about a
+  range in sections: it does not know the book's sections. A book the library's move job holds is
+  `ERR_BUSY` at `edit_begin`. The new rows are written in reading order (by start, then end), the
+  old rows keep the file's order. Receipts are not kept across a restart. The interface 6 path (the Beta 3 reader and widgets) keeps a
+  row's id and `client_key` by its kind and place; of two rows at one place (imports by key) it may
+  hand them to the other when it removes one.
 - [D] **End of a transaction:** `edit_commit` on a live transaction of the caller ends it whatever
   it answers: `OK`, a refusal of the book (`ERR_STATE`, `ERR_NOT_FOUND`, `ERR_INVALID`), parts that
   did not arrive whole, or a reply too small for `lib_committed`. Nothing of a refused commit is
@@ -356,14 +367,18 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
 - [D] **Sizes of one edit:** an XPointer at most 1,024 bytes (as `doc_xpointer`), a note at most
   3 KiB (interface 6), a highlighted text bounded only by the transaction's cap (interface 6 caps
   it by the annotation file alone); each part of `edit_text` at most 3,072
-  bytes, joined in order. A transaction's staged bytes are capped as a whole (below), so no count
-  of edits or parts is capped by itself.
+  bytes, joined in order. A transaction's staged bytes are capped as a whole (below), and its edits are
+  too: 1,024, and 128 on the X4 (`ERR_NO_SPACE` at the `edit_add` that passes it), because a commit
+  holds a 40-byte row per edit while it merges (40 KiB at 1,024, 5 KiB on the X4; besides a 5 KiB record buffer and the text of one row, at most a line of 8 KiB; unmeasured on the device, #250).
 - [D] Transaction limits and lifetime: one open transaction per plugin and two device-wide
-  (`ERR_FULL`); it lives across callbacks until commit, abort or 10 minutes without a call (then
-  aborted, logged) or the plugin stops; staged edits are kept in a host temp file on the card, not
-  in memory (at most the annotation file's 1 MiB cap, `annotations.rs:45`, `ERR_NO_SPACE` beyond). A
-  power cut aborts every open transaction (the temp file is removed at start); the book's
-  annotations stay as they were. Notes keep interface 6's 3 KiB cap per note.
+  (`ERR_FULL`); it lives across callbacks until commit, abort, 10 minutes without a call (then
+  aborted, logged) or the plugin stops. A host with no clock at all counts 10 s for every call of
+  the transaction ops by anyone, so 60 calls end an idle transaction: a fallback only (another
+  plugin's calls can end a live transaction, which then answers `ERR_NOT_FOUND`: begin again);
+  every shell with `core.work` has the clock. Staged edits are kept in a host temp file on the
+  card, not in memory (at most the annotation file's 1 MiB cap, `annotations.rs:45`, `ERR_NO_SPACE`
+  beyond). A power cut aborts every open transaction (the temp file is removed at start); the
+  book's annotations stay as they were. Notes keep interface 6's 3 KiB cap per note.
 
 ### 2.3 Files: delete, move, import
 

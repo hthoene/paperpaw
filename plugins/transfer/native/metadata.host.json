@@ -161,7 +161,7 @@
   "features": [
     {
       "key": "uses.install",
-      "required": true
+      "required": false
     },
     {
       "key": "uses.library",

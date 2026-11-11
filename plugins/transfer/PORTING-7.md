@@ -283,3 +283,10 @@ compares `read_only` with the interface-6 rule.
 2. The app's registration of `Transfer` (`crates/paperpaw-app/src/lib.rs`).
 3. `NativeTransfer` is in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt` (done with the port: every user-visible
    function works natively); the sweep removes the interface-6 form from `install_with` with the rest.
+## `uses.install` is optional (#243)
+
+The native declaration lists `uses.install` as an optional feature (`native/metadata.json`). The desktop
+and the emulator do not offer it, and a required feature that is missing refuses the whole plugin at
+admission (`make` ended with status -1, *not registered*). Without it the plugin registers and works;
+a plugin sent from the computer (Wi-Fi page or cable) is refused by the host (*not allowed*) and the
+computer is told so. Test: `hosted_construction::make_registers_where_the_host_offers_no_install_feature`.

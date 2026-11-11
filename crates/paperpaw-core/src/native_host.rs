@@ -130,6 +130,9 @@ pub mod host_slot;
 #[path = "native_host/frame_owner.rs"]
 pub(crate) mod frame_owner;
 
+#[path = "native_host/plugin_heap.rs"]
+pub(crate) mod plugin_heap;
+
 #[path = "native_host/screen_ready.rs"]
 mod screen_ready;
 
@@ -268,11 +271,11 @@ pub(crate) mod lib_changed;
     dead_code,
     reason = "wired by HostWiring::library; the write half is todo 307"
 )]
+pub(crate) mod lib_edits;
 pub(crate) mod lib_host;
-#[allow(dead_code, reason = "wired by the LIB write half (Services, #1050)")]
+pub(crate) mod lib_import;
 pub(crate) mod lib_jobs;
 pub(crate) mod lib_jobs_env;
-#[allow(dead_code, reason = "wired by the LIB write half (Services, #1050)")]
 pub(crate) mod lib_jobs_journal;
 pub(crate) mod lib_moves_carry;
 pub(crate) mod lib_moves_host;
@@ -494,6 +497,8 @@ mod native_ui_directory;
 #[path = "native_host/widget_drops.rs"]
 mod widget_drops;
 
+#[path = "native_host/fixed_settings.rs"]
+mod fixed_settings;
 #[path = "native_host/native_enable.rs"]
 pub mod native_enable;
 #[path = "native_host/native_install.rs"]
