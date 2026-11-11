@@ -10,6 +10,7 @@ use crate::native_host::{
     ui_store::{Limits, Param, Stamp, UiStore},
 };
 use alloc::borrow::ToOwned;
+use alloc::string::String;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND, ERR_STATE};
 use paperpaw_platform::Instant;
 

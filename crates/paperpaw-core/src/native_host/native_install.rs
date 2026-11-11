@@ -124,6 +124,17 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
     }
 }
 
+/// Whether the plugin declared `uses.network` and `uses.install`.
+fn declared_uses<S: Services + 'static, M: 'static>(host: &shell::Hosted<S, M>) -> (bool, bool) {
+    let features = host.features();
+    (
+        features.feature(crate::work::USES_NETWORK).is_ok(),
+        features
+            .feature(super::commands::dev::FEATURE_INSTALL)
+            .is_ok(),
+    )
+}
+
 impl crate::Kernel {
     /// Admit a native owner and publish all supported declarations together.
     /// The shell supplies its existing device-wide callback depth and diagnostic
@@ -194,6 +205,9 @@ impl crate::Kernel {
         let offers_before = self.shared.registry.offers();
         let keys_before = self.native_key_count();
         self.admit_native_with(host, depth, folder, report, fixed)?;
+        // `core.secrets` is the kernel's now: interface 6's passwords are
+        // read through its sealer too (`secrets_i6.rs`).
+        self.open_sealed_secrets();
         if self.native_key_count() != keys_before {
             // Its bindings are in the key map from now on.
             self.rebuild_keymap();
@@ -238,7 +252,7 @@ impl crate::Kernel {
         report: fn(&S, u32, i32),
         fixed: super::FixedTables,
     ) -> Result<(), shell::Error> {
-        let networked = host.features().feature(crate::work::USES_NETWORK).is_ok();
+        let (networked, installer) = declared_uses(&host);
         self.shared
             .native_instances
             .adopt_pool(
@@ -343,6 +357,7 @@ impl crate::Kernel {
                 .abandon(key)
                 .map_err(shell::Error::Status)?;
         } else {
+            self.shared.native_instances.set_installer(key, installer);
             // With `uses.network` its network settings and policy (never a
             // refusal: a failure warns).
             self.admit_native_network(&owner, networked);
@@ -685,6 +700,18 @@ impl crate::Kernel {
     /// and groups. Every refusal (a duplicate, a default that does not fit, no
     /// room) comes before anything changes, and nothing allocates once
     /// publication starts, so a failure leaves no trace.
+    /// The shell has hosted its native plugins: the registries and the
+    /// tables of the host give back the room they kept while the plugins were
+    /// added one by one. The build shrank them before any native plugin was
+    /// there, so what they grew by since (the plugin list, the menus, the
+    /// subscriptions, the entries and owner rows) stood in reserve for good.
+    /// Called once by [`Kernel::start`](crate::Kernel::start); a later install
+    /// grows them again, as it always did.
+    pub(crate) fn native_hosted(&mut self) {
+        self.shrink_to_fit();
+        self.shared.native_instances.shrink_to_fit();
+    }
+
     fn publish_native(
         &mut self,
         staging: crate::registry::Staging,
@@ -764,6 +791,9 @@ impl crate::Kernel {
         for group in staging.setting_groups.drain(..) {
             self.shared.settings.add_group(group)?;
         }
+        // The device's defaults for what the plugin has declared (the kernel
+        // was built before it, so they were not known then).
+        self.apply_late_defaults();
         self.publish_fonts(owner, resources)
     }
 }

@@ -87,11 +87,14 @@ struct Wired {
     library: bool,
     files: bool,
     lookup: bool,
+    /// The profile's device has the radio the pretend Wi-Fi answers for
+    /// (`wifi.rs`): `uses.wifi` and the radio commands are backed.
+    wifi: bool,
 }
 
 impl Wired {
     /// How many combinations there are (one bit a service).
-    const COMBINATIONS: usize = 1 << 8;
+    const COMBINATIONS: usize = 1 << 9;
 
     fn index(self) -> usize {
         [
@@ -103,6 +106,7 @@ impl Wired {
             self.library,
             self.files,
             self.lookup,
+            self.wifi,
         ]
         .into_iter()
         .enumerate()
@@ -114,9 +118,10 @@ impl Wired {
 /// the device's power view (`core.device`) and, where they are wired,
 /// `uses.secrets` (it has a sealing key), `uses.network` (HTTP requests,
 /// `core.net`), `uses.storage` (the card's files, `core.files`) and
-/// `uses.library` (`core.library`). Not offered, because the desktop does not
-/// back them yet: `uses.wifi`, `uses.bluetooth`, `uses.install`,
-/// `uses.firmware`. A plugin that needs one is refused at admission.
+/// `uses.library` (`core.library`) and, on a profile whose device has Wi-Fi,
+/// `uses.wifi` (the pretend radio answers the radio commands). Not offered,
+/// because the desktop does not back them yet: `uses.bluetooth`,
+/// `uses.install`, `uses.firmware`. A plugin that needs one is refused at admission.
 fn features(wired: Wired) -> &'static [Feature<'static>] {
     use std::sync::OnceLock;
     static FEATURES: [OnceLock<&'static [Feature<'static>]>; Wired::COMBINATIONS] =
@@ -144,6 +149,10 @@ fn features_list(wired: Wired) -> &'static [Feature<'static>] {
     }
     if wired.library {
         features.push(feature("uses.library"));
+    }
+    // The radio commands (`device.md`) are answered by the pretend radio.
+    if wired.wifi {
+        features.push(feature("uses.wifi"));
     }
     Box::leak(features.into_boxed_slice())
 }
@@ -251,6 +260,16 @@ impl CatalogEnv for Catalog {
             .as_secs();
         u32::try_from(seconds / 86_400).ok()
     }
+    /// The wall clock in milliseconds: the idle time of an annotation
+    /// transaction and the life of its receipt. A simulated clock is none.
+    fn now_ms(&self) -> u64 {
+        if self.simulated {
+            return 0;
+        }
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(0))
+    }
 }
 
 /// The sealer of the secrets, or why there is none (then `core.secrets` is
@@ -314,7 +333,7 @@ static RODATA_ANCHOR: [u8; 16] = *b"paperpaw-rodata\0";
 /// linked plugins keep their declarations as offsets into it, not as copies
 /// (`Kernel::register_linked`).
 ///
-/// Found as the mapping of this process that holds [`RODATA_ANCHOR`] and is
+/// Found as the mapping of this process that holds `RODATA_ANCHOR` and is
 /// readable, not writable and not executable (`/proc/self/maps`, Linux).
 pub fn rodata_image() -> (*const u8, usize) {
     #[cfg(target_os = "linux")]
@@ -405,6 +424,7 @@ pub fn register(
         on_card.library = true;
         on_card.files = true;
     }
+    on_card.wifi = profile.wifi;
     match (inputs.storage, sealer(inputs.simulated)) {
         (None, _) => eprintln!("native plugins: no secrets (the card cannot be opened)"),
         (Some(storage), Ok(sealer)) => {
@@ -564,6 +584,17 @@ mod tests {
         };
         assert!(keys(lookup).contains(&"core.lookup"));
         assert_ne!(lookup.index(), Wired::default().index());
+    }
+
+    #[test]
+    fn wifi_is_offered_only_on_a_device_with_the_radio() {
+        assert!(!feature_keys(Wired::default()).contains(&"uses.wifi"));
+        let radio = Wired {
+            wifi: true,
+            ..Wired::default()
+        };
+        assert!(feature_keys(radio).contains(&"uses.wifi"));
+        assert_ne!(radio.index(), Wired::default().index());
     }
 
     #[test]

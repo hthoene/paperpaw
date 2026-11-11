@@ -138,6 +138,8 @@ pub(crate) struct DocState {
     storage: Option<Rc<dyn Storage>>,
     /// The most bytes one document's cache may hold.
     cache_cap: u64,
+    /// The books kept at most: the device's places for documents.
+    books_max: usize,
     /// Whether the screen keeps colour (a picture's colour flag).
     colour: bool,
     /// Documents that ended where the image table could not be reached (the
@@ -217,18 +219,9 @@ impl DocState {
         in_use: Rc<PathsInUse>,
     ) -> Result<Self, i32> {
         let table = DocumentTable::try_new(limits)?;
-        let mut unfinished = Vec::new();
-        unfinished
-            .try_reserve_exact(super::format_index::DEVICE)
-            .map_err(|_| ERR_NO_MEMORY)?;
-        let mut images_pending = Vec::new();
-        images_pending
-            .try_reserve_exact(limits.device * 2)
-            .map_err(|_| ERR_NO_MEMORY)?;
-        let mut books = Vec::new();
-        books
-            .try_reserve_exact(limits.device)
-            .map_err(|_| ERR_NO_MEMORY)?;
+        // The lists are reserved at first use (`hold_book`, `keep_unfinished`,
+        // `ended_images`): a device that never opens a document keeps none.
+        let (unfinished, images_pending, books) = (Vec::new(), Vec::new(), Vec::new());
         Ok(Self {
             table,
             index: RefCell::new(FormatIndex::new()),
@@ -241,6 +234,7 @@ impl DocState {
             now: Cell::new(0),
             storage: None,
             cache_cap: limits.cache_bytes(),
+            books_max: limits.device,
             colour: false,
             pending_images: RefCell::new(images_pending),
             images_lost: Cell::new(false),
@@ -320,6 +314,11 @@ impl DocState {
         plugin: Option<&str>,
     ) -> Result<(), i32> {
         let mut books = self.books.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+        if books.capacity() == 0 {
+            books
+                .try_reserve_exact(self.books_max)
+                .map_err(|_| ERR_NO_MEMORY)?;
+        }
         if books.len() >= books.capacity() {
             return Err(ERR_FULL);
         }
@@ -429,13 +428,22 @@ impl DocState {
     }
 
     fn keep_unfinished(&self, format: FormatRef) {
-        // The room is reserved for every format the device can hold, and a
-        // reference is kept once: a full list cannot happen. If it did, the
-        // format's documents would stay until their reader closes them.
-        if let Ok(mut pending) = self.unfinished.try_borrow_mut()
-            && pending.len() < pending.capacity()
-        {
-            pending.push(format);
+        // The room is reserved for every format the device can hold at the
+        // first reference, and a reference is kept once: a full list cannot
+        // happen. If it did, or the room cannot be had, the reference is
+        // dropped and the format's documents stay until their reader closes
+        // them.
+        if let Ok(mut pending) = self.unfinished.try_borrow_mut() {
+            if pending.capacity() == 0
+                && pending
+                    .try_reserve_exact(super::format_index::DEVICE)
+                    .is_err()
+            {
+                return;
+            }
+            if pending.len() < pending.capacity() {
+                pending.push(format);
+            }
         }
     }
 
@@ -766,7 +774,13 @@ impl Bound<'_> {
                     return Ok(());
                 }
                 let used = row.encode(&mut bytes)?;
-                if let Record::ServiceRegPlugin(row) = wire::record_decode_one(&bytes[..used])? {
+                // One bare record, exactly (the frame is the whole encoding).
+                let (raw, length) = wire::RawRecord::prefix(&bytes[..used])?;
+                if length != used {
+                    return Err(ERR_INVALID);
+                }
+                if raw.tag() == wire::SERVICE_REG_PLUGIN_TAG {
+                    let row: wire::ServiceRegPlugin<'_> = raw.decode()?;
                     version = copy(row.version);
                 }
                 Ok(())
@@ -860,7 +874,8 @@ impl Bound<'_> {
         for format in gone.iter().take(count) {
             if format_stopped(self, *format).is_err() {
                 // A table was borrowed: the next call ends the rest. The
-                // room is reserved for every format the device can hold.
+                // room is reserved at the first reference, for every format
+                // the device can hold.
                 self.state.keep_unfinished(*format);
             }
         }

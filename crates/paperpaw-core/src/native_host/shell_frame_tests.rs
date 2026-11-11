@@ -7,6 +7,7 @@ extern crate std;
 use super::tests::{HEAP_LIVE, Heap, NORMAL, fake, finish, frame, reset};
 use super::*;
 use crate::native_host::frame_owner;
+use crate::native_host::plugin_heap::block_cost as cost;
 use core::any::TypeId;
 use paperpaw_native::host_glue::{
     ERR_INVALID, OK, read_heap_abort, read_heap_alloc, read_heap_dealloc, read_heap_realloc,
@@ -35,6 +36,11 @@ pub(super) fn in_frame(kind: u32, ctx: *mut c_void) {
         &FRAME_NOT
     };
     seen.with(|bits| bits.set(bits.get() | kind));
+}
+
+fn used(context: Pin<&Context<Heap>>) -> usize {
+    let (state, owner) = context.resources.heap();
+    state.used(owner)
 }
 
 fn bits(seen: &'static std::thread::LocalKey<core::cell::Cell<u32>>) -> u32 {
@@ -143,7 +149,8 @@ fn the_table_and_the_host_table_are_two_doors_to_one_heap() {
             // The table's block, freed by the slot.
             let block = alloc(64, 16);
             assert!(!block.is_null() && block.addr().is_multiple_of(16));
-            assert_eq!(HEAP_LIVE.with(core::cell::Cell::get), before + 64);
+            assert_eq!(HEAP_LIVE.with(core::cell::Cell::get), before + cost(64, 16));
+            assert_eq!(used(context), cost(64, 16), "charged to the frame owner");
             assert_eq!((slots.heap_dealloc)(ctx, block, 64, 16), OK);
             assert_eq!(HEAP_LIVE.with(core::cell::Cell::get), before);
             // The slot's block, grown and freed by the table.
@@ -151,7 +158,12 @@ fn the_table_and_the_host_table_are_two_doors_to_one_heap() {
             assert_eq!((slots.heap_alloc)(ctx, 32, 8, &mut slot_block), OK);
             let grown = realloc(slot_block, 32, 8, 128);
             assert!(!grown.is_null());
-            assert_eq!(HEAP_LIVE.with(core::cell::Cell::get), before + 128);
+            assert_eq!(HEAP_LIVE.with(core::cell::Cell::get), before + cost(128, 8));
+            assert_eq!(
+                used(context),
+                cost(128, 8),
+                "the slot's block, grown by the table"
+            );
             dealloc(grown, 128, 8);
             assert_eq!(HEAP_LIVE.with(core::cell::Cell::get), before);
             // Refusals are null, as the slot's are statuses: a zero size, a
@@ -168,6 +180,7 @@ fn the_table_and_the_host_table_are_two_doors_to_one_heap() {
         }
     });
     assert_eq!(HEAP_LIVE.with(core::cell::Cell::get), before);
+    assert_eq!(used(context), 0, "every block gave its cost back");
     drop(hosted);
 }
 

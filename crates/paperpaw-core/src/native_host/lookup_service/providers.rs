@@ -208,7 +208,7 @@ fn call(
         .get(..length)
         .and_then(|bytes| stage::LookupEntry::decode(bytes).ok())
         .ok_or(ERR_NOT_FOUND)?;
-    wire::record_encode_one(
+    codec::encode_one(
         &wire::Record::ServiceLookupEntry(wire::ServiceLookupEntry {
             provider: chosen.name(),
             title: entry.title,

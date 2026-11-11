@@ -125,8 +125,8 @@ impl DeclarationStore {
                 };
                 let key = super::DeclKey {
                     owner: u16::try_from(index).unwrap_or(u16::MAX),
-                    batch: slot.batch,
-                    record: slot.record,
+                    batch: slot.batch(),
+                    record: slot.record(),
                     generation: owner.generation,
                     incarnation: owner.incarnation,
                 };
@@ -139,7 +139,7 @@ impl DeclarationStore {
 /// The `n`th of `slots` by declaration (batch, then place in it): the index
 /// is in hash order. At most a few dozen slots, so no sort and no copy.
 fn nth_declared(slots: &[Slot], n: usize) -> Option<Slot> {
-    let at = |slot: &Slot| (slot.batch, slot.record);
+    let at = |slot: &Slot| (slot.batch(), slot.record());
     slots
         .iter()
         .find(|slot| slots.iter().filter(|other| at(other) < at(slot)).count() == n)

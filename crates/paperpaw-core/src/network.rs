@@ -90,6 +90,7 @@ impl Kernel {
                 wifi.networks = networks;
                 wifi.scanning = false;
                 self.output.commands.push(events::WIFI_SCANNED.emit(()));
+                self.native_hint(crate::native_host::registrations::EVENT_WIFI_SCANNED_TAG);
             }
             WifiEvent::Failed { ssid, reason } => {
                 self.output
@@ -134,10 +135,12 @@ impl Kernel {
             return;
         };
         let waiting = work && !wifi.state.is_online();
+        let (mut wanted, mut idle) = (false, false);
         match (waiting, self.io.network_waiting) {
             (true, None) => {
                 self.io.network_waiting = Some(self.now);
                 self.output.commands.push(events::NETWORK_WANTED.emit(()));
+                wanted = true;
             }
             (false, Some(_)) => self.io.network_waiting = None,
             _ => {}
@@ -150,8 +153,16 @@ impl Kernel {
         wifi.busy = busy;
         if self.io.network_busy && !busy {
             self.output.commands.push(events::NETWORK_IDLE.emit(()));
+            idle = true;
         }
         self.io.network_busy = busy;
+        // The native network manager hears the same (`device.md` section 3).
+        if wanted {
+            self.native_hint(crate::native_host::registrations::EVENT_NETWORK_WANTED_TAG);
+        }
+        if idle {
+            self.native_hint(crate::native_host::registrations::EVENT_NETWORK_IDLE_TAG);
+        }
     }
 
     /// When network work that waits fails, if it does not get one first.

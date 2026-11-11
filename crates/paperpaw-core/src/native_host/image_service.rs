@@ -35,6 +35,7 @@
 //! alpha cache image blends over what is below, all by the SDK's
 //! `draw_image_over`. Other bits answer `ERR_UNSUPPORTED`.
 use super::registrations::{self as wire, Record};
+use crate::native_host::codec;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::RefCell;
@@ -786,7 +787,7 @@ fn stretched(x: i32, y: i32, width: u32, height: u32) -> Result<Option<Place>, i
 /// # Errors
 /// `ERR_NO_SPACE` (`out` is too small, nothing written).
 pub(crate) fn encode_info(info: Info, out: &mut [u8]) -> Result<usize, i32> {
-    wire::record_encode_one(
+    codec::encode_one(
         &Record::ServiceDocImage(wire::ServiceDocImage {
             image: info.image,
             index: info.index,

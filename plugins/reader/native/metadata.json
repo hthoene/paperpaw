@@ -91,6 +91,10 @@
       "name": "canvas.clip"
     },
     {
+      "kind": "host",
+      "name": "canvas.draw_image"
+    },
+    {
       "kind": "callback",
       "name": "drop"
     },
@@ -105,12 +109,18 @@
     {
       "kind": "callback",
       "name": "input"
+    },
+    {
+      "kind": "host",
+      "name": "ui.compose"
     }
   ],
   "services": [
+    "core.device",
     "core.document",
     "core.files",
     "core.library",
+    "core.registry",
     "core.ui",
     "core.work"
   ],
