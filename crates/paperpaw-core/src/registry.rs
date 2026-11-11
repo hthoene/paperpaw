@@ -773,7 +773,10 @@ impl Staging {
         if entries.iter().any(|&at| usize::from(at) >= list.len()) {
             return Err(paperpaw_native::host_glue::ERR_INVALID);
         }
-        push_native(&mut self.settings, Staged::Table(list, Picked::Some(entries)))
+        push_native(
+            &mut self.settings,
+            Staged::Table(list, Picked::Some(entries)),
+        )
     }
 
     /// Stage already decoded native contributions without infallible growth.
@@ -930,9 +933,9 @@ pub(crate) fn stage(
                 priority,
             }),
             Contribution::Setting(setting) => staging.settings.push(Staged::Owned(setting)),
-            Contribution::FixedSettings(list) => staging
-                .settings
-                .push(Staged::Table(list, Picked::All)),
+            Contribution::FixedSettings(list) => {
+                staging.settings.push(Staged::Table(list, Picked::All))
+            }
             Contribution::SettingGroup(group) => staging.setting_groups.push(group),
             Contribution::SettingDefault { setting, value, .. } => {
                 staging.setting_defaults.push((setting, value));

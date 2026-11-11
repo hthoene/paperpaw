@@ -388,14 +388,12 @@ fn a_whole_table_is_staged_as_one_entry() {
     assert_eq!(staged.len(), table.len());
     assert!(staged.iter().zip(table).all(|(a, b)| a.id == b.id));
     // An entry past the table is refused, whatever the plugin declared.
-    let past = vec![u16::try_from(table.len()).unwrap()];
+    let past = std::vec![u16::try_from(table.len()).unwrap()];
     assert!(staging.native_fixed_entries(table, past).is_err());
     assert_eq!(staging.settings.len(), 1);
     // And defined, they are the table's settings in the table's order.
     let mut settings = Settings::new();
-    settings
-        .try_reserve_with_fixed(0, table.len(), 0)
-        .unwrap();
+    settings.try_reserve_with_fixed(0, table.len(), 0).unwrap();
     for entry in staging.settings.drain(..) {
         entry.define_in(&mut settings).unwrap();
     }

@@ -686,7 +686,11 @@ impl crate::Kernel {
         let _bump = crate::native_host::registry_generation::BumpOnExit::new(
             &self.shared.registry_generation,
         );
-        for spec in staging.settings.iter().flat_map(crate::registry::Staged::specs) {
+        for spec in staging
+            .settings
+            .iter()
+            .flat_map(crate::registry::Staged::specs)
+        {
             if self.shared.settings.get(spec.id.as_str()).is_some() {
                 return Err(duplicate(&spec.id));
             }
