@@ -80,13 +80,13 @@ const CASES: [Case; 13] = [
         golden: None,
         blocked_by: &["H1"],
     },
-    // The widgets show new content: the minute tick (subscribed to, `refresh`)
-    // and `widget_changed` (the declare SDK cannot subscribe to 86 yet) lay the page out
-    // anew and draw it, and the screen turned.
+    // The widgets show new content: the minute tick and `widget_changed` (both
+    // subscribed to, `refresh`) lay the page out anew and draw it, and the screen
+    // turned.
     Case {
         name: "home-widget-updates",
         golden: None,
-        blocked_by: &["SDK-event-widget-changed", "H1", "H3"],
+        blocked_by: &["H1", "H3"],
     },
     // Adding a widget or tool to a page: the list steps, the rows' icons, the page
     // actions, the writes and the gallery's layout, page keys and fallbacks are
@@ -181,7 +181,7 @@ fn home_tool_icons() {
 }
 
 #[test]
-#[ignore = "BLOCKED SDK-event-widget-changed: the host delivers `event.widget_changed` (86) to the maker that subscribes (ui.md 5), the handler is written (`refresh`), but `EventKind` of the declare SDK has no variant for 86 to subscribe with (asked of Services); H1/H3: seen only on a host with a screen stack and composition (#827)"]
+#[ignore = "BLOCKED H1/H3: home subscribes to `event.widget_changed` (86) and lays out and draws the page anew (`refresh`); that is seen only on a host with a screen stack and composition (#827)"]
 fn home_widget_updates() {
     CASES[10].refuse().unwrap();
 }
