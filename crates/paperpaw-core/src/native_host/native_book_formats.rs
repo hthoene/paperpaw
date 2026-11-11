@@ -150,6 +150,7 @@ impl crate::Kernel {
         };
         let generation = shared.registry_generation.get();
         shared
+            .registry
             .native_book_formats
             .sync(&mut shared.formats, &store, generation);
     }

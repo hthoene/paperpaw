@@ -1277,7 +1277,6 @@ impl Kernel {
         self.close_shut_out();
         self.count_free_again(now);
         self.native_work_woke();
-        self.native_library_woke();
         self.output.commands.push(events::RESUME.emit(()));
     }
 
@@ -1354,8 +1353,6 @@ struct Shared {
     registry_generation: alloc::rc::Rc<native_host::registry_generation::RegistryGeneration>,
     device_log: native_host::device_log::DeviceLog,
     formats: Formats,
-    /// The stand-ins of native formats in `formats` (their files are books).
-    native_book_formats: native_host::native_book_formats::NativeBookFormats,
     hyphenation: Hyphenation,
     hyphen_feed: hyphen_feed::HyphenFeed,
     menus: Menus,

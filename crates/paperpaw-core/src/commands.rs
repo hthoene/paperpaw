@@ -619,6 +619,10 @@ impl Kernel {
         if *event == events::CATALOG_WANTED {
             self.native_book_formats_sync();
         }
+        // Woken: the next native view of the library wants the catalog again.
+        if *event == events::RESUME {
+            self.native_library_woke();
+        }
         // The catalog the walk made reaches the native views too.
         if *event == events::CATALOG_CHANGED {
             self.native_library_catalog_changed();
