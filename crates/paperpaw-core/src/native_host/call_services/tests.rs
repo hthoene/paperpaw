@@ -12,6 +12,7 @@ use crate::{
         resources::{FontKey, FontRole},
     },
 };
+use alloc::vec::Vec;
 use core::{pin::pin, ptr};
 use paperpaw_native::{
     host_glue::{ERR_BUSY, ERR_FULL, ERR_NOT_FOUND, ERR_STATE, ERR_UTF8},
