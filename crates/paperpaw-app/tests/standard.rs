@@ -168,10 +168,10 @@ fn translations_keep_no_index_on_the_heap() {
     let tables = paperpaw_app::BUILT_CATALOGS;
     // A table for English and one for German, each of the plugins built in.
     assert_eq!(tables.len(), 2);
-    assert!(tables.iter().all(|table| table.prints.len() > 20));
+    assert!(tables.iter().all(|table| table.catalogs.prints.len() > 20));
     let slots: usize = tables
         .iter()
-        .map(|table| table.prints.len() * 2 * core::mem::size_of::<usize>())
+        .map(|table| table.catalogs.prints.len() * 2 * core::mem::size_of::<usize>())
         .sum();
     let app = App::new();
     assert_eq!(app.kernel.translator().indexes_on_heap(), slots);
@@ -201,7 +201,9 @@ language = de
         .iter()
         .filter(|c| c.language() == "de")
         .count();
-    assert!(german < 5, "{german} German catalogs");
+    // Exactly the one built table's: a source left out of it would be a
+    // catalog of its own and fail here.
+    assert_eq!(german, 1, "{german} German catalogs");
 }
 
 #[test]

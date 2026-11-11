@@ -760,12 +760,13 @@ impl Catalog {
     /// The catalogs of a language built in, indexed together: one catalog
     /// for all of them, whose sources fill it as they are added
     /// ([`Translator::built_catalogs`](crate::Translator::built_catalogs)).
-    pub(crate) fn built(table: &'static BuiltCatalogs) -> Option<Catalog> {
-        let meta = alloc::format!(
-            "[meta]\nlanguage = {}\nname = {}\nplural = one-other\n",
-            table.language,
-            table.name
-        );
+    pub(crate) fn built(
+        table: &'static BuiltCatalogs,
+        language: &str,
+        name: &str,
+    ) -> Option<Catalog> {
+        let meta =
+            alloc::format!("[meta]\nlanguage = {language}\nname = {name}\nplural = one-other\n");
         let mut catalog = Catalog::parse(meta).ok()?;
         catalog.card = Some(Box::new(Elsewhere::Built(Built::new(table))));
         Some(catalog)

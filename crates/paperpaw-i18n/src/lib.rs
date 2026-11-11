@@ -59,7 +59,7 @@ pub mod check;
 mod format;
 mod plural;
 
-pub use built::{BuiltCatalogs, BuiltTable};
+pub use built::{BuiltCatalogs, BuiltLanguage, BuiltLanguageTable, BuiltTable};
 pub use card::{CatalogFile, MAX_MESSAGE, MAX_READ};
 pub use catalog::{Catalog, CatalogError, FixedIndexes, fingerprint};
 pub use catalog::{calendars, digit_systems};
@@ -152,17 +152,26 @@ impl Translator {
         }
     }
 
-    /// The catalogs of one language built into the program, indexed
-    /// together by its build script (call it once for each language): one
-    /// catalog for all of them, taken before any is added; each added
-    /// later fills its slot rather than being kept as a catalog of its own
-    /// (some hundred bytes each). Catalogs added after take precedence
-    /// over them, as any added later.
+    /// The English catalogs built into the program, indexed together by
+    /// its build script: one catalog for all of them, taken before any is
+    /// added; each added later fills its slot rather than being kept as a
+    /// catalog of its own (some hundred bytes each). Catalogs added after
+    /// take precedence over them, as any added later.
     pub fn built_catalogs(&mut self, table: &'static BuiltCatalogs) {
+        self.built_in(table, FALLBACK_LANGUAGE, "English");
+    }
+
+    /// The same for the catalogs of one language, English or another
+    /// (call it once for each language).
+    pub fn built_language(&mut self, table: &'static BuiltLanguage) {
+        self.built_in(&table.catalogs, table.language, table.name);
+    }
+
+    fn built_in(&mut self, table: &'static BuiltCatalogs, language: &str, name: &str) {
         if table.prints.is_empty() {
             return;
         }
-        if let Some(catalog) = Catalog::built(table) {
+        if let Some(catalog) = Catalog::built(table, language, name) {
             self.add(catalog);
         }
     }

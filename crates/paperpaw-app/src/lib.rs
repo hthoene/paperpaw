@@ -320,7 +320,7 @@ pub static CATALOG_INDEXES: &[(u64, &[u16])] =
 /// was built (see `build.rs`), a table for English and one for German: the
 /// translator keeps one catalog for all of a language's, and the texts a
 /// source does not give plainly are kept here, not made on the heap.
-pub static BUILT_CATALOGS: &[paperpaw_i18n::BuiltCatalogs] =
+pub static BUILT_CATALOGS: &[paperpaw_i18n::BuiltLanguage] =
     include!(concat!(env!("OUT_DIR"), "/built_catalogs.rs"));
 
 /// Adds the first-party plugins to `builder`, those the store offers as

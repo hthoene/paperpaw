@@ -13,6 +13,9 @@ use core::cmp::Ordering;
 use crate::catalog::{Catalog, CatalogError, cmp_plain_key, fingerprint, plain_key, plain_value};
 use crate::plural::PluralRule;
 
+/// English, whose catalogs [`BuiltTable`] indexes.
+const FALLBACK: &str = crate::FALLBACK_LANGUAGE;
+
 /// In an entry of [`BuiltCatalogs::entries`]: its message is
 /// `decoded[low bits]`, not a plain line of a source.
 const DECODED: u32 = 1 << 31;
@@ -48,9 +51,6 @@ pub struct BuiltCatalogs {
     /// Keys and messages a source does not give plainly (quoted values,
     /// escape sequences), decoded.
     pub decoded: &'static [(&'static str, &'static str)],
-    /// Their language (`en`) and the name it calls itself by.
-    pub language: &'static str,
-    pub name: &'static str,
 }
 
 impl BuiltCatalogs {
@@ -59,8 +59,6 @@ impl BuiltCatalogs {
         prints: &[],
         entries: &[],
         decoded: &[],
-        language: "en",
-        name: "English",
     };
 
     /// Made of what a build script wrote.
@@ -73,17 +71,32 @@ impl BuiltCatalogs {
             prints,
             entries,
             decoded,
-            language: "en",
-            name: "English",
         }
     }
+}
 
-    /// Of the catalogs of `language`, which calls itself `name` (all with
-    /// the plural rule of English, one and other).
-    pub const fn in_language(mut self, language: &'static str, name: &'static str) -> Self {
-        self.language = language;
-        self.name = name;
-        self
+/// The [`BuiltCatalogs`] of one language, which calls itself `name` (all
+/// with the plural rule of English, one and other): written by a build
+/// script ([`BuiltLanguageTable`]), handed to the translator
+/// ([`Translator::built_language`](crate::Translator::built_language)).
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct BuiltLanguage {
+    /// As a catalog's `[meta] language` (`en`, `de`).
+    pub language: &'static str,
+    /// As a catalog's `[meta] name` (`English`, `Deutsch`).
+    pub name: &'static str,
+    pub catalogs: BuiltCatalogs,
+}
+
+impl BuiltLanguage {
+    /// Made of what a build script wrote.
+    pub const fn new(language: &'static str, name: &'static str, catalogs: BuiltCatalogs) -> Self {
+        Self {
+            language,
+            name,
+            catalogs,
+        }
     }
 }
 
@@ -199,61 +212,47 @@ impl Built {
     }
 }
 
-/// [`BuiltCatalogs`] being made by a build script: the catalogs of one
-/// language added together ([`BuiltTable::add`]), written as Rust
-/// ([`BuiltTable::to_rust`]).
-#[derive(Debug)]
+/// [`BuiltCatalogs`] being made by a build script: the English catalogs
+/// added together ([`BuiltTable::add`]), written as Rust
+/// ([`BuiltTable::to_rust`]); [`BuiltLanguageTable`] for another language.
+#[derive(Debug, Default)]
 pub struct BuiltTable {
-    language: String,
-    /// The name of the first source's language; the others must say it.
-    name: Option<String>,
     prints: Vec<u64>,
     /// Key, then the entry.
     entries: Vec<(String, u32)>,
     decoded: Vec<(String, String)>,
 }
 
-impl Default for BuiltTable {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl BuiltTable {
-    /// For English.
     pub fn new() -> Self {
-        Self::for_language("en")
+        Self::default()
     }
 
-    /// For the catalogs of `language` (as a catalog's `[meta] language`).
-    pub fn for_language(language: &str) -> Self {
-        Self {
-            language: String::from(language),
-            name: None,
-            prints: Vec::new(),
-            entries: Vec::new(),
-            decoded: Vec::new(),
-        }
-    }
-
-    /// Adds the catalog `source` of the table's language; `false`, leaving
-    /// it out (it then stays a catalog of its own), where it is of another
-    /// language or name, has another plural rule than English's or a
-    /// direction, script, digits or calendar of its own (the table says
-    /// none), holds a key another source added holds, or its slot or an
-    /// offset would not fit.
+    /// Adds the English catalog `source`; `false`, leaving it out (it then
+    /// stays a catalog of its own), where it is not English, has another
+    /// plural rule than English's or a direction, script, digits or
+    /// calendar of its own (the table says none), holds a key another
+    /// source added holds, or its slot or an offset would not fit.
     pub fn add(&mut self, source: &str) -> Result<bool, CatalogError> {
+        self.add_in(source, FALLBACK, &mut None)
+    }
+
+    /// The same for a source of `language`; where `name` is `Some`, the
+    /// source must call its language so, and the first source added sets
+    /// it (English is always called English: `None`).
+    fn add_in(
+        &mut self,
+        source: &str,
+        language: &str,
+        name: &mut Option<String>,
+    ) -> Result<bool, CatalogError> {
         let catalog = Catalog::parse(String::from(source))?;
         let print = fingerprint(source);
-        if catalog.language() != self.language
+        if catalog.language() != language
             || self.prints.contains(&print)
             || catalog.plural_rule() != PluralRule::OneOther
             || catalog.says_more_than_language()
-            || (self.language != "en"
-                && self
-                    .name
-                    .as_deref()
-                    .is_some_and(|name| name != catalog.name()))
+            || name.as_deref().is_some_and(|name| name != catalog.name())
         {
             return Ok(false);
         }
@@ -284,10 +283,8 @@ impl BuiltTable {
             return Ok(false);
         }
         self.prints.push(print);
-        // English is always called English (a source may not say its name).
-        if self.language != "en" {
-            self.name
-                .get_or_insert_with(|| String::from(catalog.name()));
+        if language != FALLBACK && name.is_none() {
+            *name = Some(String::from(catalog.name()));
         }
         for (key, message) in decoded {
             let entry = DECODED | slot << OFFSET_BITS | self.decoded.len() as u32;
@@ -316,10 +313,6 @@ impl BuiltTable {
             let _ = write!(out, "({key:?}, {message:?}),");
         }
         out.push_str("])");
-        if self.language != "en" {
-            let name = self.name.as_deref().unwrap_or_default();
-            let _ = write!(out, ".in_language({:?}, {name:?})", self.language);
-        }
         out
     }
 
@@ -341,14 +334,9 @@ impl BuiltTable {
             })
             .collect();
         let decoded = alloc::boxed::Box::leak(decoded.into_boxed_slice());
-        let language = &*alloc::boxed::Box::leak(self.language.into_boxed_str());
-        let name = self
-            .name
-            .unwrap_or_else(|| String::from(if language == "en" { "English" } else { "" }));
-        let name = &*alloc::boxed::Box::leak(name.into_boxed_str());
-        alloc::boxed::Box::leak(alloc::boxed::Box::new(
-            BuiltCatalogs::new(prints, entries, decoded).in_language(language, name),
-        ))
+        alloc::boxed::Box::leak(alloc::boxed::Box::new(BuiltCatalogs::new(
+            prints, entries, decoded,
+        )))
     }
 
     /// Sources added.
@@ -358,5 +346,76 @@ impl BuiltTable {
 
     pub fn is_empty(&self) -> bool {
         self.prints.is_empty()
+    }
+}
+
+/// [`BuiltLanguage`] being made by a build script: a [`BuiltTable`] for the
+/// catalogs of one language, English or another, with the name its sources
+/// call it by.
+#[derive(Debug)]
+pub struct BuiltLanguageTable {
+    language: String,
+    /// The name the first source added gives its language; the others must
+    /// say it (English is always called English).
+    name: Option<String>,
+    table: BuiltTable,
+}
+
+impl BuiltLanguageTable {
+    /// For the catalogs of `language` (as a catalog's `[meta] language`).
+    pub fn new(language: &str) -> Self {
+        Self {
+            language: String::from(language),
+            name: None,
+            table: BuiltTable::new(),
+        }
+    }
+
+    /// Adds the catalog `source` of the table's language, as
+    /// [`BuiltTable::add`] does; `false` also where it calls its language
+    /// by another name than the first source added.
+    pub fn add(&mut self, source: &str) -> Result<bool, CatalogError> {
+        self.table.add_in(source, &self.language, &mut self.name)
+    }
+
+    fn name(&self) -> &str {
+        match &self.name {
+            Some(name) => name,
+            None if self.language == FALLBACK => "English",
+            None => "",
+        }
+    }
+
+    /// The table as a Rust expression of [`BuiltLanguage`], for
+    /// `include!`.
+    pub fn to_rust(&self) -> String {
+        alloc::format!(
+            "paperpaw_i18n::BuiltLanguage::new({:?}, {:?}, {})",
+            self.language,
+            self.name(),
+            self.table.to_rust()
+        )
+    }
+
+    /// The table as [`BuiltLanguage`] at run time, its memory never given
+    /// back: for tests and tools.
+    pub fn leak(self) -> &'static BuiltLanguage {
+        let name = &*alloc::boxed::Box::leak(String::from(self.name()).into_boxed_str());
+        let language = &*alloc::boxed::Box::leak(self.language.into_boxed_str());
+        let table = self.table.leak();
+        alloc::boxed::Box::leak(alloc::boxed::Box::new(BuiltLanguage::new(
+            language,
+            name,
+            BuiltCatalogs::new(table.prints, table.entries, table.decoded),
+        )))
+    }
+
+    /// Sources added.
+    pub fn len(&self) -> usize {
+        self.table.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.table.is_empty()
     }
 }

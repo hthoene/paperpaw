@@ -102,8 +102,8 @@ fn catalog_indexes(crates: &[String]) {
     let mut seen = Vec::new();
     // One table for each language the program has built in.
     let mut tables = [
-        paperpaw_i18n::BuiltTable::new(),
-        paperpaw_i18n::BuiltTable::for_language("de"),
+        paperpaw_i18n::BuiltLanguageTable::new("en"),
+        paperpaw_i18n::BuiltLanguageTable::new("de"),
     ];
     for file in files {
         println!("cargo::rerun-if-changed={}", file.display());
