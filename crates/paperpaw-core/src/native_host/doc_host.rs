@@ -137,6 +137,14 @@ pub(crate) struct DocState {
     /// The kernel's clock as the event pump last gave it: events are stamped
     /// with it.
     now: Cell<u64>,
+    /// Steps of the cover job that could not be made, in a row (`doc_cover_job`).
+    job_later: Cell<u8>,
+    /// Whether the kernel's start has returned: before, no cover job begins.
+    jobs_allowed: Cell<bool>,
+    /// The cover job's marker is on the card (`cover_job_marker`).
+    job_guarded: Cell<bool>,
+    /// A `cover` asked for a job before that (`allow_cover_jobs`).
+    job_held_back: Cell<bool>,
     /// The card, for the first bytes a file is told by (`with_storage`).
     storage: Option<Rc<dyn Storage>>,
     /// The most bytes one document's cache may hold.
@@ -242,6 +250,10 @@ impl DocState {
             skipped: Cell::new(0),
             unfinished: RefCell::new(unfinished),
             now: Cell::new(0),
+            job_later: Cell::new(0),
+            jobs_allowed: Cell::new(false),
+            job_guarded: Cell::new(false),
+            job_held_back: Cell::new(false),
             storage: None,
             cache_cap: limits.cache_bytes(),
             last_prepared: Cell::new(0),
@@ -612,7 +624,59 @@ impl super::doc_service::DocHost for DocState {
         hosts: &super::host_services::HostServices,
         route: &dyn super::fmt_call::Route,
     ) -> super::doc_service::PrepareStep {
-        self.prepare_next(hosts, route)
+        let step = self.prepare_next(hosts, route);
+        self.cover_job_stepped(step);
+        step
+    }
+    fn cover_job_step(
+        &self,
+        hosts: &super::host_services::HostServices,
+        route: &dyn super::fmt_call::Route,
+    ) -> super::doc_service::JobStep {
+        self.cover_job_next(hosts, route)
+    }
+    fn cover_job_path_is(&self, path: &str) -> bool {
+        self.cover_job_path_is(path)
+    }
+    fn cover_job_active(&self) -> bool {
+        // A marker with no job: the pump's look removes it.
+        self.table.cover_job().is_some() || self.job_guarded.get()
+    }
+    fn only_cover_job_preparing(&self) -> bool {
+        self.table.only_cover_job_preparing()
+    }
+    fn cover_jobs_allowed(&self) -> bool {
+        self.jobs_allowed.get()
+    }
+    fn cover_job_held_back(&self) {
+        self.job_held_back.set(true);
+    }
+    fn allow_cover_jobs(&self) -> super::doc_service::JobsAllowed {
+        self.jobs_allowed.set(true);
+        super::doc_service::JobsAllowed {
+            held_back: self.job_held_back.replace(false),
+            // A marker from before: the reset happened in that book's job.
+            left: self
+                .storage
+                .as_deref()
+                .map_or(0, super::cover_job_marker::take),
+        }
+    }
+    fn cover_job_guard(&self, path: &str) -> Result<(), i32> {
+        let storage = self.storage.as_deref().ok_or(ERR_NOT_FOUND)?;
+        super::cover_job_marker::write(storage, super::lib_cover::path_key(path))?;
+        self.job_guarded.set(true);
+        Ok(())
+    }
+    fn cover_job_unguard(&self) {
+        self.unguard();
+    }
+    fn cover_job_abort(
+        &self,
+        hosts: &super::host_services::HostServices,
+        route: &dyn super::fmt_call::Route,
+    ) {
+        self.cover_job_end(hosts, route);
     }
     fn call_format(&self, _: &FormatCall<'_>, _: &mut [u8]) -> Result<usize, i32> {
         Err(ERR_UNSUPPORTED)
@@ -1218,6 +1282,8 @@ impl super::doc_service::DocHost for Bound<'_> {
     }
 }
 
+#[path = "doc_cover_job.rs"]
+mod cover_job;
 #[path = "doc_prepare.rs"]
 mod prepare;
 

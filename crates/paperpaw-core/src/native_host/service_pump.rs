@@ -253,6 +253,8 @@ impl crate::Kernel {
         let moves_more = self.native_moves_pump();
         // A document a format is preparing takes a step (`doc_pump`).
         let doc_more = self.native_doc_pump();
+        // A cover job whose preparation is over ends here (`doc_cover_job`).
+        self.native_cover_job_pump();
         // Questions open their dialogs and their answers come back.
         let dialog_more = self.native_dialog_pump();
         // The outcomes of Wi-Fi requests reach their senders (`wifi_events`).
