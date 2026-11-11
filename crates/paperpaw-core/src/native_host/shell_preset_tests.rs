@@ -5,6 +5,7 @@ use super::*;
 use crate::native_host::commands::{
     WireCommand, preset_covers, preset_plan as presets_plan, preset_walk,
 };
+use alloc::string::String;
 use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_sdk::builtin::groups::{LOOK, OTHER};
 use paperpaw_sdk::presets::{self, Preset};

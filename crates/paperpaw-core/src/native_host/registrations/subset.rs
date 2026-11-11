@@ -22,14 +22,18 @@ pub(crate) fn unexpected(tag: u32) -> i32 {
 }
 
 /// `raw` as the record its tag names, for the few records the host still reads
-/// through the `Record` enum: the kernel's own events, the router's input, the
-/// library page rows it compares and the lookup reply. Every other op decodes
+/// through the `Record` enum: the kernel's own events (the reading edges among
+/// them), the router's input, the files ops' inputs, the library page rows it
+/// compares and the lookup reply. Every other op decodes
 /// the type it expects ([`super::super::codec::single`]). Another tag is
 /// `ERR_UNSUPPORTED`.
 pub(crate) fn decode_record<'a>(raw: RawRecord<'a>) -> Result<Record<'a>, i32> {
     Ok(match raw.tag() {
         wire::EVENT_ACTION_RUN_TAG => Record::EventActionRun(raw.decode()?),
         wire::EVENT_BATTERY_MEASURED_TAG => Record::EventBatteryMeasured(raw.decode()?),
+        wire::EVENT_BOOK_CLOSED_TAG => Record::EventBookClosed(raw.decode()?),
+        wire::EVENT_BOOK_FINISHED_TAG => Record::EventBookFinished(raw.decode()?),
+        wire::EVENT_BOOK_OPENED_TAG => Record::EventBookOpened(raw.decode()?),
         wire::EVENT_PAGE_TURNED_TAG => Record::EventPageTurned(raw.decode()?),
         wire::EVENT_RESUME_TAG => Record::EventResume(raw.decode()?),
         wire::EVENT_SCREEN_SHOWN_TAG => Record::EventScreenShown(raw.decode()?),
@@ -40,6 +44,9 @@ pub(crate) fn decode_record<'a>(raw: RawRecord<'a>) -> Result<Record<'a>, i32> {
         wire::INPUT_GESTURE_TAG => Record::InputGesture(raw.decode()?),
         wire::INPUT_KEY_TAG => Record::InputKey(raw.decode()?),
         wire::INPUT_POINTER_TAG => Record::InputPointer(raw.decode()?),
+        wire::SERVICE_FS_LIST_TAG => Record::ServiceFsList(raw.decode()?),
+        wire::SERVICE_FS_MOVE_TAG => Record::ServiceFsMove(raw.decode()?),
+        wire::SERVICE_FS_PATH_TAG => Record::ServiceFsPath(raw.decode()?),
         wire::SERVICE_LIB_ANCHOR_TAG => Record::ServiceLibAnchor(raw.decode()?),
         wire::SERVICE_LIB_ANNOTATION_TAG => Record::ServiceLibAnnotation(raw.decode()?),
         wire::SERVICE_LIB_ENTRY_TAG => Record::ServiceLibEntry(raw.decode()?),
@@ -317,6 +324,7 @@ pub(crate) fn as_wire<'r>(record: &'r Record<'_>) -> Result<&'r dyn WireEncode, 
         Record::EventImageReady(r) => r,
         Record::EventInstallDone(r) => r,
         Record::EventLibraryChanged(r) => r,
+        Record::EventLookupReady(r) => r,
         Record::EventNetworkIdle(r) => r,
         Record::EventNetworkWanted(r) => r,
         Record::EventPageTurned(r) => r,

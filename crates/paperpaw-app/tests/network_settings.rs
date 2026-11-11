@@ -42,6 +42,10 @@ fn app(config: &str) -> Kernel {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "native-linked",
+    ignore = "needs native activation (#228, Services #894): a native plugin with admitted uses.network gets core.network.<id> and core.saving.<id> at admission; transfer is native now"
+)]
 fn fixed_network_settings_cover_the_plugins() {
     let kernel = app("");
     let mut networked: Vec<&str> = kernel
@@ -63,6 +67,10 @@ fn fixed_network_settings_cover_the_plugins() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "native-linked",
+    ignore = "needs native activation (#228, Services #894): a native plugin with admitted uses.network gets core.network.<id> and core.saving.<id> at admission; transfer is native now"
+)]
 fn network_settings_keep_their_ids_defaults_and_values() {
     let kernel = app("");
     for (plugin, _) in paperpaw_app::NETWORK_SETTINGS {

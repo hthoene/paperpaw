@@ -151,6 +151,7 @@
     "core.device",
     "core.document",
     "core.files",
+    "core.library",
     "core.net",
     "core.registry",
     "core.secrets",
@@ -161,6 +162,10 @@
     {
       "key": "uses.install",
       "required": true
+    },
+    {
+      "key": "uses.library",
+      "required": false
     },
     {
       "key": "uses.network",
