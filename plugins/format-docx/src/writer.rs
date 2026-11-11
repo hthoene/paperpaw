@@ -268,18 +268,22 @@ impl<'a> Writer<'a> {
                 }
             }
             let runs = core::mem::take(&mut self.runs);
-            self.out.block(&Block {
-                kind: self.kind,
-                align: self.block_align,
-                continues: split,
-                continued: self.continued,
-                start: self.pos,
-                end,
-                text: &self.text,
-                runs: &runs,
-                checks: &[],
-                image: None,
-            });
+            self.out.block(
+                self.storage,
+                self.dir,
+                &Block {
+                    kind: self.kind,
+                    align: self.block_align,
+                    continues: split,
+                    continued: self.continued,
+                    start: self.pos,
+                    end,
+                    text: &self.text,
+                    runs: &runs,
+                    checks: &[],
+                    image: None,
+                },
+            );
             self.continued = split;
             self.pos = end;
             self.out.flush(self.storage, self.dir, false);
@@ -431,18 +435,22 @@ impl<'a> Writer<'a> {
         let continued = self.continued || !self.text.is_empty();
         self.flush(true);
         let end = self.pos.wrapping_add(1);
-        self.out.block(&Block {
-            kind: Kind::Image,
-            align: Align::Center,
-            continues: false,
-            continued: false,
-            start: self.pos,
-            end,
-            text: &alt,
-            runs: &[],
-            checks: &[],
-            image: Some((index as u32, 0, 0)),
-        });
+        self.out.block(
+            self.storage,
+            self.dir,
+            &Block {
+                kind: Kind::Image,
+                align: Align::Center,
+                continues: false,
+                continued: false,
+                start: self.pos,
+                end,
+                text: &alt,
+                runs: &[],
+                checks: &[],
+                image: Some((index as u32, 0, 0)),
+            },
+        );
         self.pos = end;
         // What follows the picture goes on with the paragraph.
         self.continued = continued;
