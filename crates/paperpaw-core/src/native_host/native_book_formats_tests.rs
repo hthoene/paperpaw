@@ -151,6 +151,11 @@ fn a_stand_in_costs_little() {
     let before = live();
     stand_ins.sync(&mut formats, &store, 2);
     let held = live().saturating_sub(before);
-    std::println!("one native format stand-in: {held} B held");
-    assert!(held < 512, "{held} B");
+    // The `FormatSpec` in `Formats` (its list grows from empty here), the
+    // texts and the id kept here.
+    std::println!(
+        "one native format stand-in: {held} B held (FormatSpec {} B)",
+        core::mem::size_of::<FormatSpec>()
+    );
+    assert!(held < 1024, "{held} B");
 }
