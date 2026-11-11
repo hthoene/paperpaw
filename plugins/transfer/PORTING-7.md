@@ -1,9 +1,9 @@
-# Interface-7 port (slices 1 to 3: the decisions and declarations, the native entry and the transfer screen, installs, the phone's keyboard and the offers)
+# Interface-7 port (slices 1 to 4: the decisions and declarations, the native entry and the transfer screen, installs, the phone's keyboard, the offers and the cable)
 
 Version 1.0.4 (already above its Beta 3 version, 1.0.3; no further bump). Status: **not complete**: the native
 entry (`NativeTransfer`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin `transfer`) serves the page
 and shows its address, installs plugins sent from the computer, types for the phone's keyboard, offers to go online and
-opens the reader's own network, moves, renames and deletes files through the library; the cable is a named blocked step below, so the plugin is **gated**:
+opens the reader's own network, moves, renames and deletes files through the library and answers a computer at the USB cable;
 it is not in `NATIVE_PLUGINS` and not in `tools/plugin-files7/complete.txt` (its native file is not the whole
 plugin). The interface-6 `Transfer`, `web.rs`, `plugins.rs`, `cable.rs`, `phone.rs`, `link.rs` and everything of
 them stay until the host activates native plugins (then they go together, no shim; see the removal step).
@@ -23,9 +23,9 @@ them stay until the host activates native plugins (then they go together, no shi
 
 - `src/native_plugin.rs` (`NativeTransfer`): `make` submits the transfer screen, the navigation (action `open`,
   menu entry, icon) and the event subscriptions (`event.server`, `event.served_request`, and in slice 3
-  `event.install_done`, `event.wifi_done`, `event.work_due`; `declarations::events`). The cable's screen and its slot
-  offer are **built but not submitted** (`declarations::cable_later`): the host would open a screen the plugin cannot
-  show; the phone's are submitted since slice 3. *Wi-Fi transfer* (`transfer.open`) opens the screen.
+  `event.install_done`, `event.wifi_done`, `event.work_due`; `declarations::events`). The phone's screen and slot offer
+  are submitted since slice 3, the cable's since slice 4 (`declarations::cable`). *Wi-Fi transfer* (`transfer.open`)
+  opens the screen.
 - **Serving** lives on the screen (`network.md` 5.1): when the screen is shown for the first time the plugin writes
   the page and calls `Net::serve(token 1, port 8080, max_body 64 MiB)`; the host takes the next port when 8080 is
   in use and says which in `started`. Closing the screen stops the server (`stop_serving` on the close, which the
@@ -69,7 +69,7 @@ them stay until the host activates native plugins (then they go together, no shi
   the same bytes, weak draws, no source), `native_draw.rs` (the code's place and that its rectangles cover each dark
   module once), `native_page.rs` (the strings go where the page names them; every text the page reads is given),
   `tests/abi7_declarations.rs` (what `make` submits has no slot offer; the events), `tests/native_linked_entry.rs`,
-  `tests/hosted_construction.rs` (`make` runs in a real registered scope: the host admits every family).
+  `tests/hosted_construction.rs` (the plugin is constructed in the real registered scope of the host; since the host admits `install_done`, `wifi_done` and `work_due` the construction is asserted, no longer refused).
 
 ## Ported (slice 3: installing plugins, the phone's keyboard, the offers, the hint)
 
@@ -122,8 +122,76 @@ them stay until the host activates native plugins (then they go together, no shi
   network is served by leaving the router's network first).
 - **The page's hint for a book sent outside the library folder**: `T.books` is the extensions of the formats
   (`core.document` op 19, no permission; each once, at most 128), so the page names the library folder as before.
-- **What the host admits**: every registration `make` submits is admitted (`event.install_done`, `event.wifi_done`
-  and `event.work_due` too: `tests/hosted_construction.rs` constructs the plugin in the kernel's real scope).
+- **What the host admits**: `event.install_done`, `event.wifi_done` and `event.work_due` are admitted now (the
+  train has them): `tests/hosted_construction.rs` constructs the plugin in the real registered scope (slice 4 also
+  with the cable's screen and slot offer and `core.library`); the interface-7 loader still has to activate native
+  plugins (Core #944).
+
+## Ported (slice 4: the cable)
+
+Kernel's ruling (#244): `transfer.cable` stays a **plain native screen** offered on slot `core.cable`, no stage. The
+host (Kernel #900, `origin/kernel/cable-native-228`, not in this branch) opens it when a computer talks over the USB
+cable and no server runs, and serves the cable to the one plugin that serves port 0 from its showing screen. Ported
+against that contract; what needs the host's cable is `tests/cable_native.rs`, ignored with
+`needs native activation (#900 cable host)` (assertions kept).
+
+- **The screen** (`src/native_plugin/cable.rs`, token `CABLE`, one at a time): when first shown it calls
+  `Net::serve(Server::cable(3).max_body(64 MiB))`; the server's `event.server` is its state (`started`; `failed` says
+  why, as the Wi-Fi's; `stopped` while it was running too). It shows what interface 6 showed (waiting / a computer is
+  connected / asking / allowed / not allowed, and below it the last thing said: receiving, received, installing,
+  installed, not installed) as the list's empty-state footer, en and de (new keys `transfer.cable.waiting`, `.linked`,
+  `.asking`, `.asking.text`, `.allowed.title`, `.refused.title`, `.installing`). Closing the screen (host *Back* or the
+  idle timer) ends the permission, stops the server (idempotent), removes what was staged and cancels its timers.
+- **The protocol** (`src/native_cable.rs` host-free over a `CableHost` trait; `src/native_cable/host.rs` the host's
+  part): `GET /api/hello`, `GET /api/plugins`, `POST`/`GET /api/offer`, `PUT /api/plugin/<id>/<path>`,
+  `POST /api/plugin/<id>`, `PUT /api/book/<name>` with the interface-6 statuses: 202/409/507/400 for the offer, 403
+  `not allowed on the device` before the permission and 404 after, 422 `not as offered`. The offer body is the saved
+  body file, read a line at a time by `native_cable::read_offer` over `ui-kit`'s `Volume` (at most `MAX_FILES` lines
+  of `MAX_LINE`, the file at most `MAX_OFFER` bytes; the line rules are `native_transfer::Offer::take`, now public
+  with `Offer::finish`). The reader is asked with `Ui::ask(Question::confirm)` (title and text as `cable.rs`
+  `question`, the yes word `transfer.cable.allow`, the dialog's own *No*); `event.answered` names the request, so it
+  counts for that offer only, and a dialog closed without an answer (outcome cancelled) refuses.
+  `staged_as_offered` is ported (`native_cable::staged_as_offered`: the staged files, found by a bounded walk of the
+  cable's folder, are exactly the offered ones, each with its size and SHA-256, checked again at the install).
+- **The files** go to the cable's own folder in the data folder (`cable/<id>/<path>`, apart from the Wi-Fi's
+  `staging/<id>`, which the Wi-Fi screen cleans; the cable cleans its own when its screen opens and closes), through
+  `HostPlugins::staging_in`. A book goes with `core.library` `import` (`Existing::FreeName`, `from` = the host-saved
+  body file), after its SHA-256 was checked; offered once, taken once. `uses.library` is declared **optional**
+  (`core.library` is in the metadata): without the grant a book is *501*. The install is the Wi-Fi's command
+  (`install_plugin(request, Data, "cable/<id>", update, allow_older)`, requests from `0x7ffe_0000`).
+- **Timers and busy answers**: an exact timer (`core.work`, `at_ms`, key `transfer.cable-idle`) closes the screen after
+  five minutes without a request (not while the reader is asked or the host asks about an install: it counts again from
+  the answer); a `respond` refused as `Busy` (the host's cable queue is full) is kept (at most 4) and sent again with
+  the next request or the retry timer (`transfer.cable-retry`, every 250 ms, about 100 s), never lost silently.
+- **Guard**: none (a computer at the cable; interface 6 had none); the permission is the reader's answer.
+- Tests: `native_cable/tests.rs` (the permission state machine, answers for another offer, the offer's limits and
+  refusals, files as offered, the install waiting for the host and its refusals, `staged_as_offered`, books, the
+  library's refusals, close, and `fail_alloc::sweep` over the plugin flow, a book, the offer's file and the staged
+  check), `native_cable/host.rs` (sizes with whole numbers), `tests/abi7_declarations.rs` (the cable batch and its
+  slot decoded by the host's rules), `tests/cable_native.rs` (ignored: the hosted flow).
+- **Differences from interface 6** (case by case against `src/cable.rs` and `tests/cable.rs`):
+  (a) `hello`'s `fingerprint` is `null`: `core.device` has none in interface 7 (it has `abi_major`, `abi_draft` and
+  `target` in `native`); `version` is the firmware's (`core.device` `firmware`), else the SDK's.
+  (b) `POST /api/plugin/<id>`: the **host asks the reader** before it installs (decision 132), a second question after
+  the one about the offer. The answer is held and sent when `install_done` ends the request (200 installed, 422 refused
+  with the host's reason word: `not approved`, `damaged`, `not trusted`, `built for another PaperPaw`, ...); a reader
+  slower than the host's 120 s answer time leaves the computer without an answer (`GET /api/plugins` shows the
+  result). The checks of the folder, the code and the trust are the host's, not `Commit::approved`; a refused install
+  drops the offer's plugin and its staged files.
+  (c) `GET /api/plugins` over the cable is an inline answer (the cable takes no `file`): cut at 2,000 bytes with
+  `"next":<n>` where more follow (`?skip=<n>`); `origin` is `built-in` or `installed`.
+  (d) The question's text is at most 1,024 bytes (`core.ui`): names that do not fit are counted in *and N more*; sizes
+  are written with whole numbers only (same words as before).
+  (e) A question closed without an answer is the host's cancel (`event.answered`), not a scan of the stack: a screen
+  shown over it never counted, and now nothing has to be asked. The *Back* that ends the permission closes the screen;
+  the 403 `ended on the device` and the 10 s pause are the kernel's (#900).
+  (f) Books are catalogued by `core.library` at once (no `library::added` event); the library's name rules are
+  stricter than the offer's (a trailing dot, reserved device names): *422* `name` for such a name; a full card is *507*.
+  (g) A question that cannot be asked now (`Full`, `Busy`: another is open) is *503* `cannot ask now`, new.
+  (h) The Wi-Fi exclusion is one way: an offer for a plugin the Wi-Fi transfer holds (staged or asking) is *409*, but
+  the Wi-Fi's `PUT` is not refused while the cable is offered the same plugin (the folders are apart; the host
+  refuses a second install of the plugin while one runs).
+  (i) A file of size 0 comes without a body and is *403* `not offered`, as in interface 6.
 
 ## Moving, deleting and uploading through the library (`native_web.rs`, `native_files.rs`)
 
@@ -175,12 +243,7 @@ compares `read_only` with the interface-6 rule.
 
 1. ~~Moving and renaming files~~: native (see *Moving, deleting and uploading through the library*).
 2. ~~Installing plugins from the computer~~: native (slice 3).
-3. **The cable** (`cable.rs`, the screen `transfer.cable`, slot `core.cable`): **missing: the stage declaration for
-   `core.cable`** (a plugin cannot declare that it serves the host's cable stage; the server itself exists:
-   `Server::cable(token)`, port 0), **and the dialogs** (#847/#854 are not merged: the reader is asked before anything
-   is written, H2, and the offer's plugin and books are named in it). With them: the offer (`native_transfer::Offer`
-   is ported and tested), the staged-files check (`staged_as_offered`, not ported) and the install by the same
-   `install_plugin`. The screen and its slot offer are built (`declarations::cable_later`) but not submitted.
+3. ~~The cable~~: native (slice 4).
 4. ~~The phone's keyboard~~: native (slice 3).
 5. **The reader's own network**, what is not there: its button on *Starting* and while serving at a router (see
    above); the rest is native (slice 3). Everything else the offline mode needed is native.
