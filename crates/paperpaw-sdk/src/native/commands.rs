@@ -142,6 +142,35 @@ impl<'cb, 'buf> CommandSender<'cb, 'buf> {
         self.submit(wire::Command::Redraw { mode: mode.wire() })
     }
 
+    /// Stage a redraw and refresh request for part of this plugin's top
+    /// screen: `area` in screen pixels, as [`DrawFrame::rect`], clipped to
+    /// the screen. Several in one callback are drawn each on its own, so a
+    /// few pictures on a page refresh as small areas, not as a page turn;
+    /// the modes merge to the strongest. An empty area redraws nothing.
+    ///
+    /// Asked for with a whole [`queue_redraw`](Self::queue_redraw) in the
+    /// same callback, the areas are drawn in the frame after: a page's text
+    /// first, its pictures right after.
+    ///
+    /// [`DrawFrame::rect`]: super::callbacks::DrawFrame::rect
+    ///
+    /// # Errors
+    /// Returns NoSpace for short scratch or the host's refusal, including State
+    /// when the submitting plugin does not own the screen on top.
+    pub fn queue_redraw_area(
+        &mut self,
+        mode: RedrawMode,
+        area: super::callbacks::FrameRect,
+    ) -> Result<(), Error> {
+        self.submit(wire::Command::RedrawArea {
+            mode: mode.wire(),
+            x: area.x,
+            y: area.y,
+            width: area.width,
+            height: area.height,
+        })
+    }
+
     /// Stage closing this plugin's screen on top.
     ///
     /// # Errors

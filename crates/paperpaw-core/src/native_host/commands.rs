@@ -32,6 +32,8 @@ pub(crate) use ui::Redraw;
 
 #[path = "commands_items.rs"]
 mod items;
+#[path = "commands_redraw.rs"]
+mod redraw;
 pub(crate) use items::ItemAdmit;
 #[cfg_attr(
     not(test),
@@ -41,6 +43,7 @@ pub(crate) use items::ItemAdmit;
     )
 )]
 pub(crate) use items::ItemRoom;
+pub(crate) use redraw::{Area, Followup};
 
 #[path = "commands_answers.rs"]
 mod answers;
@@ -129,6 +132,8 @@ pub struct CommandStage<'a> {
     handovers: Option<open::Handovers<'a>>,
     opens: Opens,
     redraw: Option<u32>,
+    /// `command.redraw_area`s of the callback (`commands_redraw.rs`).
+    areas: redraw::Areas,
     accepted: usize,
     /// `image_prepare` / `image_release` admission, once the host gave it.
     images: Option<ImageAdmit>,
@@ -196,6 +201,7 @@ impl<'a> CommandStage<'a> {
             handovers: None,
             opens: Opens::default(),
             redraw: None,
+            areas: redraw::Areas::default(),
             accepted: 0,
             images: None,
             quiet: false,
@@ -369,6 +375,7 @@ impl<'a> CommandStage<'a> {
         if let Err(error) = self
             .dev_reserve(batch)
             .and_then(|()| self.reserve_opens(batch))
+            .and_then(|()| self.reserve_areas(batch))
         {
             return error;
         }
@@ -396,11 +403,7 @@ impl<'a> CommandStage<'a> {
         self.staged_presets.extend(presets);
         self.staged_answers.extend(answers);
         self.keep_claims(claims);
-        for command in batch.iter() {
-            if let WireCommand::Redraw { mode } = command {
-                self.redraw = Some(self.redraw.map_or(mode, |old| old.max(mode)));
-            }
-        }
+        self.push_redraws(batch);
         self.accepted += batch.len();
         self.bytes = bytes;
         self.images = images;
@@ -478,6 +481,7 @@ impl<'a> CommandStage<'a> {
                 !matches!(
                     command,
                     WireCommand::Redraw { .. }
+                        | WireCommand::RedrawArea { .. }
                         | WireCommand::SetHint { .. }
                         | WireCommand::WidgetChanged { .. }
                         | WireCommand::ScreenPolicy { .. }
@@ -540,8 +544,10 @@ impl<'a> CommandStage<'a> {
         images: bool,
     ) -> Result<(), i32> {
         for command in batch.iter() {
-            if matches!(command, WireCommand::Redraw { .. })
-                || Self::is_item_state(&command)
+            if matches!(
+                command,
+                WireCommand::Redraw { .. } | WireCommand::RedrawArea { .. }
+            ) || Self::is_item_state(&command)
                 || Self::is_preset(&command)
                 || Self::is_answer(&command)
             {
@@ -663,6 +669,7 @@ fn allowed_in_a_run(command: &WireCommand<'_>) -> bool {
     matches!(
         command,
         WireCommand::Redraw { .. }
+            | WireCommand::RedrawArea { .. }
             | WireCommand::SetSetting { .. }
             | WireCommand::ResetSetting { .. }
             | WireCommand::SetItemState { .. }

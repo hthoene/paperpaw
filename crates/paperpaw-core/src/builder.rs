@@ -779,6 +779,7 @@ impl BuilderParts {
                 refresh: RefreshPolicy::default(),
                 deferred: None,
                 defers: 0,
+                followup: None,
             },
             input: gestures::InputState {
                 recognizer: Recognizer::default(),
