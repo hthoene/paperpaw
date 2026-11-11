@@ -613,7 +613,10 @@ impl crate::Kernel {
                 Owned::Action(callback) => {
                     let action = instance
                         .try_clone()
-                        .and_then(|lease| super::native_action::spec(callback, lease))
+                        .and_then(|lease| {
+                            let instances = &self.shared.native_instances;
+                            super::native_action::spec(callback, lease, key, instances)
+                        })
                         .map_err(shell::Error::Status)?;
                     let action = boxed(action)?;
                     staging

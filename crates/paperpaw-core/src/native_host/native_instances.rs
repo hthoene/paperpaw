@@ -47,6 +47,18 @@ pub(crate) trait NativeInstance: Dispatch {
     ) -> Result<i32, i32> {
         self.service_event(bytes, env)
     }
+    /// The `event` callback at `token` with the one-record `bytes`, lent the
+    /// command `stage` (an action's `event.action_run`). An instance without a
+    /// stage path takes it without one.
+    fn event_staged(
+        &self,
+        token: u32,
+        bytes: &[u8],
+        env: &paperpaw_sdk::Env<'_>,
+        _stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.event(token, bytes, env)
+    }
     /// A widget's `input` callback at `token` with the one-record `bytes`
     /// (`input.widget`), lent the command `stage`. An instance without a
     /// stage path takes it without one.
@@ -105,6 +117,16 @@ impl NativeLease {
         stage: &mut super::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.live()?.input_staged(token, bytes, env, stage)
+    }
+    /// The `event` callback at `token`, lent the command `stage`.
+    pub(crate) fn event_staged(
+        &self,
+        token: u32,
+        bytes: &[u8],
+        env: &paperpaw_sdk::Env<'_>,
+        stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.live()?.event_staged(token, bytes, env, stage)
     }
     /// As [`Self::service_event`], with the callback's command stage.
     pub(crate) fn service_event_staged(
@@ -221,6 +243,9 @@ pub(crate) struct NativeInstances {
     /// The commands a callback staged, till the kernel runs them (see
     /// `event_call`).
     pub(super) outbox: super::event_call::Outbox,
+    /// The actions run since the kernel last called its pump (see
+    /// `native_action`); made when the first native action is declared.
+    actions: core::cell::RefCell<Option<super::shared::Shared<super::native_action::ActionQueue>>>,
     /// The hand-over the staged `open` being applied names: `Some(None)` an
     /// open of none, `None` no staged open (see `Kernel::drain_native_opens`).
     pending_handover: Cell<Option<Option<u32>>>,
@@ -400,6 +425,38 @@ impl NativeInstances {
             installer: false,
         });
         Ok(key)
+    }
+
+    /// The queue the actions of native plugins wait in, made on the first
+    /// call.
+    ///
+    /// # Errors
+    /// `ERR_NO_MEMORY` when it cannot be made.
+    pub(crate) fn action_queue(
+        &self,
+    ) -> Result<super::shared::Shared<super::native_action::ActionQueue>, i32> {
+        let mut slot = self.actions.try_borrow_mut().map_err(|_| ERR_STATE)?;
+        if slot.is_none() {
+            *slot = Some(
+                super::shared::Shared::try_new(super::native_action::ActionQueue::default())
+                    .map_err(|_| ERR_NO_MEMORY)?,
+            );
+        }
+        slot.as_ref()
+            .and_then(super::shared::Shared::try_clone)
+            .ok_or(ERR_NO_MEMORY)
+    }
+
+    /// The queue of actions if one was made (no action was ever declared
+    /// without it).
+    pub(crate) fn action_queue_made(
+        &self,
+    ) -> Option<super::shared::Shared<super::native_action::ActionQueue>> {
+        self.actions
+            .try_borrow()
+            .ok()?
+            .as_ref()
+            .and_then(super::shared::Shared::try_clone)
     }
 
     pub(crate) fn id(&self, key: u64) -> Option<&Id> {
