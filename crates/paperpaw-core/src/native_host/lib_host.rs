@@ -300,6 +300,17 @@ impl LibWrite for LibraryHost {
         self.reads.stored_position(book)
     }
 
+    /// The catalogued book's root-1 path (by key, the path the catalog keeps
+    /// for it), for the `lib_result` of op 14; `ERR_NOT_FOUND` for a book a
+    /// pending delete holds, as for the reads.
+    fn book_path(&self, book: BookRef<'_>, visit: &mut dyn FnMut(&str)) -> Result<(), i32> {
+        self.visible(book)?;
+        self.reads.path_of(book, |path| {
+            visit(path);
+            Ok(())
+        })
+    }
+
     /// A local or confirmed position is the book's own: the carry never
     /// replaces it, so a write during a move survives. An unconfirmed sync
     /// write is `ERR_BUSY` while the move holds the book: before the carry
