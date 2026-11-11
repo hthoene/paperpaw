@@ -392,6 +392,10 @@ fn with_no_list_the_start_says_why_and_select_tries_again() {
         ("store.offline", "store.offline.help.buttons")
     );
     assert_eq!(
+        empty_words(Trouble::Unsupported, true),
+        ("store.unsupported", "store.unsupported.help")
+    );
+    assert_eq!(
         empty_words(Trouble::Failed, false),
         ("store.unreachable", "store.unreachable.help.buttons")
     );

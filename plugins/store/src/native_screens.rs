@@ -35,6 +35,8 @@ pub enum Trouble {
     Offline,
     /// The fetch failed, or what came is no list.
     Failed,
+    /// The libraries have nothing made for this device.
+    Unsupported,
 }
 
 /// What the loader holds: the index kept on the card and the pages fetched.
@@ -90,6 +92,7 @@ impl Loader for LoaderView<'_> {
             Load::Loading => Trouble::Loading,
             Load::Offline => Trouble::Offline,
             Load::Failed => Trouble::Failed,
+            Load::Unsupported => Trouble::Unsupported,
             _ => Trouble::None,
         }
     }

@@ -61,6 +61,8 @@ pub enum Trouble {
     Loading,
     Offline,
     Failed,
+    /// The libraries have nothing made for this device (no list is asked for).
+    Unsupported,
 }
 
 /// How far a plugin's page is.
@@ -241,6 +243,11 @@ impl Loader {
     #[inline(never)]
     pub fn start_list(&mut self, wire: &mut dyn Wire) -> Result<(), Error> {
         let Some(facts) = wire.facts()? else {
+            // Nothing is asked of a library that does not know the device, and
+            // the start says so instead of loading for ever.
+            wire.cancel(LIST_TOKEN);
+            self.list = None;
+            self.trouble = Trouble::Unsupported;
             return Ok(());
         };
         let (catalog, community) = wire.catalog()?;
