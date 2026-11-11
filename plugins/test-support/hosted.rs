@@ -253,6 +253,18 @@ pub fn install_in(
     name: &str,
     services: &[&'static str],
 ) -> Result<Installed, String> {
+    install_with(setup, entry, name, services, FEATURES)
+}
+
+/// [`install_in`] on a host that offers only `features` (a shell that does not
+/// back a feature, e.g. the desktop without `uses.install`).
+pub fn install_with(
+    setup: &Setup,
+    entry: &'static PpEntry,
+    name: &str,
+    services: &[&'static str],
+    features: &'static [Feature<'static>],
+) -> Result<Installed, String> {
     let services: &'static [Service<'static>] = Box::leak(
         services
             .iter()
@@ -274,7 +286,7 @@ pub fn install_in(
             entry_bytes: 32,
         },
         services,
-        features: FEATURES,
+        features,
     };
     // SAFETY: a linked entry's metadata view is its own static bytes.
     let metadata = unsafe { std::slice::from_raw_parts(entry.metadata.ptr, entry.metadata.len) };
@@ -306,6 +318,8 @@ pub fn install_in(
             &FlatDepth::try_new().map_err(|e| format!("{e:?}"))?,
             teardown,
             report,
+            (core::ptr::null(), 0),
+            &[],
         )
     }
     .map_err(|e| format!("{e:?}"))?;
@@ -320,4 +334,22 @@ pub fn try_construct(
     services: &[&'static str],
 ) -> Result<(), String> {
     install(entry, name, services).map(drop)
+}
+
+/// [`try_construct`] on a host that does not offer the features named in `lacking`.
+pub fn try_construct_lacking(
+    entry: &'static PpEntry,
+    name: &str,
+    services: &[&'static str],
+    lacking: &[&str],
+) -> Result<(), String> {
+    let offered: &'static [Feature<'static>] = Box::leak(
+        FEATURES
+            .iter()
+            .filter(|f| !lacking.contains(&f.key))
+            .cloned()
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+    );
+    install_with(&Setup::default(), entry, name, services, offered).map(drop)
 }

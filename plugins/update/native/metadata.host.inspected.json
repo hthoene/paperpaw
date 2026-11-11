@@ -15,7 +15,7 @@
   "features": [
     {
       "key": "uses.firmware",
-      "required": true,
+      "required": false,
       "revision": 1
     },
     {

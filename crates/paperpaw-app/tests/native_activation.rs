@@ -185,6 +185,7 @@ mod linked {
                 || Heap,
                 teardown,
                 report,
+                (std::ptr::null(), 0),
             )
         };
         for (id, status) in outcome {

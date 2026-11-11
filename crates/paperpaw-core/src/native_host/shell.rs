@@ -14,7 +14,6 @@
 //! and module are alive; Env and Canvas are lent for one synchronous callback.
 use alloc::alloc::alloc;
 use alloc::boxed::Box;
-use alloc::string::String;
 use core::{alloc::Layout, cell::Cell, ffi::c_void, pin::Pin, ptr};
 
 use paperpaw_graphics::Canvas;
@@ -32,7 +31,7 @@ pub use super::device_service::DEVICE_SERVICES;
 use super::environment::EnvironmentScope;
 use super::registration_scope::RegistrationScope;
 use super::registrations::{self, EVENT_TICK_TAG, Registration};
-use super::{Construction, DispatchDepth, HostOwner, RegistrationBatch};
+use super::{Construction, DispatchDepth, HostOwner, PublishedRecords, RegistrationBatch};
 use crate::sdk::Env;
 
 /// Why a step of the plugin's life was refused.
@@ -129,7 +128,6 @@ pub struct Context<S: 'static> {
     /// The one table every plugin hosted with `S` shares ([`SharedTable`]):
     /// a static, never a copy per plugin (152 bytes on the X4).
     table: &'static PpHost,
-    id: Box<str>,
     report: Report<S>,
     resources: super::resources::OwnerResources,
     declared_services: DeclaredServices,
@@ -147,9 +145,14 @@ pub struct Context<S: 'static> {
 }
 
 impl<S: 'static> Context<S> {
-    /// The host-known id of the plugin this context belongs to.
+    /// The host-known id of the plugin this context belongs to: the caller
+    /// its resources were bound to before the context was made, kept once.
     pub(crate) fn plugin_id(&self) -> &str {
-        &self.id
+        // `Hosted::new` binds the caller before the context exists and a
+        // bound caller is never replaced; "" is never a plugin's id.
+        self.resources
+            .bound_caller()
+            .map_or("", paperpaw_sdk::Id::as_str)
     }
 }
 
@@ -159,6 +162,9 @@ pub type Owner<S, M> = HostOwner<Context<S>, M>;
 pub type Staging<'a, S, M, T> = Construction<'a, Context<S>, M, T>;
 /// The records a `make` registered, dispatchable.
 pub type Batch<'a, S, M, T> = RegistrationBatch<'a, Context<S>, M, T>;
+/// The records a `make` registered, as an instance retains them after its
+/// declarations were moved out.
+pub type Published<'a, S, M, T> = PublishedRecords<'a, Context<S>, M, T>;
 type MakeOutput = (i32, *const PpPlugin);
 
 /// A started `make`: the context it belongs to and its staging.
@@ -304,15 +310,8 @@ impl<S: Services + 'static, M> Hosted<S, M> {
         let scoped_resources = resources
             .try_view()
             .ok_or(Error::Status(host_glue::ERR_NO_MEMORY))?;
-        // Fallible, before anything else is built: the X4 has no room to abort.
-        let mut owned = String::new();
-        owned
-            .try_reserve_exact(id.len())
-            .map_err(|_| Error::Allocation)?;
-        owned.push_str(id);
         let context = Context {
             table: SharedTable::<S>::TABLE,
-            id: owned.into_boxed_str(),
             report,
             resources,
             declared_services,
@@ -404,7 +403,7 @@ impl<S: Services + 'static, M> Hosted<S, M> {
             staging: self
                 .owner
                 .as_ref()
-                .begin(&self.owner.as_ref().context().get_ref().id)?,
+                .begin(self.owner.as_ref().context().get_ref().plugin_id())?,
         })
     }
 
@@ -652,7 +651,7 @@ unsafe fn report_blob_cleanup<S: 'static>(raw: *const c_void, status: i32) {
     };
     (context.report)(
         &context.services,
-        &context.id,
+        context.plugin_id(),
         super::TeardownStep::Release,
         error,
     );
@@ -663,7 +662,7 @@ fn report_context<S: 'static>(
     step: super::TeardownStep,
     error: super::Error,
 ) {
-    (context.report)(&context.services, &context.id, step, error);
+    (context.report)(&context.services, context.plugin_id(), step, error);
 }
 
 fn destroy_context<S: 'static>(context: Pin<&Context<S>>) {
@@ -696,7 +695,9 @@ unsafe extern "C" fn heap_alloc<S: Services + 'static>(
     out: *mut *mut c_void,
 ) -> i32 {
     // SAFETY: typed context and the generated heap.alloc pointer contract.
-    unsafe { with_shell::<S>(ctx, |shell| host_glue::heap_alloc(shell, size, align, out)) }
+    unsafe {
+        heap_table::with_heap::<S>(ctx, |shell| host_glue::heap_alloc(shell, size, align, out))
+    }
 }
 
 unsafe extern "C" fn heap_dealloc<S: Services + 'static>(
@@ -707,7 +708,7 @@ unsafe extern "C" fn heap_dealloc<S: Services + 'static>(
 ) -> i32 {
     // SAFETY: typed context and the generated heap.dealloc allocation contract.
     unsafe {
-        with_shell::<S>(ctx, |shell| {
+        heap_table::with_heap::<S>(ctx, |shell| {
             host_glue::heap_dealloc(shell, block, size, align)
         })
     }
@@ -723,7 +724,7 @@ unsafe extern "C" fn heap_realloc<S: Services + 'static>(
 ) -> i32 {
     // SAFETY: typed context and the generated heap.realloc allocation contract.
     unsafe {
-        with_shell::<S>(ctx, |shell| {
+        heap_table::with_heap::<S>(ctx, |shell| {
             host_glue::heap_realloc(shell, block, old_size, align, new_size, out)
         })
     }
@@ -910,7 +911,7 @@ pub(crate) use tokens::{TokenInvocation, dispatch_token, dispatch_token_draw};
 /// # Errors
 /// The owner's refusal, or the callback's absence.
 pub fn dispatch_registration<S: 'static, M>(
-    batch: &Batch<'_, S, M, Registration>,
+    batch: &Published<'_, S, M, Registration>,
     index: usize,
     depth: &DispatchDepth,
     invocation: Invocation<'_>,
@@ -926,7 +927,7 @@ pub fn dispatch_registration<S: 'static, M>(
 /// # Errors
 /// The owner's or the scope's refusal, or the callback's absence.
 pub fn dispatch_with_env<S: 'static, M>(
-    batch: &Batch<'_, S, M, Registration>,
+    batch: &Published<'_, S, M, Registration>,
     index: usize,
     depth: &DispatchDepth,
     invocation: Invocation<'_>,
@@ -965,7 +966,7 @@ fn screen_frame(clip: Rect, out: &mut [u8; 64]) -> Result<Option<usize>, Error> 
 /// # Errors
 /// The owner's or the scopes' refusal, or the callback's absence.
 pub fn dispatch_draw<S: 'static, M>(
-    batch: &Batch<'_, S, M, Registration>,
+    batch: &Published<'_, S, M, Registration>,
     index: usize,
     depth: &DispatchDepth,
     env: &Env<'_>,
@@ -1397,7 +1398,7 @@ unsafe extern "C" fn service_call<S: 'static>(
         super::call_services::call(
             &context.environment,
             &context.resources,
-            &context.id,
+            context.plugin_id(),
             service,
             op,
             input,

@@ -12,7 +12,8 @@
 //!   imported it.
 //!
 //! Plugins' book data and the document caches are the job's own.
-use super::{carry_status, importer, kept_file, position};
+use super::{importer, kept_file, position};
+use crate::native_host::lib_jobs::carry_status;
 use paperpaw_platform::Storage;
 use paperpaw_sdk::{library, library::catalog};
 
@@ -21,14 +22,16 @@ const ANNOTATIONS: &str = ".paperpaw/annotations";
 
 /// The catalog line, details, cover and lists of the book at `path`. A list
 /// that cannot be read fails the step with `ERR_INVALID` (after the rest is
-/// forgotten).
+/// forgotten). Both parts always run, so that a damaged catalog does not keep
+/// the details of the book on the card; the first error is the answer.
 pub(crate) fn details(storage: &dyn Storage, path: &str) -> Result<(), i32> {
-    catalog::forget(storage, path).map_err(carry_status)?;
+    let forgot = catalog::forget(storage, path).map_err(carry_status);
     // The SDK's one implementation, with its errors: the details (and the
     // fields), the cover (and the old names of both) and the two lists. A
     // card error is the answer, so that the step is repeated: details left
     // behind would be inherited by a later book at the same path.
-    library::try_removed(storage, path).map_err(carry_status)
+    let removed = library::try_removed(storage, path).map_err(carry_status);
+    forgot.and(removed)
 }
 
 /// The position, annotations and importer record of the book at `path`.
