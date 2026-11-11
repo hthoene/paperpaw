@@ -847,7 +847,9 @@ impl Open {
             .progress
             .as_ref()
             .map_or(self.stored_ppm, |p| p.ppm(self.at.0, self.at.1));
-        let (Ok(mut input), Ok(mut out)) = (buffer(2048), buffer(256)) else {
+        // The host asks for room for the op's largest answer (`set_position`:
+        // `max_reply` 4,096), else it refuses before the op runs.
+        let (Ok(mut input), Ok(mut out)) = (buffer(2048), buffer(SERVICE_BUFFER)) else {
             return;
         };
         let kept = native_place::save(
