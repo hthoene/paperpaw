@@ -42,6 +42,8 @@ pub(crate) struct LibraryHost {
     sources: Option<Rc<BusySources>>,
     /// What changed, for `event.library_changed` (the kernel's pump takes it).
     changes: Changes,
+    /// What the device's wirings told (the screen's long side for op 7).
+    policy: Option<Rc<super::lib_edits::EditPolicy>>,
 }
 
 impl LibraryHost {
@@ -57,6 +59,7 @@ impl LibraryHost {
             moves,
             sources: None,
             changes: Changes::default(),
+            policy: None,
         }
     }
 
@@ -81,7 +84,8 @@ impl LibraryHost {
     /// said ([`EditPolicy`]), whenever they came.
     #[must_use]
     pub(crate) fn with_policy(mut self, policy: Rc<super::lib_edits::EditPolicy>) -> Self {
-        self.edits = self.edits.with_policy(policy);
+        self.edits = self.edits.with_policy(policy.clone());
+        self.policy = Some(policy);
         self
     }
 
@@ -128,6 +132,14 @@ impl LibraryHost {
 }
 
 impl LibQuery for LibraryHost {
+    /// As `documents` named it, in whichever wiring call; unsupported (and so
+    /// op 7) before.
+    fn screen_long_side(&self) -> Result<u32, i32> {
+        self.policy
+            .as_ref()
+            .and_then(|policy| policy.long_side())
+            .ok_or(ERR_UNSUPPORTED)
+    }
     fn state(&self, visit: One<'_>) -> Result<(), i32> {
         self.reads.state(visit)
     }
