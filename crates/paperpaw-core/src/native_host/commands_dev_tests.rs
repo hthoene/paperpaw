@@ -500,6 +500,12 @@ fn a_stored_password_or_the_network_manager_needs_no_input_but_a_host_does() {
     let stale = Clock(100_000, Some(0));
     let owner = Id::new_static("wifi");
     let mut kernel = kernel();
+    // The user chose no network manager (the default is `wifi`).
+    kernel
+        .shared
+        .settings
+        .set(NETWORK_MANAGER, SettingValue::Text("".into()))
+        .unwrap();
     assert_eq!(run(&mut kernel, &owner, &[join(1, "home")], &stale), OK);
     assert_eq!(wifi_calls(&mut kernel).len(), 1, "stored password");
     assert_eq!(
@@ -516,16 +522,9 @@ fn a_stored_password_or_the_network_manager_needs_no_input_but_a_host_does() {
 
 #[test]
 fn the_network_manager_may_join_and_host_without_input() {
-    let spec = SettingSpec::text(
-        NETWORK_MANAGER,
-        "manager",
-        "wifi",
-        paperpaw_sdk::builtin::groups::OTHER,
-    );
     let stale = Clock(100_000, Some(0));
     for (name, honoured) in [("wifi", true), ("other", false)] {
         let mut kernel = kernel();
-        kernel.shared.settings.define(spec.clone()).unwrap();
         let owner = Id::new_static(name);
         assert_eq!(run(&mut kernel, &owner, &[join(1, "net")], &stale), OK);
         assert_eq!(
@@ -554,6 +553,33 @@ fn go_online_is_honoured_only_within_the_window_else_ok_and_logged() {
         );
         assert!(warnings.iter().all(|w| !w.message.contains("probe-ssid")));
     }
+}
+
+#[test]
+fn the_wifi_plugin_is_the_network_manager_until_the_user_chooses_another() {
+    let stale = Clock(100_000, Some(0));
+    // A join of `name` with no recent input, the user's choice `chosen`
+    // (`None`: the default): whether the host let it through.
+    let honoured = |name: &'static str, chosen: Option<&str>| {
+        let mut kernel = kernel();
+        // The kernel declares the setting itself, `wifi` by default.
+        let default = Some(&SettingValue::Text("wifi".into()));
+        assert_eq!(kernel.shared.settings.global(NETWORK_MANAGER), default);
+        if let Some(chosen) = chosen {
+            let value = SettingValue::Text(alloc::string::String::from(chosen).into());
+            kernel.shared.settings.set(NETWORK_MANAGER, value).unwrap();
+        }
+        let owner = Id::new_static(name);
+        assert_eq!(run(&mut kernel, &owner, &[join(1, "net")], &stale), OK);
+        !wifi_calls(&mut kernel).is_empty()
+    };
+    assert!(honoured("wifi", None));
+    assert!(!honoured("other", None));
+    // The user's choice replaces it; empty means nobody.
+    assert!(honoured("other", Some("other")));
+    assert!(!honoured("wifi", Some("other")));
+    assert!(!honoured("wifi", Some("")));
+    assert!(!honoured("other", Some("")));
 }
 
 #[test]
