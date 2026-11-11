@@ -481,7 +481,7 @@ fn reading_aloud_waits_for_a_book_still_prepared() {
         &library,
         "boox-go-7",
         "run:reader.read-aloud,wait:15000",
-        &[],
+        &["--set", "core.language=de"],
     );
     let _ = fs::remove_dir_all(&library);
     assert!(aloud.ok, "{}", aloud.stderr);
@@ -489,7 +489,7 @@ fn reading_aloud_waits_for_a_book_still_prepared() {
     let spoken = aloud
         .stderr
         .lines()
-        .filter(|l| l.starts_with("speech (en, 100 %") && l.contains("Sentence"))
+        .filter(|l| l.starts_with("speech (de, 100 %") && l.contains("Sentence"))
         .count();
     assert!(spoken >= 2, "{}", aloud.stderr);
 }
