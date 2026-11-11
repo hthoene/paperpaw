@@ -20,9 +20,10 @@ use super::lib_service::{
     One, Rows, StageItem, StoredPosition, Transactions,
 };
 use super::registrations::{self as wire};
-use super::storage_files::excluded_on;
+use super::storage_files::{BusySources, excluded_on};
 use crate::abi7::context::RowsEnd;
 use alloc::rc::Rc;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_UNSUPPORTED};
 use paperpaw_platform::Storage;
 
 /// `core.library` over the catalog on `storage`.
@@ -36,6 +37,10 @@ pub(crate) struct LibraryHost {
     edits: LibEdits,
     /// What changed, for `event.library_changed` (the kernel's pump takes it).
     changes: Changes,
+    /// Every source of paths in use (`core.files`' own): a book open in a
+    /// document, the reader's, a transfer's. A move over it is `ERR_BUSY`.
+    /// Without it only the move job counts.
+    sources: Option<Rc<BusySources>>,
 }
 
 impl LibraryHost {
@@ -50,6 +55,7 @@ impl LibraryHost {
             storage,
             moves,
             changes: Changes::default(),
+            sources: None,
         }
     }
 
@@ -59,6 +65,12 @@ impl LibraryHost {
     /// change is on the card; never fails, never calls a plugin.
     pub(crate) fn raise_changed(&self, what: u32, path: &str) {
         self.changes.raise(what, path);
+    }
+
+    /// The host's sources of paths in use, asked by `move_book`.
+    pub(crate) fn with_busy_sources(mut self, sources: Rc<BusySources>) -> Self {
+        self.sources = Some(sources);
+        self
     }
 }
 
@@ -124,9 +136,9 @@ impl LibQuery for LibraryHost {
 }
 
 /// The writes the catalog on the card backs: `provide` (op 24), the positions
-/// (ops 13/14's write half) and `set_field` (op 23). Each raises its bit of
-/// `event.library_changed` once it is on the card, with no one book named (the
-/// plugin re-reads what it shows). Every other op keeps its
+/// (ops 13/14's write half), `set_field` (op 23) and `move` (op 11). Each but the
+/// move raises its bit of `event.library_changed` once it is on the card, with no one book named
+/// (the plugin re-reads what it shows). Every other op keeps its
 /// default (`ERR_UNSUPPORTED`) until the rest of the write half exists
 /// (todo 307).
 impl LibWrite for LibraryHost {
@@ -173,6 +185,26 @@ impl LibWrite for LibraryHost {
             .set_status_unless(book, set, clear, &|path| self.in_use(path))?;
         self.raise_changed(lib_changed::STATUS, "");
         Ok(())
+    }
+
+    /// A move of the book or folder at `from` to `to` (root 1 both), the
+    /// card's journalled move (Files'); the catalog, the book's data and the
+    /// reader's assignments follow from the pump. A name a document, the
+    /// reader, a transfer or the move job holds is `ERR_BUSY`, and nothing is
+    /// written then. Without the move job the host has none: `ERR_UNSUPPORTED`.
+    fn move_book(&self, from: &str, to: &str, replace: bool) -> Result<(), i32> {
+        let Some(moves) = &self.moves else {
+            return Err(ERR_UNSUPPORTED);
+        };
+        let held = |path: &str| {
+            self.sources
+                .as_ref()
+                .is_some_and(|all| all.busy(&*self.storage, path, Access::Rename))
+        };
+        if held(from) || held(to) {
+            return Err(ERR_BUSY);
+        }
+        moves.begin(from, to, replace)
     }
 
     /// Op 9's preflight: the card's, read-only (a book, gone, what is kept).

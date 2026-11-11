@@ -6,7 +6,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 10] = [
+const CASES: [Case; 11] = [
     // A book opens at the position it was left at, in the reading font and
     // the settings of the book (the user's reading settings win over a
     // plugin's defaults, decision 131), pages turn, the page index builds in
@@ -33,6 +33,15 @@ const CASES: [Case; 10] = [
     },
     // Reading aloud, sentence by sentence, with its timer, highlight and page
     // turning; the pages turned by themselves.
+    // The notes export: the list reads the library's annotations, the library
+    // folder setting is read, the Notes folder is made where it is missing and
+    // the Markdown is written to `<file>.new` and moved into place (an old file
+    // stays where a write is refused), then the stage runs.
+    Case {
+        name: "reader-annotations-export",
+        golden: None,
+        blocked_by: &["H1", "H2", "LIB-annotations", "FS-write"],
+    },
     Case {
         name: "reader-aloud-and-auto-turn",
         golden: None,

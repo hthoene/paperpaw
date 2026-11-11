@@ -11823,10 +11823,12 @@ impl<'a> WireRecord<'a> for ServiceDocImageAsk {
 }
 /// Wire tag of the `event.image_ready` record.
 pub const EVENT_IMAGE_READY_TAG: u32 = 90;
+/// Maximum bytes of `event.image_ready.luma`.
+pub const EVENT_IMAGE_READY_LUMA_MAX_BYTES: usize = 64;
 
 /// The `event.image_ready` record, borrowed from its batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct EventImageReady {
+pub struct EventImageReady<'a> {
     /// Little-endian u64.
     pub now_ms: u64,
     /// Little-endian u32.
@@ -11839,15 +11841,17 @@ pub struct EventImageReady {
     pub width: u32,
     /// Little-endian u32.
     pub height: u32,
+    /// Opaque bytes, at most 64. Appended and optional; empty when absent.
+    pub luma: &'a [u8],
 }
 
-impl EventImageReady {
-    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+impl<'a> EventImageReady<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         Self::decode_fields(body).map(Record::EventImageReady)
     }
 
-    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
-        body.bitmap()?;
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
+        let bits = body.bitmap_bits()?;
         Ok(Self {
             now_ms: u64::from_le_bytes(body.scalar()?),
             cookie: u32::from_le_bytes(body.scalar()?),
@@ -11855,31 +11859,49 @@ impl EventImageReady {
             image: u32::from_le_bytes(body.scalar()?),
             width: u32::from_le_bytes(body.scalar()?),
             height: u32::from_le_bytes(body.scalar()?),
+            luma: body.opt_blob(bits, 0x01, EVENT_IMAGE_READY_LUMA_MAX_BYTES)?,
         })
     }
 
+    fn bits(&self) -> u8 {
+        let mut bits = 0;
+        if !self.luma.is_empty() {
+            bits |= 0x01;
+        }
+        bits
+    }
+
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
+        let bits = self.bits();
+        // The bitmap is one byte when any optional field is present.
+        let mut len = 1 + usize::from(bits != 0);
         len += 8;
         len += 4;
         len += 4;
         len += 4;
         len += 4;
         len += 4;
+        if bits & 0x01 != 0 {
+            len += blob_len(self.luma.len(), EVENT_IMAGE_READY_LUMA_MAX_BYTES)?;
+        }
         Ok(len)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
+        let bits = self.bits();
         write_bytes(&self.now_ms.to_le_bytes(), out, offset);
         write_bytes(&self.cookie.to_le_bytes(), out, offset);
         write_bytes(&self.status.to_le_bytes(), out, offset);
         write_bytes(&self.image.to_le_bytes(), out, offset);
         write_bytes(&self.width.to_le_bytes(), out, offset);
         write_bytes(&self.height.to_le_bytes(), out, offset);
+        if bits & 0x01 != 0 {
+            write_blob(self.luma, out, offset);
+        }
     }
 }
 
-impl WireEncode for EventImageReady {
+impl<'a> WireEncode for EventImageReady<'a> {
     fn wire_tag(&self) -> u32 {
         EVENT_IMAGE_READY_TAG
     }
@@ -11889,12 +11911,16 @@ impl WireEncode for EventImageReady {
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
+        let bits = self.bits();
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
         self.write(out, offset);
     }
 }
 
-impl<'a> WireRecord<'a> for EventImageReady {
+impl<'a> WireRecord<'a> for EventImageReady<'a> {
     const TAG: u32 = EVENT_IMAGE_READY_TAG;
 
     fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
@@ -20968,7 +20994,7 @@ pub enum Record<'a> {
     /// A `ServiceDocImageAsk` record.
     ServiceDocImageAsk(ServiceDocImageAsk),
     /// A `EventImageReady` record.
-    EventImageReady(EventImageReady),
+    EventImageReady(EventImageReady<'a>),
     /// A `LookupSpec` record.
     LookupSpec(LookupSpec<'a>),
     /// A `ServiceLookupAsk` record.
@@ -22464,6 +22490,7 @@ impl Record<'_> {
             Record::EventBookClosed(record) => record.bits(),
             Record::EventBookFinished(record) => record.bits(),
             Record::ServiceRegWidget(record) => record.bits(),
+            Record::EventImageReady(record) => record.bits(),
             Record::ServiceLibRef(record) => record.bits(),
             Record::ServiceDevFirmware(record) => record.bits(),
             Record::ServiceDevCheck(record) => record.bits(),
