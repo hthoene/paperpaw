@@ -34,7 +34,6 @@ native-linked-reading = [
 # and the X4 Pro's firmware (see `StorePlugins`).
 store-plugins = [
     "dep:paperpaw-plugin-widgets",
-    "dep:paperpaw-plugin-news",
     "dep:paperpaw-plugin-vocabulary",
     "dep:paperpaw-plugin-fonts-browser",
     "dep:paperpaw-plugin-aids",
@@ -95,6 +94,7 @@ native-linked-store = [
     "native-linked",
     "dep:paperpaw-plugin-aids",
     "dep:paperpaw-plugin-mail",
+    "dep:paperpaw-plugin-news",
     "dep:paperpaw-plugin-notes-vault",
     "dep:paperpaw-plugin-widgets",
     "paperpaw-plugin-aids/linked",
