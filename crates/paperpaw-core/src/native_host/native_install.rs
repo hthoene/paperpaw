@@ -32,6 +32,12 @@ enum Owned {
     /// copy of it is kept.
     FixedGroup(&'static paperpaw_sdk::SettingGroupSpec),
     Resource(super::native_resources::Resource),
+    /// A choice the plugin adds to another plugin's choice setting
+    /// (`setting.choice`; its title is read from the declaration store).
+    Choice {
+        setting: Id,
+        value: alloc::string::String,
+    },
     /// A screen the plugin offers for a slot (`slot.offer`).
     SlotOffer {
         slot: Id,
@@ -120,6 +126,21 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         // declaration store too (`document.md` sections 1 and 7); the
         // document and lookup services read them there.
         Record::FormatSpec(_) | Record::ReaderSpec(_) | Record::LookupSpec(_) => Ok(None),
+        // A choice for another plugin's choice setting (`registry.md` section
+        // 6, foreign extensions): offered as interface 6's `add_choice` does,
+        // by the kernel once all plugins are in (one for a setting that does
+        // not exist is dropped there with a log line).
+        Record::SettingChoice(choice) => {
+            let mut value = alloc::string::String::new();
+            value
+                .try_reserve_exact(choice.value.len())
+                .map_err(|_| ERR_NO_MEMORY)?;
+            value.push_str(choice.value);
+            Ok(Some(Owned::Choice {
+                setting: native_values::checked_id(choice.key)?,
+                value,
+            }))
+        }
         _ => Err(ERR_UNSUPPORTED),
     }
 }
@@ -555,41 +576,16 @@ impl crate::Kernel {
             .map(paperpaw_platform::Instant)
     }
 
-    fn bind_native<S: Services + 'static, M: 'static>(
-        &mut self,
+    /// What the plugin's declarations stage for the kernel's registries, and
+    /// its resource files: every value the host mapped, taken in order.
+    fn stage_owned(
+        &self,
+        owned: Vec<Owned>,
         key: u64,
-        retained: Retained<S, M>,
-        depth: FlatDepth,
-        mapped: (
-            Vec<Owned>,
-            super::raw_declarations::RawDeclarations,
-            super::event_tags::EventTags,
-            &str,
-        ),
         owner: &Id,
-        report: fn(&S, u32, i32),
-    ) -> Result<(), shell::Error> {
-        let (owned, raw, events, folder) = mapped;
-        let mut flat_host = self.flat_host();
-        flat_host.directory = self
-            .shared
-            .registry
-            .native_declarations
-            .as_ref()
-            .map(|directory| directory.downgrade().ok_or(shell::Error::Allocation))
-            .transpose()?;
-        let instance = NativeLease::try_new(NativeDispatch::with_events(
-            retained,
-            depth,
-            flat_host,
-            report,
-            self.shared
-                .native_instances
-                .identity(key)
-                .map_err(shell::Error::Status)?,
-            events,
-        ))
-        .map_err(shell::Error::Status)?;
+        folder: &str,
+        instance: &NativeLease,
+    ) -> Result<(crate::registry::Staging, super::native_resources::Resources), shell::Error> {
         let mut staging = crate::registry::Staging::default();
         let mut resources = super::native_resources::Resources::default();
         for value in owned {
@@ -626,6 +622,9 @@ impl crate::Kernel {
                         .native(owner, Contribution::Action(action))
                         .map_err(shell::Error::Status)?;
                 }
+                Owned::Choice { setting, value } => staging
+                    .native_choice(setting, value)
+                    .map_err(shell::Error::Status)?,
                 Owned::Setting(spec) => {
                     staging
                         .native(owner, Contribution::Setting(spec))
@@ -642,6 +641,45 @@ impl crate::Kernel {
                     .map_err(shell::Error::Status)?,
             }
         }
+        Ok((staging, resources))
+    }
+
+    fn bind_native<S: Services + 'static, M: 'static>(
+        &mut self,
+        key: u64,
+        retained: Retained<S, M>,
+        depth: FlatDepth,
+        mapped: (
+            Vec<Owned>,
+            super::raw_declarations::RawDeclarations,
+            super::event_tags::EventTags,
+            &str,
+        ),
+        owner: &Id,
+        report: fn(&S, u32, i32),
+    ) -> Result<(), shell::Error> {
+        let (owned, raw, events, folder) = mapped;
+        let mut flat_host = self.flat_host();
+        flat_host.directory = self
+            .shared
+            .registry
+            .native_declarations
+            .as_ref()
+            .map(|directory| directory.downgrade().ok_or(shell::Error::Allocation))
+            .transpose()?;
+        let instance = NativeLease::try_new(NativeDispatch::with_events(
+            retained,
+            depth,
+            flat_host,
+            report,
+            self.shared
+                .native_instances
+                .identity(key)
+                .map_err(shell::Error::Status)?,
+            events,
+        ))
+        .map_err(shell::Error::Status)?;
+        let (staging, resources) = self.stage_owned(owned, key, owner, folder, &instance)?;
         self.shared
             .native_instances
             .install(key, instance.try_clone().map_err(shell::Error::Status)?)
@@ -719,7 +757,7 @@ impl crate::Kernel {
 
     fn publish_native(
         &mut self,
-        staging: crate::registry::Staging,
+        mut staging: crate::registry::Staging,
         owner: &Id,
         folder: &str,
         resources: super::native_resources::Resources,
@@ -770,10 +808,24 @@ impl crate::Kernel {
             .settings
             .try_reserve_with_fixed(settings, fixed, groups)
             .map_err(|_| no_room())?;
+        // The choices it adds to other plugins' settings, with the plugin's
+        // name, and the room for them in the kernel's list (nothing fails
+        // for lack of either once publication starts).
+        let mut choices = Vec::new();
+        choices
+            .try_reserve_exact(staging.choices.len())
+            .map_err(|_| no_room())?;
+        for (setting, value) in staging.choices.drain(..) {
+            let plugin = owner.try_clone().ok_or_else(no_room)?;
+            choices.push((plugin, setting, value));
+        }
+        self.plugin_choices
+            .try_reserve(choices.len())
+            .map_err(|_| no_room())?;
         self.reserve_resources(owner, folder, &resources)?;
         // Whatever refuses from here on takes the hyphenation tables out
         // again (nothing else is published before the merge).
-        let published = self.publish_rest(staging, owner, resources);
+        let published = self.publish_rest(staging, owner, resources, choices);
         if published.is_err() {
             self.undo_resources(owner);
         }
@@ -786,6 +838,7 @@ impl crate::Kernel {
         mut staging: crate::registry::Staging,
         owner: &Id,
         resources: super::native_resources::Resources,
+        mut choices: Vec<(Id, Id, alloc::borrow::Cow<'static, str>)>,
     ) -> Result<(), RegisterError> {
         staging.merge_into(&mut self.shared.registry, &mut self.shared.actions)?;
         for setting in staging.settings.drain(..) {
@@ -799,6 +852,16 @@ impl crate::Kernel {
         // The device's defaults for what the plugin has declared (the kernel
         // was built before it, so they were not known then).
         self.apply_late_defaults();
+        // The choices it adds to other plugins' settings, as interface 6's
+        // `add_choice` does (the kernel drops one for a setting that does not
+        // exist, a guarded one or a value outside the plugin's namespace, with
+        // a log line). Their `title` is not read here: the declaration store
+        // keeps it for the registry.
+        // (As the settings defined above, they stay if a later step of the
+        // publication fails.)
+        self.plugin_choices.append(&mut choices);
+        self.add_plugin_choices();
+        // After the choices: a configured value can name one.
         self.apply_late_config();
         self.publish_fonts(owner, resources)
     }
@@ -1048,5 +1111,87 @@ mod tests {
             }),
             ERR_INVALID
         );
+    }
+    #[test]
+    fn a_setting_choice_is_taken_as_interface_6_adds_it() {
+        let record = Record::SettingChoice(wire::SettingChoice {
+            key: "sleep.show",
+            value: "vocabulary.sleep-card",
+            title: "vocabulary.sleep-card",
+        });
+        let Ok(Some(Owned::Choice { setting, value })) = map_record("vocabulary", record) else {
+            panic!("a choice is mapped");
+        };
+        assert_eq!(setting.as_str(), "sleep.show");
+        assert_eq!(value, "vocabulary.sleep-card");
+        let mut staging = crate::registry::Staging::default();
+        staging.native_choice(setting, value).unwrap();
+        assert_eq!(staging.choices.len(), 1);
+        assert_eq!(staging.choices[0].1, "vocabulary.sleep-card");
+        // A key that is no id is refused, not dropped.
+        let bad = Record::SettingChoice(wire::SettingChoice {
+            key: "Not An Id",
+            value: "x",
+            title: "x",
+        });
+        assert_eq!(map_record("vocabulary", bad).err(), Some(ERR_INVALID));
+    }
+    /// A kernel with the choice setting `host.show` (one value, `host.plain`)
+    /// and a plugin `vocab` that publishes `choices` for the settings named.
+    fn publish_choices(choices: &[(&'static str, &'static str)]) -> Vec<alloc::string::String> {
+        use paperpaw_sdk::{SettingKind, SettingSpec, SettingValue};
+        static MODES: [&str; 1] = ["host.plain"];
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        let mode = SettingSpec::new(
+            Id::new_static("host.show"),
+            "host.show",
+            SettingKind::Choice((&MODES[..]).into()),
+            SettingValue::Text("host.plain".into()),
+            paperpaw_sdk::builtin::groups::READING_BEHAVIOUR,
+        );
+        kernel.shared.settings.define(mode).unwrap();
+        let owner = Id::new_static("vocab");
+        let mut staging = crate::registry::Staging::default();
+        for (setting, value) in choices {
+            staging
+                .native_choice(Id::new_static(setting), (*value).into())
+                .unwrap();
+        }
+        kernel
+            .publish_native(staging, &owner, "", Default::default())
+            .unwrap();
+        assert!(kernel.plugin_choices.is_empty());
+        let Some(SettingKind::Choice(list)) =
+            kernel.shared.settings.spec("host.show").map(|s| &s.kind)
+        else {
+            panic!("a choice setting");
+        };
+        list.iter().map(alloc::string::String::from).collect()
+    }
+
+    #[test]
+    fn a_published_choice_is_offered_by_the_setting_it_names() {
+        let list = publish_choices(&[("host.show", "vocab.card")]);
+        assert_eq!(list, ["host.plain", "vocab.card"]);
+    }
+
+    #[test]
+    fn a_choice_for_an_unknown_setting_is_dropped_and_the_rest_published() {
+        let list = publish_choices(&[("host.missing", "vocab.card"), ("host.show", "vocab.card")]);
+        assert_eq!(list, ["host.plain", "vocab.card"]);
+    }
+
+    #[test]
+    fn a_duplicate_choice_or_one_outside_the_plugins_namespace_is_refused() {
+        // Twice: once. A value of another plugin's namespace: not added.
+        let list = publish_choices(&[
+            ("host.show", "vocab.card"),
+            ("host.show", "vocab.card"),
+            ("host.show", "other.card"),
+            ("host.show", "host.plain"),
+        ]);
+        assert_eq!(list, ["host.plain", "vocab.card"]);
     }
 }
