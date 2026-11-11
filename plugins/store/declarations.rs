@@ -17,6 +17,15 @@ pub const OFFICIAL_LIST: &str = "https://paperpaw.org/api/v1/plugins.json";
 pub const OPEN_TOKEN: u32 = 1;
 /// The end of a request (`core.net`).
 pub const HTTP_TOKEN: u32 = 2;
+/// The end of an install or a removal (`event.install_done`).
+pub const INSTALL_TOKEN: u32 = 3;
+/// The plugins of the device changed, a download made progress, a picture is
+/// ready: the screen on top reads what it shows anew.
+pub const CHANGED_TOKEN: u32 = 4;
+pub const PROGRESS_TOKEN: u32 = 5;
+pub const IMAGE_TOKEN: u32 = 6;
+/// PaperPaw started: what a restart cut off goes on.
+pub const STARTED_TOKEN: u32 = 7;
 /// The screens' tokens: the start, the page of a plugin, a view, the letters,
 /// the source, the pictures and the progress of a fetch.
 pub const LIST_SCREEN: u32 = 20;
@@ -114,11 +123,17 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     Ok(())
 }
 
-/// The events the plugin watches: the end of a request.
+/// The events the plugin watches: the end of a request and its progress, the end
+/// of an install, a change of the plugins, a picture ready.
 pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::HttpDone, HTTP_TOKEN)?;
+    d.subscribe_event(EventKind::InstallDone, INSTALL_TOKEN)?;
+    d.subscribe_event(EventKind::PluginsChanged, CHANGED_TOKEN)?;
+    d.subscribe_event(EventKind::HttpProgress, PROGRESS_TOKEN)?;
+    d.subscribe_event(EventKind::ImageReady, IMAGE_TOKEN)?;
+    d.subscribe_event(EventKind::Started, STARTED_TOKEN)?;
     d.submit()?;
     Ok(())
 }

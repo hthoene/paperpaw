@@ -319,3 +319,31 @@ in place; its removal comes with the PR that finishes the port).
   (`native/metadata.json`) for any host call a screen makes that slice 1 did not
   (Port A regenerates it); the lazy `ItemList` (ui-kit has none: rows of a page of the
   index are built eagerly, as Wi-Fi's).
+
+## Wiring of the screens and the install (`src/native_plugin.rs`, `native_jobs.rs`, `native_wire.rs`, `native_installs.rs`, `native_glue.rs`; ticket #244, assignment #2310)
+
+- `native_plugin.rs` routes the screen tokens (20 to 27) to `StoreView`: `open`, `shown`,
+  `closed`, `resume`/`hidden` (when another screen comes on top), `draw`, `input`,
+  `event`, `started`, `answered` (the reader's answer to `Ui::ask`) and `returned`.
+  Every `Next` a screen returns is carried out in `native_jobs.rs` (fetch of the list
+  and of a page, download then install, remove, *Update all*, the queue, the notices,
+  the progress screen, the restart).
+- `Ctx` is made fresh for each call: `LoaderView` (the loader, its generation, small
+  memory), `HostInstalls` (what the device has, read once and let go when no screen is
+  open, and the activity: step, queue, waiting) and the data folder.
+- The author's key travels with the page: the install keeps the page's `author_key`,
+  `recovery_key` and rotations (`lean`) and `Proof::of` hands them to the host in the
+  evidence of `install_plugin` (interface 6 wrote `author.txt` with `trust::expect`;
+  nothing is written now). Test: `native_jobs::tests`.
+- A picture the host prepared for a pictures' screen that is gone (`image_ready` with
+  nobody to take it) is given back with `image_release`; the page held for the screens
+  is let go (`Loader::forget_page`) when the last page screen is left.
+- Metadata: `canvas.draw_image` (the pictures), the service `core.ui` (`Ui::open`,
+  `Ui::ask`, the opening of screens and of the reader). `image_prepare` and
+  `image_release` are commands through `commands.submit`, already listed. The `.bin`
+  and inspected files are regenerated.
+- **Held:** `uses.install` and the subscription to event 77 (`plugins_requested`) with
+  the answer through `command.answer_plugin` wait for Services' #1132 (part A) and
+  part B; `native_ask.rs` holds the dialog's logic until then.
+- **Not run on a host**, and the store start heap (Beta 3: 99.9 KiB) is measured only
+  when native plugins are activated (#243).

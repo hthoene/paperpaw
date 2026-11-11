@@ -87,6 +87,10 @@
       "name": "canvas.clip"
     },
     {
+      "kind": "host",
+      "name": "canvas.draw_image"
+    },
+    {
       "kind": "callback",
       "name": "drop"
     },
@@ -138,7 +142,8 @@
   "services": [
     "core.device",
     "core.net",
-    "core.registry"
+    "core.registry",
+    "core.ui"
   ],
   "features": [
     {

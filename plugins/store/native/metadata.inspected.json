@@ -50,8 +50,14 @@
       "major": 1,
       "min_table_bytes": 0,
       "semantic_revision": 0
+    },
+    {
+      "key": "core.ui",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
     }
   ],
   "target": "esp32c3-riscv32imc-ilp32-soft-le",
-  "total_bytes": 176
+  "total_bytes": 195
 }
