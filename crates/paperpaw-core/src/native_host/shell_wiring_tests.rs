@@ -295,3 +295,25 @@ fn a_library_wired_after_files_sees_the_move_job_of_files() {
         Err(ERR_BUSY)
     );
 }
+
+#[test]
+fn the_library_transactions_learn_the_memory_class_and_clock_from_wirings_of_their_own() {
+    // The X4 shell wires `work`, `library` and `ui` in calls of their own, in
+    // an order the library does not decide.
+    let card = crate::native_host::lib_reads::tests::card();
+    let resources = HostResources::try_new().unwrap();
+    let policy = resources.hosts().edit_policy().clone();
+    assert!(!policy.is_small() && policy.clock_ms().is_none());
+    resources
+        .wire(HostWiring::new().work(WorkInputs::new(Rc::new(Clock), MemoryClass::Large)))
+        .unwrap();
+    resources
+        .wire(HostWiring::new().library(card.storage.clone(), card.env.clone()))
+        .unwrap();
+    // The device's clock is there, the memory class is not yet said.
+    assert_eq!((policy.is_small(), policy.clock_ms()), (false, Some(5)));
+    resources
+        .wire(HostWiring::new().ui(MemoryClass::Small))
+        .unwrap();
+    assert!(policy.is_small());
+}

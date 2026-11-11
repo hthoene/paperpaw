@@ -498,19 +498,27 @@ impl HostResources {
                 .with_moves(moves),
             ))?;
         }
+        // The library's transactions read the device's memory class and clock
+        // from what any wiring told, whichever call it was in (the X4 shell
+        // wires `ui`, `documents`, `work` and `library` in calls of their own).
+        let policy = hosts.edit_policy();
+        if wiring.ui == Some(true)
+            || wiring
+                .documents
+                .is_some_and(|(memory, _)| super::ui_store::is_x4(memory))
+            || wiring.work.as_ref().is_some_and(WorkInputs::small)
+        {
+            policy.set_small();
+        }
+        if let Some(inputs) = &wiring.work {
+            policy.set_clock(inputs.device());
+        }
         if let Some((storage, env)) = wiring.library {
             // After `core.files`, whose library move job it shares: a book the
             // job carries is in use for `provide`.
             // (Also the job an earlier wiring's `files` made.)
             let moves = library_moves.or_else(|| hosts.library_moves().cloned());
-            let mut library = LibraryHost::new(storage, env, moves);
-            if let Some(inputs) = &wiring.work {
-                // An idle transaction runs out by the device's clock.
-                library = library.with_clock(inputs.device());
-            }
-            if wiring.ui == Some(true) || wiring.work.as_ref().is_some_and(WorkInputs::small) {
-                library = library.small();
-            }
+            let library = LibraryHost::new(storage, env, moves).with_policy(policy.clone());
             hosts.wire_library(Rc::new(library))?;
         }
         if let Some(x4) = wiring.ui {

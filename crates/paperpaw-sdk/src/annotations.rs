@@ -494,6 +494,19 @@ fn write(
     }
     if none {
         storage.remove(&path)?;
+    } else if v3 {
+        // A file of version 3 carries the plugins' sync state: written whole
+        // beside it, then renamed over it, so a power cut leaves the old one.
+        let tmp = format!("{path}.new");
+        let _ = storage.remove(&tmp);
+        let made = storage
+            .write(&tmp, out.as_bytes())
+            .and_then(|()| storage.sync())
+            .and_then(|()| storage.rename(&tmp, &path));
+        if made.is_err() {
+            let _ = storage.remove(&tmp);
+        }
+        made?;
     } else {
         storage.write(&path, out.as_bytes())?;
     }

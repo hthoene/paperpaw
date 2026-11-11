@@ -602,8 +602,9 @@ fn the_devices_monotonic_clock_is_the_one_of_the_transactions_when_the_shell_has
     let card = card();
     let device = Rc::new(Device(Cell::new(5_000)));
     // The catalog's own clock is 0 (none): the device's is the one.
-    let host =
-        LibraryHost::new(card.storage.clone(), card.env.clone(), None).with_clock(device.clone());
+    let policy = Rc::new(EditPolicy::default());
+    policy.set_clock(device.clone());
+    let host = LibraryHost::new(card.storage.clone(), card.env.clone(), None).with_policy(policy);
     assert_eq!(host.now_ms(), 5_000);
     device.0.set(7_000);
     assert_eq!(host.now_ms(), 7_000);

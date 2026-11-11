@@ -39,13 +39,49 @@ const PATHS: usize = 4;
 /// the host has none: the 10 minutes of idle time are 60 calls.
 const TICK_MS: u64 = 10_000;
 
+/// What the other wirings of the device tell the transactions: `ui` and
+/// `documents` name the memory class (the X4's small caps), `work` the device's
+/// monotonic clock. One per device, shared by the wirings (each is its own
+/// call on the X4), so the order they come in does not matter.
+#[derive(Default)]
+pub(crate) struct EditPolicy {
+    small: Cell<bool>,
+    clock: RefCell<Option<Rc<dyn WorkDevice>>>,
+}
+
+impl EditPolicy {
+    /// The device is of the X4's memory class.
+    pub(crate) fn set_small(&self) {
+        self.small.set(true);
+    }
+
+    /// Whether the device is said to be of the X4's memory class.
+    #[cfg(test)]
+    pub(crate) fn is_small(&self) -> bool {
+        self.small.get()
+    }
+
+    /// Times by the device's clock.
+    pub(crate) fn set_clock(&self, clock: Rc<dyn WorkDevice>) {
+        if let Ok(mut slot) = self.clock.try_borrow_mut() {
+            *slot = Some(clock);
+        }
+    }
+
+    /// The device's clock, `None` before the shell wired one.
+    #[cfg(test)]
+    pub(crate) fn clock_ms(&self) -> Option<u64> {
+        self.clock.borrow().as_ref().map(|clock| clock.now_ms())
+    }
+}
+
 pub(crate) struct LibEdits {
     stage: stage::Stage,
     transactions: Option<Transactions>,
     env: Rc<dyn CatalogEnv>,
-    /// The device's monotonic clock where the shell wired `core.work`: the
-    /// clock of the idle time and of the receipts' life.
-    clock: Option<Rc<dyn WorkDevice>>,
+    /// What the shell's other wirings say, in whatever order they came: the
+    /// memory class and the device's monotonic clock.
+    policy: Rc<EditPolicy>,
     /// The logical clock of a host that has none ([`TICK_MS`] per call).
     ticks: Cell<u64>,
     /// The books transactions were begun on, by [`BookId`]: the commit
@@ -63,36 +99,33 @@ impl LibEdits {
             stage,
             transactions: Transactions::try_new().ok(),
             env,
-            clock: None,
+            policy: Rc::new(EditPolicy::default()),
             ticks: Cell::new(0),
             paths: RefCell::new(Vec::new()),
         }
     }
 
-    /// The X4's smaller transactions: a commit's memory grows with its edits.
-    pub(crate) fn small(self) -> Self {
-        if let Some(transactions) = &self.transactions {
-            transactions.limit_to_x4();
-        }
-        self
-    }
-
-    /// Reads time from the device's monotonic clock instead of the catalog's.
-    pub(crate) fn with_clock(mut self, clock: Rc<dyn WorkDevice>) -> Self {
-        self.clock = Some(clock);
+    /// Reads what the shell's wirings said ([`EditPolicy`]) from `policy`.
+    pub(crate) fn with_policy(mut self, policy: Rc<EditPolicy>) -> Self {
+        self.policy = policy;
         self
     }
 
     pub(crate) fn transactions(&self) -> Option<&Transactions> {
-        self.transactions.as_ref()
+        let transactions = self.transactions.as_ref()?;
+        if self.policy.small.get() {
+            transactions.limit_to_x4();
+        }
+        Some(transactions)
     }
 
     /// The clock of the receipts: the device's, else the catalog's; 0 where
     /// the host has none (a receipt then ends at the next begin or the stop).
     pub(crate) fn clock_ms(&self) -> u64 {
-        self.clock
-            .as_ref()
-            .map_or_else(|| self.env.now_ms(), |clock| clock.now_ms())
+        match self.policy.clock.borrow().as_ref() {
+            Some(clock) => clock.now_ms(),
+            None => self.env.now_ms(),
+        }
     }
 
     /// The clock of the transactions' idle time. Where the host has no clock

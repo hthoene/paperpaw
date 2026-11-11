@@ -51,17 +51,11 @@ impl LibraryHost {
 }
 
 impl LibraryHost {
-    /// The X4's limits: fewer edits in one annotation transaction.
+    /// Reads the device's memory class and clock from what the other wirings
+    /// said ([`EditPolicy`]), whenever they came.
     #[must_use]
-    pub(crate) fn small(mut self) -> Self {
-        self.edits = self.edits.small();
-        self
-    }
-
-    /// Times the annotation transactions by the device's monotonic clock.
-    #[must_use]
-    pub(crate) fn with_clock(mut self, clock: Rc<dyn super::shell_wiring::WorkDevice>) -> Self {
-        self.edits = self.edits.with_clock(clock);
+    pub(crate) fn with_policy(mut self, policy: Rc<super::lib_edits::EditPolicy>) -> Self {
+        self.edits = self.edits.with_policy(policy);
         self
     }
 

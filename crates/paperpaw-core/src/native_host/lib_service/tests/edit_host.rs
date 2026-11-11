@@ -129,8 +129,13 @@ fn a_plugin_runs_a_transaction_on_the_card_and_reads_its_receipt() {
 fn the_x4_holds_a_transaction_to_128_edits_and_elsewhere_it_is_1024() {
     for (small, cap) in [(true, 128_u32), (false, 1024)] {
         let card = card();
-        let library = LibraryHost::new(card.storage.clone(), card.env.clone(), None);
-        let host: Rc<dyn LibHost> = Rc::new(if small { library.small() } else { library });
+        let policy = Rc::new(crate::native_host::lib_edits::EditPolicy::default());
+        if small {
+            policy.set_small();
+        }
+        let host: Rc<dyn LibHost> = Rc::new(
+            LibraryHost::new(card.storage.clone(), card.env.clone(), None).with_policy(policy),
+        );
         let t = begin(&host, 1);
         // Every edit is a call of its own; the one after the cap is refused.
         for _ in 0..cap {
