@@ -265,3 +265,26 @@ fn a_request_naming_core_is_refused_whole() {
     let len = commands_encode(&commands[..1], &mut bytes).unwrap();
     assert_eq!(stage.stage(&commands_decode(&bytes[..len]).unwrap()), OK);
 }
+
+#[test]
+fn past_sixteen_open_ids_a_stale_answer_passes_the_stage_and_is_dropped_at_apply() {
+    let mut w = world(true);
+    // Two requests of nine ids each: eighteen open, more than the stage's
+    // view can tell apart.
+    for first in [0, 9] {
+        let ids: Vec<String> = (first..first + 9)
+            .map(|at| alloc::format!("plugin{at}"))
+            .collect();
+        let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+        w.request("req", &ids);
+    }
+    assert_eq!(w.kernel.native_requests_open(), 2);
+    // An id no request holds: the stage cannot tell (no `ERR_STATE`), the
+    // apply step checks the table exactly and drops it, silently.
+    answered(&mut w, 1, "plugin17", OUTCOME_INSTALLED);
+    assert!(heard(&w, 0).is_empty());
+    assert_eq!(w.kernel.native_requests_open(), 2);
+    // A real one still counts.
+    answered(&mut w, 1, "plugin0", OUTCOME_FAILED);
+    assert_eq!(heard(&w, 0).len(), 1);
+}
