@@ -9,7 +9,7 @@
 use super::{
     declaration_checks::Cap,
     declarations,
-    registrations::{Record, host_records_decode},
+    registrations::{REGISTRATION_MAX_RECORDS, Record, host_records_decode},
     staged::DECLARATIONS_MAX_BYTES,
 };
 #[cfg(test)]
@@ -112,6 +112,7 @@ pub(crate) enum DeclRef {
 pub(crate) struct DeclKey {
     owner: u16,
     batch: u16,
+    /// The record's place in its batch (0 the first), not a byte offset.
     record: u16,
     generation: u32,
     incarnation: u32,
@@ -183,19 +184,23 @@ pub(crate) enum Kind {
 }
 const _: () = assert!(Kind::BookBadge as usize + 1 == KIND_COUNT);
 
-/// A slot's key keeps the kind in its top bits and the name hash in the
-/// others: one sorted list then holds every kind in its own range, with no
-/// table of offsets per owner.
-const KIND_SHIFT: u32 = 26;
-const _: () = assert!(KIND_COUNT <= 1 << (32 - KIND_SHIFT));
+/// A slot's key keeps the kind in its top bits and the top of the name hash
+/// in the others: one sorted list then holds every kind in its own range, with
+/// no table of offsets per owner. Ten bits of hash make runs of equal keys
+/// longer than full hashes would, and every lookup compares the names in a run
+/// anyway: a slot is 4 bytes, not 8 (#248).
+const KIND_SHIFT: u32 = 10;
+const _: () = assert!(KIND_COUNT <= 1 << (16 - KIND_SHIFT));
 
 impl Kind {
     /// The key of a record of this kind whose name hashes to `hash`: its top
     /// bits, so a kind keeps the order of the full hashes. Names whose hashes
     /// differ only in the low bits share a key: every lookup compares the
     /// names in a run of equal keys.
-    fn slot_key(self, hash: u32) -> u32 {
-        (self as u32) << KIND_SHIFT | hash >> (32 - KIND_SHIFT)
+    fn slot_key(self, hash: u32) -> u16 {
+        // Both parts fit: the kind below 2^6 (checked above), the hash part
+        // below 2^10.
+        ((self as u16) << KIND_SHIFT) | (hash >> (32 - KIND_SHIFT)) as u16
     }
 
     fn category(self) -> u8 {
@@ -281,12 +286,33 @@ impl Kind {
     }
 }
 
+/// How many bits of a slot's place name the record in its batch: a batch
+/// holds at most [`REGISTRATION_MAX_RECORDS`] records.
+const RECORD_BITS: u32 = 3;
+const _: () = assert!(REGISTRATION_MAX_RECORDS <= 1 << RECORD_BITS);
+/// Most batches one owner keeps: the rest of a slot's place. Admission caps
+/// stay below it (512 image entries; 32 KiB of owned bytes, each batch
+/// charged its bytes and index), and a batch beyond is `ERR_NO_SPACE`.
+const BATCHES_MAX: usize = 1 << (16 - RECORD_BITS);
+
 #[derive(Clone, Copy)]
 struct Slot {
     /// The kind and name hash (`Kind::slot_key`).
-    hash: u32,
-    batch: u16,
-    record: u16,
+    hash: u16,
+    /// The batch (top bits) and the record's place in it ([`RECORD_BITS`]).
+    place: u16,
+}
+
+impl Slot {
+    /// The batch, in the owner's order.
+    fn batch(self) -> u16 {
+        self.place >> RECORD_BITS
+    }
+
+    /// The record's place in its batch (0 the first).
+    fn record(self) -> u16 {
+        self.place & ((1 << RECORD_BITS) - 1)
+    }
 }
 
 /// Fault injection is local to a transaction, so parallel tests cannot interfere.
@@ -373,7 +399,7 @@ impl StoredOwner {
             .slots
             .partition_point(|slot| slot.hash < kind.slot_key(0));
         let rest = &self.slots[from..];
-        let len = rest.partition_point(|slot| slot.hash >> KIND_SHIFT == kind as u32);
+        let len = rest.partition_point(|slot| slot.hash >> KIND_SHIFT == kind as u16);
         &rest[..len]
     }
 
@@ -510,9 +536,9 @@ impl PendingDeclarations {
         let bytes = input.bytes();
         let decoded = host_records_decode(bytes)?;
         declarations::validate_batch(self.kept.id.as_str(), &decoded)?;
-        let offsets = super::raw_declarations::offsets(bytes, decoded.len())?;
+        super::raw_declarations::offsets(bytes, decoded.len())?;
         let mut counts = [0usize; KIND_COUNT];
-        let mut kinds = [None; super::registrations::REGISTRATION_MAX_RECORDS];
+        let mut kinds = [None; REGISTRATION_MAX_RECORDS];
         for (index, record) in decoded.iter().enumerate() {
             if let Some(kind) = Kind::of(&record) {
                 kinds[index] = Some((
@@ -533,7 +559,11 @@ impl PendingDeclarations {
         if counts.iter().all(|&n| n == 0) {
             return Ok(());
         }
-        let batch = u16::try_from(self.kept.batches.len()).map_err(|_| ERR_NO_SPACE)?;
+        let batch = self.kept.batches.len();
+        if batch >= BATCHES_MAX {
+            return Err(ERR_NO_SPACE);
+        }
+        let batch = u16::try_from(batch).map_err(|_| ERR_NO_SPACE)?;
         let mut reference = match &input {
             Input::Image { offset, len, .. } => Some(DeclRef::Image {
                 offset: *offset,
@@ -561,11 +591,11 @@ impl PendingDeclarations {
         allocations.reserve(&mut self.kept.slots, counts.iter().sum())?;
         for (record, kind) in kinds.into_iter().enumerate() {
             if let Some((kind, hash)) = kind {
-                // The decoder bounds each batch to eight records.
+                // The decoder bounds each batch to eight records
+                // (`RECORD_BITS`), and `batch` is below `BATCHES_MAX`.
                 self.kept.add_slot(Slot {
                     hash: kind.slot_key(hash),
-                    batch,
-                    record: offsets[record],
+                    place: batch << RECORD_BITS | record as u16,
                 });
             }
         }
@@ -909,8 +939,8 @@ impl DeclarationStore {
             for slot in &owner.slots {
                 keys.push(DeclKey {
                     owner: u16::try_from(index).map_err(|_| ERR_NO_SPACE)?,
-                    batch: slot.batch,
-                    record: slot.record,
+                    batch: slot.batch(),
+                    record: slot.record(),
                     generation: owner.generation,
                     incarnation: owner.incarnation,
                 });
@@ -939,8 +969,8 @@ impl DeclarationStore {
             for slot in owner.of_kind(kind) {
                 visit(DeclKey {
                     owner: u16::try_from(index).unwrap_or(u16::MAX),
-                    batch: slot.batch,
-                    record: slot.record,
+                    batch: slot.batch(),
+                    record: slot.record(),
                     generation: owner.generation,
                     incarnation: owner.incarnation,
                 });
@@ -982,8 +1012,8 @@ impl DeclarationStore {
         for slot in owner.run(kind, hash) {
             let key = DeclKey {
                 owner: u16::try_from(index).unwrap_or(u16::MAX),
-                batch: slot.batch,
-                record: slot.record,
+                batch: slot.batch(),
+                record: slot.record(),
                 generation: owner.generation,
                 incarnation: owner.incarnation,
             };
@@ -1080,7 +1110,7 @@ fn decode_entry<'a>(
         DeclRef::Owned(bytes) => bytes,
     };
     let (record, _) = super::registrations::host_decode_prefix(
-        bytes.get(usize::from(record)..).ok_or(ERR_INVALID)?,
+        super::raw_declarations::record_at(bytes, usize::from(record))?,
     )?;
     declarations::validate_record(owner.id.as_str(), &record)?;
     Ok(record)
@@ -1099,7 +1129,7 @@ fn check_indexed_name(
     if !owner
         .run(kind, hash)
         .iter()
-        .any(|slot| slot.batch == key.batch && slot.record == key.record)
+        .any(|slot| slot.batch() == key.batch && slot.record() == key.record)
     {
         return Err(ERR_INVALID);
     }
@@ -1114,9 +1144,9 @@ fn check_indexed_name(
         for peer in owner
             .run(*peer_kind, hash)
             .iter()
-            .filter(|slot| slot.batch != key.batch || slot.record != key.record)
+            .filter(|slot| slot.batch() != key.batch || slot.record() != key.record)
         {
-            let Ok(other) = decode_entry(owner, image, peer.batch, peer.record) else {
+            let Ok(other) = decode_entry(owner, image, peer.batch(), peer.record()) else {
                 continue;
             };
             if name_key(other).is_some_and(|(other_kind, _)| {
@@ -1165,7 +1195,7 @@ mod tests;
 const _: () = {
     assert!(size_of::<DeclRef>() == 12);
     assert!(size_of::<DeclKey>() == 16);
-    assert!(size_of::<Slot>() == 8);
+    assert!(size_of::<Slot>() == 4);
     // One list per owner, with the kind in each slot's key: flat as kinds are
     // added (`abi/heap-word.md` section 9). The admission counts are not kept.
     assert!(size_of::<StoredOwner>() <= OWNER_BUDGET);
