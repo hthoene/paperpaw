@@ -18,6 +18,17 @@ default = ["store-plugins", "diagnostics", "panes"]
 # `panes`): every shell with the app's defaults has it; the Xteink
 # firmware, never wide, leaves it out.
 panes = ["paperpaw-core/panes"]
+# Home and reader as linked native plugins too (their `NATIVE_PLUGINS` entries
+# and their settings tables, `fixed_tables`, are under this feature, so that
+# no table sits in the image of a build that does not link them); news and
+# vocabulary join them where `native-linked-store` links the store's plugins.
+native-linked-reading = [
+    "native-linked",
+    "paperpaw-plugin-home/linked",
+    "paperpaw-plugin-reader/linked",
+    "paperpaw-plugin-news?/linked",
+    "paperpaw-plugin-vocabulary?/linked",
+]
 # The plugins the store offers as files too (ADR 0024): built in where a
 # shell takes them (Android, the emulator, tests), left out of the X4's
 # and the X4 Pro's firmware (see `StorePlugins`).
