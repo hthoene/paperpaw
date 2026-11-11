@@ -6,6 +6,7 @@ use super::*;
 use crate::native_host::lib_reads::tests::{Card, annotation_file, card};
 use crate::native_host::lib_service::{BookRef, LibQuery};
 use crate::native_host::registrations::Record;
+use alloc::rc::Rc;
 use paperpaw_sdk::annotations;
 use std::format;
 use std::string::String;
@@ -126,4 +127,99 @@ fn beta_3s_own_annotations_are_listed_and_moved_before_an_edit() {
     card.reads().adopt_old_annotations("books/a.epub");
     assert!(exists(&card, &old("annotations.txt")), "a shared file wins");
     assert_eq!(annotation_rows(&card), 4);
+}
+
+/// The card of [`card`], whose renames fail while `refuse` is set.
+struct Refusing {
+    card: Rc<paperpaw_sdk::MemoryStorage>,
+    refuse: core::cell::Cell<bool>,
+}
+
+impl Storage for Refusing {
+    fn read_at(&self, p: &str, a: u64, b: &mut [u8]) -> Result<usize, StorageError> {
+        self.card.read_at(p, a, b)
+    }
+    fn size(&self, p: &str) -> Result<u64, StorageError> {
+        self.card.size(p)
+    }
+    fn write(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.card.write(p, d)
+    }
+    fn append(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.card.append(p, d)
+    }
+    fn list(
+        &self,
+        d: &str,
+        v: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+    ) -> Result<(), StorageError> {
+        self.card.list(d, v)
+    }
+    fn remove(&self, p: &str) -> Result<(), StorageError> {
+        self.card.remove(p)
+    }
+    fn entry_identity(&self, p: &str) -> Result<Option<u64>, StorageError> {
+        self.card.entry_identity(p)
+    }
+    fn create_dir(&self, p: &str) -> Result<(), StorageError> {
+        self.card.create_dir(p)
+    }
+    fn rename(&self, f: &str, t: &str) -> Result<(), StorageError> {
+        if self.refuse.get() {
+            return Err(StorageError::Io);
+        }
+        self.card.rename(f, t)
+    }
+}
+
+#[test]
+fn a_rename_the_card_refuses_fails_no_read_and_is_tried_again() {
+    let card = card();
+    card.storage
+        .write(&old("progress.ini"), PROGRESS.as_bytes())
+        .unwrap();
+    let refusing = Rc::new(Refusing {
+        card: card.storage.clone(),
+        refuse: core::cell::Cell::new(true),
+    });
+    let reads = CatalogReads::new(refusing.clone(), card.env.clone());
+    let read = |reads: &CatalogReads| {
+        let mut row = None;
+        let answer = reads.position(A, &mut |record| {
+            if let Record::ServiceLibPosition(p) = record {
+                row = Some([p.section, p.offset]);
+            }
+        });
+        answer.map(|()| row.unwrap())
+    };
+    // Not moved: the read answers as for a book with no position, no error.
+    assert_eq!(read(&reads), Err(paperpaw_native::host_glue::ERR_NOT_FOUND));
+    assert!(exists(&card, &old("progress.ini")), "left");
+    // The same reads again, the card well: moved at the next read.
+    refusing.refuse.set(false);
+    assert_eq!(read(&reads), Ok([7, 1234]));
+    assert!(!exists(&card, &old("progress.ini")), "moved");
+}
+
+#[test]
+fn a_settled_book_is_not_looked_at_again() {
+    let card = card();
+    let refusing = Rc::new(Refusing {
+        card: card.storage.clone(),
+        refuse: core::cell::Cell::new(false),
+    });
+    let reads = CatalogReads::new(refusing.clone(), card.env.clone());
+    // No old file: settled at the first read.
+    let _ = reads.position(A, &mut |_| {});
+    // One that comes later is not looked for by the same reads (the memo):
+    // only a Beta 3 reader writes it, and that one is gone.
+    card.storage
+        .write(&old("progress.ini"), PROGRESS.as_bytes())
+        .unwrap();
+    let _ = reads.position(A, &mut |_| {});
+    assert!(exists(&card, &old("progress.ini")), "not looked at");
+    // Another book in between takes the memo's place: looked at afresh.
+    let _ = reads.position(BookRef::Path("books/b.epub"), &mut |_| {});
+    let _ = reads.position(A, &mut |_| {});
+    assert!(!exists(&card, &old("progress.ini")), "moved");
 }

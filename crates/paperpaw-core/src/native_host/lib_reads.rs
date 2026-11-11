@@ -111,6 +111,8 @@ pub trait CatalogEnv {
 pub(crate) struct CatalogReads {
     storage: Rc<dyn Storage>,
     env: Rc<dyn CatalogEnv>,
+    /// The last book whose Beta 3 reader's files were looked at.
+    old: old_reader::Memo,
 }
 
 impl CatalogReads {
@@ -132,7 +134,11 @@ impl CatalogReads {
     }
 
     pub(crate) fn new(storage: Rc<dyn Storage>, env: Rc<dyn CatalogEnv>) -> Self {
-        Self { storage, env }
+        Self {
+            storage,
+            env,
+            old: old_reader::Memo::default(),
+        }
     }
 
     /// The catalog generation of the wire: it changes whenever the
@@ -297,7 +303,8 @@ impl LibQuery for CatalogReads {
         visit: Rows<'_>,
     ) -> Result<RowsEnd, i32> {
         self.with_path(book, |path| {
-            old_reader::adopt(&*self.storage, path, old_reader::Kept::Annotations);
+            self.old
+                .adopt(&*self.storage, path, old_reader::Kept::Annotations);
             annotations::annotations(&*self.storage, path, cursor, generation, visit)
         })
     }
@@ -310,14 +317,16 @@ impl LibQuery for CatalogReads {
         visit: Rows<'_>,
     ) -> Result<RowsEnd, i32> {
         self.with_path(book, |path| {
-            old_reader::adopt(&*self.storage, path, old_reader::Kept::Annotations);
+            self.old
+                .adopt(&*self.storage, path, old_reader::Kept::Annotations);
             annotations::anchors(&*self.storage, path, cursor, generation, visit)
         })
     }
 
     fn position(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         self.with_path(book, |path| {
-            old_reader::adopt(&*self.storage, path, old_reader::Kept::Position);
+            self.old
+                .adopt(&*self.storage, path, old_reader::Kept::Position);
             position::read(&*self.storage, path, visit)
         })
     }
@@ -332,7 +341,8 @@ impl CatalogReads {
     /// book at `path` where they are shared, before an edit of them
     /// (`old_reader`).
     pub(crate) fn adopt_old_annotations(&self, path: &str) {
-        old_reader::adopt(&*self.storage, path, old_reader::Kept::Annotations);
+        self.old
+            .adopt(&*self.storage, path, old_reader::Kept::Annotations);
     }
 
     /// The book's root-1 path, for the host's own bookkeeping.

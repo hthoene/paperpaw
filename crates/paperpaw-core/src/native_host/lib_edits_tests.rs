@@ -641,3 +641,33 @@ fn a_committed_transaction_raises_the_annotations_change_for_its_book_and_a_refu
     assert_eq!(take(&t), Some((1 << 3, BOOK.into())));
     assert_eq!(take(&t), None);
 }
+
+/// Beta 3's reader's own annotations of the book (`lib_reads::old_reader`):
+/// moved where they are shared at the first edit (op 17, no read before it),
+/// which is made over them; the next edit goes to the shared file as well.
+#[test]
+fn beta_3s_own_annotations_are_moved_at_the_first_edit_and_the_next_edit_goes_to_the_shared_file() {
+    let t = fixture();
+    let old = std::format!(
+        ".paperpaw/plugins/reader/books/{}/annotations.txt",
+        paperpaw_sdk::library::key(BOOK)
+    );
+    t.card
+        .storage
+        .write(
+            &old,
+            b"# format 2\nh\t2\t5\t2\t9\t20\t0\t0\t\t\t\tbefore\t\n",
+        )
+        .unwrap();
+    // A version 2 file's generation 0 is 1 on the wire.
+    let (first, _) = t.transact(1, &[edit(0)], &[]).unwrap();
+    assert!(!t.card.storage.exists(&old), "moved");
+    assert_eq!(t.annotations().len(), 2, "the old one and the new one");
+    let (second, _) = t
+        .transact(first.annotation_generation, &[edit(0)], &[])
+        .unwrap();
+    assert!(second.annotation_generation > first.annotation_generation);
+    assert!(!t.card.storage.exists(&old), "not made again");
+    assert_eq!(t.annotations().len(), 3);
+    assert!(t.file().contains("before"));
+}
