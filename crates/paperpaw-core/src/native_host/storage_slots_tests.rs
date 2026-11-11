@@ -691,7 +691,7 @@ fn raw_read_initializes_only_the_successful_prefix() {
 }
 
 #[test]
-fn a_backend_that_partly_writes_then_fails_preserves_the_caller_output() {
+fn a_backend_that_partly_writes_then_fails_leaves_zeros_and_no_card_bytes() {
     let backend = Backend::default();
     // Bypass the small-file cache so this reaches the failing backend.
     backend
@@ -707,24 +707,47 @@ fn a_backend_that_partly_writes_then_fails_preserves_the_caller_output() {
                 read_at(scope, OWNER, None, 0, bytes(b"state"), 0, output(&mut out)),
                 ERR_IO
             );
-            assert_eq!(out, [0xa5; 4]);
+            // What the card's adapter wrote before it failed (0xee) is gone.
+            assert_eq!(out, [0; 4]);
         }
     });
 }
 
 #[test]
-fn scratch_allocation_refusal_preserves_the_output() {
+fn a_short_read_returns_its_count_and_zeros_the_rest() {
     let backend = Backend::default();
     backend.files.write(FILE, b"keep").unwrap();
     scoped(&backend, |scope, _| {
-        let mut out = [0xa5; 4];
-        scratch_fault::refuse_next();
+        let mut out = [0xa5; 8];
         // SAFETY: valid disjoint input and exclusive initialized output.
         assert_eq!(
             unsafe { read_at(scope, OWNER, None, 0, bytes(b"state"), 0, output(&mut out)) },
-            ERR_NO_MEMORY
+            4
         );
-        assert_eq!(out, [0xa5; 4]);
+        assert_eq!(out, *b"keep\0\0\0\0");
+    });
+}
+
+#[test]
+fn a_read_holds_no_copy_of_the_callers_buffer() {
+    let backend = Backend::default();
+    backend
+        .files
+        .write(FILE, &alloc::vec![0x5a; MAX_DATA])
+        .unwrap();
+    scoped(&backend, |scope, _| {
+        let mut out = alloc::vec![0_u8; MAX_DATA];
+        let before = crate::native_host::shell::tests::HEAP_LIVE.with(Cell::get);
+        crate::native_host::shell::tests::HEAP_PEAK.with(|peak| peak.set(before));
+        // SAFETY: valid disjoint input and exclusive initialized output.
+        let read = unsafe { read_at(scope, OWNER, None, 0, bytes(b"state"), 0, output(&mut out)) };
+        let held = crate::native_host::shell::tests::HEAP_PEAK.with(Cell::get) - before;
+        assert_eq!(read, MAX_DATA as i32);
+        assert!(out.iter().all(|byte| *byte == 0x5a));
+        assert!(
+            held < MAX_DATA / 4,
+            "{held} bytes held for a {MAX_DATA}-byte read"
+        );
     });
 }
 
@@ -822,32 +845,21 @@ fn outside_dispatch_and_invalid_owner_routes_have_no_effect() {
 }
 
 #[test]
-fn scratch_matches_requested_capacity_and_empty_reads_need_no_allocation() {
-    for capacity in [1, 17, 1024, MAX_DATA] {
-        let scratch = read_scratch(capacity).unwrap();
-        assert_eq!(scratch.len(), capacity);
-        assert!(scratch.iter().all(|byte| *byte == 0));
-    }
-    scratch_fault::refuse_next();
-    assert!(read_scratch(0).unwrap().is_empty());
-    assert_eq!(read_scratch(1), Err(ERR_NO_MEMORY));
-
+fn an_empty_read_needs_no_allocation_and_reads_nothing() {
     let backend = Backend::default();
     backend.files.write(FILE, b"keep").unwrap();
     scoped(&backend, |scope, _| {
-        scratch_fault::refuse_next();
+        let before = crate::native_host::shell::tests::HEAP_LIVE.with(Cell::get);
+        crate::native_host::shell::tests::HEAP_PEAK.with(|peak| peak.set(before));
         // SAFETY: live input and a non-null, exclusive empty output buffer.
         assert_eq!(
             unsafe { read_at(scope, OWNER, None, 0, bytes(b"state"), 0, output(&mut [])) },
             0
         );
-        let mut out = [0xa5; 1];
-        // SAFETY: live, exclusive output. Empty read did not consume the fault.
         assert_eq!(
-            unsafe { read_at(scope, OWNER, None, 0, bytes(b"state"), 0, output(&mut out)) },
-            ERR_NO_MEMORY
+            crate::native_host::shell::tests::HEAP_PEAK.with(Cell::get),
+            before
         );
-        assert_eq!(out, [0xa5]);
     });
 }
 
