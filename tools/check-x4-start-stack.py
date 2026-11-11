@@ -4,14 +4,15 @@ The owner's first test image boot-looped because `main` -> `start` ->
 `prepare` -> a flash read reached the band at the main stack's end while only
 the single functions' frames were checked, never the path of the start as a
 whole. This reads the frames of an X4 (ESP32-C3) firmware ELF the way
-`tools/stack-frames.py` does and sums the start's two deepest paths:
+`tools/stack-frames.py` does and sums three paths:
 
     main + start + the deepest chain from `prepare`
-    main + start + `kernel` + `BuilderParts::build`
+    main + start + the deepest chain from `kernel` (the kernel's build, which
+        reads the card; one branch cut, see START_CUTS)
+    main + the deepest chain from the firmware's `run` (the main loop)
 
-(`build`'s own frame only: what it calls through pointers is not followed, so
-this is a floor, not a ceiling; the device's high-water log gives the rest.)
-Against what lies above the band: the stack's top minus the band's top
+Calls through pointers are not followed, so these are floors, not ceilings;
+the device's high-water log gives the rest. Against what lies above the band: the stack's top minus the band's top
 (`crates/paperpaw-x4/src/stack_band.rs`: the first BAND-aligned region at or
 above `end + RESERVE`).
 
@@ -74,10 +75,28 @@ def frame_of(table, name):
     sys.exit(f"no frame found for {name}")
 
 
+# What is cut from the chains, and why. `Kernel::apply` applies the effects
+# the kernel asks for; its chain through `firmware_suspend` into a plugin's
+# install (a signature check, 8 KB below it) is the main loop's, where it is
+# counted whole (the run path below); at the start the kernel's build replays
+# only a removal, which asks for none of that. Taken to be confirmed by
+# Kernel (#2556): a start that does reach it overflows.
+START_CUTS = [r"^<paperpaw_core::Kernel>::apply$"]
+
+
+def chain_from(elf, root, cuts=()):
+    extra = [x for cut in cuts for x in ("--cut", cut)]
+    out = frames(elf, "--top", "0", "--root", root, *extra)
+    m = re.search(r"deepest chain from .*?: (\d+) bytes", out)
+    if not m:
+        sys.exit(f"no chain from {root}")
+    return int(m.group(1))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("elf")
-    ap.add_argument("--margin", type=int, default=1024,
+    ap.add_argument("--margin", type=int, default=512,
                     help="bytes that must be left above the band for what the paths do not follow")
     a = ap.parse_args()
     if not os.path.exists(a.elf):
@@ -90,20 +109,14 @@ def main():
     table = frames(a.elf, "--top", "40000")
     main_f = frame_of(table, "main")
     start_f = frame_of(table, "paperpaw_xteink::start")
-    kernel_f = frame_of(table, "paperpaw_xteink::kernel")
-    build_f = frame_of(table, "<paperpaw_core::builder::BuilderParts>::build")
-    prep = frames(a.elf, "--top", "0", "--root", "paperpaw_xteink::prepare")
-    m = re.search(r"deepest chain from paperpaw_xteink::prepare: (\d+) bytes", prep)
-    if not m:
-        sys.exit("no chain from prepare")
-    prepare_chain = int(m.group(1))
     paths = {
-        "main + start + prepare's deepest chain": main_f + start_f + prepare_chain,
-        "main + start + kernel + build": main_f + start_f + kernel_f + build_f,
+        "start: main + start + prepare": main_f + start_f + chain_from(a.elf, "paperpaw_xteink::prepare"),
+        "start: main + start + kernel + build and what it calls": main_f + start_f + chain_from(a.elf, "paperpaw_xteink::kernel", START_CUTS),
+        "main loop: main + run and what it calls": main_f + chain_from(a.elf, "<paperpaw_xteink::firmware::Firmware>::run"),
     }
     print(f"stack {top - end} B (end {end:#x}, top {top:#x}); band {start:#x}..{start + band:#x}; "
           f"{usable} B above it, margin {a.margin} B")
-    print(f"frames: main {main_f}, start {start_f}, kernel {kernel_f}, build {build_f}")
+    print(f"frames: main {main_f}, start {start_f}")
     bad = False
     for name, depth in paths.items():
         left = usable - depth
@@ -111,8 +124,10 @@ def main():
         bad |= not ok
         print(f"  {'ok  ' if ok else 'FAIL'} {name}: {depth} B, {left} B left")
     if bad:
-        print("error: the start path runs into the stack's band (frames grew: "
-              "a large local copied or moved by value is the usual cause)", file=sys.stderr)
+        print("error: a path of the start or of the main loop runs into the stack's band "
+              "(frames grew, or the statics took the stack's room: HEAP_SIZE, X4_BAND_KB in "
+              "shells/xteink/src/main.rs; a large local copied or moved by value is the usual "
+              "cause of grown frames)", file=sys.stderr)
         return 1
     return 0
 

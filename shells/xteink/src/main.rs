@@ -170,7 +170,19 @@ esp_bootloader_esp_idf::esp_app_desc!(
 /// Bluetooth takes of the same memory for good, and less the X4's arena
 /// for plugins' hot code, which the heap gets once plugins are loaded as
 /// far as they did not take it (`native::HOT_ARENA_LEN`).
-const HEAP_SIZE: usize = (192 - BLUETOOTH_KB - S3_BAND_KB) * 1024 - native::HOT_ARENA_LEN;
+const HEAP_SIZE: usize =
+    (192 - BLUETOOTH_KB - S3_BAND_KB - X4_BAND_KB) * 1024 - native::HOT_ARENA_LEN;
+/// The X4's band at the stack's end and its reserve (4 KB and the band's 2 KB,
+/// `paperpaw_x4::stack_band`) take the top 7.7 KB of a stack that had only
+/// 37.4 KB left once the interface-7 plugins were built in: the start's path
+/// (some 33 KB) tripped the band in the first test image (#2556). The stack
+/// grows by as much as the heap gives (`build.rs` checks its size), as the
+/// ESP32-S3's does (`S3_BAND_KB`).
+const X4_BAND_KB: usize = if cfg!(all(target_arch = "riscv32", feature = "ppn5")) {
+    8
+} else {
+    0
+};
 /// The ESP32-S3's band at the stack's end and its reserve, in KB, where
 /// interface-7 plugins are built in (`ppn5`): the stack grows by as much (the
 /// heap gives it, `build.rs` checks the stack's size). 16 KB: 14,336 bytes of
