@@ -367,3 +367,22 @@ fn the_library_transactions_learn_the_memory_class_and_clock_from_wirings_of_the
         .unwrap();
     assert!(policy.is_small());
 }
+
+#[test]
+fn the_library_learns_the_screens_long_side_from_a_documents_wiring_of_its_own() {
+    // Op 7 bounds a cover by the screen's long side: unsupported until the
+    // shell wires `documents`, in whichever call that comes.
+    use crate::native_host::lib_service::LibQuery;
+    use paperpaw_native::host_glue::ERR_UNSUPPORTED;
+    let card = crate::native_host::lib_reads::tests::card();
+    let resources = HostResources::try_new().unwrap();
+    resources
+        .wire(HostWiring::new().library(card.storage.clone(), card.env.clone()))
+        .unwrap();
+    let library = resources.hosts().library().unwrap();
+    assert_eq!(library.0.screen_long_side(), Err(ERR_UNSUPPORTED));
+    resources
+        .wire(HostWiring::new().documents(MemoryClass::Small, 800))
+        .unwrap();
+    assert_eq!(library.0.screen_long_side(), Ok(800));
+}

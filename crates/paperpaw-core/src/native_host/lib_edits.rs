@@ -41,15 +41,28 @@ const TICK_MS: u64 = 10_000;
 
 /// What the other wirings of the device tell the transactions: `ui` and
 /// `documents` name the memory class (the X4's small caps), `work` the device's
-/// monotonic clock. One per device, shared by the wirings (each is its own
-/// call on the X4), so the order they come in does not matter.
+/// monotonic clock; `documents` also the screen's long side, which the library
+/// bounds a cover by (op 7). One per device, shared by the wirings (each is its
+/// own call on the X4), so the order they come in does not matter.
 #[derive(Default)]
 pub(crate) struct EditPolicy {
     small: Cell<bool>,
     clock: RefCell<Option<Rc<dyn WorkDevice>>>,
+    /// The screen's long side in pixels, 0 before `documents` named it.
+    long_side: Cell<u32>,
 }
 
 impl EditPolicy {
+    /// The screen's long side in pixels, as `documents` named it.
+    pub(crate) fn set_long_side(&self, pixels: u32) {
+        self.long_side.set(pixels);
+    }
+
+    /// The screen's long side; `None` before `documents` was wired.
+    pub(crate) fn long_side(&self) -> Option<u32> {
+        Some(self.long_side.get()).filter(|&pixels| pixels > 0)
+    }
+
     /// The device is of the X4's memory class.
     pub(crate) fn set_small(&self) {
         self.small.set(true);
