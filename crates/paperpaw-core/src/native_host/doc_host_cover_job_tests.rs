@@ -424,6 +424,45 @@ fn no_step_is_made_while_a_book_is_open_for_reading() {
 }
 
 #[test]
+fn no_step_is_made_while_a_library_list_is_up_and_for_a_quiet_moment_after() {
+    use crate::native_host::doc_service::PrepareStep;
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.state.now.set(1_000);
+        let document = job(w, "books/a.epub");
+        w.state.cover_job_guard("books/a.epub").unwrap();
+        answer(w, PREPARING, 0);
+        // The list is up: the job's row stays, nothing is stepped and the
+        // pump is not asked to run.
+        w.state.cover_job_list(true);
+        assert_eq!(
+            w.state.prepare_step(&w.hosts, &FrameRoute(w)),
+            PrepareStep::Idle,
+            "no document work beside the list"
+        );
+        assert!(!w.state.preparing());
+        // Ten minutes in the list are no awake time of the book.
+        w.state.now.set(1_000 + 700_000);
+        w.state.cover_job_list(true);
+        assert!(!w.state.preparing());
+        // The list is gone: still held for the quiet moment.
+        w.state.now.set(1_000 + 700_100);
+        w.state.cover_job_list(false);
+        assert!(!w.state.preparing(), "quiet moment");
+        // The list was last up at 701_000: the moment ends 2 s after it.
+        w.state.now.set(1_000 + 700_000 + 1_999);
+        w.state.cover_job_list(false);
+        assert!(!w.state.preparing());
+        w.state.now.set(1_000 + 700_000 + 2_000);
+        w.state.cover_job_list(false);
+        assert!(w.state.preparing(), "the job goes on");
+        prepare(w);
+        assert_eq!(look(w), JobStep::Wait, "not failed by the time held");
+        assert_eq!(w.state.table.cover_job().map(|job| job.id), Some(document));
+    });
+}
+
+#[test]
 fn steps_that_cannot_be_made_fail_the_job_and_only_its_book() {
     use crate::native_host::doc_service::PrepareStep;
     use paperpaw_native::host_glue::ERR_BUSY;

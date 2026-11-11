@@ -286,7 +286,10 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   displacement; it then **starts again from the beginning**: a cache is whole or not used
   (`document.md` 2.1), nothing of a partial conversion is kept. A job displaced 3 times in a row
   for the same book is not started again for that book until the next start (no cover, as for a
-  failed book). A job never holds the device awake
+  failed book). A job takes **no step while the library's list screen (the files plugin's) is on the
+  screen stack**, shown or covered, and for 2 s after it left it: a conversion's peak must not come
+  beside the list's buffers. Its row stays open meanwhile; the time held is no awake time of the
+  book. A job never holds the device awake
   and does not restart after a sleep until a new `cover` asks. Between two of its steps the pump waits 100 ms (1 s in the power modes Saving and Offline), a
   timed wake, so the job goes on on an idle device. A book's job may run 10 minutes in all per
   start of the device (displaced and begun again counts together); then the book counts as failed

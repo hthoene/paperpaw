@@ -184,6 +184,9 @@ pub(crate) struct DocumentTable {
     /// grows: its room is reserved once, and an open leaves room for the close
     /// of every document that is live (see `open`).
     closed: RefCell<Vec<Closed>>,
+    /// A library list screen is up (or was a moment ago): the cover job takes
+    /// no step, as with a book open for reading (`DocHost::cover_job_list`).
+    list_hold: Cell<bool>,
 }
 
 impl DocumentTable {
@@ -198,6 +201,7 @@ impl DocumentTable {
             next_id: Cell::new(1),
             documents: RefCell::new(Vec::new()),
             evicted: Cell::new([(0, 0); EVICTED]),
+            list_hold: Cell::new(false),
             evicted_next: Cell::new(0),
         })
     }
@@ -448,7 +452,7 @@ impl DocumentTable {
     pub(crate) fn next_preparing(&self, after: u32) -> Option<Document> {
         let rows = self.documents.try_borrow().ok()?;
         // The cover job waits while a book is open for reading.
-        let held = Self::reading(&rows);
+        let held = self.list_hold.get() || Self::reading(&rows);
         let preparing =
             |d: &&Document| d.state == PREPARING && d.closed_by_host == 0 && !(d.cover_job && held);
         let oldest = rows.iter().find(preparing);
@@ -465,10 +469,21 @@ impl DocumentTable {
     /// step will find out).
     pub(crate) fn any_preparing(&self) -> bool {
         self.documents.try_borrow().map_or(true, |rows| {
-            let held = Self::reading(&rows);
+            let held = self.list_hold.get() || Self::reading(&rows);
             rows.iter()
                 .any(|d| d.state == PREPARING && d.closed_by_host == 0 && !(d.cover_job && held))
         })
+    }
+
+    /// Whether the cover job is held back for a list screen.
+    pub(crate) fn list_held(&self) -> bool {
+        self.list_hold.get()
+    }
+
+    /// Sets whether the cover job is held back for a list screen; `true` when
+    /// that changed (the caller moves the job's clock).
+    pub(crate) fn set_list_hold(&self, hold: bool) -> bool {
+        self.list_hold.replace(hold) != hold
     }
 
     /// Whether a book is open for reading or showing: a live document that is

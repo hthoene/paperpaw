@@ -54,12 +54,31 @@ impl DocState {
         })
     }
 
+    /// A library list screen is up (`up`) or not (`DocHost::cover_job_list`):
+    /// the job is held while one is up and for [`RESUME_AFTER_MS`] after, and
+    /// the time it is held is no awake time.
+    pub(super) fn list_hold(&self, up: bool) {
+        let now = self.now.get();
+        if up {
+            self.list_quiet_until
+                .set(now.saturating_add(super::RESUME_AFTER_MS));
+        }
+        let hold = up || now < self.list_quiet_until.get();
+        if hold && !self.table.list_held() {
+            // What it ran so far counts; the held time does not.
+            self.add_used();
+        }
+        if self.table.set_list_hold(hold) && !hold {
+            self.job_started.set(now);
+        }
+    }
+
     /// What the job that runs has run since it began (or since this was last
     /// asked) is added to its book's total.
     fn add_used(&self) {
         let (key, used) = self.job_used.get();
         let now = self.now.get();
-        if key == self.job_key.get() {
+        if key == self.job_key.get() && !self.table.list_held() {
             let ran = now.saturating_sub(self.job_started.get());
             self.job_used.set((key, used.saturating_add(ran)));
         }
