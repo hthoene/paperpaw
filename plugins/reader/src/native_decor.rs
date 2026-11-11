@@ -64,7 +64,7 @@ pub fn decorate(
 /// a second line as far below as it is thick (double), dots as long as the
 /// line is thick with gaps as wide (dotted), or going up and down by its
 /// thickness every two pieces (wavy).
-fn line_at(
+pub(crate) fn line_at(
     ink: &mut impl Ink,
     line: LineStyle,
     (left, length): (i32, u32),

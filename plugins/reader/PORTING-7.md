@@ -106,12 +106,25 @@ relative to the data folder).
   validation); the reader drops a reply that is invalid whole.
 
 
-## The stage `reader.decorations@1` (draft, Kernel review; todos 338, 448)
+## The stage `reader.decorations@1` (schema approved by Kernel; todos 338, 448)
 
 Replaces the interface-6 decorators (`add_decorator`, `PageText`, `Decorated`) and the event
 `core.decoration-tapped` (Kernel ruling 334: a reader-defined stage, `document.md` 9). Schema
 `stages/reader.decorations@1.def`, codec `src/stages.rs`, look codes `src/native_marks_codes.rs`.
-Not declared or fired yet: the reader side follows once the schema is approved.
+Declared (`declarations::stages`) and fired by the reading screen: `src/native_decorations.rs`
+(runs, fires, checks, the marks kept; `draw.rs` draws them) and `src/native_view/decorations.rs`
+(the stage run at a page's first draw, the tap). Open, against Beta 3:
+
+- **Not on the X4 yet:** the host refuses `stage.run` there until the stack gate of nested
+  callbacks passes (`native_host/stage_run.rs`), so no marks show. The reader asks with empty
+  buffers first (refused there before any buffer is looked at) and takes that as "no
+  subscriber" for the book: nothing is encoded or allocated at a page turn on the X4.
+- **Asking whether anyone subscribed:** no call tells it, so the first fire of a book finds out;
+  with none (or no stages) the book is not asked again until the screen is back on top. That is
+  one encoded fire and one reply buffer a book, never one a page.
+- **Not yet:** the ink of a look (text in another colour; backgrounds, lines, struck lines and
+  frames are drawn), choosing a mark that takes taps with the buttons (as links are), and a log
+  line for marks dropped (counted in `Decorations::dropped`; the native SDK has no log).
 
 - **Asking a page.** Only where a plugin subscribed (none: nothing is encoded, no buffer is
   taken). Once a page is laid out, and again when the reader screen comes back on top (a word
@@ -137,7 +150,7 @@ Not declared or fired yet: the reader side follows once the schema is approved.
   aspect both set (Beta 3's order).
 - **Memory (#248).** The reader keeps at most 256 marks a page over all subscribers, packed as
   they came (about 2 KiB at most); past them the rest is dropped in the order the subscribers
-  answered, and the count is logged. A look is kept only while a mark uses it. Marks are decoded
+  answered, and counted. A look is kept only while a mark uses it. Marks are decoded
   straight from the reply buffer, never into a list of rows. The X4 page-turn peaks (TXT, EPUB,
   one subscriber, `--heap-report`) are measured before and after the reader side: input and reply
   are about 7.5 KB at a turn.

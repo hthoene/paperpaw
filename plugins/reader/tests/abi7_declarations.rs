@@ -260,7 +260,7 @@ fn the_notes_stage_is_declared_with_the_codecs_bounds() {
             stages += 1;
         }
     }
-    assert_eq!(stages, 3);
+    assert_eq!(stages, 4);
     assert_eq!(declarations::NOTES_MAX_INPUT as usize, stage::MAX_INPUT);
     assert_eq!(declarations::NOTES_MAX_REPLY as usize, stage::MAX_REPLY);
     assert_eq!(
@@ -280,6 +280,19 @@ fn the_notes_stage_is_declared_with_the_codecs_bounds() {
     assert_eq!(
         declarations::FILTER_MAX_RECORDS as usize,
         filter::MAX_SUBSCRIBERS
+    );
+    use paperpaw_plugin_reader::stages::reader_decorations_v1 as marks;
+    assert_eq!(
+        declarations::DECORATIONS_MAX_INPUT as usize,
+        marks::MAX_INPUT
+    );
+    assert_eq!(
+        declarations::DECORATIONS_MAX_REPLY as usize,
+        marks::MAX_REPLY
+    );
+    assert_eq!(
+        declarations::DECORATIONS_MAX_RECORDS as usize,
+        marks::MAX_SUBSCRIBERS
     );
 }
 

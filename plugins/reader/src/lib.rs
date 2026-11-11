@@ -52,6 +52,7 @@ pub mod native_block;
 pub mod native_bookmark;
 pub mod native_chapter;
 pub mod native_decor;
+pub mod native_decorations;
 pub mod native_document;
 pub mod native_draw;
 mod native_entry;

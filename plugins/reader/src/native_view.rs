@@ -151,6 +151,10 @@ struct Open {
     chapter: Option<Chapter>,
     /// The status lines chosen at the top and the bottom.
     status: native_status::State,
+    /// The marks plugins gave the page on show (`reader.decorations@1`).
+    decorations: Option<crate::native_decorations::Decorations>,
+    /// No plugin marks this book's pages (asked again once back on top).
+    undecorated: bool,
 }
 
 /// One open reading screen.
@@ -378,6 +382,8 @@ impl View {
             class_asked: false,
             chapter: None,
             status: native_status::State::default(),
+            decorations: None,
+            undecorated: false,
         };
         open.begin(host, root == Root::Library);
         // The host's book events start here (`document.md` 2.4); a book whose
@@ -579,6 +585,9 @@ impl View {
     /// This screen is on top again: a jump made from a screen above is told to
     /// the host now.
     pub fn shown(&mut self, host: &Host<'_>, docs: &Documents) {
+        if let Body::Open(open) = &mut self.body {
+            open.decorate_again();
+        }
         if let Body::Open(open) = &mut self.body
             && core::mem::take(&mut open.report_due)
         {
@@ -730,6 +739,9 @@ impl View {
             return Ok(Handled::No);
         };
         if let Some(handled) = open.status_input(host, ui, input)? {
+            return Ok(handled);
+        }
+        if let Some(handled) = open.decoration_tap(host, input)? {
             return Ok(handled);
         }
         let marked = open.mark(host, (docs, Some(ui)), input)?;
@@ -1292,11 +1304,14 @@ impl Open {
         let page = self.page.as_ref().ok_or(Error::State)?;
         if self.words.is_empty() {
             self.words = native_wordbox::word_boxes(&faces, page, area)?;
+            self.decorate(host);
         }
+        let page = self.page.as_ref().ok_or(Error::State)?;
         let rect = frame.rect;
         let follow_up = pictures::follow_up(frame);
         let canvas = frame.draw_canvas()?;
         canvas.fill_rectangle(rect, Color::WHITE)?;
+        self.draw_behind(&canvas, (rect.x, rect.y))?;
         let look = Look::read(host, setup.display.display_gray_levels())?;
         let mut ink = HostInk::new(fonts, &canvas, Color::BLACK, look);
         let origin = (
@@ -1311,6 +1326,7 @@ impl Open {
             origin,
             (self.mark.clone(), pictures),
         )?;
+        self.draw_over(&canvas, (rect.x, rect.y), setup.display.display_dpi())?;
         self.paint_status(host, ui, frame, (setup, &area))?;
         let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),
@@ -1366,6 +1382,7 @@ fn say_with(
 
 mod aloud;
 mod count;
+mod decorations;
 mod menu_bar;
 mod pictures;
 mod preparing;
