@@ -11,6 +11,11 @@ authors.workspace = true
 categories = ["no-std", "embedded"]
 keywords = ["e-reader", "e-ink", "epaper", "ssd1677", "xteink"]
 
+[features]
+# The veiling sealer of test images only (`native_offer::VeilSeal`); never in a
+# release (the firmware's `release` feature refuses it).
+test-veil = []
+
 [dependencies]
 embedded-hal = "1.0"
 # The `core.device` host the firmware wires (`device_host`): the kernel's trait.

@@ -130,8 +130,8 @@ pub fn load(
     )
 }
 
-#[cfg(all(feature = "static-native", feature = "esp32c3"))]
-pub(crate) use x4::register_linked_probe;
+#[cfg(all(feature = "native-on", feature = "esp32c3"))]
+pub(crate) use x4::register_linked;
 #[cfg(feature = "esp32s3")]
 pub(super) use x4::scanned_table_is_handed;
 pub(super) use x4::{StorageSource, entry_check_failed};
@@ -366,7 +366,7 @@ mod x4 {
     /// mapped for the whole run and is never written. `(null, 0)` if the
     /// symbols are not in order (end not after start): the declarations are
     /// then copied, as before.
-    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+    #[cfg(all(feature = "native-on", feature = "esp32c3"))]
     fn flash_rodata() -> (*const u8, usize) {
         unsafe extern "C" {
             static _rodata_start: u8;
@@ -475,63 +475,61 @@ mod x4 {
         crate::safe_mode::returned();
     }
 
-    /// Registers the linked plugins through the kernel (`Kernel::register_linked`)
-    /// so the image carries the host's code that hosts them. MEASUREMENT ONLY
-    /// (`static-native`): the caller never takes this branch, because the stack
-    /// gate (`abi/heap-word.md` section 6) holds every interface-7 plugin back.
-    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+    /// Hosts the linked plugins (`paperpaw_app::NATIVE_PLUGINS`): the app's one
+    /// path (`paperpaw_app::register_native_plugins`, the desktop's too), with
+    /// the services and features this start wired (`paperpaw_x4::native_offer`,
+    /// admitted against every linked plugin by the desktop's tests). Called by
+    /// the main loop once the stack's band is armed (`abi/heap-word.md`
+    /// section 6): without it no plugin of interface 7 runs. A plugin the host
+    /// refuses is logged and does not stop the others.
+    #[cfg(all(feature = "native-on", feature = "esp32c3"))]
     #[inline(never)]
-    pub(crate) fn register_linked_probe(
+    pub(crate) fn register_linked(
         kernel: &mut paperpaw_core::Kernel,
         table: &crate::native::DeviceTable,
     ) {
         fn linked_report(_: &X4Services, tag: u32, status: i32) {
             warn!("native: linked: call {tag} ended with {status}");
         }
+        use paperpaw_x4::native_offer::{features, leak, services};
+        let wired = crate::device_host::wired_families(kernel.wifi_model().is_some());
         let offered = metadata::Host {
             abi_major: HOST.abi_major,
             minor: HOST.minor,
             profile: super::PROFILE,
-            // The table the probe shares has `core.device` wired, but the probe
-            // offers the data services alone: a linked plugin is not given the
-            // device service.
-            services: shell::DATA_SERVICES,
-            features: &[],
+            services: leak(services(wired)),
+            features: leak(features(wired)),
         };
         // The loader's own table of handles and callback-depth counter (one of
         // each for the device), not a second: the kernel refuses a plugin that
         // brings another counter.
         let (Some(depth), Some(resources)) = (table.depth(), table.share()) else {
+            warn!("native: no room for the linked plugins' table: none hosted");
             return;
         };
-        // The texts the linked plugins bring built in (`screens-input.md` [D]):
-        // none of them is found otherwise.
-        paperpaw_app::add_native_catalogs(kernel);
-        for (id, linked) in paperpaw_app::NATIVE_PLUGINS.iter() {
-            let Some(share) = resources.try_clone() else {
-                return;
-            };
-            // SAFETY: `linked` comes from `native_plugin!(..., linked = NAME)` of
-            // a crate linked into this firmware: its factory obeys the SDK's
-            // native factory contract and its code stays for the whole run.
-            let status = unsafe {
-                kernel.register_linked(
-                    linked.entry(),
-                    linked.metadata(),
-                    &offered,
-                    id,
-                    X4Services,
-                    share,
-                    &depth,
-                    report,
-                    linked_report,
-                    // The firmware's read-only data in flash: the declarations
-                    // of a linked plugin are borrowed from it, not copied.
-                    flash_rodata(),
-                    paperpaw_app::fixed_tables(id),
-                )
-            };
-            warn!("native: linked {id}: {status:?}");
+        // SAFETY: the entries are `native_plugin!(..., linked = NAME)` of crates
+        // linked into this firmware (their code stays for the whole run); the
+        // services offered are the ones wired at this start
+        // (`device_host::wired_families`); the image is the firmware's read-only
+        // data in flash, mapped for the whole run.
+        let outcome = unsafe {
+            paperpaw_app::register_native_plugins(
+                kernel,
+                &offered,
+                &resources,
+                &depth,
+                || X4Services,
+                report,
+                linked_report,
+                |id| paperpaw_app::native_default_on(id, paperpaw_app::StorePlugins::Left),
+                flash_rodata(),
+            )
+        };
+        for (id, status) in outcome {
+            match status {
+                Ok(()) => info!("native: linked {id}: running"),
+                Err(why) => warn!("native: linked {id}: not hosted: {why:?}"),
+            }
         }
     }
 

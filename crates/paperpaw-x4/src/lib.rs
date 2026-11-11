@@ -46,6 +46,7 @@ pub mod device_depth;
 pub mod device_facts;
 pub mod device_host;
 pub mod dhcp;
+pub mod native_offer;
 pub mod display;
 pub mod ds3231;
 pub mod dual_boot;

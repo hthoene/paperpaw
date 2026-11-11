@@ -26,8 +26,8 @@ pub mod partition;
 #[cfg(feature = "ppn5")]
 mod ppn5;
 pub mod seed;
-#[cfg(all(feature = "static-native", feature = "esp32c3"))]
-pub(crate) use ppn5::register_linked_probe;
+#[cfg(all(feature = "native-on", feature = "esp32c3"))]
+pub(crate) use ppn5::register_linked;
 #[cfg(feature = "esp32s3")]
 mod psram;
 
@@ -242,7 +242,7 @@ pub struct Loader {
 }
 
 /// The device-wide table of handles, one for the whole firmware: the code
-/// loader and the linked-plugin probe (`register_linked_probe`) both take their
+/// loader and the linked plugins (`register_linked`) both take their
 /// share of this one, so what is wired into it (`core.ui`, `text.hyphenate`)
 /// stays single. A clone is another view of the same cell (nothing is made
 /// twice); the table itself is made at the first use, with `core.device`
@@ -263,7 +263,7 @@ impl DeviceTable {
     }
 
     /// A counted share of the device's one callback-depth counter, for the
-    /// loader and the linked-plugin probe alike: the kernel refuses a plugin
+    /// loader and the linked plugins alike: the kernel refuses a plugin
     /// that brings another (`paperpaw_x4::device_depth`).
     pub(crate) fn depth(&self) -> Option<paperpaw_core::native_host::flat::FlatDepth> {
         self.2.share()
@@ -279,7 +279,7 @@ impl DeviceTable {
     /// A counted share of the table, made (with `core.ui` wired) if it is not
     /// there yet. `None` where it has no room, or where the loader is busy
     /// with it (a plugin loading: no other caller exists on this one core).
-    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+    #[cfg(all(feature = "native-on", feature = "esp32c3"))]
     pub(crate) fn share(&self) -> Option<paperpaw_core::native_host::HostResources> {
         let mut table = self.0.try_borrow_mut().ok()?;
         if table.is_none() {
@@ -307,8 +307,8 @@ impl Loader {
     }
 
     /// The device's table of handles as the loader holds it, for the
-    /// linked-plugin probe: one table, not a second one.
-    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+    /// linked plugins: one table, not a second one.
+    #[cfg(all(feature = "native-on", feature = "esp32c3"))]
     pub fn device_table(&self) -> DeviceTable {
         self.resources.clone()
     }
@@ -334,7 +334,7 @@ impl Loader {
                 return Err(PluginProblem::Unsupported);
             }
             // The nesting budget every interface-7 plugin of this device
-            // shares: the device's one counter (the linked probe takes the same),
+            // shares: the device's one counter (the linked plugins take the same),
             // made at the first use (a fallible allocation: `NoRoom`).
             let Some(depth) = self.resources.depth() else {
                 return Err(PluginProblem::NoRoom);
@@ -556,7 +556,7 @@ impl Loader {
             },
         };
         // The loader's table of handles (one for the device, shared with the
-        // linked-plugin probe): not borrowed by anything else at this point.
+        // linked plugins): not borrowed by anything else at this point.
         let Ok(table) = self.resources.0.try_borrow() else {
             warn!("native: core.net, core.sockets and core.work not wired (table busy)");
             return;
@@ -591,6 +591,34 @@ impl Loader {
             Err(status) => {
                 warn!("native: core.net, core.sockets and core.work not wired ({status})")
             }
+        }
+    }
+
+    /// Wires `core.secrets` with the sealer of a device that does not seal yet
+    /// (`paperpaw_x4::native_offer::NoSeal`, decision 156): the plugins that
+    /// declare the service are admitted, nothing is written or read, and
+    /// interface 6's values stay veiled. Offered only when it succeeded.
+    fn wire_secrets(&self, storage: &alloc::rc::Rc<dyn Storage>) {
+        use alloc::rc::Rc;
+        use paperpaw_core::native_host::{HostWiring, shell_wiring::SecretsInputs};
+        let Ok(table) = self.resources.0.try_borrow() else {
+            warn!("native: core.secrets not wired (table busy)");
+            return;
+        };
+        let Some(resources) = table.as_ref() else {
+            warn!("native: core.secrets not wired (no table)");
+            return;
+        };
+        #[cfg(feature = "test-image")]
+        let sealer = Rc::new(paperpaw_x4::native_offer::VeilSeal);
+        #[cfg(not(feature = "test-image"))]
+        let sealer = Rc::new(paperpaw_x4::native_offer::NoSeal);
+        #[cfg(feature = "test-image")]
+        warn!("secrets: veiled (test build)");
+        let secrets = SecretsInputs::new(storage.clone(), sealer);
+        match resources.wire(HostWiring::new().secrets(secrets)) {
+            Ok(_) => crate::device_host::wired_secrets(),
+            Err(status) => warn!("native: core.secrets not wired ({status})"),
         }
     }
 
@@ -651,6 +679,7 @@ impl CodeLoader for Loader {
         }
         self.wire_network(storage);
         self.wire_card(storage);
+        self.wire_secrets(storage);
     }
 
     fn load(

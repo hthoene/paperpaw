@@ -92,9 +92,9 @@ pub struct Firmware {
     /// The device behind `core.device`, told of what the kernel keeps.
     #[cfg(feature = "ppn5")]
     pub device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
-    /// The loader's table of handles, for the measurement-only linked-plugin
-    /// probe (`static-native`): one table for the device.
-    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+    /// The loader's table of handles, for the linked-plugin
+    /// linked plugins' hosting (`native-on`): one table for the device.
+    #[cfg(all(feature = "native-on", feature = "esp32c3"))]
     pub device_table: Option<crate::native::DeviceTable>,
     pub state: State,
 }
@@ -188,16 +188,17 @@ impl Firmware {
         for warning in self.kernel.take_warnings() {
             warn!("{warning}");
         }
-        // Never taken: the build carries the host code that hosts a linked
-        // plugin, so the measure includes it, but nothing is registered while
-        // the stack gate holds (`abi/heap-word.md` section 6). Not flashable.
-        // Here, on the kernel in its place: a local in `kernel()` or `start()`
-        // would copy it (+4 KB on the frame).
-        #[cfg(all(feature = "static-native", feature = "esp32c3"))]
-        if core::hint::black_box(false)
-            && let Some(table) = &self.device_table
-        {
-            crate::native::register_linked_probe(&mut self.kernel, table);
+        // The linked plugins of interface 7, hosted only where the stack's band
+        // is armed (`abi/heap-word.md` section 6); else none runs and the log
+        // says so. Here, on the kernel in its place: a local in `kernel()` or
+        // `start()` would copy it (+4 KB on the frame).
+        #[cfg(all(feature = "native-on", feature = "esp32c3"))]
+        if let Some(table) = &self.device_table {
+            if crate::stack::band_armed() {
+                crate::native::register_linked(&mut self.kernel, table);
+            } else {
+                warn!("native: the stack's band is not armed: no plugin of interface 7 is hosted");
+            }
         }
         let effects = self.kernel.start(now());
         self.apply(effects);

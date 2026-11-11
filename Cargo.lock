@@ -1803,6 +1803,7 @@ dependencies = [
  "paperpaw-serve",
  "paperpaw-table",
  "paperpaw-text",
+ "paperpaw-x4",
  "paperpaw-zip",
  "png",
  "rcgen",

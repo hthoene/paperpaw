@@ -177,6 +177,7 @@ static OFFER_BOTH: [Service<'static>; BASE + WORK_SERVICES.len() + CARD_SERVICES
 static WIRED: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
 const WIRED_WORK: u8 = 1;
 const WIRED_CARD: u8 = 2;
+const WIRED_SECRETS: u8 = 4;
 
 /// Forgets what was wired, before a start wires again.
 pub fn reset_wired() {
@@ -202,11 +203,38 @@ pub fn wired_card() {
 /// refused at admission, not at its first call. Until a wiring has reported
 /// (and after one that failed) its services are not in the list.
 pub fn offered() -> &'static [Service<'static>] {
-    match WIRED.load(core::sync::atomic::Ordering::Relaxed) {
+    match WIRED.load(core::sync::atomic::Ordering::Relaxed) & (WIRED_WORK | WIRED_CARD) {
         0 => &OFFER_NONE,
         WIRED_WORK => &OFFER_WORK,
         WIRED_CARD => &OFFER_CARD,
         _ => &OFFER_BOTH,
+    }
+}
+
+/// Records that the wiring of `core.secrets` (the device's sealer, or the one
+/// that does not seal yet) succeeded.
+pub fn wired_secrets() {
+    use core::sync::atomic::Ordering::Relaxed;
+    WIRED.store(WIRED.load(Relaxed) | WIRED_SECRETS, Relaxed);
+}
+
+/// What this start wired, as the lists a linked plugin is offered are made
+/// (`paperpaw_x4::native_offer`): `core.work` with `core.net` and
+/// `core.sockets` (one wiring), the card's three, and `core.secrets`. `wifi`:
+/// the kernel has a Wi-Fi model.
+pub fn wired_families(wifi: bool) -> paperpaw_x4::native_offer::Wired {
+    use core::sync::atomic::Ordering::Relaxed;
+    let wired = WIRED.load(Relaxed);
+    let (work, card) = (wired & WIRED_WORK != 0, wired & WIRED_CARD != 0);
+    paperpaw_x4::native_offer::Wired {
+        work,
+        net: work,
+        sockets: work,
+        documents: card,
+        library: card,
+        files: card,
+        secrets: wired & WIRED_SECRETS != 0,
+        wifi,
     }
 }
 

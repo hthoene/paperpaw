@@ -2288,6 +2288,7 @@ dependencies = [
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-lock",
  "paperpaw-plugin-menu",
+ "paperpaw-plugin-news",
  "paperpaw-plugin-opds",
  "paperpaw-plugin-plugin-manager",
  "paperpaw-plugin-power",
@@ -2298,6 +2299,7 @@ dependencies = [
  "paperpaw-plugin-store",
  "paperpaw-plugin-transfer",
  "paperpaw-plugin-update",
+ "paperpaw-plugin-vocabulary",
  "paperpaw-plugin-wifi",
 ]
 
@@ -2586,6 +2588,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-news"
+version = "1.0.10"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-opds"
 version = "1.0.4"
 dependencies = [
@@ -2666,6 +2676,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-vocabulary"
+version = "1.1.5"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-sqlite",
+ "paperpaw-ui-kit",
+ "paperpaw-zip",
+]
+
+[[package]]
 name = "paperpaw-plugin-wifi"
 version = "1.0.4"
 dependencies = [
@@ -2713,6 +2733,13 @@ dependencies = [
 [[package]]
 name = "paperpaw-sort"
 version = "0.6.0-beta.3"
+
+[[package]]
+name = "paperpaw-sqlite"
+version = "0.6.0-beta.3"
+dependencies = [
+ "paperpaw-platform",
+]
 
 [[package]]
 name = "paperpaw-stardict"

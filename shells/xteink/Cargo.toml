@@ -39,17 +39,21 @@ asleep-light = []
 # the shipped firmware reads format-4 files only, and no interface-7 plugin is
 # activated on the X4 until the stack gate (`abi/heap-word.md` section 6) is met.
 ppn5 = ["paperpaw-native/kernel"]
-# The built-in plugins that are interface-7 native plugins already, linked
-# statically (`paperpaw_app::NATIVE_PLUGINS`, ADR 0034 "One path") in place of
-# their interface-6 forms. For measuring the image: they are linked and kept,
-# not activated; no interface-7 plugin runs on the X4 until the stack gate.
-# MEASUREMENT ONLY, NOT FLASHABLE: the interface-6 forms of those plugins are
-# left out and nothing hosts the linked ones, so the image has no Files, Menu,
-# Keyboard, Settings or OPDS. It does not build unless `flash-gate-measure`
-# is set too (`tools/flash-gate.sh --head-features x4,static-native,flash-gate-measure`).
-static-native = ["ppn5", "paperpaw-app/native-linked"]
-# Allows `static-native`, for tools/flash-gate.sh only. Never flash the result.
-flash-gate-measure = []
+# The built-in plugins that are interface-7 native plugins, linked statically
+# (`paperpaw_app::NATIVE_PLUGINS`, ADR 0034 "One path") in place of their
+# interface-6 forms, and hosted by the kernel (`native::register_linked`, once
+# the stack's band is armed, `abi/heap-word.md` section 6): what the firmware
+# ships once the native plugins are on. Home and reader are linked with them
+# (`native-linked-reading`). The store's plugins stay files.
+native-on = ["ppn5", "paperpaw-app/native-linked", "paperpaw-app/native-linked-reading"]
+# The first owner TEST image (decision 156): `native-on` with the veiling
+# sealer (Beta 3's level, not encryption), so Wi-Fi, settings and the lock keep
+# their passwords. Shown on the device as "secrets: veiled (test build)" and in
+# the boot log. Never in a release: `release` refuses it at compile time and
+# `tools/check-test-image-guard.py` (CI) refuses it in the shipped lists.
+test-image = ["native-on", "paperpaw-x4/test-veil"]
+# Marks a build as a release (beta.1 and later); set by the release build.
+release = []
 # What both ESP32-C3 devices build with; chosen by `x4` or `x3`, not by
 # hand.
 esp32c3 = [

@@ -61,3 +61,5 @@ pub(crate) fn one_device_at_a_time() -> std::sync::MutexGuard<'static, ()> {
 /// Inactive interface-7 lifecycle qualification; not used by CodeLoader.
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub mod native_runtime;
+#[cfg(all(test, feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+mod x4_offer_tests;
