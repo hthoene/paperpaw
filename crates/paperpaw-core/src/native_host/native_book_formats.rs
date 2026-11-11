@@ -4,8 +4,9 @@
 //! one stand-in `FormatSpec` there for each format a native plugin declared
 //! (`format.spec`, `docs/abi/document.md` section 1): its id
 //! `<plugin>.<name>`, its title and the extensions it declared, matched as
-//! every format's are (after a dot, ASCII case ignored). Its opener refuses:
-//! a native document opens through `core.document`, never `Formats::open`.
+//! every format's are (after a dot, ASCII case ignored). Its opener refuses
+//! with `NotReady`: a native document opens through `core.document`, never
+//! `Formats::open`, and its details are read by the host later.
 //!
 //! **In line with the declarations.** The stand-ins are made again whenever
 //! the registry's generation moved ([`Kernel::native_book_formats_sync`]):
@@ -99,8 +100,11 @@ fn stand_in(
         id,
         Cow::Owned(copy(title)?),
         extensions,
-        // Never opened here: `core.document` opens native documents.
-        Box::new(|_, _, _| Err(paperpaw_sdk::document::DocumentError::UnsupportedFormat)),
+        // Never opened here: `core.document` opens native documents. "Not
+        // ready" tells the walk its details come later, from the host's
+        // details job (`library::keep_native_details`), so it marks nothing
+        // as read.
+        Box::new(|_, _, _| Err(paperpaw_sdk::document::DocumentError::NotReady)),
     )))
 }
 
