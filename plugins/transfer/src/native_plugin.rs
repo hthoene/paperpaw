@@ -1,11 +1,10 @@
 //! The interface-7 transfer screen: while it is open the device serves the web
 //! page to the local network (`core.net` `serve`), shows the address as text and
 //! as a QR code, and answers the page's requests (list, download, upload, make a
-//! folder, delete: `native_web`). The address carries a key drawn anew for each
+//! folder, move, rename, delete: `native_web`). The address carries a key drawn anew for each
 //! time of serving from the device's random source (`core.secrets`); wrong keys
 //! lock the page for a while. Closing the screen ends the serving. What is not
-//! native yet (the phone's keyboard, the cable, the offer to go online, the
-//! own network, installing plugins and moving files) is named in `PORTING-7.md`.
+//! native yet (the cable) is named in `PORTING-7.md`.
 use crate::{
     declarations::{
         INSTALL_DONE, OPEN_TOKEN, PHONE, SCREEN, SERVED_REQUEST, SERVER_EVENT, WIFI_DONE, WORK,
@@ -31,6 +30,7 @@ use paperpaw_sdk::{
         events::{Event, Incoming, InstallDone, kinds},
         files::Files,
         formatting::Arg,
+        library::Library,
         net::{
             FileRoot, MAX_SERVED_BODY, Net, REQUEST_INPUT, Reason, Response, ServedRequest, Server,
             ServerState,
@@ -106,6 +106,8 @@ pub struct NativeTransfer {
     screens: Screens<Page>,
     net: Option<Net>,
     files: Option<Files>,
+    /// The library (`None` where it cannot be had: books are then files).
+    library: Option<Library>,
     device: Option<Device>,
     secrets: Option<Secrets>,
     registry: Option<Registry>,
@@ -601,7 +603,13 @@ impl NativeTransfer {
             at: Instant(request.now_ms()),
         };
         let files = handle(&mut self.files, || Files::open(host))?;
-        let mut card = HostCard::new(host, files)?;
+        let library = match handle(&mut self.library, || Library::open(host)) {
+            Ok(library) => Some(library),
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            // Not declared or not allowed: books are files then.
+            Err(_) => None,
+        };
+        let mut card = HostCard::new(host, files, library)?;
         let Some(guard) = self
             .screens
             .top(SCREEN)
@@ -753,6 +761,7 @@ fn said(host: &Host<'_>, done: Done, name: &str) -> Result<String, Error> {
         Done::Sent => "transfer.sent",
         Done::Folder => "transfer.folder",
         Done::Deleted => "transfer.deleted",
+        Done::Moved => "transfer.moved",
         Done::NotReceived => "transfer.not-received",
     };
     say_name(host, key, name)
