@@ -9,7 +9,7 @@
 use super::{
     declaration_checks::Cap,
     declarations,
-    registrations::{REGISTRATION_MAX_RECORDS, Record, host_records_decode},
+    registrations::{REGISTRATION_MAX_RECORDS, Record, host_records_visit},
     staged::DECLARATIONS_MAX_BYTES,
 };
 #[cfg(test)]
@@ -534,27 +534,7 @@ impl PendingDeclarations {
             return Err(ERR_STATE);
         }
         let bytes = input.bytes();
-        let decoded = host_records_decode(bytes)?;
-        declarations::validate_batch(self.kept.id.as_str(), &decoded)?;
-        // The frames must tile the batch exactly: a lookup walks their headers
-        // to reach a record by its place (`raw_declarations::record_at`).
-        let framing = super::raw_declarations::offsets(bytes, decoded.len())?;
-        debug_assert!(
-            framing[..decoded.len()]
-                .windows(2)
-                .all(|pair| pair[0] < pair[1])
-        );
-        let mut counts = [0usize; KIND_COUNT];
-        let mut kinds = [None; REGISTRATION_MAX_RECORDS];
-        for (index, record) in decoded.iter().enumerate() {
-            if let Some(kind) = Kind::of(&record) {
-                kinds[index] = Some((
-                    kind,
-                    super::declaration_index::record_hash(record).ok_or(ERR_INVALID)?,
-                ));
-                counts[kind as usize] += 1;
-            }
-        }
+        let (kinds, counts) = classify(self.kept.id.as_str(), bytes)?;
         let expected = match &input {
             Input::Committed(raw) => Some(raw.entries),
             Input::Image { entries, .. } => Some(*entries),
@@ -1204,9 +1184,52 @@ mod stages;
 )]
 pub(crate) use stages::{StageLimits, StageSubscriber};
 
+/// Each record's kind and hash by its place in the batch, `None` for a record
+/// no kind indexes.
+type Classes = [Option<(Kind, u32)>; REGISTRATION_MAX_RECORDS];
+
+/// The kind and hash of each record of the batch `bytes` by its place, and how
+/// many of each kind it holds: the whole batch decoded and checked first (each
+/// record, then frames that tile it), with the statuses of a decoded batch.
+/// One record is decoded at a time (`host_records_visit`), never the eight of a
+/// batch at once: they would take most of the X4's 2 KiB stack band
+/// (`abi/heap-word.md` section 6) under a plugin's own frames.
+#[inline(never)]
+fn classify(id: &str, bytes: &[u8]) -> Result<(Classes, [usize; KIND_COUNT]), i32> {
+    let mut counts = [0usize; KIND_COUNT];
+    let mut kinds = [None; REGISTRATION_MAX_RECORDS];
+    let mut index = 0;
+    // One visit checks and classifies each record: `host_records_visit` has
+    // decoded the whole batch once before the first record is visited, so a
+    // decoding error anywhere still comes before any record's own status.
+    let len = host_records_visit(bytes, REGISTRATION_MAX_RECORDS, &mut |record| {
+        declarations::validate_record(id, &record)?;
+        if let Some(kind) = Kind::of(&record) {
+            let hash = super::declaration_index::record_hash(record).ok_or(ERR_INVALID)?;
+            *kinds.get_mut(index).ok_or(ERR_INVALID)? = Some((kind, hash));
+            *counts.get_mut(kind as usize).ok_or(ERR_INVALID)? += 1;
+        }
+        index += 1;
+        Ok(())
+    })?;
+    // The frames must tile the batch exactly: a lookup walks their headers
+    // to reach a record by its place (`raw_declarations::record_at`).
+    let framing = super::raw_declarations::offsets(bytes, len)?;
+    debug_assert!(
+        framing
+            .get(..len)
+            .is_some_and(|framing| framing.windows(2).all(|pair| pair[0] < pair[1]))
+    );
+    Ok((kinds, counts))
+}
+
 #[cfg(test)]
 #[path = "declaration_store_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "declaration_classify_tests.rs"]
+mod classify_tests;
 
 // The device check validates layout instead of extrapolating host enum sizes.
 #[cfg(target_pointer_width = "32")]

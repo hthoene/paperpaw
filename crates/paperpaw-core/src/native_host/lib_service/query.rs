@@ -84,6 +84,16 @@ pub(crate) trait LibQuery {
     fn next_in_series(&self, _book: BookRef<'_>, _visit: One<'_>) -> Result<(), i32> {
         Err(ERR_UNSUPPORTED)
     }
+    /// The library's cover job has ended (`doc_cover_job`): `ready`, or failed
+    /// with the key of its book's path (`lib_cover::path_key`). The host raises
+    /// what the screens need to ask again.
+    fn cover_job_ended(&self, _ready: bool, _key: u64) {}
+    /// Cover jobs may begin now (the kernel's start has returned): the screens
+    /// that were told "busy" meanwhile ask again (bit 6).
+    fn cover_jobs_began(&self) {}
+    /// A reset ended the cover job of the book with `key` (a marker left on
+    /// the card): it counts as failed (`doc_cover_job`).
+    fn cover_job_left(&self, _key: u64) {}
     /// Op 7: the `doc_image` of the book's cover for `who`, `side` 0 for the
     /// list's size, else at most the screen's long side. `ERR_NOT_FOUND` for
     /// none, `ERR_BUSY` while it is made. `cx` is the call's frame and
