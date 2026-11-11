@@ -78,7 +78,7 @@ pub(crate) fn owner_stopped(host: &dyn LibHost, owner: u64) -> Result<(), i32> {
 
 /// The `core.library` backend.
 pub(crate) fn backend(
-    _frame: &dyn Frame,
+    frame: &dyn Frame,
     caller: &HostCaller<'_>,
     op: &ServiceOp,
     input: &[u8],
@@ -92,7 +92,7 @@ pub(crate) fn backend(
     };
     let host: &dyn LibHost = &*services.0;
     match op.id {
-        1..=7 | 13 | 15 | 16 | 22 | 25 => query::run(host, &who, op, input, out),
+        1..=7 | 13 | 15 | 16 | 22 | 25 => query::run(frame, host, &who, op, input, out),
         8..=12 | 14 | 17..=21 | 23 | 24 | 26 => write::run(host, &who, op, input, out),
         _ => Err(ERR_UNSUPPORTED),
     }

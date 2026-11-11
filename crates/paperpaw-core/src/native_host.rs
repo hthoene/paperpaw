@@ -520,6 +520,7 @@ mod native_resources;
 pub(crate) mod native_action;
 #[path = "native_host/native_screen_factory.rs"]
 pub(crate) mod native_screen_factory;
+mod owned_texts;
 
 #[path = "native_host/native_screen.rs"]
 mod native_screen;

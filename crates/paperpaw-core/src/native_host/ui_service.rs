@@ -26,7 +26,7 @@ use crate::abi7::{context::Frame, services_wire::ServiceOp};
 use crate::native_host::codec;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
-    ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED,
+    ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED,
 };
 
 pub(crate) use crate::abi7::context::ui_views::{Declared, UiDirectory};
@@ -267,11 +267,48 @@ fn handover(
         });
         Ok(())
     })?;
-    let id = ui.store.handover_make(stamp, &staged)?;
+    let id = match handed_on(frame, ui, &mut staged)? {
+        Some(maker) => ui.store.handover_passing_on(stamp, &staged, maker),
+        None => ui.store.handover_make(stamp, &staged),
+    }?;
     codec::encode_one(
         &Record::ServiceUiHandle(wire::ServiceUiHandle { handle: id }),
         out,
     )
+}
+
+/// A hand-over whose `root` is `5` passes on the handed file of the calling
+/// instance (a reader opening its table-of-contents screen of a book a
+/// plugin handed over, `document.md` 1 root 5): the instance must hold one
+/// and `path` must be its path (`ERR_DENIED` otherwise, as for a root of 5
+/// before). Gives the plugin that handed the file first, and puts the file's
+/// own root (`0`, `2`) in the params, so the screen reads the same hand-over
+/// as the one the maker made.
+fn handed_on(
+    frame: &dyn Frame,
+    ui: &UiServices,
+    staged: &mut [Param<'_>],
+) -> Result<Option<u64>, i32> {
+    let Some(at) = staged
+        .iter()
+        .position(|param| param.key == "root" && param.value == "5")
+    else {
+        return Ok(None);
+    };
+    let instance = frame.calling_instance().map_err(|_| ERR_DENIED)?;
+    let path = staged
+        .iter()
+        .find(|param| param.key == "path")
+        .map(|param| param.value);
+    let mut found = Err(ERR_DENIED);
+    ui.store.handed_file(instance, &mut |file| {
+        if Some(file.path) == path {
+            found = Ok((file.maker, if file.root == 2 { "2" } else { "0" }));
+        }
+    })?;
+    let (maker, root) = found?;
+    staged[at].value = root;
+    Ok(Some(maker))
 }
 
 /// Op 17: the params of the calling instance's hand-over, then `end`.
