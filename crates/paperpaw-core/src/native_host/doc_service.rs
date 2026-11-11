@@ -298,8 +298,9 @@ pub(crate) trait DocHost {
     /// not used: nothing of the job's work is kept).
     fn cover_job_displaced(&self) {}
     /// A library list screen is up (`up`) or is not: the cover job takes no
-    /// step while one is up and for a quiet moment after it closes, so that
-    /// no conversion peaks beside the list's buffers. The time held does not
+    /// *preparing* step (a conversion) while one is up and for a quiet moment
+    /// after it closes, so that no conversion peaks beside the list's
+    /// buffers. A job whose book is ready is not held (its cover is made). The time held does not
     /// count toward the job's awake time. Said by the pump before it steps.
     fn cover_job_list(&self, _up: bool) {}
     /// The key of a book whose job was displaced too often in a row (0: none):
