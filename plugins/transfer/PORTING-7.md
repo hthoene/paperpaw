@@ -67,7 +67,7 @@ them stay until the host activates native plugins (then they go together, no shi
   the same bytes, weak draws, no source), `native_draw.rs` (the code's place and that its rectangles cover each dark
   module once), `native_page.rs` (the strings go where the page names them; every text the page reads is given),
   `tests/abi7_declarations.rs` (what `make` submits has no slot offer; the events), `tests/native_linked_entry.rs`,
-  `tests/hosted_construction.rs` (`make` is refused as `Unsupported` until the host admits every family, Core #944).
+  `tests/hosted_construction.rs` (`make` runs in a real registered scope: the host admits every family).
 
 ## Ported (slice 3: installing plugins, the phone's keyboard, the offers, the hint)
 
@@ -120,9 +120,8 @@ them stay until the host activates native plugins (then they go together, no shi
   network is served by leaving the router's network first).
 - **The page's hint for a book sent outside the library folder**: `T.books` is the extensions of the formats
   (`core.document` op 19, no permission; each once, at most 128), so the page names the library folder as before.
-- **What the host admits**: `event.install_done`, `event.wifi_done` and `event.work_due` are not admitted by the
-  host's registration check yet (Core #944; update's port waits for the same two), so `make` is refused as `Unsupported`
-  there (`tests/hosted_construction.rs`: the construction test is ignored, with the refusal asserted beside it).
+- **What the host admits**: every registration `make` submits is admitted (`event.install_done`, `event.wifi_done`
+  and `event.work_due` too: `tests/hosted_construction.rs` constructs the plugin in the kernel's real scope).
 
 ## `paperpaw.ini`: not served, not changed (defence in depth)
 
