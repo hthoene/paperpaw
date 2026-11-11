@@ -511,6 +511,9 @@ draw callback tells its parts with this slot.
   nobody asks in this draw; the plugin may leave out the rest of this draw's parts. The host keeps,
   copies and allocates nothing for a call that returns 0; while somebody asks, the describing
   sink copies the label.
+- [D] One describe pass keeps at most 128 parts and 4 KiB of labels, counting the text parts the
+  host tells for the screen's own text draws (below). Past either bound, or where the host has no
+  memory for the part, the call returns 0 as where nobody asks; nothing is cut or aborted.
 - [D] `role`: 1 heading, 2 row, 3 button, 4 switch, 5 slider, 6 text, 7 check, 8 radio, 9 field,
   10 image, 11 link, 12 dialog, 13 progress. 0 is `ERR_INVALID`; a number this host does not know
   (a later one) is told as text.
@@ -526,6 +529,9 @@ draw callback tells its parts with this slot.
   heading, a button) is told before the text inside it is drawn: a row with an empty label takes
   the texts drawn inside it as its label, in reading order; a part with a label of its own keeps
   it. A switch told inside a row makes the row on or off.
+- [D] Not told as text yet: text drawn with `text.draw_inked` (slot 41) and icons (glyphs of
+  `role:icons`, which the merge rules drop as saying nothing). A part whose words are drawn that
+  way gives them in its own `label`.
 - [D] No reply, no event, no state across draws. The slot announces itself in the X4 frame gate
   like the other canvas slots; it needs no buffer of its own.
 

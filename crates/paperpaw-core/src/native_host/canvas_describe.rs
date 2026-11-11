@@ -3,10 +3,14 @@
 //! screen tells it with `Canvas::describe` (`screens-input.md` section 6.1, #243).
 //!
 //! Nothing is kept, copied or allocated where nobody asks: the label is
-//! copied by the describing sink only, and only while it is there.
+//! copied by the describing sink only, and only while it is there. One pass
+//! keeps at most [`MAX_PARTS`] parts and [`MAX_LABELS`] label bytes, so a
+//! screen describing or drawing text in a loop cannot use up the heap; past
+//! them, or out of memory, a part is not told (slot 42 returns 0).
 
 use super::canvas::CanvasScope;
-use paperpaw_graphics::Role;
+use alloc::string::String;
+use paperpaw_graphics::{Described, Role};
 use paperpaw_native::host_glue::ERR_INVALID;
 use paperpaw_platform::Rect;
 
@@ -20,6 +24,10 @@ pub(crate) const ON: u32 = 1 << 2;
 pub(crate) const DISABLED: u32 = 1 << 3;
 /// Every flag this build knows; any other bit is refused.
 const KNOWN: u32 = FOCUSED | HAS_ON | ON | DISABLED;
+/// The most parts one describe pass keeps (a full X4 list screen tells about 40).
+pub(crate) const MAX_PARTS: usize = 128;
+/// The most label bytes one describe pass keeps.
+pub(crate) const MAX_LABELS: usize = 4096;
 
 /// The role of wire number `role` (`screens-input.md` 6.1): 1 to 13 in the order of
 /// [`Role`]; a later number this build does not know is told as text, as
@@ -106,19 +114,13 @@ impl CanvasScope {
             u64::from(height),
         );
         self.with_canvas(|canvas| {
-            if !canvas.is_describing() {
-                return 0;
-            }
             let on = (flags & HAS_ON != 0).then_some(flags & ON != 0);
-            let part = canvas
-                .describe(role, label, area)
-                .focused(flags & FOCUSED != 0)
-                .on(on);
             // Disabled where the canvas says so too (`Canvas::disabling`).
-            if flags & DISABLED != 0 {
-                drop(part.disabled(true));
-            }
-            1
+            let part = Described::new(role, String::new(), area)
+                .focused(flags & FOCUSED != 0)
+                .on(on)
+                .disabled(flags & DISABLED != 0);
+            i32::from(canvas.try_describe(part, label, MAX_PARTS, MAX_LABELS))
         })
         .unwrap_or_else(|error| error)
     }
@@ -143,7 +145,8 @@ pub(crate) fn told_text(
         ceil(width).max(0).unsigned_abs(),
         ceil(height).max(0).unsigned_abs(),
     );
-    drop(canvas.describe(Role::Text, text, at));
+    let part = Described::new(Role::Text, String::new(), at);
+    canvas.try_describe(part, text, MAX_PARTS, MAX_LABELS);
 }
 
 /// Float to whole pixels down, without `libm` (`no_std`): `as` truncates and

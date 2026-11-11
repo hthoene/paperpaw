@@ -132,3 +132,70 @@ fn floats_round_outward_to_whole_pixels() {
     );
     assert_eq!(floor(f32::NEG_INFINITY), i64::MIN);
 }
+
+/// A screen describing (or drawing text) in a loop stops at the pass's
+/// bounds: slot 42 then answers 0, as where nobody asks (Senior R1, #1166).
+#[test]
+fn one_pass_keeps_at_most_its_parts_and_label_bytes() {
+    let mut frame = frame();
+    let mut sink: Vec<Described> = Vec::new();
+    let scope = core::pin::pin!(CanvasScope::new());
+    {
+        let mut canvas = frame.canvas().describing(&mut sink);
+        scope
+            .as_ref()
+            .scope(&mut canvas, || {
+                let label = "x".repeat(256);
+                let fitting = MAX_LABELS / label.len();
+                for _ in 0..fitting {
+                    assert_eq!(scope.describe(6, 0, &label, 0, 0, 4, 4), 1);
+                }
+                assert_eq!(scope.describe(6, 0, &label, 0, 0, 4, 4), 0);
+                let mut told = 0;
+                for _ in 0..2 * MAX_PARTS {
+                    told += scope.describe(2, 0, "", 0, 0, 4, 4);
+                }
+                assert_eq!(usize::try_from(told).unwrap(), MAX_PARTS - fitting);
+            })
+            .unwrap();
+        told_text(&mut canvas, "late", 0.0, 0.0, 4.0, 4.0);
+    }
+    assert_eq!(sink.len(), MAX_PARTS);
+    assert_eq!(
+        sink.iter().map(|d| d.label.len()).sum::<usize>(),
+        MAX_LABELS
+    );
+}
+
+/// End to end through the merge rules (`paperpaw_sdk::semantics::parts`): a
+/// row told without a label takes the text drawn inside it as its one label;
+/// a row with a label of its own keeps it (Code Reviewer, #1166).
+#[test]
+fn drawn_text_labels_an_empty_row_and_leaves_a_labelled_row_alone() {
+    let mut frame = frame();
+    let mut sink: Vec<Described> = Vec::new();
+    let scope = core::pin::pin!(CanvasScope::new());
+    {
+        let mut canvas = frame.canvas().describing(&mut sink);
+        scope
+            .as_ref()
+            .scope(&mut canvas, || {
+                assert_eq!(scope.describe(2, FOCUSED, "", 0, 0, 64, 20), 1);
+            })
+            .unwrap();
+        told_text(&mut canvas, "Name", 4.0, 4.0, 30.0, 12.0);
+        scope
+            .as_ref()
+            .scope(&mut canvas, || {
+                assert_eq!(scope.describe(2, 0, "Own", 0, 30, 64, 20), 1);
+            })
+            .unwrap();
+        told_text(&mut canvas, "Other", 4.0, 34.0, 30.0, 12.0);
+    }
+    let parts = paperpaw_sdk::semantics::parts(sink);
+    let told: Vec<_> = parts
+        .iter()
+        .map(|p| (p.role, p.label.as_str(), p.focused))
+        .collect();
+    assert_eq!(told, [(Role::Row, "Name", true), (Role::Row, "Own", false)]);
+}

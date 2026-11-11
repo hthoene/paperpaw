@@ -5,3 +5,6 @@
   and tests, as a legacy screen does; the host also tells every native `text.draw` as text while
   it asks. Nothing is kept or allocated where nobody asks. SDK: `native::canvas::Canvas::describe_part`
   with `PartRole` and `PartFlags` (#243).
+- `paperpaw_graphics::Canvas::try_describe`: tells a part within a pass's bounds of parts and label
+  bytes and without aborting where memory runs out; slot 42 and the native text auto-record keep at
+  most 128 parts and 4 KiB of labels per describe pass (#243).
