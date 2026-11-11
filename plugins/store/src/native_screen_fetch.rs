@@ -17,7 +17,7 @@
 //! a line each; see [`open_next`]) for a request, with none while the queue is
 //! at work (*Update all*) and with none while the list is fetched. What it
 //! shows is read from the installs ([`Installs::step`], [`Installs::queued`])
-//! and the loader ([`Loader::list_state`]), counted on every event: no timer.
+//! and the loader ([`crate::native_screens::Loader::list_state`]), counted on every event: no timer.
 //! The plugin queues the plugins **before** it opens the screen of a request
 //! (an empty queue with nothing installed is a download that did not come).
 //!
