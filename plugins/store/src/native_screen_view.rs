@@ -468,6 +468,7 @@ pub fn plugin_row(
         zone: None,
         stepper: false,
         disabled: false,
+        on: None,
     })
 }
 
@@ -495,6 +496,7 @@ pub fn top_row(say: &mut dyn Say, top: Top, order: Order, help: &str) -> Result<
         zone: None,
         stepper: false,
         disabled: false,
+        on: None,
     })
 }
 

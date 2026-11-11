@@ -35,6 +35,9 @@ pub struct RowItem {
     pub stepper: bool,
     /// Shown faint, passed by the focus and not chosen by a tap.
     pub disabled: bool,
+    /// A switch: on or off (the row is told as a switch to whoever asks what
+    /// is shown); `None` for a row that is no switch.
+    pub on: Option<bool>,
 }
 
 /// An entry of an [`ItemList`].
@@ -75,6 +78,7 @@ impl Item {
             zone: None,
             stepper: false,
             disabled: false,
+            on: None,
         }))
     }
 
@@ -971,6 +975,9 @@ pub(crate) fn draw_row(
         focused,
         row.disabled,
     )?;
+    if let Some(on) = row.on {
+        paint::describe_switch(paint, style.describing, rect, on, row.disabled)?;
+    }
     let ink = if row.disabled {
         style.disabled
     } else {

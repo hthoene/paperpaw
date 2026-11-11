@@ -168,6 +168,36 @@ pub fn describe(
     push(paint, Paint::Describe { role, flags, rect })
 }
 
+/// Pushes the [`Paint::Describe`] of a switch, `on` or off, at `rect`: inside a
+/// row it makes the row on or off. Nothing is queued where `describing` is not
+/// set (see [`asking`]).
+///
+/// # Errors
+/// [`Error::NoMemory`] when the list cannot grow.
+pub fn describe_switch(
+    paint: &mut Vec<Paint>,
+    describing: bool,
+    rect: Rect,
+    on: bool,
+    disabled: bool,
+) -> Result<(), Error> {
+    if !describing {
+        return Ok(());
+    }
+    let mut flags = if on { PartFlags::ON } else { PartFlags::OFF };
+    if disabled {
+        flags = flags | PartFlags::DISABLED;
+    }
+    push(
+        paint,
+        Paint::Describe {
+            role: PartRole::Switch,
+            flags,
+            rect,
+        },
+    )
+}
+
 /// A host rectangle for a widget rectangle.
 #[must_use]
 pub fn frame_rect(rect: Rect) -> FrameRect {
@@ -360,6 +390,27 @@ mod tests {
         describe(&mut none, false, PartRole::Row, rect, true, false).unwrap();
         assert!(none.is_empty(), "nothing is queued where nobody asks");
         assert_eq!(none.capacity(), 0, "nor is room made for it");
+    }
+
+    #[test]
+    fn a_switch_is_told_on_or_off_and_faint_where_disabled() {
+        let rect = Rect::new(0, 0, 10, 10);
+        let mut paint = Vec::new();
+        super::describe_switch(&mut paint, true, rect, true, false).unwrap();
+        super::describe_switch(&mut paint, true, rect, false, true).unwrap();
+        super::describe_switch(&mut paint, false, rect, true, false).unwrap();
+        let flags: Vec<u32> = paint
+            .iter()
+            .filter_map(|op| match op {
+                Paint::Describe {
+                    role: PartRole::Switch,
+                    flags,
+                    ..
+                } => Some(flags.bits()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(flags, [0b0110, 0b1010]);
     }
 
     #[test]
