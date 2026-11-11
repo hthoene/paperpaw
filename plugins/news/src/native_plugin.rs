@@ -255,9 +255,20 @@ impl Plugin for NativeNews {
         incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        // Without state, the action that opens the list needs none.
-        if self.state.is_empty() && token == OPEN_TOKEN {
-            return open_list(host);
+        if self.state.is_empty() {
+            // Without state, the action that opens the list needs none, and
+            // nothing a setting change, a dropped widget or a closed screen
+            // would update exists yet: they must not make the state (the
+            // first setting change anywhere would undo the saving).
+            if token == OPEN_TOKEN {
+                return open_list(host);
+            }
+            if incoming.is::<kinds::SettingChanged>()
+                || incoming.is::<kinds::WidgetDropped>()
+                || incoming.is::<kinds::ScreenClosed>()
+            {
+                return Ok(());
+            }
         }
         self.state()?.event(host, token, incoming, reply)
     }
