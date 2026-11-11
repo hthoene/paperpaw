@@ -221,10 +221,10 @@ fn safe_mode_switches_the_crashing_plugin_off_for_good() {
         c.native_decide(&config, "widgets", true, false),
         NativeDecision::Crashed
     );
-    let file = read_config(c.shared.storage.as_ref()).unwrap().unwrap();
-    assert!(file.contains("widgets = off"), "{file}");
-    let mut next = kernel(&file, "");
-    assert!(!enabled(&mut next, "widgets", true));
+    let saved = read_config(c.shared.storage.as_ref()).unwrap().unwrap();
+    assert!(saved.contains("widgets = off"), "{saved}");
+    let mut after = kernel(&saved, "");
+    assert!(!enabled(&mut after, "widgets", true));
     // The next start, without safe mode: the card plugin is still off.
     let mut next = kernel(&file, "");
     assert!(!enabled(&mut next, "mail", true));
