@@ -167,10 +167,16 @@ impl<D: BlockDevice> ExFatFs<D> {
             if entry[0] == raw::ENTRY_FILE {
                 // A damaged reserved-name set is evidence, not free space
                 // or permission to create a second journal with that name.
-                if let Some(name_at) = self.slot_offset(&mut walk, slot + 2).await? {
+                // A readable stream entry with another name length names
+                // another file (`PP$INTENTX…`); an unreadable one may not.
+                if let (Some(stream_at), Some(name_at)) =
+                    (self.slot_offset(&mut walk, slot + 1).await?, self.slot_offset(&mut walk, slot + 2).await?) {
+                    let mut stream = [0; ENTRY_SIZE];
+                    self.get_bytes(stream_at, &mut stream).await?;
                     let mut named = [0; ENTRY_SIZE];
                     self.get_bytes(name_at, &mut named).await?;
-                    if named[0] == raw::ENTRY_NAME
+                    let other_length = stream[0] == raw::ENTRY_STREAM && usize::from(stream[3]) != INTENT_FILE.len();
+                    if named[0] == raw::ENTRY_NAME && !other_length
                         && INTENT_FILE.bytes().enumerate().all(|(i, byte)| le16(&named, 2 + i * 2) == u16::from(byte)) {
                         return Err(ErrorKind::Corrupt.into());
                     }

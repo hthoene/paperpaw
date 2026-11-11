@@ -487,3 +487,19 @@ fn a_damaged_reserved_name_after_a_free_run_refuses_without_writes() {
     drop(fs);
     assert_eq!(*bytes.0.borrow(), before);
 }
+
+/// Senior nit: a user file whose name only starts with the reserved name is
+/// another file, not a damaged journal; bootstrap proceeds and keeps it.
+#[test]
+fn a_longer_name_starting_with_the_reserved_name_is_not_a_journal() {
+    let bytes = exfat_card();
+    let card = exfat(&bytes);
+    card.write("PP$INTENTX.txt", b"user file").unwrap();
+    card.sync().unwrap();
+    drop(card);
+    let mut fs = driver(bytes.clone());
+    fs.bootstrap_intent(123).unwrap();
+    fs.sync().unwrap();
+    drop(fs);
+    assert_eq!(read(&exfat(&bytes), "PP$INTENTX.txt"), b"user file");
+}
