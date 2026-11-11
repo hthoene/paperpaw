@@ -25,9 +25,10 @@ const GRID: u32 = 2048;
 const MARGIN: u32 = 512;
 /// How far a split point may move forward to reach whitespace.
 const SPLIT_SEARCH: usize = 256;
-/// Bytes read beyond what a block needs, so the blocks after it are found
-/// in what was read: about two pages of the X4.
-const AHEAD: u32 = 4096;
+/// Bytes read beyond what a block needs. None: the window already reaches
+/// `LIMIT + MARGIN` past the block, so the blocks after it are found in it, and a
+/// longer one would be held in memory between the pages.
+const AHEAD: u32 = 0;
 /// Bytes of a UTF-16 file converted at a time.
 const UTF16_PIECE: u32 = 4096;
 
@@ -353,17 +354,33 @@ impl TxtDocument {
         }))
     }
 
+    /// The bytes `decode` makes of `bytes`.
+    fn decoded_len(&self, bytes: &[u8]) -> usize {
+        let (mut i, mut total) = (0, 0);
+        while i < bytes.len() {
+            let (ch, len) = match self.encoding {
+                Encoding::Utf8 => decode_utf8(&bytes[i..]),
+                Encoding::Windows1252 => (cp1252(bytes[i]), 1),
+            };
+            total += match ch {
+                '\r' if bytes.get(i + 1) != Some(&b'\n') => 1,
+                '\r' | '\u{feff}' => 0,
+                c if c.is_control() => 1,
+                c => c.len_utf8(),
+            };
+            i += len;
+        }
+        total
+    }
+
     /// Decodes file bytes starting at source offset `base` into normalized
     /// text: `\r` before `\n` and stray BOMs are dropped, line breaks, tabs
     /// and control characters become spaces.
     fn decode(&self, bytes: &[u8], base: u32) -> Result<(String, OffsetMap), DocumentError> {
         let mut text = String::new();
-        // A single Windows-1252 byte expands to at most three UTF-8 bytes.
-        let capacity = bytes
-            .len()
-            .checked_mul(3)
-            .ok_or(DocumentError::OutOfMemory)?;
-        text.try_reserve_exact(capacity)
+        // Exactly the bytes the text takes: not the worst case of a
+        // Windows-1252 byte (three), which would hold a window's worth three times.
+        text.try_reserve_exact(self.decoded_len(bytes))
             .map_err(|_| DocumentError::OutOfMemory)?;
         let mut map = OffsetMap::default();
         let mut i = 0;

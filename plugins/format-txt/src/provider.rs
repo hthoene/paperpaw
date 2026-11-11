@@ -588,8 +588,26 @@ fn records<'a>(block: &'a Block, list: &mut Vec<Record<'a>>) -> Result<(), Error
     Ok(())
 }
 
+/// An upper bound of a record's bytes on the wire: its framing, its fixed fields
+/// and its strings with their length prefixes (the SDK's own bound for the records
+/// a plain-text block has).
+fn bound(record: &Record<'_>) -> usize {
+    5 + match record {
+        Record::FmtBlock(_) => 16 * 4 + 2,
+        Record::FmtTextPart(t) => 2 + t.text.len(),
+        Record::FmtRun(_) => 12,
+        Record::FmtMap(_) => 8,
+        _ => 64,
+    }
+}
+
+/// Room kept for the closing `fmt.end`.
+const END_RESERVE: usize = 32;
+
 /// The fragment of `list` from record `cursor` that fits `out` with its
-/// closing `fmt.end`, cut only between records (section 4).
+/// closing `fmt.end`, cut only between records (section 4). Records are written
+/// one by one into `out`, within a byte budget that always leaves room for the
+/// closing record: no second list is made.
 fn fragment(
     list: &[Record<'_>],
     cursor: u32,
@@ -603,35 +621,42 @@ fn fragment(
         .get(from..)
         .filter(|r| !r.is_empty())
         .ok_or(Error::Invalid)?;
-    let mut frame: Vec<Record<'_>> = Vec::new();
-    frame.try_reserve(ROWS).map_err(|_| Error::NoMemory)?;
-    let mut take = min(rest.len(), ROWS - 1);
-    loop {
-        let more = take < rest.len();
-        frame.clear();
-        frame.extend(rest.iter().take(take).cloned());
-        frame.push(Record::FmtEnd(stage::FmtEnd::new(
-            if more {
-                END_MORE
-            } else if last {
-                END_LAST
-            } else {
-                0
-            },
-            0,
-            generation,
-            if more {
-                u32::try_from(from + take).map_err(|_| Error::Invalid)?
-            } else {
-                next_block
-            },
-            None,
-        )));
-        match stage::reply_encode(&frame, out) {
-            Ok(written) => return Ok(written),
-            // A record that fits no reply at all: nothing to give up on.
-            Err(_) if take <= 1 => return Err(Error::NoSpace),
-            Err(_) => take -= 1,
+    let cap = out.len().min(stage::MAX_REPLY);
+    let mut writer = stage::ReplyWriter::new(out).map_err(|_| Error::NoSpace)?;
+    let (mut used, mut take) = (1, 0);
+    for record in rest.iter().take(ROWS - 1) {
+        let need = bound(record);
+        if used + need + END_RESERVE > cap {
+            break;
         }
+        writer.push(record).map_err(|_| Error::Invalid)?;
+        used += need;
+        take += 1;
     }
+    // A record that fits no reply at all: nothing to give up on.
+    if take == 0 {
+        return Err(Error::NoSpace);
+    }
+    let more = take < rest.len();
+    let end = stage::FmtEnd::new(
+        if more {
+            END_MORE
+        } else if last {
+            END_LAST
+        } else {
+            0
+        },
+        0,
+        generation,
+        if more {
+            u32::try_from(from + take).map_err(|_| Error::Invalid)?
+        } else {
+            next_block
+        },
+        None,
+    );
+    writer
+        .push(&Record::FmtEnd(end))
+        .map_err(|_| Error::NoSpace)?;
+    writer.finish().map_err(|_| Error::NoSpace)
 }
