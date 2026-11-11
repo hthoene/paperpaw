@@ -164,12 +164,21 @@ impl Sealer for NoSeal {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct VeilSeal;
 
-/// The first byte of a veiled value: no real sealer's output starts with it
-/// by design (a real one starts with its nonce, which a veiled value never
-/// passes: it fails the tag check there and the value is absent).
+/// The first byte of a veiled value, then [`VEIL_MAGIC`]: layout
+/// `0xFE ‖ "VEIL" ‖ veiled(plain) ‖ CRC-32(aad ‖ plain)` (little endian), so
+/// that a real sealer can tell a veiled value from one of its own (#254): it
+/// tries its own first and accepts this form only when the magic and the CRC
+/// match.
 #[cfg(feature = "test-veil")]
 const VEIL_TAG: u8 = 0xFE;
+#[cfg(feature = "test-veil")]
+const VEIL_MAGIC: &[u8; 4] = b"VEIL";
+/// The bytes a veiled value adds to the plain one: tag, magic, CRC.
+#[cfg(feature = "test-veil")]
+const VEIL_EXTRA: usize = 1 + 4 + 4;
 
+/// The key stream: byte `at` of the veil is `(at * 37 + 0x5A) ^ aad[at % aad.len()]`
+/// (all in `u8`, wrapping; no aad byte when `aad` is empty).
 #[cfg(feature = "test-veil")]
 fn veil_byte(aad: &[u8], at: usize) -> u8 {
     let salt = if aad.is_empty() {
@@ -180,6 +189,24 @@ fn veil_byte(aad: &[u8], at: usize) -> u8 {
     (at as u8).wrapping_mul(37).wrapping_add(0x5A) ^ salt
 }
 
+/// CRC-32 (IEEE 802.3, reflected, polynomial 0xEDB88320, initial value and
+/// final xor 0xFFFFFFFF) of `aad` then `plain`.
+#[cfg(feature = "test-veil")]
+fn veil_crc(aad: &[u8], plain: &[u8]) -> u32 {
+    let mut crc = u32::MAX;
+    for &byte in aad.iter().chain(plain) {
+        crc ^= u32::from(byte);
+        for _ in 0..8 {
+            crc = if crc & 1 == 1 {
+                (crc >> 1) ^ 0xEDB8_8320
+            } else {
+                crc >> 1
+            };
+        }
+    }
+    !crc
+}
+
 #[cfg(feature = "test-veil")]
 impl Sealer for VeilSeal {
     fn seals(&self) -> bool {
@@ -187,25 +214,33 @@ impl Sealer for VeilSeal {
     }
 
     fn seal(&self, aad: &[u8], plain: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-        let total = plain.len() + 1;
+        let total = plain.len() + VEIL_EXTRA;
         let out = out.get_mut(..total).ok_or(ERR_STATE)?;
         out[0] = VEIL_TAG;
-        for (at, (o, p)) in out[1..].iter_mut().zip(plain).enumerate() {
+        out[1..5].copy_from_slice(VEIL_MAGIC);
+        for (at, (o, p)) in out[5..total - 4].iter_mut().zip(plain).enumerate() {
             *o = p ^ veil_byte(aad, at);
         }
+        out[total - 4..].copy_from_slice(&veil_crc(aad, plain).to_le_bytes());
         Ok(total)
     }
 
     fn open(&self, aad: &[u8], sealed: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-        let (&tag, body) = sealed.split_first().ok_or(ERR_STATE)?;
-        if tag != VEIL_TAG {
+        let length = sealed.len().checked_sub(VEIL_EXTRA).ok_or(ERR_STATE)?;
+        if sealed[0] != VEIL_TAG || &sealed[1..5] != VEIL_MAGIC {
             return Err(ERR_STATE);
         }
-        let out = out.get_mut(..body.len()).ok_or(ERR_STATE)?;
+        let body = &sealed[5..5 + length];
+        let out = out.get_mut(..length).ok_or(ERR_STATE)?;
         for (at, (o, s)) in out.iter_mut().zip(body).enumerate() {
             *o = s ^ veil_byte(aad, at);
         }
-        Ok(body.len())
+        let stored = sealed[5 + length..].try_into().map_err(|_| ERR_STATE)?;
+        if u32::from_le_bytes(stored) != veil_crc(aad, out) {
+            out.fill(0);
+            return Err(ERR_STATE);
+        }
+        Ok(length)
     }
 }
 
@@ -239,16 +274,61 @@ mod tests {
 
     #[cfg(feature = "test-veil")]
     #[test]
-    fn the_test_veil_round_trips_and_is_bound_to_the_row() {
+    fn the_test_veil_round_trips_is_bound_to_the_row_and_checks_itself() {
         let mut blob = [0; 64];
         let n = VeilSeal.seal(b"wifi.pw", b"hunter2", &mut blob).unwrap();
-        assert_ne!(&blob[1..n], b"hunter2");
+        assert_eq!(n, 7 + VEIL_EXTRA);
+        assert_eq!(&blob[..5], b"\xFEVEIL");
+        assert_ne!(&blob[5..12], b"hunter2");
         let mut back = [0; 64];
         let m = VeilSeal.open(b"wifi.pw", &blob[..n], &mut back).unwrap();
         assert_eq!(&back[..m], b"hunter2");
-        let m = VeilSeal.open(b"other", &blob[..n], &mut back).unwrap();
-        assert_ne!(&back[..m], b"hunter2");
-        assert_eq!(VeilSeal.open(b"", &[0x00, 1], &mut back), Err(ERR_STATE));
+        // Another row's aad: the CRC refuses it.
+        assert_eq!(
+            VeilSeal.open(b"other", &blob[..n], &mut back),
+            Err(ERR_STATE)
+        );
+        // A flipped byte, a wrong tag, a wrong magic, a short value.
+        let mut bad = blob;
+        bad[6] ^= 1;
+        assert_eq!(
+            VeilSeal.open(b"wifi.pw", &bad[..n], &mut back),
+            Err(ERR_STATE)
+        );
+        bad = blob;
+        bad[0] = 0;
+        assert_eq!(
+            VeilSeal.open(b"wifi.pw", &bad[..n], &mut back),
+            Err(ERR_STATE)
+        );
+        bad = blob;
+        bad[2] = b'X';
+        assert_eq!(
+            VeilSeal.open(b"wifi.pw", &bad[..n], &mut back),
+            Err(ERR_STATE)
+        );
+        assert_eq!(VeilSeal.open(b"", &[0xFE, 1], &mut back), Err(ERR_STATE));
         assert!(VeilSeal.seals());
+    }
+
+    /// The fixed vector a real sealer's decoder is written against (#254):
+    /// CRC-32 of "123456789" is 0xCBF43926, and a value's exact bytes.
+    #[cfg(feature = "test-veil")]
+    #[test]
+    fn the_test_veil_layout_is_fixed() {
+        assert_eq!(veil_crc(b"", b"123456789"), 0xCBF4_3926);
+        let mut blob = [0; 16];
+        let n = VeilSeal.seal(b"ab", b"xyz", &mut blob).unwrap();
+        // veil bytes: at 0: 0x5A ^ 'a'; at 1: 0x7F ^ 'b'; at 2: 0xA4 ^ 'a'.
+        let veiled = [
+            b'x' ^ (0x5A ^ b'a'),
+            b'y' ^ (0x7F ^ b'b'),
+            b'z' ^ (0xA4 ^ b'a'),
+        ];
+        let crc = veil_crc(b"ab", b"xyz").to_le_bytes();
+        let mut want = alloc::vec![0xFE, b'V', b'E', b'I', b'L'];
+        want.extend_from_slice(&veiled);
+        want.extend_from_slice(&crc);
+        assert_eq!(&blob[..n], &want[..]);
     }
 }
