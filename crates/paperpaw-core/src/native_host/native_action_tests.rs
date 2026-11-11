@@ -224,7 +224,7 @@ fn an_action_that_runs_itself_does_not_hang_the_run() {
 }
 
 /// The action of a plugin that is no longer there finds no plugin to run:
-/// nothing waits and nothing breaks.
+/// nothing waits, nothing breaks, and a warning says so (Code Reviewer, #1177).
 #[test]
 fn the_action_of_a_plugin_not_installed_does_nothing() {
     let mut w = world(Ok(0));
@@ -233,6 +233,14 @@ fn the_action_of_a_plugin_not_installed_does_nothing() {
     w.kernel.shared.actions.insert_native(action);
     let _ = w.kernel.run_action(Instant(10), id);
     assert!(w.seen.borrow().is_empty());
+    // Said once, not dropped silently.
+    let said = w
+        .kernel
+        .take_warnings()
+        .into_iter()
+        .filter(|warning| alloc::format!("{warning:?}").contains("its plugin is not running"))
+        .count();
+    assert_eq!(said, 1);
     let queue = w.kernel.shared.native_instances.action_queue().unwrap();
     assert!(queue.take().is_none());
 }

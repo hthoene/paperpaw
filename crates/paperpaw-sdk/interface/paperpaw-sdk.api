@@ -10321,7 +10321,6 @@ pub fn paperpaw_sdk::Action<'a>::description(self) -> core::option::Option<&'a s
 pub fn paperpaw_sdk::Action<'a>::hint(self) -> &'a paperpaw_sdk::ActionHint
 pub fn paperpaw_sdk::Action<'a>::id(self) -> &'a paperpaw_sdk::Id
 pub fn paperpaw_sdk::Action<'a>::is_sealed(self) -> bool
-pub fn paperpaw_sdk::Action<'a>::native(self) -> core::option::Option<(u64, u32)>
 pub fn paperpaw_sdk::Action<'a>::run(self, &paperpaw_sdk::Env<'_>, &paperpaw_sdk::Params, &mut paperpaw_sdk::Commands) -> bool
 pub fn paperpaw_sdk::Action<'a>::runs_itself(self) -> bool
 pub fn paperpaw_sdk::Action<'a>::search_keywords(self) -> core::option::Option<&'a str>

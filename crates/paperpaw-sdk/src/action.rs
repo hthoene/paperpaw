@@ -391,6 +391,8 @@ impl<'a> Action<'a> {
 
     /// The plugin and the callback token that run a native action, which
     /// has no handler here: the kernel delivers `event.action_run` to them.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn native(self) -> Option<(u64, u32)> {
         match self {
             Action::Native(native) => Some((native.owner, native.token)),
