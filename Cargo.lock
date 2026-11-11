@@ -2081,6 +2081,7 @@ dependencies = [
  "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
+ "png",
 ]
 
 [[package]]
