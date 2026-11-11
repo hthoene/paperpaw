@@ -709,7 +709,11 @@ impl UiStore {
             });
             used += codec::encode_one(&record, &mut block.0[used..])?;
         }
-        inner.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        // Exactly one more: the usual growth would take room for four.
+        inner
+            .entries
+            .try_reserve_exact(1)
+            .map_err(|_| ERR_NO_MEMORY)?;
         let id = self.alloc_id()?;
         inner.params_bytes += framed;
         inner.entries.push(Entry {
@@ -981,6 +985,10 @@ impl UiStore {
 
     fn free(inner: &mut Inner, at: usize) {
         let entry = inner.entries.remove(at);
+        if inner.entries.is_empty() {
+            // Hold nothing while no hand-over is kept.
+            inner.entries = Vec::new();
+        }
         inner.params_bytes -= entry.params.0.len();
         inner.text_memory -= entry.text.charged.min(inner.text_memory);
     }

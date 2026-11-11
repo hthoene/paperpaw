@@ -118,6 +118,18 @@ fn make_claim_attach_params_and_the_old_one_goes_after() {
 }
 
 #[test]
+fn the_entry_list_grows_by_one_and_is_given_back_when_empty() {
+    let s = store();
+    let a = s.handover_make(who(1, 1), &[p("k", "a")]).unwrap();
+    // One entry, room for exactly one (the usual growth takes four).
+    assert_eq!(s.inner.borrow().entries.capacity(), 1);
+    own(&s, who(1, 1), a, 5);
+    s.attach(None, 5).unwrap();
+    assert_eq!(s.inner.borrow().entries.len(), 0);
+    assert_eq!(s.inner.borrow().entries.capacity(), 0);
+}
+
+#[test]
 fn a_refused_batch_claims_nothing_and_the_old_data_stays() {
     let s = store();
     let old = s.handover_make(who(1, 1), &[p("k", "old")]).unwrap();
