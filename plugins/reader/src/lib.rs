@@ -50,6 +50,7 @@ pub mod native_decor;
 pub mod native_document;
 pub mod native_draw;
 mod native_entry;
+pub mod native_handsfree;
 pub mod native_look;
 pub mod native_place;
 #[cfg(feature = "linked")]
