@@ -9,7 +9,7 @@ use crate::{
     native_actions,
     native_chapter::{self, Chapter},
     native_document::HostDocument,
-    native_draw::{HostInk, draw_lines},
+    native_draw::{HostInk, draw_lines_marked},
     native_index::Counter,
     native_links::DocRef,
     native_look::Look,
@@ -17,12 +17,14 @@ use crate::{
     native_open::{self, Place, Start},
     native_pages::{self, Reading, Trail, Turn},
     native_place::{self, Progress},
+    native_speech::Speaker,
     native_status,
     native_typeset::{Faces, HostFonts},
     native_wordbox,
 };
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::ops::Range;
 use paperpaw_sdk::{
     Color, Handled, NoStorage,
     document::{DocumentError, Locator},
@@ -124,6 +126,11 @@ struct Open {
     report_due: bool,
     /// The book's title as a report carries it.
     title: String,
+    /// The book's language (a BCP 47 tag), empty where the format names none:
+    /// the voice reading aloud speaks it.
+    language: String,
+    /// The words of the page on show the sentence read aloud underlines.
+    mark: Option<Range<usize>>,
     /// The book was reported read to the end.
     finished: bool,
     /// A refused write has been said (once for a book).
@@ -143,6 +150,8 @@ struct Open {
 #[derive(Debug)]
 pub struct View {
     body: Body,
+    /// Reading aloud, where the book is read aloud (`native_view/aloud.rs`).
+    speaker: Speaker,
 }
 
 /// The hand-over's values, as far as the screen reads them.
@@ -247,6 +256,7 @@ impl View {
                 meta.sections().max(1),
                 // The path stands for a title the format does not give.
                 text::copy(native_place::title_of(meta.title(), &found.path)),
+                text::copy(meta.language()),
             ),
             Err(Error::NoMemory) => {
                 Self::forget(host, docs, id);
@@ -257,8 +267,8 @@ impl View {
                 return Ok(Self::message("reader.error"));
             }
         };
-        let (sections, title) = sections;
-        let Ok(title) = title else {
+        let (sections, title, language) = sections;
+        let (Ok(title), Ok(language)) = (title, language) else {
             Self::forget(host, docs, id);
             return Err(Error::NoMemory);
         };
@@ -295,6 +305,8 @@ impl View {
             report_due: false,
             said: false,
             title,
+            language,
+            mark: None,
             finished: false,
             counter: None,
             class: None,
@@ -310,6 +322,7 @@ impl View {
         open.announce(host, docs);
         Ok(Self {
             body: Body::Open(open),
+            speaker: Speaker::new(0),
         })
     }
 
@@ -351,6 +364,7 @@ impl View {
     const fn message(key: &'static str) -> Self {
         Self {
             body: Body::Message(key),
+            speaker: Speaker::new(0),
         }
     }
 
@@ -371,6 +385,8 @@ impl View {
     /// # Errors
     /// The host's refusal to redraw.
     pub fn reflow(&mut self, host: &Host<'_>, docs: &Documents) -> Result<(), Error> {
+        // The words of the sentence read aloud are other ones now: it pauses.
+        self.pause_aloud(host, (docs, None), true);
         if let Body::Open(open) = &mut self.body {
             open.page = None;
             open.laid = None;
@@ -514,6 +530,8 @@ impl View {
 
     /// Closes the document of the screen.
     pub fn close(&mut self, host: &Host<'_>, (docs, library): (&Documents, Option<&Library>)) {
+        // Nothing is read aloud from a book that is closed.
+        self.stop_aloud(host, (docs, library));
         if let Body::Open(open) = &mut self.body {
             open.save(host, library, When::Closing);
             Self::forget(host, docs, open.id);
@@ -555,6 +573,10 @@ impl View {
         (docs, library, ui): (&Documents, Option<&Library>, &Ui),
         input: &Input<'_>,
     ) -> Result<Handled, Error> {
+        // Any input pauses reading aloud, and "Read aloud" starts it.
+        if let Some(handled) = self.aloud_input(host, (docs, library), input) {
+            return handled;
+        }
         if matches!(
             input,
             Input::Action {
@@ -601,12 +623,7 @@ impl View {
             open.marking.stay();
         }
         if moved {
-            open.unsaved = true;
-            open.turned = true;
-            open.save(host, library, When::Turn);
-            open.announce(host, docs);
-            let mut scratch = [0; 64];
-            CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
+            open.after_turn(host, (docs, library))?;
         }
         Ok(Handled::Yes)
     }
@@ -746,18 +763,20 @@ impl Open {
         Ok(())
     }
 
-    /// Says once that the place could not be saved; after the screen closed
-    /// the device's message (`announce`) carries it, as nothing else would.
-    fn say_not_saved(&self, host: &Host<'_>, closing: bool) {
+    /// Says that the place could not be saved; after the screen closed the
+    /// device's message (`announce`) carries it, as nothing else would. Whether
+    /// the host took the notice: a quiet work run (the auto-turn's tick) is
+    /// refused one, and the next save tries again.
+    fn say_not_saved(&self, host: &Host<'_>, closing: bool) -> bool {
         let Ok(text) = Messages::new().and_then(|mut m| m.copy(host, "reader.not-saved")) else {
-            return;
+            return false;
         };
         let Ok(note) = Notify::new(&text) else {
-            return;
+            return false;
         };
         let note = if closing { note.announce() } else { note };
         let mut scratch = [0; 512];
-        CommandSender::new(host, &mut scratch).notify(note).ok();
+        CommandSender::new(host, &mut scratch).notify(note).is_ok()
     }
 
     /// Writes the place of the page on show if it is not saved: now unless
@@ -795,8 +814,7 @@ impl Open {
             self.unsaved = false;
             self.saved_at = now;
         } else if !self.said {
-            self.said = true;
-            self.say_not_saved(host, when == When::Closing);
+            self.said = self.say_not_saved(host, when == When::Closing);
         }
     }
 
@@ -886,6 +904,20 @@ impl Open {
             setup.display.display_dpi(),
             &reading,
         )
+    }
+
+    /// The page on show was just changed by a turn: its place is to be saved,
+    /// the host is told, and the screen is drawn again.
+    fn after_turn(
+        &mut self,
+        host: &Host<'_>,
+        (docs, library): (&Documents, Option<&Library>),
+    ) -> Result<(), Error> {
+        self.unsaved = true;
+        self.turned = true;
+        self.save(host, library, When::Turn);
+        self.announce(host, docs);
+        redraw(host, RedrawMode::Partial)
     }
 
     /// What the marking makes of `input` on the page on show (nothing where the
@@ -1099,7 +1131,7 @@ impl Open {
             rect.x as f32 + f32::from(area.x),
             rect.y as f32 + f32::from(area.y),
         );
-        draw_lines(&mut ink, &faces, page, origin)?;
+        draw_lines_marked(&mut ink, &faces, page, origin, self.mark.clone())?;
         self.paint_status(host, ui, frame, (setup, &area))?;
         let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),
@@ -1153,6 +1185,7 @@ fn say_with(
     paint::replay(frame, font, body.iter())
 }
 
+mod aloud;
 mod count;
 mod r3;
 mod status;

@@ -430,6 +430,99 @@ relative to the data folder).
   both into paragraphs (`native_block::start`), so a table's rules never occur yet; carrying them over needs the
   `doc_image` and `doc_columns` pieces of the document service (docs/abi/document.md section 5).
 
+## Read aloud (view slice R8d, Port E)
+
+- Action `reader.read-aloud` (menu, short menu; shown only where the device needs `speech`) on the reading
+  screen. The model is `native_speech.rs` (host-free, tested with a recording fake of the screen), the screen's
+  side is `native_view/aloud.rs`, the sentence rules are `native_aloud.rs` (`sentence_end_by` and `spoken_into`
+  added; the interface-6 comparisons in `native_tests.rs` still hold). The texts are the interface-6 keys
+  (`reader.aloud.started`, `.paused`, `.failed`, `.unavailable`, `.page-done`, `.timer-done`; en and de are
+  already in the plugin's i18n).
+- Words: those of the page on show, in reading order, borrowed from the laid-out lines (20 bytes each, one page
+  at a time; Beta 3 kept a `WordBox` with a `String` for each word and a second list of `&str`). Sentences end as
+  in Beta 3 (at most 80 words, closing quotes and brackets belong to the sentence, hyphenated words are joined
+  again, a sentence that goes on on the next page is spoken whole when pages turn). `command.speak` takes at most
+  2,048 bytes: a longer text is cut after a word.
+- Flow as Beta 3's: the sentence is spoken and the next is handed over at once with `queue`; `event.spoken` for the
+  sentence now speaking hands over the one after it and turns the page where the next sentence is on the next one.
+  Each speech has a cookie (the screen's instance in the upper 16 bits, a counter in the lower) so that an answer
+  of an older speech (`status` 1, replaced or stopped) is never taken for the current one. `rate` is
+  `reader.aloud-speed` (50-300), `language` the book's (empty: the system's; a tag the SDK refuses is empty too),
+  the timer's minutes `reader.aloud-timer` (checked when a sentence ends, as Beta 3 did).
+- Pause and stop: any action or gesture while it reads pauses it and does nothing else (also "Read aloud"); it
+  says `reader.aloud.paused`, stops the speech and remembers the place of the sentence (not an index: after a
+  turn or a reflow "Read aloud" goes on at the word at or after that place, else the page's start). The book
+  closing, the device sleeping or stopping (`event.suspend`, `event.stopping`) and the reading screen no longer
+  being on top (`event.stack_changed`, new token 9 in `declarations::events`; the stack is read only while it
+  reads aloud) end it. A layout change (turned screen, reading setting) pauses it. `status` 2 (no voice) says
+  `reader.aloud.failed`, 3 (no speech) `reader.aloud.unavailable`, 1 for the speech now speaking (another voice
+  replaced it) is a pause.
+- Underline: `native_draw::draw_lines_marked` draws one line (the geometry of the book's own underline) under the
+  marked words of a line, over the spaces between them, one line for each line of the sentence; `Open::mark` is the
+  range of words of the page on show, set when a sentence starts and cleared when it ends. It follows the setting
+  `reader.aloud-highlight`.
+- Differences from interface 6: the page is redrawn whole for each sentence (Beta 3 redrew the lines of the
+  sentence; `Fast` refresh); words of a line that needs reordering are in logical (spoken) order, not in the order they are
+  drawn; the speech and the notices are commands (a notice is the device's copy of the text, 256 bytes at most);
+  the page-turn and the place write of a turn by reading aloud are those of a turn by hand (report, save after
+  5 s or 2 s quiet). A device with no speech is told by the host (`status` 3) after the first request, not
+  beforehand (the entries are hidden there by `menu.need`).
+- **Needs the host (not in this tree):** `command.speak`, `command.stop_speaking` and `event.spoken` (89) are in
+  the contract (`docs/abi/ui.md` section 7) and the SDK (`CommandSender::speak`, `SpeechRequest`,
+  `Event::Spoken`), but the native host here does not apply either command (`commands_ui.rs` `owned_ui` answers
+  `Unsupported`) nor raise the event. Until it does, "Read aloud" says the device cannot read aloud. `command.notify`
+  is in the same state (the other notices of the screen, not saved and now these, stay unseen). Not declared: `event.spoken` needs
+  no subscription (like the answers of questions); if the host asks for one, it is one line in `declarations::events`.
+- **Not yet:** reading aloud from the selected text (`reader.selection.read-aloud`, with the selection flow), the
+  status-line icon *volume* (the status lines), the hands-free auto-turn, a timer that ends a sentence in the middle
+  (the minutes are checked at a sentence's end), a hosted test of the whole (a speech host and a document host in
+  the harness: `acceptance_pending.rs` *reader-aloud-and-auto-turn* stays blocked).
+- **Unmeasured X4 gates:** the whole-page redraw for each sentence (a sentence is a few seconds of speech, a
+  `Fast` refresh each); the layout of the page after the next one while the sentence goes over a page end
+  (laid out twice: for the text and for the turn; transient, as Beta 3); `Setup::read` (about eight host calls)
+  and the page fonts for each page asked for; the stack read (two 4 KiB buffers) at each stack change while it
+  reads; the `command.speak` scratch (the text and 128 bytes) and the words of a page (about 6 KB for 300 words).
+  Notices use 256 + 320 bytes on the stack and no heap.
+- Review remark (#1103): the notice *started* is said after the first sentence was handed to the host, so a device
+  without speech says *cannot read aloud* only. `event.spoken` (89) goes only to plugins that subscribed (Services, `ui.md` 7), so the reader subscribes
+  (`SPOKEN`, token 16 in `declarations::events`; the declaration test now counts 8 events). Device gate: a notice must not count as a stack row (op 1), or it ends the reading at once.
+
+## Hands-free and auto-turn (view slice R8c, Port E)
+
+- **Ported:** the action `reader.auto-turn` (menu *More*, the key; Beta 3's name and texts
+  `reader.auto-turn.started` with `{seconds}` and `.stopped`, en and de) starts and stops pages that turn by themselves,
+  every `reader.auto-turn-seconds` seconds (5 to 600, default 30, whole seconds, no float). `src/native_handsfree.rs`:
+  the model `AutoTurn` (running for one screen instance; toggle, an input's `Reaction`, close), `classify` (what an input is
+  to the timer), the interval, and the glue `Hands` (`core.work`, the setting, the messages). The timer is one work with the
+  key `auto-turn`, declared with `after_ms` and declared again after each turn (a key declared again replaces the work, so
+  at most one waits and nothing is left behind; `every_ms` cannot be used, its floor is a minute). The work is the host's
+  (`event.work_due`, the subscription of the quiet-time save); the tick asks the reading screen for the next page by the
+  action `core.next-page` through `View::input`, so a tick is a turn by hand: the place is written (5-second rule), reported
+  and redrawn, and the quiet-time save starts again. A page turned by hand sets the count anew (Beta 3); the menu and the
+  confirm button (a tap in the middle) stop it and are taken (Beta 3); the end of the book stops it.
+- **Memory:** Beta 3 had no per-tick buffers beyond the page's layout, and neither has this: the work call, the setting read
+  and the messages use stack arrays (256 + 256 B at most; messages 128 + 256 + 512 B, only on start and stop, never in a tick),
+  no `String` or `Vec` is made, no float is touched (`interval_ms` is integer arithmetic on the clamped value). A refused
+  or missing work service is "cannot turn pages by itself" (`reader.auto-turn.unavailable`, new, en and de) and starts nothing.
+- **Differences from interface 6:** (1) *any* other action, gesture or widget input also stops it (Beta 3 let them run on;
+  the plugin cannot see an overlay such as the menu or the font panel open over it, so every input that could is a stop);
+  raw key and contact records do not (the host resolves them to actions and gestures). (2) It also stops when another screen
+  opens over the reading screen, when the reading screen closes, at `event.suspend`/`event.stopping` and when another of the
+  reader's actions runs (`event.action_run`); Beta 3's screen simply was not ticked then. (3) The tick is a quiet run
+  (`work.md` 2.3): no message is possible in it, so a stop at the end of the book says nothing (Beta 3 did not either). (4)
+  The status line's clock icon is not shown (status lines are not declared yet); Beta 3's refusal to let go of the book for a
+  screen above while it ran is not ported (no squeeze event). (5) The timer is counted by the host's work clock, which runs
+  only while the device is awake (`work.md` 0).
+- **Not yet:** read-aloud (another slice; Beta 3's hands-free icon for it too); the overlays that the host opens without a
+  word to the plugin (the quick-settings tap) are seen only through the input or the action that opened them, so a due call
+  can turn a page under an overlay the plugin was not told of (named gap, see the gates); status icon.
+- **Unmeasured X4 gates:** the extra `work.declare` (one host call, stack buffers) at each tick and at each page turn by hand
+  while it runs, on top of the quiet-time declare of every turn; the time of a tick (a page's layout in the event callback:
+  as the back-layout, with the page turn); heap during a tick (as a turn by hand); the accuracy of the host's work timer
+  against Beta 3's `wake_at` (the host's naps wake for it, `work.md` 2.1, to the millisecond on the X4 only for exact
+  timers: this one is `after_ms`, so it may be late by a main-loop nap); at most 8 works per plugin on the X4 (this is the
+  second, the quiet-time save the first).
+
 ## The page count (view slice R2b-1, `native_index.rs`, `native_view/count.rs`)
 
 - The pages are laid out in steps by `core.work` (key `count`, the reader's `WorkDue` token): 8 pages a

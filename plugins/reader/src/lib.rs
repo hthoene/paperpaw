@@ -55,6 +55,7 @@ pub mod native_decor;
 pub mod native_document;
 pub mod native_draw;
 mod native_entry;
+pub mod native_handsfree;
 pub mod native_index;
 pub mod native_look;
 pub mod native_place;
@@ -74,6 +75,7 @@ pub mod native_search_view;
 pub mod native_selection;
 pub mod native_skim;
 pub mod native_skim_view;
+pub mod native_speech;
 pub mod native_state;
 pub mod native_status;
 #[cfg(test)]

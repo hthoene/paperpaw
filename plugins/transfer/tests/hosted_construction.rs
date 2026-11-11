@@ -10,21 +10,23 @@
 #[path = "../../test-support/hosted.rs"]
 mod hosted;
 
+const SERVICES: &[&str] = &[
+    "core.device",
+    "core.document",
+    "core.files",
+    "core.library",
+    "core.net",
+    "core.registry",
+    "core.secrets",
+    "core.ui",
+    "core.work",
+];
+
 fn construct() -> Result<(), String> {
     hosted::try_construct(
         paperpaw_plugin_transfer::NATIVE_ENTRY.entry(),
         "transfer",
-        &[
-            "core.device",
-            "core.document",
-            "core.files",
-            "core.library",
-            "core.net",
-            "core.registry",
-            "core.secrets",
-            "core.ui",
-            "core.work",
-        ],
+        SERVICES,
     )
 }
 
@@ -34,4 +36,18 @@ fn construct() -> Result<(), String> {
 #[test]
 fn make_runs_in_a_real_registered_scope() {
     construct().expect("construction");
+}
+
+/// A shell that backs no `uses.install` (the desktop, the emulator) still
+/// registers the plugin: installing plugins sent from the computer is then
+/// refused by the host, and everything else works.
+#[test]
+fn make_registers_where_the_host_offers_no_install_feature() {
+    hosted::try_construct_lacking(
+        paperpaw_plugin_transfer::NATIVE_ENTRY.entry(),
+        "transfer",
+        SERVICES,
+        &["uses.install"],
+    )
+    .expect("construction without uses.install");
 }
