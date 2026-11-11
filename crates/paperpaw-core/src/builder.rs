@@ -872,6 +872,8 @@ impl BuilderParts {
             card_trouble: None,
             after_sleep: false,
             secrets_unreadable: false,
+            secrets_opened: false,
+            secrets_wired: None,
             pairing_nonce: None,
             plugin_defaults: Vec::new(),
             late_device_defaults: Vec::new(),
@@ -885,14 +887,16 @@ impl BuilderParts {
 impl Kernel {
     /// Passwords and keys, as kept on the storage. A file that is there
     /// but cannot be read is said and not written over.
-    fn read_secrets(&mut self) {
-        use paperpaw_sdk::secrets::{FILE, Secrets};
+    pub(crate) fn read_secrets(&mut self) {
+        use paperpaw_sdk::secrets::FILE;
+        let host = self.secrets_host();
         let storage = self.shared.storage.as_ref();
         // Damaged text keeps what can be read: values are written in hex.
         match paperpaw_sdk::files::load_for_update(storage, FILE, MAX_SECRETS) {
             Ok(data) => {
                 let text = String::from_utf8_lossy(data.as_deref().unwrap_or_default());
-                self.shared.secrets = Secrets::decode(&text);
+                self.shared.secrets = Self::decode_secrets(&text, host.as_ref());
+                self.secrets_unreadable = false;
                 if let Some(radio) = &mut self.io.bluetooth {
                     let kept = self.shared.secrets.iter();
                     radio.load(kept.map(|s| (s.id.as_str(), s.value.as_str())));

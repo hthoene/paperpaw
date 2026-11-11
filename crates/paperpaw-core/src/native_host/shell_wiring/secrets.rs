@@ -109,6 +109,11 @@ impl SecretsLifecycle {
         Self(SecretsServices::new(host))
     }
 
+    /// The wired host (the kernel's interface-6 code seals through it).
+    pub(crate) fn host(&self) -> &Rc<dyn SecretsHost> {
+        &self.0.host
+    }
+
     /// First start after an update on a device that seals: rewrites the veiled
     /// values sealed. `Ok(true)` when the file was rewritten; `Ok(false)` when
     /// nothing had to change (or the device does not seal).
