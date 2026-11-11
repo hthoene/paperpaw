@@ -261,23 +261,29 @@ impl SettingEvents {
     /// The next event of one plugin, detached from its queue.
     fn take(&self, owner: u64) -> Option<Ready> {
         let mut queues = self.queues.try_borrow_mut().ok()?;
-        let ready = queues
+        // The queue stays, empty, until the delivery is finished
+        // ([`Self::release`]): a lost edge is made up by `reread` on this
+        // queue, with no allocation in the state that made the encode fail.
+        queues
             .iter_mut()
             .find(|(key, _)| *key == owner)
-            .and_then(|(_, queue)| queue.take());
-        // Told: a queue that is empty now is given back.
-        release_idle(&mut queues);
-        ready
+            .and_then(|(_, queue)| queue.take())
+    }
+
+    /// Gives back the queues with nothing waiting and nothing to remember,
+    /// after a delivery is finished (see [`release_idle`]).
+    fn release(&self) {
+        if let Ok(mut queues) = self.queues.try_borrow_mut() {
+            release_idle(&mut queues);
+        }
     }
 
     /// The plugin's queue lost an event that could not be told: read again.
     fn reread(&self, owner: u64, now_ms: u64) {
-        // The queue was freed when its last event was taken: made again here.
-        if let Ok(mut queues) = self.queues.try_borrow_mut() {
-            if let Ok(queue) = self.queue_of(&mut queues, owner) {
-                let _ = queue.setting(now_ms, "", Ok(&[]), Visibility::Readable);
-            }
-            release_idle(&mut queues);
+        if let Ok(mut queues) = self.queues.try_borrow_mut()
+            && let Some((_, queue)) = queues.iter_mut().find(|(key, _)| *key == owner)
+        {
+            let _ = queue.setting(now_ms, "", Ok(&[]), Visibility::Readable);
         }
     }
 
@@ -428,8 +434,15 @@ impl crate::Kernel {
             .is_empty()
     }
 
-    /// Tells `owner` its oldest event; `false` when it had none.
+    /// Tells `owner` its oldest event; `false` when it had none. A queue left
+    /// with nothing is given back when the delivery is done.
     pub(super) fn setting_tell(&self, owner: u64) -> bool {
+        let told = self.tell_one(owner);
+        self.shared.native_instances.setting_events.release();
+        told
+    }
+
+    fn tell_one(&self, owner: u64) -> bool {
         let instances = &self.shared.native_instances;
         let Some(ready) = instances.setting_events.take(owner) else {
             return false;

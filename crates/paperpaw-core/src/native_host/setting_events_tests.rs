@@ -679,20 +679,22 @@ fn a_change_nobody_may_be_told_leaves_no_empty_queue_behind() {
 }
 
 #[test]
-fn a_lost_edge_is_still_replaced_by_the_empty_key_after_its_queue_was_freed() {
+fn a_lost_edge_is_made_up_by_the_reread_on_the_queue_that_is_still_there() {
     let mut w = world(false);
-    let owner = w.kernel.shared.native_instances.running_nth(0).unwrap().0;
-    // The queue was freed when its last event was taken; the encode failed.
-    w.kernel
-        .shared
-        .native_instances
-        .setting_events
-        .reread(owner, 5);
+    w.kernel.native_setting_publish("c.size", Ok(&int(7)));
+    let events = &w.kernel.shared.native_instances.setting_events;
+    let owner = events.waiting()[0];
+    // The edge is taken and its encode fails: the queue is not freed yet, so
+    // the reread needs no allocation in that state.
+    assert!(events.take(owner).is_some());
     assert_eq!(
-        w.kernel.shared.native_instances.setting_events.waiting(),
-        [owner]
+        held(&w).0,
+        1,
+        "the empty queue stays until the delivery ends"
     );
+    events.reread(owner, 5);
+    assert_eq!(events.waiting(), [owner]);
     run(&mut w);
     assert_eq!(*w.a.1.borrow(), [(String::new(), Vec::new())]);
-    assert_eq!(held(&w), (0, 0));
+    assert_eq!(held(&w), (0, 0), "told: given back");
 }
