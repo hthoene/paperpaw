@@ -1337,6 +1337,10 @@ struct Shared {
     /// How code plugins are loaded, where they are (see
     /// [`KernelBuilder::code_plugins`]).
     native: Option<paperpaw_sdk::native::Native>,
+    /// This start went without code plugins ([`KernelBuilder::safe_mode`]),
+    /// kept for the native plugins' on/off decision, which does not need the
+    /// loader of code plugins (`Kernel::native_decide`).
+    native_safe_mode: Option<SafeMode>,
     /// What the firmware takes, told to plugins once the update on trial is
     /// kept ([`KernelBuilder::native_after_trial`]).
     after_trial: Option<paperpaw_sdk::native::Native>,
