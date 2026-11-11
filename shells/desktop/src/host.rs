@@ -39,6 +39,14 @@ pub fn set_clock(clock: Clock) {
     let _ = CLOCK.set(clock);
 }
 
+/// One line of the kernel's own diagnostics (`KernelBuilder::device_log`),
+/// to the error stream; it keeps no state and is cheap.
+pub fn device_log(line: &str) {
+    use std::io::Write;
+    // A closed stream must not panic the kernel: the error is ignored.
+    let _ = writeln!(std::io::stderr(), "paperpaw: {line}");
+}
+
 /// Random bytes from the operating system, or from the source the shell
 /// set ([`set_random`]).
 pub fn random(buf: &mut [u8]) -> bool {

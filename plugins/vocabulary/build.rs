@@ -50,7 +50,11 @@ fn main() -> Result<(), String> {
             new.display()
         ));
     }
-    let emits: [(&str, Emit); 5] = [
+    let emits: [(&str, Emit); 6] = [
+        ("HELP", |sink| {
+            declarations::help(sink)
+                .map_err(|e| format!("invalid Vocabulary help declarations: {e:?}"))
+        }),
         ("NAVIGATION", |sink| {
             declarations::navigation(sink)
                 .map_err(|e| format!("invalid Vocabulary navigation declarations: {e:?}"))

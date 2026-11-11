@@ -132,9 +132,9 @@ impl Carry {
 }
 
 impl MoveCarry for Carry {
-    fn discard(&self, to: &str) -> Result<(), i32> {
+    fn discard(&self, to: &str) -> Result<bool, i32> {
         self.calls.borrow_mut().push(std::format!("discard {to}"));
-        Ok(())
+        Ok(true)
     }
     fn carry(&self, from: &str, to: &str, phase: Phase) -> Result<Phase, i32> {
         self.calls

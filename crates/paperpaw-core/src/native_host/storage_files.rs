@@ -104,11 +104,11 @@ impl BusySources {
 
 /// The host's folders by root, as `core.files` hides them: `.received` in
 /// root 0 (under the plugin's data folder), `plugins` and `.paperpaw` in
-/// root 1 (the card's top).
+/// root 1 (the card's top), and the kernel's `paperpaw.ini` there.
 fn excluded_names(root: u32) -> &'static [&'static str] {
     match root {
         0 => &[".received"],
-        1 => &["plugins", ".paperpaw"],
+        1 => &["plugins", ".paperpaw", "paperpaw.ini"],
         _ => &[],
     }
 }

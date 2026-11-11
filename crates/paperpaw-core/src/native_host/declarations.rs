@@ -121,11 +121,12 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::StatusItem(_)
         | Record::StatusLine(_)
         | Record::StatusPlace(_) => super::declarations_uix::validate(plugin_id, record),
-        // Format, reader, lookup and book declarations (`docs/abi/document.md`,
-        // `library.md`): checked, then refused until the host admits them
-        // (DOC/LIB hand-off).
-        Record::FormatSpec(spec) => docs::format_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
-        Record::ReaderSpec(spec) => docs::reader_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
+        // Format and reader declarations (`docs/abi/document.md` section 1):
+        // admitted (the cross-record limits are the commit's). The lookup and
+        // book declarations (`library.md`) are checked, then refused until the
+        // host admits them (DOC/LIB hand-off).
+        Record::FormatSpec(spec) => docs::format_check(plugin_id, spec),
+        Record::ReaderSpec(spec) => docs::reader_check(plugin_id, spec),
         Record::LookupSpec(spec) => docs::lookup_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
         Record::BookFieldSpec(spec) => {
             docs::book_field_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED))
@@ -190,6 +191,7 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::EventBroadcast(_)
         | Record::EventDocumentClosed(_)
         | Record::EventTextTyped(_)
+        | Record::EventDocumentChanged(_)
         | Record::EventLookupReady(_) => Err(ERR_INVALID),
         // Input records go to `PpPlugin.input`, frames to `draw`, format
         // arguments to slot 27.

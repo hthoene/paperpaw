@@ -213,13 +213,15 @@ fn a_book_data_name_is_one_folder_name_of_lowercase_letters_digits_and_dashes() 
 }
 
 #[test]
-fn they_are_checked_and_then_refused_until_the_host_admits_them() {
+fn a_format_is_admitted_and_a_bad_one_is_invalid() {
     use crate::native_host::declarations::validate_record;
-    use paperpaw_native::host_glue::ERR_UNSUPPORTED;
     let spec = format("epub", 0);
+    assert_eq!(validate_record(PLUGIN, &Record::FormatSpec(spec)), Ok(()));
+    // The lookup and book declarations are checked and refused until the
+    // host admits them.
     assert_eq!(
-        validate_record(PLUGIN, &Record::FormatSpec(spec)),
-        Err(ERR_UNSUPPORTED)
+        validate_record(PLUGIN, &Record::LookupSpec(lookup("en", 0))),
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     );
     let mut bad = format("EPUB", 0);
     bad.name = "epub";

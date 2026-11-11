@@ -55,8 +55,8 @@ placeholder, todo 97). When the host activates native plugins they must be resto
 
 - `core.ui` opens in the first live callback, not in `make` (construction has no
   frame); `tests/hosted_construction.rs` constructs in the kernel's real registered
-  scope. Today the host refuses that construction with `Unsupported` because it
-  admits screen declarations only (#310); the positive case is an ignored refusal.
+  scope. The host admits every declaration the plugin makes (the registry-change
+  event, 75, since #916), so `make` runs to the end there: a real pass, no pin.
 - Every allocation on the callback paths is reserved first (`paperpaw_ui_kit::mem`,
   `text::concat`); allocator-failure sweeps (`plugins/test-support/fail_alloc.rs`)
   refuse each allocation in turn for the model/store code and the kit and require

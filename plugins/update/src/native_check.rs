@@ -31,6 +31,9 @@ pub struct Image {
     /// Its version against the one running: older and the same are the reader's
     /// choice, told so.
     pub order: Ordering,
+    /// The plugins built in now that it leaves out, by their names, `, ` between
+    /// (the device lists them after the check; empty where it leaves none out).
+    pub leaves: String,
 }
 
 /// Another firmware's image: not PaperPaw, not signed.
@@ -123,6 +126,7 @@ pub fn judge(path: &str, evidence: &Evidence<'_>, running: &str) -> Result<Found
                 version: concat(&[evidence.version])?,
                 signer,
                 order,
+                leaves: String::new(),
             }))
         }
         (O::Ok, None) => Ok(Found::Unfit(O::Unsigned)),
@@ -213,6 +217,8 @@ mod tests {
         assert_eq!(image.signer, Signer::PaperPaw);
         assert_eq!(image.order, Ordering::Greater);
         assert_eq!(image.path, "updates/a.bin");
+        // What it leaves out is the device's list, read after the check.
+        assert!(image.leaves.is_empty());
         assert!(is_offer(&found));
     }
 

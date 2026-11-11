@@ -223,6 +223,7 @@ impl World {
             usage: &self.kernel.shared.usage,
             plugins: &self.kernel.shared.plugins,
             work: &self.kernel.shared.work_states,
+            log: Default::default(),
             ui: with_ui.then(|| self.pool.hosts().ui().unwrap()),
         };
         let mut fb = Framebuffer::new(16, 16, PixelFormat::Gray8).unwrap();

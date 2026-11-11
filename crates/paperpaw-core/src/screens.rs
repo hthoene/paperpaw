@@ -47,6 +47,12 @@ pub(crate) struct ActiveScreen {
     /// How it shows where the screen is wide ([`Screen::pane`]), as it
     /// said when it was made.
     pub(crate) pane: paperpaw_sdk::Pane,
+    /// `event.screen_ready` (87) was raised for this instance, or it will not
+    /// be (`screen_ready`): at most once an instance.
+    pub(crate) ready: bool,
+    /// A draw of this instance happened since it was opened and 87 is yet to
+    /// be raised for it (the pass after the draw raises it).
+    pub(crate) drawn: bool,
 }
 
 /// The policy bits `command.screen_policy` sets: `guards` (1), `secret` (4),
@@ -235,7 +241,21 @@ impl Kernel {
             by_guard: self.guard().is_some() && self.from_guard_own,
             policy: None,
             pane,
+            ready: false,
+            drawn: false,
         };
+        self.push_opened(active, params, beside.is_some(), on_open);
+    }
+
+    /// Puts the screen just made on the stack (below a guard, or on top) and
+    /// tells it and the display; `beside` when it is shown beside the list.
+    fn push_opened(
+        &mut self,
+        active: ActiveScreen,
+        params: &Params,
+        beside: bool,
+        on_open: Option<paperpaw_sdk::RefreshMode>,
+    ) {
         // Opened by another while a screen guards the device: it waits
         // below the guard, hidden.
         if let Some(guard) = self.guard().filter(|_| !self.from_guard) {
@@ -245,7 +265,7 @@ impl Kernel {
             return;
         }
         // The list a detail shows beside stays shown.
-        if active.screen.region(&self.shared.env(self.now)).is_none() && beside.is_none() {
+        if active.screen.region(&self.shared.env(self.now)).is_none() && !beside {
             self.hide_from(self.shown_base());
         }
         self.screens_changed = true;

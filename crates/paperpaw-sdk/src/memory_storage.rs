@@ -347,6 +347,52 @@ mod tests {
     use super::*;
     use alloc::vec;
 
+    /// Removes the tree at `root` by steps until done; the number of steps.
+    fn remove_by_steps(storage: &MemoryStorage, root: &str) -> usize {
+        let mut place = 0;
+        for steps in 1..200 {
+            let step = storage.remove_tree_step(root, false, place).unwrap();
+            if step.done {
+                return steps;
+            }
+            place = step.next;
+        }
+        panic!("never ends");
+    }
+
+    /// A folder here is its files: one whose last file was removed is gone,
+    /// and the walk must not take that for an error (or for the end).
+    #[test]
+    fn a_tree_whose_folders_vanish_with_their_last_file_is_removed_whole() {
+        let storage = MemoryStorage::new();
+        storage.write("a/pages/1", b"1").unwrap();
+        storage.write("a/.host/.complete", b"").unwrap();
+        storage.write("keep/x", b"x").unwrap();
+        remove_by_steps(&storage, "a");
+        assert!(storage.list("a", &mut |_| ()).is_err());
+        assert_eq!(storage.get("keep/x"), Some(vec![b'x']));
+    }
+
+    #[test]
+    fn a_large_tree_of_vanishing_folders_is_removed_in_steps_and_only_its_own() {
+        let storage = MemoryStorage::new();
+        for n in 0..150 {
+            storage
+                .write(&alloc::format!("a/d{}/f{n}", n % 3), b"x")
+                .unwrap();
+            storage
+                .write(&alloc::format!("a/.h{}/e/g{n}", n % 2), b"x")
+                .unwrap();
+        }
+        storage.write("a/top", b"x").unwrap();
+        storage.write("b/keep", b"x").unwrap();
+        storage.write("a2/keep", b"x").unwrap();
+        assert!(remove_by_steps(&storage, "a") > 2);
+        assert!(storage.list("a", &mut |_| ()).is_err());
+        assert_eq!(storage.get("b/keep"), Some(vec![b'x']));
+        assert_eq!(storage.get("a2/keep"), Some(vec![b'x']));
+    }
+
     #[test]
     fn writes_in_place_and_cuts() {
         let storage = MemoryStorage::new().with("save.bin", "abcdef");

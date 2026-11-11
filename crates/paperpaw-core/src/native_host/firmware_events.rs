@@ -35,6 +35,8 @@ const RECORD_BYTES: usize = 128;
 const PER_PASS: usize = 4;
 /// How long a plugin that could not be called is left alone.
 const RETRY_MS: u64 = 1_000;
+/// Most grants of one plugin a removal forgets (a grant kind each).
+const GRANTS_MAX: usize = 256;
 
 /// No built-ins are known (no device host wired): none are named.
 struct NoBuiltIns;
@@ -72,6 +74,9 @@ pub(crate) fn status_of(outcome: Outcome) -> i32 {
 impl Kernel {
     /// One step of the firmware table's job, then the outcomes that wait for
     /// their plugin. `true` while something is left (another pass).
+    // Its own frame: the pump keeps the services' passes apart, so that no
+    // frame adds their locals (the firmware's frame limit for host code).
+    #[inline(never)]
     pub(crate) fn native_firmware_pump(&mut self) -> bool {
         let Some(driver) = self.firmware.clone() else {
             return false;
@@ -83,7 +88,9 @@ impl Kernel {
                 .map_or(true, |driver| driver.has_work(now));
         }
         self.firmware_wire(&driver);
+        self.firmware_resume(&driver);
         self.native_outbox_run();
+        self.feed_install_grants(&driver);
         {
             let Ok(mut driver) = driver.try_borrow_mut() else {
                 return true;
@@ -94,6 +101,8 @@ impl Kernel {
                 None => driver.pump(self.storage(), &NoBuiltIns, now),
             };
         }
+        self.firmware_unload_pump(&driver);
+        self.firmware_forget_pump(&driver);
         // Progress only marked the request (see `firmware_changes`).
         self.firmware_changes(&driver);
         self.firmware_told(&driver);
@@ -103,6 +112,167 @@ impl Kernel {
             || driver
                 .try_borrow()
                 .map_or(true, |driver| driver.has_work(now))
+    }
+
+    /// Forgets what the host holds of a plugin removed with its data: its
+    /// secrets (`core.secrets`, where wired) and its grants
+    /// (`core.grant.<kind>.<id>`, decisions 124, 126 and 131), so a reinstall of
+    /// the id does not regain what the user granted the old one. Safe to repeat.
+    /// `false`: the secrets could not be forgotten (the journal stays, or the id
+    /// goes on the list of `plugin_unforgotten`); the grants are gone either way.
+    pub(crate) fn forget_removed(&mut self, plugin: &str) -> bool {
+        let secrets = self
+            .shared
+            .native_instances
+            .hosts()
+            .and_then(|hosts| hosts.secrets())
+            .map(|secrets| alloc::rc::Rc::clone(&secrets.host));
+        self.forget_removed_by(plugin, || {
+            secrets.is_none_or(|host| super::secrets_service::forget_owner(&*host, plugin).is_ok())
+        })
+    }
+
+    /// The retry of an id on the list of `plugin_unforgotten`: as
+    /// [`Self::forget_removed`], but a missing secrets host is **no** success
+    /// (the id was listed because a host failed; its secrets are still there).
+    pub(crate) fn forget_listed(&mut self, plugin: &str) -> bool {
+        let secrets = self
+            .shared
+            .native_instances
+            .hosts()
+            .and_then(|hosts| hosts.secrets())
+            .map(|secrets| alloc::rc::Rc::clone(&secrets.host));
+        self.forget_removed_by(plugin, || {
+            secrets.is_some_and(|host| super::secrets_service::forget_owner(&*host, plugin).is_ok())
+        })
+    }
+
+    /// [`Self::forget_removed`] with the secrets' part given: the grants go
+    /// whatever `forget_secrets` says (a grant left would let a later plugin of
+    /// the id skip the install question).
+    pub(crate) fn forget_removed_by(
+        &mut self,
+        plugin: &str,
+        forget_secrets: impl FnOnce() -> bool,
+    ) -> bool {
+        let forgot = forget_secrets();
+        self.forget_grants(plugin);
+        forgot
+    }
+
+    /// The grants of `plugin`: only values that were set are reset (the file
+    /// and the event follow [`Kernel::reset_setting`]).
+    pub(crate) fn forget_grants(&mut self, plugin: &str) {
+        // One at a time, so that no list is kept and none is left out. A
+        // grant that stays set (a refused reset) ends the loop by the bound.
+        for _ in 0..GRANTS_MAX {
+            let next = self.shared.settings.specs().find_map(|spec| {
+                let id = spec.id.as_str();
+                let is_its = id
+                    .strip_prefix("core.grant.")
+                    .and_then(|rest| rest.split_once('.'))
+                    .is_some_and(|(_, owner)| owner == plugin);
+                (is_its && self.shared.settings.is_set(id)).then(|| spec.id.clone())
+            });
+            let Some(id) = next else {
+                return;
+            };
+            self.reset_setting(&id);
+        }
+    }
+
+    /// A removal that waits for the host to forget its plugin's state: done,
+    /// the job goes on. Never from a callback.
+    fn firmware_forget_pump(
+        &mut self,
+        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
+    ) {
+        let Some(id) = driver.try_borrow().ok().and_then(|d| d.peek_forget()) else {
+            return;
+        };
+        let ok = self.forget_removed(id.as_str());
+        if let Ok(mut driver) = driver.try_borrow_mut() {
+            driver.plugin_forgotten(ok);
+        }
+    }
+
+    /// The first pass after a start that left a removal journal at its forget
+    /// step: finished with the host's help, once.
+    fn firmware_resume(
+        &mut self,
+        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
+    ) {
+        if !driver.try_borrow_mut().is_ok_and(|mut d| d.take_resume()) {
+            return;
+        }
+        let storage = self.shared.storage.clone();
+        let done = super::plugin_swap::resume(storage.as_ref(), &mut |id| self.forget_removed(id));
+        match done {
+            super::plugin_swap::Replayed::Failed(why) => {
+                self.warn_runtime(alloc::format!(
+                    "plugins/.journal not finished (reason {why}): tried again at the next start"
+                ));
+            }
+            super::plugin_swap::Replayed::Unforgotten { id } => {
+                self.warn_runtime(alloc::format!(
+                    "removal of {} finished without forgetting its secrets: the host failed {} starts; the id is kept in plugins/.unforgotten",
+                    id.as_str(),
+                    super::plugin_swap::FORGET_TRIES
+                ));
+                let text = self.shared.translator.format(
+                    "core.plugin.unforgotten",
+                    &[(
+                        "id",
+                        paperpaw_i18n::Arg::Str(&super::firmware_confirm::clean(id.as_str())),
+                    )],
+                );
+                self.notify(text);
+            }
+            // Earlier removals whose secrets stayed: one try each at a start.
+            _ => {
+                super::plugin_unforgotten::retry(storage.as_ref(), &mut |id| {
+                    self.forget_listed(id)
+                });
+            }
+        }
+    }
+
+    /// A removal's first step: the instances of the plugin it removes are
+    /// closed and the plugin leaves the list (REG op 6; event 70 is raised),
+    /// then the job goes on. Never from a callback.
+    fn firmware_unload_pump(
+        &mut self,
+        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
+    ) {
+        let Some(id) = driver.try_borrow().ok().and_then(|d| d.peek_unload()) else {
+            return;
+        };
+        // An id that does not parse is none to close: the job goes on.
+        if let Ok(id) = paperpaw_sdk::Id::parse(id.as_str()) {
+            let _ = self.unload_plugin(&id);
+            self.plugins_changed();
+        }
+        if let Ok(mut driver) = driver.try_borrow_mut() {
+            driver.plugin_unloaded();
+        }
+    }
+
+    /// After a stop or a sender's stop: a plugin job that must finish (or runs
+    /// on without its sender) is stepped on, bounded
+    /// ([`super::firmware_driver::Driver::finish_stopped`]).
+    pub(crate) fn firmware_finish_stopped(
+        &mut self,
+        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
+    ) {
+        self.feed_install_grants(driver);
+        let Ok(mut driver) = driver.try_borrow_mut() else {
+            return;
+        };
+        let hosts = self.shared.native_instances.hosts();
+        match hosts.and_then(|hosts| hosts.device()) {
+            Some(device) => driver.finish_stopped(self.storage(), &DeviceBuiltIns(&*device.0)),
+            None => driver.finish_stopped(self.storage(), &NoBuiltIns),
+        }
     }
 
     /// Lets the device ops read the machine, once the host views exist.
@@ -184,11 +354,11 @@ impl Kernel {
                 kind: outcome.kind,
                 status: status_of(outcome),
                 reason: u32::from(outcome.reason),
-                flags: 0,
+                flags: outcome.flags,
                 id: if outcome.kind == super::firmware_install::KIND_FIRMWARE {
                     ""
                 } else {
-                    id
+                    outcome.id.as_ref().map_or(id, |text| text.as_str())
                 },
             });
             if self.firmware_tell(outcome.owner, wire::EVENT_INSTALL_DONE_TAG, &record)

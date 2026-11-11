@@ -152,7 +152,9 @@ impl Plugin for NativeOpds {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).open(Open::screen("opds.catalogs")?)
             }
-            Event::ActionRun { .. } if token == SYNC_TOKEN => self.sync_action(host),
+            Event::ActionRun { background, .. } if token == SYNC_TOKEN => {
+                self.sync_action(host, background)
+            }
             Event::ScreenOpened { instance, .. } if token == CATALOGS_SCREEN => {
                 self.open(host)?;
                 self.opened_list(host, instance)

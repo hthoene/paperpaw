@@ -166,7 +166,8 @@ fn busy_store_catalog_and_failed_reservations_preserve_publication() {
                 &store,
                 &[row],
                 &mut Allocations {
-                    fail_after: Some(fail_after)
+                    fail_after: Some(fail_after),
+                    ..Default::default()
                 }
             ),
             Err(ERR_NO_MEMORY)

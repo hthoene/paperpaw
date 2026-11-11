@@ -14,12 +14,26 @@
 //! stale "inside a call" can never be seen. Entering reserves the copies
 //! fallibly before the format is entered; the drop never allocates. Calls in
 //! calls are bounded by [`MAX_NESTING`], and an owner has one call at a time.
-use alloc::string::String;
+use alloc::{string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NO_MEMORY};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NO_MEMORY, ERR_NO_SPACE};
 
 /// Calls inside calls at most (the nesting budget of the instance registry).
 pub(crate) const MAX_NESTING: usize = 8;
+
+/// Cache folders whose bytes are counted at once (open documents are at most
+/// 8, and one holds one folder).
+const MAX_COUNTED: usize = 16;
+
+/// A cache folder's key in the count (FNV-1a 64 of its path).
+fn folder_key(folder: &str) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in folder.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    hash
+}
 
 /// `format.spec.flags` bit 2: a book is a folder.
 const FOLDER: u32 = 1 << 2;
@@ -52,7 +66,7 @@ impl BookKind {
 }
 
 /// What a format call is for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct FormatBook<'a> {
     /// The root-1 path of the opened book (the folder for a `Folder`).
     pub(crate) path: &'a str,
@@ -61,6 +75,18 @@ pub(crate) struct FormatBook<'a> {
     pub(crate) opened: &'a str,
     /// The document id the call is for.
     pub(crate) document: u32,
+    /// The card path of the document's cache folder, root 6 (`""`: the
+    /// document has none yet).
+    pub(crate) cache: &'a str,
+    /// The card path of the user's CSS file, root 4, in the calls that may
+    /// read it (ops 2 and 3); `""` for none.
+    pub(crate) css: &'a str,
+    /// The most bytes the document's cache may hold (`document.md` 3, Cache
+    /// quota).
+    pub(crate) cache_cap: u64,
+    /// Where the cache's bytes are counted: filled in for the visitor of
+    /// [`FormatScope::current`], `None` as given to [`FormatScope::enter`].
+    pub(crate) quota: Option<&'a FormatScope>,
 }
 
 impl FormatBook<'_> {
@@ -86,6 +112,9 @@ struct Entry {
     opened: String,
     kind: BookKind,
     document: u32,
+    cache: String,
+    css: String,
+    cache_cap: u64,
 }
 
 /// One place for a call under way. Whether it is in use and whose it is are
@@ -117,6 +146,10 @@ impl Slot {
 /// answers for exactly that call or for none.
 pub(crate) struct FormatScope {
     slots: [Slot; MAX_NESTING],
+    /// The bytes in each cache folder (the folder's key, bytes), least
+    /// recently used first: counted here because a cache lives longer than a
+    /// call and is shared by the documents of one conversion.
+    used: RefCell<Vec<(u64, u64)>>,
 }
 
 impl Default for FormatScope {
@@ -163,6 +196,64 @@ impl FormatScope {
     pub(crate) const fn new() -> Self {
         Self {
             slots: [const { Slot::new() }; MAX_NESTING],
+            used: RefCell::new(Vec::new()),
+        }
+    }
+
+    /// `add` bytes more and `credit` bytes fewer in the cache folder `folder`
+    /// (whoever's document writes to it): nothing changes and the answer is
+    /// `ERR_NO_SPACE` where the cache would hold more than `cap`.
+    ///
+    /// # Errors
+    /// `ERR_NO_SPACE`, `ERR_BUSY` (the count is borrowed), `ERR_NO_MEMORY`.
+    pub(crate) fn charge(&self, folder: &str, add: u64, credit: u64, cap: u64) -> Result<(), i32> {
+        let mut used = self.used.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+        let key = folder_key(folder);
+        // The count touched last is the one kept longest: a full table drops
+        // the one least used, which is a closed document's.
+        let count = match used.iter().position(|(k, _)| *k == key) {
+            Some(at) => used.remove(at).1,
+            None => 0,
+        };
+        let next = count.saturating_sub(credit).saturating_add(add);
+        if next > cap {
+            // Put back, at the end: the room is certain (it was just taken).
+            used.push((key, count));
+            return Err(ERR_NO_SPACE);
+        }
+        if used.len() >= MAX_COUNTED {
+            used.remove(0);
+        }
+        if used.try_reserve(1).is_err() {
+            return Err(ERR_NO_MEMORY);
+        }
+        used.push((key, next));
+        Ok(())
+    }
+
+    /// The bytes counted in `folder`: 0 where nothing is.
+    pub(crate) fn total(&self, folder: &str) -> u64 {
+        let key = folder_key(folder);
+        self.used
+            .try_borrow()
+            .ok()
+            .and_then(|used| used.iter().find(|(k, _)| *k == key).map(|(_, n)| *n))
+            .unwrap_or(0)
+    }
+
+    /// `folder` holds `bytes` (a finished cache found on the card), unless it
+    /// is counted already. Best effort: a count that cannot be made is 0.
+    pub(crate) fn seed(&self, folder: &str, bytes: u64) {
+        if self.total(folder) == 0 {
+            let _ = self.charge(folder, bytes, 0, u64::MAX);
+        }
+    }
+
+    /// `folder` is made new or was removed: its count starts at 0.
+    pub(crate) fn reset(&self, folder: &str) {
+        if let Ok(mut used) = self.used.try_borrow_mut() {
+            let key = folder_key(folder);
+            used.retain(|(k, _)| *k != key);
         }
     }
 
@@ -186,6 +277,9 @@ impl FormatScope {
             opened: text(book.opened)?,
             kind: book.kind,
             document: book.document,
+            cache: text(book.cache)?,
+            css: text(book.css)?,
+            cache_cap: book.cache_cap,
         };
         // A place that is not live is not looked at (`current` goes by `live`).
         *slot.entry.try_borrow_mut().map_err(|_| ERR_BUSY)? = Some(entry);
@@ -216,6 +310,10 @@ impl FormatScope {
             kind: entry.kind,
             opened: &entry.opened,
             document: entry.document,
+            cache: &entry.cache,
+            css: &entry.css,
+            cache_cap: entry.cache_cap,
+            quota: Some(self),
         });
         true
     }

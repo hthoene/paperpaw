@@ -365,6 +365,7 @@ impl<'a> CommandStage<'a> {
     }
 
     /// Room for the instances of the batch's `command.widget_changed`.
+    #[inline(never)]
     fn reserve_widgets(&mut self, batch: &CommandBatch<'_>) -> Result<(), i32> {
         let count = batch
             .iter()
@@ -377,6 +378,7 @@ impl<'a> CommandStage<'a> {
 
     /// Every command of a batch but the item states and the dev commands:
     /// image admission, scalar ranges, settings, and the byte budget.
+    #[inline(never)]
     fn validate_each(
         &self,
         batch: &CommandBatch<'_>,
@@ -411,6 +413,7 @@ impl<'a> CommandStage<'a> {
     }
 
     /// A batch refused whole, whatever else it holds, the stage as it was.
+    #[inline(never)]
     fn refused_before_checks(&self, batch: &CommandBatch<'_>) -> Option<i32> {
         // `answer_plugin` and a write of a grant are refused for every plugin
         // (`refused_outright`).
@@ -433,6 +436,7 @@ impl<'a> CommandStage<'a> {
                         | WireCommand::SetHint { .. }
                         | WireCommand::WidgetChanged { .. }
                         | WireCommand::ScreenPolicy { .. }
+                        | WireCommand::ScreenReady {}
                 ) && !dev::is_dev(command)
                     && !Self::is_item_state(command)
                     && !Self::is_preset(command)
@@ -469,6 +473,7 @@ impl<'a> CommandStage<'a> {
     }
 
     /// How many of `batch` are image commands the host admitted.
+    #[inline(never)]
     fn image_count(&self, batch: &CommandBatch<'_>, images: bool) -> usize {
         if !images {
             return 0;
@@ -481,6 +486,7 @@ impl<'a> CommandStage<'a> {
 
     /// Keep every command of a validated batch in order (capacity is reserved)
     /// and reserve the request entries of its DEV commands, last.
+    #[inline(never)]
     fn push_batch(
         &mut self,
         batch: &CommandBatch<'_>,
@@ -504,12 +510,15 @@ impl<'a> CommandStage<'a> {
                 continue;
             }
             // Kept apart, applied before the others (`stage_policy`).
-            if matches!(command, WireCommand::ScreenPolicy { .. }) {
+            if matches!(
+                command,
+                WireCommand::ScreenPolicy { .. } | WireCommand::ScreenReady {}
+            ) {
                 self.stage_policy(&command)?;
                 continue;
             }
             if dev::is_dev(&command) {
-                self.dev_push(command)?;
+                self.dev_push(&command)?;
                 continue;
             }
             // A close of the root and a `back_to` with nothing above change
@@ -517,22 +526,41 @@ impl<'a> CommandStage<'a> {
             if self.nav_no_effect(&command) {
                 continue;
             }
-            if images && let Some(image) = image_service::commands::owned(&command) {
-                // Capacity is reserved, so this push cannot reallocate.
-                self.staged_images.push(image?);
+            if images && self.stage_image(&command)? {
                 continue;
             }
-            let owned = self.owned(command)?;
-            if let WireCommand::Open { mode, handover, .. } = command {
-                self.record_open(self.staged.len(), mode, handover)?;
-            }
-            // Capacity is reserved, so this push cannot reallocate.
-            self.staged.push(owned);
+            self.stage_owned(&command)?;
         }
         self.dev_commit(dev_start)
     }
 
+    /// Keeps an image command in its own list; `false` for another command.
+    /// Its own frame: the copy of an image command is big, and is not held
+    /// beside the others on the frame of `push_batch` (the S3 limit).
+    #[inline(never)]
+    fn stage_image(&mut self, command: &WireCommand<'_>) -> Result<bool, i32> {
+        let Some(image) = image_service::commands::owned(command) else {
+            return Ok(false);
+        };
+        // Capacity is reserved, so this push cannot reallocate.
+        self.staged_images.push(image?);
+        Ok(true)
+    }
+
+    /// Converts and keeps one ordinary command (and records an open).
+    #[inline(never)]
+    fn stage_owned(&mut self, command: &WireCommand<'_>) -> Result<(), i32> {
+        let owned = self.owned(*command)?;
+        if let WireCommand::Open { mode, handover, .. } = *command {
+            self.record_open(self.staged.len(), mode, handover)?;
+        }
+        // Capacity is reserved, so this push cannot reallocate.
+        self.staged.push(owned);
+        Ok(())
+    }
+
     /// Convert one admitted command, copying text fallibly and checking it.
+    #[inline(never)]
     fn owned(&self, command: WireCommand<'_>) -> Result<Command, i32> {
         let WireCommand::SetSetting { key, value } = command else {
             return self.owned_ui(command);

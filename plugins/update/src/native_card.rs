@@ -320,6 +320,21 @@ mod tests {
     }
 
     #[test]
+    fn the_offered_update_of_version_1_is_the_pair_written_now() {
+        // `offered.txt` is compared as text: an update offered before is not
+        // offered again.
+        let kept = include_str!("../testdata/offered.txt.v1");
+        assert_eq!(
+            pair("updates/paperpaw-x4-0.5.0.bin", "0.5.0").unwrap(),
+            kept
+        );
+        assert_eq!(
+            read_pair(kept.as_bytes()),
+            Some(("updates/paperpaw-x4-0.5.0.bin", "0.5.0"))
+        );
+    }
+
+    #[test]
     fn only_a_file_in_updates_is_removed_after_an_update() {
         assert!(is_update_path("updates/paperpaw-x4-0.4.0.bin"));
         assert!(!is_update_path("updates/../books/a.bin"));

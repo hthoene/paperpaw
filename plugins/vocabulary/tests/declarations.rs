@@ -108,7 +108,8 @@ fn the_flash_cards_are_declared_with_their_screens_action_entry_and_icon() {
 fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
     use paperpaw_core::native_host::declarations::validate_record;
     use paperpaw_native::host_glue::ERR_UNSUPPORTED;
-    let builders: [(&str, Build); 6] = [
+    let builders: [(&str, Build); 7] = [
+        ("help", |sink| declarations::help(sink)),
         ("navigation", |sink| declarations::navigation(sink)),
         ("widgets", |sink| declarations::widgets(sink)),
         ("stages", |sink| declarations::stages(sink)),
@@ -131,6 +132,9 @@ fn every_record_is_valid_for_the_host_or_waits_for_its_admission() {
             }
         }
     }
+    // The review's help hints wait for the host's admission of `HelpHint`
+    // (#892, `core.ui` hints); nothing else waits.
+    waiting.retain(|record| record != "help: HelpHint");
     assert!(waiting.is_empty(), "{waiting:?}");
 }
 
@@ -203,4 +207,25 @@ fn the_sleep_card_is_offered_to_the_sleep_screen() {
     assert!(all.contains("vocabulary.sleep-card"), "{all}");
     assert!(all.contains("sleep.show"), "{all}");
     assert!(all.contains("priority: -1"), "{all}");
+}
+
+/// The review's help, as interface 6 listed it: the answers, a tap, the buttons
+/// and Back, each for the input it is about.
+#[test]
+fn the_review_has_its_four_help_hints() {
+    let all = records(|sink| declarations::help(sink));
+    for key in [
+        "vocabulary.help.answers",
+        "vocabulary.help.tap",
+        "vocabulary.help.select",
+        "vocabulary.help.back",
+    ] {
+        assert!(all.contains(key), "{key}: {all}");
+    }
+    assert_eq!(
+        all.matches("screen: \"vocabulary.review\"").count(),
+        4,
+        "{all}"
+    );
+    assert!(all.contains("vocabulary.review"), "{all}");
 }

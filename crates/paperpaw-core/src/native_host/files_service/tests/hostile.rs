@@ -308,6 +308,75 @@ fn root_one_never_reaches_the_install_or_kernel_folders() {
 }
 
 #[test]
+fn root_one_never_reaches_paperpaw_ini_by_any_op_spelling_or_end_of_a_move() {
+    // The kernel's settings file: a plugin that could write it could turn off
+    // the user's second firmware (`dual-boot = off`). It is its own 8.3 name,
+    // so case and the driver's folding are all the spellings there are.
+    let (card, host) = fixture();
+    card.file("paperpaw.ini", 7);
+    card.file("Books/a.txt", 1);
+    card.file(&std::format!("{DATA}/own"), 1);
+    let before = card.paths();
+    for name in [
+        "paperpaw.ini",
+        "PAPERPAW.INI",
+        "Paperpaw.Ini",
+        "paperpaw.INI",
+        // The driver folds `ı` to `I`: this is the same file to it.
+        "paperpaw.ını",
+        "PAPERPAW.INı",
+    ] {
+        // list, stat, space, make_dir, remove_tree (delete) and move away.
+        for (n, result) in all_ops(&host, NORMAL, 1, name).into_iter().enumerate() {
+            assert_eq!(result, Err(ERR_INVALID), "op {} {name}", n + 1);
+        }
+        // Create under it, and write-ish ops below it.
+        for tail in ["/x", "/x/y"] {
+            let p = std::format!("{name}{tail}");
+            for (n, result) in all_ops(&host, NORMAL, 1, &p).into_iter().enumerate() {
+                assert_eq!(result, Err(ERR_INVALID), "op {} {p}", n + 1);
+            }
+        }
+        // A move onto it (rename onto, replace or not) and one away from it.
+        for flags in [0, 1] {
+            assert_eq!(
+                call(&host, 6, move_record(1, "Books/a.txt", 1, name, flags)),
+                Err(ERR_INVALID),
+                "to {name}"
+            );
+            assert_eq!(
+                call(&host, 6, move_record(1, name, 1, "Books/b.txt", flags)),
+                Err(ERR_INVALID),
+                "from {name}"
+            );
+            // Between the roots: from the plugin's data, and into it.
+            assert_eq!(
+                call(&host, 6, move_record(0, "own", 1, name, flags)),
+                Err(ERR_INVALID),
+                "data to {name}"
+            );
+            assert_eq!(
+                call(&host, 6, move_record(1, name, 0, "own", flags)),
+                Err(ERR_INVALID),
+                "{name} to data"
+            );
+        }
+    }
+    // Nothing changed, and the host's own read of it is whole.
+    assert_eq!(card.paths(), before);
+    assert!(card.has("paperpaw.ini") && card.has("Books/a.txt"));
+    // Below another folder it is an ordinary name; so are its neighbours.
+    for other in [
+        "Books/paperpaw.ini",
+        "paperpaw.ini2",
+        "paperpaw.inx",
+        "xpaperpaw.ini",
+    ] {
+        assert_eq!(call(&host, 4, path(1, other)), Ok(Vec::new()), "{other}");
+    }
+}
+
+#[test]
 fn a_wrong_or_missing_record_is_invalid() {
     let (_, host) = fixture();
     let op = schema_op(2);

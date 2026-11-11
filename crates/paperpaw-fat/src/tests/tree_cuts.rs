@@ -148,6 +148,23 @@ fn the_kept_root_of_a_big_folder_is_emptied() {
 /// A cut at any block of any call: what was removed is gone, the rest is
 /// whole, nothing outside is touched, and the walk from the last place or from 0
 /// finishes.
+/// A folder here is a directory entry that stays when its last file is gone
+/// (unlike a store whose folders are its files): the sibling layout of a
+/// document cache, a dot folder and a plain one, goes whole and nothing
+/// beside it is touched.
+#[test]
+fn sibling_folders_one_of_them_a_dot_folder_are_removed_whole() {
+    let card = Cut::formatted_of(4 << 20, options());
+    let s = card.storage();
+    s.write("a/pages/1", b"1").unwrap();
+    s.write("a/.host/.complete", b"").unwrap();
+    s.write("keep/x", b"x").unwrap();
+    walk(&s, "a", false, 0);
+    assert!(!exists_dir(&s, "a"));
+    assert!(!exists_dir(&s, "a/pages") && !exists_dir(&s, "a/.host"));
+    assert_eq!(whole(&s, "keep/x").as_deref(), Ok(&b"x"[..]));
+}
+
 #[test]
 fn a_cut_at_any_block_of_any_call_leaves_a_whole_rest() {
     let card = Cut::formatted_of(4 << 20, options());

@@ -108,3 +108,24 @@ relative to the data folder).
   the subscriber (aids) must validate its setting against the reply size (named there as a settings
   validation); the reader drops a reply that is invalid whole.
 
+
+## The native entry (slice 2)
+
+- `NATIVE_ENTRY` (feature `linked`; `native-entry` for the packed form), `src/native_plugin.rs`,
+  `build.rs` (the batches of `declarations.rs` built into the image: settings, screens, navigation
+  with the six `slot.offer`s, keys, hold keys, events, stages) and `native/metadata*` (regenerate with
+  `python3 tools/abi-metadata.py --schema abi/abi.def --input native/metadata.json --bytes
+  native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.host.*`).
+- `make` submits six groups. **Not the events** (start, a book moved): the host's event admission
+  (`native_host/events.rs` `is_event_tag`) lacks `event.book_moved`, and the registration is refused
+  as a whole (`Factory(-1)`, found by `tests/hosted_construction.rs`); they are in the image and go
+  in once the host admits it; an opened screen draws nothing
+  (`Error::State`). **The plugin is not in `paperpaw_app::NATIVE_PLUGINS`**: with no view the
+  screens it offers would be empty. The views come next: the annotations screen (model in
+  `native_annotations.rs`), then TOC, skim, search, footnote and the reading screen with the
+  document host.
+- Still undeclared: the slice-1 list (status places, the sample widget, the reading app, screen hints,
+  first-run help, the setup step). `tests/hosted_construction.rs` runs `make` in the registered scope
+  of the kernel's native host.
+- Metadata asks `core.ui` and no features yet; it grows with the views (storage for the last book,
+  `core.library` for annotations, `core.files` for the export).

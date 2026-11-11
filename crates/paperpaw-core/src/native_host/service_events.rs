@@ -1,5 +1,6 @@
 //! What the kernel's event pump asks of a host service that raises events
-//! to plugins: `core.net` (99-102) and `core.sockets` (106, 107) today.
+//! to plugins: `core.net` (99-102), `core.sockets` (106, 107) and
+//! `core.document` (`event.document_closed`, 108) today.
 //!
 //! The service queues its events as the shell reports (`NetReports`,
 //! `SockReports`); it never calls a plugin. The kernel, between callbacks,
@@ -10,7 +11,7 @@
 //! callback gets it again). What the plugin may read of the event (a finished
 //! request's answer, a socket's bytes) is readable from the start of that
 //! callback to its return and not after.
-use super::{net_service, sock_service};
+use super::{doc_service, net_service, sock_service};
 
 /// The largest encoded event of a service: the served request of `core.net`
 /// (a 16-byte method, a 1,024-byte target and the fixed fields).
@@ -66,6 +67,11 @@ pub(crate) trait ServiceEvents {
     /// host that serves it, in milliseconds); `None` when nothing waits on
     /// the clock. A borrowed table answers `Some(0)`: look again.
     fn next_deadline(&self) -> Option<u64>;
+
+    /// The kernel's clock in milliseconds, before the pass's events are
+    /// taken: what a service stamps its events with where it keeps no clock
+    /// of its own.
+    fn set_now(&self, _now_ms: u64) {}
 }
 
 impl ServiceEvents for net_service::NetServices {
@@ -86,6 +92,34 @@ impl ServiceEvents for net_service::NetServices {
     }
     fn next_deadline(&self) -> Option<u64> {
         net_service::next_deadline(&*self.0)
+    }
+}
+
+impl ServiceEvents for doc_service::DocServices {
+    fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<(usize, Option<u64>)>, i32> {
+        // Never in a work run: a document's events belong to no request.
+        Ok(self.0.next_event(owner, out)?.map(|length| (length, None)))
+    }
+    fn event_delivered(&self, _owner: u64) -> Result<(), i32> {
+        // The event was taken when it was encoded: nothing the callback read
+        // stays to be freed.
+        Ok(())
+    }
+    fn screen_closed(&self, _owner: u64, _screen: u64) -> Result<(), i32> {
+        Ok(())
+    }
+    fn work_ended(&self, _owner: u64, _run: u64) -> Result<(), i32> {
+        Ok(())
+    }
+    fn tick(&self) -> Result<(), i32> {
+        Ok(())
+    }
+    fn next_deadline(&self) -> Option<u64> {
+        // An event waits: look again at once.
+        self.0.events_waiting().then_some(0)
+    }
+    fn set_now(&self, now_ms: u64) {
+        self.0.set_now(now_ms);
     }
 }
 

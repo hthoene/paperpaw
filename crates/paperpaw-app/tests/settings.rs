@@ -8,6 +8,8 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+mod native_activation;
+
 use paperpaw_core::Kernel;
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
@@ -39,7 +41,7 @@ fn is_widget_group(kernel: &Kernel, group: &str) -> bool {
 fn app() -> Kernel {
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
     let builder = Kernel::builder(DEVICE).storage(storage).user_config("");
-    let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
+    let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
     let _ = kernel.start(Instant(0));
     kernel
 }

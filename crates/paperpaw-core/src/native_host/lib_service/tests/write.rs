@@ -624,6 +624,11 @@ fn no_library_path_reaches_plugins_or_the_hosts_folder() {
         ".paperpaw/library/keys",
         ".PaperPaw/x.epub",
         "PAPERP~1/x.epub",
+        // The kernel's settings file: its own 8.3 name, in any case.
+        "paperpaw.ini",
+        "PAPERPAW.INI",
+        "Paperpaw.Ini",
+        "paperpaw.ını",
     ];
     for path in excluded {
         // One line among others refuses the whole list, before any is touched.
@@ -676,7 +681,13 @@ fn no_library_path_reaches_plugins_or_the_hosts_folder() {
     );
     // Into the library folder at the card's root: plugins and the host's folder.
     *fake.library.borrow_mut() = String::new();
-    for folder in ["plugins", "Plugins/x", "PAPERP~1", ".paperpaw"] {
+    for folder in [
+        "plugins",
+        "Plugins/x",
+        "PAPERP~1",
+        ".paperpaw",
+        "PAPERPAW.INI",
+    ] {
         assert_eq!(
             import(&fake, folder, "x.epub", 0),
             Err(ERR_INVALID),
@@ -688,6 +699,13 @@ fn no_library_path_reaches_plugins_or_the_hosts_folder() {
         Err(ERR_INVALID),
         "a file named so"
     );
+    for name in ["paperpaw.ini", "PAPERPAW.INI", "Paperpaw.ini"] {
+        assert_eq!(
+            import(&fake, "", name, 0),
+            Err(ERR_INVALID),
+            "a file named {name} at the top"
+        );
+    }
     *fake.library.borrow_mut() = "Plugins".into();
     assert_eq!(
         import(&fake, "", "x.epub", 0),

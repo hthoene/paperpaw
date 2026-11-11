@@ -12,8 +12,12 @@
 //! does).
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
+    Point,
     native::Error,
-    widgets::grid::{Cells, Geometry},
+    widgets::{
+        CellSpan,
+        grid::{self, Cells, Geometry},
+    },
 };
 use paperpaw_ui_kit::{mem::push, text::copy};
 
@@ -103,6 +107,42 @@ pub fn put(items: &mut [Item], index: usize, to: Cells, geometry: &Geometry) -> 
     Put::Done
 }
 
+/// Whether item `index` may take the cells `to`: inside the grid and clear of
+/// every other item.
+#[must_use]
+pub fn free(items: &[Item], index: usize, to: Cells, geometry: &Geometry) -> bool {
+    to.fits(geometry.columns, geometry.rows)
+        && !items
+            .iter()
+            .enumerate()
+            .any(|(i, item)| i != index && item.at.is_some_and(|other| other.overlaps(&to)))
+}
+
+/// The cells an item at `from` takes when a finger that came down at `start` is
+/// at `point`: moved by as many cells as the finger moved, or with `resize` (its
+/// corner taken) its corner in the cell under the finger. A widget is kept at
+/// least as high as it can do with (`least` rows) and as its declared cells say
+/// (`span`: its least size, square). `None` off the grid.
+#[must_use]
+pub fn dragged(
+    geometry: &Geometry,
+    from: Cells,
+    (start, point): (Point, Point),
+    resize: bool,
+    (least, span): (u8, Option<CellSpan>),
+) -> Option<Cells> {
+    let to = grid::dragged(geometry, from, start, point, resize)?;
+    if !resize {
+        return Some(to);
+    }
+    let kept = match span {
+        Some(span) => span.keep(to, to.w != from.w),
+        None => to,
+    };
+    let h = kept.h.max(least.max(1)).min(geometry.rows.max(1));
+    Some(Cells::new(kept.col, kept.row, kept.w, h))
+}
+
 /// `items` without item `index`, and the placement whose values go with it:
 /// a widget's own placement (`id@n`) is reset when it is removed.
 ///
@@ -132,6 +172,8 @@ pub fn removed(items: &[Item], index: usize) -> Result<(Vec<Item>, Option<String
 pub enum Choice {
     Move,
     Resize,
+    /// The widget's own settings (a placement of its own), where it has some.
+    Settings,
     Remove,
     Cancel,
 }
@@ -144,6 +186,27 @@ pub const CHOICES: [(Choice, &str); 4] = [
     (Choice::Remove, "core.grid.remove"),
     (Choice::Cancel, "home.edit.cancel"),
 ];
+
+/// The options of a widget that has settings of its own: *Settings* between
+/// *Change the size* and *Remove*, as interface 6 offered them.
+pub const CHOICES_WITH_SETTINGS: [(Choice, &str); 5] = [
+    (Choice::Move, "core.grid.move"),
+    (Choice::Resize, "core.grid.resize"),
+    (Choice::Settings, "core.grid.settings"),
+    (Choice::Remove, "core.grid.remove"),
+    (Choice::Cancel, "home.edit.cancel"),
+];
+
+/// The options an item offers: with *Settings* where it is a widget that has
+/// settings.
+#[must_use]
+pub const fn choices(settings: bool) -> &'static [(Choice, &'static str)] {
+    if settings {
+        &CHOICES_WITH_SETTINGS
+    } else {
+        &CHOICES
+    }
+}
 
 /// The help said when moving or sizing starts.
 #[must_use]

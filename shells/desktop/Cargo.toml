@@ -21,6 +21,7 @@ paperpaw-core = { workspace = true, features = ["color", "outline"] }
 paperpaw-table.workspace = true
 paperpaw-fs.workspace = true
 paperpaw-serve.workspace = true
+paperpaw-http.workspace = true
 paperpaw-graphics = { workspace = true, features = ["color"] }
 paperpaw-platform.workspace = true
 paperpaw-default-packs.workspace = true
@@ -45,6 +46,10 @@ getrandom = "0.4"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Code plugins built for this computer (`native`).
 libloading = "0.9"
+# What seals the secrets of linked native plugins (`sealing`, AES-256-GCM).
+aes-gcm = { version = "0.10", optional = true, default-features = false, features = ["aes", "zeroize"] }
+# The key is wiped from memory when it is dropped.
+zeroize = { version = "1", optional = true }
 # What is checked on a plugin's bytes before it is loaded (ADR 0034); the
 # kernel's part is the freestanding rule shared with the packager (ADR 0020).
 paperpaw-native = { workspace = true, features = ["kernel"] }
@@ -56,6 +61,11 @@ paperpaw-text.workspace = true
 paperpaw-zip = { workspace = true, features = ["testing"] }
 # And a language of an Arabic interface's size, compiled (ADR 0033).
 paperpaw-i18n.workspace = true
+paperpaw-digest.workspace = true
+# A server and a certificate of its own, for the TLS sockets' tests (the
+# same crates and features as `paperpaw-serve`'s, already in the lock).
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"] }
 # The German pack of the snapshot with hyphenated German names, built from the
 # same sources as the shipped one.
 paperpaw-hyphenation-packs = { path = "../../tools/hyphenation-packs" }
@@ -73,6 +83,12 @@ window = ["dep:winit", "dep:softbuffer"]
 hello = ["dep:paperpaw-sample-hello"]
 frame-test = ["dep:paperpaw-sample-frame-test"]
 interlinear = ["dep:paperpaw-sample-interlinear"]
+# The first-party plugins that are interface-7 plugins, linked in and
+# registered by `linked` (Linux x86-64, the one profile they declare; elsewhere
+# the app keeps their interface-6 form). Off until every host service and
+# event the plugins need is wired (#2220): the app without their interface-6
+# form lacks the screens of the ones that cannot register yet.
+native-linked = ["paperpaw-app/native-linked", "dep:aes-gcm", "dep:zeroize"]
 
 [lints]
 workspace = true

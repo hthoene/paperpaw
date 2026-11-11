@@ -38,19 +38,20 @@ use super::{
 use crate::abi7::settings_visibility::{SettingIdentity, visibility};
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
-use paperpaw_native::host_glue::ERR_NO_MEMORY;
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY};
 use paperpaw_sdk::{Id, Settings, wifi::WifiState};
 
 /// The tag of the event.
 const TAG: u32 = wire::EVENT_SETTING_CHANGED_TAG;
 
 /// The hint events a plugin can subscribe to.
-const HINTS: [u32; 5] = [
+const HINTS: [u32; 6] = [
     wire::EVENT_PLUGINS_CHANGED_TAG,
     wire::EVENT_WIFI_CHANGED_TAG,
     wire::EVENT_POWER_CHANGED_TAG,
     wire::EVENT_STATUS_CHANGED_TAG,
     wire::EVENT_CHARGE_CHANGED_TAG,
+    wire::EVENT_PREVIEW_CHANGED_TAG,
 ];
 
 /// Events told to one plugin in one pass.
@@ -82,6 +83,7 @@ impl SettingEvents {
     fn listens(instances: &NativeInstances, owner: u64) -> bool {
         instances.subscribed(owner, TAG)
             || HINTS.iter().any(|&tag| instances.subscribed(owner, tag))
+            || instances.subscribed(owner, wire::EVENT_REGISTRY_CHANGED_TAG)
             || super::core_events::listens(instances, owner)
     }
 
@@ -180,6 +182,48 @@ impl SettingEvents {
         }
     }
 
+    /// Announces that the registry changed in the `what` bits (OR-ed with the
+    /// bits not yet told) to every plugin subscribed to `event.registry_changed`.
+    pub(crate) fn publish_registry(&self, instances: &NativeInstances, what: u32) {
+        if what == 0 {
+            return;
+        }
+        let Ok(mut queues) = self.queues.try_borrow_mut() else {
+            return;
+        };
+        let mut n = 0;
+        while let Some((owner, _)) = instances.running_nth(n) {
+            n += 1;
+            if !instances.subscribed(owner, wire::EVENT_REGISTRY_CHANGED_TAG) {
+                continue;
+            }
+            if let Ok(queue) = self.queue_of(&mut queues, owner) {
+                queue.registry(what);
+            }
+        }
+    }
+
+    /// Tells `plugin` alone that `what` happened (bit 31, `dropped`): no other
+    /// subscriber gets the bit, and a plugin that does not subscribe or does
+    /// not run gets nothing.
+    pub(crate) fn publish_registry_to(&self, instances: &NativeInstances, plugin: &Id, what: u32) {
+        let Some(owner) = instances.find(plugin.as_str()) else {
+            return;
+        };
+        if what == 0
+            || !instances.subscribed(owner, wire::EVENT_REGISTRY_CHANGED_TAG)
+            || instances.id(owner).is_none()
+        {
+            return;
+        }
+        let Ok(mut queues) = self.queues.try_borrow_mut() else {
+            return;
+        };
+        if let Ok(queue) = self.queue_of(&mut queues, owner) {
+            queue.registry(what);
+        }
+    }
+
     /// Forgets the queues of plugins that no longer subscribe (stopped or
     /// unloaded): what they held is dropped, never delivered.
     fn prune(&self, instances: &NativeInstances) {
@@ -261,19 +305,32 @@ fn readable(settings: &Settings, plugin: &Id, key: &str) -> Visibility {
 }
 
 impl crate::Kernel {
-    /// The record of hint `tag` into `bytes`, from the state now.
-    fn hint_bytes(&self, tag: u32, now_ms: u64, bytes: &mut Vec<u8>) -> Result<usize, i32> {
+    /// The record of hint `tag` into `bytes`, from the state now (`what`: the
+    /// bits of `event.registry_changed`).
+    fn hint_bytes(
+        &self,
+        tag: u32,
+        what: u32,
+        now_ms: u64,
+        bytes: &mut Vec<u8>,
+    ) -> Result<usize, i32> {
         use super::event_producers::{ChargeState, Hint};
         let off = WifiState::Off;
         let shared = &self.shared;
         let hint = match tag {
+            wire::EVENT_REGISTRY_CHANGED_TAG => Hint::Registry(what),
             wire::EVENT_PLUGINS_CHANGED_TAG => Hint::Plugins,
             wire::EVENT_WIFI_CHANGED_TAG => {
                 Hint::Wifi(shared.wifi.as_ref().map_or(&off, |wifi| &wifi.state))
             }
             wire::EVENT_POWER_CHANGED_TAG => Hint::Power(&shared.power),
             wire::EVENT_STATUS_CHANGED_TAG => Hint::Status,
-            _ => Hint::Charge(ChargeState::from_status(&shared.status, None)),
+            wire::EVENT_PREVIEW_CHANGED_TAG => Hint::Preview,
+            wire::EVENT_CHARGE_CHANGED_TAG => {
+                Hint::Charge(ChargeState::from_status(&shared.status, None))
+            }
+            // Not a hint: nothing is encoded.
+            _ => return Err(ERR_INVALID),
         };
         // The longest is the power mode's id (128 bytes) and its fixed fields.
         bytes.try_reserve_exact(256).map_err(|_| ERR_NO_MEMORY)?;
@@ -306,6 +363,9 @@ impl crate::Kernel {
 
     /// Tells the waiting events, a few to a plugin in a pass; `true` when
     /// some wait (another pass). Never inside a callback.
+    // Its own frame: the pump keeps the services' passes apart, so that no
+    // frame adds their locals (the firmware's frame limit for host code).
+    #[inline(never)]
     pub(crate) fn native_setting_pump(&mut self) -> bool {
         let events = &self.shared.native_instances.setting_events;
         events.prune(&self.shared.native_instances);
@@ -377,7 +437,14 @@ impl crate::Kernel {
                 if !instances.subscribed(owner, *tag) {
                     return true;
                 }
-                self.hint_bytes(*tag, now, &mut bytes)
+                self.hint_bytes(*tag, 0, now, &mut bytes)
+            }
+            Ready::Registry(what) => {
+                // Revoked since it was queued: nothing to tell.
+                if !instances.subscribed(owner, wire::EVENT_REGISTRY_CHANGED_TAG) {
+                    return true;
+                }
+                self.hint_bytes(wire::EVENT_REGISTRY_CHANGED_TAG, *what, now, &mut bytes)
             }
             _ => {
                 let settings = &self.shared.settings;

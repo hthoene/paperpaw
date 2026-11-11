@@ -143,6 +143,40 @@ fn root_one_hides_the_protected_folders_by_name_and_by_alias() {
 }
 
 #[test]
+fn root_one_does_not_list_paperpaw_ini_in_any_case() {
+    let (card, host) = fixture();
+    card.file("paperpaw.ini", 7);
+    card.file("Books/paperpaw.ini", 1);
+    card.file("PAPERPAW.INI.bak", 1);
+    // The top hides it; its neighbours and a same-named file below stay.
+    assert_eq!(
+        list_all(&host, 1, "").unwrap(),
+        ["Books", "PAPERPAW.INI.bak"]
+    );
+    assert_eq!(list_all(&host, 1, "Books").unwrap(), ["paperpaw.ini"]);
+    for name in [
+        "paperpaw.ini",
+        "PAPERPAW.INI",
+        "Paperpaw.ini",
+        "paperpaw.ını",
+    ] {
+        assert_eq!(
+            call(&host, 2, path(1, name)),
+            Err(ERR_INVALID),
+            "stat {name}"
+        );
+        assert_eq!(
+            call(&host, 1, list_record(1, name, 0)),
+            Err(ERR_INVALID),
+            "list {name}"
+        );
+    }
+    // The host's own read of it (the kernel's settings) is the storage's, and
+    // whole.
+    assert!(card.has("paperpaw.ini"));
+}
+
+#[test]
 fn the_protected_folders_are_known_as_the_fat_driver_folds_names() {
     // The driver compares names in upper case, the whole name: `ı` is `I`,
     // `ſ` is `S`, so these reach `plugins` and `.paperpaw` unless refused.

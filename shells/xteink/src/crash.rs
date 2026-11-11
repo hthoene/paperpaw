@@ -107,11 +107,15 @@ fn handle(info: &core::panic::PanicInfo<'_>, entry: usize) -> ! {
     // it was), and one whose call into the firmware's code panicked or
     // faulted (a shared function, an allocation there): safe mode then
     // switches that plugin off, not all of them (ADR 0026).
-    let from_exception = info
-        .location()
-        .is_some_and(|at| paperpaw_x4::blame::is_exception(at.file()));
+    // The ESP32-S3's band interrupt panics itself (`stack::band_hit`): the
+    // store it saw is the faulting instruction, as `mepc` is on the X4.
+    let band_hit = crate::stack::band_hit();
+    let from_exception = band_hit.is_some()
+        || info
+            .location()
+            .is_some_and(|at| paperpaw_x4::blame::is_exception(at.file()));
     let mut fault_in_plugin = false;
-    if let Some(pc) = fault_address().filter(|_| from_exception) {
+    if let Some(pc) = band_hit.or_else(fault_address).filter(|_| from_exception) {
         crate::native::attribute(pc, &mut |id, offset| {
             fault_in_plugin = true;
             let _ = write!(cut, " fault at {pc:x} ({id}+{offset:#x})");
@@ -163,7 +167,7 @@ fn handle(info: &core::panic::PanicInfo<'_>, entry: usize) -> ! {
     let used = cut.len;
     // Only for a panic that ran on the main stack; the handler's depth only
     // after a band trap (a breakpoint, `mcause` 3: the store trigger).
-    let breakpoint = from_exception && trap_cause() == Some(BREAKPOINT);
+    let breakpoint = band_hit.is_some() || (from_exception && trap_cause() == Some(BREAKPOINT));
     if let Some((depth, left)) = crate::stack::handler_use(entry, breakpoint) {
         let mut note = Cut {
             buf: &mut buf[paperpaw_x4::rtc_guard::BODY][used..],

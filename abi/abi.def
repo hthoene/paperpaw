@@ -11064,6 +11064,15 @@
           "ordinal": null,
           "default": null,
           "max_bytes": 0
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 1,
+          "optional": true,
+          "ordinal": 0,
+          "default": 0,
+          "max_bytes": 0
         }
       ]
     },
@@ -14703,6 +14712,74 @@
           "ordinal": null,
           "default": null,
           "max_bytes": 64
+        }
+      ]
+    },
+    {
+      "id": 88,
+      "name": "event.document_changed",
+      "since": 1,
+      "fields": [
+        {
+          "name": "now_ms",
+          "type": "u64",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "document",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "state",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "progress_ppm",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 1595,
+      "name": "command.firmware_dual_boot",
+      "since": 1,
+      "fields": [
+        {
+          "name": "request",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "mode",
+          "type": "u32",
+          "since": 1,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
         }
       ]
     }

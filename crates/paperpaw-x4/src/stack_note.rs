@@ -69,6 +69,16 @@ pub fn is_band_trap(breakpoint: bool, entry: u32, end: u32, start: u32) -> bool 
             .is_some_and(|band| entry < band.saturating_add(crate::stack_band::BAND))
 }
 
+/// Whether a panic is a band trap on the ESP32-S3: its band's interrupt fired
+/// (`hit`) with the stack pointer at or below the band's top. The monitor
+/// interrupts instead of trapping, and its handler runs on the same stack
+/// (`s3_band`).
+pub fn is_band_trap_s3(hit: bool, entry: u32, end: u32, start: u32) -> bool {
+    hit && in_main_stack(entry, end, start)
+        && crate::s3_band::band(end, start)
+            .is_some_and(|band| entry < band.saturating_add(crate::s3_band::BAND))
+}
+
 /// Writes the note: a space first, so it follows the calls. `handler` is
 /// `Some` after a band trap only (see the module's text).
 pub fn write(out: &mut impl Write, handler: Option<u32>, left: u32) -> core::fmt::Result {
@@ -95,6 +105,21 @@ mod tests {
         assert_eq!(handler_depth(0x3fcc_8000, 0x3fcc_4388, 0x5000), 0);
         assert_eq!(handler_depth(0, u32::MAX, u32::MAX), 0);
         assert_eq!(handler_depth(10, 0, 3), 7);
+    }
+
+    #[test]
+    fn the_s3_band_trap_needs_the_hit_and_a_pointer_at_or_below_the_band() {
+        let (end, start) = (0x3fc9_c000u32, 0x3fca_8000u32);
+        let band = crate::s3_band::band(end, start).unwrap();
+        let top = band + crate::s3_band::BAND;
+        assert!(is_band_trap_s3(true, top - 16, end, start));
+        assert!(is_band_trap_s3(true, band, end, start));
+        // Above the band, or no hit (a panic elsewhere), or off the stack: no.
+        assert!(!is_band_trap_s3(true, top, end, start));
+        assert!(!is_band_trap_s3(false, top - 16, end, start));
+        assert!(!is_band_trap_s3(true, end - 4, end, start));
+        // A stack with no room for a band has no trap.
+        assert!(!is_band_trap_s3(true, end + 100, end, end + 1000));
     }
 
     #[test]

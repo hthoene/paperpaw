@@ -30,6 +30,7 @@ fn row(id: &str, flags: u32) -> PluginRow {
         run: Run::Running,
         flags,
         problem: None,
+        problem_arg: 0,
         update: String::new(),
     }
 }

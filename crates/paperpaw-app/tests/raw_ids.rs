@@ -12,6 +12,8 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+mod native_activation;
+
 use std::collections::BTreeSet;
 
 use paperpaw_core::{Effects, Kernel};
@@ -59,7 +61,7 @@ impl App {
         let builder = Kernel::builder(DEVICE)
             .storage(storage)
             .user_config(format!("[core]\nlanguage = {language}\n"));
-        let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
+        let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
         let effects = kernel.start(Instant(0));
         let mut namespaces: BTreeSet<String> = kernel
             .plugins()
@@ -182,6 +184,10 @@ fn ids_are_found_where_shown() {
 /// Every settings group names its settings and their values, and every
 /// choice its options and more ways to choose.
 #[test]
+#[cfg_attr(
+    feature = "native-linked",
+    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
+)]
 fn settings_pages_and_choosers_show_names() {
     for language in languages() {
         let mut app = App::new(&language);

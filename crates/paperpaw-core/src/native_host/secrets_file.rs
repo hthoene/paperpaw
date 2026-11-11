@@ -11,7 +11,7 @@
 //! Every buffer is one fallible allocation made up front, wiped when dropped.
 use alloc::vec::Vec;
 use core::fmt;
-use paperpaw_native::host_glue::{ERR_FULL, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE};
+use paperpaw_native::host_glue::{ERR_FULL, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE};
 use paperpaw_platform::{Storage, StorageError};
 
 /// The file, in the data folder of the card (the private folder on Android).
@@ -26,7 +26,7 @@ pub(super) const LINE_MAX: usize = 2_560;
 /// Largest secret value, in bytes.
 pub(super) const VALUE_MAX: usize = 1_024;
 /// Largest sealed value (nonce, value, tag) the sealer is asked to open or make.
-pub(super) const SEALED_MAX: usize = 12 + VALUE_MAX + 16;
+pub const SEALED_MAX: usize = 12 + VALUE_MAX + 16;
 /// The file's size limit, in bytes.
 pub(super) const FILE_MAX: u64 = 64 * 1024;
 /// A name or an owner, in bytes.
@@ -146,7 +146,10 @@ fn veil(bytes: &mut [u8]) {
 
 /// Seals and opens values on a device that has a key (decision 138): the X4
 /// (AES-256-GCM with a device key; Firmware's), tests (a fake). One that does
-/// not [`seal`](Sealer::seals) keeps values veiled, as interface 6.
+/// not [`seal`](Sealer::seals) writes nothing: `keep` is refused with `ERR_STATE`
+/// (a device without a key has no `core.secrets`; veiled values of interface 6
+/// are still read and are removed or rewritten sealed only where a sealer
+/// seals).
 ///
 /// `aad` is the line's owner, a zero byte and its name: a value copied to
 /// another line does not open there. Nothing here allocates, logs or keeps the
@@ -160,7 +163,7 @@ fn veil(bytes: &mut [u8]) {
 /// entropy source is on; a sealer that cannot get such a nonce answers an
 /// error from `seal` (the `keep` then fails with nothing changed) and never
 /// falls back to a weak source.
-pub(crate) trait Sealer {
+pub trait Sealer {
     /// Whether new values are written sealed (`s1:`) and veiled ones found are
     /// rewritten sealed at the next save.
     fn seals(&self) -> bool;
@@ -170,23 +173,6 @@ pub(crate) trait Sealer {
     /// Opens `sealed` into `out` and returns the length. Any error means the
     /// value is absent here (another device, a lost key, a damaged line).
     fn open(&self, aad: &[u8], sealed: &[u8], out: &mut [u8]) -> Result<usize, i32>;
-}
-
-/// Keeps values veiled (the emulator, Android): interface 6's behaviour. The
-/// help says it is not encryption.
-#[derive(Debug, Default, Clone, Copy)]
-pub(crate) struct Veiling;
-
-impl Sealer for Veiling {
-    fn seals(&self) -> bool {
-        false
-    }
-    fn seal(&self, _: &[u8], _: &[u8], _: &mut [u8]) -> Result<usize, i32> {
-        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
-    }
-    fn open(&self, _: &[u8], _: &[u8], _: &mut [u8]) -> Result<usize, i32> {
-        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
-    }
 }
 
 /// What a read or write of the file failed with, as the contract says.
@@ -479,8 +465,10 @@ fn aad_of<'b>(
     Ok(&out[..total])
 }
 
-/// Writes a line with this value into `line` (replacing it): sealed when the
-/// sealer seals, veiled otherwise. `blob` is scratch of [`SEALED_MAX`] bytes.
+/// Writes a line with this value into `line` (replacing it), sealed. A sealer
+/// that does not seal is refused with `ERR_STATE`: a value is never written
+/// veiled or in the clear (decision 140). `blob` is scratch of [`SEALED_MAX`]
+/// bytes.
 pub(super) fn build(
     line: &mut Buf,
     blob: &mut Buf,
@@ -489,6 +477,9 @@ pub(super) fn build(
     value: &[u8],
 ) -> Result<(), i32> {
     let (owner, name, label, changeable) = row;
+    if !sealer.seals() {
+        return Err(ERR_STATE);
+    }
     line.clear();
     line.push_escaped(owner)?;
     line.push(b".")?;
@@ -497,22 +488,15 @@ pub(super) fn build(
     line.push_escaped(label)?;
     line.push(if changeable { b"\tc\t" } else { b"\t\t" })?;
     blob.clear();
-    if sealer.seals() {
-        let mut aad = [0_u8; 2 * NAME_MAX + 1];
-        let aad = aad_of(owner, name, &mut aad)?;
-        let length = sealer.seal(aad, value, &mut blob.data)?;
-        if length > SEALED_MAX {
-            return Err(ERR_IO);
-        }
-        blob.len = length;
-        line.push(SEALED_MARK)?;
-        line.push_hex(blob.as_bytes())?;
-    } else {
-        blob.push(value)?;
-        let len = blob.len;
-        veil(&mut blob.data[..len]);
-        line.push_hex(blob.as_bytes())?;
+    let mut aad = [0_u8; 2 * NAME_MAX + 1];
+    let aad = aad_of(owner, name, &mut aad)?;
+    let length = sealer.seal(aad, value, &mut blob.data)?;
+    if length > SEALED_MAX {
+        return Err(ERR_IO);
     }
+    blob.len = length;
+    line.push(SEALED_MARK)?;
+    line.push_hex(blob.as_bytes())?;
     blob.clear();
     line.push(b"\n")
 }

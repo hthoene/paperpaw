@@ -122,6 +122,9 @@ impl Fake {
     }
 }
 impl DocHost for Fake {
+    fn as_dyn(&self) -> &dyn DocHost {
+        self
+    }
     fn table(&self) -> &DocumentTable {
         &self.table
     }

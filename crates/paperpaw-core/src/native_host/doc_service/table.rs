@@ -24,6 +24,12 @@ pub(crate) const BACKGROUND: u32 = 1 << 2;
 /// `event.document_closed.reason` 4 `needed`: its place went to a book to show.
 pub(crate) const NEEDED: u32 = 4;
 
+/// How many `event.document_closed` records the table keeps for each place it
+/// has: a document that closes while its last one is still undelivered. An
+/// open is admitted only while a record can be kept for every document that
+/// could close (`DocumentTable::open`), so raising the event never fails.
+const EVENTS_PER_PLACE: usize = 2;
+
 /// Three malformed answers in a row close the document (`document.md` 3).
 const STRIKES_TO_CLOSE: u8 = 3;
 
@@ -47,6 +53,17 @@ impl Limits {
         }
     }
 
+    /// The most a book's cache may hold (`document.md` 3, Cache quota): 64
+    /// MiB where the device has the X4's two places, else 4 GiB (FAT's file
+    /// size bound is not the cache's).
+    pub(crate) const fn cache_bytes(&self) -> u64 {
+        if self.device <= self.per_owner {
+            64 << 20
+        } else {
+            4 << 30
+        }
+    }
+
     /// At most 2 per opener and 2 device-wide: the shown book and an index build.
     pub(crate) const X4: Self = Self {
         per_owner: 2,
@@ -57,6 +74,14 @@ impl Limits {
         per_owner: 2,
         device: 8,
     };
+}
+
+/// One `event.document_closed` waiting for its opener (`document.md` 2.1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Closed {
+    pub(crate) owner: u64,
+    pub(crate) document: u32,
+    pub(crate) reason: u32,
 }
 
 /// The host's opaque name of a format (an index into its declared formats).
@@ -126,6 +151,10 @@ pub(crate) struct DocumentTable {
     /// (`document.md` 2.1). Fixed size, oldest forgotten first, never grows.
     evicted: Cell<[(u32, u64); EVICTED]>,
     evicted_next: Cell<usize>,
+    /// `event.document_closed` records not yet delivered, oldest first. Never
+    /// grows: its room is reserved once, and an open leaves room for the close
+    /// of every document that is live (see `open`).
+    closed: RefCell<Vec<Closed>>,
 }
 
 impl DocumentTable {
@@ -136,8 +165,13 @@ impl DocumentTable {
         documents
             .try_reserve_exact(limits.device)
             .map_err(|_| ERR_NO_MEMORY)?;
+        let mut closed = Vec::new();
+        closed
+            .try_reserve_exact(limits.device * EVENTS_PER_PLACE)
+            .map_err(|_| ERR_NO_MEMORY)?;
         Ok(Self {
             limits,
+            closed: RefCell::new(closed),
             next_id: Cell::new(1),
             documents: RefCell::new(documents),
             evicted: Cell::new([(0, 0); EVICTED]),
@@ -181,6 +215,14 @@ impl DocumentTable {
         let mut rows = self.rows()?;
         if rows.iter().filter(|d| d.owner == owner).count() >= self.limits.per_owner() {
             return Err(ERR_FULL);
+        }
+        // A close that finds no room for its event would leave the opener
+        // without it: so an open waits (`ERR_BUSY`) while undelivered events
+        // and live documents (each may close) already fill the room.
+        let live = rows.iter().filter(|d| d.closed_by_host == 0).count();
+        let waiting = self.closed.try_borrow().map_err(|_| ERR_BUSY)?.len();
+        if live + waiting >= self.limits.device * EVENTS_PER_PLACE {
+            return Err(ERR_BUSY);
         }
         let id = self.next_id.get();
         // Never 0 and never reused: when the counter is spent, no more opens.
@@ -321,6 +363,51 @@ impl DocumentTable {
         Ok(rows.remove(at))
     }
 
+    /// Keep `event.document_closed` for `document`'s opener. Never fails for
+    /// a document that was live: `open` left room for it.
+    pub(crate) fn raise_closed(&self, document: &Document, reason: u32) {
+        let Ok(mut events) = self.closed.try_borrow_mut() else {
+            debug_assert!(false, "the event queue is never held across a call");
+            return;
+        };
+        if events.len() < events.capacity() {
+            events.push(Closed {
+                owner: document.owner,
+                document: document.id,
+                reason,
+            });
+        } else {
+            debug_assert!(false, "an open leaves room for each live document's close");
+        }
+    }
+
+    /// The oldest undelivered event of `owner`, given to `encode`; it is
+    /// forgotten when `encode` answers `Ok`, and kept when it fails.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the queue is borrowed; what `encode` answers.
+    pub(crate) fn take_closed(
+        &self,
+        owner: u64,
+        encode: impl FnOnce(&Closed) -> Result<usize, i32>,
+    ) -> Result<Option<usize>, i32> {
+        let mut events = self.closed.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+        let Some(at) = events.iter().position(|event| event.owner == owner) else {
+            return Ok(None);
+        };
+        let written = encode(&events[at])?;
+        events.remove(at);
+        Ok(Some(written))
+    }
+
+    /// Whether any event waits for its opener.
+    #[cfg(test)]
+    pub(crate) fn has_closed(&self) -> bool {
+        self.closed
+            .try_borrow()
+            .map_or(true, |events| !events.is_empty())
+    }
+
     /// `reader_opened` accepted `id`: its book is held until `release_reader`.
     pub(crate) fn hold_reader(&self, id: u32) {
         if let Ok(mut rows) = self.documents.try_borrow_mut()
@@ -359,6 +446,11 @@ impl DocumentTable {
         mut ended: impl FnMut(&Document),
     ) -> Result<usize, i32> {
         let mut count = 0;
+        // Its opener is gone: no one is left to hear an event.
+        self.closed
+            .try_borrow_mut()
+            .map_err(|_| ERR_BUSY)?
+            .retain(|event| event.owner != owner);
         loop {
             let document = {
                 let mut rows = self.rows()?;

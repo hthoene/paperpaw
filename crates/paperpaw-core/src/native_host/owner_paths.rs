@@ -21,8 +21,21 @@ pub(crate) const MAX_JOINED: usize = 640;
 /// Root 1 (the user's files) and 2 (the plugin's install folder).
 pub(crate) const CARD: u32 = 1;
 pub(crate) const BUNDLE: u32 = 2;
-/// The folders of root 1 that belong to the kernel and the plugins.
-const PROTECTED: [&str; 2] = ["plugins", ".paperpaw"];
+/// What root 1 never reaches by its first path segment: the folders that
+/// belong to the kernel and the plugins, and the kernel's `paperpaw.ini` (a
+/// plugin that could write it could turn off the user's second firmware).
+pub(crate) const PROTECTED: [&str; 3] = ["plugins", ".paperpaw", "paperpaw.ini"];
+
+/// Whether `first`, the first segment of a root-1 path, names one of
+/// [`PROTECTED`]: compared as the FAT driver does (whole name upper-cased),
+/// so any case and any spelling it takes for one of them is caught. An 8.3
+/// alias that differs from the name (a `~`) is the storage's to resolve (the
+/// host's `excluded`); `paperpaw.ini` is its own 8.3 name.
+pub(crate) fn protected_first(first: &str) -> bool {
+    PROTECTED
+        .iter()
+        .any(|name| super::files_service::same_fold(first, name))
+}
 /// The host's folder in root 0.
 pub(crate) const RECEIVED: &str = ".received";
 
@@ -170,7 +183,7 @@ pub(crate) fn access_with(
         relative_path(path.as_bytes())?;
     }
     let first = path.split('/').next().unwrap_or_default();
-    if root == CARD && PROTECTED.iter().any(|p| first.eq_ignore_ascii_case(p)) {
+    if root == CARD && protected_first(first) {
         return Err(ERR_INVALID);
     }
     // `.received` is the host's in root 0: a plugin may read what is
@@ -184,4 +197,54 @@ pub(crate) fn access_with(
         return Err(ERR_INVALID);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::native_host::admitted_features::AdmittedFeatures;
+    use paperpaw_native::metadata::Feature;
+
+    const HOST: &[Feature<'static>] = &[Feature {
+        key: "uses.storage",
+        revision: 1,
+    }];
+
+    fn refused(path: &str, write: bool) -> Result<(), i32> {
+        let hosts = crate::native_host::host_services::HostServices::default();
+        let who = Caller {
+            owner: 1,
+            plugin: "files",
+            features: AdmittedFeatures::test(1, HOST),
+            hosts: &hosts,
+        };
+        access(&who, CARD, path, write)
+    }
+
+    #[test]
+    fn root_one_never_reaches_the_kernels_files_by_first_segment_in_any_case() {
+        for name in [
+            "plugins",
+            ".PAPERPAW",
+            "paperpaw.ini",
+            "PAPERPAW.INI",
+            "Paperpaw.Ini",
+            "paperpaw.ını",
+            "paperpaw.ini/x",
+        ] {
+            for write in [false, true] {
+                assert_eq!(refused(name, write), Err(ERR_INVALID), "{name} {write}");
+            }
+        }
+        // Neighbours and the same name below a folder are ordinary.
+        for name in [
+            "paperpaw.inx",
+            "paperpaw.ini2",
+            "xpaperpaw.ini",
+            "Books/paperpaw.ini",
+            "paperpaw",
+        ] {
+            assert_eq!(refused(name, true), Ok(()), "{name}");
+        }
+    }
 }

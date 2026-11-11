@@ -244,3 +244,43 @@ fn a_failed_request_says_why() {
         Trouble::Reason("update.net.other")
     );
 }
+
+/// Whatever the server sends, the answer is no offer or a sane one: nothing
+/// panics, a name that is no version, an address that is blank and a body that
+/// is no JSON offer nothing.
+#[test]
+fn hostile_answers_of_the_server_offer_nothing_or_something_sane() {
+    let deep = alloc::format!("{}{}", "[".repeat(500), "]".repeat(500));
+    let bodies: [&[u8]; 7] = [
+        b"",
+        b"not json",
+        br#"{"version": 5, "url": "u"}"#,
+        br#"{"version": "v9.9.9", "url": "u"}"#,
+        br#"{"version": "0.5.0", "url": "  "}"#,
+        deep.as_bytes(),
+        &[0xff, 0xfe, b'{', 0x80],
+    ];
+    for body in bodies {
+        let mut reader = Reader::default();
+        // A body the parser refuses is no offer either.
+        let fed = reader.feed(body);
+        let offer = fed.and_then(|()| reader.finish("0.4.0", false));
+        assert!(matches!(offer, Ok(None) | Err(_)), "{body:?}: {offer:?}");
+    }
+    // The streaming parser reads a number as the text it is: an address that is
+    // a number is kept as one (the download of it fails and says so).
+    let odd = read(r#"{"version": "0.5.0", "url": 7}"#, "0.4.0", false, 4096).unwrap();
+    assert_eq!(odd.url, "7");
+    // Numbers out of range, lists of the wrong kind: offered, sane.
+    for body in [
+        r#"{"version": "0.5.0", "url": "https://x/u.bin", "size": -12,
+            "plugins": [1, null, {"a": 1}], "missing": "not a list"}"#,
+        r#"{"version": "0.5.0", "url": "u", "size": 1e30,
+            "plugins": ["paperpaw-plugin-stats 0.5.0"]}"#,
+    ] {
+        let offer = read(body, "0.4.0", false, 4096).unwrap();
+        assert_eq!(offer.version, "0.5.0");
+        assert_eq!(offer.size, 0, "no size known");
+        assert!(offer.missing.is_empty());
+    }
+}

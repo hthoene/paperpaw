@@ -10,6 +10,9 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+mod native_activation;
+use native_activation::BuildNative as _;
+
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -120,8 +123,7 @@ impl App {
             .user_config("[core]\nlanguage = en\n");
         let mut kernel = paperpaw_app::install(builder, fonts())
             .plugin(Probe)
-            .build()
-            .unwrap();
+            .build_native();
         let effects = kernel.start(Instant(0));
         let mut app = Self { kernel, now: 0 };
         app.settle(effects);
@@ -182,13 +184,17 @@ fn translations_keep_no_index_on_the_heap() {
 language = de
 ",
     );
-    let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
+    let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
     kernel.start(Instant(0));
     assert_eq!(kernel.translator().language(), "de");
     assert_eq!(kernel.translator().indexes_on_heap(), slots);
 }
 
 #[test]
+#[cfg_attr(
+    feature = "native-linked",
+    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
+)]
 fn a_plugin_reaches_the_reader_through_the_standard_ids() {
     let mut app = App::new();
     app.now += 100;

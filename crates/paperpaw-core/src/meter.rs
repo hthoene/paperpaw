@@ -56,6 +56,15 @@ impl Drop for Running {
     }
 }
 
+/// A plugin's code running, until dropped, on a meter held by reference.
+pub(crate) struct Scoped<'a>(&'a Meter);
+
+impl Drop for Scoped<'_> {
+    fn drop(&mut self) {
+        self.0.leave();
+    }
+}
+
 impl Meter {
     pub(crate) fn new(clock: Option<fn() -> u64>) -> Rc<Self> {
         let meter = Rc::new(Self {
@@ -155,6 +164,18 @@ impl Meter {
     /// `plugin`'s code runs until the result is dropped; the code it was
     /// called from pauses meanwhile.
     pub(crate) fn enter(self: &Rc<Self>, plugin: &str) -> Running {
+        self.begin(plugin);
+        Running(self.clone())
+    }
+
+    /// Like [`Self::enter`], for a frame that holds the meter by reference
+    /// (the callee of a nested native call): the code ends with the result.
+    pub(crate) fn enter_scoped(&self, plugin: &str) -> Scoped<'_> {
+        self.begin(plugin);
+        Scoped(self)
+    }
+
+    fn begin(&self, plugin: &str) {
         let index = self.index(plugin);
         let now = self.now();
         let mut running = self.running.borrow_mut();
@@ -164,7 +185,16 @@ impl Meter {
         running.push((index, now));
         let mut table = self.table.borrow_mut();
         table[index].calls = table[index].calls.saturating_add(1);
-        Running(self.clone())
+    }
+
+    /// The calls `plugin`'s code made so far; no row is added.
+    #[cfg(test)]
+    pub(crate) fn calls_of(&self, plugin: &str) -> u32 {
+        self.table
+            .borrow()
+            .iter()
+            .find(|p| p.plugin.as_str() == plugin)
+            .map_or(0, |p| p.calls)
     }
 
     /// As [`Self::enter`], unless `plugin`'s code runs now already: a top-level

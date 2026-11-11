@@ -12,6 +12,13 @@ link them until the host activates native plugins; then they go together (no shi
 
 ## Ported
 
+- *Events 75 and 76:* the host admits `event.registry_changed` and `event.preview_changed` since #916
+  (coalesced hints), so the plugin's four event subscriptions are admitted as a whole and
+  `tests/hosted_construction.rs` constructs it in the real registered scope (no longer ignored).
+  A registry change (and a plugins change) rebuilds what shows on top and notes the covered pages
+  as stale; a preview change redraws. The widget preview above a group's settings stays blocked on
+  the registry's `previews` read (SDK accessor) and the host's slot 35 (`settings-group-preview`).
+
 - *Passwords and keys* (`src/native_secrets.rs`, screens `settings.secrets` and `settings.secret`, the
   action `settings.secrets.open`, its entry in `core.settings-pages` at order 95 and the icon `key`,
   as in interface 6; parity in `tests/abi7_declarations.rs`). On `core.secrets` with the feature

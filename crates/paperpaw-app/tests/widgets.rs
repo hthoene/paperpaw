@@ -11,6 +11,8 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+mod native_activation;
+
 use paperpaw_core::{Effects, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
@@ -68,7 +70,7 @@ impl App {
         let builder = Kernel::builder(device)
             .storage(storage)
             .user_config(format!("[core]\nlanguage = {language}\n"));
-        let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
+        let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
         let effects = kernel.start(Instant(0));
         let mut app = Self { kernel, now: 0 };
         app.settle(effects);
@@ -227,7 +229,7 @@ fn a_widget_placed_twice_has_two_looks() {
     assert!(config.contains("analogue-clock@2.frame"), "{config}");
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
     let builder = Kernel::builder(X4).storage(storage).user_config(config);
-    let kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
+    let kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
     let settings = kernel.settings();
     assert_eq!(
         settings.text("widgets.analogue-clock@2.frame"),

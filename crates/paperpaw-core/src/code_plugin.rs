@@ -239,7 +239,9 @@ impl Kernel {
         let host = self.flat_host();
         for plugin in found {
             let manifest = plugin.manifest();
-            let id = manifest.id.clone();
+            // Each try says its own why: what was kept of a declaration cap an
+            // earlier try ran into goes, whatever this one ends in.
+            let id = self.begin_try(&manifest.id);
             if disabled.iter().any(|d| d == id.as_str()) {
                 self.register_off(&plugin, manifest);
                 self.set_code_info(&id, None);

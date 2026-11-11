@@ -708,25 +708,49 @@ fn interface_6_values_are_read_and_become_sealed_at_the_first_save() {
 }
 
 #[test]
-fn a_device_that_only_veils_keeps_interface_6s_file_readable_by_interface_6() {
+fn a_device_that_does_not_seal_refuses_keep_and_writes_nothing_but_still_reads_veiled_lines() {
+    let old = interface6(&[
+        ("mail.password", "mail.password", false, "old-pw"),
+        ("wifi.Home", "wifi.Home", true, "wpw"),
+    ]);
     let mut seal = Seal::new(9);
     seal.seals = false;
     with_host(host(seal), true, |v| {
-        v.keep("mail", "password", "L", "pw").unwrap();
-        v.keep("wifi", "net\twork", "", "w").unwrap();
-        // The veiled form: the SDK's own reader (interface 6) takes the file.
-        let secrets = paperpaw_sdk::secrets::Secrets::decode(&text(&v.host.card.file()));
-        assert_eq!(secrets.get("mail.password"), Some("pw"));
-        assert_eq!(secrets.get("wifi.net\twork"), Some("w"));
-        assert!(!text(&v.host.card.file()).contains("s1:"));
-        // And a sealed line from an X4 card is absent and kept.
+        v.host.card.put(file::FILE, &old);
+        // Veiled values are read.
+        assert_eq!(v.get("mail", "password").unwrap().0, "old-pw");
+        // A keep (new, or a changed one) is refused with nothing written: the
+        // file is byte for byte what it was, and no temporary file is left.
+        assert_eq!(
+            v.keep("mail", "password", "L", "new").err(),
+            Some(ERR_STATE)
+        );
+        assert_eq!(v.keep("stats", "webdav", "", "d").err(), Some(ERR_STATE));
+        assert_eq!(v.host.card.file(), old);
+        assert_eq!(v.host.card.renames.get(), 0);
+        assert!(v.host.card.files.borrow().get(file::TEMP).is_none());
+        // Nothing to upgrade where nothing seals: the veiled lines stay.
+        assert_eq!(v.services().upgrade(), Ok(false));
+        assert_eq!(v.host.card.file(), old);
+        // A sealed line from an X4 card is absent and kept by a remove.
         let mut file = v.host.card.file();
         file.extend_from_slice(b"mail.sealed\t\t\ts1:00aa\n");
         v.host.card.put(file::FILE, &file);
         assert_eq!(v.get("mail", "sealed").err(), Some(ERR_NOT_FOUND));
-        v.keep("mail", "more", "", "x").unwrap();
-        assert!(text(&v.host.card.file()).contains("mail.sealed\t\t\ts1:00aa\n"));
-        assert_eq!(v.services().upgrade(), Ok(false));
+    });
+}
+
+#[test]
+fn a_failed_upgrade_leaves_the_veiled_lines_as_they_are() {
+    let old = interface6(&[("mail.password", "mail.password", false, "old-pw")]);
+    with_host(host(Seal::new(9)), true, |v| {
+        v.host.card.put(file::FILE, &old);
+        v.host.card.fail_rename.set(true);
+        assert!(v.services().upgrade().is_err());
+        assert_eq!(v.host.card.file(), old);
+        v.host.card.fail_rename.set(false);
+        assert_eq!(v.services().upgrade(), Ok(true));
+        assert!(text(&v.host.card.file()).contains("s1:"));
     });
 }
 

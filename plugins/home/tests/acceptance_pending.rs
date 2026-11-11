@@ -37,12 +37,12 @@ const CASES: [Case; 13] = [
         blocked_by: &["H1", "H4"],
     },
     // The grid's columns or rows changed: every page fitted to it, what has no
-    // room carried to the next page. Widgets' sizes come from `widget_measure`
-    // of an instance the dashboard makes, so this runs with the dashboard.
+    // room carried to the next page. The handler is native (`native_reflow`);
+    // the end-to-end case needs a host that keeps settings.
     Case {
         name: "home-grid-reflow",
         golden: None,
-        blocked_by: &["HOME-reflow-slice", "H3"],
+        blocked_by: &["HOST-settings-store"],
     },
     // The tools drawer: every tool as an icon in a grid.
     Case {
@@ -61,7 +61,7 @@ const CASES: [Case; 13] = [
     Case {
         name: "home-footer-items-editor-grip-drag",
         golden: None,
-        blocked_by: &["KIT-grip-drag"],
+        blocked_by: &["H1", "H4"],
     },
     // The status line above the grid (its items, drawn by their owners and
     // composed), tapped for the item's action.
@@ -86,21 +86,24 @@ const CASES: [Case; 13] = [
         golden: None,
         blocked_by: &["event.widget_changed", "H3"],
     },
-    // Adding a widget or tool to a page: the gallery that draws widgets as they
-    // would show, the ready-made layouts and the icons of the rows. The list
-    // steps, the page actions and the writes are done (unit-tested).
+    // Adding a widget or tool to a page: the ready-made layouts and the icons of
+    // the rows. The list steps, the page actions, the writes and the gallery's
+    // layout, page keys and fallbacks are done (unit-tested; the gallery's
+    // drawing needs a host with a screen stack and composition).
     Case {
         name: "home-add",
         golden: None,
-        blocked_by: &["HOME-add-gallery", "H1", "H4"],
+        blocked_by: &["HOME-add-layouts", "H1", "H4"],
     },
     // Arranging while editing: moving and sizing an item with a finger (drag by
-    // the item, by its corner), and the options' *Settings* entry. Moving,
-    // sizing and removing with the buttons are done (unit-tested).
+    // the item, by its corner). The cells a drag makes, where they are free and
+    // moving, sizing and removing with the buttons are done (unit-tested); the
+    // finger itself needs a host that delivers pointers to the dashboard on a
+    // screen stack.
     Case {
         name: "home-edit-arrange",
         golden: None,
-        blocked_by: &["H4", "HOME-item-settings"],
+        blocked_by: &["H1"],
     },
 ];
 
@@ -139,7 +142,7 @@ fn home_footer_items_editor() {
 }
 
 #[test]
-#[ignore = "BLOCKED HOME-reflow-slice: the handler of the setting change (columns, rows) that measures the widgets and fits the pages is not written yet (event 64 is admitted, #763; the dashboard it needs exists since slice 3b; `native_pages::reflow` is ready); H3: composing the widgets to measure is #827 (draft)"]
+#[ignore = "BLOCKED HOST-settings-store: the handler is written (native_reflow.rs, tested without a host in native_pages), but the scripted host has no settings store to change columns or rows and read the pages back"]
 fn home_grid_reflow() {
     CASES[4].refuse().unwrap();
 }
@@ -157,7 +160,7 @@ fn home_help_hints() {
 }
 
 #[test]
-#[ignore = "BLOCKED KIT-grip-drag: the kit's status items view has no pointer drag of the grip yet (kit work, plugin side); the pointer input itself is H4a (no PR yet)"]
+#[ignore = "BLOCKED H1/H4: the kit view takes the finger's drag of a grip (unit-tested in paperpaw-ui-kit), but nothing is drawn or taken through a host yet: H1 screens and H4 pointer delivery to a native screen on a real host (Input says the host already forwards raw pointers)"]
 fn home_footer_items_editor_grip_drag() {
     CASES[7].refuse().unwrap();
 }
@@ -181,13 +184,13 @@ fn home_widget_updates() {
 }
 
 #[test]
-#[ignore = "BLOCKED HOME-add-gallery: the gallery of widgets as they would show (plugin work; composition #827, draft), the ready-made layouts and the icons of the rows (plugin work; the icon admission #517 and the glyph call #624 are merged) are not ported; H1/H4: H1a #820/#829 and the code activation (todo 90) are open, pointer input has no PR yet"]
+#[ignore = "BLOCKED HOME-add-layouts: the ready-made layouts and the icons of the rows are not ported (plugin work; the icon admission #517 and the glyph call #624 are merged); the gallery is native but its drawing is seen only on a host with a screen stack and composition; H1/H4: H1a #820/#829 and the code activation (todo 90) are open, pointer input has no PR yet"]
 fn home_add() {
     CASES[11].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED H4: the finger's drag of an item and its corner needs pointer input to native screens (H4a, no PR yet); HOME-item-settings: the options' Settings entry (the widget's settings with a placement of its own) is not ported (plugin work)"]
+#[ignore = "BLOCKED H1: the finger's drag of an item and its corner is native (the cells it makes are unit-tested) but is seen only on a host with a screen stack that delivers pointers to the dashboard"]
 fn home_edit_arrange() {
     CASES[12].refuse().unwrap();
 }

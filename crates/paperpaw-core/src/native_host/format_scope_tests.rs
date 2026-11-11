@@ -11,6 +11,10 @@ fn book<'a>(path: &'a str, kind: BookKind, opened: &'a str, document: u32) -> Fo
         kind,
         opened,
         document,
+        cache: "",
+        css: "",
+        cache_cap: 0,
+        quota: None,
     }
 }
 
@@ -172,4 +176,40 @@ fn the_folder_of_a_book_is_the_one_root_3_reaches() {
     );
     // A book at the top of the card has the top as its folder.
     assert_eq!(folder("p1.png", BookKind::Siblings), Some(String::new()));
+}
+
+#[test]
+fn the_bytes_of_a_cache_are_counted_per_folder_whoever_writes_to_it() {
+    let scope = FormatScope::new();
+    scope.charge("c/a", 6, 0, 10).unwrap();
+    // Another document of the same conversion writes to the same folder.
+    assert_eq!(scope.charge("c/a", 6, 0, 10), Err(ERR_NO_SPACE));
+    scope.charge("c/b", 6, 0, 10).unwrap();
+    assert_eq!((scope.total("c/a"), scope.total("c/b")), (6, 6));
+    // A reopen finds a finished cache's bytes in its stamp; counted ones stay.
+    scope.seed("c/new", 7);
+    scope.seed("c/a", 1);
+    assert_eq!((scope.total("c/new"), scope.total("c/a")), (7, 6));
+    // A folder made new starts at 0.
+    scope.reset("c/a");
+    assert_eq!(scope.total("c/a"), 0);
+    scope.charge("c/a", 10, 0, 10).unwrap();
+    assert_eq!(scope.charge("c/a", 1, 0, 10), Err(ERR_NO_SPACE));
+    // What is credited is not counted; the count cannot go below 0.
+    scope.charge("c/a", 0, 99, 10).unwrap();
+    assert_eq!(scope.total("c/a"), 0);
+}
+
+#[test]
+fn a_full_count_table_drops_the_folder_used_least_recently() {
+    let scope = FormatScope::new();
+    for n in 0..MAX_COUNTED {
+        scope.charge(&std::format!("c/{n}"), 1, 0, 10).unwrap();
+    }
+    // The first is used again: the second is the least recent now.
+    scope.charge("c/0", 1, 0, 10).unwrap();
+    scope.charge("c/new", 1, 0, 10).unwrap();
+    assert_eq!(scope.total("c/0"), 2);
+    assert_eq!(scope.total("c/1"), 0);
+    assert_eq!(scope.total("c/new"), 1);
 }

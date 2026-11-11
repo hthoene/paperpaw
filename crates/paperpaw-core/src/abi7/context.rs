@@ -123,6 +123,12 @@ pub(crate) trait Frame {
         Err(ERR_STATE)
     }
 
+    /// One line of the host's own diagnostics (`KernelBuilder::device_log`):
+    /// at most 120 bytes, plugin ids and numbers only, never plugin text,
+    /// paths or secrets; one per call site per sync or job. A frame without a
+    /// sink drops it and formats nothing.
+    fn log(&self, _line: core::fmt::Arguments<'_>) {}
+
     /// The tables `core.registry` reads (`registry.md` section 2). A frame
     /// that has none refuses with `ERR_UNSUPPORTED`.
     fn registry(&self) -> Result<&dyn registry_views::RegistryView, i32> {
@@ -155,6 +161,40 @@ pub(crate) trait Frame {
         _payload: &[u8],
         _out: &mut [u8],
     ) -> Result<usize, i32> {
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
+
+    /// One directed stage call to the native instance of `owner`'s `token`,
+    /// for a host service that runs another plugin (the document service's
+    /// format call, the lookup providers). The call goes through the stage
+    /// dispatch of the owner's instance: that pushes the owner's own frame,
+    /// the depth budget holds (the callee runs at depth 2, a third level is
+    /// `ERR_BUSY`), a plugin never calls itself (`ERR_BUSY`), and nothing of
+    /// the instance outlives the call.
+    ///
+    /// `accept` checks the callee's answer (`reply[..n]`) before it counts:
+    /// an `Err` is the status of the call and the callee is told its answer
+    /// was dropped. On success the answer is the first `n` bytes of `reply`;
+    /// on an error `reply` is unspecified. `ERR_UNSUPPORTED` for a frame
+    /// without stage authority.
+    fn call_native(
+        &self,
+        _owner: u64,
+        _token: u32,
+        _input: &[u8],
+        _reply: &mut [u8],
+        _accept: &mut dyn FnMut(&[u8]) -> Result<(), i32>,
+    ) -> Result<usize, i32> {
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
+
+    /// The declaration store (a `DeclarationStore`, as `dyn Any`: this file is
+    /// also compiled by the integration tests, which have no such type), read
+    /// for the length of `visit` (the document service reads the formats and
+    /// reading apps there). `visit` must not invoke plugins or reenter the
+    /// store. `ERR_BUSY` while the store is being changed, `ERR_UNSUPPORTED`
+    /// for a frame without a directory.
+    fn with_declarations(&self, _visit: &mut dyn FnMut(&dyn core::any::Any)) -> Result<(), i32> {
         Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     }
 

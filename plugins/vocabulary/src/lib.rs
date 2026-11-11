@@ -65,6 +65,8 @@ mod native_collect;
 )]
 mod native_decks;
 mod native_entry;
+mod native_export;
+mod native_goto;
 mod native_list;
 #[allow(
     dead_code,
