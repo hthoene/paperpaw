@@ -548,15 +548,58 @@ impl paperpaw_sdk::ScreenMaker for Registry {
 /// the program ([`SettingSpec::fixed`]).
 pub(crate) enum Staged {
     Owned(alloc::boxed::Box<SettingSpec>),
-    /// Spec `.1` of the list `.0`, kept by a reference to the list.
-    Fixed(&'static [SettingSpec], usize),
+    /// Some settings of the table `.0` kept in the program, a table's worth
+    /// as one entry (not one for each of them).
+    Table(&'static [SettingSpec], Picked),
+}
+
+/// Which settings of a table a [`Staged::Table`] stands for.
+pub(crate) enum Picked {
+    /// All of them.
+    All,
+    /// The entries at these places, in the order they are defined in (the
+    /// list the plugin's admission made, kept as it is: no copy).
+    Some(Vec<u16>),
 }
 
 impl Staged {
-    pub(crate) fn spec(&self) -> &SettingSpec {
+    /// How many settings this entry stands for.
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            Staged::Owned(_) => 1,
+            Staged::Table(list, Picked::All) => list.len(),
+            Staged::Table(_, Picked::Some(entries)) => entries.len(),
+        }
+    }
+
+    /// The `n`th setting of this entry, `n < self.len()`.
+    fn get(&self, n: usize) -> &SettingSpec {
         match self {
             Staged::Owned(spec) => spec,
-            Staged::Fixed(list, at) => &list[*at],
+            Staged::Table(list, Picked::All) => &list[n],
+            Staged::Table(list, Picked::Some(entries)) => &list[usize::from(entries[n])],
+        }
+    }
+
+    /// The settings this entry stands for, in order.
+    pub(crate) fn specs(&self) -> impl Iterator<Item = &SettingSpec> {
+        (0..self.len()).map(|n| self.get(n))
+    }
+
+    /// Defines the settings this entry stands for in `settings`, which has
+    /// room and no setting of their ids (checked by the caller).
+    pub(crate) fn define_in(
+        self,
+        settings: &mut paperpaw_sdk::Settings,
+    ) -> Result<(), RegisterError> {
+        match self {
+            Staged::Owned(spec) => settings.define(*spec),
+            Staged::Table(list, Picked::All) => {
+                (0..list.len()).try_for_each(|at| settings.define_fixed(list, at))
+            }
+            Staged::Table(list, Picked::Some(entries)) => entries
+                .iter()
+                .try_for_each(|&at| settings.define_fixed(list, usize::from(at))),
         }
     }
 }
@@ -695,13 +738,44 @@ impl Staging {
         )
     }
 
-    /// How many actions, settings and setting groups are staged: what a
-    /// native publication must make room for before it merges.
+    /// How many actions, settings made on the heap and setting groups are
+    /// staged: what a native publication must make room for before it merges
+    /// (the settings kept in the program need only a place in the indexes:
+    /// [`Self::native_fixed_count`]).
     pub(crate) fn native_counts(&self) -> (usize, usize, usize) {
         (
             self.actions.len(),
-            self.settings.len(),
+            self.settings
+                .iter()
+                .filter(|setting| matches!(setting, Staged::Owned(_)))
+                .count(),
             self.setting_groups.len(),
+        )
+    }
+
+    /// How many staged settings are kept in the program.
+    pub(crate) fn native_fixed_count(&self) -> usize {
+        self.settings
+            .iter()
+            .filter(|setting| matches!(setting, Staged::Table(..)))
+            .map(Staged::len)
+            .sum()
+    }
+
+    /// Stages the entries `entries` of `list`, a table in the program whose
+    /// entries equal what the plugin declared, without a copy of them on the
+    /// heap: one entry for all of them, the list taken as it is.
+    pub(crate) fn native_fixed_entries(
+        &mut self,
+        list: &'static [SettingSpec],
+        entries: Vec<u16>,
+    ) -> Result<(), i32> {
+        if entries.iter().any(|&at| usize::from(at) >= list.len()) {
+            return Err(paperpaw_native::host_glue::ERR_INVALID);
+        }
+        push_native(
+            &mut self.settings,
+            Staged::Table(list, Picked::Some(entries)),
         )
     }
 
@@ -860,9 +934,7 @@ pub(crate) fn stage(
             }),
             Contribution::Setting(setting) => staging.settings.push(Staged::Owned(setting)),
             Contribution::FixedSettings(list) => {
-                staging
-                    .settings
-                    .extend((0..list.len()).map(|at| Staged::Fixed(list, at)));
+                staging.settings.push(Staged::Table(list, Picked::All))
             }
             Contribution::SettingGroup(group) => staging.setting_groups.push(group),
             Contribution::SettingDefault { setting, value, .. } => {

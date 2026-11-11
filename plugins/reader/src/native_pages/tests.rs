@@ -37,6 +37,22 @@ fn the_content_box_is_the_display_less_the_margins() {
 }
 
 #[test]
+fn a_status_line_keeps_the_text_from_its_edge() {
+    let r = Reading::new(12, 120, 100, 5, 8, false);
+    // Room above the margin moves the box; room within the margin changes nothing.
+    let b = content_box(480, 800, 254, &r.with_status(100, 0)).unwrap();
+    assert_eq!((b.y, b.height), (100, 620));
+    let b = content_box(480, 800, 254, &r.with_status(0, 120)).unwrap();
+    assert_eq!((b.y, b.height), (80, 600));
+    let b = content_box(480, 800, 254, &r.with_status(60, 70)).unwrap();
+    assert_eq!((b.y, b.height), (80, 640));
+    let b = content_box(480, 800, 254, &r.with_status(100, 120)).unwrap();
+    assert_eq!((b.y, b.height), (100, 580));
+    // Status lines that leave no room for text: no page.
+    assert_eq!(content_box(480, 800, 254, &r.with_status(400, 400)), None);
+}
+
+#[test]
 fn page_actions_and_arrows_turn_the_page() {
     for a in ["core.next-page", "core.right", "core.down"] {
         assert_eq!(turn(&action(a)), Turn::Next);
@@ -128,6 +144,11 @@ fn the_settings_that_change_the_layout_are_told_from_those_that_change_the_ink()
         "core.hyphenate",
         "core.hyphen-min-left",
         "core.hyphen-min-right",
+        // The status lines' room is part of the layout.
+        "reader.status.size",
+        "reader.status.edge",
+        "reader.status.top-lines",
+        "reader.status.bottom-lines",
         "",
     ] {
         assert!(affects_layout(key), "{key}");

@@ -14,7 +14,6 @@ pub const OPEN: u32 = 1;
 pub const STATUS: u32 = 2;
 pub const STARTED: u32 = 3;
 pub const STATUS_CHANGED: u32 = 4;
-pub const SCREEN_SHOWN: u32 = 5;
 pub const WIFI_CHANGED: u32 = 6;
 pub const POWER_CHANGED: u32 = 7;
 pub const WIFI_SCANNED: u32 = 8;
@@ -26,6 +25,8 @@ pub const WORK: u32 = 15;
 /// The events of the page the setup with a phone serves.
 pub const SERVER_EVENT: u32 = 16;
 pub const SERVED_REQUEST: u32 = 17;
+/// The stack of screens changed: back home or in a book, the radio goes off.
+pub const STACK_CHANGED: u32 = 18;
 
 /// The idle choices, in the order the page lists them.
 pub const IDLE_OFF: [&str; 5] = [
@@ -128,13 +129,12 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
 }
 
 /// The events the plugin handles: the radio's own (scanned, done, network
-/// wanted and idle) and the device's.
+/// wanted and idle), the device's, and the stack's change.
 pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::Started, STARTED)?;
     d.subscribe_event(EventKind::StatusChanged, STATUS_CHANGED)?;
-    d.subscribe_event(EventKind::ScreenShown, SCREEN_SHOWN)?;
     d.subscribe_event(EventKind::WifiChanged, WIFI_CHANGED)?;
     d.subscribe_event(EventKind::PowerChanged, POWER_CHANGED)?;
     d.subscribe_event(EventKind::WifiScanned, WIFI_SCANNED)?;
@@ -144,5 +144,8 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.subscribe_event(EventKind::WorkDue, WORK)?;
     d.subscribe_event(EventKind::Server, SERVER_EVENT)?;
     d.subscribe_event(EventKind::ServedRequest, SERVED_REQUEST)?;
+    // `event.screen_shown` (38) goes to a declared screen's own token, so what
+    // comes on top of the radio's screens is seen by the stack's change.
+    d.subscribe_event(EventKind::StackChanged, STACK_CHANGED)?;
     d.submit()
 }

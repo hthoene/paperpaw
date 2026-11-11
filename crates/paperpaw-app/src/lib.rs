@@ -127,7 +127,7 @@ pub fn install(builder: KernelBuilder, fonts: Fonts) -> KernelBuilder {
 /// registers each through the kernel (`Kernel::register_native`); until a
 /// device activates them it only keeps them linked.
 #[cfg(feature = "native-linked")]
-pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 15] = [
+pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 16] = [
     ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
     ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
@@ -146,7 +146,32 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 15] = [
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
     ("transfer", &paperpaw_plugin_transfer::NATIVE_ENTRY),
     ("update", &paperpaw_plugin_update::NATIVE_ENTRY),
+    ("wifi", &paperpaw_plugin_wifi::NATIVE_ENTRY),
 ];
+
+/// The settings plugin `id` keeps in the program, as Beta 3 did, instead of
+/// one copy on the heap for each it declares (`Kernel::register_linked`): the
+/// table its build script makes of its own declarations. Empty for a plugin
+/// that has none; one that is not listed here only costs memory.
+#[cfg(feature = "native-linked")]
+pub fn fixed_settings(id: &str) -> &'static [paperpaw_core::sdk::SettingSpec] {
+    match id {
+        "bluetooth" => paperpaw_plugin_bluetooth::NATIVE_SETTINGS,
+        "file-manager" => paperpaw_plugin_file_manager::NATIVE_SETTINGS,
+        "help" => paperpaw_plugin_help::NATIVE_SETTINGS,
+        "keyboard" => paperpaw_plugin_keyboard::NATIVE_SETTINGS,
+        "lock" => paperpaw_plugin_lock::NATIVE_SETTINGS,
+        "menu" => paperpaw_plugin_menu::NATIVE_SETTINGS,
+        "opds" => paperpaw_plugin_opds::NATIVE_SETTINGS,
+        "power" => paperpaw_plugin_power::NATIVE_SETTINGS,
+        "settings" => paperpaw_plugin_settings::NATIVE_SETTINGS,
+        #[cfg(feature = "native-linked-store")]
+        "aids" => paperpaw_plugin_aids::NATIVE_SETTINGS,
+        #[cfg(feature = "native-linked-store")]
+        "widgets" => paperpaw_plugin_widgets::NATIVE_SETTINGS,
+        _ => &[],
+    }
+}
 
 /// Registers every plugin of [`NATIVE_PLUGINS`] with `kernel` through
 /// `Kernel::register_linked`, before the kernel starts (the one path the X4,
@@ -166,7 +191,9 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 15] = [
 /// native factory contract and its code and static data stay for the whole
 /// run; the caller must not call this with a `host` that offers more than it
 /// backs: a service or a consent feature offered and not wired is a plugin
-/// that fails later.
+/// that fails later. `image` is the program's read-only data as a mapping that
+/// stays for the whole run (null and zero for none): the plugins' declarations
+/// are kept as offsets into it, not copied (`Kernel::register_linked`).
 #[cfg(feature = "native-linked")]
 #[allow(
     clippy::too_many_arguments,
@@ -180,6 +207,7 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
     mut services: impl FnMut() -> S,
     teardown: paperpaw_core::native_host::shell::Report<S>,
     report: fn(&S, u32, i32),
+    image: (*const u8, usize),
 ) -> alloc::vec::Vec<(
     &'static str,
     Result<(), paperpaw_core::native_host::shell::Error>,
@@ -206,6 +234,8 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
                 depth,
                 teardown,
                 report,
+                image,
+                fixed_settings(id),
             )
         };
         outcome.push((*id, status));
@@ -283,10 +313,11 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);
         b = offered(b, store, paperpaw_plugin_format_images::ImagesFormat);
     }
-    b = b.plugin(paperpaw_plugin_wifi::Wifi);
-    // Transfer is a native plugin, linked (`NATIVE_PLUGINS`), where the feature says.
+    // Wi-Fi and Transfer are native plugins, linked (`NATIVE_PLUGINS`), where
+    // the feature says.
     #[cfg(not(feature = "native-linked"))]
     {
+        b = b.plugin(paperpaw_plugin_wifi::Wifi);
         b = b.plugin(paperpaw_plugin_transfer::Transfer);
     }
     #[cfg(feature = "store-plugins")]

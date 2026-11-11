@@ -344,6 +344,26 @@ mod x4 {
     /// admission keeps the bits of the ones a plugin asked for either way.
     const X4_FEATURES: &[metadata::Feature<'static>] = &[];
 
+    /// The program's read-only data in flash as a mapping (address and length),
+    /// from the linker's own symbols (`esp-hal`'s `rodata.x`: `.rodata` and
+    /// `.srodata`, where the linked plugins' declaration bytes sit). It stays
+    /// mapped for the whole run and is never written. `(null, 0)` if the
+    /// symbols are not in order (end not after start): the declarations are
+    /// then copied, as before.
+    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+    fn flash_rodata() -> (*const u8, usize) {
+        unsafe extern "C" {
+            static _rodata_start: u8;
+            static _rodata_end: u8;
+        }
+        let start = core::ptr::addr_of!(_rodata_start);
+        let end = core::ptr::addr_of!(_rodata_end);
+        match (end as usize).checked_sub(start as usize) {
+            Some(len) if len > 0 => (start, len),
+            _ => (core::ptr::null(), 0),
+        }
+    }
+
     /// The X4's heap and clock for a plugin: the firmware's allocator, so a
     /// plugin's allocations count against the heap like everything else.
     pub(super) struct X4Services;
@@ -486,6 +506,10 @@ mod x4 {
                     &depth,
                     report,
                     linked_report,
+                    // The firmware's read-only data in flash: the declarations
+                    // of a linked plugin are borrowed from it, not copied.
+                    flash_rodata(),
+                    paperpaw_app::fixed_settings(id),
                 )
             };
             warn!("native: linked {id}: {status:?}");
