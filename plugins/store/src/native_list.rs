@@ -101,6 +101,7 @@ impl<'a> ListReader<'a> {
     ///
     /// # Errors
     /// `NoMemory` when memory is refused; the reader is then done.
+    #[inline(never)]
     pub fn feed(
         &mut self,
         data: &[u8],
@@ -292,6 +293,7 @@ impl<'a> PageReader<'a> {
     ///
     /// # Errors
     /// `NoMemory` when memory is refused; the reader is then done.
+    #[inline(never)]
     pub fn feed(&mut self, data: &[u8]) -> Result<(), Error> {
         let Self {
             device,
@@ -317,14 +319,14 @@ impl<'a> PageReader<'a> {
     /// # Errors
     /// `NoMemory` when memory is refused.
     #[inline(never)]
-    pub fn finish(mut self) -> Result<Option<Page>, Error> {
+    pub fn finish(&mut self) -> Result<Option<Page>, Error> {
         let Self {
             device,
             parser,
             format,
             item,
             failed,
-        } = &mut self;
+        } = self;
         parser
             .try_finish(&mut |event| {
                 if failed.is_none() {

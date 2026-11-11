@@ -179,6 +179,7 @@ impl Installer {
     ///
     /// # Errors
     /// `NoMemory`.
+    #[inline(never)]
     pub fn finish(
         &mut self,
         wire: &mut dyn Wire,
@@ -235,6 +236,7 @@ impl Installer {
     ///
     /// # Errors
     /// `NoMemory`.
+    #[inline(never)]
     pub fn done(
         &mut self,
         wire: &mut dyn Wire,

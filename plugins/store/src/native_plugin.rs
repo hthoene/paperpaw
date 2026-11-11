@@ -261,6 +261,7 @@ impl NativeStore {
         f(&mut slot.view, &ctx)
     }
 
+    #[inline(never)]
     fn opened(
         &mut self,
         host: &Host<'_>,
@@ -309,6 +310,7 @@ impl NativeStore {
 
     /// `instance` is on top: the one before it is covered, and this one starts
     /// (the first time) or resumes.
+    #[inline(never)]
     fn shown(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
         let token = self.token_of(instance);
         if let Some(token) = token {
@@ -354,6 +356,7 @@ impl NativeStore {
         })
     }
 
+    #[inline(never)]
     fn closed(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
         let was_page = self
             .screens
@@ -388,6 +391,7 @@ impl NativeStore {
 
     /// An event for the screen on top (an answer, a download's end, a plugin
     /// that came).
+    #[inline(never)]
     pub(crate) fn forward(&mut self, host: &Host<'_>, event: &Event<'_>) -> Result<(), Error> {
         if matches!(event, Event::PluginsChanged { .. }) {
             self.forget_snapshot();
