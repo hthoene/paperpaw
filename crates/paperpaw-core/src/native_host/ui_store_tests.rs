@@ -609,3 +609,18 @@ fn a_plugin_that_fills_the_params_pool_leaves_room_for_the_hosts_dialogs() {
     s.attach(Some(id), 3).unwrap();
     assert_eq!(read_params(&s, 3, id).unwrap().len(), 2);
 }
+
+#[test]
+fn the_hosts_key_is_no_maker_to_pass_a_handed_file_on_for() {
+    let s = store();
+    let params = [p("root", "5"), p("path", "a.txt")];
+    // A file the host made a hand-over for has the host's key as its maker:
+    // it would resolve against the passing plugin's own folder. The "no
+    // maker" mark is a value of its own, never the host's.
+    assert!(is_host_owner(u64::MAX));
+    assert_eq!(
+        s.handover_passing_on(who(3, 1), &params, u64::MAX),
+        Err(ERR_DENIED)
+    );
+    assert!(s.handover_passing_on(who(3, 1), &params, 9).is_ok());
+}
