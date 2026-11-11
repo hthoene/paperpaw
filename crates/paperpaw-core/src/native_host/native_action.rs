@@ -16,7 +16,7 @@ use super::{
     native_instances::NativeLease,
     native_values::Callback,
     registrations::{EventActionRun, Record},
-    shared::{Shared, try_box},
+    shared::try_box,
 };
 use alloc::{borrow::Cow, vec::Vec};
 use core::cell::RefCell;
@@ -65,7 +65,7 @@ impl ActionQueue {
 }
 
 /// The action `callback` declares, run through `lease` of the plugin `owner`
-/// by way of `queue`.
+/// by way of the queue of `instances`.
 ///
 /// # Errors
 /// `ERR_NO_MEMORY` when the id, the handler or its box cannot be allocated.
@@ -73,8 +73,9 @@ pub(crate) fn spec(
     callback: Callback,
     lease: NativeLease,
     owner: u64,
-    queue: Shared<ActionQueue>,
+    instances: &super::native_instances::NativeInstances,
 ) -> Result<ActionSpec, i32> {
+    let queue = instances.action_queue()?;
     let Callback {
         id, title, token, ..
     } = callback;
