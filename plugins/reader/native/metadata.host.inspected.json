@@ -52,6 +52,12 @@
       "semantic_revision": 0
     },
     {
+      "key": "core.registry",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    },
+    {
       "key": "core.ui",
       "major": 1,
       "min_table_bytes": 0,
@@ -65,5 +71,5 @@
     }
   ],
   "target": "linux-x86_64-sysv64-le",
-  "total_bytes": 209
+  "total_bytes": 234
 }

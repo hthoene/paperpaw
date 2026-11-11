@@ -33,9 +33,7 @@ the kernel's settings (`core.*`); the reader declares none of them and adds no d
   host and formats, `DOC-open-layout`), positions and book data (`add_book_data` has no native
   declaration; `LIB-position`), the screens, input and dialogs (H1–H4), reading aloud (a speech
   facade) and the timers.
-- **No native declaration exists yet for**: the status lines (the two places, the lines
-  *progress* and *empty*, the items title, chapter, page and progress, and their settings:
-  `status.size`, `status.edge`, the lines and parts, `battery-percent`), the sample widget above the
+- **No native declaration exists yet for** (the status lines are declared since R2b-2, see the end): the sample widget above the
   reading settings (`previews(groups::READING)`), the reading app (`readers::ReaderSpec`), the screen
   hints (*on press*) and the first-run help. The setup step *text size* is pending the host (op 22,
   Host todo 99); at P6 time its title reuses an existing reader title string, with no new text. Each
@@ -496,3 +494,55 @@ relative to the data folder).
   the library's preview (512 bytes), not whole (`annotation_text` would read it whole: the export uses the preview, as
   Beta 3's snippet was short too). Editing a note, deleting one and the bookmark toggle are not in this screen (Beta 3 had none
   here); `reader.toggle-bookmark` belongs to the reading screen.
+
+## The status lines (R2b-2)
+
+- **Declared** (`declarations::status`, batch `STATUS`; `status_settings` inside `settings`): the places
+  `status.top` and `status.bottom` with their three part settings, the items `status.title`,
+  `status.chapter`, `status.page` and `status.progress` (token `STATUS_ITEM`, priorities as Beta 3: 64, 64, 224,
+  128), the lines `status-line.progress` and `status-line.empty` (token `STATUS_LINE`, height 2100 thousandths of the
+  text size), and the eleven settings of Beta 3's `status.rs` with its ids, defaults, bounds, units and sections
+  (`status.size`, `status.edge`, the two lines lists, the six parts, `status.battery-percent`). Texts are Beta 3's
+  keys (en and de already there; no new string). The declaration test compares them with the interface-6
+  registration, the editors of the lists apart.
+- **Own items are filled by the reader** (the host never calls it back, `ui.md` 5.3). `native_status::Texts` makes
+  the four texts: title; chapter (the chapter's title once the contents slice gives it, else the title, as Beta 3);
+  page (`12 / 340` from the counter, `native_view/count.rs` `page_numbers`, else the percentage; `reader.page`,
+  `reader.percent`); progress (`Progress::ppm`, whole percent cut). `paperpaw-ui-kit::status_line` has
+  `draw_own`, `targets_own` and `action_own` taking those values (`draw`, `targets`, `action` pass none).
+- **Lines.** A place shows one of the lines of its setting; a tap shows the next (`native_status::choice`,
+  `State::advance`), the choice kept in `status-lines.txt` as interface 6 kept it (same file and form). The items
+  line (`core.status-line.items`, also `reader.status-line.items`) is the kit's `status_line` over the place's three
+  parts (other plugins' items composed by the host, `ui.compose`; a tap on an item with an action of its owner runs
+  it, elsewhere shows the next line); `reader.status-line.progress` is the bar (`native_status::bar`, whole numbers,
+  marks at chapter starts, the page's label on the right); `reader.status-line.empty` nothing; any other id is a
+  line of another plugin, composed whole. The actions `reader.next-status-line` and `reader.next-top-status-line`
+  (the bottom line, the top where there is none below) show the next line.
+- **Room** (`native_status::room::Room`, whole numbers): size from the setting (5 to 16 pt) in pixels, a line 2.1
+  times as high, its distance from the edge, and 2 mm the text keeps: `Reading::status` carries the two reserved
+  heights into `content_box` and into the layout key (`native_index::layout_text` gains `/<top>-<bottom>`, so the
+  page count of another room is another file). A place with no line in its setting keeps nothing; the height
+  depends on the status text size, not on the line showing, so a tap never changes the pages. Books of whole pages
+  have no status lines.
+- **Hooks:** `native_view.rs` (`Setup::room`, `area()`, one call in `draw_with`, one in `input`, the field
+  `Open::status`; the glue is `native_view/status.rs`) and `native_plugin.rs` (the `STATUS` batch; `draw` hands the
+  view the `Ui`). Metadata asks `core.registry` and `ui.compose` (all four files regenerated).
+- **Not yet (named):**
+  - The editors of the lines and the parts: interface 6 used the kernel's `core.status-lines` and
+    `core.status-items` screens, which are not slots of the native host; a plugin names its own screen built on the
+    kit's `status_items` (as picture-home does, Kernel's ruling todo 121). The settings are declared without an
+    editor (plain lists) until the reader has those two screens.
+  - `status.battery-percent` is declared and kept, but the kit's items line has no way to hand it to the kernel's
+    battery item.
+  - The items `status.aloud`, `status.printed-page`, `status.chapter-page`, `status.chapter-left` and
+    `status.chapter-bar` of Beta 3 (the default of the bottom left part still names the first, which the host
+    leaves out where no plugin declares it). Context values (`reader.chapter-page` and the rest) are not passed to
+    other plugins' items (`status_values` is asked with no context).
+  - The chapter's title and the chapter marks of the progress bar wait for the chapter slice (`Facts::chapter`,
+    `Facts::marks`).
+  - The reader's items and lines when another plugin shows them (`draw` purpose 3 and 5, `core.status` stage):
+    not answered, so a line of another plugin that lists the reader's items shows nothing for them.
+  - The lines are not redrawn on the minute tick (the clock changes at the next turn or tap); the pause while pages
+    are turned quickly (Beta 3's `signature`) is not ported.
+  - Not tested with a host: painting and the tap (the harness has no status service); the pure parts are tested
+    (`room`, `bar`, `choice`, the state, `content_box` with room, the declarations).

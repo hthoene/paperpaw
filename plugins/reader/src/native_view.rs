@@ -16,6 +16,7 @@ use crate::{
     native_open::{self, Place, Start},
     native_pages::{self, Reading, Trail, Turn},
     native_place::{self, Progress},
+    native_status,
     native_typeset::{Faces, HostFonts},
     native_wordbox,
 };
@@ -128,6 +129,8 @@ struct Open {
     said: bool,
     /// The count of the book's pages in this layout.
     counter: Option<Counter>,
+    /// The status lines chosen at the top and the bottom.
+    status: native_status::State,
 }
 
 /// One open reading screen.
@@ -288,6 +291,7 @@ impl View {
             title,
             finished: false,
             counter: None,
+            status: native_status::State::default(),
         };
         if let Ok(setup) = Setup::read(host) {
             open.ensure_counter(host, &setup);
@@ -564,6 +568,9 @@ impl View {
         let Body::Open(open) = &mut self.body else {
             return Ok(Handled::No);
         };
+        if let Some(handled) = open.status_input(host, ui, input)? {
+            return Ok(handled);
+        }
         let marked = open.mark(host, (docs, Some(ui)), input)?;
         let choosing = matches!(marked, Outcome::Turn { .. });
         let moved = match marked {
@@ -602,7 +609,7 @@ impl View {
     pub fn draw(
         &mut self,
         host: &Host<'_>,
-        docs: &Documents,
+        (docs, ui): (&Documents, Option<&Ui>),
         frame: &mut DrawFrame<'_>,
     ) -> Result<(), Error> {
         if !matches!(frame.purpose, DrawPurpose::Screen) {
@@ -610,7 +617,7 @@ impl View {
         }
         let key = match &mut self.body {
             Body::Message(key) => *key,
-            Body::Open(open) => match open.draw(host, docs, frame) {
+            Body::Open(open) => match open.draw(host, (docs, ui), frame) {
                 Ok(()) => return Ok(()),
                 Err(Error::NoMemory) => "reader.no-memory",
                 Err(Error::NotFound) => "reader.no-font",
@@ -633,6 +640,8 @@ struct LayoutKey {
 struct Setup {
     reading: Reading,
     display: Snapshot,
+    /// The room of the status lines (their size and places).
+    room: native_status::Room,
 }
 
 fn integer(host: &Host<'_>, key: &str) -> Result<i64, Error> {
@@ -653,6 +662,9 @@ fn flag(host: &Host<'_>, key: &str) -> Result<bool, Error> {
 
 impl Setup {
     fn read(host: &Host<'_>) -> Result<Self, Error> {
+        let display = snapshot::capture_snapshot(host)?;
+        let room = native_status::room(host, display.display_dpi())?;
+        let (top, bottom) = room.reserved();
         Ok(Self {
             reading: Reading::new(
                 integer(host, "core.font-size")?,
@@ -661,8 +673,10 @@ impl Setup {
                 integer(host, "core.margin")?,
                 integer(host, "core.margin-ends")?,
                 flag(host, "core.justify")?,
-            ),
-            display: snapshot::capture_snapshot(host)?,
+            )
+            .with_status(top, bottom),
+            display,
+            room,
         })
     }
 
@@ -838,6 +852,7 @@ impl Open {
         if self.whole_pages {
             reading.margin = 0;
             reading.margin_ends = 0;
+            reading.status = (0, 0);
         }
         native_pages::content_box(
             setup.display.display_width(),
@@ -1011,13 +1026,13 @@ impl Open {
     fn draw(
         &mut self,
         host: &Host<'_>,
-        docs: &Documents,
+        (docs, ui): (&Documents, Option<&Ui>),
         frame: &mut DrawFrame<'_>,
     ) -> Result<(), Error> {
         let setup = Setup::read(host)?;
         let area = self.area(&setup).ok_or(Error::NoSpace)?;
         let fonts = HostFonts::acquire(host)?;
-        let drawn = self.draw_with(host, docs, frame, &setup, &fonts, area);
+        let drawn = self.draw_with(host, (docs, ui), frame, (&setup, &fonts, area));
         let released = fonts.release();
         drawn.and(released)
     }
@@ -1025,11 +1040,9 @@ impl Open {
     fn draw_with(
         &mut self,
         host: &Host<'_>,
-        docs: &Documents,
+        (docs, ui): (&Documents, Option<&Ui>),
         frame: &mut DrawFrame<'_>,
-        setup: &Setup,
-        fonts: &HostFonts<'_>,
-        area: native_pages::Box,
+        (setup, fonts, area): (&Setup, &HostFonts<'_>, native_pages::Box),
     ) -> Result<(), Error> {
         let faces = Faces::new(fonts, setup.base(), setup.reading.spacing_factor())?
             .word_spacing(setup.reading.word_factor());
@@ -1061,6 +1074,7 @@ impl Open {
             rect.y as f32 + f32::from(area.y),
         );
         draw_lines(&mut ink, &faces, page, origin)?;
+        self.paint_status(host, ui, frame, (setup, &area))?;
         let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),
             &self.words,
@@ -1115,6 +1129,7 @@ fn say_with(
 
 mod count;
 mod r3;
+mod status;
 
 #[cfg(test)]
 mod tests;

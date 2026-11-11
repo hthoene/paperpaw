@@ -42,6 +42,7 @@ fn all() -> Vec<Vec<u8>> {
     let mut all = Vec::new();
     all.extend(batches(|d| declarations::settings(d).unwrap()));
     all.extend(batches(|d| declarations::screens(d).unwrap()));
+    all.extend(batches(|d| declarations::status(d).unwrap()));
     all.extend(batches(|d| declarations::navigation(d).unwrap()));
     all.extend(batches(|d| declarations::keys(d).unwrap()));
     all.extend(batches(|d| declarations::events(d).unwrap()));
@@ -54,17 +55,26 @@ fn all() -> Vec<Vec<u8>> {
 fn the_decoded_batches_say_what_the_registration_says() {
     let native = declared::native("reader", &all());
     let old = declared::legacy("reader", "", legacy());
-    // The status lines' settings (`status.rs`) have no native declaration
-    // yet (`PORTING-7.md`): left out here, and counted so that they cannot
-    // be forgotten.
+    // The status settings (`status.rs`): the same eleven, with the lists' editors
+    // left out (the kernel's `core.status-lines` and `core.status-items` screens
+    // are not slots of the native host: `PORTING-7.md`, R2b-2).
     let status = |line: &&String| line.starts_with("status.");
-    assert!(old.specs.iter().filter(status).count() >= 10);
-    let specs: Vec<String> = old.specs.iter().filter(|l| !status(l)).cloned().collect();
-    let extras: Vec<String> = old.extras.iter().filter(|l| !status(l)).cloned().collect();
-    assert_eq!(native.specs.len(), 8);
-    assert_eq!(native.specs, specs);
-    assert_eq!(native.extras, extras);
-    assert_eq!(native.extras.len(), 2);
+    assert_eq!(old.specs.iter().filter(status).count(), 11);
+    let unedited = |lines: &[String]| -> Vec<String> {
+        let mut out: Vec<String> = lines
+            .iter()
+            .map(|l| {
+                l.replace("|1:core.status-lines|", "|0:|")
+                    .replace("|1:core.status-items|", "|0:|")
+            })
+            .collect();
+        out.sort();
+        out
+    };
+    assert_eq!(native.specs.len(), 19);
+    assert_eq!(unedited(&native.specs), unedited(&old.specs));
+    assert_eq!(unedited(&native.extras), unedited(&old.extras));
+    assert_eq!(native.extras.len(), 2 + 10);
     // The screens are fixed ones: the slot offers carry the same screens.
     assert_eq!(native.screens, old.screens);
     assert_eq!(native.screens.len(), 6);
@@ -129,7 +139,20 @@ fn the_decoded_batches_say_what_the_registration_says() {
     // place, and a changed setting that lays the page out again (the last four
     // are new in interface 7).
     assert!(native.groups.is_empty() && native.widget_places.is_empty());
-    assert!(native.status_places.is_empty() && native.others.is_empty());
+    assert_eq!(native.status_places, old.status_places);
+    assert_eq!(native.status_places.len(), 2);
+    // The four items and the two lines of the reader, declared for its lists.
+    assert_eq!(
+        native.others,
+        [
+            "StatusItem",
+            "StatusItem",
+            "StatusItem",
+            "StatusItem",
+            "StatusLine",
+            "StatusLine"
+        ]
+    );
     assert_eq!(native.events.len(), 6);
 }
 
