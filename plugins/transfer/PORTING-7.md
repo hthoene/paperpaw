@@ -1,11 +1,11 @@
 # Interface-7 port (slices 1 to 4: the decisions and declarations, the native entry and the transfer screen, installs, the phone's keyboard, the offers and the cable)
 
-Version 1.0.4 (already above its Beta 3 version, 1.0.3; no further bump). Status: **not complete**: the native
-entry (`NativeTransfer`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin `transfer`) serves the page
-and shows its address, installs plugins sent from the computer, types for the phone's keyboard, offers to go online and
-opens the reader's own network, moves, renames and deletes files through the library and answers a computer at the USB cable;
-it is not in `NATIVE_PLUGINS` and not in `tools/plugin-files7/complete.txt` (its native file is not the whole
-plugin). The interface-6 `Transfer`, `web.rs`, `plugins.rs`, `cable.rs`, `phone.rs`, `link.rs` and everything of
+Version 1.0.4 (already above its Beta 3 version, 1.0.3; no further bump). Status: **complete** (named differences below): the
+native entry (`NativeTransfer`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin `transfer`) serves the page
+and shows its address, installs plugins sent from the computer, types for the phone's keyboard, offers to go online,
+opens the reader's own network, moves, renames and deletes files through the library and answers a computer at the USB
+cable. It is in `NATIVE_PLUGINS` (linked under `native-linked`) and in `tools/plugin-files7/complete.txt`. The interface-6
+`Transfer`, `web.rs`, `plugins.rs`, `cable.rs`, `phone.rs`, `link.rs` and everything of
 them stay until the host activates native plugins (then they go together, no shim; see the removal step).
 
 ## Ported (slice 1)
@@ -239,7 +239,7 @@ still refuses uploading over it, deleting, moving and renaming it (403). Pinned 
 `the_settings_are_not_served` and `the_settings_cannot_be_put_made_or_deleted_over`; the interface-6 parity test
 compares `read_only` with the interface-6 rule.
 
-## Blocked and next steps
+## What is not there, and the rest (all named, none blocks the port)
 
 1. ~~Moving and renaming files~~: native (see *Moving, deleting and uploading through the library*).
 2. ~~Installing plugins from the computer~~: native (slice 3).
@@ -261,5 +261,5 @@ compares `read_only` with the interface-6 rule.
    `native_parity_tests.rs` once nothing is left to compare), the `HOW` table kept for the manifest; `data/page.html`
    and `data/phone.html` stay (the native page is built from the first).
 2. The app's registration of `Transfer` (`crates/paperpaw-app/src/lib.rs`).
-3. List `NativeTransfer` in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt` only when blocked steps 1 to 6
-   are native (every user-visible function works natively), and then submit `screens_later` and `offers`.
+3. `NativeTransfer` is in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt` (done with the port: every user-visible
+   function works natively); the sweep removes the interface-6 form from `install_with` with the rest.
