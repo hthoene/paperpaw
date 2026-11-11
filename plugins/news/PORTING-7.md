@@ -5,7 +5,7 @@ feature `linked`) is the whole plugin: the list of feeds, the fetch, the library
 The interface-6 plugin is gone: `News` with its registration (`lib.rs`), its list screen and widget (`widget.rs`),
 its converter (`convert.rs`), the interface-6 tests (`tests/fetch.rs`, `fetching.rs`, `widgets.rs`, `src/feeds_tests.rs`
 and the tests of `lib.rs`), its place in `paperpaw-app` (`install_with`, `STORE_PLUGINS`, `NETWORK_SETTINGS`) and its
-store-file builder in `tools/plugin-files` (`plugins.txt` keeps a comment line). **HELD until native activation
+store-file builder in `tools/plugin-files` (`plugins.txt` keeps a comment line). Goldens changed by this (the Tools list lost its *News* row): `crates/paperpaw-app/tests/snapshots/tools.txt` and the emulator images `boox-all-tools.png`, `x4-tools.png`, `x4-drawer-de.png`; no others. **HELD until native activation
 (#243):** the interface-6 app would lose News before; this PR must not merge before. `tools/plugin-files7` builds and
 packs the native file for the X4 (`news-1.0.10-x4.ppn`, 196,112 bytes before this change: 157,540 code, 33,408 data;
 the removal changes no native code, so the size is the same; the packer accepts it, no frame over 2,048 B). The page's
