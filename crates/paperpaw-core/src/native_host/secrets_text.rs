@@ -97,6 +97,7 @@ impl Drop for Scratch {
 }
 
 /// `text` with every sealed line `sealer` opens turned into a veiled one.
+#[cfg(test)]
 pub(crate) fn open_text(text: &str, sealer: &dyn Sealer) -> String {
     open_text_noting(text, sealer).0
 }

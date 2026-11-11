@@ -776,6 +776,27 @@ fn a_sealed_line_that_does_not_open_tells_the_host_and_a_veiled_or_good_one_does
 }
 
 #[test]
+fn a_line_that_does_not_open_stays_byte_for_byte_until_its_plugin_saves_anew() {
+    // A test image's value (#2460's form) or another device's: no key opens it.
+    let foreign: &[u8] = b"wifi.Home\tHome\t\ts1:fe5645494c3b1dc5a1b2c3d4\n";
+    with_view(|v| {
+        v.host.card.put(file::FILE, foreign);
+        assert_eq!(v.get("wifi", "Home").err(), Some(ERR_NOT_FOUND));
+        // Other saves and the start-up upgrade keep it as it is.
+        v.keep("mail", "password", "", "pw").unwrap();
+        assert_eq!(v.services().upgrade(), Ok(false));
+        let file = v.host.card.file();
+        assert!(file.windows(foreign.len()).any(|w| w == foreign));
+        // Its own plugin saves a new value: that one replaces it, sealed.
+        v.keep("wifi", "Home", "Home", "new").unwrap();
+        assert_eq!(v.get("wifi", "Home").unwrap().0, "new");
+        let file = v.host.card.file();
+        assert!(!file.windows(foreign.len()).any(|w| w == foreign));
+        assert_eq!(text(&file).matches("wifi.Home").count(), 1);
+    });
+}
+
+#[test]
 fn a_failed_upgrade_leaves_the_veiled_lines_as_they_are() {
     let old = interface6(&[("mail.password", "mail.password", false, "old-pw")]);
     with_host(host(Seal::new(9)), true, |v| {

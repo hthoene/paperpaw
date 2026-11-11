@@ -384,3 +384,48 @@ fn a_key_that_does_not_read_back_is_not_used() {
     assert_eq!(dk::read(&flash.record()), Sector::Damaged);
     assert!(seal(&s, b"x").is_ok());
 }
+
+/// The test image's `VeilSeal` blob (#2460): `0xFE`, `VEIL`, the plain value
+/// xor a fixed stream, CRC-32 of aad and plain (little endian).
+fn veil_seal(aad: &[u8], plain: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    let stream: Vec<u8> = (0..plain.len())
+        .map(|i| (i as u8).wrapping_mul(37).wrapping_add(0x5A) ^ aad[i % aad.len()])
+        .collect();
+    let mut blob = std::vec![0xFE, b'V', b'E', b'I', b'L'];
+    blob.extend(plain.iter().zip(&stream).map(|(p, k)| p ^ k));
+    let mut crc = !0u32;
+    for &b in aad.iter().chain(plain) {
+        crc ^= u32::from(b);
+        for _ in 0..8 {
+            crc = if crc & 1 == 1 {
+                (crc >> 1) ^ 0xEDB8_8320
+            } else {
+                crc >> 1
+            };
+        }
+    }
+    blob.extend_from_slice(&(!crc).to_le_bytes());
+    (blob, stream)
+}
+
+/// The real sealer never opens a test image's `VeilSeal` value (Manager,
+/// Senior: no migration of an unauthenticated form): it is absent, with
+/// nothing written and the output wiped. Firmware's fixed vector first.
+#[test]
+fn a_test_images_veiled_value_is_absent_never_a_value() {
+    let (blob, stream) = veil_seal(b"ab", b"xyz");
+    assert_eq!(stream, [0x3B, 0x1D, 0xC5]);
+    assert_eq!(blob.len(), 3 + 9);
+    let (flash, random) = (Flash::erased(), Random::new(15));
+    let s = sealer(&flash, &random);
+    seal(&s, b"a key exists").unwrap();
+    let mut out = std::vec![0xAA_u8; dk::MAX_PLAIN];
+    // A short one is no sealed value at all.
+    assert_eq!(s.open(b"ab", &blob, &mut out), Err(ERR_INVALID));
+    // A long one fails the tag: absent.
+    let plain = b"a Wi-Fi password long enough";
+    let (blob, _) = veil_seal(AAD, plain);
+    assert!(blob.len() >= NONCE + TAG);
+    assert_eq!(open(&s, AAD, &blob), Err(ERR_NOT_FOUND));
+    assert_eq!(flash.replaced.get(), 1, "the key stayed");
+}
