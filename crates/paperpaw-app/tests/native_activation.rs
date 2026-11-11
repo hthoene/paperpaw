@@ -174,8 +174,9 @@ mod linked {
             services: offered(),
             features: super::FEATURES,
         };
-        // SAFETY: the offered services are the ones wired above, and the plugins are the app's
-        // linked ones, as the helper's contract says.
+        // SAFETY: the offered services are the ones wired above, the plugins are the app's
+        // linked ones, and the image is this process's read-only data, mapped and never
+        // written for the whole run, as the helper's contract says.
         let outcome = unsafe {
             paperpaw_app::register_native_plugins(
                 kernel,
@@ -185,7 +186,7 @@ mod linked {
                 || Heap,
                 teardown,
                 report,
-                (std::ptr::null(), 0),
+                rodata_image(),
             )
         };
         for (id, status) in outcome {
@@ -193,5 +194,37 @@ mod linked {
                 eprintln!("native plugin {id}: not registered: {why:?}");
             }
         }
+    }
+
+    /// A value in this test's read-only data, the segment that holds the
+    /// plugins' declaration bytes, to find it by.
+    static RODATA_ANCHOR: [u8; 16] = *b"paperpaw-rodata\0";
+
+    /// This test's read-only data as the shells pass it (`paperpaw-desktop`'s
+    /// `rodata_image`): the read-only, non-executable mapping that holds
+    /// `RODATA_ANCHOR` (`/proc/self/maps`), or none elsewhere. With it the
+    /// linked plugins' titles are borrowed, as on the device (#248).
+    fn rodata_image() -> (*const u8, usize) {
+        let anchor = std::ptr::addr_of!(RODATA_ANCHOR) as usize;
+        let maps = std::fs::read_to_string("/proc/self/maps").unwrap_or_default();
+        for line in maps.lines() {
+            let mut parts = line.split_ascii_whitespace();
+            let (Some(range), Some(perms)) = (parts.next(), parts.next()) else {
+                continue;
+            };
+            let Some((start, end)) = range.split_once('-') else {
+                continue;
+            };
+            let (Ok(start), Ok(end)) = (
+                usize::from_str_radix(start, 16),
+                usize::from_str_radix(end, 16),
+            ) else {
+                continue;
+            };
+            if (start..end).contains(&anchor) && perms.starts_with("r--") {
+                return (start as *const u8, end - start);
+            }
+        }
+        (std::ptr::null(), 0)
     }
 }

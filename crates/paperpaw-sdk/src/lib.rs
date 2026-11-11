@@ -142,7 +142,7 @@ pub mod work;
 
 pub use action::{
     Action, ActionHandler, ActionHint, ActionOverride, ActionSpec, Actions, FixedAction,
-    FixedHandler, Observer, ObserverSpec,
+    FixedHandler, NativeAction, Observer, ObserverSpec,
 };
 pub use command::{
     Broadcast, Command, HttpOptions, HttpRequest, MAX_CLIPBOARD, ServerResponse, SocketRead, Speech,
