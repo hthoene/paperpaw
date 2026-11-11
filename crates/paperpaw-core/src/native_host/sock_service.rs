@@ -430,7 +430,6 @@ pub(crate) use table::{
 };
 
 /// The plugin started: a staged file kept after a failed rename comes back.
-#[allow(dead_code, reason = "the kernel's start hook calls it; tests do today")]
 pub(crate) fn owner_started(host: &dyn SockHost, owner: u64) {
     host.recover_saves(owner);
 }

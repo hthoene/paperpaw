@@ -5,7 +5,6 @@ use paperpaw_core::native_host::{
     declarations::validate_record,
     registrations::{Record, records_decode},
 };
-use paperpaw_native::host_glue::ERR_UNSUPPORTED;
 
 #[path = "../declarations.rs"]
 mod declarations;
@@ -55,17 +54,15 @@ fn one_whole_page_siblings_format_claims_the_picture_extensions() {
     assert_eq!(spec.token, declarations::FORMAT_TOKEN);
 }
 
-/// The host refuses a format as unsupported until its format broker admits
-/// them (Core #944, `document.md` section 1), after checking it: `make` is
-/// refused the same way until then, as for the other ports. A format the
-/// host would not accept is not unsupported but invalid.
+/// The host checks the format and admits it (`document.md` section 1): its
+/// name, title and extensions are valid, so `validate_record` accepts it.
 #[test]
 fn the_host_checks_the_format_and_names_what_it_refuses() {
     for batch in batches() {
         for record in records_decode(&batch).unwrap().iter() {
             assert_eq!(
                 validate_record("format-images", &record),
-                Err(ERR_UNSUPPORTED),
+                Ok(()),
                 "{record:?}"
             );
         }

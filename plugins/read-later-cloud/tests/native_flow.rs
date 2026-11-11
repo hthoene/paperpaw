@@ -101,6 +101,7 @@ fn a_page_turn_with_nothing_to_note_and_a_stop_with_nothing_to_cancel_change_not
             page: Some(5),
             pages: Some(5),
             insert: None,
+            chapter_left: None,
         }),
     );
     assert_eq!(turned.status, 0);

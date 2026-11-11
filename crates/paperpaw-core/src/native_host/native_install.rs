@@ -102,9 +102,10 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         // An input of the plugin's own and a help hint stay in the declaration
         // store (`registry.md` op 14 reads the first; `ui.md` op 3 the second).
         Record::InputSpec(_) | Record::HelpHint(_) => Ok(None),
-        // A format and a reading app stay in the declaration store too
-        // (`document.md` section 1); the document service reads them there.
-        Record::FormatSpec(_) | Record::ReaderSpec(_) => Ok(None),
+        // A format, a reading app and a lookup provider stay in the
+        // declaration store too (`document.md` sections 1 and 7); the
+        // document and lookup services read them there.
+        Record::FormatSpec(_) | Record::ReaderSpec(_) | Record::LookupSpec(_) => Ok(None),
         _ => Err(ERR_UNSUPPORTED),
     }
 }
@@ -288,6 +289,12 @@ impl crate::Kernel {
             // With `uses.network` its network settings and policy (never a
             // refusal: a failure warns).
             self.admit_native_network(&owner, networked);
+            // What a power cut left of it in the services is cleaned up: only
+            // for a plugin that can use them (`uses.network` covers `core.net`
+            // and the sockets), so a plain plugin's start costs no card lookup.
+            if networked {
+                self.native_services_owner_started(key);
+            }
         }
         result
     }
@@ -595,6 +602,18 @@ impl crate::Kernel {
     /// and groups. Every refusal (a duplicate, a default that does not fit, no
     /// room) comes before anything changes, and nothing allocates once
     /// publication starts, so a failure leaves no trace.
+    /// The shell has hosted its native plugins: the registries and the
+    /// tables of the host give back the room they kept while the plugins were
+    /// added one by one. The build shrank them before any native plugin was
+    /// there, so what they grew by since (the plugin list, the menus, the
+    /// subscriptions, the entries and owner rows) stood in reserve for good.
+    /// Called once by [`Kernel::start`](crate::Kernel::start); a later install
+    /// grows them again, as it always did.
+    pub(crate) fn native_hosted(&mut self) {
+        self.shrink_to_fit();
+        self.shared.native_instances.shrink_to_fit();
+    }
+
     fn publish_native(
         &mut self,
         staging: crate::registry::Staging,
@@ -674,6 +693,9 @@ impl crate::Kernel {
         for group in staging.setting_groups.drain(..) {
             self.shared.settings.add_group(group)?;
         }
+        // The device's defaults for what the plugin has declared (the kernel
+        // was built before it, so they were not known then).
+        self.apply_late_defaults();
         self.publish_fonts(owner, resources)
     }
 }

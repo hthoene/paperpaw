@@ -42,8 +42,15 @@ pub(crate) enum FontRole {
 }
 
 pub(crate) enum FontKey {
-    Named { id: Id, acquired: u64 },
+    Named {
+        id: Id,
+        acquired: u64,
+    },
     Role(FontRole),
+    /// A font file of the plugin's own data folder (`data:<path>`), opened
+    /// when acquired and owned by the handle (no registry); stale once the
+    /// file is changed or removed.
+    Data(alloc::boxed::Box<super::fonts_data::DataFont>),
 }
 
 impl Release for FontKey {

@@ -1,8 +1,4 @@
 //! Turns the declarations into read-only batches built into the plugin image.
-#[allow(
-    dead_code,
-    reason = "the screen and the navigation are built into the image with the slices that implement them"
-)]
 mod declarations;
 
 use paperpaw_sdk::native::declare::Declarations;
@@ -41,7 +37,11 @@ fn main() -> Result<(), String> {
     println!("cargo:rerun-if-changed=declarations.rs");
     let mut source = String::new();
     emit!(source, "SETTINGS", declarations::settings);
+    emit!(source, "UI", declarations::navigation);
+    emit!(source, "SCREENS", declarations::screens);
+    emit!(source, "WIDGETS", declarations::widgets);
     emit!(source, "EVENTS", declarations::events);
+    emit!(source, "WIDGET_EVENTS", declarations::widget_events);
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
     std::fs::write(out.join("news_declarations.rs"), source)
         .map_err(|error| format!("write declarations: {error}"))

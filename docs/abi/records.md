@@ -38,9 +38,9 @@ Overlong, overflowing or truncated varints are malformed.
 | 34 | `event.suspend` | `now_ms: u64` |
 | 35 | `event.stopping` | `now_ms: u64` |
 | 36 | `event.battery_measured` | `now_ms: u64` |
-| 37 | `event.page_turned` | `now_ms: u64`, `section: u32`, `offset: u32`, `progress_ppm: u32`, `path: str 512`, `title: str 256`, `chapter: str 256`; optional (appended, bits 0 and 1, no default: `Option<u32>`): `page: u32`, `pages: u32` (absent until the reader counted the pages; pages count from 1, so a present 0, or a page past the count, is refused) |
+| 37 | `event.page_turned` | `now_ms: u64`, `section: u32`, `offset: u32`, `progress_ppm: u32`, `path: str 512`, `title: str 256`, `chapter: str 256`; optional (appended, bits 0 and 1, no default: `Option<u32>`): `page: u32`, `pages: u32` (absent until the reader counted the pages; pages count from 1, so a present 0, or a page past the count, is refused); optional `insert: u32` (bit 2) and `chapter_left: u32` (bit 3, draft 37: the pages after this one in the chapter, 0 on its last page; only with `page` and `pages`, at most `pages - page`) |
 | 64 | `event.setting_changed` | `now_ms: u64`, `key: str 128`, `old: bytes 512` (empty: no previous value) |
-| 65 | `event.book_opened` | `now_ms: u64`, `section: u32`, `offset: u32`, `progress_ppm: u32`, `path: str 512`, `title: str 256`, `chapter: str 256`, `reason: u32`; optional `page: u32`, `pages: u32`, `insert: u32` (the rules of tag 37) |
+| 65 | `event.book_opened` | `now_ms: u64`, `section: u32`, `offset: u32`, `progress_ppm: u32`, `path: str 512`, `title: str 256`, `chapter: str 256`, `reason: u32`; optional `page: u32`, `pages: u32`, `insert: u32`, `chapter_left: u32` (the rules of tag 37) |
 | 66 | `event.book_closed` | as 65 |
 | 67 | `event.book_finished` | as 65 |
 | 68 | `event.book_moved` | `now_ms: u64`, `from: str 512`, `path: str 512` |

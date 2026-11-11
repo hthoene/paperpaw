@@ -22,7 +22,11 @@ use super::{
 use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cell::{Cell, OnceCell, RefCell};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NO_MEMORY, ERR_STATE};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED};
+
+/// The most documents of one maker the host ends in one go (more than the
+/// device holds).
+const HANDED_ENDS: usize = 64;
 
 /// What the dispatcher tells a service backend about its caller.
 #[derive(Clone, Copy)]
@@ -39,13 +43,19 @@ pub(crate) struct Caller<'a> {
 
 #[derive(Default)]
 pub(crate) struct HostServices {
+    /// What a native screen's callbacks stage, for the kernel (`screen_stage`).
+    pub(super) screen_stage: super::screen_stage::ScreenStage,
     documents: OnceCell<DocServices>,
     files: OnceCell<FilesServices>,
     library: OnceCell<LibServices>,
-    lookup: OnceCell<LookupServices>,
+    /// Boxed: its table of pending asks is 1 KiB, held only where it is wired.
+    lookup: OnceCell<alloc::boxed::Box<LookupServices>>,
     hyphen: OnceCell<HyphenServices>,
+    /// The card, for the font files of a plugin's data folder (`font.acquire`
+    /// `data:<path>`).
+    font_card: OnceCell<Rc<dyn paperpaw_platform::Storage>>,
     images: super::image_service::ImageTable,
-    ui: OnceCell<UiServices>,
+    ui: OnceCell<alloc::boxed::Box<UiServices>>,
     device: OnceCell<super::device_service::DeviceServices>,
     /// The firmware install machine, which `core.device` ops 3, 6 and 16 read
     /// and the kernel's pump drives. One per device.
@@ -119,11 +129,13 @@ impl core::fmt::Debug for HostServices {
 impl HostServices {
     pub(crate) const fn new() -> Self {
         Self {
+            screen_stage: super::screen_stage::ScreenStage::new(),
             documents: OnceCell::new(),
             files: OnceCell::new(),
             library: OnceCell::new(),
             lookup: OnceCell::new(),
             hyphen: OnceCell::new(),
+            font_card: OnceCell::new(),
             images: super::image_service::ImageTable::new(),
             ui: OnceCell::new(),
             device: OnceCell::new(),
@@ -264,9 +276,21 @@ impl HostServices {
         host: Rc<dyn LookupHost>,
         log: super::device_log::DeviceLog,
     ) -> Result<(), i32> {
-        self.lookup
-            .set(LookupServices::new(host, log))
-            .map_err(|_| ERR_STATE)
+        let made = super::shared::try_box(LookupServices::new(host, log)).ok_or(ERR_NO_MEMORY)?;
+        self.lookup.set(made).map_err(|_| ERR_STATE)
+    }
+
+    /// Wire the card the data fonts are opened on, once.
+    pub(crate) fn wire_font_card(
+        &self,
+        card: Rc<dyn paperpaw_platform::Storage>,
+    ) -> Result<(), i32> {
+        self.font_card.set(card).map_err(|_| ERR_STATE)
+    }
+
+    /// The card of the data fonts, if wired.
+    pub(crate) fn font_card(&self) -> Option<&Rc<dyn paperpaw_platform::Storage>> {
+        self.font_card.get()
     }
 
     /// Wire `text.hyphenate` once.
@@ -293,11 +317,12 @@ impl HostServices {
     #[allow(dead_code, reason = "a shell wires its screen stack; tests do today")]
     /// Wire `core.ui` once.
     pub(crate) fn wire_ui(&self, ui: UiServices) -> Result<(), i32> {
-        self.ui.set(ui).map_err(|_| ERR_STATE)
+        let made = super::shared::try_box(ui).ok_or(ERR_NO_MEMORY)?;
+        self.ui.set(made).map_err(|_| ERR_STATE)
     }
 
     pub(crate) fn ui(&self) -> Option<&UiServices> {
-        self.ui.get()
+        self.ui.get().map(|ui| &**ui)
     }
 
     /// The file the hand-over of reader `instance` names, for `doc_open`
@@ -391,6 +416,13 @@ impl HostServices {
     pub(crate) fn policy(&self) -> &Rc<super::net_policy::NetPolicy> {
         self.policy
             .get_or_init(|| Rc::new(super::net_policy::NetPolicy::new()))
+    }
+
+    /// Gives back the room kept while the plugins were hosted one by one.
+    pub(crate) fn shrink_to_fit(&self) {
+        if let Some(linked) = self.linked.get() {
+            linked.shrink_to_fit();
+        }
     }
 
     /// The linked plugin ids, made on first use.
@@ -611,6 +643,20 @@ impl HostServices {
     pub(crate) fn documents(&self) -> Option<&DocServices> {
         self.documents.get()
     }
+    /// The host ends one document on its own (`doc_service::end_by_host`) and
+    /// its image ids end at once, here where the image table is at hand: a
+    /// stale id must not draw what a later cache holds under the same name.
+    /// Only a borrowed table defers them (to the next call).
+    ///
+    /// # Errors
+    /// `ERR_UNSUPPORTED` without a document service; `end_by_host`'s.
+    #[allow(dead_code, reason = "the card and move hooks call it; tests do today")]
+    pub(crate) fn end_document_by_host(&self, id: u32, reason: u32) -> Result<(), i32> {
+        let documents = self.documents().ok_or(ERR_UNSUPPORTED)?;
+        let result = doc_service::end_by_host(&*documents.0, id, reason);
+        documents.0.flush_images(&self.images);
+        result
+    }
     /// The sources of paths in use, made on first use.
     pub(crate) fn busy_sources(&self) -> &Rc<super::storage_files::BusySources> {
         self.busy.get_or_init(Default::default)
@@ -622,7 +668,7 @@ impl HostServices {
         self.library.get()
     }
     pub(crate) fn lookup(&self) -> Option<&LookupServices> {
-        self.lookup.get()
+        self.lookup.get().map(|lookup| &**lookup)
     }
     pub(crate) fn device(&self) -> Option<&super::device_service::DeviceServices> {
         self.device.get()
@@ -653,6 +699,21 @@ impl HostServices {
                     result.and(doc_service::format_retired(host, format, Some(owner)).map(|_| ()));
             });
             result = result.and(doc_service::opener_stopped(host, owner).map(|_| ()));
+            // A book of this plugin's folders (root 5) cannot stay open under
+            // a reader once the folder may go (its update or removal): the
+            // documents end now (reason 3).
+            for _ in 0..HANDED_ENDS {
+                let Some(id) = host.document_of_maker(owner) else {
+                    break;
+                };
+                if let Err(status) = doc_service::end_by_host(host, id, 3) {
+                    result = result.and(Err(status));
+                    break;
+                }
+            }
+            // (The pictures of a format are not mapped yet in this build: no
+            // image id needs ending here; the picture slice, #991, ends them
+            // through `end_document_by_host`.)
         }
         if let Some(library) = self.library.get() {
             result = result.and(lib_service::owner_stopped(&*library.0, owner));

@@ -5,7 +5,7 @@ use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::{
     Error, Host,
     registry::{
-        MenuQuery, Registry, RegistryMenuKind, RegistrySetting, RegistrySettingKind,
+        MenuQuery, PageCursor, Registry, RegistryMenuKind, RegistrySetting, RegistrySettingKind,
         RegistryValueSource, ValuesQuery,
     },
     settings::{self, SettingValue},
@@ -26,7 +26,17 @@ fn value(v: Option<SettingValue<'_>>) -> Result<Option<Val>, Error> {
     })
 }
 
-fn setting(row: &RegistrySetting<'_>) -> Result<Setting, Error> {
+/// How much of a setting is copied out of its row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fields {
+    /// Every field.
+    Full,
+    /// What decides whether it shows (key, group, kind, flags, source): no
+    /// title and no value.
+    Light,
+}
+
+fn setting(row: &RegistrySetting<'_>, fields: Fields) -> Result<Setting, Error> {
     let kind = match row.kind() {
         RegistrySettingKind::Bool => Kind::Bool,
         RegistrySettingKind::Int => Kind::Int,
@@ -44,8 +54,16 @@ fn setting(row: &RegistrySetting<'_>) -> Result<Setting, Error> {
         flags: row.flags(),
         is_default: source == RegistryValueSource::Default,
         in_scope: source == RegistryValueSource::BookScope,
-        title: copy(row.title())?,
-        value: value(row.value())?,
+        title: if fields == Fields::Full {
+            copy(row.title())?
+        } else {
+            String::new()
+        },
+        value: if fields == Fields::Full {
+            value(row.value())?
+        } else {
+            None
+        },
     })
 }
 
@@ -78,13 +96,49 @@ impl<'h, 'cb> Reader<'h, 'cb> {
         Ok(value)
     }
 
-    /// The settings of `scope` (a group or plugin; empty for all).
-    pub fn settings(&mut self, scope: &str) -> Result<Vec<Setting>, Error> {
-        let mut found = Vec::new();
-        rows!(cursor => self.registry.settings(self.host, scope, cursor, &mut self.input, &mut self.output), |row| {
-            push(&mut found, setting(&row)?)
-        })?;
-        Ok(found)
+    /// Visits the settings of `scope` (empty for all) that `keep` takes, one
+    /// page of the registry at a time: only the kept rows of the page in hand
+    /// are copied, and `visit` may ask the registry for more (a detail) while
+    /// no page is held. Nothing is kept after the visit, so a caller that wants
+    /// few of the 250 settings holds few.
+    ///
+    /// # Errors
+    /// The registry's refusals, `NoMemory`, and what `visit` returns.
+    pub fn each_setting(
+        &mut self,
+        scope: &str,
+        fields: Fields,
+        keep: impl Fn(&RegistrySetting<'_>) -> bool,
+        mut visit: impl FnMut(&mut Self, Setting) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        let mut cursor = PageCursor::start();
+        loop {
+            let mut batch: Vec<Setting> = Vec::new();
+            let next = {
+                let page = self.registry.settings(
+                    self.host,
+                    scope,
+                    cursor,
+                    &mut self.input,
+                    &mut self.output,
+                )?;
+                let wanted = page.rows().filter(|row| keep(row)).count();
+                batch
+                    .try_reserve_exact(wanted)
+                    .map_err(|_| Error::NoMemory)?;
+                for row in page.rows().filter(|row| keep(row)) {
+                    batch.push(setting(&row, fields)?);
+                }
+                page.end().next_cursor()
+            };
+            for found in batch {
+                visit(self, found)?;
+            }
+            match next {
+                Some(next) => cursor = next,
+                None => return Ok(()),
+            }
+        }
     }
 
     /// Every group, parts included.
@@ -197,8 +251,11 @@ impl<'h, 'cb> Reader<'h, 'cb> {
     }
 }
 
-/// Room for the longest value of a setting and its frame.
-const VALUE_BUFFER: usize = 4096 + 64;
+/// Room for the longest value of a setting and its frame: the most `settings.read`
+/// takes (`TEXT_MAX`, `max_bytes` 4096 in `abi.def`; a bigger output is
+/// `ERR_INVALID`, which no screen of this plugin could open with), and the most it
+/// gives (a value that does not fit it is `ERR_NO_SPACE`).
+const VALUE_BUFFER: usize = 4096;
 
 /// The value of one setting now (the effective one, previews included).
 pub fn read(host: &Host<'_>, key: &str) -> Result<Option<Val>, Error> {

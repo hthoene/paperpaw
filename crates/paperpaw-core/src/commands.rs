@@ -6,6 +6,7 @@
     reason = "a part of the kernel, which sees all of it; not every part uses every name"
 )]
 use super::*;
+use crate::native_host::speech as native_speech;
 
 /// Runs a plugin's handler with a [`Commands`](paperpaw_sdk::Commands) of
 /// its own, then queues what it sent at the end of `out`.
@@ -889,6 +890,20 @@ impl Kernel {
         self.stop_voice();
     }
 
+    /// A text to speak, or a native plugin's stop (`native_host::speech`): its
+    /// own speech only; it reaches here from the command stage alone (an
+    /// interface-6 plugin's is refused in `vet_reserved`).
+    fn apply_speak(&mut self, speech: paperpaw_sdk::Speech) {
+        if native_speech::is_stop(speech.reply()) {
+            if let Some(owner) = speech.params().get(native_speech::OWNER) {
+                self.io.speech.stop_owned(owner);
+            }
+            return;
+        }
+        self.speak(speech);
+        self.io.focus_spoken = false;
+    }
+
     fn apply_io(&mut self, command: Command) {
         // Network, store and firmware work want the heap: the hyphenation
         // tables open give theirs back (opened again at the next word).
@@ -949,17 +964,14 @@ impl Kernel {
                 )),
             },
             Command::SetClipboard(text) => {
-                self.shared.clipboard = clipped(&text);
-                self.io.clipboard.copy(self.shared.clipboard.clone());
+                self.shared.clipboard.set(clipped(&text));
+                self.io.clipboard.copy(self.shared.clipboard.get());
             }
             Command::ReadClipboard(reply, params) if self.io.clipboard.system => {
                 self.io.clipboard.read(reply, params);
             }
             Command::ReadClipboard(reply, params) => self.reply_clipboard(reply, params),
-            Command::Speak(speech) => {
-                self.speak(*speech);
-                self.io.focus_spoken = false;
-            }
+            Command::Speak(speech) => self.apply_speak(*speech),
             Command::StopSpeaking => {
                 self.stop_speaking();
                 self.io.focus_spoken = false;
@@ -1157,25 +1169,34 @@ pub(crate) fn vet_reserved(
     let before = out.len();
     let mut index = 0;
     out.retain(|command| {
+        // The host's own speech replies and stop request: only a native
+        // plugin's command stage makes them, or `event.spoken` could be
+        // forged for another plugin; no plugin is exempt, the settings
+        // editor included.
+        let host_speech = matches!(command, Command::Speak(speech)
+            if native_speech::is_reply(speech.reply()) || native_speech::is_stop(speech.reply()));
         let refused = index >= from
-            && !editor
-            && match command {
-                Command::SetSecret(change) => change.id.split('.').next() != Some(owner),
-                Command::SetSetting(id, _) | Command::ResetSetting(id) => guarded(id),
-                // Text typed for another plugin's secret or guarded
-                // setting, or asked for: the kernel would set it.
-                command if !keyboard && typed_for(command).is_some() => {
-                    typed_for(command).flatten().is_none_or(|params| {
-                        params
-                            .get(paperpaw_sdk::builtin::params::ID)
-                            .is_some_and(|id| foreign(id, kept))
-                    })
-                }
-                // The sleep screen shows over the lock; the settings
-                // editor has these rights.
-                Command::BindSlot(slot, _) => *slot == slots::SLEEP || *slot == slots::SETTINGS,
-                _ => false,
-            };
+            && (host_speech
+                || !editor
+                    && match command {
+                        Command::SetSecret(change) => change.id.split('.').next() != Some(owner),
+                        Command::SetSetting(id, _) | Command::ResetSetting(id) => guarded(id),
+                        // Text typed for another plugin's secret or guarded
+                        // setting, or asked for: the kernel would set it.
+                        command if !keyboard && typed_for(command).is_some() => {
+                            typed_for(command).flatten().is_none_or(|params| {
+                                params
+                                    .get(paperpaw_sdk::builtin::params::ID)
+                                    .is_some_and(|id| foreign(id, kept))
+                            })
+                        }
+                        // The sleep screen shows over the lock; the settings
+                        // editor has these rights.
+                        Command::BindSlot(slot, _) => {
+                            *slot == slots::SLEEP || *slot == slots::SETTINGS
+                        }
+                        _ => false,
+                    });
         index += 1;
         !refused
     });

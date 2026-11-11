@@ -50,12 +50,22 @@ Records: `abi/services/core.library@1.def` and `core.lookup@1.def`.
 - [D] `book_field.spec` (interface 6 `BookField`): a field `<plugin>.<name>` the plugin keeps with
   books (a rating, "on loan"), `title` a catalog key; `flags` bit 0 `in_catalog` (a short value, at
   most 64 bytes, kept in the catalog so queries and rows show it), else at most 1,024 bytes kept per
-  book. Other bits `ERR_INVALID`. At most 8 per plugin, 64 device-wide.
+  book. Other bits `ERR_INVALID`. At most 8 per plugin (a ninth is `ERR_INVALID` for the batch)
+  and 64 device-wide (`ERR_FULL` for the batch that would pass it); the plugin does not load,
+  `reg_plugin.problem` 16 (`registry.md`). A `name` twice in one plugin is `ERR_INVALID` for the
+  batch; two plugins may use the same name (the field is `<plugin>.<name>`).
 - [D] `book_badge.spec` (interface 6 `BookBadge`): a badge on a book's row, answered by its owner
   through the host-defined stage `core.book-badge` (major 1, generated stage schema; input
   `badge.ask` with up to 16 book keys of a page, reply up to 16 `badge.value`: `key`, `text: str 16`
   a few letters, or `icon: str 64`); asked when a page of rows is read, never while drawing; views
-  show two at most. `flags` reserved, 0.
+  show two at most. `flags` reserved, 0. At most 4 per plugin (a fifth is `ERR_INVALID` for the
+  batch) and 16 device-wide (`ERR_FULL` for the batch that would pass it); the plugin does not
+  load, `reg_plugin.problem` 17 (`registry.md`). A `name` twice in one plugin is `ERR_INVALID` for
+  the batch; two plugins may use the same name.
+- [D] **Order of fields and badges** (stable across loads and updates): by owning plugin id, then
+  by `name`, both in byte order; never by load order, so a plugin that reloads or updates keeps
+  its place. Op 22 lists fields in this order. A row's `badges` (`lib_entry`, at most two) are the
+  first two in this order whose owner answered a non-empty `text` or `icon` for that book.
 - [D] `book_data.spec` (interface 6 `add_book_data`, `add_book_cache`): the plugin keeps a folder
   per book in its own Data (root 0) at `books/<name>/<book key>/` (the book key of section 6);
   `kind` 0 user data (moved with the book, removed with it), 1 cache (made again from the book: also
@@ -202,8 +212,8 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
 - [D] `lib_entry` (one row, short enough that 10 fit a page): `key`, `title: str 128`, `author: str
   96`, `series: str 64`, `number: str 16`, `progress` (0-100, 255 never opened), `flags` (bit 0
   favourite, 1 opened, 2 finished, 3 new, 4 indexed, 5-7: title, author, series cut for the row),
-  `added`, `badges: str 64` (the first two badges, `\n` between, section 1). A row's texts are cut
-  only for the row; op 3 and op 4 have them whole.
+  `added`, `badges: str 64` (the first two badges in section 1's order, `\n` between). A row's
+  texts are cut only for the row; op 3 and op 4 have them whole.
 - [D] `lib_book` (op 3): `key`, `generation`, `path: str 512`, `title: str 512`, `author: str 512`,
   `series: str 256`, `number: str 32`, `progress`, `flags` (as `lib_entry`, bits 5-7 the long form
   was cut too; bit 8 `missing`: the book's file is not on the card now, looked up by the host when
@@ -260,7 +270,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
 
 - [D] `set_status` (`lib_status`: `lib_ref`, `set`, `clear`: bit 0 finished, 1 favourite, 2 opened):
   both masks applied together, idempotent; `finished` set raises nothing more (EVT 67 is the
-  reader's session event, not this).
+  reader's session event, not this). A favourites or opened list that cannot be read (not text, a
+  card error) fails the call and is left as it is; the other changes of the same call may already
+  be made, and applying the same masks again finishes it.
 - [D] **Positions** (interface 6 `Position`): `lib_position` (`section`, `offset`, `insert`,
   `progress_ppm`, `conversion: u64` with `flags` bit 1 `has_conversion` (interface 6
   `Option<u64>`: absent and 0 differ), `updated: u64` seconds since 1970, 0 for an unknown clock,
@@ -373,6 +385,11 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   anything else `lib_result.status` `ERR_INVALID`. A book with annotations is `ERR_STATE` unless
   `with_notes` (the view asked the user; read-later and wallabag pass it for their own downloads).
   One `lib_result` per path.
+  **A status that is not `OK` means the book is not gone yet:** a card error that may pass
+  (a fault, a full card, memory) is retried by the host's journalled job until it is done, so
+  the book may still be listed meanwhile and its data is still there; a file the card refuses for
+  good is left as it is and answers `ERR_IO`. `OK` means the file is gone (what is kept for it
+  follows from the job).
 - [D] `move` (`lib_move`: `from`, `to`, root 1 both, `flags` bit 0 replace an existing `to`): the
   file and everything kept for it follow (keys change, section 6), each through the card's
   journalled move (section 6); EVT 68 and `library_changed`.
@@ -395,7 +412,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   `ERR_STATE` (nothing changes); bit 1 makes the name free as `name (2).ext`, `(3)` and so on, and
   answers the path taken. Bit 0 `replace` is allowed only where the existing file is one **this
   plugin imported** and nobody moved since (the host keeps the importer's id with the book's data;
-  a move by the user or another plugin clears it); anything else `ERR_DENIED`. A replaced book
+  a move by the user or another plugin clears it), and only while the file at that path is still
+  the one the plugin imported (size and partial MD5 are kept with the importer's id); a file put
+  there since is `ERR_DENIED`, and so is anything else. A replaced book
   keeps its key, positions and annotations (an updated feed issue), and its document caches are
   dropped.
 
@@ -408,7 +427,8 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
 - [D] A hint (registrable, coalesced per plugin): `what` bit 0 books added, removed or moved (a new
   generation), 1 status, 2 positions, 3 annotations, 4 fields or badges, 5 the walk progressed or
   ended, 6 a cover is ready; `path` the one book it was about, empty for several (re-read what you
-  show). The changer gets it too, so every view updates the same way.
+  show). The changer gets it too, so every view updates the same way. `generation` is the
+  catalog's; `0` means the host could not tell it just now (re-read, as for an empty `path`).
 
 ## 4. Book data and badges
 
@@ -431,7 +451,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   book's data on the card and read when asked; the in-memory catalog gains nothing per field or
   per book for them. In-catalog values are written into the walk's sorted index file
   (`sorted.idx`, #328), so queries, sorting and filters on them read the card step by step as for
-  titles, never a table in RAM.
+  titles, never a table in RAM. An in-catalog field value reaches queries (filters, sorting)
+  only at the next walk of that book, as in interface 6; a read of the book's own fields (op 22)
+  sees it at once.
 
 ## 5. Provided metadata (calibre)
 

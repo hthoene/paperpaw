@@ -26,3 +26,7 @@ lock
 wikipedia
 wallabag
 browser
+diagnostics
+power
+stats
+transfer

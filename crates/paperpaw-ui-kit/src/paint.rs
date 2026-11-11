@@ -5,7 +5,7 @@ use paperpaw_sdk::{
     native::{
         Error,
         callbacks::{DrawFrame, FrameRect},
-        fonts::{Font, IconGlyph, TextOrigin},
+        fonts::{Font, IconGlyph, Ink, TextOrigin},
     },
 };
 
@@ -29,8 +29,8 @@ pub enum Paint {
         /// Colour.
         color: Color,
     },
-    /// A text run in the bold font of the interface (a lit letter among faint
-    /// ones); drawn only by [`replay_with`] given that font.
+    /// A text run drawn bolder (a lit letter among faint ones): the regular font
+    /// with its glyphs widened by `max(1, size / 20)` pixels, as Beta 3 did.
     Bold {
         /// What to draw.
         text: String,
@@ -122,13 +122,27 @@ pub fn frame_rect(rect: Rect) -> FrameRect {
 /// Draws `ops` in order on the frame's canvas with `font`.
 ///
 /// # Errors
-/// Propagates canvas and font errors; [`Error::Unsupported`] for a bold run.
+/// Propagates canvas and font errors.
 pub fn replay<'a>(
     frame: &mut DrawFrame<'_>,
     font: &Font<'_>,
     ops: impl IntoIterator<Item = &'a Paint>,
 ) -> Result<(), Error> {
-    replay_with(frame, font, None, ops)
+    replay_icons(frame, font, None, ops)
+}
+
+/// How many pixels a [`Paint::Bold`] run widens its glyphs: a twentieth of the
+/// size, at least one.
+#[must_use]
+pub fn bold_extra(size: f32) -> u32 {
+    // A size that is not finite and positive is refused by the draw itself.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a saturating float-to-integer cast is wanted; the host clamps the widening to 16"
+    )]
+    let twentieth = (size / 20.0) as u32;
+    twentieth.max(1)
 }
 
 /// Draws the QR code `code`, black on white with the four modules of quiet
@@ -180,20 +194,6 @@ pub fn draw_code(
     Ok(())
 }
 
-/// [`replay`] with a bold font for [`Paint::Bold`] runs.
-///
-/// # Errors
-/// Propagates canvas and font errors; [`Error::Unsupported`] for a bold run
-/// without a bold font.
-pub fn replay_with<'a>(
-    frame: &mut DrawFrame<'_>,
-    font: &Font<'_>,
-    bold: Option<&Font<'_>>,
-    ops: impl IntoIterator<Item = &'a Paint>,
-) -> Result<(), Error> {
-    replay_all(frame, font, (bold, None), ops)
-}
-
 /// [`replay`] with the icon font for [`Paint::Icon`] runs: an icon is left
 /// out where there is no icon font (the callers gave a name the host knows only
 /// with one).
@@ -204,21 +204,6 @@ pub fn replay_icons<'a>(
     frame: &mut DrawFrame<'_>,
     font: &Font<'_>,
     icons: Option<&Font<'_>>,
-    ops: impl IntoIterator<Item = &'a Paint>,
-) -> Result<(), Error> {
-    replay_all(frame, font, (None, icons), ops)
-}
-
-/// Draws `ops` in order with `font`, the bold font of [`Paint::Bold`] runs and
-/// the icon font of [`Paint::Icon`] runs.
-///
-/// # Errors
-/// Propagates canvas and font errors; [`Error::Unsupported`] for a bold run
-/// without a bold font. An icon without an icon font is not drawn.
-pub fn replay_all<'a>(
-    frame: &mut DrawFrame<'_>,
-    font: &Font<'_>,
-    (bold, icons): (Option<&Font<'_>>, Option<&Font<'_>>),
     ops: impl IntoIterator<Item = &'a Paint>,
 ) -> Result<(), Error> {
     let mut canvas = frame.draw_canvas()?;
@@ -248,8 +233,8 @@ pub fn replay_all<'a>(
                 origin,
                 color,
             } => {
-                let bold = bold.ok_or(Error::Unsupported)?;
-                bold.render_text(&canvas, *size, *origin, *color, text)?;
+                let ink = Ink::new().extra(bold_extra(*size));
+                font.draw_inked(&canvas, *size, *origin, *color, text, ink)?;
             }
             Paint::Icon {
                 glyph,
@@ -279,4 +264,25 @@ pub fn replay_all<'a>(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bold_extra;
+
+    #[test]
+    fn bold_widens_by_a_twentieth_of_the_size_and_at_least_one_pixel() {
+        for (size, extra) in [
+            (1.0, 1),
+            (12.0, 1),
+            (39.9, 1),
+            (40.0, 2),
+            (100.0, 5),
+            (1_000.0, 50),
+            (f32::NAN, 1),
+            (-5.0, 1),
+        ] {
+            assert_eq!(bold_extra(size), extra, "size {size}");
+        }
+    }
 }

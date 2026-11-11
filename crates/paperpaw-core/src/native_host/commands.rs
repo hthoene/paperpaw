@@ -48,6 +48,7 @@ mod preset;
 pub(crate) use preset::{covers as preset_covers, plan as preset_plan, walk as preset_walk};
 #[path = "commands_nav.rs"]
 mod nav;
+pub(crate) use nav::PolicyChange;
 
 #[path = "commands_open.rs"]
 mod open;
@@ -64,6 +65,14 @@ pub(crate) mod dev;
 #[derive(Clone, Copy, Debug)]
 pub struct CommandAuthority {
     guarded_exempt: bool,
+}
+
+impl CommandAuthority {
+    /// The authority of a plugin that may (`true`) or may not change the
+    /// guarded settings.
+    pub(crate) const fn new(guarded_exempt: bool) -> Self {
+        Self { guarded_exempt }
+    }
 }
 
 impl crate::Kernel {
@@ -128,6 +137,8 @@ pub struct CommandStage<'a> {
     /// Picture requests of the plugin held elsewhere (kept for a retry or
     /// failed, not yet told): they count against its room.
     images_held: usize,
+    /// Texts of the plugin the kernel's speech holds (being spoken or waiting).
+    speech_held: usize,
     /// The callback belongs to a work run (`work.md` section 2, "background
     /// work is quiet"): commands that show something are refused.
     quiet: bool,
@@ -181,6 +192,7 @@ impl<'a> CommandStage<'a> {
             images: None,
             quiet: false,
             images_held: 0,
+            speech_held: 0,
             staged_images: Vec::new(),
             items: None,
             staged_items: Vec::new(),
@@ -215,6 +227,11 @@ impl<'a> CommandStage<'a> {
     /// The picture requests of the plugin that wait outside the table.
     pub(crate) fn set_images_held(&mut self, held: usize) {
         self.images_held = held;
+    }
+
+    /// The texts of the plugin that the kernel's speech holds.
+    pub(crate) fn set_speech_held(&mut self, held: usize) {
+        self.speech_held = held;
     }
 
     /// As [`Self::with_images`], on a stage already lent (the instance's
@@ -409,7 +426,7 @@ impl<'a> CommandStage<'a> {
             };
             self.validate_setting(key, value, bytes)?;
         }
-        Ok(())
+        self.validate_speech_room(batch)
     }
 
     /// A batch refused whole, whatever else it holds, the stage as it was.
@@ -518,7 +535,7 @@ impl<'a> CommandStage<'a> {
                 continue;
             }
             if dev::is_dev(&command) {
-                self.dev_push(command)?;
+                self.dev_push(&command)?;
                 continue;
             }
             // A close of the root and a `back_to` with nothing above change
@@ -526,19 +543,37 @@ impl<'a> CommandStage<'a> {
             if self.nav_no_effect(&command) {
                 continue;
             }
-            if images && let Some(image) = image_service::commands::owned(&command) {
-                // Capacity is reserved, so this push cannot reallocate.
-                self.staged_images.push(image?);
+            if images && self.stage_image(&command)? {
                 continue;
             }
-            let owned = self.owned(command)?;
-            if let WireCommand::Open { mode, handover, .. } = command {
-                self.record_open(self.staged.len(), mode, handover)?;
-            }
-            // Capacity is reserved, so this push cannot reallocate.
-            self.staged.push(owned);
+            self.stage_owned(&command)?;
         }
         self.dev_commit(dev_start)
+    }
+
+    /// Keeps an image command in its own list; `false` for another command.
+    /// Its own frame: the copy of an image command is big, and is not held
+    /// beside the others on the frame of `push_batch` (the S3 limit).
+    #[inline(never)]
+    fn stage_image(&mut self, command: &WireCommand<'_>) -> Result<bool, i32> {
+        let Some(image) = image_service::commands::owned(command) else {
+            return Ok(false);
+        };
+        // Capacity is reserved, so this push cannot reallocate.
+        self.staged_images.push(image?);
+        Ok(true)
+    }
+
+    /// Converts and keeps one ordinary command (and records an open).
+    #[inline(never)]
+    fn stage_owned(&mut self, command: &WireCommand<'_>) -> Result<(), i32> {
+        let owned = self.owned(*command)?;
+        if let WireCommand::Open { mode, handover, .. } = *command {
+            self.record_open(self.staged.len(), mode, handover)?;
+        }
+        // Capacity is reserved, so this push cannot reallocate.
+        self.staged.push(owned);
+        Ok(())
     }
 
     /// Convert one admitted command, copying text fallibly and checking it.
@@ -588,10 +623,12 @@ impl fmt::Debug for CommandStage<'_> {
 
 /// Whether a callback of a work run may stage `command` (`work.md` section
 /// 2, "background work is quiet"): a redraw of its own screens, settings,
-/// pictures, widget values and item states, and the network. Everything else
-/// is refused, so a command added later (a notice, a preview, an install or
-/// firmware confirmation, Bluetooth pairing, an `open`) shows nothing in the
-/// background until it is named here.
+/// pictures, widget values and item states, the network, and a notify with the
+/// `announce` bit (`ui.md` section 7: device messages and rules the user set
+/// up, which the kernel shows at its next pump, in its queue of waiting
+/// notices). Everything else is refused, so a command added later (a plain
+/// notice, a preview, an install or firmware confirmation, Bluetooth pairing,
+/// an `open`) shows nothing in the background until it is named here.
 fn allowed_in_a_run(command: &WireCommand<'_>) -> bool {
     matches!(
         command,
@@ -610,7 +647,7 @@ fn allowed_in_a_run(command: &WireCommand<'_>) -> bool {
             | WireCommand::WifiHost { .. }
             | WireCommand::NetworkNone {}
             | WireCommand::GoOnline { .. }
-    )
+    ) || matches!(command, WireCommand::Notify { flags, .. } if flags & ui::NOTIFY_ANNOUNCE != 0)
 }
 
 /// Allocation-free command slot inside a pinned host context.

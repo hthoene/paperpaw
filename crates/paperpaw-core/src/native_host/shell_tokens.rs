@@ -1,7 +1,7 @@
 //! Owner-admitted callbacks selected by declared screen or action tokens.
 use super::registrations;
 use super::{
-    Batch, DispatchDepth, Error, Registration, borrowed, host_glue, no_reply, status_only,
+    DispatchDepth, Error, Published, Registration, borrowed, host_glue, no_reply, status_only,
 };
 use paperpaw_graphics::Canvas;
 
@@ -23,7 +23,7 @@ pub(crate) enum TokenInvocation<'a> {
     reason = "native built-in adapter follows this prerequisite"
 )]
 pub(crate) fn dispatch_token<S: 'static, M>(
-    batch: &Batch<'_, S, M, Registration>,
+    batch: &Published<'_, S, M, Registration>,
     token: u32,
     depth: &DispatchDepth,
     frame: &crate::abi7::core_frame::CoreFrame<'_>,
@@ -39,7 +39,7 @@ pub(crate) fn dispatch_token<S: 'static, M>(
 /// `draw` gets one). The stage is the caller's: it reads what was accepted
 /// after the callback returned.
 pub(crate) fn dispatch_token_staged<S: 'static, M>(
-    batch: &Batch<'_, S, M, Registration>,
+    batch: &Published<'_, S, M, Registration>,
     token: u32,
     depth: &DispatchDepth,
     frame: &crate::abi7::core_frame::CoreFrame<'_>,
@@ -99,7 +99,7 @@ pub(super) fn invoke_token<S: 'static>(
     reason = "native built-in adapter follows this prerequisite"
 )]
 pub(crate) fn dispatch_token_draw<S: 'static, M>(
-    batch: &Batch<'_, S, M, Registration>,
+    batch: &Published<'_, S, M, Registration>,
     token: u32,
     depth: &DispatchDepth,
     frame: &crate::abi7::core_frame::CoreFrame<'_>,
@@ -114,7 +114,7 @@ pub(crate) fn dispatch_token_draw<S: 'static, M>(
     batch.dispatch_owner(depth, |context| {
         // A child's draw reached from another plugin's (compose) is charged to
         // the child; a screen's own draw was entered by the screen router.
-        let _running = frame.meter.enter_unless_running(&context.id);
+        let _running = frame.meter.enter_unless_running(context.plugin_id());
         let instance = context.instance.get().ok_or(Error::Attempt)?;
         let callback = instance
             .draw

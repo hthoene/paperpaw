@@ -114,6 +114,7 @@ fn prepare(root: u32, path: &str, cookie: u32) -> ImageCommand {
         side: 0,
         cookie,
         colour: false,
+        recipe: Default::default(),
     }
 }
 
@@ -353,6 +354,7 @@ fn requests_held_outside_the_table_count_against_the_plugins_room() {
         side: 0,
         cookie: 1,
         flags: 0,
+        tone: &[],
     };
     let mut bytes = [0; 256];
     let two = commands_encode(&[command, command], &mut bytes).unwrap();

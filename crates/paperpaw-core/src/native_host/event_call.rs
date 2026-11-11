@@ -15,6 +15,7 @@ use super::{
     commands::{CALLBACK_COMMAND_BYTES, CALLBACK_COMMANDS, CommandStage, Redraw},
     image_service::commands::ImageCommand,
     native_instances::NativeLease,
+    screen_stage::ScreenStage,
 };
 use alloc::vec::Vec;
 use core::cell::RefCell;
@@ -27,6 +28,60 @@ pub(crate) struct Staged {
     pub(crate) commands: Vec<Command>,
     pub(crate) redraw: Option<Redraw>,
     pub(crate) images: Vec<ImageCommand>,
+    /// What a screen's callback stages besides (empty for a service's event,
+    /// whose stage admits none of it).
+    pub(crate) screen: ScreenEffects,
+}
+
+/// The effects a screen callback's stage holds beyond commands and pictures,
+/// applied after them in this order (`Kernel::apply_staged`).
+#[derive(Default)]
+pub(crate) struct ScreenEffects {
+    pub(crate) policies: Vec<super::commands::PolicyChange>,
+    pub(crate) item_states: (
+        Vec<super::item_state::ItemPush>,
+        Option<super::commands::ItemRoom>,
+    ),
+    pub(crate) presets: Vec<alloc::boxed::Box<str>>,
+    pub(crate) hints: Vec<super::hint_labels::HintSet>,
+    /// The widgets it said changed (their makers hear of it from the pump).
+    pub(crate) widgets: Vec<u32>,
+}
+
+impl ScreenEffects {
+    fn is_empty(&self) -> bool {
+        self.policies.is_empty()
+            && self.item_states.0.is_empty()
+            && self.presets.is_empty()
+            && self.hints.is_empty()
+            && self.widgets.is_empty()
+    }
+}
+
+impl Staged {
+    /// Whether it holds nothing to apply.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.commands.is_empty()
+            && self.redraw.is_none()
+            && self.images.is_empty()
+            && self.screen.is_empty()
+    }
+
+    /// A batch of commands and pictures, with no screen effects.
+    pub(crate) fn new(
+        owner: u64,
+        commands: Vec<Command>,
+        redraw: Option<Redraw>,
+        images: Vec<ImageCommand>,
+    ) -> Self {
+        Self {
+            owner,
+            commands,
+            redraw,
+            images,
+            screen: ScreenEffects::default(),
+        }
+    }
 }
 
 /// The one batch that waits for the kernel to run it.
@@ -113,6 +168,7 @@ impl crate::Kernel {
             .with_ui(&env, self.event_screen(id), 0, self.screen_keys_remaining())
             .with_widgets(instances.ui_services(), owner);
             stage.set_images_held(self.image_held(owner));
+            stage.set_speech_held(self.io.speech.owned_texts(id.as_str()));
             // A run's callback is quiet (`work.md` section 2).
             stage.set_quiet(
                 instances
@@ -136,14 +192,8 @@ impl crate::Kernel {
                     None
                 } else {
                     let (commands, redraw, _hop) = stage.into_ui_output();
-                    (!commands.is_empty() || redraw.is_some() || !images.is_empty()).then_some(
-                        Staged {
-                            owner,
-                            commands,
-                            redraw,
-                            images,
-                        },
-                    )
+                    (!commands.is_empty() || redraw.is_some() || !images.is_empty())
+                        .then_some(Staged::new(owner, commands, redraw, images))
                 }
             } else {
                 // An error drops the whole batch with the stage.
@@ -175,19 +225,27 @@ impl crate::Kernel {
     // frame adds their locals (the firmware's frame limit for host code).
     #[inline(never)]
     pub(crate) fn native_outbox_run(&mut self) {
-        let Some(staged) = self.shared.native_instances.outbox.take() else {
-            return;
-        };
-        let Some(owner) = self
-            .shared
-            .native_instances
-            .id(staged.owner)
-            .and_then(|id| paperpaw_sdk::Id::try_parse(id.as_str()).ok())
-        else {
-            return;
-        };
-        self.drain_native_ui(&owner, staged.commands, staged.redraw);
-        self.native_images_apply(staged.owner, staged.images);
+        // The service callbacks' batch first, then the screens' (in the order
+        // their callbacks returned).
+        while let Some(staged) = self.shared.native_instances.outbox.take().or_else(|| {
+            self.shared
+                .native_instances
+                .screen_stage()
+                .and_then(ScreenStage::take)
+        }) {
+            let Some(owner) = self
+                .shared
+                .native_instances
+                .id(staged.owner)
+                .and_then(|id| paperpaw_sdk::Id::try_parse(id.as_str()).ok())
+            else {
+                continue;
+            };
+            // Its warnings say what the callback's own status could not.
+            if self.apply_staged(&owner, staged).is_err() {
+                self.warn_runtime("a native screen's labels or widgets could not be kept");
+            }
+        }
     }
 }
 

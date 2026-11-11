@@ -34,6 +34,7 @@ use super::{
     native_instances::InstanceState,
     registrations::{self as wire},
 };
+use crate::native_host::codec;
 use alloc::{format, string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_NO_MEMORY, ERR_UNSUPPORTED};
@@ -61,8 +62,9 @@ const TRIES_MAX: u8 = 3;
 /// the memory that was missing.
 const FAILED_MAX: usize = 8;
 
-/// The room of an `event.image_ready` record (a header and 28 bytes).
-const RECORD_BYTES: usize = 64;
+/// The room of an `event.image_ready` record (a header, 28 bytes and the
+/// 64-byte brightness grid with its length).
+const RECORD_BYTES: usize = 128;
 
 /// What the pump keeps between passes.
 #[derive(Default)]
@@ -147,6 +149,8 @@ fn decode_env(device: &paperpaw_platform::DeviceInfo) -> DecodeEnv {
             colour,
             max_side: super::image_service::MAX_SIDE,
             png_row_max: usize::MAX,
+            turn_band: 1 << 20,
+            turn_reads: usize::MAX,
         }
     }
 }
@@ -380,6 +384,7 @@ impl crate::Kernel {
                     image: 0,
                     width: 0,
                     height: 0,
+                    luma: None,
                 });
             }
             if pump.held.borrow().is_none() {
@@ -426,7 +431,7 @@ impl crate::Kernel {
             return None;
         };
         let mut record = [0u8; RECORD_BYTES];
-        let len = wire::records_encode(&[ready.record(self.now.millis())], &mut record).ok()?;
+        let len = codec::encode_batch(&[ready.record(self.now.millis())], &mut record).ok()?;
         self.native_event_call(owner, &lease, &record[..len]).err()
     }
 }

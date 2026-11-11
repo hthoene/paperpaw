@@ -316,6 +316,20 @@ impl NativeInstances {
         self.pool.as_ref()?.ui()
     }
 
+    /// What the screens' callbacks stage for the kernel, once the pool is
+    /// adopted (a kernel with no native plugin has none).
+    pub(crate) fn screen_stage(&self) -> Option<&super::screen_stage::ScreenStage> {
+        Some(&self.pool.as_ref()?.hosts().screen_stage)
+    }
+
+    /// The host owner key of the running plugin `id`, if it has an instance.
+    pub(crate) fn key_of(&self, id: &str) -> Option<u64> {
+        self.entries
+            .iter()
+            .find(|entry| entry.enabled && entry.id.as_str() == id)
+            .map(|entry| entry.key)
+    }
+
     /// Retain the device pool before any fallible admission work, including
     /// the first failed factory. Its orphan cleanup must remain reachable.
     pub(crate) fn adopt_pool(&mut self, identity: OwnerResourceView) -> Result<(), i32> {
@@ -714,6 +728,20 @@ impl NativeInstances {
         self.pool.as_ref()?.hosts().work()
     }
 
+    /// Gives back what the tables kept in reserve while the plugins were
+    /// hosted one by one (every list grows by doubling): called once, when
+    /// the shell has hosted them all ([`Kernel::start`](crate::Kernel::start)).
+    pub(crate) fn shrink_to_fit(&mut self) {
+        super::shrink::shrink(&mut self.entries);
+        self.setting_events.shrink_to_fit();
+        if let Some(directory) = self.directory() {
+            directory.shrink_to_fit();
+        }
+        if let Some(hosts) = self.hosts() {
+            hosts.shrink_to_fit();
+        }
+    }
+
     /// The device's wired host views (none before a pool is adopted).
     pub(crate) fn hosts(&self) -> Option<&super::host_services::HostServices> {
         self.pool.as_ref().map(|pool| pool.hosts())
@@ -818,6 +846,11 @@ impl NativeIdentity {
     /// The device's `core.ui` service (widget handles), once a shell wired it.
     pub(crate) fn ui_services(&self) -> Option<&super::ui_service::UiServices> {
         self.pool.as_ref()?.ui()
+    }
+
+    /// What the screens' callbacks stage for the kernel (`screen_stage`).
+    pub(crate) fn screen_stage(&self) -> Option<&super::screen_stage::ScreenStage> {
+        Some(&self.pool.as_ref()?.hosts().screen_stage)
     }
 }
 

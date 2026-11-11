@@ -562,3 +562,97 @@ fn the_event_handlers_end_with_everything_left_when_the_card_refuses_for_good() 
     follow_removal(&refusing, &data(), BOOK);
     assert_eq!(names_of(&card, BOOK).len(), 204);
 }
+
+/// A document's cache as the host makes it: pages, and the stamp that makes it
+/// count as whole.
+fn doc_cache(card: &MemoryStorage, book: &str, pages: usize) {
+    let key = at(book);
+    for n in 0..pages {
+        card.write(
+            &format!(".paperpaw/cache/{key}/epub/c1/pages/p{n}.bin"),
+            b"x",
+        )
+        .unwrap();
+    }
+    card.write(
+        &format!(".paperpaw/cache/{key}/epub/c1/.host/.complete"),
+        b"k",
+    )
+    .unwrap();
+}
+
+fn stamped(card: &MemoryStorage, book: &str) -> bool {
+    card.exists(&format!(
+        ".paperpaw/cache/{}/epub/c1/.host/.complete",
+        at(book)
+    ))
+}
+
+fn pages_left(card: &MemoryStorage, book: &str) -> usize {
+    let mut n = 0;
+    let _ = card.list(
+        &format!(".paperpaw/cache/{}/epub/c1/pages", at(book)),
+        &mut |_| n += 1,
+    );
+    n
+}
+
+/// The host's own cache of a document: `.paperpaw/cache/<key>/`, not renamed
+/// (its folder is named by the key) but removed, and only that book's.
+#[test]
+fn the_document_cache_of_a_book_is_removed_and_only_its_own() {
+    let card = card();
+    doc_cache(&card, BOOK, 150);
+    doc_cache(&card, OTHER, 3);
+    let mut calls = 0;
+    loop {
+        let mut budget = 1;
+        if remove_doc_cache(&card, BOOK, &mut budget).unwrap() == Progress::Done {
+            break;
+        }
+        calls += 1;
+        assert!(calls < 100, "never ends");
+    }
+    assert!(calls >= 2, "bounded pieces: {calls}");
+    assert_eq!(pages_left(&card, BOOK), 0);
+    assert!(stamped(&card, OTHER) && pages_left(&card, OTHER) == 3);
+    // Not renamed to the new key by a move; gone with the old one.
+    let card = self::card();
+    doc_cache(&card, BOOK, 3);
+    follow_move(&card, &data(), BOOK, MOVED);
+    assert!(!stamped(&card, BOOK) && pages_left(&card, BOOK) == 0);
+    assert!(!stamped(&card, MOVED));
+}
+
+/// Stamps first: at every cut, and when the budget ends a removal in the
+/// middle, a cache is whole or has no stamp, so an open never takes pages
+/// that are gone for a finished cache.
+#[test]
+fn a_cache_that_is_cut_down_in_the_middle_has_no_stamp() {
+    for allowed in 0..40 {
+        let card = card();
+        doc_cache(&card, BOOK, 150);
+        let cut = Cut::after(&card, allowed);
+        let mut budget = 100;
+        let _ = remove_doc_cache(&cut, BOOK, &mut budget);
+        assert!(
+            !stamped(&card, BOOK) || pages_left(&card, BOOK) == 150,
+            "{allowed}: a stamp over missing pages"
+        );
+    }
+    for pieces in 0..4 {
+        let card = card();
+        doc_cache(&card, BOOK, 150);
+        let mut budget = pieces;
+        let _ = remove_doc_cache(&card, BOOK, &mut budget);
+        assert!(
+            !stamped(&card, BOOK) || pages_left(&card, BOOK) == 150,
+            "{pieces} pieces: a stamp over missing pages"
+        );
+    }
+    // The event handler gives up after its pieces: no stamp stays.
+    let card = card();
+    doc_cache(&card, BOOK, 1000);
+    follow_removal(&card, &data(), BOOK);
+    assert!(!stamped(&card, BOOK));
+}

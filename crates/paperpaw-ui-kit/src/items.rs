@@ -165,6 +165,22 @@ impl ItemList {
         self.focus = self.nearest(self.focus);
     }
 
+    /// Adds `item` at the end, keeping the focus where it was (on the first
+    /// row, where the list had none). The list grows in place (a vector's
+    /// amortized growth), so one that gains a row at a time is never built
+    /// again from its rows.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] when the list cannot grow.
+    pub fn push(&mut self, item: Item) -> Result<(), Error> {
+        self.items.try_reserve(1).map_err(|_| Error::NoMemory)?;
+        self.items.push(item);
+        if !self.items.get(self.focus).is_some_and(Item::selectable) {
+            self.focus = self.nearest(self.focus);
+        }
+        Ok(())
+    }
+
     /// Zeroes the text of every item and empties the list: for a list that
     /// showed a secret (a password drawn for the user to read) and is closed.
     pub fn wipe(&mut self) {

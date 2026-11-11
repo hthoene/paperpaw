@@ -49,6 +49,7 @@ mod code_plugin;
 mod commands;
 mod config;
 mod core_plugin;
+mod core_texts;
 mod data_plugin;
 mod drawing;
 mod effects;
@@ -65,6 +66,7 @@ mod keymap;
 mod meter;
 pub mod native_host;
 mod network;
+mod notices;
 mod panes;
 mod plugins;
 mod realtime;
@@ -278,9 +280,9 @@ pub struct Kernel {
     /// Of the commands asked for, those of a screen guarding the device or
     /// one it opened: what they open above it is its own.
     own_trusted: Vec<usize>,
-    /// A notice given while a screen guarded the device, shown once it
-    /// lets go.
-    held_notice: Option<String>,
+    /// Notices given while a screen guarded the device, shown in turn once it
+    /// lets go (`notices`).
+    waiting_notices: notices::Waiting,
     /// When the device was last used (input, a page turned), for sleeping
     /// by itself ([`settings::SLEEP_AFTER`](core_settings::SLEEP_AFTER)).
     last_activity: Instant,
@@ -340,6 +342,11 @@ pub struct Kernel {
     /// Setting defaults from plugins, applied once all are registered:
     /// `(plugin, setting, value)`.
     plugin_defaults: Vec<(Id, Id, Cow<'static, str>)>,
+    /// The device's defaults for settings no plugin had declared when they
+    /// were applied (a native plugin declares its settings after the kernel
+    /// is built): `(setting, value)`, applied as the declaring plugin is
+    /// published (`native_install`).
+    late_device_defaults: Vec<(String, String)>,
     /// Values plugins offer among other plugins' choices, added once all
     /// are registered: `(plugin, setting, value)`.
     plugin_choices: Vec<(Id, Id, Cow<'static, str>)>,
@@ -432,6 +439,9 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         self.now = now;
         self.last_activity = now;
+        // The shell hosted its native plugins before this call: what their
+        // admission kept in reserve is given back.
+        self.native_hosted();
         // Replace what the shell showed before startup, also under a home overlay.
         self.invalidate(self.framebuffer.bounds());
         self.output.commands.push(Command::open_slot(slots::HOME));
@@ -1335,6 +1345,10 @@ struct Shared {
     /// How code plugins are loaded, where they are (see
     /// [`KernelBuilder::code_plugins`]).
     native: Option<paperpaw_sdk::native::Native>,
+    /// This start went without code plugins ([`KernelBuilder::safe_mode`]),
+    /// kept for the native plugins' on/off decision, which does not need the
+    /// loader of code plugins (`Kernel::native_decide`).
+    native_safe_mode: Option<SafeMode>,
     /// What the firmware takes, told to plugins once the update on trial is
     /// kept ([`KernelBuilder::native_after_trial`]).
     after_trial: Option<paperpaw_sdk::native::Native>,
@@ -1348,7 +1362,7 @@ struct Shared {
     /// background work, whose notices become notes (see [`work`]).
     reader: bool,
     /// Text copied here.
-    clipboard: String,
+    clipboard: alloc::rc::Rc<native_host::ui_clipboard::ClipboardCell>,
     /// The system's clipboard has text (see
     /// [`Kernel::set_clipboard_available`]).
     system_clipboard: bool,

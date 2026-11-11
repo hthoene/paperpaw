@@ -23,6 +23,7 @@
 
 #![deny(clippy::let_underscore_must_use)]
 
+mod carry;
 pub mod catalog;
 mod details;
 #[cfg(any(test, feature = "kernel"))]
@@ -40,9 +41,10 @@ pub mod sorted;
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod split;
 
+pub use carry::{try_moved, try_removed};
 pub use fallible::{KEY_LEN, key_into, try_book, try_book_sized, try_key, try_status};
 #[cfg(any(test, feature = "kernel"))]
-pub use fallible::{ProvidedText, try_provide};
+pub use fallible::{ProvidedText, try_provide, try_set_field, try_set_status};
 pub use fingerprint::Fingerprint;
 pub use indexed::try_indexed;
 pub use service::{Badge, BookBadge, BookField, Deleted, Library, is_book_path, service};

@@ -319,7 +319,7 @@ pub fn draw(
     let style = cx.style();
     for ((place, shelved), cover) in places.iter().zip(books).zip(covers) {
         let at = cover_at(place, *cover);
-        draw_cover(cx, out, pictures, look, at, (shelved, *cover))?;
+        draw_cover(cx, out, pictures, look, at, (&shelved.title, *cover))?;
         if shelved.read && at.width > 1 {
             draw_read_mark(out, style.small, style.line, look, at)?;
         }
@@ -395,13 +395,16 @@ fn draw_label(
 
 /// The cover of a book at `at`: the host's picture, or a frame with the title
 /// for a book without one.
-fn draw_cover(
+///
+/// # Errors
+/// Font refusals and [`Error::NoMemory`].
+pub fn draw_cover(
     cx: &Cx<'_>,
     out: &mut Vec<Paint>,
     pictures: &mut Pictures,
     look: &Look,
     at: Rect,
-    (shelved, cover): (&Shelved, Covered),
+    (title, cover): (&str, Covered),
 ) -> Result<(), Error> {
     if at.width < 2 || at.height < 2 {
         return Ok(());
@@ -410,9 +413,9 @@ fn draw_cover(
         Covered::Ready(ready) => pictures.place(ready.image, at),
         Covered::Busy => {
             pictures.busy = true;
-            draw_placeholder(cx, out, look, at, &shelved.title)
+            draw_placeholder(cx, out, look, at, title)
         }
-        _ => draw_placeholder(cx, out, look, at, &shelved.title),
+        _ => draw_placeholder(cx, out, look, at, title),
     }
 }
 

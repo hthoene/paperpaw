@@ -4,6 +4,7 @@
 //! reaches a screen below, and nothing reaches one below a guard.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 use super::*;
+use alloc::string::String;
 use paperpaw_platform::{ButtonState, InputEvent, Instant, Point, PointerEvent, PointerPhase};
 use paperpaw_sdk::Id;
 
@@ -27,6 +28,39 @@ std::thread_local! {
     static TAKES_KEYS: Cell<bool> = const { Cell::new(false) };
     /// Whether a pointer contact is answered as handled.
     static TAKES_POINTERS: Cell<bool> = const { Cell::new(false) };
+    /// A batch of commands the screen submits when it hears an action (and, as
+    /// `on_shown`, when it hears it is shown), and what its `input` answers
+    /// then (see `native_screen_command_tests.rs`).
+    pub(super) static STAGED: RefCell<Option<Vec<u8>>> = const { RefCell::new(None) };
+    pub(super) static STAGED_ON_SHOWN: Cell<bool> = const { Cell::new(false) };
+    pub(super) static STAGED_ANSWER: Cell<i32> = const { Cell::new(1) };
+}
+
+/// Submits the staged batch from the callback `state` is the screen's of.
+pub(super) fn submit_staged(state: *mut c_void) {
+    let Some(batch) = STAGED.with(|batch| batch.borrow().clone()) else {
+        return;
+    };
+    // SAFETY: the owner retains the initialized fixture; its host table and
+    // pinned context are live for the callback.
+    let (host, context) = unsafe {
+        let state = &*state.cast::<ScreenState>();
+        (&*state.host, state.context)
+    };
+    // SAFETY: the batch is readable for its length.
+    let _ = unsafe { (host.commands_submit)(context, borrowed(&batch)) };
+}
+
+/// The screen-shown event of the screen: submits the staged batch if asked to.
+pub(super) fn events_submit(state: *mut c_void, bytes: &[u8]) {
+    if STAGED_ON_SHOWN.with(Cell::get)
+        && matches!(
+            wire::records_decode_single(bytes),
+            Ok(wire::Record::EventScreenShown(_))
+        )
+    {
+        submit_staged(state);
+    }
 }
 
 /// The `input` callback of the fixture: records the record, answers handled for
@@ -57,7 +91,10 @@ pub(super) unsafe extern "C" fn screen_input(
             i32::from(TAKES_POINTERS.with(Cell::get)),
         ),
         Ok(wire::Record::InputGesture(g)) => (Seen::Gesture(g.kind), 0),
-        Ok(wire::Record::InputAction(a)) => (Seen::Action(a.action.into()), 1),
+        Ok(wire::Record::InputAction(a)) => {
+            submit_staged(state);
+            (Seen::Action(a.action.into()), STAGED_ANSWER.with(Cell::get))
+        }
         _ => return ERR_INVALID,
     };
     let owner = context.resources.owner_id();
@@ -246,3 +283,6 @@ fn nothing_reaches_a_screen_below_a_guard() {
     assert!(!seen().is_empty());
     assert_eq!(owners().len(), 1, "{:?}", owners());
 }
+
+#[path = "native_screen_command_tests.rs"]
+mod screen_commands;

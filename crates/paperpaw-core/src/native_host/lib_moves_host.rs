@@ -116,7 +116,7 @@ impl CardMoves {
     }
 
     /// Whether two spellings name one path on this card.
-    fn same_path(&self, a: &str, b: &str) -> bool {
+    pub(super) fn same_path(&self, a: &str, b: &str) -> bool {
         self.within(a, b) && self.within(b, a)
     }
 
@@ -142,7 +142,9 @@ impl MoveHost for CardMoves {
         self.discard.set(None);
         match self.journal().open_or_set_aside(visit)? {
             Opened::Entry => Ok(true),
-            Opened::Nothing => Ok(false),
+            // A delete's or an import's entry: the job machine's; this one has
+            // no move (and `write_entry` refuses over it).
+            Opened::Nothing | Opened::Other => Ok(false),
             // Not a block for good: the record is kept as `journal.bad`.
             Opened::SetAside => {
                 self.set_aside.set(self.set_aside.get().saturating_add(1));

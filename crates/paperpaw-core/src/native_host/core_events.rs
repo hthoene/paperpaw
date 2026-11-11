@@ -46,8 +46,9 @@ use paperpaw_sdk::{Id, Params, builtin::events as builtin};
 /// of one plugin ends within it.
 const QUEUE_MAX: usize = 28;
 
-/// The lifecycle events that are edges, held encoded.
-const EDGE_TAGS: [u32; 7] = [
+/// The lifecycle events that are edges, held encoded (and `library_changed`,
+/// held the same way: its queue must not be pruned for want of a listener).
+const EDGE_TAGS: [u32; 9] = [
     wire::EVENT_SCREEN_READY_TAG,
     wire::EVENT_STARTED_TAG,
     wire::EVENT_BATTERY_MEASURED_TAG,
@@ -55,6 +56,8 @@ const EDGE_TAGS: [u32; 7] = [
     wire::EVENT_BOOK_OPENED_TAG,
     wire::EVENT_BOOK_CLOSED_TAG,
     wire::EVENT_BOOK_FINISHED_TAG,
+    wire::EVENT_LIBRARY_CHANGED_TAG,
+    wire::EVENT_SPOKEN_TAG,
 ];
 
 /// The wire tag of the kernel event `event`, `None` for any other event.
@@ -120,6 +123,10 @@ fn drop_note(tag: u32) -> &'static str {
         wire::EVENT_BOOK_CLOSED_TAG => "a native plugin lost event.book_closed; not retried",
         wire::EVENT_BOOK_FINISHED_TAG => "a native plugin lost event.book_finished; not retried",
         wire::EVENT_SCREEN_READY_TAG => "a native plugin lost event.screen_ready; not retried",
+        wire::EVENT_LIBRARY_CHANGED_TAG => {
+            "a native plugin lost event.library_changed; not retried"
+        }
+        wire::EVENT_SPOKEN_TAG => "a native plugin lost event.spoken; not retried",
         _ => "a native plugin lost event.page_turned; not retried",
     }
 }
@@ -139,6 +146,7 @@ macro_rules! book {
             page: $page.page,
             pages: $page.pages,
             insert: None,
+            chapter_left: None,
         }
     };
 }
@@ -198,6 +206,11 @@ impl Kernel {
             return;
         };
         let now = self.now.millis();
+        // A book that is open closes (reason 1) before the sleep or the stop
+        // is raised: `book_closed` comes first (`core-events.md` 3.2).
+        if matches!(tag, wire::EVENT_SUSPEND_TAG | wire::EVENT_STOPPING_TAG) {
+            self.native_reading_sleep(now);
+        }
         self.native_queue_event(tag, hears, &|queue| {
             if CORE_TAGS.contains(&tag) {
                 queue.core(tag)
@@ -218,7 +231,7 @@ impl Kernel {
     /// subscribed to `tag` and `hears` allows: `hold` puts it into the queue.
     /// One that does not fit is dropped and logged once for a plugin until its
     /// queue is empty again. Nothing is told here (the pump does).
-    fn native_queue_event(
+    pub(super) fn native_queue_event(
         &mut self,
         tag: u32,
         hears: &dyn Fn(&str) -> bool,
