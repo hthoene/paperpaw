@@ -251,3 +251,44 @@ fn a_details_open_removes_no_other_conversion_of_the_book() {
         }
     });
 }
+
+#[test]
+fn a_word_documents_cover_not_found_is_made_and_not_asked_for_again() {
+    use crate::native_host::{
+        doc_host::CoverAt,
+        doc_service::cover::{self, Made},
+    };
+    use paperpaw_native::host_glue::ERR_NOT_FOUND;
+    world(|w| {
+        install_docx(w);
+        let opener = Caller {
+            owner: OPENER,
+            plugin: "opener",
+            features: AdmittedFeatures::NONE,
+            hosts: &w.hosts,
+        };
+        // The list's cover: the details open is ready at once (no
+        // conversion), its cover not made yet.
+        *w.reply.borrow_mut() = Ok(state(READY));
+        let made = cover::make(w, &opener, "books/a.docx", 0);
+        assert!(matches!(made, Ok(Made::Queued)), "{:?}", made.err());
+        assert_eq!(w.open_flags.borrow().last(), Some(&(BACKGROUND | DETAILS)));
+        // A Word document has no cover: not found is an answer, not a
+        // failure (the book is noted, nothing retried).
+        *w.reply.borrow_mut() = Err(ERR_NOT_FOUND);
+        assert_eq!(
+            look(w),
+            JobStep::Ended {
+                ready: true,
+                key: path_key("books/a.docx")
+            }
+        );
+        assert_eq!(w.state.cover_at("books/a.docx"), CoverAt::Made);
+        // The list's next ask: no cover, nothing queued again.
+        w.script.borrow_mut().push_back(state(READY));
+        let made = cover::make(w, &opener, "books/a.docx", 0);
+        assert!(matches!(made, Err(ERR_NOT_FOUND)), "{:?}", made.err());
+        assert!(w.state.table.cover_make().is_none());
+        assert!(w.state.table.cover_job().is_none());
+    });
+}
