@@ -718,6 +718,17 @@ impl Staging {
             .count()
     }
 
+    /// Stages the entries `at` of `list` (see [`Self::native_fixed`]).
+    pub(crate) fn native_fixed_entries(
+        &mut self,
+        list: &'static [SettingSpec],
+        entries: &[u16],
+    ) -> Result<(), i32> {
+        entries
+            .iter()
+            .try_for_each(|&at| self.native_fixed(list, usize::from(at)))
+    }
+
     /// Stages spec `at` of `list`, a table in the program that equals what the
     /// plugin declared, without a copy of it on the heap.
     pub(crate) fn native_fixed(

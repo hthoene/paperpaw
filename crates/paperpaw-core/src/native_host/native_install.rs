@@ -214,6 +214,7 @@ impl crate::Kernel {
 
     /// The admission of [`Self::register_native_in`], without the refresh of
     /// the font choices: all or nothing, and every allocation fallible.
+    #[cfg(test)]
     pub(crate) fn admit_native<S: Services + 'static, M: 'static>(
         &mut self,
         host: shell::Hosted<S, M>,
@@ -282,12 +283,7 @@ impl crate::Kernel {
                 }
             },
         )?;
-        // A table that does not equal what the plugin declares costs the
-        // memory it should save: said in debug builds, where it is mended.
-        #[cfg(debug_assertions)]
-        if !fixed.is_empty() && owned.iter().any(|value| matches!(value, Owned::Setting(_))) {
-            self.warn_runtime("a linked plugin's settings table does not match some of its settings; they are copied");
-        }
+        self.warn_unmatched(fixed, &owned);
         if folder.is_none()
             && owned
                 .iter()
@@ -614,13 +610,9 @@ impl crate::Kernel {
                         .native(owner, Contribution::Setting(spec))
                         .map_err(shell::Error::Status)?;
                 }
-                Owned::FixedSettings(list, entries) => {
-                    for at in entries {
-                        staging
-                            .native_fixed(list, usize::from(at))
-                            .map_err(shell::Error::Status)?;
-                    }
-                }
+                Owned::FixedSettings(list, entries) => staging
+                    .native_fixed_entries(list, &entries)
+                    .map_err(shell::Error::Status)?,
                 Owned::Group(group) => {
                     let group = paperpaw_sdk::SettingGroup::from_boxed(group);
                     staging
@@ -659,6 +651,23 @@ impl crate::Kernel {
         publication.commit();
         Ok(())
     }
+}
+
+impl crate::Kernel {
+    /// A table that does not equal what the plugin declares costs the memory it
+    /// should save: said in debug builds, where it is mended.
+    #[cfg(debug_assertions)]
+    fn warn_unmatched(&mut self, fixed: &[paperpaw_sdk::SettingSpec], owned: &[Owned]) {
+        if !fixed.is_empty() && owned.iter().any(|value| matches!(value, Owned::Setting(_))) {
+            self.warn_runtime(
+                "a linked plugin's settings table does not match some of its settings; they are copied",
+            );
+        }
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[allow(clippy::unused_self, reason = "the debug build says it")]
+    fn warn_unmatched(&mut self, _fixed: &[paperpaw_sdk::SettingSpec], _owned: &[Owned]) {}
 }
 
 impl crate::Kernel {
