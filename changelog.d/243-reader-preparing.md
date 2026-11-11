@@ -4,4 +4,4 @@
 
 ### Fixed
 
-- **Books opened for the first time open in the native reader** (#243, #2443). A book whose format prepares it first (DOCX, MOBI) was closed at once while the reader said "Opening the book for the first time", so its preparation never ran and the book never opened. The reader now keeps the document while it is prepared, opens the book when the host says it is ready, says it could not when it failed, and gives the document back once, when the screen closes, also when the reader leaves while it is still prepared.
+- **Books opened for the first time open in the native reader** (#243, #2443). A book whose format prepares it first (DOCX, MOBI) was closed at once while the reader said "Opening the book for the first time", so its preparation never ran and the book never opened. The reader now keeps the document while it is prepared, opens the book when the host says it is ready, says it could not when it failed, and gives the document back once, when the screen closes, also when the reader leaves while it is still prepared. A reading screen shown again asks the state itself, so a lost hint never leaves it waiting.

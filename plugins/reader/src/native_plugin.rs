@@ -651,6 +651,15 @@ impl NativeReader {
         if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
             view.shown(host, docs);
         }
+        // A book still prepared asks its state again: a hint the host lost
+        // (`event.document_changed`) never leaves the screen waiting.
+        if self
+            .screens
+            .get(instance)
+            .is_some_and(|view| view.preparing())
+        {
+            self.document_changed(host);
+        }
         self.follow_note(host, instance)
     }
 
@@ -671,21 +680,18 @@ impl NativeReader {
 
     /// A document's state moved (`event.document_changed`, a hint): the reading
     /// screens that wait for their book to be prepared ask its state; one that
-    /// opened or failed is drawn again.
-    fn document_changed(&mut self, host: &Host<'_>) -> Result<(), Error> {
+    /// opened or failed is drawn again. A refusal on the way (no memory) is
+    /// said on the screen: the callback ends well, so the redraw staged here
+    /// is kept.
+    fn document_changed(&mut self, host: &Host<'_>) {
         let Some(docs) = &self.docs else {
-            return Ok(());
+            return;
         };
         let library = self.library.as_ref();
-        let (mut redraw, mut result) = (false, Ok(()));
+        let mut redraw = false;
         for view in self.screens.all().filter(|view| view.preparing()) {
-            match view.prepared(host, (docs, library)) {
-                Ok(changed) => redraw |= changed,
-                Err(error) => {
-                    redraw = true;
-                    result = Err(error);
-                }
-            }
+            // An error has set the screen's message already.
+            redraw |= view.prepared(host, (docs, library)).unwrap_or(true);
         }
         if redraw {
             let mut scratch = [0; 64];
@@ -694,7 +700,6 @@ impl NativeReader {
                 .ok();
             self.start_count(host);
         }
-        result
     }
 
     /// The UI service, opened at the first need.
@@ -768,7 +773,8 @@ impl Plugin for NativeReader {
             }
             Event::Started { .. } if token == STARTED => self.reopen_last(host),
             Event::DocumentChanged { .. } if token == DOCUMENT_CHANGED => {
-                self.document_changed(host)
+                self.document_changed(host);
+                Ok(())
             }
             Event::BookMoved { from, path, .. } if token == BOOK_MOVED => {
                 self.moved(host, from, path)

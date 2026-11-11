@@ -50,8 +50,9 @@ pub(crate) fn next(asked: Result<Preparation, Error>) -> Result<Next, Error> {
 }
 
 impl View {
-    /// The host says a document's state moved: a book being prepared opens when
-    /// it is ready, or says it failed. Whether the screen is to be drawn again.
+    /// The host says a document's state moved, or the screen came to the top
+    /// again: a book being prepared opens when it is ready, or says it failed.
+    /// Whether the screen is to be drawn again.
     ///
     /// # Errors
     /// `NoMemory`; the document is given back then.
