@@ -83,6 +83,15 @@ impl NativeInstance for Probe {
                     badge: "",
                     badge_args: &[],
                 },
+                // The state of an item it never declared.
+                7 => WireCommand::SetItemState {
+                    item: "nothing",
+                    flags: crate::native_host::item_state::FAINT,
+                    label: "",
+                    label_args: &[],
+                    badge: "",
+                    badge_args: &[],
+                },
                 _ => WireCommand::Open {
                     target: "a.screen",
                     mode: 0,
@@ -625,8 +634,9 @@ fn item_state_of(w: &World) -> Option<u32> {
         .map(crate::native_host::item_state::ItemPush::flags)
 }
 
-#[test]
-fn an_event_callback_sets_the_state_of_its_item_and_it_is_stored_after_it_returned() {
+/// A world whose plugin declared the item `a.open` (a setting of its own) and
+/// whose kernel has the declarations.
+fn world_with_item() -> World {
     let mut w = world(true);
     // The item is one the plugin declared: here a setting of its own.
     w.kernel
@@ -645,6 +655,12 @@ fn an_event_callback_sets_the_state_of_its_item_and_it_is_stored_after_it_return
         )
         .unwrap(),
     );
+    w
+}
+
+#[test]
+fn an_event_callback_sets_the_state_of_its_item_and_it_is_stored_after_it_returned() {
+    let mut w = world_with_item();
     w.command.set(6);
     assert_eq!(w.call(), Ok(OK));
     assert_eq!(w.last.get(), OK, "admitted at submit");
@@ -664,4 +680,43 @@ fn without_the_declarations_an_item_state_is_still_refused_as_unsupported() {
     w.command.set(6);
     assert_eq!(w.call(), Ok(OK));
     assert_eq!(w.last.get(), paperpaw_native::host_glue::ERR_UNSUPPORTED);
+}
+
+#[test]
+fn an_item_it_did_not_declare_is_refused_as_not_found_in_the_event_stage() {
+    let w = world_with_item();
+    w.command.set(7);
+    assert_eq!(w.call(), Ok(OK));
+    assert_eq!(w.last.get(), paperpaw_native::host_glue::ERR_NOT_FOUND);
+    // Nothing was kept, and no room is held.
+    assert!(!w.kernel.shared.native_instances.outbox.full());
+    assert_eq!(item_state_of(&w), None);
+    assert_room_given_back(&w);
+}
+
+#[test]
+fn a_failed_event_callback_gives_the_room_of_its_item_state_back() {
+    let mut w = world_with_item();
+    w.command.set(6);
+    w.answer.set(Err(ERR_INVALID));
+    assert_eq!(w.call(), Err(ERR_INVALID));
+    // Admitted at submit, dropped with the failed callback's batch.
+    assert_eq!(w.last.get(), OK, "admitted at submit");
+    assert!(!w.kernel.shared.native_instances.outbox.full());
+    w.kernel.native_outbox_run();
+    assert_eq!(item_state_of(&w), None);
+    assert_room_given_back(&w);
+}
+
+/// The room and the plugin's slot reserved at submit are free again.
+fn assert_room_given_back(w: &World) {
+    let directory = w
+        .kernel
+        .shared
+        .registry
+        .native_declarations
+        .as_ref()
+        .unwrap();
+    assert_eq!(directory.item_room.get(), 0);
+    assert_eq!(directory.items.borrow().slots(), 0);
 }
