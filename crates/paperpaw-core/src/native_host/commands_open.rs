@@ -3,7 +3,10 @@
 //! whole batch is checked and every reservation is made; the kernel gives it
 //! to the instance when the open applies (`Kernel::drain_native_opens`).
 use super::{CommandBatch, CommandStage, WireCommand, ui};
-use crate::native_host::ui_store::{Claims, Stamp, UiStore};
+use crate::native_host::{
+    shared::Shared,
+    ui_store::{Claims, Stamp, UiStore},
+};
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_INVALID, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
@@ -14,6 +17,9 @@ use paperpaw_sdk::{Command, Id, Params, ScreenKey};
 #[derive(Clone, Copy)]
 pub(super) struct Handovers<'a> {
     pub(super) store: &'a UiStore,
+    /// The store as the host shares it, where the stage has it: the opens it
+    /// stages keep a handle to free their claims if they are dropped undrained.
+    pub(super) shared: Option<&'a Shared<UiStore>>,
     /// The callback's stamp: known once the callback is entered (the stage is
     /// built before), and none until then, when an open that names a hand-over
     /// is refused.
@@ -38,6 +44,31 @@ pub(crate) struct StagedOpen {
 pub(crate) struct Opens {
     pub(crate) at: Vec<StagedOpen>,
     pub(crate) claims: Vec<Claims>,
+    /// The store the claims are in: with it, what is dropped undrained (the
+    /// plugin gone, a queue that could not keep the batch) frees them.
+    pub(crate) store: Option<Shared<UiStore>>,
+}
+
+impl Opens {
+    /// The staged opens and the claims, for the drain; none is left to free.
+    pub(crate) fn take(&mut self) -> (Vec<StagedOpen>, Vec<Claims>) {
+        (
+            core::mem::take(&mut self.at),
+            core::mem::take(&mut self.claims),
+        )
+    }
+}
+
+impl Drop for Opens {
+    fn drop(&mut self) {
+        let Some(store) = &self.store else {
+            return;
+        };
+        for claims in core::mem::take(&mut self.claims) {
+            // A store in use keeps them claimed: the owner's stop frees them.
+            let _ = store.rollback(claims);
+        }
+    }
 }
 
 impl<'a> CommandStage<'a> {
@@ -47,6 +78,7 @@ impl<'a> CommandStage<'a> {
     pub(crate) fn with_handovers(mut self, store: &'a UiStore, stamp: Stamp) -> Self {
         self.handovers = Some(Handovers {
             store,
+            shared: None,
             stamp: Some(stamp),
         });
         self
@@ -56,9 +88,13 @@ impl<'a> CommandStage<'a> {
     /// it serves says who it is ([`Self::set_handover_stamp`]): the stage is
     /// built before the callback is entered.
     #[must_use]
-    pub(crate) fn with_handover_store(mut self, store: Option<&'a UiStore>) -> Self {
-        if let Some(store) = store {
-            self.handovers = Some(Handovers { store, stamp: None });
+    pub(crate) fn with_handover_store(mut self, store: Option<&'a Shared<UiStore>>) -> Self {
+        if let Some(shared) = store {
+            self.handovers = Some(Handovers {
+                store: shared,
+                shared: Some(shared),
+                stamp: None,
+            });
         }
         self
     }
@@ -73,7 +109,12 @@ impl<'a> CommandStage<'a> {
 
     /// The staged opens, for the drain; the claims go with them.
     pub(super) fn take_opens(&mut self) -> Opens {
-        core::mem::take(&mut self.opens)
+        let mut opens = core::mem::take(&mut self.opens);
+        opens.store = self
+            .handovers
+            .and_then(|named| named.shared)
+            .and_then(Shared::try_clone);
+        opens
     }
 
     /// As `into_ui_output`, with the opens the drain needs (hand-overs and

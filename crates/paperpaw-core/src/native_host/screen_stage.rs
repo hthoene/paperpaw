@@ -172,7 +172,7 @@ pub(crate) fn build_stage<'a>(parts: StageParts<'a>) -> CommandStage<'a> {
     .with_stack(stack_rows, owner_key)
     .with_hint_labels(stack_rows.labels(), inputs.hint_buttons)
     .with_widgets(ui, owner_key)
-    .with_handover_store(ui.map(|ui| &*ui.store));
+    .with_handover_store(ui.map(|ui| &ui.store));
     stage.set_images_held(inputs.images_held);
     stage.set_speech_held(inputs.speech_held);
     if let Some(directory) = directory {

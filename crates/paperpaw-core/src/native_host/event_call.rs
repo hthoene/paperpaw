@@ -171,7 +171,7 @@ impl crate::Kernel {
             )
             .with_ui(&env, self.event_screen(id), 0, self.screen_keys_remaining())
             .with_widgets(instances.ui_services(), owner)
-            .with_handover_store(instances.ui_store());
+            .with_handover_store(instances.ui_services().map(|ui| &ui.store));
             stage.set_images_held(self.image_held(owner));
             stage.set_speech_held(self.io.speech.owned_texts(id.as_str()));
             // A run's callback is quiet (`work.md` section 2).
