@@ -209,6 +209,7 @@ const _: () = assert!(Kind::BookBadge as usize + 1 == KIND_COUNT);
 /// slot at 4 bytes, not 8 (#248).
 const KIND_SHIFT: u32 = 10;
 const _: () = assert!(KIND_COUNT <= 1 << (16 - KIND_SHIFT));
+const _: () = assert!(KIND_COUNT <= u64::BITS as usize);
 
 impl Kind {
     /// Every kind, in order.
@@ -449,15 +450,16 @@ enum Batches {
     /// Where each batch starts in the owner's read-only image (an image-only
     /// owner: no slots either; its records of a kind are found by walking the
     /// batches' frames, `declaration_scan.rs`). Four bytes a batch, where a
-    /// reference takes 12 on the X4.
-    Starts(Box<[u32]>),
+    /// reference takes 12 on the X4. Beside them, one bit for each kind the
+    /// owner declares (`1 << kind`): a kind it has none of is not walked.
+    Starts(Box<[u32]>, u64),
 }
 
 impl Batches {
     fn len(&self) -> usize {
         match self {
             Self::Refs(refs) => refs.len(),
-            Self::Starts(starts) => starts.len(),
+            Self::Starts(starts, _) => starts.len(),
         }
     }
 
@@ -466,7 +468,7 @@ impl Batches {
     fn refs(&self) -> &[DeclRef] {
         match self {
             Self::Refs(refs) => refs,
-            Self::Starts(_) => &[],
+            Self::Starts(..) => &[],
         }
     }
 
@@ -475,7 +477,7 @@ impl Batches {
     fn refs_mut(&mut self) -> Result<&mut Vec<DeclRef>, i32> {
         match self {
             Self::Refs(refs) => Ok(refs),
-            Self::Starts(_) => Err(ERR_STATE),
+            Self::Starts(..) => Err(ERR_STATE),
         }
     }
 
@@ -483,7 +485,7 @@ impl Batches {
     fn bytes<'a>(&'a self, batch: usize, image: &'a [u8]) -> Result<&'a [u8], i32> {
         match self {
             Self::Refs(refs) => batch_bytes(refs.get(batch).ok_or(ERR_INVALID)?, image),
-            Self::Starts(starts) => {
+            Self::Starts(starts, _) => {
                 let start = usize::try_from(*starts.get(batch).ok_or(ERR_INVALID)?)
                     .map_err(|_| ERR_INVALID)?;
                 scan::batch_at(image, start)
@@ -505,7 +507,7 @@ impl StoredOwner {
 
     /// Every batch is read from a read-only image, and no slots are kept.
     fn image_only(&self) -> bool {
-        matches!(self.batches, Batches::Starts(_))
+        matches!(self.batches, Batches::Starts(..))
     }
 
     /// The slots of one kind, in declaration order (none for an `image_only`
@@ -550,11 +552,17 @@ impl StoredOwner {
         kind: Kind,
         visit: &mut dyn FnMut(u16, u16) -> ControlFlow<()>,
     ) -> ControlFlow<()> {
-        if !self.image_only() {
-            for slot in self.of_kind(kind) {
-                visit(slot.batch(), slot.record())?;
+        match &self.batches {
+            Batches::Starts(_, kinds) if kinds & 1 << kind as u32 == 0 => {
+                return ControlFlow::Continue(());
             }
-            return ControlFlow::Continue(());
+            Batches::Starts(..) => {}
+            Batches::Refs(_) => {
+                for slot in self.of_kind(kind) {
+                    visit(slot.batch(), slot.record())?;
+                }
+                return ControlFlow::Continue(());
+            }
         }
         for at in 0..self.batches.len() {
             // Below `BATCHES_MAX`: checked when the batch was staged.
@@ -630,7 +638,13 @@ impl StoredOwner {
                 DeclRef::Owned(_) => return,
             }
         }
-        self.batches = Batches::Starts(starts.into_boxed_slice());
+        // Every record is in a slot (staging indexes each one), so the slots'
+        // kinds are the kinds the owner declares.
+        let kinds = self
+            .slots
+            .iter()
+            .fold(0_u64, |kinds, slot| kinds | 1 << (slot.hash >> KIND_SHIFT));
+        self.batches = Batches::Starts(starts.into_boxed_slice(), kinds);
         self.slots = Vec::new();
     }
 }
@@ -1242,6 +1256,11 @@ impl DeclarationStore {
         }) else {
             return false;
         };
+        if owner.image_only() {
+            // Every record of the kind, in declaration order: the first that
+            // matches is the one an index would give.
+            return scan::find_in_image(owner, kind, parts, visit);
+        }
         let category = kind.category();
         let mut found = false;
         let mut try_place = |batch: u16, record: u16| {
@@ -1257,16 +1276,10 @@ impl DeclarationStore {
                 ControlFlow::Continue(())
             }
         };
-        if owner.image_only() {
-            // Every record of the kind, in declaration order: the first that
-            // matches is the one an index would give.
-            let _ = owner.places(kind, &mut try_place);
-        } else {
-            let hash = super::declaration_index::composite_hash(category, parts);
-            for slot in owner.run(kind, hash) {
-                if try_place(slot.batch(), slot.record()).is_break() {
-                    break;
-                }
+        let hash = super::declaration_index::composite_hash(category, parts);
+        for slot in owner.run(kind, hash) {
+            if try_place(slot.batch(), slot.record()).is_break() {
+                break;
             }
         }
         found

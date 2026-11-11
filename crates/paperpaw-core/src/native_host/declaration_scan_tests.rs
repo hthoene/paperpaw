@@ -201,7 +201,7 @@ fn an_image_only_owner_keeps_no_slots_and_answers_as_an_indexed_one() {
         "the index is given back at commit"
     );
     // And the batch references: only where each batch starts is kept.
-    assert!(matches!(&owner.batches, Batches::Starts(starts) if starts.len() == 2));
+    assert!(matches!(&owner.batches, Batches::Starts(starts, _) if starts.len() == 2));
     let other = indexed.owners[0].as_ref().unwrap();
     assert!(!other.image_only());
     assert_eq!(other.slots.len(), 6);

@@ -26,6 +26,7 @@ use super::super::registrations::{
     SettingSpec, WIDGET_PLACE_TAG, WIDGET_SPEC_TAG, WireRecord,
 };
 use super::Kind;
+use core::ops::ControlFlow;
 use paperpaw_native::host_glue::ERR_INVALID;
 
 const _: () = assert!(REGISTRATION_MAX_RECORDS <= u8::BITS as usize);
@@ -128,6 +129,61 @@ pub(super) fn batch_at(image: &[u8], start: usize) -> Result<&[u8], i32> {
             .ok_or(ERR_INVALID)?;
     }
     rest.get(..cursor).ok_or(ERR_INVALID)
+}
+
+/// The first record of `kind` of the image-only `owner` whose key fields are
+/// `parts`, in declaration order, given to `visit`: as a lookup through
+/// [`DeclarationStore::with_record`](super::DeclarationStore::with_record)
+/// would find it, but each record is decoded once and only the one that
+/// matches is validated (`declarations::validate_record`): a key press or a
+/// menu's open looks up names among every record of the kind (#248, R1).
+/// Whether one was found; a record that does not decode or validate is said
+/// to the plugin and is no match.
+pub(super) fn find_in_image(
+    owner: &super::StoredOwner,
+    kind: Kind,
+    parts: &[&str],
+    visit: &mut dyn for<'a> FnMut(super::Record<'a>),
+) -> bool {
+    // A stale owner (a later generation of its plugin) answers nothing, as
+    // `with_record` checks it for every key.
+    if owner.source.generation() != owner.generation {
+        return false;
+    }
+    let category = kind.category();
+    let mut found = false;
+    let _ = owner.places(kind, &mut |batch, record| {
+        owner.source.with_image(&mut |image| {
+            let Some(image) = image else {
+                return;
+            };
+            let decoded = owner
+                .batches
+                .bytes(usize::from(batch), image)
+                .and_then(|bytes| {
+                    super::super::raw_declarations::record_at(bytes, usize::from(record))
+                })
+                .and_then(super::super::registrations::host_decode_prefix);
+            let result = decoded.and_then(|(record, _)| {
+                if !super::super::declaration_index::matches_parts(record, category, parts) {
+                    return Ok(());
+                }
+                super::super::declarations::validate_record(owner.id.as_str(), &record)?;
+                found = true;
+                visit(record);
+                Ok(())
+            });
+            if let Err(error) = result {
+                owner.source.invalid_declaration(error);
+            }
+        });
+        if found {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    });
+    found
 }
 
 #[cfg(test)]
