@@ -625,6 +625,14 @@ impl CodeLoader for Loader {
                 return None;
             }
         };
+        // Values an older version kept veiled are sealed now (none to do on a
+        // fresh card): once at start, power-safe (the file is renamed over),
+        // and a failure never blocks the start.
+        if let Some(secrets) = wired.secrets()
+            && let Err(status) = secrets.upgrade()
+        {
+            warn!("native: the secrets file could not be upgraded ({status})");
+        }
         // The table is borrowed no longer: `wire_sockets` takes it again.
         drop(resources);
         // This hook runs at the end of the kernel's build, before `Kernel::start`:
