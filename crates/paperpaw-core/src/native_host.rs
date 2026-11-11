@@ -116,6 +116,7 @@ pub(crate) mod plugin_unforgotten;
 
 #[path = "native_host/secrets_file.rs"]
 pub(crate) mod secrets_file;
+pub(crate) mod secrets_text;
 
 #[path = "native_host/secrets_service.rs"]
 #[allow(
@@ -205,6 +206,7 @@ pub(crate) mod shared;
 
 #[path = "native_host/resources.rs"]
 pub mod resources;
+pub use fixed_settings::FixedTables;
 pub use resources::HostResources;
 
 #[path = "native_host/shell_wiring.rs"]

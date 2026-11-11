@@ -509,7 +509,7 @@ mod x4 {
                     // The firmware's read-only data in flash: the declarations
                     // of a linked plugin are borrowed from it, not copied.
                     flash_rodata(),
-                    paperpaw_app::fixed_settings(id),
+                    paperpaw_app::fixed_tables(id),
                 )
             };
             warn!("native: linked {id}: {status:?}");

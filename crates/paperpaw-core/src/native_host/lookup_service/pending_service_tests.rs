@@ -157,6 +157,20 @@ fn a_pending_ask_is_kept_for_a_subscribed_asker_and_ready_tells_it_once() {
 }
 
 #[test]
+fn the_table_of_pending_asks_is_made_by_the_first_kept_ask_and_not_before() {
+    let rig = rig(&[7]);
+    assert!(rig.service().pending.borrow().is_none());
+    // An answer at once keeps nothing: still no table.
+    rig.host.ready.set(true);
+    rig.ask(7, "tree", 0);
+    assert!(rig.service().pending.borrow().is_none());
+    // A command that matches nothing makes it, and counts.
+    assert_eq!(rig.ready(WIKI, "tree"), Vec::<u64>::new());
+    assert!(rig.service().pending.borrow().is_some());
+    assert_eq!(rig.service().unmatched(), 1);
+}
+
+#[test]
 fn an_asker_that_does_not_subscribe_has_nothing_recorded() {
     let rig = rig(&[]);
     // The asker sees `pending` and may ask again itself.

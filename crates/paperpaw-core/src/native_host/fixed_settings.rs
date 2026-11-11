@@ -6,7 +6,45 @@
 //! only when the two are equal field by field. Any other spec stays the owned
 //! copy, so a table that is stale or wrong costs memory, never correctness.
 
-use paperpaw_sdk::SettingSpec;
+use paperpaw_sdk::{SettingGroupSpec, SettingSpec};
+
+/// The tables a linked plugin keeps in the program (its build script makes
+/// them of the plugin's own declarations): its settings and its setting
+/// groups. What a plugin declares that equals an entry is kept as that entry,
+/// not as a copy on the heap; anything else is copied as before.
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub struct FixedTables {
+    /// The plugin's settings.
+    pub settings: &'static [SettingSpec],
+    /// The plugin's setting groups.
+    pub groups: &'static [SettingGroupSpec],
+}
+
+impl FixedTables {
+    /// No table: everything the plugin declares is copied.
+    pub const NONE: Self = Self {
+        settings: &[],
+        groups: &[],
+    };
+
+    /// The tables `settings` and `groups`.
+    #[must_use]
+    pub const fn new(
+        settings: &'static [SettingSpec],
+        groups: &'static [SettingGroupSpec],
+    ) -> Self {
+        Self { settings, groups }
+    }
+}
+
+/// The entry of `table` that equals the group `made` (its record's copy).
+pub(super) fn find_group(
+    table: &'static [SettingGroupSpec],
+    made: &SettingGroupSpec,
+) -> Option<&'static SettingGroupSpec> {
+    table.iter().find(|kept| *kept == made)
+}
 
 /// Whether `table` entry `kept` is the same setting as `made` (the spec its
 /// record makes): every field a reader of the registry can see

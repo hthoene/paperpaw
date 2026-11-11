@@ -3,7 +3,9 @@
 //! it, and a widget that is not the plugin's is none of its business.
 #![cfg(feature = "linked")]
 #![allow(clippy::unwrap_used, reason = "test assertions")]
-use paperpaw_core::native_host::registrations::{EventWidgetDropped, EventWidgetMade, Record};
+use paperpaw_core::native_host::registrations::{
+    EventWidgetChanged, EventWidgetDropped, EventWidgetMade, Record,
+};
 use paperpaw_plugin_home::NATIVE_ENTRY;
 use paperpaw_scripted_host::{ScriptedHost, event_batch};
 
@@ -12,6 +14,7 @@ const CLOCK: u32 = 21;
 const CARD: u32 = 22;
 const SHELF: u32 = 23;
 const STATUS: u32 = 24;
+const WIDGET_CHANGED: u32 = 5;
 
 fn made(widget: &str, instance: u32) -> Vec<u8> {
     event_batch(&Record::EventWidgetMade(EventWidgetMade {
@@ -57,4 +60,23 @@ fn the_widgets_are_declared_and_a_screens_widgets_come_and_go() {
         let done = plugin.event(DATE, &dropped(instance)).unwrap();
         assert_eq!(done.status, 0, "{instance}");
     }
+}
+
+#[test]
+fn a_changed_widget_is_answered_without_a_dashboard_on_top() {
+    let host = ScriptedHost::new();
+    let _dialogs = host.dialogs();
+    let plugin = host.load(NATIVE_ENTRY.entry()).unwrap();
+    // The subscription is part of what the host admitted at the make.
+    assert!(!host.registrations().is_empty());
+    let changed = event_batch(&Record::EventWidgetChanged(EventWidgetChanged {
+        now_ms: 0,
+        instance: 5,
+    }))
+    .unwrap();
+    // No screen stack and no dashboard: nothing is laid out or drawn, and
+    // nothing fails.
+    let done = plugin.event(WIDGET_CHANGED, &changed).unwrap();
+    assert_eq!(done.status, 0);
+    assert!(done.commands.is_empty());
 }

@@ -57,6 +57,29 @@ fn main() -> Result<(), String> {
         emit(&mut source, name, build)?;
     }
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
+    // The settings as a table the kernel keeps in the program (a linked
+    // build only), made of the very records declared above (the golden's
+    // length-framed batches).
+    let mut batches: Vec<&[u8]> = Vec::new();
+    let mut rest = settings.as_slice();
+    while let Some((size, tail)) = rest.split_first_chunk::<4>() {
+        let size = usize::try_from(u32::from_le_bytes(*size)).map_err(|_| "batch size")?;
+        let (batch, tail) = tail.split_at_checked(size).ok_or("truncated batch")?;
+        batches.push(batch);
+        rest = tail;
+    }
+    if !rest.is_empty() {
+        return Err("bytes left after the last batch of the golden".into());
+    }
+    let table =
+        paperpaw_sdk::native::declare::fixed_settings_source("file-manager", "SETTINGS", &batches)?
+            + &paperpaw_sdk::native::declare::fixed_groups_source(
+                "file-manager",
+                "GROUPS",
+                &batches,
+            )?;
+    std::fs::write(out.join("file_manager_settings.rs"), table)
+        .map_err(|error| format!("write settings table: {error}"))?;
     std::fs::write(out.join("file_manager_declarations.rs"), source)
         .map_err(|error| format!("write declarations: {error}"))?;
     Ok(())
