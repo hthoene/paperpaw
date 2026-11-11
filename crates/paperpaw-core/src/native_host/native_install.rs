@@ -29,6 +29,12 @@ enum Owned {
     FixedSettings(&'static [paperpaw_sdk::SettingSpec], Vec<u16>),
     Group(alloc::boxed::Box<paperpaw_sdk::SettingGroupSpec>),
     Resource(super::native_resources::Resource),
+    /// A choice the plugin adds to another plugin's choice setting
+    /// (`setting.choice`; its title is read from the declaration store).
+    Choice {
+        setting: Id,
+        value: alloc::string::String,
+    },
     /// A screen the plugin offers for a slot (`slot.offer`).
     SlotOffer {
         slot: Id,
@@ -117,6 +123,21 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         // declaration store too (`document.md` sections 1 and 7); the
         // document and lookup services read them there.
         Record::FormatSpec(_) | Record::ReaderSpec(_) | Record::LookupSpec(_) => Ok(None),
+        // A choice for another plugin's choice setting (`registry.md` section
+        // 6, foreign extensions): offered as interface 6's `add_choice` does,
+        // by the kernel once all plugins are in (one for a setting that does
+        // not exist is dropped there with a log line).
+        Record::SettingChoice(choice) => {
+            let mut value = alloc::string::String::new();
+            value
+                .try_reserve_exact(choice.value.len())
+                .map_err(|_| ERR_NO_MEMORY)?;
+            value.push_str(choice.value);
+            Ok(Some(Owned::Choice {
+                setting: native_values::checked_id(choice.key)?,
+                value,
+            }))
+        }
         _ => Err(ERR_UNSUPPORTED),
     }
 }
@@ -620,6 +641,9 @@ impl crate::Kernel {
                         .native(owner, Contribution::Action(action))
                         .map_err(shell::Error::Status)?;
                 }
+                Owned::Choice { setting, value } => staging
+                    .native_choice(setting, value)
+                    .map_err(shell::Error::Status)?,
                 Owned::Setting(spec) => {
                     staging
                         .native(owner, Contribution::Setting(spec))
@@ -1004,5 +1028,29 @@ mod tests {
             }),
             ERR_INVALID
         );
+    }
+    #[test]
+    fn a_setting_choice_is_taken_as_interface_6_adds_it() {
+        let record = Record::SettingChoice(wire::SettingChoice {
+            key: "sleep.show",
+            value: "vocabulary.sleep-card",
+            title: "vocabulary.sleep-card",
+        });
+        let Ok(Some(Owned::Choice { setting, value })) = map_record("vocabulary", record) else {
+            panic!("a choice is mapped");
+        };
+        assert_eq!(setting.as_str(), "sleep.show");
+        assert_eq!(value, "vocabulary.sleep-card");
+        let mut staging = crate::registry::Staging::default();
+        staging.native_choice(setting, value).unwrap();
+        assert_eq!(staging.choices.len(), 1);
+        assert_eq!(staging.choices[0].1, "vocabulary.sleep-card");
+        // A key that is no id is refused, not dropped.
+        let bad = Record::SettingChoice(wire::SettingChoice {
+            key: "Not An Id",
+            value: "x",
+            title: "x",
+        });
+        assert_eq!(map_record("vocabulary", bad).err(), Some(ERR_INVALID));
     }
 }

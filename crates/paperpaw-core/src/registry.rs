@@ -693,6 +693,15 @@ fn push_native<T>(target: &mut Vec<T>, value: T) -> Result<(), i32> {
 }
 
 impl Staging {
+    /// A choice a native plugin adds to another plugin's choice setting.
+    pub(crate) fn native_choice(
+        &mut self,
+        setting: Id,
+        value: alloc::string::String,
+    ) -> Result<(), i32> {
+        push_native(&mut self.choices, (setting, Cow::Owned(value)))
+    }
+
     pub(crate) fn native_screen(
         &mut self,
         owner: &Id,
