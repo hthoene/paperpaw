@@ -69,7 +69,7 @@ impl Kernel {
             widgets,
         } = staged.screen;
         self.native_screen_policies(owner, owner_key, policies);
-        self.drain_native_ui(owner, staged.commands, staged.redraw);
+        self.drain_native_opens(owner, staged.commands, staged.redraw, staged.opens);
         // The picture requests it admitted, after the callback.
         self.native_images_apply(owner_key, staged.images);
         self.apply_item_states(owner, item_states);

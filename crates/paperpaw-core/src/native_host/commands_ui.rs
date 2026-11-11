@@ -467,7 +467,8 @@ impl crate::Kernel {
         redraw: Option<Redraw>,
         opens: super::Opens,
     ) {
-        let super::Opens { at, claims } = opens;
+        let mut opens = opens;
+        let (at, claims) = opens.take();
         for (index, command) in commands.into_iter().enumerate() {
             let staged = at.iter().find(|open| open.index == index);
             // A replace is the submitter's own top screen's, nobody else's: if
@@ -491,10 +492,15 @@ impl crate::Kernel {
             self.release_pending_handover();
         }
         // Nothing stays claimed once the batch is applied.
+        let mut kept = false;
         if let Some(store) = self.shared.native_instances.ui_store() {
             for claims in claims {
-                let _ = store.rollback(claims);
+                kept |= store.rollback(claims).is_err();
             }
+        }
+        if kept {
+            // The store was in use: the claims stay until the owner's stop.
+            self.warn_runtime("native hand-over claims could not be freed: the store is busy");
         }
         self.finish_native_redraw(owner, redraw);
     }
@@ -502,8 +508,9 @@ impl crate::Kernel {
     fn release_pending_handover(&mut self) {
         if let Some(Some(id)) = self.shared.native_instances.take_pending_handover()
             && let Some(store) = self.shared.native_instances.ui_store()
+            && store.release(id).is_err()
         {
-            let _ = store.release(id);
+            self.warn_runtime("a native hand-over could not be freed: the store is busy");
         }
     }
 

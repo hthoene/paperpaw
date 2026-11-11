@@ -28,6 +28,9 @@ pub(crate) struct Staged {
     pub(crate) commands: Vec<Command>,
     pub(crate) redraw: Option<Redraw>,
     pub(crate) images: Vec<ImageCommand>,
+    /// The hand-overs its opens name, and the screens they replace: for the
+    /// drain (`Kernel::drain_native_opens`).
+    pub(crate) opens: super::commands::Opens,
     /// What a screen's callback stages besides (empty for a service's event,
     /// whose stage admits none of it).
     pub(crate) screen: ScreenEffects,
@@ -82,6 +85,7 @@ impl Staged {
             commands,
             redraw,
             images,
+            opens: super::commands::Opens::default(),
             screen: ScreenEffects::default(),
         }
     }
@@ -169,7 +173,8 @@ impl crate::Kernel {
                 CALLBACK_COMMAND_BYTES,
             )
             .with_ui(&env, self.event_screen(id), 0, self.screen_keys_remaining())
-            .with_widgets(instances.ui_services(), owner);
+            .with_widgets(instances.ui_services(), owner)
+            .with_handover_store(instances.ui_services().map(|ui| &ui.store));
             stage.set_images_held(self.image_held(owner));
             stage.set_speech_held(self.io.speech.owned_texts(id.as_str()));
             stage.set_requests_open(
@@ -200,7 +205,7 @@ impl crate::Kernel {
                     status = Err(error);
                     None
                 } else {
-                    let (commands, redraw, _hop) = stage.into_ui_output();
+                    let (commands, redraw, _hop, opens) = stage.into_ui_output_with_opens();
                     (!commands.is_empty()
                         || redraw.is_some()
                         || !images.is_empty()
@@ -208,6 +213,7 @@ impl crate::Kernel {
                     .then(|| {
                         let mut staged = Staged::new(owner, commands, redraw, images);
                         staged.screen.answers = answers;
+                        staged.opens = opens;
                         staged
                     })
                 }
