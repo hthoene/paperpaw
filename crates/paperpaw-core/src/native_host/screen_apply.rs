@@ -26,6 +26,7 @@ impl Kernel {
             images_held: self.image_held(owner_key),
             speech_held: self.io.speech.owned_texts(owner),
             requests_open: self.native_requests_open(),
+            answers: self.native_answer_view(owner_key),
         }
     }
 
@@ -49,7 +50,7 @@ impl Kernel {
 
     /// Applies what a callback staged, once its scopes have ended: the screen
     /// policy changes first, then the commands, the picture requests, the item
-    /// states, the presets, the labels and the widgets it said changed. One
+    /// states, the presets, the answers to plugin requests, the labels and the widgets it said changed. One
     /// path for the callbacks the kernel calls itself and for a screen's, which
     /// wait in the screen queue.
     ///
@@ -62,6 +63,7 @@ impl Kernel {
             policies,
             item_states,
             presets,
+            answers,
             hints,
             widgets,
         } = staged.screen;
@@ -72,6 +74,7 @@ impl Kernel {
         self.apply_item_states(owner, item_states);
         let authority = self.command_settings_authority(owner);
         self.apply_native_presets(owner, authority, presets);
+        self.native_apply_answers(answers);
         self.apply_labels_and_widgets(owner_key, hints, widgets)
     }
 

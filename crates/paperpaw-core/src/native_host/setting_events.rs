@@ -374,6 +374,8 @@ impl crate::Kernel {
     // frame adds their locals (the firmware's frame limit for host code).
     #[inline(never)]
     pub(crate) fn native_setting_pump(&mut self) -> bool {
+        // Requests nobody can answer any more are closed (free when none is open).
+        self.native_requests_settle();
         let events = &self.shared.native_instances.setting_events;
         events.prune(&self.shared.native_instances);
         let owners = events.waiting();

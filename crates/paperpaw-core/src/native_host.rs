@@ -360,6 +360,9 @@ pub mod canvas;
 #[path = "native_host/commands.rs"]
 pub mod commands;
 
+#[cfg(test)]
+#[path = "native_host/plugin_answers_tests.rs"]
+mod plugin_answers_tests;
 pub(crate) mod plugin_requests;
 #[cfg(test)]
 #[path = "native_host/plugin_requests_tests.rs"]

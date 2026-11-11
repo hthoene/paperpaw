@@ -245,7 +245,7 @@ impl Kernel {
         hears: &dyn Fn(&str) -> bool,
         hold: &dyn Fn(&mut Pending) -> Result<(), i32>,
     ) {
-        self.native_queue_event_if(tag, &|_, _, id| hears(id), hold);
+        let _ = self.native_queue_event_if(tag, &|_, _, id| hears(id), hold);
     }
 
     /// As [`Self::native_queue_event`], where `hears` also sees the instances
@@ -255,10 +255,11 @@ impl Kernel {
         tag: u32,
         hears: &dyn Fn(&NativeInstances, u64, &str) -> bool,
         hold: &dyn Fn(&mut Pending) -> Result<(), i32>,
-    ) {
+    ) -> usize {
         // Whether an event was lost that was not logged yet (once for a
         // plugin until its queue is empty again).
         let mut report = false;
+        let mut held_by = 0;
         let mut n = 0;
         let instances = &self.shared.native_instances;
         while let Some((owner, _)) = instances.running_nth(n) {
@@ -275,10 +276,12 @@ impl Kernel {
             // A queue that cannot even be made is reported every time (it
             // cannot remember that it was).
             report |= matches!(held, Err(_) | Ok(Err(true)));
+            held_by += usize::from(matches!(held, Ok(Ok(()))));
         }
         if report {
             self.try_warn_runtime(&[drop_note(tag)]);
         }
+        held_by
     }
 
     /// `event.screen_ready` (87) for the instance `instance` of `screen`, to

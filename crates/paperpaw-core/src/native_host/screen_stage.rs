@@ -37,6 +37,8 @@ pub(crate) struct StageInputs {
     pub(crate) speech_held: usize,
     /// Plugin requests open device-wide.
     pub(crate) requests_open: usize,
+    /// What the table of requests held, and whether the plugin may answer.
+    pub(crate) answers: super::plugin_requests::AnswerView,
 }
 
 /// The device-wide hand-off between the kernel and the screens' dispatch.
@@ -177,6 +179,7 @@ pub(crate) fn build_stage<'a>(parts: StageParts<'a>) -> CommandStage<'a> {
     stage.set_images_held(inputs.images_held);
     stage.set_speech_held(inputs.speech_held);
     stage.set_requests_open(inputs.requests_open);
+    stage.set_answer_view(inputs.answers);
     if let Some(directory) = directory {
         stage = stage.with_item_states(super::commands::ItemAdmit { directory });
     }
@@ -189,6 +192,7 @@ pub(crate) fn staged_of(mut stage: CommandStage<'_>, owner_key: u64) -> Staged {
     let policies = stage.take_policies();
     let item_states = stage.take_item_states();
     let presets = stage.take_presets();
+    let answers = stage.take_answers();
     let images = stage.take_image_commands();
     let hints = stage.take_hint_sets();
     let widgets = stage.take_widget_changes();
@@ -198,6 +202,7 @@ pub(crate) fn staged_of(mut stage: CommandStage<'_>, owner_key: u64) -> Staged {
         policies,
         item_states,
         presets,
+        answers,
         hints,
         widgets,
     };
@@ -274,6 +279,7 @@ mod tests {
             images_held: 0,
             speech_held: 0,
             requests_open: 0,
+            answers: crate::native_host::plugin_requests::AnswerView::default(),
         };
         assert!(queue.inputs().is_none());
         let outer = queue.arm(inputs(1));

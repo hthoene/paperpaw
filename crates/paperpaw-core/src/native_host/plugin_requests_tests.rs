@@ -19,16 +19,18 @@ use paperpaw_sdk::{Command, Id, Instant};
 
 /// What one plugin was told: `(tag, request, text)`, the text the `by` and
 /// ids of 77, the plugin and outcome of 78.
-type Told = Rc<RefCell<Vec<(u32, u32, String)>>>;
+pub(super) type Told = Rc<RefCell<Vec<(u32, u32, String)>>>;
 
-struct Probe {
-    tags: &'static [u32],
-    told: Told,
+pub(super) struct Probe {
+    pub(super) tags: &'static [u32],
+    pub(super) told: Told,
+    /// Cleared when the plugin stops.
+    pub(super) up: Rc<core::cell::Cell<bool>>,
 }
 
 impl NativeInstance for Probe {
     fn running(&self) -> bool {
-        true
+        self.up.get()
     }
     fn stop(&self) {}
     fn subscribed(&self, tag: u32) -> bool {
@@ -80,24 +82,36 @@ impl Dispatch for Probe {
     fn dropped(&self, _: u32, _: i32) {}
 }
 
-const REQ_TAGS: &[u32] = &[wire::EVENT_PLUGIN_ANSWERED_TAG];
-const STORE_TAGS: &[u32] = &[wire::EVENT_PLUGINS_REQUESTED_TAG];
+pub(super) const REQ_TAGS: &[u32] = &[wire::EVENT_PLUGIN_ANSWERED_TAG];
+pub(super) const STORE_TAGS: &[u32] = &[wire::EVENT_PLUGINS_REQUESTED_TAG];
 
-struct World {
-    kernel: crate::Kernel,
-    told: [Told; 3],
+pub(super) struct World {
+    pub(super) kernel: crate::Kernel,
+    pub(super) told: [Told; 3],
+    /// Whether `req`, `store` and `other` run.
+    pub(super) up: [Rc<core::cell::Cell<bool>>; 3],
 }
 
 /// `req` (hears answers), `store` (hears requests, an installer when
 /// `store_installs`) and `other` (hears requests, no installer).
-fn world(store_installs: bool) -> World {
+pub(super) fn world(store_installs: bool) -> World {
+    world_with(store_installs, STORE_TAGS)
+}
+
+/// As [`world`], `store` subscribing to `store_tags`.
+pub(super) fn world_with(store_installs: bool, store_tags: &'static [u32]) -> World {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
     let told: [Told; 3] = Default::default();
+    let up: [Rc<core::cell::Cell<bool>>; 3] = [
+        Rc::new(core::cell::Cell::new(true)),
+        Rc::new(core::cell::Cell::new(true)),
+        Rc::new(core::cell::Cell::new(true)),
+    ];
     for (at, (name, tags, installs)) in [
         ("req", REQ_TAGS, false),
-        ("store", STORE_TAGS, store_installs),
+        ("store", store_tags, store_installs),
         ("other", STORE_TAGS, false),
     ]
     .into_iter()
@@ -106,6 +120,7 @@ fn world(store_installs: bool) -> World {
         let probe = Probe {
             tags,
             told: told[at].clone(),
+            up: up[at].clone(),
         };
         let key = kernel
             .shared
@@ -118,11 +133,11 @@ fn world(store_installs: bool) -> World {
             .unwrap();
         kernel.shared.native_instances.set_installer(key, installs);
     }
-    World { kernel, told }
+    World { kernel, told, up }
 }
 
 impl World {
-    fn request(&mut self, by: &str, plugins: &[&str]) {
+    pub(super) fn request(&mut self, by: &str, plugins: &[&str]) {
         let ids = plugins.iter().map(|id| Id::try_parse(id).unwrap());
         self.kernel
             .output

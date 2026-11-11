@@ -1,7 +1,7 @@
 //! Host-only UI authority and deferred redraw effects for one callback.
 use super::*;
 use crate::native_host::stack_rows::StackRows;
-use paperpaw_native::host_glue::{ERR_FULL, ERR_NOT_FOUND};
+use paperpaw_native::host_glue::{ERR_DENIED, ERR_FULL, ERR_NOT_FOUND};
 use paperpaw_platform::RefreshMode;
 use paperpaw_sdk::{Env, IdError, Params, ScreenKey};
 
@@ -317,6 +317,11 @@ impl<'a> CommandStage<'a> {
             WireCommand::RequestPlugins { plugins } => {
                 for id in plugins.split('\n').filter(|id| !id.is_empty()) {
                     copy_id(id)?;
+                    // `core` is not a plugin to ask for (`registry.md` 5): the
+                    // whole batch is refused.
+                    if id == crate::core_plugin::CORE.as_str() {
+                        return Err(ERR_DENIED);
+                    }
                 }
                 Ok(plugins.len())
             }
