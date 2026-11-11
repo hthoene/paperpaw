@@ -126,6 +126,17 @@ impl Storage for NativeIo<'_, '_> {
         }
         storage::remove(self.host, root, name).map_err(storage_error)
     }
+
+    /// Within the document cache (root 6, which a format may write); the
+    /// book's own root is read only, and a move between roots is none.
+    fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        let (root, from) = route(&self.prefix, from);
+        let (to_root, to) = route(&self.prefix, to);
+        if root == Root::Book || to_root != root {
+            return Err(StorageError::Unsupported);
+        }
+        storage::rename(self.host, root, from, to).map_err(storage_error)
+    }
 }
 
 /// Answers one `core.format` call of `provider` over the roots of the call

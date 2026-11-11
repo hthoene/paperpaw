@@ -43,6 +43,10 @@
       "name": "storage.remove"
     },
     {
+      "kind": "host",
+      "name": "storage.rename"
+    },
+    {
       "kind": "callback",
       "name": "drop"
     },
