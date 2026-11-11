@@ -106,3 +106,43 @@ pub fn fixed_settings_source(
         "pub static {name}: [SettingSpec; {count}] = [\n{rows}];\n"
     ))
 }
+
+/// Rust source of `pub static <name>: [paperpaw_sdk::SettingGroupSpec; N]`: the
+/// setting groups the `batches` of `plugin` declare, in order, which the
+/// kernel takes in place of its own copies like the settings of
+/// [`fixed_settings_source`]. Meant for a build script; the generated code
+/// names `paperpaw_sdk::{Id, SettingGroupSpec}` in full.
+///
+/// # Errors
+/// A batch that does not decode.
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+pub fn fixed_groups_source(plugin: &str, name: &str, batches: &[&[u8]]) -> Result<String, String> {
+    let mut rows = String::new();
+    let mut count = 0usize;
+    for bytes in batches {
+        let batch = records_decode(bytes).map_err(|code| format!("batch: error {code}"))?;
+        for record in batch.iter() {
+            let Record::SettingGroup(group) = record else {
+                continue;
+            };
+            let id = |text: &str| format!("paperpaw_sdk::Id::new_static({text:?})");
+            let mut row = format!(
+                "paperpaw_sdk::SettingGroupSpec::new({}, {:?}).order({})",
+                id(&format!("{plugin}.{}", group.name)),
+                group.title,
+                group.order
+            );
+            if !group.page.is_empty() {
+                let _ = write!(row, ".page({})", id(&format!("{plugin}.{}", group.page)));
+            }
+            if !group.parent.is_empty() {
+                let _ = write!(row, ".within({})", id(group.parent));
+            }
+            let _ = writeln!(rows, "    {row},");
+            count += 1;
+        }
+    }
+    Ok(format!(
+        "pub static {name}: [paperpaw_sdk::SettingGroupSpec; {count}] = [\n{rows}];\n"
+    ))
+}

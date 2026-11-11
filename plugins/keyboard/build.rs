@@ -48,7 +48,8 @@ fn main() -> Result<(), String> {
     // build only), made of the very records declared above.
     let batches: Vec<&[u8]> = all.iter().map(Vec::as_slice).collect();
     let table =
-        paperpaw_sdk::native::declare::fixed_settings_source("keyboard", "SETTINGS", &batches)?;
+        paperpaw_sdk::native::declare::fixed_settings_source("keyboard", "SETTINGS", &batches)?
+            + &paperpaw_sdk::native::declare::fixed_groups_source("keyboard", "GROUPS", &batches)?;
     std::fs::write(out.join("keyboard_settings.rs"), table)
         .map_err(|error| format!("write settings table: {error}"))?;
     std::fs::write(out.join("keyboard_declarations.rs"), source)

@@ -44,7 +44,7 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
         let unmatched: Vec<_> = kernel
             .take_warnings()
             .into_iter()
-            .filter(|warning| format!("{warning:?}").contains("settings table does not match"))
+            .filter(|warning| format!("{warning:?}").contains("table does not match"))
             .collect();
         assert!(unmatched.is_empty(), "{unmatched:?}");
     }
@@ -52,7 +52,7 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
     // memory): the ones that declare settings today.
     for id in ["keyboard", "lock", "help", "opds", "power", "bluetooth"] {
         assert!(
-            !paperpaw_app::fixed_settings(id).is_empty(),
+            !paperpaw_app::fixed_tables(id).settings.is_empty(),
             "{id} has no table"
         );
     }

@@ -489,7 +489,7 @@ mod x4 {
                     // No image yet: the declarations are copied (the
                     // firmware's read-only data range is Firmware's to give).
                     (core::ptr::null(), 0),
-                    paperpaw_app::fixed_settings(id),
+                    paperpaw_app::fixed_tables(id),
                 )
             };
             warn!("native: linked {id}: {status:?}");

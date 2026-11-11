@@ -32,6 +32,11 @@ mod native_settings {
 /// each (`Kernel::register_linked`). Only a linked plugin has it.
 #[cfg(feature = "linked")]
 pub static NATIVE_SETTINGS: &[paperpaw_sdk::SettingSpec] = &native_settings::SETTINGS;
+
+/// The setting groups the plugin declares, as a table kept in the program
+/// like [`NATIVE_SETTINGS`].
+#[cfg(feature = "linked")]
+pub static NATIVE_GROUPS: &[paperpaw_sdk::SettingGroupSpec] = &native_settings::GROUPS;
 /// The interface-7 plugin.
 pub mod native_plugin;
 pub mod pictures;
