@@ -26,6 +26,8 @@ pub(crate) const FORMAT_OWNER: u64 = 99;
 
 #[path = "tests/blocks.rs"]
 mod blocks;
+#[path = "tests/cover.rs"]
+mod cover;
 #[path = "tests/lists.rs"]
 mod lists;
 #[path = "tests/reader.rs"]
@@ -60,6 +62,8 @@ pub(crate) struct Fake {
     table: DocumentTable,
     /// What the format answers next.
     pub(crate) answer: RefCell<Vec<u8>>,
+    /// Answers (or statuses) to give, oldest first, before `answer` is used.
+    pub(crate) queue: RefCell<Vec<Result<Vec<u8>, i32>>>,
     pub(crate) fails: Cell<Option<i32>>,
     /// (op, document, cursor, generation, flags, index, image_side, cover_side)
     pub(crate) calls: RefCell<Vec<[u32; 8]>>,
@@ -68,6 +72,9 @@ pub(crate) struct Fake {
     pub(crate) roots: Cell<u32>,
     pub(crate) ended: RefCell<Vec<u32>>,
     pub(crate) images_ended: RefCell<Vec<u32>>,
+    /// Where the document's pictures really end (the production close path),
+    /// when a test wants it; else they are only recorded.
+    pub(crate) ending: Cell<Option<&'static crate::native_host::host_services::HostServices>>,
     /// The format plugin stops while the host is calling it (it crashed).
     pub(crate) stops_during_call: Cell<bool>,
     pub(crate) closed: RefCell<Vec<(u32, u32)>>,
@@ -97,6 +104,7 @@ impl Fake {
         Rc::new(Self {
             table: DocumentTable::try_new(limits).unwrap(),
             answer: RefCell::new(Vec::new()),
+            queue: RefCell::new(Vec::new()),
             fails: Cell::new(None),
             calls: RefCell::new(Vec::new()),
             texts: RefCell::new(Vec::new()),
@@ -104,6 +112,7 @@ impl Fake {
             roots: Cell::new(0b11),
             ended: RefCell::new(Vec::new()),
             images_ended: RefCell::new(Vec::new()),
+            ending: Cell::new(None),
             stops_during_call: Cell::new(false),
             closed: RefCell::new(Vec::new()),
             image: Cell::new(Some(Some(41))),
@@ -179,6 +188,17 @@ impl DocHost for Fake {
         if let Some(error) = self.fails.get() {
             return Err(error);
         }
+        let queued = {
+            let mut queue = self.queue.borrow_mut();
+            (!queue.is_empty()).then(|| queue.remove(0))
+        };
+        if let Some(queued) = queued {
+            let bytes = queued?;
+            out.get_mut(..bytes.len())
+                .ok_or(ERR_NO_SPACE)?
+                .copy_from_slice(&bytes);
+            return Ok(bytes.len());
+        }
         let answer = self.answer.borrow();
         out.get_mut(..answer.len())
             .ok_or(ERR_NO_SPACE)?
@@ -190,6 +210,10 @@ impl DocHost for Fake {
     }
     fn end_images(&self, document: &Document) {
         self.images_ended.borrow_mut().push(document.id);
+        if let Some(hosts) = self.ending.get() {
+            // As the production host does: the document's pictures end now.
+            let _ = hosts.images().document_closed(document.id);
+        }
     }
     fn document_closed(&self, document: &Document, reason: u32) {
         self.closed.borrow_mut().push((document.id, reason));

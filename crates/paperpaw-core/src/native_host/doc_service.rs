@@ -30,6 +30,7 @@ use paperpaw_native::host_glue::{
 
 mod args;
 mod check;
+pub(crate) mod cover;
 mod report;
 mod table;
 #[allow(unused_imports, reason = "the shell builds the table with its limits")]
@@ -476,6 +477,9 @@ pub(crate) struct DocServices(pub(crate) alloc::rc::Rc<dyn DocHost>);
 struct Cx<'a> {
     host: &'a dyn DocHost,
     owner: u64,
+    /// The call is the library's `cover` (`cover`): the book is the library's
+    /// own, so root 1 needs no `uses.storage` of the caller.
+    library: bool,
 }
 impl DocHost for Cx<'_> {
     fn as_dyn(&self) -> &dyn DocHost {
@@ -491,6 +495,9 @@ impl DocHost for Cx<'_> {
         self.host.screen_long_side()
     }
     fn root_access(&self, root: u32) -> Result<(), i32> {
+        if self.library && root == 1 {
+            return Ok(());
+        }
         self.host.root_access(root)
     }
     fn handed_open(&self, path: &str) -> Result<HandedBook, i32> {
@@ -634,6 +641,7 @@ pub(crate) fn backend(
         let host = &Cx {
             host: bound,
             owner: who.owner,
+            library: false,
         };
         let host: &dyn DocHost = host;
         result = match op.id {
