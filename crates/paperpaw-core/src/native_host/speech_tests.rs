@@ -130,10 +130,22 @@ fn a_spoken_text_tells_its_submitter_alone_with_its_cookie() {
     let a = w.a.0.clone();
     w.speak(&a, 7, 0);
     let calls = w.calls();
-    let [SpeechCall::Say { id, text, language, rate, queue }] = calls.as_slice() else {
+    let [
+        SpeechCall::Say {
+            id,
+            text,
+            language,
+            rate,
+            queue,
+        },
+    ] = calls.as_slice()
+    else {
         panic!("{calls:?}");
     };
-    assert_eq!((text.as_str(), language.as_str(), *rate, *queue), ("Hello", "de", 100, false));
+    assert_eq!(
+        (text.as_str(), language.as_str(), *rate, *queue),
+        ("Hello", "de", 100, false)
+    );
     w.pump();
     assert!(w.a.1.borrow().is_empty(), "not before the shell is done");
     w.kernel.speech_done(Instant(5), *id, true);
@@ -166,7 +178,10 @@ fn a_replaced_text_says_replaced_and_a_queued_one_waits() {
     w.speak(&a, 1, 0);
     w.speak(&a, 2, 1);
     w.pump();
-    assert!(w.a.1.borrow().is_empty(), "queued after the first, nothing ended");
+    assert!(
+        w.a.1.borrow().is_empty(),
+        "queued after the first, nothing ended"
+    );
     w.speak(&a, 3, 0);
     w.pump();
     // The two texts in the line were replaced.
@@ -221,12 +236,18 @@ fn a_device_without_speech_says_status_3_at_once() {
 fn a_rate_out_of_range_and_an_undefined_flag_are_refused_and_the_texts_are_copied() {
     let owner = Id::try_parse("a").unwrap();
     for (rate, flags) in [(49, 0), (301, 0), (100, 2), (100, 0x8000_0000)] {
-        assert_eq!(speak(&owner, (1, "x", ""), (rate, flags)).unwrap_err(), ERR_INVALID);
+        assert_eq!(
+            speak(&owner, (1, "x", ""), (rate, flags)).unwrap_err(),
+            ERR_INVALID
+        );
     }
     let Command::Speak(speech) = speak(&owner, (1, "Hallo", "de-DE"), (50, 1)).unwrap() else {
         panic!("a speech");
     };
-    assert_eq!((speech.text(), speech.language(), speech.rate()), ("Hallo", "de-DE", 50));
+    assert_eq!(
+        (speech.text(), speech.language(), speech.rate()),
+        ("Hallo", "de-DE", 50)
+    );
     assert!(speech.is_queued());
     speak(&owner, (1, "x", ""), (300, 0)).unwrap();
 }

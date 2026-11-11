@@ -348,7 +348,11 @@ impl<'a> CommandStage<'a> {
                 language,
                 rate,
                 flags,
-            } => crate::native_host::speech::speak(self.owner, (cookie, text, language), (rate, flags)),
+            } => crate::native_host::speech::speak(
+                self.owner,
+                (cookie, text, language),
+                (rate, flags),
+            ),
             WireCommand::StopSpeaking {} => crate::native_host::speech::stop(self.owner),
             _ => Err(ERR_UNSUPPORTED),
         }
