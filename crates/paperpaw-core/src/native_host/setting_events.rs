@@ -69,7 +69,7 @@ impl SettingEvents {
     /// Gives back the room the queues kept while plugins were hosted.
     pub(crate) fn shrink_to_fit(&self) {
         if let Ok(mut queues) = self.queues.try_borrow_mut() {
-            queues.shrink_to_fit();
+            super::shrink::shrink(&mut queues);
         }
     }
 

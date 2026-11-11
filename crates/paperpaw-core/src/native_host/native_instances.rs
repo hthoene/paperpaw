@@ -732,7 +732,7 @@ impl NativeInstances {
     /// hosted one by one (every list grows by doubling): called once, when
     /// the shell has hosted them all ([`Kernel::start`](crate::Kernel::start)).
     pub(crate) fn shrink_to_fit(&mut self) {
-        self.entries.shrink_to_fit();
+        super::shrink::shrink(&mut self.entries);
         self.setting_events.shrink_to_fit();
         if let Some(directory) = self.directory() {
             directory.shrink_to_fit();

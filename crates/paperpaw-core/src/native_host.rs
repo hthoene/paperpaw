@@ -20,6 +20,8 @@ pub(crate) mod codec;
 pub(crate) mod event_tags;
 #[path = "native_host/owner_directory.rs"]
 pub(crate) mod owner_directory;
+#[path = "native_host/shrink.rs"]
+pub(crate) mod shrink;
 
 pub(crate) mod device_log;
 #[allow(

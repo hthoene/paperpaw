@@ -169,7 +169,7 @@ impl OwnerDirectory {
     /// A list in use is left as it is.
     pub(crate) fn shrink_to_fit(&self) {
         if let Ok(mut rows) = self.rows.try_borrow_mut() {
-            rows.shrink_to_fit();
+            super::shrink::shrink(&mut rows);
         }
     }
 
