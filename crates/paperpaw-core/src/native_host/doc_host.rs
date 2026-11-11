@@ -594,8 +594,8 @@ macro_rules! frameless {
         fn cover_job_displaced(&self) {
             self.state().displaced();
         }
-        fn cover_job_list(&self, up: bool) {
-            self.state().list_hold(up);
+        fn cover_job_list(&self, up: bool) -> Option<u64> {
+            self.state().list_hold(up)
         }
         fn cover_job_guard(&self, path: &str) -> Result<(), i32> {
             self.state().guard(path)

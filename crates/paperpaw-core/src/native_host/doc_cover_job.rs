@@ -57,7 +57,11 @@ impl DocState {
     /// A library list screen is up (`up`) or not (`DocHost::cover_job_list`):
     /// the job is held while one is up and for [`RESUME_AFTER_MS`] after, and
     /// the time it is held is no awake time.
-    pub(super) fn list_hold(&self, up: bool) {
+    ///
+    /// Says when the quiet moment of a job that waits ends (the kernel's
+    /// clock, ms), so that the pump asks to be woken then: `None` while a
+    /// list is up (its leaving makes a pass), without a job, or with no hold.
+    pub(super) fn list_hold(&self, up: bool) -> Option<u64> {
         let now = self.now.get();
         if up {
             self.list_quiet_until
@@ -71,6 +75,7 @@ impl DocState {
         if self.table.set_list_hold(hold) && !hold {
             self.job_started.set(now);
         }
+        (hold && !up && self.table.cover_job().is_some()).then(|| self.list_quiet_until.get())
     }
 
     /// What the job that runs has run since it began (or since this was last

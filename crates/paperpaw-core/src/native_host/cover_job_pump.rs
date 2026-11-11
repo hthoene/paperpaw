@@ -71,9 +71,17 @@ impl crate::Kernel {
         let Some(documents) = instances.hosts().and_then(|hosts| hosts.documents()) else {
             return;
         };
-        documents
+        let due = documents
             .0
             .cover_job_list(instances.plugin_has_screen(LIST_PLUGIN));
+        // The list left: nothing prepares until the quiet moment is over, and
+        // an idle device would not look again before the next tick. A timed
+        // wake, as for the job's own gap (`doc_pump`); other steps keep theirs.
+        if let Some(at) = due
+            && !documents.0.preparing()
+        {
+            instances.set_doc_retry(Some(instances.doc_retry().map_or(at, |old| old.min(at))));
+        }
     }
 
     /// The end of `Kernel::start`: its effects, then cover jobs of the library
