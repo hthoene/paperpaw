@@ -232,9 +232,12 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   and nothing else. Only an open without `details` removes an unstamped root 6 (the cover goes
   with it) and prepares. A `details` open of a conversion another document is preparing is
   `ERR_BUSY`. A `details` document is the host job's alone: any other open closes it first and is
-  a new open, prepared as usual. Bit 3 may come with bit 2 `background`. The job sets the bit only
-  for a format whose `format.spec` has bit 0 `prepared`; it opens other formats as before, and
-  their caches are stamped as usual.
+  a new open, prepared as usual. Bit 3 may come with bit 2 `background`. The host sets the bit on
+  its own opens of a book for details and covers (the book-details job, the library's cover job
+  and the library list's inline cover open, `library.md` op 7 `cover`), and only for a format whose
+  `format.spec` has bit 0 `prepared`; it opens other formats as before (bit 2 at most), and their
+  caches are stamped as usual. Where root 6 holds a stamped cache, a `details` open is still a
+  `details` document (ops 4, 5, 6 and 17 only); the format may read that cache for them.
 - [D] **A preparation that does not move fails.** After 32 answers in a row of state 1 whose
   `progress_ppm` is not higher than the highest one this preparation gave (equal or lower counts),
   the host fails the document with `ERR_TIMEOUT`, exactly as if the format had answered failed:
