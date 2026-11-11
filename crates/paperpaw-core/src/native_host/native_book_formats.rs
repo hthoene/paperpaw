@@ -10,12 +10,13 @@
 //! **In line with the declarations.** The stand-ins are made again whenever
 //! the registry's generation moved ([`Kernel::native_book_formats_sync`]):
 //! the service pump's every pass, and before `core.catalog-wanted` is heard,
-//! so the walk it starts sees every native format admitted by then. A format
-//! counts while its plugin's instance runs (the declaration store's rule): a
-//! plugin removed, turned off or stopped (after a fault too) takes its
-//! extensions with it until it runs again. A sync the heap cut short is made
-//! again at the next call, not at the next generation: a format left out
-//! would drop its books from a walk.
+//! so the walk it starts sees every native format admitted by then. A plugin
+//! removed, turned off or replaced takes its extensions with it; one that
+//! only stopped (after a fault, or parked) and stays in the declaration store
+//! keeps its stand-ins as they were made while it ran, so its books never
+//! drop out of a walk (and their caches are not taken for left over). A sync
+//! the heap cut short is made again at the next call, not at the next
+//! generation, for the same reason.
 //!
 //! **Interface 6 first.** An extension an interface 6 format claims is left
 //! out of the stand-ins: a later format wins an extension in `Formats`, and an
@@ -39,8 +40,9 @@ use paperpaw_sdk::{FormatSpec, Formats, Id};
 pub(crate) struct NativeBookFormats {
     /// The registry generation of the last sync; 0 for none yet.
     synced: u32,
-    /// The ids of the stand-ins added, to take them out again.
-    ids: Vec<Id>,
+    /// The ids of the stand-ins added and their plugins' host owner keys, to
+    /// take them out again.
+    ids: Vec<(Id, u64)>,
 }
 
 /// The heap refused: the sync is made again at the next call.
@@ -115,9 +117,15 @@ impl NativeBookFormats {
         if self.synced == generation {
             return;
         }
+        // The stand-ins of a plugin that stopped but stays are kept (it cannot
+        // be read while it does not run); the others are made again.
+        let kept = |owner: u64| store.owner_runs(owner) == Some(false);
         let ids = &self.ids;
-        formats.retain_formats(|spec| !ids.contains(&spec.id));
-        self.ids.clear();
+        formats.retain_formats(|spec| {
+            !ids.iter()
+                .any(|(id, owner)| *id == spec.id && !kept(*owner))
+        });
+        self.ids.retain(|(_, owner)| kept(*owner));
         let mut wanted = 0;
         store.each_format(&mut |_| wanted += 1);
         if self.ids.try_reserve_exact(wanted).is_err()
@@ -151,7 +159,7 @@ impl NativeBookFormats {
             // the interface 6 one's.
             if formats.add(stand_in).is_ok() {
                 // Within the room reserved: one a declared format.
-                self.ids.push(id);
+                self.ids.push((id, format.owner));
             }
         });
         if whole {

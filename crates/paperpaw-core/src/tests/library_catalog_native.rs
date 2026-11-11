@@ -127,11 +127,26 @@ fn native_and_interface_6_formats_are_counted_together() {
 }
 
 #[test]
-fn a_format_plugin_that_stopped_takes_its_books_out_at_the_next_walk() {
+fn a_format_plugin_that_stopped_keeps_its_books_and_one_taken_out_takes_them_at_the_next_walk() {
     let (mut kernel, plugin, now) = started(true);
     let now = want(&mut kernel, now, false);
     assert_eq!(paths(&kernel).len(), 4);
+    // Stopped (a fault, parked) but still installed: its books stay.
     plugin.live.set(false);
+    kernel.shared.registry_generation.bump();
+    let now = want(&mut kernel, now, true);
+    assert!(kernel.shared.formats.supports("books/a.epub"));
+    assert_eq!(paths(&kernel).len(), 4);
+    // Taken out (removed, turned off): they go at the next walk.
+    kernel
+        .shared
+        .registry
+        .native_declarations
+        .as_ref()
+        .unwrap()
+        .store
+        .borrow_mut()
+        .remove_owner(&paperpaw_sdk::Id::try_parse("format-books").unwrap(), 1);
     kernel.shared.registry_generation.bump();
     want(&mut kernel, now, true);
     assert!(!kernel.shared.formats.supports("books/a.epub"));

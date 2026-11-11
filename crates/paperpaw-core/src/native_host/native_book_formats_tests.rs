@@ -26,7 +26,10 @@ impl ImageOwner for Plugin {
         u32::from(self.live.get())
     }
     fn owner_id(&self) -> Result<u64, i32> {
-        Ok(1)
+        // One key per plugin id.
+        Ok(self.id.bytes().fold(7_u64, |key, byte| {
+            key.wrapping_mul(31).wrapping_add(u64::from(byte))
+        }))
     }
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
         visit(self.live.get().then_some(&[][..]));
@@ -107,8 +110,14 @@ fn the_declared_extensions_are_books_and_go_with_the_plugin_at_the_next_generati
     stand_ins.sync(&mut formats, &store, 3);
     assert_eq!(stand_ins.ids.len(), 1);
 
+    // Stopped (a fault, parked) but still in the store: its books stay.
     epub.live.set(false);
     stand_ins.sync(&mut formats, &store, 4);
+    assert!(formats.supports("books/a.epub"));
+    assert_eq!(stand_ins.ids.len(), 1);
+    // Taken out of the store (removed, turned off): they go.
+    store.remove_owner(&Id::try_parse("format-epub").unwrap(), 1);
+    stand_ins.sync(&mut formats, &store, 5);
     assert!(formats.is_empty());
     assert!(!formats.supports("books/a.epub"));
 }
@@ -134,7 +143,7 @@ fn an_extension_of_an_interface_6_format_stays_its_own() {
     );
     assert_eq!(stand_ins.ids.len(), 1);
     // Taken out again, the interface 6 format stays.
-    native.live.set(false);
+    store.remove_owner(&Id::try_parse("format-books").unwrap(), 1);
     stand_ins.sync(&mut formats, &store, 3);
     assert!(formats.supports("a.epub"));
     assert!(!formats.supports("a.docx"));
@@ -181,4 +190,39 @@ fn a_sync_the_heap_refused_is_made_again_at_the_next_call_not_the_next_generatio
         assert_eq!(stand_ins.ids.len(), 2, "after failure {nth}");
         assert_eq!(stand_ins.synced, 2);
     }
+}
+
+#[test]
+fn a_plugin_turned_off_and_on_again_has_its_stand_ins_once() {
+    let (mut store, mut formats, mut stand_ins) = (
+        DeclarationStore::default(),
+        Formats::new(),
+        NativeBookFormats::default(),
+    );
+    declare(&mut store, &plugin("format-docx"), "docx", "docx");
+    stand_ins.sync(&mut formats, &store, 2);
+    // Turned off and on again between two syncs: taken out of the store and
+    // declared anew.
+    store.remove_owner(&Id::try_parse("format-docx").unwrap(), 1);
+    declare(&mut store, &plugin("format-docx"), "docx", "docx");
+    // Within the same generation nothing is made again, and its books stay.
+    stand_ins.sync(&mut formats, &store, 2);
+    assert!(formats.supports("a.docx"));
+    assert_eq!(stand_ins.ids.len(), 1);
+    // At the next one its stand-in is made again, once.
+    stand_ins.sync(&mut formats, &store, 3);
+    assert!(formats.supports("a.docx"));
+    assert_eq!(stand_ins.ids.len(), 1);
+    assert_eq!(
+        formats.for_path("a.docx").unwrap().id.as_str(),
+        "format-docx.docx"
+    );
+    // Declared anew and then stopped (a fault): its stand-in stays, once.
+    let docx = plugin("format-docx");
+    store.remove_owner(&Id::try_parse("format-docx").unwrap(), 1);
+    declare(&mut store, &docx, "docx", "docx");
+    docx.live.set(false);
+    stand_ins.sync(&mut formats, &store, 4);
+    assert!(formats.supports("a.docx"));
+    assert_eq!(stand_ins.ids.len(), 1);
 }
