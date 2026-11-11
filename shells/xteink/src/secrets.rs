@@ -29,11 +29,9 @@ use mbedtls_rs::sys::{
     mbedtls_gcm_context, mbedtls_gcm_crypt_and_tag, mbedtls_gcm_free, mbedtls_gcm_init,
     mbedtls_gcm_setkey,
 };
-use paperpaw_core::native_host::shell_wiring::{
-    Rng, SecretsInputs, SecretsLifecycle, WiredHosts,
-};
-use paperpaw_platform::Storage;
+use paperpaw_core::native_host::shell_wiring::{Rng, SecretsInputs, SecretsLifecycle, WiredHosts};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_UNSUPPORTED};
+use paperpaw_platform::Storage;
 use paperpaw_x4::device_key::{self as dk, KEY, NONCE, TAG};
 use paperpaw_x4::key_sealer::{Aead, KeySealer, KeyStore};
 
