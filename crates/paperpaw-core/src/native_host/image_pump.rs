@@ -34,6 +34,7 @@ use super::{
     native_instances::InstanceState,
     registrations::{self as wire},
 };
+use crate::native_host::codec;
 use alloc::{format, string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_NO_MEMORY, ERR_UNSUPPORTED};
@@ -430,7 +431,7 @@ impl crate::Kernel {
             return None;
         };
         let mut record = [0u8; RECORD_BYTES];
-        let len = wire::records_encode(&[ready.record(self.now.millis())], &mut record).ok()?;
+        let len = codec::encode_batch(&[ready.record(self.now.millis())], &mut record).ok()?;
         self.native_event_call(owner, &lease, &record[..len]).err()
     }
 }
