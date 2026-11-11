@@ -69,4 +69,15 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
             "{id} has no table"
         );
     }
+    // The plugins that declare setting groups have their table of them (an
+    // empty or stale one only costs memory, silently).
+    let mut with_groups = vec!["bluetooth", "keyboard", "lock", "power"];
+    #[cfg(feature = "native-linked-store")]
+    with_groups.push("widgets");
+    for id in with_groups {
+        assert!(
+            !paperpaw_app::fixed_tables(id).groups.is_empty(),
+            "{id} has no table of groups"
+        );
+    }
 }

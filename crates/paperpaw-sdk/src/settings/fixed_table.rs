@@ -122,6 +122,8 @@ pub fn fixed_groups_source(plugin: &str, name: &str, batches: &[&[u8]]) -> Resul
     for bytes in batches {
         let batch = records_decode(bytes).map_err(|code| format!("batch: error {code}"))?;
         for record in batch.iter() {
+            // Every other record of the batches is skipped on purpose: a
+            // batch holds the plugin's screens, actions and settings too.
             let Record::SettingGroup(group) = record else {
                 continue;
             };

@@ -661,13 +661,16 @@ impl crate::Kernel {
     /// should save: said in debug builds, where it is mended.
     #[cfg(debug_assertions)]
     fn warn_unmatched(&mut self, fixed: super::FixedTables, owned: &[Owned]) {
-        if (!fixed.settings.is_empty()
-            && owned.iter().any(|value| matches!(value, Owned::Setting(_))))
-            || (!fixed.groups.is_empty()
-                && owned.iter().any(|value| matches!(value, Owned::Group(_))))
+        if !fixed.settings.is_empty()
+            && owned.iter().any(|value| matches!(value, Owned::Setting(_)))
         {
             self.warn_runtime(
-                "a linked plugin's settings or groups table does not match some of what it declares; they are copied",
+                "a linked plugin's settings table does not match some of its settings; they are copied",
+            );
+        }
+        if !fixed.groups.is_empty() && owned.iter().any(|value| matches!(value, Owned::Group(_))) {
+            self.warn_runtime(
+                "a linked plugin's groups table does not match some of its setting groups; they are copied",
             );
         }
     }
