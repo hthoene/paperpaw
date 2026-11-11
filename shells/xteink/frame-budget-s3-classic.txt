@@ -704,7 +704,7 @@ allow indirect _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$5pairs 1 1 call(s) thr
 allow indirect paperpaw_graphics::framebuffer::Framebuffer::offset 1 jump table of a `match` at platform/pixel.rs:74
 allow indirect _ZN8esp_sync26NonReentrantMutex$LT$T$GT$4with 1 literal call not proven on every path
 allow indirect paperpaw_platform::display::FrameView::pixel 1 jump table of a `match` at platform/pixel.rs:56
-allow indirect _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$10early_weak 2 vtable or fn-pointer call at text/bidi/walk.rs:347: `paperpaw_text` font/strike trait objects (the font packs in use); jump table of a `match` at text/bidi/walk.rs:401
+allow indirect _ZN13paperpaw_text4bidi4walk13Walk$LT$I$GT$10early_weak 1 vtable or fn-pointer call at text/bidi/walk.rs:347: `paperpaw_text` font/strike trait objects (the font packs in use); jump table of a `match` at text/bidi/walk.rs:401
 allow indirect _ZN85_$LT$paperpaw_fat..swap..Swappable$u20$as$u20$paperpaw_platform..storage..Storage$GT$14entry_identity 2 vtable or fn-pointer call: forwards to the storage it holds or wraps (`&dyn Storage`: the card, `Gone`, the meter)
 allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$10same_entry 1 vtable or fn-pointer call: forwards to the storage it holds or wraps (`&dyn Storage`: the card, `Gone`, the meter)
 allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platform..storage..Storage$GT$14entry_identity 1 vtable or fn-pointer call: forwards to the storage it holds or wraps (`&dyn Storage`: the card, `Gone`, the meter)
