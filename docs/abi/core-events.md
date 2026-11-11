@@ -2,7 +2,7 @@
 
 Status: contract of family 1b (#228). Everything here is appended: event records 64-74 in the
 `event` growth block (`screens-input.md` section 8). The records change the SDK `Record` shape, so
-this is the next draft (13). Items marked [D] are decided.
+this changed interface 7. Items marked [D] are decided.
 
 It builds on the event rules already in place: registration with `registration.event`, one record
 per `dispatch_event`, borrowed input valid for the call only, held back during a callback, and the
@@ -25,7 +25,7 @@ All fields are required unless marked optional; `now_ms` is first, as in every e
 | Tag | Record | Fields |
 | --- | --- | --- |
 | 64 | `event.setting_changed` | `now_ms: u64`, `key: str 128`, `old: bytes 512` |
-| 65 | `event.book_opened` | `now_ms`, `section`, `offset`, `progress_ppm`, `path: str 512`, `title: str 256`, `chapter: str 256`, `reason: u32`; optional `page`, `pages`, `insert`, `chapter_left` (draft 37) |
+| 65 | `event.book_opened` | `now_ms`, `section`, `offset`, `progress_ppm`, `path: str 512`, `title: str 256`, `chapter: str 256`, `reason: u32`; optional `page`, `pages`, `insert`, `chapter_left` |
 | 66 | `event.book_closed` | the same fields |
 | 67 | `event.book_finished` | the same fields |
 | 68 | `event.book_moved` | `now_ms: u64`, `from: str 512`, `path: str 512` |

@@ -122,6 +122,40 @@ fn role_keys_are_resolved_by_the_host_and_drop_releases() {
 }
 
 #[test]
+fn a_data_font_is_acquired_by_the_key_data_and_its_path() {
+    let table = table();
+    let mut ctx = Context::default();
+    ctx.handle.set(3);
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let font = Font::acquire_data(&host, "fonts/Serif.ppfp").unwrap();
+    assert_eq!(ctx.key.borrow().as_str(), "data:fonts/Serif.ppfp");
+    drop(font);
+    assert_eq!(ctx.released.borrow().as_slice(), &[3]);
+    // The longest path the key takes: 128 - 5.
+    let longest = "a".repeat(123);
+    Font::acquire_data(&host, &longest).unwrap();
+    assert_eq!(ctx.key.borrow().len(), 128);
+    // One more is refused before the host is asked.
+    let asked = ctx.acquired.get();
+    assert_eq!(
+        Font::acquire_data(&host, "a".repeat(124)).unwrap_err(),
+        Error::Invalid
+    );
+    assert_eq!(ctx.acquired.get(), asked);
+    // The host's refusals pass: a missing file, a bad one, the cap.
+    for code in [abi::ERR_NOT_FOUND, abi::ERR_INVALID, abi::ERR_FULL] {
+        ctx.acquire_status.set(code);
+        assert_eq!(
+            Font::acquire_data(&host, "x.ttf").unwrap_err(),
+            Error::from_status(code)
+        );
+    }
+}
+
+#[test]
 fn host_errors_are_preserved_and_failed_release_is_not_retried() {
     let table = table();
     let mut ctx = Context::default();

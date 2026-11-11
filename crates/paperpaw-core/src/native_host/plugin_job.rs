@@ -284,6 +284,17 @@ pub(crate) trait PluginJob {
     fn keep_without_sender(&self) -> bool {
         false
     }
+    /// Tells the job, before each step, whether an installed image waits for
+    /// its restart (a dual-boot change then ends with reason 21). Default:
+    /// nothing to know.
+    fn image_waiting(&mut self, waiting: bool) {
+        let _ = waiting;
+    }
+    /// What the host does once the job ended (a dual-boot change). Default:
+    /// nothing.
+    fn after(&self) -> super::dual_boot_job::After {
+        super::dual_boot_job::After::Nothing
+    }
 }
 
 /// The buffer a job reads through: 4 KiB, taken fallibly when the job's

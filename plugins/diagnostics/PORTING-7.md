@@ -1,5 +1,7 @@
 # Diagnostics on interface 7
 
+Status: **complete.** Native only, no interface-6 code left; the X4 file (`diagnostics`) packs at 142,240 B (format 5, interface 7.1, no frame refused).
+
 Version 1.0.9. Native plugin `src/native_plugin.rs` (`NativeDiagnostics`); the test
 screen in `src/test_screen.rs` (layout and shapes without a host), the device check in
 `src/check/` (`mod.rs` the steps and their decisions, `view.rs` the page as ops,

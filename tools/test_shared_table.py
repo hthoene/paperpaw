@@ -178,5 +178,11 @@ class BodyHashes(unittest.TestCase):
         self.assertEqual(shared.reach({}, caller, "{ let t = self.ink.tone(); }",
                                       {"tone": [native]}), set())
 
+    def test_the_colours_luma_is_that_method_beside_the_facades_image(self):
+        caller = pathlib.Path("crate/src/widgets/shape.rs")
+        native = pathlib.Path("crate/src/native/image.rs")
+        self.assertEqual(shared.reach({}, caller, "{ let a = paper.luma() < gray.luma(); }",
+                                      {"luma": [native]}), set())
+
 if __name__ == "__main__":
     unittest.main()

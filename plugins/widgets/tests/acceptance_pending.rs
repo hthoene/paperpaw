@@ -7,7 +7,7 @@
 mod pending;
 use pending::Case;
 
-const CASES: [Case; 12] = [
+const CASES: [Case; 13] = [
     // The day widget on the home screen in each style, with the frame and
     // look settings applied, at the sizes a cell takes.
     Case {
@@ -48,6 +48,13 @@ const CASES: [Case; 12] = [
         name: "widgets-logo-asks-for-and-draws-its-picture",
         golden: None,
         blocked_by: &["H1", "H3"],
+    },
+    // The picture widget lists its folder, asks the host for the picture chosen,
+    // draws it (filled or whole, its name below) and turns to the next on a tap.
+    Case {
+        name: "widgets-picture-shows-and-turns-on-tap",
+        golden: None,
+        blocked_by: &["H1", "H3", "H4"],
     },
     Case {
         name: "widgets-quote-turns-on-tap",

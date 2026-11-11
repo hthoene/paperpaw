@@ -1,9 +1,0 @@
-{
-  "replaces_sha256": "2a691f81f4d681973871c9199c817409074ca79214f85bb462a9ba1d952dd672",
-  "lock_sha256": "afcb1aeffa44e7735da5c8050fe2d809de7bfd911bbc90905afa9403a2922a81",
-  "reason": "interface 7 is unreleased (draft 37): core.document@1 gains op 22 report (service.doc_report), the DOC reader report that core-events.md 3.1 has named since the core-events draft and document.md missed; it is the one producer of events 37 and 65-67 once the reader is native. Events 37, 65, 66 and 67 gain the optional chapter_left (u32, appended, no default)",
-  "ticket": "#228",
-  "waives": [
-    "compatible"
-  ]
-}

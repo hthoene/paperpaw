@@ -112,6 +112,9 @@ pub(crate) struct Document {
     /// has not been called yet: the one record of whether the book is still
     /// held, whichever path ends the document.
     pub(crate) reader_held: bool,
+    /// The section count the format's `meta` answered, once it was asked
+    /// (the reader's report is checked against it).
+    pub(crate) sections: Option<u32>,
     /// The format plugin is gone (it stopped): it is never called for this
     /// document again, not even by its opener's `close`.
     pub(crate) format_gone: bool,
@@ -259,6 +262,7 @@ impl DocumentTable {
             reader_held: false,
             format_gone: false,
             block: None,
+            sections: None,
             strikes: 0,
         });
         self.next_id.set(next);
@@ -565,6 +569,15 @@ impl DocumentTable {
             && let Some(document) = rows.iter_mut().find(|d| d.id == id)
         {
             document.block = block;
+        }
+    }
+
+    /// The format said the document has `sections` sections.
+    pub(crate) fn set_sections(&self, id: u32, sections: u32) {
+        if let Ok(mut rows) = self.documents.try_borrow_mut()
+            && let Some(document) = rows.iter_mut().find(|d| d.id == id)
+        {
+            document.sections = Some(sections);
         }
     }
 

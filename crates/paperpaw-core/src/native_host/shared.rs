@@ -188,6 +188,29 @@ pub(crate) fn try_box<T>(value: T) -> Option<Box<T>> {
     }
 }
 
+/// [`try_box`] for a value that is big: `make` runs only once the room is
+/// there, and its value is written straight into it (not built on this
+/// frame and copied). Nothing is built where the heap has no room.
+#[inline(always)]
+pub(crate) fn try_box_with<T>(make: impl FnOnce() -> T) -> Option<Box<T>> {
+    let layout = Layout::new::<T>();
+    let pointer = if layout.size() == 0 {
+        NonNull::<T>::dangling().as_ptr()
+    } else {
+        // SAFETY: exact layout; a null allocation is handled without writing.
+        unsafe { alloc(layout).cast::<T>() }
+    };
+    if pointer.is_null() {
+        return None;
+    }
+    // SAFETY: owned, suitably aligned storage for T (or a ZST dangling pointer),
+    // initialized before its Box is made. Box uses this same global allocator.
+    unsafe {
+        pointer.write(make());
+        Some(Box::from_raw(pointer))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

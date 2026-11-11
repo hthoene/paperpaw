@@ -45,15 +45,21 @@ use paperpaw_sdk::library::{self, catalog};
 
 mod annotations;
 mod book;
+mod delete;
+mod field;
+mod importer;
 mod position;
 mod provide;
+mod removal;
+mod status;
+mod write;
 
 const PPM: u32 = 1_000_000;
 /// Counts of the books `state` takes while the catalog changes under it.
 const STATE_TRIES: usize = 3;
 
 /// What the card cannot tell the adapter.
-pub(crate) trait CatalogEnv {
+pub trait CatalogEnv {
     /// `Some(progress in parts per million)` while the walk makes the
     /// catalog where there was none (its books are those found so far:
     /// `core.library-walking`), `None` otherwise.
@@ -64,6 +70,18 @@ pub(crate) trait CatalogEnv {
     /// The id of the format of the book at `path`, as the format index
     /// finds it by extension; nothing for none.
     fn format_id(&self, _path: &str, _visit: &mut dyn FnMut(&str)) {}
+    /// The field `id` (`<plugin>.<name>`) a plugin declared with
+    /// `book_field.spec`: `Some(true)` kept in the catalog too (short values),
+    /// `Some(false)` kept with the book only, `None` for none declared.
+    fn book_field(&self, _id: &str) -> Option<bool> {
+        None
+    }
+    /// Whether any plugin keeps data for the book at `path` (`book_data.spec`
+    /// folders and the interface 6 ones): `delete`'s fact bit 2. An error is
+    /// the card's or the memory's.
+    fn book_data_kept(&self, _path: &str) -> Result<bool, i32> {
+        Ok(false)
+    }
 }
 
 /// The catalog reads over `storage`.
@@ -288,6 +306,20 @@ pub(super) fn fail(error: data::Error) -> i32 {
     }
 }
 
+/// The name of the file in `dir` that is kept for the book at `path` (its key
+/// and `.txt`), built fallibly.
+pub(super) fn kept_file(dir: &str, path: &str) -> Result<String, i32> {
+    let mut digits = [0_u8; library::KEY_LEN];
+    let key = library::key_into(path, &mut digits);
+    let mut name = String::new();
+    name.try_reserve_exact(dir.len() + 1 + key.len() + ".txt".len())
+        .map_err(|_| ERR_NO_MEMORY)?;
+    for part in [dir, "/", key, ".txt"] {
+        name.push_str(part);
+    }
+    Ok(name)
+}
+
 fn storage_status(error: StorageError) -> i32 {
     match error {
         StorageError::NotFound => ERR_NOT_FOUND,
@@ -296,6 +328,17 @@ fn storage_status(error: StorageError) -> i32 {
         StorageError::TooLarge | StorageError::Full => ERR_NO_SPACE,
         StorageError::OutOfMemory => ERR_NO_MEMORY,
         _ => ERR_IO,
+    }
+}
+
+/// [`storage_status`] for the steps of a delete or an import that the journal
+/// repeats: data that cannot be read (`InvalidData`: a list of a newer version,
+/// damaged) is `ERR_INVALID`, a final code, as no retry changes it; every other
+/// error is the card's, for the step to repeat.
+pub(super) fn carry_status(error: StorageError) -> i32 {
+    match error {
+        StorageError::InvalidData => ERR_INVALID,
+        other => storage_status(other),
     }
 }
 

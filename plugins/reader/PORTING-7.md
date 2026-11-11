@@ -84,11 +84,10 @@ relative to the data folder).
   right payload: word, sentence, path, section, offset, language, title; a path over 512 bytes is refused and
   nothing runs; `tests/native_words_alloc.rs` refuses every allocation of the input); `run` does it with the
   host's stage and gives every refusal back for the caller to ignore.
-- Not wired yet: the native reader has no selection flow, and the interface-6 reader screen
-  (`screen/selecting.rs`) cannot run a stage, so it still emits `core.word-looked-up`. That emitter stays
-  until vocabulary (Port D) and readwise/joplin (Port E) subscribe to the stage; the native selection flow
-  calls `native_words::run` with the same seven values (`reader-word-looked-up-run` in
-  `tests/acceptance_pending.rs`, blocked on the stage host #828 and the flow).
+- Wired in R4: the native selection flow (`native_marking/act.rs`) runs the stage when words are looked
+  up. The interface-6 reader screen (`screen/selecting.rs`) cannot run a stage, so it still emits
+  `core.word-looked-up`; that emitter stays until vocabulary (Port D) and readwise/joplin (Port E)
+  subscribe to the stage and the native reader is default-on.
 
 ## The stage `reader.filter@1`
 
@@ -223,7 +222,7 @@ relative to the data folder).
   calls `services.query` added.
 - **Not yet (named gaps):** the place saved last time and `page` numbers (`LIB-position`, R2); progress,
   the page index and status lines (R2, op 5 sections in #973); the menus and the font/layout panel (R3);
-  selection, words, links, footnotes (R4); annotations (R5); TOC and skim (R6); search (R7); reflow on
+  annotations (R5); TOC and skim (R6); search (R7); reflow on
   a turned screen and on a changed setting (the page is laid out again only after a turn); a document
   that is still preparing is not read again when the host says it is ready (`document_changed`); the
   paragraph indent and spacing, widows and orphans, hyphenation and the book-style switches of the
@@ -295,6 +294,34 @@ relative to the data folder).
   progress, so it never raises `book_finished`; a report of a screen that is not topmost is dropped by
   the host, so a `finished` set locally may never be raised (a one-page book too).
 
+## Selection, words, links and footnotes (R4, #243)
+
+- `native_wordbox.rs` measures the words of a laid-out page the way `draw_lines` sets them (same spaces,
+  same runs); `native_selection/` is the host-free movement of the chosen words; `native_marking.rs` (with
+  `bar.rs`, `act.rs`, `linking.rs`) is the controller: touch (long press chooses, tap extends or
+  presses a bar button) and keys (`reader.select-text`, `reader.links`), the bar (look up, copy,
+  *Extend* on buttons, *Cancel* on touch), the frames, the clipboard and the lookup (slot `core.lookup`,
+  then the stage). `native_links.rs` reads the links of a page, finds a target, keeps the trail for *Back*
+  and the text of a note; `native_footnote.rs` is the note over the page (an overlay screen, `core.footnote`);
+  *Go to the note* is carried by the plugin, which follows it in the reading screen when that is shown again.
+  `native_view.rs` asks the marking first about every input and draws its overlay last.
+- **Differences from Beta 3, named:** the bar has fixed items (look up, copy, extend/cancel): *Highlight*,
+  *Note*, *Read aloud* and *Translate* and the plugins' items need the annotations (R5), the aloud and the
+  selection-bar contract, which the stage does not replace. The book's language is not read (native metadata
+  has none), so the lookup is asked with an empty language. Words on a line set for mixed directions
+  (`LineBidi::REORDER`) are read in logical order, not where drawn. At most 2,048 words of a page are
+  chosen or hit. Taking the lookup of a word to a plugin other than `core.lookup` is not changed.
+- Footnote popup: share of the display and buttons as Beta 3; *Close* by tap anywhere outside the buttons.
+  The setting `core.footnotes` decides popup or jump as before. Width, text size and button rows follow the
+  ui-kit `Style`, so pixels differ from Beta 3 (measure on the X4 at activation).
+- Tests: movement and bar (`native_selection/moves_tests.rs`), word boxes with the allocation sweep,
+  links (`native_links/tests.rs`), the marking (`native_marking/tests.rs`). Not tested without the host: a
+  hosted touch flow over a real book (waits for the hosted harness, as the reading screen).
+- The marking never opens a `core.ui` handle: the plugin's held one is in `Ctx` (copy, lookup, links and
+  the note use it). Out-of-memory in the frames of a selection leaves the rest of the frames out. **X4 list:**
+  up to 2,048 words per page (~100 KB worst case), 16 KiB of copied text, two service buffers per open, and
+  `line_boxes` is quadratic in the words (measure at activation).
+
 ## Table of contents (native model, `native_toc.rs`)
 
 - Host-free: headings as entries (title cleaned and cut at 120 characters, levels from the highest,
@@ -332,6 +359,20 @@ relative to the data folder).
   (the entries and the items), about 100-190 KB of the 256 KiB heap (pieces or a paged read if it does not
   fit); finding the focus asks `toc_target` once per approximate entry of the current section; a
   `read_handover` error is "no book".
+
+## The font, justify and chapter actions (view slice R3a, `native_actions.rs`)
+
+- `reader.font-larger` / `reader.font-smaller`: the reading size a point more or less within 6-40 (the
+  setting's range; a font pack may allow less: the host fits it back; Beta 3 stepped to the next size that "looks different" by the setting's own spec, which
+  a native plugin cannot read: named). `reader.toggle-justify`. Both change the setting by command; the
+  page is laid out again by the setting-changed reflow (Port E, #1064), until it lands the change shows at
+  the next layout.
+- `reader.next-chapter` / `reader.prev-chapter`: the first chapter start at or after the page's end / the
+  last before its start, from the book's table (`core.document` op 7; starts in the page's section made
+  exact by op 8, as Beta 3). Goes as a turn (trail, place saved, reported); nothing happens where there is
+  no chapter. A book with no table has none (the headings scan is not ported: R6).
+- **Not yet:** go to page / percent (need a number dialog and the page index), the quick-settings panel
+  screen, book info, the status-line actions, the bookmark (annotations screen, R5).
 
 ## Reflow (view slice R8a, Port E)
 
@@ -383,3 +424,76 @@ relative to the data folder).
   release pictures (they end with the document). Unmeasured on the X4: the drawing time of a full-page picture
   and the heap of a 16-cell row (a `Vec` of cells and one of weights per row being assembled).
 - The metadata asks for the host call `canvas.draw_image` (slot 37) for the pictures.
+
+- **Not yet:** pictures (`Page::images` through `canvas.draw_image`) and table rows: the block assembler turns
+  both into paragraphs (`native_block::start`), so a table's rules never occur yet; carrying them over needs the
+  `doc_image` and `doc_columns` pieces of the document service (docs/abi/document.md section 5).
+
+## Book info, the font panel and the bookmark (view slice R3b, Port D, `native_bookmark.rs`, `native_view/r3.rs`)
+
+- `reader.book-info` opens the slot `core.book-info` with the book's path as a hand-over parameter (the files
+  plugin's information screen fills it); `reader.quick-settings` opens `core.panel` with the menu
+  `core.reader-panel` (the font and layout panel: the entries are the host's). Both as Beta 3's actions did.
+- `reader.toggle-bookmark` (`native_bookmark::toggle`): a page that has a bookmark loses all of them, any other gets
+  one, kept as an annotation of the book (`core.library` 2.2: the book's annotations are read page by page, up to 8,192
+  rows, then one staged transaction at the generation read: remove the ids / add one, commit; a `State` answer, another
+  change in between, looks again once; a refused edit aborts the transaction and says "the bookmark could not be kept"
+  once, `reader.marks-not-saved`). A bookmark is on the page when it starts between the page's start and the next
+  page's; a row in another conversion is not compared. A new bookmark keeps the page's text from its lines as the
+  book has it (a word broken by the layout is whole again, the layout's hyphen left out, a filter's lines left out;
+  `native_bookmark::text_of`), on one line and cut at 512 bytes at a character (Beta 3 ended a cut text in "…": the
+  library cuts at its own limit), the progress in whole percent (rounded, as Beta 3), the book's clock and
+  the conversion. At most 24 bookmarks of one page are removed in one go.
+- **Not yet (named):** the ribbon on a bookmarked page and the tap on the top right corner
+  (`reader.corner-bookmark`): both belong to the draw and the gesture code (`native_view.rs`, R2b's files) and
+  follow when that lands; until then a toggle shows no mark on the page (the annotations screen, R5, lists it).
+  Go to a page / percentage (a number dialog; its answer is an event of the reader's own) and the status-line actions
+  (`reader.next-status-line`, R2b) are not here. The annotations screen itself is R5.
+- An empty page (nothing laid out) is a silent no-op: no bookmark, no notice. Beta 3 sent `annotations::changed`
+  itself after an edit; here the plugin does not: `docs/abi/library.md` lists event 91 (`annotations-changed`)
+  as the host's after a commit, but `paperpaw-core` does not raise it yet. **Gap:** the library annotation
+  transactions (ops 15-21) are not wired on devices (`ERR_UNSUPPORTED`) and event 91 is not raised: Services'
+  todo 307/476 (with a host test for the edit transaction). Until it lands the toggle does nothing on a device;
+  it gates the reader entering `NATIVE_PLUGINS`.
+- Not tested with a host (no harness for `core.library` edits here): the pure parts are (the page's range, which
+  rows are the page's, the percent, the page text and the snippet, with refused allocations); host acceptance of the
+  edit transaction (H-library) is pending.
+
+
+## Annotations (native model, `native_annotations.rs`)
+
+- Host-free: the Markdown export (same form as interface 6, plugins read the file), the notes folder
+  beside the library folder, the file name (author and title, fit for a card), the list rows and the
+  export order (the `reader.notes-exported@1` stage runs only after a write that worked). Allocation
+  is fallible; every allocation refused in turn is tested.
+- **Not yet: the screen.** It needs a native `core.reader` entry, the book data of a book
+  (`add_book_data` / `LIB-position` have no native declaration) and the files service for the write.
+  When those exist the screen calls `native_notes::run` after `export` succeeds.
+- Review remarks (PR #950), for the screen: it creates the `Notes` folder first, and writes the file
+  staged and then moved where the files service allows (Beta 3 wrote straight onto an existing file).
+  The whole Markdown is one `String`: its size on the X4 is on the measurement list (pieces through a
+  sink if it does not fit). The screen, the book data and the files write stay on the activation list.
+
+## The annotations screen (`native_annotations_view.rs`, R5)
+
+- `AnnotationsView` (token `ANNOTATIONS`, id `reader.annotations`): opened by the reading screen's action
+  `reader.show-annotations` with the same hand-over as the contents (`View::toc_params`: path, root,
+  section, offset; the hook is `NativeReader::show_notes`, no change to `native_view.rs`). It reads the notes with `core.library` op 15
+  (`Library::annotations`, `BookRef::path`, restart after a stale generation, at most three times), shows each as one
+  `ItemList` row (`native_annotations::row`), and a choice goes to the reading screen below
+  (`View::go_to`) and closes, as the contents screen does. The last row, *Export as Markdown*, writes the file.
+- **Rows.** At most 100 notes are held, each as the row the list draws (the text cut at 160 bytes) plus eight bytes of
+  place; a book with more shows the first 100 and a note says so (`reader.annotations.more`, en/de). Beta 3 listed all.
+  X4 measurement: 100 rows of 160 + 160 bytes are about 35 KiB at worst (a bookmark is far less); the cap is the number to
+  change if the measurement says so.
+- **Export.** The Markdown is written in pieces of at most 4 KiB into `<file>.new` (highlights from one pass over
+  the notes, bookmarks from a second, so only a page of notes is in memory: this answers the review remark that the whole
+  text is one string), moved over the old file at the end, the `Notes` folder made first (beside the library folder,
+  `core-library-folder`), the stage `reader.notes-exported` run after a write that worked
+  only. The title and author come from the library's book row. The streamed text is tested to be the model's
+  `markdown` (same form, readwise and joplin read it).
+- **Missing / for activation.** Metadata must ask `core.library`, `core.files` and `uses.storage` (root 1 for the
+  export); with no library or no `uses.storage` the list shows the notes it can and the export says it failed. A note's text is
+  the library's preview (512 bytes), not whole (`annotation_text` would read it whole: the export uses the preview, as
+  Beta 3's snippet was short too). Editing a note, deleting one and the bookmark toggle are not in this screen (Beta 3 had none
+  here); `reader.toggle-bookmark` belongs to the reading screen.

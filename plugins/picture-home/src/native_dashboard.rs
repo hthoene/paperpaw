@@ -32,7 +32,7 @@ use paperpaw_sdk::{
 use paperpaw_ui_kit::{
     Messages, Paint, Style,
     mem::{SERVICE_BUFFER, buffer, push},
-    paint, text,
+    paint, status_line, text,
 };
 
 use crate::native_add_screen as add_screen;
@@ -89,6 +89,10 @@ struct Laid {
     /// whether the screen is on its side.
     slot: usize,
     wide: bool,
+    /// How wide and high the corner of an item is that a finger sizes it by.
+    handle: u16,
+    /// The status bar, where its strip is kept.
+    bar: Option<bar::Plan>,
 }
 
 /// What a press on a target leaves to do besides what it did itself.
@@ -104,6 +108,7 @@ enum Next {
 }
 
 mod arrange;
+mod bar;
 
 /// The dashboard.
 #[derive(Debug, Default)]
@@ -124,6 +129,10 @@ pub struct Dashboard {
     options: Option<arrange::Options>,
     /// An item the buttons are moving or sizing.
     moving: Option<arrange::Moving>,
+    /// An item a finger has taken along.
+    drag: Option<arrange::Drag>,
+    /// When a bar that shows after a press goes again (the event clock, ms).
+    revealed: Option<u64>,
     /// The picture behind the page.
     backdrop: Backdrop,
 }
@@ -175,6 +184,8 @@ impl Dashboard {
     pub fn shown(&mut self) {
         self.stale = true;
         self.reshow = true;
+        // A finger's drag does not outlive the screen's being covered.
+        self.drag = None;
     }
 
     /// Wants the picture the settings ask for: the host is asked to make it unless
@@ -268,6 +279,7 @@ impl Dashboard {
         // The cells are new: what pointed at the old ones is no more.
         self.options = None;
         self.moving = None;
+        self.drag = None;
         // The pages are arranged upright: on its side they are derived.
         self.editing &= !laid.wide;
         self.focus.clamp(laid.targets.len());
@@ -351,6 +363,13 @@ impl Dashboard {
                 return Err(error);
             }
         };
+        let bar = match bar::Plan::new(frame.strip, &src, (metrics.margin, metrics.style_gap)) {
+            Ok(bar) => bar,
+            Err(error) => {
+                release_cells(host, ui, cells);
+                return Err(error);
+            }
+        };
         Ok(Laid {
             frame,
             cells,
@@ -365,6 +384,8 @@ impl Dashboard {
             items,
             slot,
             wide,
+            handle: (metrics.row / 2).max(16),
+            bar,
         })
     }
 
@@ -592,7 +613,7 @@ impl Dashboard {
         };
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
-        let drawn = self.paint(host, frame, &display, &font, laid);
+        let drawn = self.paint(host, ui, frame, &display, &font, laid);
         let released = font.release();
         drawn?;
         released
@@ -614,6 +635,7 @@ impl Dashboard {
     fn paint(
         &self,
         host: &Host<'_>,
+        ui: &Ui,
         frame: &mut DrawFrame<'_>,
         display: &Snapshot,
         font: &Font<'_>,
@@ -622,6 +644,25 @@ impl Dashboard {
         let style = Style::read(host, display, font)?;
         let mut below = Vec::new();
         let mut above = Vec::new();
+        // The bar's items its owners draw are composed once the paint is replayed.
+        let shown = laid.bar.as_ref().is_some_and(|plan| self.bar_shown(plan));
+        let mut buffers = [Vec::new(), Vec::new()];
+        if shown {
+            buffers = [buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?];
+        }
+        let mut placed = Vec::new();
+        let face = status_line::Face {
+            host,
+            font,
+            small: style.small,
+        };
+        self.bar_paint(
+            &face,
+            ui,
+            (laid, style.corner),
+            (&mut below, &mut placed),
+            &mut buffers,
+        )?;
         for cell in &laid.cells {
             if let Some(plate) = laid.plate {
                 paint::push(
@@ -636,6 +677,7 @@ impl Dashboard {
                     &mut below,
                     Paint::Focus(cell.rect, style.corner, line, style.ink),
                 )?;
+                self.corner_mark(&mut below, &style, cell.rect, laid.handle)?;
             }
             if matches!(cell.what, What::Tool(_)) {
                 name(&mut below, font, &style, cell.rect, &cell.name)?;
@@ -652,6 +694,7 @@ impl Dashboard {
                 self::dot(&mut below, &dot, &style)?;
             }
         }
+        self.drag_frame(&mut above, &style, laid)?;
         if self.focus.shown()
             && let Some(target) = laid.targets.get(self.focus.at())
         {
@@ -664,6 +707,10 @@ impl Dashboard {
             picture::draw(frame, font, &style, &drawing)?;
         }
         paint::replay(frame, font, below.iter())?;
+        for item in &placed {
+            // An owner that cannot draw now (busy, gone) leaves its place empty.
+            Ui::compose(host, item.target, item.rect).ok();
+        }
         compose_each(
             laid.cells.iter().filter_map(|cell| match cell.widget {
                 Some(MadeWidget::Widget(widget)) => Some((widget, cell.rect)),
@@ -688,6 +735,9 @@ impl Dashboard {
             return Ok(Handled::No);
         }
         self.ensure(host, ui)?;
+        if let Some(handled) = self.bar_press(host, input)? {
+            return Ok(handled);
+        }
         if let Some(handled) = self.arrange_input(host, ui, input)? {
             return Ok(handled);
         }
@@ -762,6 +812,9 @@ impl Dashboard {
         point: Point,
         kind: WidgetInputKind,
     ) -> Result<Handled, Error> {
+        if !self.editing && self.bar_tap(host, ui, point)? {
+            return Ok(Handled::Yes);
+        }
         let Some(laid) = self.laid.as_ref() else {
             return Ok(Handled::No);
         };

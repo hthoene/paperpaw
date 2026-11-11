@@ -49,10 +49,14 @@ pub(crate) trait LibWrite {
     fn can_delete(&self, _path: &str) -> (i32, u32) {
         (ERR_UNSUPPORTED, 0)
     }
-    /// Remove a book and everything kept for it. The service has applied the
-    /// annotation rule already. A book that is gone is only forgotten.
-    fn delete(&self, _path: &str) -> (i32, u32) {
-        (ERR_UNSUPPORTED, 0)
+    /// Remove the books at `paths` (at most 7, each of them accepted by
+    /// `can_delete`: `OK`, or `ERR_NOT_FOUND`, which is only forgotten) and
+    /// everything kept for each, as one journalled job; the status of each in
+    /// order. A call that is refused as a whole (`ERR_BUSY`: a job is open)
+    /// removed nothing. The service has applied the annotation rule already
+    /// (`with_notes` says the view asked about the annotations).
+    fn delete(&self, _paths: &[&str], _with_notes: bool) -> Result<[i32; 7], i32> {
+        Err(ERR_UNSUPPORTED)
     }
     /// Move a book and everything kept for it (`replace`: an existing `to`).
     ///

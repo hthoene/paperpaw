@@ -92,7 +92,8 @@ fn the_decoded_batches_say_what_the_registration_says() {
                 .collect::<Vec<_>>()
         })
         .collect();
-    assert_eq!(flags, [0; 6]);
+    // Only the note is an overlay (bit 2): the page shows above it.
+    assert_eq!(flags, [0, 0, 0, 0, 4, 0]);
     assert_eq!(native.slots, old.slots);
     assert_eq!(native.slots.len(), 6);
     assert_eq!(native.actions, old.actions);

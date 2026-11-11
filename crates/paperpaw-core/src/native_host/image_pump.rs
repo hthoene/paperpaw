@@ -61,8 +61,9 @@ const TRIES_MAX: u8 = 3;
 /// the memory that was missing.
 const FAILED_MAX: usize = 8;
 
-/// The room of an `event.image_ready` record (a header and 28 bytes).
-const RECORD_BYTES: usize = 64;
+/// The room of an `event.image_ready` record (a header, 28 bytes and the
+/// 64-byte brightness grid with its length).
+const RECORD_BYTES: usize = 128;
 
 /// What the pump keeps between passes.
 #[derive(Default)]
@@ -147,6 +148,8 @@ fn decode_env(device: &paperpaw_platform::DeviceInfo) -> DecodeEnv {
             colour,
             max_side: super::image_service::MAX_SIDE,
             png_row_max: usize::MAX,
+            turn_band: 1 << 20,
+            turn_reads: usize::MAX,
         }
     }
 }
@@ -271,6 +274,9 @@ impl crate::Kernel {
 
     /// One pass of the picture pump (see the module). `true` when work
     /// remains for another pass.
+    // Its own frame: the pump keeps the services' passes apart, so that no
+    // frame adds their locals (the firmware's frame limit for host code).
+    #[inline(never)]
     pub(crate) fn native_image_pump(&mut self) -> bool {
         if self.shared.native_instances.depth() == 0 {
             self.native_outbox_run();
@@ -377,6 +383,7 @@ impl crate::Kernel {
                     image: 0,
                     width: 0,
                     height: 0,
+                    luma: None,
                 });
             }
             if pump.held.borrow().is_none() {
