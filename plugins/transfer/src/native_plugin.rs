@@ -113,7 +113,6 @@ pub struct NativeTransfer {
     device: Option<Device>,
     secrets: Option<Secrets>,
     registry: Option<Registry>,
-    library: Option<Library>,
     ui: Option<Ui>,
     work: Option<Work>,
     /// Whether the plugin opened the reader's own network and left it open.
