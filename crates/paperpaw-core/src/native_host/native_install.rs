@@ -828,6 +828,8 @@ impl crate::Kernel {
         // exist, a guarded one or a value outside the plugin's namespace, with
         // a log line). Their `title` is not read here: the declaration store
         // keeps it for the registry.
+        // (As the settings defined above, they stay if a later step of the
+        // publication fails.)
         self.plugin_choices.append(&mut choices);
         self.add_plugin_choices();
         self.publish_fonts(owner, resources)
