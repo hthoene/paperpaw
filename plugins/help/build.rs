@@ -45,7 +45,8 @@ fn main() -> Result<(), String> {
     // The settings as a table the kernel keeps in the program (a linked
     // build only), made of the very records declared above.
     let batches: Vec<&[u8]> = all.iter().map(Vec::as_slice).collect();
-    let table = paperpaw_sdk::native::declare::fixed_settings_source("help", "SETTINGS", &batches)?;
+    let table = paperpaw_sdk::native::declare::fixed_settings_source("help", "SETTINGS", &batches)?
+        + &paperpaw_sdk::native::declare::fixed_groups_source("help", "GROUPS", &batches)?;
     std::fs::write(out.join("help_settings.rs"), table)
         .map_err(|error| format!("write settings table: {error}"))?;
     std::fs::write(out.join("help_declarations.rs"), source)

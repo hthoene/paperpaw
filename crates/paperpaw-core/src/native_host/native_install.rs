@@ -28,6 +28,9 @@ enum Owned {
     /// for each.
     FixedSettings(&'static [paperpaw_sdk::SettingSpec], Vec<u16>),
     Group(alloc::boxed::Box<paperpaw_sdk::SettingGroupSpec>),
+    /// A group equal to an entry of the plugin's table in the program: no
+    /// copy of it is kept.
+    FixedGroup(&'static paperpaw_sdk::SettingGroupSpec),
     Resource(super::native_resources::Resource),
     /// A choice the plugin adds to another plugin's choice setting
     /// (`setting.choice`; its title is read from the declaration store).
@@ -180,7 +183,7 @@ impl crate::Kernel {
         host: shell::Hosted<S, M>,
         depth: &FlatDepth,
         report: fn(&S, u32, i32),
-        fixed: &'static [paperpaw_sdk::SettingSpec],
+        fixed: super::FixedTables,
     ) -> Result<(), shell::Error> {
         self.register_native_with(host, depth, None, report, fixed)
     }
@@ -208,7 +211,7 @@ impl crate::Kernel {
         folder: Option<&str>,
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
-        self.register_native_with(host, depth, folder, report, &[])
+        self.register_native_with(host, depth, folder, report, super::FixedTables::NONE)
     }
 
     fn register_native_with<S: Services + 'static, M: 'static>(
@@ -217,7 +220,7 @@ impl crate::Kernel {
         depth: &FlatDepth,
         folder: Option<&str>,
         report: fn(&S, u32, i32),
-        fixed: &'static [paperpaw_sdk::SettingSpec],
+        fixed: super::FixedTables,
     ) -> Result<(), shell::Error> {
         let fonts_before = self.shared.fonts.ids().count();
         let offers_before = self.shared.registry.offers();
@@ -257,7 +260,7 @@ impl crate::Kernel {
         folder: Option<&str>,
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
-        self.admit_native_with(host, depth, folder, report, &[])
+        self.admit_native_with(host, depth, folder, report, super::FixedTables::NONE)
     }
 
     /// [`Self::admit_native`] for a plugin with a table of settings kept in the
@@ -268,7 +271,7 @@ impl crate::Kernel {
         depth: &FlatDepth,
         folder: Option<&str>,
         report: fn(&S, u32, i32),
-        fixed: &'static [paperpaw_sdk::SettingSpec],
+        fixed: super::FixedTables,
     ) -> Result<(), shell::Error> {
         let (networked, installer) = declared_uses(&host);
         self.shared
@@ -634,7 +637,10 @@ impl crate::Kernel {
                 Owned::Action(callback) => {
                     let action = instance
                         .try_clone()
-                        .and_then(|lease| super::native_action::spec(callback, lease))
+                        .and_then(|lease| {
+                            let instances = &self.shared.native_instances;
+                            super::native_action::spec(callback, lease, key, instances)
+                        })
                         .map_err(shell::Error::Status)?;
                     let action = boxed(action)?;
                     staging
@@ -652,12 +658,12 @@ impl crate::Kernel {
                 Owned::FixedSettings(list, entries) => staging
                     .native_fixed_entries(list, entries)
                     .map_err(shell::Error::Status)?,
-                Owned::Group(group) => {
-                    let group = paperpaw_sdk::SettingGroup::from_boxed(group);
-                    staging
-                        .native(owner, Contribution::SettingGroup(group))
-                        .map_err(shell::Error::Status)?;
-                }
+                Owned::FixedGroup(group) => staging
+                    .native_group(owner, paperpaw_sdk::SettingGroup::from(group))
+                    .map_err(shell::Error::Status)?,
+                Owned::Group(group) => staging
+                    .native_group(owner, paperpaw_sdk::SettingGroup::from_boxed(group))
+                    .map_err(shell::Error::Status)?,
             }
         }
         self.shared
@@ -696,17 +702,24 @@ impl crate::Kernel {
     /// A table that does not equal what the plugin declares costs the memory it
     /// should save: said in debug builds, where it is mended.
     #[cfg(debug_assertions)]
-    fn warn_unmatched(&mut self, fixed: &[paperpaw_sdk::SettingSpec], owned: &[Owned]) {
-        if !fixed.is_empty() && owned.iter().any(|value| matches!(value, Owned::Setting(_))) {
+    fn warn_unmatched(&mut self, fixed: super::FixedTables, owned: &[Owned]) {
+        if !fixed.settings.is_empty()
+            && owned.iter().any(|value| matches!(value, Owned::Setting(_)))
+        {
             self.warn_runtime(
                 "a linked plugin's settings table does not match some of its settings; they are copied",
+            );
+        }
+        if !fixed.groups.is_empty() && owned.iter().any(|value| matches!(value, Owned::Group(_))) {
+            self.warn_runtime(
+                "a linked plugin's groups table does not match some of its setting groups; they are copied",
             );
         }
     }
 
     #[cfg(not(debug_assertions))]
     #[allow(clippy::unused_self, reason = "the debug build says it")]
-    fn warn_unmatched(&mut self, _fixed: &[paperpaw_sdk::SettingSpec], _owned: &[Owned]) {}
+    fn warn_unmatched(&mut self, _fixed: super::FixedTables, _owned: &[Owned]) {}
 }
 
 impl crate::Kernel {
@@ -722,6 +735,8 @@ impl crate::Kernel {
     /// Called once by [`Kernel::start`](crate::Kernel::start); a later install
     /// grows them again, as it always did.
     pub(crate) fn native_hosted(&mut self) {
+        // Values for settings no plugin declared are not kept any longer.
+        self.late_config = Vec::new();
         self.shrink_to_fit();
         self.shared.native_instances.shrink_to_fit();
     }
@@ -832,6 +847,8 @@ impl crate::Kernel {
         // publication fails.)
         self.plugin_choices.append(&mut choices);
         self.add_plugin_choices();
+        // After the choices: a configured value can name one.
+        self.apply_late_config();
         self.publish_fonts(owner, resources)
     }
 }
@@ -897,13 +914,13 @@ fn check_registrations<S: Services + 'static, M: 'static>(
 
 fn map_declarations(
     view: &super::declaration_checks::View<'_>,
-    fixed: &'static [paperpaw_sdk::SettingSpec],
+    tables: super::FixedTables,
 ) -> Result<(Id, Vec<Owned>, Vec<u32>, bool), i32> {
     // Entries are numbered in two bytes; a longer table is not used.
-    let fixed = if fixed.len() > usize::from(u16::MAX) {
+    let fixed = if tables.settings.len() > usize::from(u16::MAX) {
         &[]
     } else {
-        fixed
+        tables.settings
     };
     // The host's own id is reserved: no plugin's action passes for a host
     // one (ui.md 4.3).
@@ -970,6 +987,15 @@ fn map_declarations(
                     entries.push(u16::try_from(at).map_err(|_| ERR_INVALID)?);
                     return Ok(());
                 }
+                let value = match value {
+                    Owned::Group(group) => {
+                        match super::fixed_settings::find_group(tables.groups, &group) {
+                            Some(kept) => Owned::FixedGroup(kept),
+                            None => Owned::Group(group),
+                        }
+                    }
+                    other => other,
+                };
                 owned.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
                 owned.push(value);
             }
@@ -1015,7 +1041,7 @@ pub(super) fn settings_paths(
     view: &super::declaration_checks::View<'_>,
     fixed: &'static [paperpaw_sdk::SettingSpec],
 ) -> Result<(usize, usize), i32> {
-    let (_, owned, _, _) = map_declarations(view, fixed)?;
+    let (_, owned, _, _) = map_declarations(view, super::FixedTables::new(fixed, &[]))?;
     let kept = owned
         .iter()
         .map(|value| match value {
@@ -1026,6 +1052,25 @@ pub(super) fn settings_paths(
     let copied = owned
         .iter()
         .filter(|value| matches!(value, Owned::Setting(_)))
+        .count();
+    Ok((kept, copied))
+}
+
+/// How many groups `groups` (a plugin's table) takes in place of a copy, and
+/// how many stay owned copies, for the declarations in `view`.
+#[cfg(test)]
+pub(super) fn group_paths(
+    view: &super::declaration_checks::View<'_>,
+    groups: &'static [paperpaw_sdk::SettingGroupSpec],
+) -> Result<(usize, usize), i32> {
+    let (_, owned, _, _) = map_declarations(view, super::FixedTables::new(&[], groups))?;
+    let kept = owned
+        .iter()
+        .filter(|value| matches!(value, Owned::FixedGroup(_)))
+        .count();
+    let copied = owned
+        .iter()
+        .filter(|value| matches!(value, Owned::Group(_)))
         .count();
     Ok((kept, copied))
 }

@@ -788,6 +788,16 @@ impl Staging {
         )
     }
 
+    /// Stages the setting group `group` of the plugin `owner`, without
+    /// infallible growth.
+    pub(crate) fn native_group(
+        &mut self,
+        owner: &Id,
+        group: paperpaw_sdk::SettingGroup,
+    ) -> Result<(), i32> {
+        self.native(owner, Contribution::SettingGroup(group))
+    }
+
     /// Stage already decoded native contributions without infallible growth.
     /// The caller publishes only after every record has mapped successfully.
     #[allow(
