@@ -260,11 +260,15 @@ mod x4 {
             abi_major: HOST.abi_major,
             minor: HOST.minor,
             profile: super::PROFILE,
-            services: &crate::device_host::OFFERED,
-            // Nothing is advertised until a family is wired here and its
-            // commands check `features().feature(key)`: a plugin that needs a
-            // feature is refused, and one that merely asks for it keeps no bit.
-            features: X4_FEATURES,
+            services: crate::device_host::offered(),
+            // Advertised with the families they gate, only when those are
+            // wired: a plugin that needs a feature is refused, and one that
+            // merely asks for it keeps no bit.
+            features: if crate::device_host::card_wired() {
+                X4_FEATURES
+            } else {
+                &[]
+            },
         };
         let admitted = shell::admission::admit(&record, &offered)
             .map_err(|why| admission_refused(path, why))?;
@@ -338,11 +342,23 @@ mod x4 {
         Ok(raw.make)
     }
 
-    /// The features this firmware advertises to plugins (`uses.*`): none yet.
-    /// A feature is listed here in the change that wires its family, with the
-    /// check of `Hosted::features().feature(key)` in front of what it gates;
-    /// admission keeps the bits of the ones a plugin asked for either way.
-    const X4_FEATURES: &[metadata::Feature<'static>] = &[];
+    /// The features this firmware advertises to plugins (`uses.*`): the card's
+    /// files and the library, whose services are wired over the card
+    /// (`device_host::CARD_SERVICES`) and advertised only once that wiring
+    /// has succeeded (`device_host::card_wired`). A feature is listed here in the change
+    /// that wires its family, with the check of `Hosted::features().feature(key)`
+    /// in front of what it gates; admission keeps the bits of the ones a plugin
+    /// asked for either way.
+    const X4_FEATURES: &[metadata::Feature<'static>] = &[
+        metadata::Feature {
+            key: "uses.library",
+            revision: 1,
+        },
+        metadata::Feature {
+            key: "uses.storage",
+            revision: 1,
+        },
+    ];
 
     /// The program's read-only data in flash as a mapping (address and length),
     /// from the linker's own symbols (`esp-hal`'s `rodata.x`: `.rodata` and
@@ -480,7 +496,7 @@ mod x4 {
             // offers the data services alone: a linked plugin is not given the
             // device service.
             services: shell::DATA_SERVICES,
-            features: X4_FEATURES,
+            features: &[],
         };
         // The loader's own table of handles and callback-depth counter (one of
         // each for the device), not a second: the kernel refuses a plugin that
