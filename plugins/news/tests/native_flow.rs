@@ -5,11 +5,11 @@
 #![cfg(feature = "linked")]
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 use paperpaw_core::native_host::registrations::{
-    EventActionRun, EventWorkDue, Record, records_decode,
+    EventActionRun, EventSettingChanged, EventWorkDue, Record, records_decode,
 };
 use paperpaw_plugin_news::{
     NATIVE_ENTRY,
-    declarations::{FETCH_TOKEN, WORK_TOKEN},
+    declarations::{FETCH_TOKEN, SETTING_TOKEN, WORK_TOKEN},
 };
 use paperpaw_scripted_host::{Callback, ScriptedHost, event_batch};
 use std::cell::RefCell;
@@ -108,4 +108,34 @@ fn a_due_work_without_a_readable_list_says_so() {
     );
     assert_eq!(due.status, 0);
     assert_eq!(due.batches.len(), 1, "the notice");
+}
+
+#[test]
+fn a_setting_change_before_any_screen_is_ignored_and_the_plugin_still_works() {
+    let host = ScriptedHost::new();
+    let log = works(&host);
+    let p = host.load(NATIVE_ENTRY.entry()).unwrap();
+    // No state exists yet: the change is dropped and creates none.
+    let changed = event(
+        &p,
+        SETTING_TOKEN,
+        Record::EventSettingChanged(EventSettingChanged {
+            now_ms: 0,
+            key: "news.widget.count",
+            old: &[],
+        }),
+    );
+    assert_eq!(changed.status, 0);
+    assert!(changed.commands.is_empty());
+    let run = event(
+        &p,
+        FETCH_TOKEN,
+        Record::EventActionRun(EventActionRun {
+            now_ms: 0,
+            action: "news.fetch",
+            flags: 0,
+        }),
+    );
+    assert_eq!(run.status, 0);
+    assert_eq!(log.borrow().len(), 1);
 }

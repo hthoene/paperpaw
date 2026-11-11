@@ -213,7 +213,7 @@ mod tests {
     #[test]
     fn six_pairs_are_kept_and_the_rest_counted_once() {
         let failures = EventFailures::default();
-        for tag in 1..=9 {
+        for tag in [1, 2, 3, 4, 5, 6, 7, 8, 9] {
             failures.note(1, tag, -3);
         }
         // The same pair again changes nothing.
