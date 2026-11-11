@@ -20,14 +20,20 @@ struct Shelf {
     at: std::vec::Vec<u64>,
 }
 
-/// `(title, series, number, progress)` of each book, in file order.
+/// `(title, series, number, progress)` of each book, in file order; a
+/// progress of `o` is a book opened without one (the flag only).
 fn shelf(books: &[(&str, &str, &str, &str)]) -> Shelf {
     let mut text = String::from(HEADER);
     let mut at = std::vec::Vec::new();
     for (n, (title, series, number, progress)) in books.iter().enumerate() {
         at.push(text.len() as u64);
+        let (progress, flags) = if *progress == "o" {
+            ("", "o")
+        } else {
+            (*progress, "")
+        };
         text.push_str(&format!(
-            "books/{n}.epub\tAnn\t{title}\t{series}\t{number}\t\t{progress}\t\t1\t\t5\n"
+            "books/{n}.epub\tAnn\t{title}\t{series}\t{number}\t\t{progress}\t{flags}\t1\t\t5\n"
         ));
     }
     let storage =
@@ -110,4 +116,13 @@ fn an_unknown_book_is_not_found_and_a_book_a_pending_delete_holds_is_passed_over
         )
         .unwrap();
     assert_eq!(got.as_deref(), Some("B"));
+}
+
+#[test]
+fn a_book_opened_without_a_progress_is_not_next() {
+    // Opened and closed before a position was kept: the flag says opened.
+    let s = shelf(&[("A", "Saga", "1", "o"), ("B", "Saga", "2", "")]);
+    assert_eq!(s.next(0).unwrap().0, "B");
+    let s = shelf(&[("A", "Saga", "1", "o")]);
+    assert_eq!(s.next(0), Err(ERR_NOT_FOUND));
 }
