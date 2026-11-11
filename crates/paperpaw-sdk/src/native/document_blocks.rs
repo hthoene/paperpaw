@@ -579,8 +579,9 @@ impl Documents {
     /// (`BlockImage::image` 0: none was free, or it was not decoded yet) or
     /// whose id has ended (`NotFound` at a draw). `side` 0 is the page's
     /// size, else the longest side for a zoom (at most 1,600; larger is
-    /// `Invalid`). The picture with its new image id, or the live one where
-    /// nothing was to do. `input` is 64 bytes; `out` 4,096.
+    /// clamped to 1,600, as `image_prepare`). The picture with its new image
+    /// id, or the live one where nothing was to do. `input` is 64 bytes;
+    /// `out` 4,096.
     ///
     /// # Errors
     /// Busy while all of the plugin's image ids are out and none drawn yet
