@@ -428,12 +428,16 @@ fn the_heap_one_query_holds_at_its_most_is_the_window_and_one_line() {
     let run = |sort, cursor| {
         peak(
             |r| {
-                r.query(&ask(sort, cursor), &mut |_| core::ops::ControlFlow::Continue(()))
-                    .unwrap();
+                r.query(&ask(sort, cursor), &mut |_| {
+                    core::ops::ControlFlow::Continue(())
+                })
+                .unwrap();
             },
             &card,
         )
     };
     let peaks = [run(0, 0), run(4, 0), run(0, 100)];
     std::eprintln!("QUERY HEAP PEAKS (title, recent, title from 100): {peaks:?}");
+    // The window of 32 slots (64 bytes and two short strings each) and a line.
+    assert!(peaks.iter().all(|&peak| peak <= 8_192), "{peaks:?}");
 }
