@@ -591,6 +591,24 @@ impl Kernel {
         }
     }
 
+    /// Adds the translation catalog `source` of a linked native plugin, built
+    /// into the program (its `i18n/<language>.ini`): the texts the plugin
+    /// reads through `core.i18n`. One that does not parse is reported and
+    /// left out.
+    pub fn add_catalog(&mut self, source: &'static str) {
+        match registry::catalog(alloc::borrow::Cow::Borrowed(source)) {
+            Ok(catalog) => self.shared.translator.add(catalog),
+            Err(error) => self.warn_runtime(format!("a built-in catalog: {error}")),
+        }
+    }
+
+    /// Room for the catalogs `plugins` more plugins bring, in the languages chosen, asked for once
+    /// before [`Kernel::add_catalog`] (as the start does for the plugins it
+    /// registers): the list does not grow by doubling.
+    pub fn reserve_catalogs(&mut self, plugins: usize) {
+        self.shared.translator.reserve(plugins);
+    }
+
     /// Opens the compiled catalog `path` (`Registrar::add_translation_file`)
     /// and adds it; one that cannot be opened is reported.
     pub(crate) fn add_translation_file(&mut self, plugin: &Id, path: String) {
