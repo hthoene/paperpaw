@@ -653,17 +653,67 @@ fn a_registry_bit_raised_while_the_queues_are_borrowed_is_dropped_without_a_pani
     assert!(w.hints.borrow().is_empty());
 }
 
-/// Makes plugin `manager` the network manager (`core.network-manager`).
+/// The queues now held, and the room the list keeps.
+fn held(w: &World) -> (usize, usize) {
+    let events = &w.kernel.shared.native_instances.setting_events;
+    let queues = events.queues.borrow();
+    (queues.len(), queues.capacity())
+}
+
+#[test]
+fn an_idle_device_holds_no_event_queue_once_the_events_are_told() {
+    let mut w = world(false);
+    w.kernel.native_setting_publish("c.size", Ok(&int(7)));
+    assert_eq!(held(&w).0, 1, "waits for the pump");
+    run(&mut w);
+    assert_eq!(*w.a.1.borrow(), [("c.size".into(), int(7))]);
+    assert_eq!(held(&w), (0, 0), "told: the queue and the list are freed");
+    // The next event makes the queue again, and it is told as before.
+    w.kernel.native_setting_publish("c.size", Ok(&int(8)));
+    run(&mut w);
+    assert_eq!(w.a.1.borrow().len(), 2);
+    assert_eq!(held(&w), (0, 0));
+}
+
+#[test]
+fn a_change_nobody_may_be_told_leaves_no_empty_queue_behind() {
+    let w = world(false);
+    // The secret of another plugin is not announced: nothing is queued.
+    w.kernel.native_setting_publish("b.secret", Ok(&int(1)));
+    assert_eq!(held(&w), (0, 0));
+}
+
+#[test]
+fn a_lost_edge_is_made_up_by_the_reread_on_the_queue_that_is_still_there() {
+    let mut w = world(false);
+    w.kernel.native_setting_publish("c.size", Ok(&int(7)));
+    let events = &w.kernel.shared.native_instances.setting_events;
+    let owner = events.waiting()[0];
+    // The edge is taken and its encode fails: the queue is not freed yet, so
+    // the reread needs no allocation in that state.
+    assert!(events.take(owner).is_some());
+    assert_eq!(
+        held(&w).0,
+        1,
+        "the empty queue stays until the delivery ends"
+    );
+    events.reread(owner, 5);
+    assert_eq!(events.waiting(), [owner]);
+    run(&mut w);
+    assert_eq!(*w.a.1.borrow(), [(String::new(), Vec::new())]);
+    assert_eq!(held(&w), (0, 0), "told: given back");
+}
+
+/// Makes plugin `manager` the network manager (`core.network-manager`, which
+/// the kernel defines with the default `wifi`).
 fn manager(w: &mut World, manager: &'static str) {
     w.kernel
         .shared
         .settings
-        .define(paperpaw_sdk::SettingSpec::text(
+        .set(
             crate::native_host::commands::dev::NETWORK_MANAGER,
-            "manager",
-            manager,
-            paperpaw_sdk::builtin::groups::OTHER,
-        ))
+            paperpaw_sdk::SettingValue::Text(manager.into()),
+        )
         .unwrap();
 }
 

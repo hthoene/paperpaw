@@ -1267,3 +1267,57 @@ fn get_takes_an_empty_plugin_only_and_an_explicit_id_is_denied_even_the_callers_
         }
     });
 }
+
+#[test]
+fn a_line_of_line_max_is_read_and_one_byte_more_is_handed_over_whole() {
+    let mut file = Vec::new();
+    file.extend_from_slice(&[b'a'; LINE_MAX]);
+    file.push(b'\n');
+    file.extend_from_slice(&[b'b'; LINE_MAX + 1]);
+    file.push(b'\n');
+    file.extend_from_slice(b"ok\n");
+    with_view(|v| {
+        v.host.card.put(file::FILE, &file);
+        let mut buf = Buf::new(READ_BUF).unwrap();
+        let mut pieces: Vec<(bool, usize, bool)> = Vec::new();
+        file::scan(&v.host.card, file::FILE, &mut buf, &mut |piece| {
+            pieces.push(match piece {
+                Piece::Line(line) => (true, line.len(), true),
+                Piece::Opaque { bytes, end } => (false, bytes.len(), end),
+            });
+            Ok(Flow::Go)
+        })
+        .unwrap();
+        // The first line whole, with its break; the longer one in opaque
+        // parts that add up to it, the last marked; the short line after it.
+        assert_eq!(pieces[0], (true, LINE_MAX + 1, true));
+        let (parts, last) = (&pieces[1..pieces.len() - 1], pieces[pieces.len() - 1]);
+        assert!(parts.iter().all(|(line, _, _)| !line));
+        assert_eq!(
+            parts.iter().map(|(_, len, _)| len).sum::<usize>(),
+            LINE_MAX + 1
+        );
+        assert!(parts[parts.len() - 1].2);
+        assert!(parts[..parts.len() - 1].iter().all(|(_, _, end)| !end));
+        assert_eq!(last, (true, 3, true));
+    });
+}
+
+#[test]
+fn a_secret_after_an_over_long_line_is_still_read_and_the_long_line_kept() {
+    let long = std::format!("mail.long\t\t\t{}\n", "ab".repeat(LINE_MAX));
+    let mut file = long.clone().into_bytes();
+    file.extend_from_slice(&interface6(&[("mail.password", "L", true, "pw")]));
+    with_view(|v| {
+        v.host.card.put(file::FILE, &file);
+        assert_eq!(v.get("mail", "password").unwrap().0, "pw");
+        assert_eq!(v.names("mail"), ["password"]);
+        v.keep("mail", "other", "", "o").unwrap();
+        let after = v.host.card.file();
+        assert!(
+            after.starts_with(long.as_bytes()),
+            "the long line is kept first"
+        );
+        assert_eq!(v.get("mail", "password").unwrap().0, "pw");
+    });
+}

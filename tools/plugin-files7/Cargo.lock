@@ -47,6 +47,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-epub-family"
+version = "1.0.5"
+dependencies = [
+ "miniz_oxide",
+ "paperpaw-sdk",
+]
+
+[[package]]
 name = "paperpaw-graphics"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -212,8 +220,13 @@ dependencies = [
  "paperpaw-plugin-file-manager",
  "paperpaw-plugin-files",
  "paperpaw-plugin-fonts-browser",
+ "paperpaw-plugin-format-cbz",
  "paperpaw-plugin-format-docx",
+ "paperpaw-plugin-format-epub",
+ "paperpaw-plugin-format-fb2",
+ "paperpaw-plugin-format-html",
  "paperpaw-plugin-format-images",
+ "paperpaw-plugin-format-markdown",
  "paperpaw-plugin-format-mobi",
  "paperpaw-plugin-format-txt",
  "paperpaw-plugin-format-xtc",
@@ -265,6 +278,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-format-cbz"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-epub-family",
+ "paperpaw-sdk",
+]
+
+[[package]]
 name = "paperpaw-plugin-format-docx"
 version = "1.0.3"
 dependencies = [
@@ -275,7 +296,23 @@ dependencies = [
 name = "paperpaw-plugin-format-epub"
 version = "1.0.5"
 dependencies = [
- "miniz_oxide",
+ "paperpaw-epub-family",
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-fb2"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-epub-family",
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-html"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-epub-family",
  "paperpaw-sdk",
 ]
 
@@ -283,6 +320,14 @@ dependencies = [
 name = "paperpaw-plugin-format-images"
 version = "1.0.4"
 dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-markdown"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-epub-family",
  "paperpaw-sdk",
 ]
 
@@ -416,7 +461,7 @@ dependencies = [
 name = "paperpaw-plugin-notes-vault"
 version = "1.0.4"
 dependencies = [
- "paperpaw-plugin-format-epub",
+ "paperpaw-epub-family",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
 ]

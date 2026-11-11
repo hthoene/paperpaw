@@ -367,7 +367,8 @@ fn mapping_of(maps: &str, address: usize) -> Option<(usize, usize)> {
     None
 }
 
-/// What is wired, from the wiring's own answer and the card's families.
+/// What is wired: the wiring's own answer for the services that may be left
+/// out, and the card's families (`on_card`).
 fn wired_services(wired: &WiredHosts, on_card: Wired) -> Wired {
     Wired {
         secrets: wired.secrets().is_some(),
@@ -601,6 +602,32 @@ mod tests {
         };
         assert!(feature_keys(radio).contains(&"uses.wifi"));
         assert_ne!(radio.index(), Wired::default().index());
+    }
+
+    /// A plugin that asks for the radio (diagnostics: `uses.wifi`) is granted
+    /// it where the radio is offered; where it is not, the plugin is still
+    /// admitted (the feature is optional for it) but without the radio
+    /// commands.
+    #[test]
+    fn a_plugin_asking_for_the_radio_is_granted_it_only_where_it_is_offered() {
+        let bytes = include_bytes!("../../../plugins/diagnostics/native/metadata.host.bin");
+        let granted = |wired: Wired| {
+            let host = metadata::Host {
+                abi_major: 7,
+                minor: paperpaw_native::host_glue::MINOR,
+                profile: crate::native_runtime::host_profile(),
+                services: offered(wired),
+                features: features(wired),
+            };
+            let checked = metadata::check(bytes, &host).expect("admitted");
+            checked.available_features().any(|key| key == "uses.wifi")
+        };
+        let radio = Wired {
+            wifi: true,
+            ..Wired::default()
+        };
+        assert!(granted(radio));
+        assert!(!granted(Wired::default()));
     }
 
     #[test]

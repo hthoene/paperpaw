@@ -205,11 +205,7 @@ impl Screens {
         &mut self,
         screen: crate::native_host::native_screen_factory::NativeScreenSpec,
     ) {
-        self.insert_made(
-            screen.id,
-            Cow::Owned(screen.title),
-            Made::Native(screen.made),
-        );
+        self.insert_made(screen.id, screen.title, Made::Native(screen.made));
     }
 
     fn insert_made(&mut self, id: Id, title: Cow<'static, str>, made: Made) {

@@ -130,9 +130,20 @@ impl crate::Kernel {
         lease: &NativeLease,
         bytes: &[u8],
     ) -> Result<i32, i32> {
-        self.native_staged_call(owner, |env, stage| {
+        let status = self.native_staged_call(owner, |env, stage| {
             lease.service_event_staged(bytes, env, stage)
-        })
+        });
+        // A failure of the plugin's callback is noted, for a warning
+        // (`event_failures.rs`): the callers discard the status.
+        if let Err(code) = status {
+            let tag =
+                super::registrations::RawRecord::single(bytes).map_or(0, |record| record.tag());
+            self.shared
+                .native_instances
+                .event_failures
+                .note(owner, tag, code);
+        }
+        status
     }
 
     /// As [`Self::native_event_call`], for the `input` callback of a widget
@@ -264,9 +275,8 @@ impl crate::Kernel {
                     .lease
                     .event_staged(pending.token, &pending.bytes, env, stage)
             });
-            if let Err(status) | Ok(status) = status
-                && !matches!(status, 0 | 1)
-            {
+            let (Ok(status) | Err(status)) = status;
+            if !matches!(status, 0 | 1) {
                 // A stopped or failing plugin leaves the action without
                 // effect; the report says why.
                 use super::native_screen::Dispatch as _;

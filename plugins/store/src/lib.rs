@@ -27,16 +27,27 @@ mod fetch;
 mod letters;
 mod list;
 #[doc(hidden)]
+pub mod native_ask;
+mod native_asks;
+#[doc(hidden)]
+pub mod native_device;
+#[doc(hidden)]
 pub mod native_download;
 mod native_entry;
+mod native_glue;
 #[doc(hidden)]
 pub mod native_index;
 #[doc(hidden)]
 pub mod native_install;
 #[doc(hidden)]
+pub mod native_installs;
+#[doc(hidden)]
 pub mod native_item;
+mod native_jobs;
 #[doc(hidden)]
 pub mod native_list;
+#[doc(hidden)]
+pub mod native_load;
 #[doc(hidden)]
 pub mod native_model;
 #[doc(hidden)]
@@ -50,7 +61,27 @@ pub mod native_refusal;
 #[doc(hidden)]
 pub mod native_request;
 #[doc(hidden)]
+pub mod native_screen_fetch;
+#[doc(hidden)]
+pub mod native_screen_letters;
+#[doc(hidden)]
+pub mod native_screen_list;
+#[doc(hidden)]
+pub mod native_screen_offer;
+#[doc(hidden)]
+pub mod native_screen_page;
+#[doc(hidden)]
+pub mod native_screen_shots;
+#[doc(hidden)]
+pub mod native_screen_source;
+#[doc(hidden)]
+pub mod native_screen_view;
+#[doc(hidden)]
+pub mod native_screens;
+#[doc(hidden)]
 pub mod native_sort;
+#[doc(hidden)]
+pub mod native_wire;
 mod needs;
 mod origin;
 mod page;

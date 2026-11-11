@@ -6,12 +6,12 @@
 //! only when the two are equal field by field. Any other spec stays the owned
 //! copy, so a table that is stale or wrong costs memory, never correctness.
 
-use paperpaw_sdk::{SettingGroupSpec, SettingSpec};
+use paperpaw_sdk::{Id, SettingGroupSpec, SettingSpec};
 
 /// The tables a linked plugin keeps in the program (its build script makes
-/// them of the plugin's own declarations): its settings and its setting
-/// groups. What a plugin declares that equals an entry is kept as that entry,
-/// not as a copy on the heap; anything else is copied as before.
+/// them of the plugin's own declarations): its settings, its setting groups
+/// and its ids. What a plugin declares that equals an entry is kept as that
+/// entry, not as a copy on the heap; anything else is copied as before.
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
 pub struct FixedTables {
@@ -19,6 +19,14 @@ pub struct FixedTables {
     pub settings: &'static [SettingSpec],
     /// The plugin's setting groups.
     pub groups: &'static [SettingGroupSpec],
+    /// The full ids its declarations name, sorted by their text
+    /// (`paperpaw_sdk::native::declare::fixed_ids_source`): an id found here
+    /// is this entry (no heap; its copies allocate nothing either), any other
+    /// is copied. A table out of order finds less, never something else.
+    pub ids: &'static [Id],
+    /// The program's read-only data (`Kernel::register_linked`'s `image`):
+    /// the titles and texts its declarations hold there are read from there.
+    pub(crate) image: &'static [u8],
 }
 
 impl FixedTables {
@@ -26,6 +34,8 @@ impl FixedTables {
     pub const NONE: Self = Self {
         settings: &[],
         groups: &[],
+        ids: &[],
+        image: &[],
     };
 
     /// The tables `settings` and `groups`.
@@ -34,7 +44,26 @@ impl FixedTables {
         settings: &'static [SettingSpec],
         groups: &'static [SettingGroupSpec],
     ) -> Self {
-        Self { settings, groups }
+        Self {
+            settings,
+            groups,
+            ids: &[],
+            image: &[],
+        }
+    }
+
+    /// The same tables with the plugin's id table `ids` (sorted by text).
+    #[must_use]
+    pub const fn with_ids(self, ids: &'static [Id]) -> Self {
+        Self { ids, ..self }
+    }
+
+    /// Where ids and texts are taken from for the declarations.
+    pub(super) const fn kept(&self) -> super::native_values::Kept {
+        super::native_values::Kept {
+            ids: self.ids,
+            image: self.image,
+        }
     }
 }
 

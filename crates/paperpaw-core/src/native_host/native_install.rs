@@ -13,7 +13,7 @@ use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED, Services,
 };
-use paperpaw_sdk::{Contribution, Id, IdError, RegisterError};
+use paperpaw_sdk::{Contribution, Id, RegisterError};
 
 /// Owned mapping results; future declaration families extend this one dispatch.
 enum Owned {
@@ -46,12 +46,17 @@ enum Owned {
     },
 }
 
-fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
+fn map_record(
+    owner: &str,
+    record: Record<'_>,
+    kept: &mut native_values::Kept,
+) -> Result<Option<Owned>, i32> {
+    use native_values::Source as _;
     match record {
         Record::ScreenSpec(_)
         | Record::ActionSpec(_)
         | Record::SettingSpec(_)
-        | Record::SettingGroup(_) => match native_values::from_record(owner, record)? {
+        | Record::SettingGroup(_) => match native_values::from_record(owner, record, kept)? {
             Value::Screen(callback) => Ok(Some(Owned::Screen(callback))),
             Value::Action(callback) => Ok(Some(Owned::Action(callback))),
             Value::Setting(spec) => Ok(Some(Owned::Setting(
@@ -90,8 +95,8 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
         // declared fine never fails the install.
         Record::SlotSpec(_) => Ok(None),
         Record::SlotOffer(offer) => Ok(Some(Owned::SlotOffer {
-            slot: native_values::checked_id(offer.slot)?,
-            screen: native_values::checked_id(offer.screen)?,
+            slot: kept.id(offer.slot)?,
+            screen: kept.id(offer.screen)?,
             priority: paperpaw_sdk::Priority(i16::try_from(offer.priority).unwrap_or(
                 if offer.priority < 0 {
                     i16::MIN
@@ -137,7 +142,7 @@ fn map_record(owner: &str, record: Record<'_>) -> Result<Option<Owned>, i32> {
                 .map_err(|_| ERR_NO_MEMORY)?;
             value.push_str(choice.value);
             Ok(Some(Owned::Choice {
-                setting: native_values::checked_id(choice.key)?,
+                setting: kept.id(choice.key)?,
                 value,
             }))
         }
@@ -576,16 +581,15 @@ impl crate::Kernel {
             .map(paperpaw_platform::Instant)
     }
 
-    /// What a plugin declared, staged for its publication: the screens, offers,
-    /// actions, choices, settings and groups in the registry's staging and the
-    /// resources (fonts, hyphenation) as they are to be kept.
+    /// What the plugin's declarations stage for the kernel's registries, and
+    /// its resource files: every value the host mapped, taken in order.
     fn stage_owned(
         &self,
         owned: Vec<Owned>,
-        instance: &NativeLease,
         key: u64,
         owner: &Id,
         folder: &str,
+        instance: &NativeLease,
     ) -> Result<(crate::registry::Staging, super::native_resources::Resources), shell::Error> {
         let mut staging = crate::registry::Staging::default();
         let mut resources = super::native_resources::Resources::default();
@@ -680,7 +684,7 @@ impl crate::Kernel {
             events,
         ))
         .map_err(shell::Error::Status)?;
-        let (staging, resources) = self.stage_owned(owned, &instance, key, owner, folder)?;
+        let (staging, resources) = self.stage_owned(owned, key, owner, folder, &instance)?;
         self.shared
             .native_instances
             .install(key, instance.try_clone().map_err(shell::Error::Status)?)
@@ -858,10 +862,11 @@ impl crate::Kernel {
         // exist, a guarded one or a value outside the plugin's namespace, with
         // a log line). Their `title` is not read here: the declaration store
         // keeps it for the registry.
+        // (As the settings defined above, they stay if a later step of the
+        // publication fails.)
         self.plugin_choices.append(&mut choices);
         self.add_plugin_choices();
-        // The configuration's values for what it declared, after the choices
-        // that it and the others add (a value may name one).
+        // After the choices: a configured value can name one.
         self.apply_late_config();
         self.publish_fonts(owner, resources)
     }
@@ -941,10 +946,9 @@ fn map_declarations(
     if view.plugin == crate::RESERVED_PLUGIN_ID {
         return Err(ERR_DENIED);
     }
-    let owner = Id::try_parse(view.plugin).map_err(|error| match error {
-        IdError::NoMemory => ERR_NO_MEMORY,
-        _ => ERR_INVALID,
-    })?;
+    // Ids and texts the plugin keeps in the program are taken from there.
+    let mut kept = tables.kept();
+    let owner = native_values::Source::id(&mut kept, view.plugin)?;
     let mut owned = Vec::new();
     // Room for what will be listed, once: growing by doubling held both
     // the old and the new list at the registration peak. A setting that a
@@ -989,7 +993,7 @@ fn map_declarations(
                 tokens.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
                 tokens.push(token);
             }
-            if let Some(value) = map_record(view.plugin, record)? {
+            if let Some(value) = map_record(view.plugin, record, &mut kept)? {
                 if let Owned::Setting(spec) = &value
                     && let Some(at) = super::fixed_settings::find(fixed, spec)
                 {
@@ -1119,7 +1123,11 @@ mod tests {
             value: "vocabulary.sleep-card",
             title: "vocabulary.sleep-card",
         });
-        let Ok(Some(Owned::Choice { setting, value })) = map_record("vocabulary", record) else {
+        let Ok(Some(Owned::Choice { setting, value })) = map_record(
+            "vocabulary",
+            record,
+            &mut crate::native_host::FixedTables::NONE.kept(),
+        ) else {
             panic!("a choice is mapped");
         };
         assert_eq!(setting.as_str(), "sleep.show");
@@ -1134,7 +1142,15 @@ mod tests {
             value: "x",
             title: "x",
         });
-        assert_eq!(map_record("vocabulary", bad).err(), Some(ERR_INVALID));
+        assert_eq!(
+            map_record(
+                "vocabulary",
+                bad,
+                &mut crate::native_host::FixedTables::NONE.kept()
+            )
+            .err(),
+            Some(ERR_INVALID)
+        );
     }
     /// A kernel with the choice setting `host.show` (one value, `host.plain`)
     /// and a plugin `vocab` that publishes `choices` for the settings named.
