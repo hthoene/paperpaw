@@ -840,10 +840,16 @@ or guard rule: only the maker drops its instances.
   system clipboard into op 19 is a shell follow-up (Firmware todo 392).
 - [D] **Speech.** `speak` queues `text` (display text, at most 2,048 bytes) in `language` (a BCP
   47 tag, empty for the system's) at `rate` percent (50-300, else `ERR_INVALID`); `flags` bit 0
-  `queue` (after what is being spoken, else replacing it). `spoken` comes when it was spoken or
+  `queue` (after what is being spoken, else replacing it); at most 4 texts per plugin, the one
+  being spoken included: a queued `speak` beyond is `ERR_FULL` (nothing queued, no `spoken`), one
+  without `queue` replaces and never meets the cap. `spoken` comes when it was spoken or
   could not be (`status` 0 spoken, 1 replaced or stopped, 2 no voice for the language, 3 no speech
   on this device). Only `menu.need` 0 (`speech`) devices speak; elsewhere `spoken` status 3 at
-  once. `stop_speaking` stops the submitter's own speech only.
+  once. `stop_speaking` stops the submitter's own speech only: where its text is the one being
+  spoken the host's one voice stops, and what waited behind it (another plugin's too) ends with
+  `spoken` status 1; where its text only waits behind another's, it is dropped from the line
+  (status 1) and the voice goes on. `spoken` goes to plugins that subscribed to it (event 89),
+  the submitter alone.
 
 ## 8. Sizes and memory
 

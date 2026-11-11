@@ -263,6 +263,7 @@ pub(crate) mod image_pump;
     reason = "wired into the shell table; the DOC, LIB and prepare producers fill it"
 )]
 pub(crate) mod image_service;
+pub(crate) mod lib_changed;
 #[allow(
     dead_code,
     reason = "wired by HostWiring::library; the write half is todo 307"
@@ -282,6 +283,7 @@ pub(crate) mod lib_moves_walk;
 pub(crate) mod lib_reads;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;
+mod library_events;
 pub(crate) mod linked_plugins;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
@@ -308,6 +310,7 @@ mod service_slots;
 pub(crate) mod setting_events;
 #[allow(dead_code, reason = "wired into the shell frame by the SOCK adapter")]
 pub(crate) mod sock_service;
+pub(crate) mod speech;
 mod stack_events;
 #[allow(
     dead_code,
