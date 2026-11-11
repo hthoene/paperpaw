@@ -17,6 +17,24 @@ fn driver<B: Blocks>(bytes: B) -> ExFatFs<ExDisk<B>> {
     ExFatFs::mount(ExDisk::new(SharedDisk::new(disk)), MountOptions::new()).unwrap()
 }
 
+/// A file named like the journal, made as a computer makes it: the
+/// storage refuses the name. The card must not be mounted elsewhere.
+fn foreign_intent(bytes: &Bytes, data: &[u8]) {
+    use hadris_fs::{Name, OpenMode, SetAttr};
+    let mut fs = driver(bytes.clone());
+    let root = fs.root();
+    let node = fs
+        .create(root, Name::new(INTENT_FILE), &SetAttr::new())
+        .unwrap();
+    fs.open(node, OpenMode::Write).unwrap();
+    let mut done = 0;
+    while done < data.len() {
+        done += fs.write(node, done as u64, &data[done..]).unwrap();
+    }
+    fs.close(node).unwrap();
+    fs.sync().unwrap();
+}
+
 #[test]
 fn bootstrap_publication_and_remount_preserve_existing_files_at_every_block_cut() {
     let mut cuts = 0;
@@ -110,10 +128,7 @@ fn bootstrap_publication_and_remount_preserve_existing_files_at_every_block_cut(
 #[test]
 fn an_unknown_existing_file_is_never_reinitialized() {
     let bytes = exfat_card();
-    let card = exfat(&bytes);
-    card.write(INTENT_FILE, b"not our journal").unwrap();
-    card.sync().unwrap();
-    drop(card);
+    foreign_intent(&bytes, b"not our journal");
     let before = bytes.0.borrow().clone();
     let mut fs = driver(bytes.clone());
     assert!(fs.bootstrap_intent(123).is_err());
@@ -249,11 +264,11 @@ fn lookup_and_manifest_read_failures_never_authorize_creation() {
         let bytes = exfat_card();
         let card = exfat(&bytes);
         card.write("kept.txt", b"safe content").unwrap();
-        if existing == 1 {
-            card.write(INTENT_FILE, b"foreign file").unwrap();
-        }
         card.sync().unwrap();
         drop(card);
+        if existing == 1 {
+            foreign_intent(&bytes, b"foreign file");
+        }
         if existing == 2 {
             let mut fs = driver(bytes.clone());
             fs.bootstrap_intent(123).unwrap();
@@ -438,7 +453,12 @@ fn a_damaged_reserved_name_after_a_free_run_refuses_without_writes() {
     let card = exfat(&bytes);
     card.write("gap.txt", b"to be removed").unwrap();
     card.write("kept.txt", b"safe content").unwrap();
-    card.write(INTENT_FILE, b"foreign").unwrap();
+    card.sync().unwrap();
+    drop(card);
+    foreign_intent(&bytes, b"foreign");
+    let card = exfat(&bytes);
+    card.write("late.txt", b"to be removed").unwrap();
+    card.remove("late.txt").unwrap();
     card.remove("gap.txt").unwrap();
     card.sync().unwrap();
     drop(card);
@@ -461,13 +481,12 @@ fn a_damaged_reserved_name_after_a_free_run_refuses_without_writes() {
                 .collect::<Vec<_>>(),
             &[0x85, 0xc0, 0xc1]
         );
-        // Move the set into a later deleted three-entry run of the same
-        // block and delete it where it was, so a free run comes first.
-        let block_end = primary / 512 * 512 + 512;
-        let later = (primary + 96..=block_end - 96)
+        // Move the set into a later deleted three-entry run of the root
+        // and delete it where it was, so a free run comes first.
+        let later = (primary + 96..=primary + 4096 - 96)
             .step_by(32)
             .find(|&at| (0..3).all(|i| matches!(data[at + i * 32], 0x05 | 0x40 | 0x41)))
-            .expect("fixture needs a later deleted run in the block");
+            .expect("fixture needs a later deleted run in the root");
         let set: Vec<u8> = data[primary..primary + 96].to_vec();
         data[later..later + 96].copy_from_slice(&set);
         for i in 0..3 {

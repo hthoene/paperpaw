@@ -43,6 +43,12 @@ impl StorageError {
     /// holds nothing PaperPaw reads): nothing is read or written until
     /// PaperPaw starts again. Code 1 of [`StorageError::Other`].
     pub const CARD_GONE: Self = Self::Other(1);
+    /// The memory card is read, but nothing is written to it until a
+    /// computer has checked it for errors: it was marked as in use when
+    /// PaperPaw found it (taken out of a computer without ejecting, or a
+    /// cut) and PaperPaw cannot tell what a write would overwrite. Code 2
+    /// of [`StorageError::Other`].
+    pub const CARD_NEEDS_CHECK: Self = Self::Other(2);
 }
 
 // By hand: a derived one would bring the formatter's tuple printing into

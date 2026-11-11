@@ -5,7 +5,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 
-use hadris_fat::exfat::sync::ExFatFs;
+use hadris_fat::exfat::sync::{ExFatFs, INTENT_FILE};
 use hadris_fs::{
     Clock, DateTime, DirCursor, ErrorKind, FileType, MountOptions, Name, NodeId, OpenMode,
     RenameMode, SetAttr,
@@ -225,7 +225,8 @@ fn whole_name(file: &str, mark: u32) -> String {
 
 /// Refuses a path PaperPaw does not take, or one of the storage's own.
 fn check(path: &str) -> Result<(), StorageError> {
-    let own = same_path(path, JOURNAL) || path.split('/').any(is_temp);
+    let own =
+        same_path(path, JOURNAL) || same_path(path, INTENT_FILE) || path.split('/').any(is_temp);
     if is_valid_path(path) && !own {
         Ok(())
     } else {
@@ -323,6 +324,10 @@ pub struct ExFatStorage<B: Blocks + 'static> {
     missing: u64,
     /// How many clusters lie past the card's end, wholly or in part.
     past_end: u32,
+    /// Why nothing is written, where nothing is (see
+    /// [`mount_journaled`](Self::mount_journaled)): reads go on, without
+    /// settling what a cut left.
+    refusal: Option<StorageError>,
 }
 
 impl<B: Blocks + 'static> core::fmt::Debug for ExFatStorage<B> {
@@ -335,9 +340,18 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
     /// The exFAT volume on `disk` (one [`BlockDisk::find`](crate::BlockDisk::find)
     /// found), mounted; else why not, for the log. Never formats anything.
     pub fn mount(disk: SharedDisk<B>) -> Result<Self, MountFailure> {
-        let options = MountOptions::new()
+        Self::mount_as(disk, None)
+    }
+
+    /// [`mount`](Self::mount), the driver read-only where `refusal` says
+    /// why writes are refused.
+    fn mount_as(disk: SharedDisk<B>, refusal: Option<StorageError>) -> Result<Self, MountFailure> {
+        let mut options = MountOptions::new()
             .with_clock(&NO_CLOCK)
             .with_node_limit(NODES);
+        if refusal.is_some() {
+            options = options.read_only();
+        }
         // A volume a little longer than the card (see `missing_blocks`) is
         // mounted as computers mount it: what lies past the card's end
         // fails to be read or written. Its clusters there are shown to
@@ -358,6 +372,7 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
             settled: RefCell::new(Vec::new()),
             moves_settled: Cell::new(false),
             left_alone: Cell::new(0),
+            refusal,
         })
     }
 
@@ -704,6 +719,10 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
     /// a failure (a read error, a card taken out) is tried again at the next
     /// look at the folder, and the folder is not worked in meanwhile.
     fn settle_folder(&self, path: &str, node: NodeId) -> Result2<()> {
+        // Nothing is written: what a cut left stays as it is, unread.
+        if self.refusal.is_some() {
+            return Ok(());
+        }
         let key = hash(path);
         if self.settled.borrow().contains(&key) {
             return Ok(());
@@ -856,7 +875,7 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
 
     /// Finishes a move the journal holds, once a mount.
     fn settle_moves(&self) -> Result2<()> {
-        if self.moves_settled.get() {
+        if self.moves_settled.get() || self.refusal.is_some() {
             return Ok(());
         }
         self.finish_moves()?;
@@ -1312,11 +1331,13 @@ impl<B: Blocks + 'static> Storage for ExFatStorage<B> {
     }
 
     fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.writes()?;
         self.settle_moves()?;
         self.written(self.write_whole(path, data))
     }
 
     fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.writes()?;
         self.settle_moves()?;
         self.with_open(path, true, |fs, o| {
             let written = write_all(fs, o.node, o.len, data);
@@ -1327,6 +1348,9 @@ impl<B: Blocks + 'static> Storage for ExFatStorage<B> {
     }
 
     fn sync(&self) -> Result<(), StorageError> {
+        if self.refusal.is_some() {
+            return Ok(());
+        }
         let closed = self.close("", true);
         let synced = self.fs.borrow_mut().sync().map_err(error);
         let back = self.write_back();
@@ -1359,7 +1383,8 @@ impl<B: Blocks + 'static> Storage for ExFatStorage<B> {
         self.close_in(dir)?;
         let node = self.dir(dir, false)?;
         self.each_from(node, from, &mut |name, is_dir, meta| {
-            let own = is_temp(name) || (dir.is_empty() && same_path(name, JOURNAL));
+            let own = is_temp(name)
+                || (dir.is_empty() && (same_path(name, JOURNAL) || same_path(name, INTENT_FILE)));
             if own {
                 return true;
             }
@@ -1383,11 +1408,13 @@ impl<B: Blocks + 'static> Storage for ExFatStorage<B> {
     }
 
     fn remove(&self, path: &str) -> Result<(), StorageError> {
+        self.writes()?;
         self.settle_moves()?;
         self.written(self.remove_file(path))
     }
 
     fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        self.writes()?;
         self.settle_moves()?;
         self.written(self.move_entry(from, to))
     }
@@ -1414,6 +1441,7 @@ impl<B: Blocks + 'static> Storage for ExFatStorage<B> {
     }
 
     fn create_dir(&self, path: &str) -> Result<(), StorageError> {
+        self.writes()?;
         self.settle_moves()?;
         check(path)?;
         let made = self.dir(path, true).map(|_| ());
@@ -1421,6 +1449,7 @@ impl<B: Blocks + 'static> Storage for ExFatStorage<B> {
     }
 
     fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
+        self.writes()?;
         self.settle_moves()?;
         check(path)?;
         self.close(path, true)?;
@@ -1428,6 +1457,9 @@ impl<B: Blocks + 'static> Storage for ExFatStorage<B> {
         self.written(removed)
     }
 }
+
+#[path = "exfat/journal.rs"]
+mod journal;
 
 #[cfg(test)]
 #[path = "exfat/pins.rs"]
