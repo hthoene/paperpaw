@@ -34,7 +34,7 @@ fn the_kernel_finds_the_texts_of_a_linked_plugin() {
         MemoryClass::Small,
     );
     let mut kernel = Kernel::builder(device).build().unwrap();
-    assert_ne!(kernel.translator().tr("keyboard.done"), "keyboard.done");
+    assert_eq!(kernel.translator().tr("keyboard.done"), "keyboard.done");
     paperpaw_app::add_native_catalogs(&mut kernel);
     assert_ne!(kernel.translator().tr("keyboard.done"), "keyboard.done");
 }
