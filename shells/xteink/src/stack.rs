@@ -166,6 +166,9 @@ static NATIVE: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::
 /// it ([`band_armed`] is false then, so there is no loop).
 fn lost_with_native_plugins() {
     if NATIVE.load(core::sync::atomic::Ordering::Relaxed) {
+        // The start that follows goes without native plugins, not as a clean
+        // one that hosts them again (a nap could end in a reset each time).
+        crate::safe_mode::band_lost();
         panic!("the stack's band was taken while a native plugin runs: starting again without it");
     }
 }

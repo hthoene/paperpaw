@@ -34,6 +34,9 @@ const ENTRIES_MAX: u64 = 64;
 pub(crate) struct Recipe {
     /// Apply a JPEG's EXIF orientation while it is decoded.
     pub(crate) turn: bool,
+    /// Keep a PNG's or GIF's transparency (a gray picture with its opacity,
+    /// drawn over what is below); a JPEG is made as without it.
+    pub(crate) see_through: bool,
     /// The luma table: exactly [`TONE_BYTES`] bytes, or none.
     pub(crate) tone: Option<Vec<u8>>,
 }
@@ -56,6 +59,7 @@ impl Recipe {
         };
         Ok(Self {
             turn: self.turn,
+            see_through: self.see_through,
             tone,
         })
     }
@@ -116,6 +120,21 @@ impl<S: ImageSink> ImageSink for ToneSink<'_, S> {
     fn row_rgb(&mut self, rgb: &[u8]) -> Result<(), ImageError> {
         self.mapped(rgb)?;
         self.inner.row_rgb(&self.scratch)
+    }
+
+    fn wants_alpha(&self) -> bool {
+        self.inner.wants_alpha()
+    }
+
+    /// The gray of each pixel through the table; its opacity as it is.
+    fn row_alpha(&mut self, gray_alpha: &[u8]) -> Result<(), ImageError> {
+        self.mapped(gray_alpha)?;
+        // Every byte went through the table: the opacities are put back.
+        let opacities = gray_alpha.iter().skip(1).step_by(2);
+        for (mapped, &opacity) in self.scratch.iter_mut().skip(1).step_by(2).zip(opacities) {
+            *mapped = opacity;
+        }
+        self.inner.row_alpha(&self.scratch)
     }
 }
 
@@ -486,6 +505,9 @@ pub(super) fn luma_grid(
                         .iter()
                         .map(|p| u64::from(luma(p[0].into(), p[1].into(), p[2].into())))
                         .sum::<u64>()
+                } else if channels == 2 {
+                    // A see-through picture: its gray, the opacity not counted.
+                    pixels.iter().step_by(2).map(|&g| u64::from(g)).sum::<u64>()
                 } else {
                     pixels.iter().map(|&g| u64::from(g)).sum::<u64>()
                 };

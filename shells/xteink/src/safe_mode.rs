@@ -165,6 +165,21 @@ pub fn loading(id: &str) {
     write(record);
 }
 
+/// The stack's band was lost while native plugins run (a re-arm after a sleep
+/// failed): written before the restart that follows, so that the next start
+/// goes without native plugins (`paperpaw_x4::start_count::Count::lost_the_band`)
+/// instead of hosting them again at once.
+pub fn band_lost() {
+    let mut record = read();
+    let mut count = paperpaw_x4::start_count::Count {
+        failed: record.failed,
+        counted: record.counted != 0,
+    };
+    count.lost_the_band();
+    record.failed = count.failed;
+    write(record);
+}
+
 /// The first frame is shown: the start with its code plugins went well.
 pub fn started() {
     write(EMPTY);
