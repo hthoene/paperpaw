@@ -43,7 +43,16 @@ pub(crate) struct LibraryHost {
     sources: Option<Rc<BusySources>>,
     /// What changed, for `event.library_changed` (the kernel's pump takes it).
     changes: Changes,
+    /// The `cover` calls in a row that answered "the format is not running
+    /// yet" and told the caller to ask again (bit 6); at [`COVER_RETRIES`]
+    /// it stops telling, so a start that never ends cannot loop a caller
+    /// that redraws on the event. A cover made starts it again.
+    cover_retries: core::cell::Cell<u8>,
 }
+
+/// How often in a row a busy `cover` raises bit 6 (the format's start is
+/// asked for with the first).
+const COVER_RETRIES: u8 = 6;
 
 impl LibraryHost {
     pub(crate) fn new(
@@ -58,6 +67,7 @@ impl LibraryHost {
             moves,
             sources: None,
             changes: Changes::default(),
+            cover_retries: core::cell::Cell::new(0),
         }
     }
 
@@ -176,14 +186,23 @@ impl LibQuery for LibraryHost {
             // to ask again (bit 6). Nothing makes the cover in the background
             // in this version.
             Err(ERR_BUSY) => {
-                self.changes.raise(lib_changed::COVER, &path);
+                let raised = self.cover_retries.get();
+                if raised < COVER_RETRIES {
+                    self.cover_retries.set(raised + 1);
+                    self.changes.raise(lib_changed::COVER, &path);
+                }
                 Err(ERR_BUSY)
             }
             // No place in the caller's document table does not clear by
             // itself (the caller closes a document): busy, and no event, or
             // a caller that redraws on it would ask again for ever.
             Err(ERR_FULL) => Err(ERR_BUSY),
-            made => made,
+            made => {
+                if made.is_ok() {
+                    self.cover_retries.set(0);
+                }
+                made
+            }
         }
     }
     fn position(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {

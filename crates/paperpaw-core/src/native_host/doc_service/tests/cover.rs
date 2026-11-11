@@ -282,11 +282,29 @@ fn the_library_host_makes_the_cover_of_a_catalog_book() {
         // the one change for the book is raised again (a format that starts
         // ends it; a caller is not looped by anything else).
         fake.fails.set(Some(ERR_BUSY));
-        for _ in 0..2 {
+        // (The first busy above raised once already.)
+        let mut raised = 1;
+        for _ in 0..12 {
             let again = library.cover(&who, BookRef::Path(BOOK), 0, &cx, &mut |_| {});
             assert_eq!(again, Err(ERR_BUSY));
-            assert!(library.take_changed(&mut |what, _, _| assert_eq!(what, 1 << 6)));
+            if library.take_changed(&mut |what, _, _| assert_eq!(what, 1 << 6)) {
+                raised += 1;
+            }
         }
+        // A start that never ends does not loop a caller that redraws on it.
+        assert_eq!(raised, 6);
+        // A cover made starts the count again.
+        fake.fails.set(None);
+        fake.queue
+            .borrow_mut()
+            .extend([Ok(state_answer(0, 0)), Ok(picture(100))]);
+        library
+            .cover(&who, BookRef::Path(BOOK), 0, &cx, &mut |_| {})
+            .unwrap();
+        fake.fails.set(Some(ERR_BUSY));
+        let busy = library.cover(&who, BookRef::Path(BOOK), 0, &cx, &mut |_| {});
+        assert_eq!(busy, Err(ERR_BUSY));
+        assert!(library.take_changed(&mut |_, _, _| {}));
         fake.fails.set(None);
         // No place in the caller's table is busy too, but raises nothing: it
         // does not clear by itself, and a plugin that redraws on the event
