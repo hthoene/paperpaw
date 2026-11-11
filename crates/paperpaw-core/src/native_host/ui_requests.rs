@@ -22,7 +22,7 @@ const FOLDER_MAX: usize = 512;
 /// Kinds and flags of `ui_ask` (ui.md 3.1).
 const KINDS: u32 = 4;
 const LIVE: u32 = 1;
-const SECRET: u32 = 1 << 2;
+pub(super) const SECRET: u32 = 1 << 2;
 const ONLY_YES: u32 = 1 << 8;
 const TEXT_FLAGS: u32 = 0xFF;
 const CONFIRM_FLAGS: u32 = 0x300;
