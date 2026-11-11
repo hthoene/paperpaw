@@ -1,4 +1,5 @@
-//! Generated-schema call services. Successful replies publish once from scratch.
+//! Generated-schema call services. A reply is built in the caller's buffer
+//! and wiped there unless the call succeeds.
 use super::{
     declared_services::DeclaredServices,
     environment::EnvironmentScope,
@@ -7,16 +8,29 @@ use super::{
     secret_bytes::wipe,
 };
 use crate::abi7::services_wire::ServiceOp;
-use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
-    ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes, buffers,
+    ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes, buffers,
 };
 
-/// Every service can return private data. Wipe the whole host scratch on all
-/// exits, including a backend error or a malformed reply. Never format bytes.
-struct ReplyScratch<'a>(&'a mut [u8]);
+/// The reply room in the caller's buffer while a service fills it. Every
+/// service can return private data: on every exit but a checked reply
+/// (a backend error, a malformed reply) the room is wiped, so a failed call
+/// leaves no part of a reply behind (`stages-services.md` 2.1). Never format
+/// bytes.
+struct ReplyOnFailure<'a>(&'a mut [u8]);
 
-impl Drop for ReplyScratch<'_> {
+impl ReplyOnFailure<'_> {
+    /// The reply of `length` bytes was checked: it stays for the caller, and
+    /// whatever the service left past it in the room is wiped.
+    fn keep(self, length: usize) {
+        if let Some(rest) = self.0.get_mut(length..) {
+            wipe(rest);
+        }
+        core::mem::forget(self);
+    }
+}
+
+impl Drop for ReplyOnFailure<'_> {
     fn drop(&mut self) {
         wipe(self.0);
     }
@@ -52,6 +66,19 @@ fn output_pair(out: PpBuffer) -> Result<(), i32> {
     } else {
         Ok(())
     }
+}
+/// Whether `input` and `out` share no byte. The reply is written into `out`
+/// while the service reads `input`, so an overlapping pair is refused before
+/// either slice exists (both pairs passed their own checks: no wrap-around).
+fn apart(input: PpBytes, out: PpBuffer) -> bool {
+    if input.len == 0 || out.cap == 0 {
+        return true;
+    }
+    let (input, out) = (
+        (input.ptr as usize, input.ptr as usize + input.len),
+        (out.ptr as usize, out.ptr as usize + out.cap),
+    );
+    input.1 <= out.0 || out.1 <= input.0
 }
 fn key_valid(key: &str) -> bool {
     let mut segments = 0;
@@ -280,28 +307,35 @@ pub(super) unsafe fn call(
     let result = (|| {
         input_pair(input)?;
         output_pair(out)?;
+        if !apart(input, out) {
+            return Err(ERR_INVALID);
+        }
         scope.with_frame(|frame| {
             let key = owner.service(service)?;
             // SAFETY: the slot caller supplies readable input after pair checks.
             let input = unsafe { buffers::bytes_in(input, buffers::TEXT_MAX) }?;
             let op = validate_op(key, op, input, out.cap)?;
             let running = owner.enter_service(key)?;
-            let mut scratch = Vec::new();
-            scratch
-                .try_reserve_exact(op.max_reply)
-                .map_err(|_| ERR_NO_MEMORY)?;
-            scratch.resize(op.max_reply, 0);
-            let scratch = ReplyScratch(&mut scratch);
-            let caller = owner.caller(plugin, key.features);
-            let length = running.run(frame, &caller, op, input, scratch.0)?;
-            let reply = scratch.0.get(..length).ok_or(ERR_INVALID)?;
-            validate_reply_with(reply, op, Rows::of(key.schema.key))?;
-            // SAFETY: output has the declared capacity; no output was written on
-            // any earlier failure, including a service's own failure.
+            // SAFETY: the slot caller lends `out` for the call and nothing else
+            // touches it while the call runs; it shares no byte with `input`
+            // (`apart`, above). A refused call above wrote nothing.
             let output = unsafe { buffers::buffer_out(out, buffers::TEXT_MAX) }?;
-            for (slot, byte) in output.iter_mut().zip(reply) {
-                slot.write(*byte);
+            // The reply is built in the caller's own buffer, not in a host copy
+            // of `max_reply` bytes (#248). It is initialised first, so the
+            // service gets plain bytes.
+            let output = output.get_mut(..op.max_reply).ok_or(ERR_NO_SPACE)?;
+            for slot in output.iter_mut() {
+                slot.write(0);
             }
+            // SAFETY: every byte of `output` was written just above, and
+            // `MaybeUninit<u8>` has the layout of `u8`.
+            let output = unsafe { &mut *(core::ptr::from_mut(output) as *mut [u8]) };
+            let reply = ReplyOnFailure(output);
+            let caller = owner.caller(plugin, key.features);
+            let length = running.run(frame, &caller, op, input, &mut *reply.0)?;
+            let checked = reply.0.get(..length).ok_or(ERR_INVALID)?;
+            validate_reply_with(checked, op, Rows::of(key.schema.key))?;
+            reply.keep(length);
             Ok(length as i32)
         })?
     })();

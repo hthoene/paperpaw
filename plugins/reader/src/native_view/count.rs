@@ -34,6 +34,17 @@ impl Open {
         self.counter = Counter::open(&storage, name).ok();
     }
 
+    /// A book just opened: its pages are to be counted, and (a book of the
+    /// library) it is the one read last.
+    pub(super) fn begin(&mut self, host: &Host<'_>, library_book: bool) {
+        if let Ok(setup) = Setup::read(host) {
+            self.ensure_counter(host, &setup);
+        }
+        if library_book {
+            crate::native_start::remember(host, &self.path);
+        }
+    }
+
     /// One step of the count; the wait before the next one while pages remain.
     pub(super) fn count_step(&mut self, host: &Host<'_>, docs: &Documents) -> Option<u32> {
         let setup = Setup::read(host).ok()?;

@@ -23,7 +23,7 @@ use paperpaw_core::native_host::flat::FlatDepth;
 use paperpaw_core::native_host::shell::DATA_SERVICES;
 use paperpaw_core::native_host::shell_wiring::{
     CatalogEnv, NetInputs, NetLimits, NetReports, SecretsInputs, SockInputs, SockLimits,
-    SockReports, WorkDevice, WorkInputs,
+    SockReports, WiredHosts, WorkDevice, WorkInputs,
 };
 use paperpaw_core::native_host::{HostResources, HostWiring, TeardownStep};
 use paperpaw_native::metadata::{self, Feature, Service};
@@ -87,11 +87,14 @@ struct Wired {
     library: bool,
     files: bool,
     lookup: bool,
+    /// The profile's device has the radio the pretend Wi-Fi answers for
+    /// (`wifi.rs`): `uses.wifi` and the radio commands are backed.
+    wifi: bool,
 }
 
 impl Wired {
     /// How many combinations there are (one bit a service).
-    const COMBINATIONS: usize = 1 << 8;
+    const COMBINATIONS: usize = 1 << 9;
 
     fn index(self) -> usize {
         [
@@ -103,6 +106,7 @@ impl Wired {
             self.library,
             self.files,
             self.lookup,
+            self.wifi,
         ]
         .into_iter()
         .enumerate()
@@ -114,9 +118,10 @@ impl Wired {
 /// the device's power view (`core.device`) and, where they are wired,
 /// `uses.secrets` (it has a sealing key), `uses.network` (HTTP requests,
 /// `core.net`), `uses.storage` (the card's files, `core.files`) and
-/// `uses.library` (`core.library`). Not offered, because the desktop does not
-/// back them yet: `uses.wifi`, `uses.bluetooth`, `uses.install`,
-/// `uses.firmware`. A plugin that needs one is refused at admission.
+/// `uses.library` (`core.library`) and, on a profile whose device has Wi-Fi,
+/// `uses.wifi` (the pretend radio answers the radio commands). Not offered,
+/// because the desktop does not back them yet: `uses.bluetooth`,
+/// `uses.install`, `uses.firmware`. A plugin that needs one is refused at admission.
 fn features(wired: Wired) -> &'static [Feature<'static>] {
     use std::sync::OnceLock;
     static FEATURES: [OnceLock<&'static [Feature<'static>]>; Wired::COMBINATIONS] =
@@ -144,6 +149,10 @@ fn features_list(wired: Wired) -> &'static [Feature<'static>] {
     }
     if wired.library {
         features.push(feature("uses.library"));
+    }
+    // The radio commands (`device.md`) are answered by the pretend radio.
+    if wired.wifi {
+        features.push(feature("uses.wifi"));
     }
     Box::leak(features.into_boxed_slice())
 }
@@ -358,6 +367,19 @@ fn mapping_of(maps: &str, address: usize) -> Option<(usize, usize)> {
     None
 }
 
+/// What is wired: the wiring's own answer for the services that may be left
+/// out, and the card's families (`on_card`).
+fn wired_services(wired: &WiredHosts, on_card: Wired) -> Wired {
+    Wired {
+        secrets: wired.secrets().is_some(),
+        work: true,
+        net: wired.net().is_some(),
+        sockets: wired.sockets().is_some(),
+        lookup: true,
+        ..on_card
+    }
+}
+
 /// Registers every plugin of `paperpaw_app::NATIVE_PLUGINS` with `kernel` for
 /// the device of `profile`; the number registered. Call before the kernel
 /// starts, once.
@@ -415,6 +437,7 @@ pub fn register(
         on_card.library = true;
         on_card.files = true;
     }
+    on_card.wifi = profile.wifi;
     match (inputs.storage, sealer(inputs.simulated)) {
         (None, _) => eprintln!("native plugins: no secrets (the card cannot be opened)"),
         (Some(storage), Ok(sealer)) => {
@@ -436,14 +459,7 @@ pub fn register(
     {
         eprintln!("native plugins: the secrets file could not be upgraded ({status})");
     }
-    let on = Wired {
-        secrets: wired.secrets().is_some(),
-        work: true,
-        net: wired.net().is_some(),
-        sockets: wired.sockets().is_some(),
-        lookup: true,
-        ..on_card
-    };
+    let on = wired_services(&wired, on_card);
     *inputs.net.borrow_mut() =
         transport
             .zip(wired.net().cloned())
@@ -574,6 +590,43 @@ mod tests {
         };
         assert!(keys(lookup).contains(&"core.lookup"));
         assert_ne!(lookup.index(), Wired::default().index());
+    }
+
+    #[test]
+    fn wifi_is_offered_only_on_a_device_with_the_radio() {
+        assert!(!feature_keys(Wired::default()).contains(&"uses.wifi"));
+        let radio = Wired {
+            wifi: true,
+            ..Wired::default()
+        };
+        assert!(feature_keys(radio).contains(&"uses.wifi"));
+        assert_ne!(radio.index(), Wired::default().index());
+    }
+
+    /// A plugin that asks for the radio (diagnostics: `uses.wifi`) is granted
+    /// it where the radio is offered; where it is not, the plugin is still
+    /// admitted (the feature is optional for it) but without the radio
+    /// commands.
+    #[test]
+    fn a_plugin_asking_for_the_radio_is_granted_it_only_where_it_is_offered() {
+        let bytes = include_bytes!("../../../plugins/diagnostics/native/metadata.host.bin");
+        let granted = |wired: Wired| {
+            let host = metadata::Host {
+                abi_major: 7,
+                minor: paperpaw_native::host_glue::MINOR,
+                profile: crate::native_runtime::host_profile(),
+                services: offered(wired),
+                features: features(wired),
+            };
+            let checked = metadata::check(bytes, &host).expect("admitted");
+            checked.available_features().any(|key| key == "uses.wifi")
+        };
+        let radio = Wired {
+            wifi: true,
+            ..Wired::default()
+        };
+        assert!(granted(radio));
+        assert!(!granted(Wired::default()));
     }
 
     #[test]

@@ -23,9 +23,17 @@ use crate::native_policy::{Known, Password};
 pub const MAX_SSID: usize = 32;
 /// The longest password (`wifi_join.password`: WPA's 63 characters).
 pub const MAX_PASSWORD: usize = 63;
-/// The input and the reply a secrets call needs (`secrets.md`).
-pub const INPUT: usize = 1280;
-pub const REPLY: usize = 4096;
+/// What a secrets call needs of its buffers (`secrets.md` 2: the host refuses a
+/// reply buffer smaller than the op's `max_reply`, an input longer than
+/// `max_input`): `keep` takes 1,280 B in and gives 1,280 B; `get` and `remove`
+/// take 256 B in and give 1,280 B; `list` takes 256 B in and gives 4,096 B.
+pub const KEEP_INPUT: usize = 1280;
+/// The input of `get`, `remove` and `list`.
+pub const QUERY_INPUT: usize = 256;
+/// The reply of `keep`, `get` and `remove`.
+pub const SMALL_REPLY: usize = 1280;
+/// The reply of `list`.
+pub const LIST_REPLY: usize = 4096;
 /// Networks kept at most: more are not remembered (the list of secrets).
 pub const MAX_KNOWN: usize = 64;
 
@@ -119,8 +127,8 @@ pub fn known_with(
 /// # Errors
 /// What the service says; [`Error::NoMemory`].
 pub fn remember(secrets: &Secrets, host: &Host<'_>, remember: &Remember) -> Result<(), Error> {
-    let mut input = mem::buffer(INPUT)?;
-    let mut reply = mem::buffer(REPLY)?;
+    let mut input = mem::buffer(KEEP_INPUT)?;
+    let mut reply = mem::buffer(SMALL_REPLY)?;
     let result = remember
         .write()
         .and_then(|write| secrets.keep(host, write, &mut input, &mut reply));
@@ -135,8 +143,8 @@ pub fn remember(secrets: &Secrets, host: &Host<'_>, remember: &Remember) -> Resu
 /// # Errors
 /// What the service says; [`Error::NoMemory`].
 pub fn forget(secrets: &Secrets, host: &Host<'_>, ssid: &str) -> Result<(), Error> {
-    let mut input = mem::buffer(INPUT)?;
-    let mut reply = mem::buffer(REPLY)?;
+    let mut input = mem::buffer(QUERY_INPUT)?;
+    let mut reply = mem::buffer(SMALL_REPLY)?;
     let result =
         SecretName::new(ssid).and_then(|name| secrets.remove(host, name, &mut input, &mut reply));
     wipe(&mut input);
@@ -153,8 +161,8 @@ pub fn password_of(
     host: &Host<'_>,
     ssid: &str,
 ) -> Result<Option<Password>, Error> {
-    let mut input = mem::buffer(INPUT)?;
-    let mut reply = mem::buffer(REPLY)?;
+    let mut input = mem::buffer(QUERY_INPUT)?;
+    let mut reply = mem::buffer(SMALL_REPLY)?;
     let found = match secrets.get(host, ssid, &mut input, &mut reply) {
         Ok(value) => Password::new(value.value()).map(Some),
         Err(Error::NotFound) => Ok(None),
@@ -166,14 +174,42 @@ pub fn password_of(
     found
 }
 
+/// Whether any network is kept: the list read until its first entry, no name
+/// copied and no password read (Beta 3 asked the list's length).
+///
+/// # Errors
+/// What the service says; [`Error::NoMemory`].
+pub fn any(secrets: &Secrets, host: &Host<'_>) -> Result<bool, Error> {
+    let mut input = mem::buffer(QUERY_INPUT)?;
+    let mut reply = mem::buffer(LIST_REPLY)?;
+    let result = (|| {
+        let mut query = SecretList::own();
+        loop {
+            let page = secrets.list(host, query, &mut input, &mut reply)?;
+            let more = page.end().next();
+            if let Some(entry) = page.into_iter().next() {
+                entry?;
+                return Ok(true);
+            }
+            match more {
+                Some(cursor) => query = SecretList::own().from(cursor),
+                None => return Ok(false),
+            }
+        }
+    })();
+    wipe(&mut input);
+    wipe(&mut reply);
+    result
+}
+
 /// The names of the networks kept, page after page of the list, at most
 /// [`MAX_KNOWN`].
 ///
 /// # Errors
 /// What the service says; [`Error::NoMemory`].
 pub fn names(secrets: &Secrets, host: &Host<'_>) -> Result<Vec<String>, Error> {
-    let mut input = mem::buffer(INPUT)?;
-    let mut reply = mem::buffer(REPLY)?;
+    let mut input = mem::buffer(QUERY_INPUT)?;
+    let mut reply = mem::buffer(LIST_REPLY)?;
     let mut names: Vec<String> = Vec::new();
     let mut query = SecretList::own();
     let result = (|| {

@@ -116,6 +116,7 @@ pub(crate) mod plugin_unforgotten;
 
 #[path = "native_host/secrets_file.rs"]
 pub(crate) mod secrets_file;
+pub(crate) mod secrets_text;
 
 #[path = "native_host/secrets_service.rs"]
 #[allow(
@@ -205,6 +206,7 @@ pub(crate) mod shared;
 
 #[path = "native_host/resources.rs"]
 pub mod resources;
+pub use fixed_settings::FixedTables;
 pub use resources::HostResources;
 
 #[path = "native_host/shell_wiring.rs"]
@@ -237,6 +239,7 @@ pub(crate) mod doc_reading;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
 pub(crate) mod event_call;
+pub(crate) mod event_failures;
 #[allow(dead_code, reason = "wired into the shell frame by the files adapter")]
 pub(crate) mod files_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
@@ -355,11 +358,19 @@ const REGISTRATIONS: usize = 32;
 /// Callback-scoped drawing for host-owned plugin contexts.
 #[path = "native_host/canvas.rs"]
 pub mod canvas;
+mod canvas_describe;
 
 /// Callback-scoped slot-15 command staging for host-owned plugin contexts.
 #[path = "native_host/commands.rs"]
 pub mod commands;
 
+#[cfg(test)]
+#[path = "native_host/plugin_answers_tests.rs"]
+mod plugin_answers_tests;
+pub(crate) mod plugin_requests;
+#[cfg(test)]
+#[path = "native_host/plugin_requests_tests.rs"]
+mod plugin_requests_tests;
 /// The device-wide table of Wi-Fi join and host requests (DEV).
 #[path = "native_host/radio_requests.rs"]
 pub mod radio_requests;

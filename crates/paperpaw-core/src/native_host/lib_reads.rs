@@ -99,10 +99,6 @@ pub trait CatalogEnv {
     /// plugin declared it (`book_field.spec`); nothing where there is none: a
     /// row then shows the field's name.
     fn field_title(&self, _id: &str, _visit: &mut dyn FnMut(&str)) {}
-    /// The archive folder setting (`files.archive`), a root-1 path: the books
-    /// in it are left out of a query that says so (`lib_query.flags` bit 1).
-    /// Where the host says nothing there is no archive.
-    fn archive_folder(&self, _visit: &mut dyn FnMut(&str)) {}
     /// The library folder setting (`library.folder`): a root-1 path, empty for
     /// the card's top. Where the host says nothing the library is the top.
     fn library_folder(&self, visit: &mut dyn FnMut(&str)) {
@@ -117,15 +113,16 @@ pub(crate) struct CatalogReads {
 }
 
 impl CatalogReads {
-    /// Op 2 `query`, leaving out the books `hide` names (a pending delete
-    /// holds them).
+    /// Op 2 `query`, leaving out the `archive` folder where the query says so
+    /// and the books `hide` names (a pending delete holds them).
     pub(crate) fn query_hiding(
         &self,
         query: &wire::ServiceLibQuery<'_>,
+        archive: &str,
         hide: &dyn Fn(&str) -> bool,
         visit: Rows<'_>,
     ) -> Result<RowsEnd, i32> {
-        query::query(self, query, hide, visit)
+        query::query(self, query, archive, hide, visit)
     }
 
     /// The library folder setting ([`CatalogEnv::library_folder`]).
@@ -251,8 +248,13 @@ impl LibQuery for CatalogReads {
         Ok(())
     }
 
-    fn query(&self, query: &wire::ServiceLibQuery<'_>, visit: Rows<'_>) -> Result<RowsEnd, i32> {
-        query::query(self, query, &|_| false, visit)
+    fn query(
+        &self,
+        query: &wire::ServiceLibQuery<'_>,
+        archive: &str,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        query::query(self, query, archive, &|_| false, visit)
     }
 
     fn next_in_series(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {

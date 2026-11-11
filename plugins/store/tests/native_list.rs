@@ -19,7 +19,7 @@ fn abi() -> String {
     format!("{:016x}", FINGERPRINT.0)
 }
 
-fn device<'a>(have: Option<&'a paperpaw_plugin_store::native_item::HaveFn>) -> Device<'a> {
+fn device<'a>(have: Option<&'a paperpaw_plugin_store::native_item::HaveFn<'a>>) -> Device<'a> {
     Device {
         name: "x4",
         fingerprint: Some(FINGERPRINT),
@@ -50,6 +50,7 @@ fn read(text: &str, chunk: usize, device: Device<'_>) -> Vec<Entry> {
     let hooks = Hooks {
         author_of: &nobody,
         stopped: &none,
+        host_checks: false,
     };
     let mut reader = ListReader::new(device, hooks);
     let mut out = Vec::new();
@@ -200,6 +201,7 @@ fn text_that_is_no_list_or_no_page_is_none_without_a_panic() {
         let hooks = Hooks {
             author_of: &nobody,
             stopped: &none,
+            host_checks: false,
         };
         let mut reader = ListReader::new(device(None), hooks);
         let _ = reader.feed(text.as_bytes(), &mut |_| Ok(()));
@@ -224,6 +226,7 @@ fn an_error_of_the_caller_ends_the_reading() {
     let hooks = Hooks {
         author_of: &nobody,
         stopped: &none,
+        host_checks: false,
     };
     let mut reader = ListReader::new(device(None), hooks);
     let result = reader

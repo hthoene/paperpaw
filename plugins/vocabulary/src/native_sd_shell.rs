@@ -21,7 +21,7 @@ use paperpaw_ui_kit::{Footer, ItemList, ItemStep, text};
 
 use crate::declarations::{SD_CARD_TOKEN, SD_MENU_TOKEN, WORK_TOKEN};
 use crate::native_card::with_both;
-use crate::native_plugin::NativeVocabulary;
+use crate::native_plugin::State;
 use crate::native_sd::{self, CARD, MenuView, Run, Shown, Target};
 use crate::native_words::{HostWords, Words};
 use crate::{cards, sync};
@@ -129,7 +129,7 @@ fn menu_view(host: &Host<'_>, old: Option<&mut MenuView>) -> Result<Option<MenuV
     }
 }
 
-impl NativeVocabulary {
+impl State {
     /// The menu opened: the files and the decks as they are.
     pub(crate) fn opened_sd_menu(
         &mut self,

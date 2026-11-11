@@ -3,7 +3,6 @@
 //! by cursor under a generation, and what a changing catalog does.
 extern crate std;
 use super::*;
-use crate::native_host::lib_reads::CatalogEnv;
 use crate::native_host::lib_reads::tests::Env;
 use crate::native_host::lib_service::{BookRef, LibQuery};
 use alloc::rc::Rc;
@@ -101,8 +100,17 @@ fn page(
     q: &wire::ServiceLibQuery<'_>,
     room: usize,
 ) -> Result<(Vec<Got>, RowsEnd), i32> {
+    page_archived(reads, q, "", room)
+}
+
+fn page_archived(
+    reads: &CatalogReads,
+    q: &wire::ServiceLibQuery<'_>,
+    archive: &str,
+    room: usize,
+) -> Result<(Vec<Got>, RowsEnd), i32> {
     let mut rows = Vec::new();
-    let end = reads.query_hiding(q, &|_| false, &mut |record| {
+    let end = reads.query_hiding(q, archive, &|_| false, &mut |record| {
         if rows.len() == room {
             return ControlFlow::Break(());
         }
@@ -414,25 +422,12 @@ fn a_book_a_pending_delete_holds_is_not_listed_or_counted() {
     let mut rows = 0;
     let end = s
         .reads()
-        .query_hiding(&ask(), &|path| path == "books/00.epub", &mut |_| {
+        .query_hiding(&ask(), "", &|path| path == "books/00.epub", &mut |_| {
             rows += 1;
             ControlFlow::Continue(())
         })
         .unwrap();
     assert_eq!((rows, end.total), (32, 44));
-}
-
-struct Archive;
-impl CatalogEnv for Archive {
-    fn walking(&self) -> Option<u32> {
-        None
-    }
-    fn today(&self) -> Option<u32> {
-        Some(20_000)
-    }
-    fn archive_folder(&self, visit: &mut dyn FnMut(&str)) {
-        visit("books/old/");
-    }
 }
 
 #[test]
@@ -441,12 +436,17 @@ fn the_archive_folder_is_left_out_when_asked() {
         line("books/a.epub", "A", "Here", "", "", ["", "", "1"]),
         line("books/old/b.epub", "B", "Archived", "", "", ["", "", "1"]),
     ]);
-    let reads = CatalogReads::new(s.storage.clone(), Rc::new(Archive));
+    let reads = s.reads();
     let mut q = ask();
-    assert_eq!(page(&reads, &q, 9).unwrap().1.total, 2);
+    assert_eq!(
+        page_archived(&reads, &q, "books/old/", 9).unwrap().1.total,
+        2
+    );
+    // The flag names it; without a folder nothing is left out.
     q.flags = 0b10;
-    let (rows, end) = page(&reads, &q, 9).unwrap();
+    let (rows, end) = page_archived(&reads, &q, "books/old/", 9).unwrap();
     assert_eq!((titles(&rows), end.total), (["Here"].to_vec(), 1));
+    assert_eq!(page_archived(&reads, &q, "", 9).unwrap().1.total, 2);
 }
 
 #[test]

@@ -92,7 +92,7 @@ fn card() -> MemoryStorage {
 }
 
 fn run(
-    p: &mut paperpaw_plugin_format_epub::provider::FormatProvider,
+    p: &mut paperpaw_epub_family::provider::FormatProvider,
     base: &dyn Storage,
     card: &dyn Storage,
     input: &[u8],
@@ -115,7 +115,7 @@ fn rows(reply: &[u8]) -> Vec<stage::Record<'_>> {
 type Joined = (String, Vec<(u32, u32, u32)>, Vec<(u32, u32)>, (u32, u32));
 
 fn block(
-    p: &mut paperpaw_plugin_format_epub::provider::FormatProvider,
+    p: &mut paperpaw_epub_family::provider::FormatProvider,
     base: &dyn Storage,
     card: &dyn Storage,
     offset: u32,
