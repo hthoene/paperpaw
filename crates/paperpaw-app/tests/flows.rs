@@ -567,7 +567,11 @@ fn a_bookmark_toggled_twice_is_gone_and_the_others_stay() {
     assert_eq!(marks(&card), 2, "one on each page");
     app.kernel.render(&mut |_, _| {});
     app.run(bookmark);
-    assert_eq!(marks(&card), 1, "this page's is gone, the first page's stays");
+    assert_eq!(
+        marks(&card),
+        1,
+        "this page's is gone, the first page's stays"
+    );
     let warnings = app.warnings();
     assert!(warnings.is_empty(), "{warnings:?}");
 }
