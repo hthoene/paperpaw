@@ -231,3 +231,20 @@ fn the_grants_go_even_when_the_secrets_could_not_be_forgotten() {
     assert!(!kernel.forget_removed_by("dials", || false));
     assert!(!is_set(&kernel, id), "no grant stays for a later plugin");
 }
+
+#[test]
+fn a_stop_leaves_its_bounded_steps_to_the_end_of_the_pass() {
+    // Not under the command or callback that stopped (the X4's stack, #250):
+    // asked for there, taken once by the pass, before its effects.
+    let mut kernel = kernel();
+    let driver = kernel.firmware.clone().unwrap();
+    kernel.firmware_suspend();
+    assert!(driver.borrow().finish_due());
+    let _ = kernel.finish();
+    assert!(!driver.borrow().finish_due());
+    // A sender's stop asks the same, taken by the next pass.
+    kernel.firmware_sender_stopped(9);
+    assert!(driver.borrow().finish_due());
+    let _ = kernel.finish();
+    assert!(!driver.borrow().finish_due());
+}

@@ -259,12 +259,39 @@ impl Kernel {
 
     /// After a stop or a sender's stop: a plugin job that must finish (or runs
     /// on without its sender) is stepped on, bounded
-    /// ([`super::firmware_driver::Driver::finish_stopped`]).
+    /// ([`super::firmware_driver::Driver::finish_stopped`]), at the end of
+    /// this pass ([`Self::firmware_finish_due`]): not here, under the command
+    /// or the callback that stopped it, where an install's signature check
+    /// would run too deep for the X4's stack (#250).
     pub(crate) fn firmware_finish_stopped(
         &mut self,
         driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
     ) {
-        self.feed_install_grants(driver);
+        if let Ok(mut driver) = driver.try_borrow_mut() {
+            driver.want_finish();
+        }
+    }
+
+    /// The bounded steps [`Self::firmware_finish_stopped`] asked for, taken
+    /// once the pass's commands are applied and before its effects go to the
+    /// shell (a USB drive takes the card only after them, a sleep only after
+    /// them). At the pass's own level, outside every callback; not inlined,
+    /// so its frames are not the pass's (#250).
+    #[inline(never)]
+    pub(crate) fn firmware_finish_due(&mut self) {
+        if self.shared.native_instances.depth() > 0 {
+            return;
+        }
+        let Some(driver) = self.firmware.clone() else {
+            return;
+        };
+        if !driver
+            .try_borrow_mut()
+            .is_ok_and(|mut driver| driver.take_finish())
+        {
+            return;
+        }
+        self.feed_install_grants(&driver);
         let Ok(mut driver) = driver.try_borrow_mut() else {
             return;
         };

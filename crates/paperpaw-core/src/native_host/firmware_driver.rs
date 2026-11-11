@@ -161,6 +161,9 @@ pub(crate) struct Driver {
     /// A removal journal the start left to finish with the host's help (its
     /// plugin's secrets and grants): the kernel's first pass does it.
     resume: bool,
+    /// A stop asked for the bounded steps of [`Self::finish_stopped`]: the
+    /// kernel takes them at the end of its pass ([`Self::take_finish`]).
+    finish_due: bool,
     /// Revocations handed in (`trust_revoked`), kept at the next pump with no
     /// plugin job running; at most [`MAX_REVOCATIONS_QUEUED`].
     revocations: Vec<Revocation>,
@@ -221,6 +224,7 @@ impl Driver {
             plugin_unload: None,
             plugin_forget: None,
             resume: false,
+            finish_due: false,
             revocations: Vec::new(),
             ready: Vec::new(),
             kept: Vec::new(),
@@ -483,6 +487,21 @@ impl Driver {
     /// Whether [`Self::want_resume`] is not done yet; taken once.
     pub(crate) fn take_resume(&mut self) -> bool {
         core::mem::take(&mut self.resume)
+    }
+
+    /// A stop wants [`Self::finish_stopped`] at the end of the kernel's pass.
+    pub(crate) fn want_finish(&mut self) {
+        self.finish_due = true;
+    }
+
+    /// Whether [`Self::want_finish`] is not done yet; taken once.
+    pub(crate) fn take_finish(&mut self) -> bool {
+        core::mem::take(&mut self.finish_due)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn finish_due(&self) -> bool {
+        self.finish_due
     }
 
     /// The host closed the instances asked for: the job goes on.

@@ -47,6 +47,9 @@ impl Kernel {
         }
         self.check_network();
         self.run_commands();
+        // A plugin job a stop left to finish takes its bounded steps here,
+        // before the effects (a USB drive, a sleep) reach the shell.
+        self.firmware_finish_due();
         // Whatever this call decided is what the next callback goes by.
         self.sync_net_policy();
         if let Some(row) = self.hint_row() {
@@ -322,19 +325,7 @@ impl Kernel {
                 if !mem::take(&mut self.show_pending) {
                     return;
                 }
-                // Room made for it where it needs memory, given back where
-                // the screen that had it is gone (ADR 0030).
-                self.sync_room();
-                self.hint_escape();
-                self.show_pane_list();
-                self.with_top(|screen, cx| {
-                    screen.on_show(cx);
-                    Handled::Yes
-                });
-                if let Some(top) = self.stack.last() {
-                    let shown = events::ScreenShown::new(top.id.clone()).slot(top.slot.clone());
-                    self.output.commands.push(events::SCREEN_SHOWN.emit(shown));
-                }
+                self.show_top();
                 continue;
             }
             let trusted = mem::take(&mut self.trusted);
@@ -354,6 +345,25 @@ impl Kernel {
         if !self.output.commands.is_empty() {
             self.output.commands.clear();
             self.warn_runtime("too many chained commands; the rest was dropped");
+        }
+    }
+
+    /// The screen on top is told it shows, and plugins hear of it. Its own
+    /// frame, gone before the commands it asks for are applied (#250).
+    #[inline(never)]
+    fn show_top(&mut self) {
+        // Room made for it where it needs memory, given back where
+        // the screen that had it is gone (ADR 0030).
+        self.sync_room();
+        self.hint_escape();
+        self.show_pane_list();
+        self.with_top(|screen, cx| {
+            screen.on_show(cx);
+            Handled::Yes
+        });
+        if let Some(top) = self.stack.last() {
+            let shown = events::ScreenShown::new(top.id.clone()).slot(top.slot.clone());
+            self.output.commands.push(events::SCREEN_SHOWN.emit(shown));
         }
     }
 

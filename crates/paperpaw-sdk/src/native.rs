@@ -241,7 +241,7 @@ pub(crate) fn checked_file(
         None
     };
     let mut author = match &signature {
-        Some(signature) => Some(signature.check().map_err(|_| Problem::Signature)?),
+        Some(signature) => Some(author_check(signature)?),
         None => None,
     };
     if let Some(check) = author.as_mut() {
@@ -266,6 +266,20 @@ pub(crate) fn checked_file(
         check.finish().map_err(|_| Problem::Signature)?;
     }
     Ok((header, signature))
+}
+
+/// The author's check of a signed file, on the heap. Not inlined: the check
+/// (about 700 bytes on the X4) is made in this call's frame alone, so the
+/// caller's frame does not hold it twice while the signature's curve is
+/// decoded, the X4 start's and installs' deepest calls (#250).
+#[inline(never)]
+fn author_check(
+    signature: &Signature,
+) -> Result<alloc::boxed::Box<signature::SignatureCheck>, Problem> {
+    signature
+        .check()
+        .map(alloc::boxed::Box::new)
+        .map_err(|_| Problem::Signature)
 }
 
 /// Where the keys of the authors of the code plugins installed are kept:

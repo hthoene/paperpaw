@@ -528,11 +528,22 @@ impl KernelBuilder {
     }
 
     pub fn build(mut self) -> Result<Kernel, KernelError> {
-        let display = self.0.device.display;
-        let rows = self.0.frame_rows.unwrap_or(display.height);
-        let framebuffer = Framebuffer::banded(display.width, display.height, rows, display.format)
-            .map_err(KernelError::Graphics)?;
-        Ok(self.0.build(framebuffer))
+        let framebuffer = self.0.framebuffer()?;
+        let mut kernel = self.0.new_kernel(framebuffer);
+        self.0.set_up(&mut kernel);
+        Ok(kernel)
+    }
+
+    /// [`Self::build`], the kernel on the heap: for a shell whose stack is
+    /// small (the X4's). The kernel is large (about 6 KB there); built so, it
+    /// is on the stack only while it is made, before the start reads the
+    /// card, and every move after it is a pointer's, so no copy of it is on
+    /// the stack under the start's deepest calls (#250).
+    pub fn build_boxed(mut self) -> Result<Box<Kernel>, KernelError> {
+        let framebuffer = self.0.framebuffer()?;
+        let mut kernel = self.0.new_kernel_boxed(framebuffer);
+        self.0.set_up(&mut kernel);
+        Ok(kernel)
     }
 }
 
@@ -541,10 +552,27 @@ impl KernelBuilder {
 const MAX_LATE_CONFIG: usize = 64;
 
 impl BuilderParts {
-    /// The kernel, built where it is returned: it is large, and each copy
-    /// would take room on the stack while it is built (the X4's is small).
-    fn build(&mut self, framebuffer: Framebuffer) -> Kernel {
-        let mut kernel = self.new_kernel(framebuffer);
+    /// The frame buffer the display wants, in its bands.
+    fn framebuffer(&self) -> Result<Framebuffer, KernelError> {
+        let display = self.device.display;
+        let rows = self.frame_rows.unwrap_or(display.height);
+        Framebuffer::banded(display.width, display.height, rows, display.format)
+            .map_err(KernelError::Graphics)
+    }
+
+    /// [`Self::new_kernel`] on the heap. Not inlined: the kernel made on the
+    /// way is in this call's frame, which is gone before [`Self::set_up`].
+    #[inline(never)]
+    fn new_kernel_boxed(&mut self, framebuffer: Framebuffer) -> Box<Kernel> {
+        Box::new(self.new_kernel(framebuffer))
+    }
+
+    /// Everything the kernel takes from the builder once it is made: the
+    /// card's files read, the plugins registered, the settings applied. Not
+    /// inlined, and on the kernel where it lies: its frame holds no kernel
+    /// (the X4 start's deepest calls are under it, #250).
+    #[inline(never)]
+    fn set_up(&mut self, kernel: &mut Kernel) {
         kernel.card_trouble = self.card_trouble;
         kernel.after_sleep = self.after_sleep;
         paperpaw_sdk::data::take_over_old_name(kernel.shared.storage.as_ref());
@@ -634,7 +662,6 @@ impl BuilderParts {
         kernel.shrink_to_fit();
         kernel.apply_display_settings();
         kernel.settle();
-        kernel
     }
 
     /// The kernel with nothing registered: its `framebuffer`, its storage
