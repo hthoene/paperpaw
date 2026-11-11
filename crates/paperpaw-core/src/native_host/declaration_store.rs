@@ -536,7 +536,14 @@ impl PendingDeclarations {
         let bytes = input.bytes();
         let decoded = host_records_decode(bytes)?;
         declarations::validate_batch(self.kept.id.as_str(), &decoded)?;
-        super::raw_declarations::offsets(bytes, decoded.len())?;
+        // The frames must tile the batch exactly: a lookup walks their headers
+        // to reach a record by its place (`raw_declarations::record_at`).
+        let framing = super::raw_declarations::offsets(bytes, decoded.len())?;
+        debug_assert!(
+            framing[..decoded.len()]
+                .windows(2)
+                .all(|pair| pair[0] < pair[1])
+        );
         let mut counts = [0usize; KIND_COUNT];
         let mut kinds = [None; REGISTRATION_MAX_RECORDS];
         for (index, record) in decoded.iter().enumerate() {

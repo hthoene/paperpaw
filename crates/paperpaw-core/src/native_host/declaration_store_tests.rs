@@ -1481,3 +1481,6 @@ fn image_offset(source: &Image, key: DeclKey) -> usize {
     let rest = super::super::raw_declarations::record_at(&bytes, usize::from(key.record)).unwrap();
     bytes.len() - rest.len()
 }
+
+#[path = "declaration_slots_tests.rs"]
+mod slots;
