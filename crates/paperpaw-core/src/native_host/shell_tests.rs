@@ -42,6 +42,10 @@ std::thread_local! {
     static EVENT_ONLY: Cell<bool> = const { Cell::new(false) };
     /// `make` also registers for `event.tick`.
     static TICKS_TOO: Cell<bool> = const { Cell::new(false) };
+    /// The draw callback draws "Hello" with `text.draw_inked` through the host
+    /// table, and leaves the status and the advance here.
+    static DRAW_INKED: Cell<bool> = const { Cell::new(false) };
+    static INKED: Cell<Option<(i32, f32)>> = const { Cell::new(None) };
 }
 
 /// The test binary's allocator: the system's, failing on request so the
@@ -126,6 +130,7 @@ pub(in crate::native_host) fn reset(mode: u8) {
     UNCOVERED.with(|u| u.set(0));
     EVENT_ONLY.with(|e| e.set(false));
     TICKS_TOO.with(|e| e.set(false));
+    DRAW_INKED.with(|d| d.set(false));
 }
 
 /// The shell's heap and clock.
@@ -308,6 +313,42 @@ unsafe extern "C" fn draw(state: *mut c_void, token: u32, frame: PpBytes) -> i32
     }
     if token != TOKEN || frame.len == 0 || frame.ptr.is_null() {
         return ERR_INVALID;
+    }
+    if DRAW_INKED.with(Cell::get) {
+        // SAFETY: as for `event`.
+        let (host, ctx) = unsafe { ((*state.cast::<Fake>()).host, (*state.cast::<Fake>()).ctx) };
+        // SAFETY: the host table is valid for this call.
+        let table = unsafe { &*host };
+        let bytes = |text: &'static [u8]| PpBytes {
+            ptr: text.as_ptr(),
+            len: text.len(),
+        };
+        let mut font = 0;
+        // SAFETY: readable key, writable output, the call's own context.
+        let status = unsafe { (table.font_acquire)(ctx, bytes(b"role:ui"), &mut font) };
+        if status != OK {
+            INKED.with(|r| r.set(Some((status, 0.0))));
+            return OK;
+        }
+        let mut advance = 0.0_f32;
+        // SAFETY: readable text and tone (empty), writable advance, the call's own context.
+        let status = unsafe {
+            (table.text_draw_inked)(
+                ctx,
+                font,
+                16.0,
+                4.0,
+                24,
+                0,
+                bytes(b"Hello"),
+                0,
+                bytes(b""),
+                0,
+                &mut advance,
+            )
+        };
+        INKED.with(|r| r.set(Some((status, advance))));
+        return OK;
     }
     // A positive result is a fault, never a length: the host maps it.
     if frame.len == 1 { 1 } else { OK }
@@ -1326,6 +1367,52 @@ fn kernel_dispatch_supplies_real_core_views_and_clears_them_after_callbacks() {
         hosted.owner().context().environment.with_frame(|_| ()),
         Err(host_glue::ERR_STATE)
     );
+    drop(batch);
+    finish(&hosted);
+}
+
+/// A native plugin's draw callback reaches slot 41 through the table the shell
+/// gives it (the stub would answer `ERR_UNSUPPORTED`): the text is drawn on the
+/// canvas of the draw and the advance comes back.
+#[test]
+fn a_native_draw_callback_draws_inked_text_through_the_host_table() {
+    reset(NORMAL);
+    DRAW_INKED.with(|d| d.set(true));
+    INKED.with(|r| r.set(None));
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
+        .build()
+        .unwrap();
+    kernel.start(paperpaw_platform::Instant(0));
+    kernel.run_commands();
+    let hosted = fake();
+    let batch = hosted
+        .make_registered(hosted.begin().unwrap())
+        .unwrap()
+        .commit()
+        .unwrap();
+    let depth = DispatchDepth::new();
+    let now = paperpaw_platform::Instant(12);
+    let mut framebuffer =
+        paperpaw_graphics::Framebuffer::new(160, 40, paperpaw_platform::PixelFormat::Gray8)
+            .unwrap();
+    framebuffer
+        .canvas()
+        .fill_rect(0, 0, 160, 40, paperpaw_sdk::Color::WHITE);
+    assert_eq!(
+        kernel.draw_native_for_test(&batch, 1, &depth, now, &mut framebuffer.canvas()),
+        Ok(OK)
+    );
+    let (status, advance) = INKED.with(Cell::get).expect("the callback drew");
+    assert_eq!(status, OK, "text.draw_inked reached the host");
+    assert!(advance > 0.0, "advance {advance}");
+    let view = framebuffer.view();
+    let inked = (0..40)
+        .flat_map(|y| (0..160).map(move |x| (x, y)))
+        .filter(|&(x, y)| view.pixel(x, y).luma() < 200)
+        .count();
+    assert!(inked > 20, "{inked} dark pixels");
+    DRAW_INKED.with(|d| d.set(false));
     drop(batch);
     finish(&hosted);
 }
