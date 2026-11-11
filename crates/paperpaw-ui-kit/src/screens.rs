@@ -32,13 +32,8 @@ impl<V> Screens<V> {
             *old = view;
             return Ok(());
         }
-        // Exactly one more: a screen's state can be hundreds of bytes, and the
-        // usual growth would reserve room for four.
-        self.open
-            .try_reserve_exact(1)
-            .map_err(|_| Error::NoMemory)?;
-        self.open.push((instance, view));
-        Ok(())
+        // Exact growth: a view can be a kilobyte, and a plugin has one or two open.
+        crate::mem::push(&mut self.open, (instance, view))
     }
 
     /// Forgets a closed instance.
@@ -56,9 +51,7 @@ impl<V> Screens<V> {
             *top = instance;
             return Ok(());
         }
-        self.tops.try_reserve(1).map_err(|_| Error::NoMemory)?;
-        self.tops.push((token, instance));
-        Ok(())
+        crate::mem::push(&mut self.tops, (token, instance))
     }
 
     /// The state of the top instance of `token`'s screen.
@@ -88,7 +81,9 @@ impl<V> Screens<V> {
 
     /// Every open instance with its state.
     pub fn all_with_instance(&mut self) -> impl Iterator<Item = (Instance, &mut V)> {
-        self.open.iter_mut().map(|(instance, view)| (*instance, view))
+        self.open
+            .iter_mut()
+            .map(|(instance, view)| (*instance, view))
     }
 
     /// Whether no instance is open.
