@@ -54,6 +54,7 @@ mod field;
 mod fields;
 mod importer;
 mod jobs;
+mod old_reader;
 mod position;
 mod provide;
 mod query;
@@ -296,6 +297,7 @@ impl LibQuery for CatalogReads {
         visit: Rows<'_>,
     ) -> Result<RowsEnd, i32> {
         self.with_path(book, |path| {
+            old_reader::adopt(&*self.storage, path, old_reader::Kept::Annotations);
             annotations::annotations(&*self.storage, path, cursor, generation, visit)
         })
     }
@@ -308,12 +310,16 @@ impl LibQuery for CatalogReads {
         visit: Rows<'_>,
     ) -> Result<RowsEnd, i32> {
         self.with_path(book, |path| {
+            old_reader::adopt(&*self.storage, path, old_reader::Kept::Annotations);
             annotations::anchors(&*self.storage, path, cursor, generation, visit)
         })
     }
 
     fn position(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
-        self.with_path(book, |path| position::read(&*self.storage, path, visit))
+        self.with_path(book, |path| {
+            old_reader::adopt(&*self.storage, path, old_reader::Kept::Position);
+            position::read(&*self.storage, path, visit)
+        })
     }
 
     fn book_key(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
@@ -322,6 +328,13 @@ impl LibQuery for CatalogReads {
 }
 
 impl CatalogReads {
+    /// Moves the annotations Beta 3's reader kept in its own folder of the
+    /// book at `path` where they are shared, before an edit of them
+    /// (`old_reader`).
+    pub(crate) fn adopt_old_annotations(&self, path: &str) {
+        old_reader::adopt(&*self.storage, path, old_reader::Kept::Annotations);
+    }
+
     /// The book's root-1 path, for the host's own bookkeeping.
     pub(crate) fn path_of<R>(
         &self,
