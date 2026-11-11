@@ -418,7 +418,7 @@ fn ask_image_asks_for_one_picture_by_its_index() {
     };
     reply(&state, &[row(3)]);
     let image = docs
-        .ask_image(&host, DocId(4), (3, 0), &mut input, &mut out)
+        .ask_image(&host, DocId(4), 3, 0, &mut input, &mut out)
         .unwrap();
     assert_eq!(
         (image.image(), image.index(), image.width(), image.height()),
@@ -435,7 +435,40 @@ fn ask_image_asks_for_one_picture_by_its_index() {
     // Another picture's answer is no answer.
     reply(&state, &[row(5)]);
     assert_eq!(
-        docs.ask_image(&host, DocId(4), (3, 0), &mut input, &mut out),
+        docs.ask_image(&host, DocId(4), 3, 0, &mut input, &mut out),
         Err(Error::Invalid)
     );
+}
+
+#[test]
+fn ask_image_passes_refusals_through_and_wants_exactly_one_picture() {
+    setup!(table, state, host, docs);
+    let (mut input, mut out) = ([0; 64], [0; 4096]);
+    for (status, error) in [
+        (abi::ERR_BUSY, Error::Busy),
+        (abi::ERR_NOT_FOUND, Error::NotFound),
+        (abi::ERR_INVALID, Error::Invalid),
+    ] {
+        state.error.set(status);
+        assert_eq!(
+            docs.ask_image(&host, DocId(4), 3, 0, &mut input, &mut out),
+            Err(error)
+        );
+    }
+    state.error.set(0);
+    let row = Record::ServiceDocImage(wire::ServiceDocImage {
+        image: 7,
+        index: 3,
+        width: 200,
+        height: 100,
+        flags: 0,
+    });
+    // No picture, or two: malformed.
+    for rows in [&[][..], &[row, row][..]] {
+        reply(&state, rows);
+        assert_eq!(
+            docs.ask_image(&host, DocId(4), 3, 0, &mut input, &mut out),
+            Err(Error::Invalid)
+        );
+    }
 }

@@ -579,7 +579,7 @@ impl Documents {
     /// (`BlockImage::image` 0: none was free, or it was not decoded yet) or
     /// whose id has ended (`NotFound` at a draw). `side` 0 is the page's
     /// size, else the longest side for a zoom (at most 1,600; larger is
-    /// clamped). The picture with its new image id, or the live one where
+    /// `Invalid`). The picture with its new image id, or the live one where
     /// nothing was to do. `input` is 64 bytes; `out` 4,096.
     ///
     /// # Errors
@@ -590,7 +590,8 @@ impl Documents {
         &self,
         host: &Host<'_>,
         document: DocId,
-        (index, side): (u32, u32),
+        index: u32,
+        side: u32,
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<BlockImage, Error> {

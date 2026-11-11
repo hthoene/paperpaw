@@ -112,6 +112,11 @@ impl Open {
     /// again by the format's index (op 16), at most [`MAX_ASKED`] a page; one
     /// the host cannot give now keeps its box (#252 P2). The ids handed out
     /// stay until they are drawn, in the frames this callback asks for.
+    /// That protection ends at the next frame drawn without the id: here the
+    /// text-only frame, so a new id is unprotected until the follow-up. Safe
+    /// while nothing else in the reader asks for ids in between; if that
+    /// changes, the follow-up meets `NotFound` and the box stays empty until
+    /// the next layout.
     fn ask_missing(&mut self, host: &Host<'_>, docs: &Documents) {
         let id = self.id;
         let Some(page) = self.page.as_mut() else {
@@ -136,7 +141,7 @@ impl Open {
                 return;
             };
             let mut input = [0; 64];
-            let answer = docs.ask_image(host, id, (index, 0), &mut input, out);
+            let answer = docs.ask_image(host, id, index, 0, &mut input, out);
             if !take_answer(&mut image.image.path, index, answer.map(|p| p.image())) {
                 return;
             }
