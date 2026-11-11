@@ -40,7 +40,8 @@ pub fn reopen_last(host: &Host<'_>, ui: &Ui) -> Result<(), Error> {
     if !on_the_card(host, &path)? {
         return Ok(());
     }
-    let (mut input, mut out) = (buffer(4096)?, buffer(4096)?);
+    // A path of at most 512 bytes (`MAX_PATH`) and its key; the answer is a handle.
+    let (mut input, mut out) = (buffer(1280)?, buffer(128)?);
     let params = [Param::new("path", &path)?];
     let handover = ui.handover(host, &params, &mut input, &mut out)?;
     let mut scratch = [0; 256];
@@ -65,7 +66,7 @@ fn last_book(host: &Host<'_>) -> Result<Option<alloc::string::String>, Error> {
 /// Whether the file at `path` is on the card (a book moved or removed is not).
 fn on_the_card(host: &Host<'_>, path: &str) -> Result<bool, Error> {
     let files = Files::open(host)?;
-    let (mut input, mut out) = (buffer(1024)?, buffer(1024)?);
+    let (mut input, mut out) = (buffer(640)?, buffer(640)?);
     let found = match files.stat(host, Root::Files, path, &mut input, &mut out) {
         Ok(_) => Ok(true),
         Err(Error::NotFound | Error::Invalid | Error::NoSpace) => Ok(false),
