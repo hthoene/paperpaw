@@ -577,8 +577,11 @@ impl View {
             && core::mem::take(&mut open.report_due)
         {
             open.announce(host, docs);
-            // The book or a place in it is shown: its pictures follow its text.
-            open.redraw_page(host, RedrawMode::Partial).ok();
+            // The book or a place in it is shown: its pictures follow its text
+            // (the show draws it anyway: asked for only where there are any).
+            if open.has_pictures() {
+                open.redraw_page(host, RedrawMode::Partial).ok();
+            }
         }
     }
 

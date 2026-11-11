@@ -49,6 +49,13 @@ impl Pass {
 }
 
 impl Open {
+    /// Whether the page on show (laid out) has pictures.
+    pub(super) fn has_pictures(&self) -> bool {
+        self.page
+            .as_ref()
+            .is_some_and(|page| !page.images.is_empty())
+    }
+
     /// The page on show is drawn again in `mode` (it was laid out in the
     /// callback: `announce`). Where it has pictures and the host takes their
     /// boxes to draw again in the frame after, the page is drawn first
@@ -63,7 +70,7 @@ impl Open {
         let Some(frame_at) = self.frame_at else {
             return Ok(());
         };
-        let Some(page) = self.page.as_ref().filter(|page| !page.images.is_empty()) else {
+        let Some(page) = self.page.as_ref().filter(|_| self.has_pictures()) else {
             return Ok(());
         };
         let Some(area) = Setup::read(host).ok().and_then(|setup| self.area(&setup)) else {
