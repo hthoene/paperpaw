@@ -290,6 +290,23 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   there means a reset happened in that job (or a plain power loss: then the book is counted failed
   for that run only), and its book is counted as failed. The format's first `open` of a book (the call
   that reports *preparing*) is not covered by the marker.
+  **Native books' details: the details job (host behaviour, no ABI).** The walk cannot read a book of
+  a native format plugin (its line names the file and has no size), so after a walk publishes (or
+  `core.catalog-changed`) the host reads such books itself, one at a time: it opens the book as its
+  own background document (root 1, the defaults of a plain open) in the **same one slot** as the cover
+  job, with the same marker (written before the open), start gate, sleep end (not restarted after a
+  wake until the next walk), "any other open takes its place" rule and failure after 8 steps. Once it
+  is ready (after the preparing loop where the format prepares) the host reads `meta` (op 5), the
+  whole title and series by offsets where `meta` cut them, the first author and at most 16 subjects
+  (op 6, each cut at the details' caps), keeps them as the book's details marked as read (never where
+  nothing was read), and closes it. It begins only when no job of either kind runs and no book is
+  open for reading or showing; a book the format failed (or whose job a reset ended) joins the cover
+  job's failed books and is skipped until the next start. A `cover` that finds the slot taken by the
+  details job is `ERR_BUSY`, and bit 6 is raised when the details job ends. The catalog is wanted
+  again (`core.catalog-wanted`, made anew) once when the job reaches the catalog's end and at most
+  every two minutes while it runs, each only where a book was read since the last: never per book,
+  and a walk after a pass that read nothing arms a pass that finds nothing. Nothing of it holds the
+  device awake; it holds one 4 KiB reply buffer and what it read of one book.
 
 ### 2.2 Status, positions, annotations
 
