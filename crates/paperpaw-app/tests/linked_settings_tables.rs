@@ -50,7 +50,20 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
     }
     // A plugin with settings has its table (one that is not listed costs
     // memory): the ones that declare settings today.
-    for id in ["keyboard", "lock", "help", "opds", "power", "bluetooth"] {
+    let mut with_settings = vec![
+        "keyboard",
+        "lock",
+        "help",
+        "opds",
+        "power",
+        "bluetooth",
+        "menu",
+        "settings",
+        "file-manager",
+    ];
+    #[cfg(feature = "native-linked-store")]
+    with_settings.push("aids");
+    for id in with_settings {
         assert!(
             !paperpaw_app::fixed_settings(id).is_empty(),
             "{id} has no table"

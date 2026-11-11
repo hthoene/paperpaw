@@ -68,6 +68,9 @@ fn main() -> Result<(), String> {
         batches.push(batch);
         rest = tail;
     }
+    if !rest.is_empty() {
+        return Err("bytes left after the last batch of the golden".into());
+    }
     let table =
         paperpaw_sdk::native::declare::fixed_settings_source("file-manager", "SETTINGS", &batches)?;
     std::fs::write(out.join("file_manager_settings.rs"), table)
