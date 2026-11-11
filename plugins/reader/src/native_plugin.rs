@@ -633,11 +633,24 @@ impl NativeReader {
     /// The start of the device (`Event::Started`): the book read last opens again where the setting
     /// asks for it.
     fn reopen_last(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        // A convenience at the start never ends the callback with an error (that
+        // would drop what other plugins staged in it); only a refused allocation does.
+        let opened = self.open_ui(host).and_then(|()| {
+            let ui = self.ui.as_ref().ok_or(Error::State)?;
+            crate::native_start::reopen_last(host, ui)
+        });
+        match opened {
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            _ => Ok(()),
+        }
+    }
+
+    /// The UI service, opened at the first need.
+    fn open_ui(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.ui.is_none() {
             self.ui = Some(Ui::open(host)?);
         }
-        let ui = self.ui.as_ref().ok_or(Error::State)?;
-        crate::native_start::reopen_last(host, ui)
+        Ok(())
     }
 
     /// The screen closed: its document is given back.
