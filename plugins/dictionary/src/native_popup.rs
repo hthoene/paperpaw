@@ -133,9 +133,8 @@ impl View {
             )?,
         };
         let wide = f32::from(width.saturating_sub(2 * style.margin)).max(1.0);
-        let entries = core::mem::take(&mut self.entries);
-        self.panel = Some(Panel::new(
-            &entries,
+        self.panel = Some(build_panel(
+            &mut self.entries,
             &empty,
             |t| font.measure_text(style.text, t),
             wide,
@@ -253,6 +252,28 @@ impl View {
         paint::replay(frame, font, body.iter())?;
         self.layout = Layout { region, rows };
         Ok(())
+    }
+}
+
+/// The panel for `entries`, which it takes: the wrapped text holds them from
+/// then on. Where it cannot be made (a refused allocation, a font that does
+/// not measure) the entries stay, so the next draw tries again with them.
+///
+/// # Errors
+/// [`Error::NoMemory`] or the measure's error.
+fn build_panel(
+    entries: &mut Vec<Entry>,
+    empty: &str,
+    measure: impl FnMut(&str) -> Result<f32, Error>,
+    width: f32,
+) -> Result<Panel, Error> {
+    let taken = core::mem::take(entries);
+    match Panel::new(&taken, empty, measure, width) {
+        Ok(panel) => Ok(panel),
+        Err(error) => {
+            *entries = taken;
+            Err(error)
+        }
     }
 }
 
@@ -419,6 +440,26 @@ pub fn clean_language(language: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
+
+    #[test]
+    fn entries_stay_where_the_panel_cannot_be_made_and_go_into_it_where_it_can() {
+        let entry = |text: &str| Entry {
+            source: "D".into(),
+            text: text.into(),
+        };
+        let mut entries = vec![entry("one"), entry("two")];
+        let failing = |_: &str| -> Result<f32, Error> { Err(Error::NoMemory) };
+        assert_eq!(
+            build_panel(&mut entries, "none", failing, 100.0).err(),
+            Some(Error::NoMemory)
+        );
+        assert_eq!(entries.len(), 2, "kept for the next draw");
+        let narrow = |t: &str| -> Result<f32, Error> { Ok(t.len() as f32) };
+        let panel = build_panel(&mut entries, "none", narrow, 100.0).unwrap();
+        assert!(entries.is_empty());
+        assert_eq!(panel.page(10).next().map(|(t, _)| t), Some("one"));
+    }
 
     #[test]
     fn a_long_word_is_cut_at_a_character_and_never_over_the_limit() {
