@@ -746,18 +746,20 @@ impl Open {
         Ok(())
     }
 
-    /// Says once that the place could not be saved; after the screen closed
-    /// the device's message (`announce`) carries it, as nothing else would.
-    fn say_not_saved(&self, host: &Host<'_>, closing: bool) {
+    /// Says that the place could not be saved; after the screen closed the
+    /// device's message (`announce`) carries it, as nothing else would. Whether
+    /// the host took the notice: a quiet work run (the auto-turn's tick) is
+    /// refused one, and the next save tries again.
+    fn say_not_saved(&self, host: &Host<'_>, closing: bool) -> bool {
         let Ok(text) = Messages::new().and_then(|mut m| m.copy(host, "reader.not-saved")) else {
-            return;
+            return false;
         };
         let Ok(note) = Notify::new(&text) else {
-            return;
+            return false;
         };
         let note = if closing { note.announce() } else { note };
         let mut scratch = [0; 512];
-        CommandSender::new(host, &mut scratch).notify(note).ok();
+        CommandSender::new(host, &mut scratch).notify(note).is_ok()
     }
 
     /// Writes the place of the page on show if it is not saved: now unless
@@ -795,8 +797,7 @@ impl Open {
             self.unsaved = false;
             self.saved_at = now;
         } else if !self.said {
-            self.said = true;
-            self.say_not_saved(host, when == When::Closing);
+            self.said = self.say_not_saved(host, when == When::Closing);
         }
     }
 

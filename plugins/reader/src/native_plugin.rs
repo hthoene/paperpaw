@@ -12,6 +12,7 @@ use crate::{
     },
     native_annotations_view::{AnnotationsView, Outcome as NotesOutcome},
     native_footnote::{Footnote, Pressed},
+    native_handsfree::{self, Due, Hands, Kind},
     native_index, native_pages,
     native_search::MAX_NEEDLE,
     native_search_view::{Outcome as SearchOutcome, SearchView},
@@ -78,6 +79,8 @@ pub struct NativeReader {
     docs: Option<Documents>,
     library: Option<Library>,
     work: Option<Work>,
+    /// The timer that turns the pages by itself (`native_handsfree`).
+    hands: Hands,
     /// The host has no work for the reader: not asked again.
     no_work: bool,
     screens: Screens<View>,
@@ -154,6 +157,27 @@ impl NativeReader {
             return Ok(());
         };
         view.follow(host, docs, (&path, &href))
+    }
+
+    /// A screen of the reader opened: over the reading screen the pages stop
+    /// turning, then the screen's own view is opened.
+    fn screen_opened(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        instance: paperpaw_sdk::native::ui::Instance,
+        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
+    ) -> Result<(), Error> {
+        self.auto_turn_leave(host);
+        match token {
+            SCREEN => self.open(host, instance, handover),
+            TOC => self.open_toc(host, instance, handover),
+            ANNOTATIONS => self.open_notes(host, instance, handover),
+            SEARCH => self.open_search(host, instance, handover),
+            FOOTNOTE => self.open_note(host, instance, handover),
+            SKIM => self.open_skim(host, instance, handover),
+            _ => Ok(()),
+        }
     }
 
     /// The table of contents opened: its book is opened with it.
@@ -480,10 +504,7 @@ impl NativeReader {
 
     /// Declares the work `(key, token)` to be due after `after` milliseconds.
     fn declare_work(&mut self, host: &Host<'_>, (key, token): (&str, u32), after: u32) {
-        if self.work.is_none() && !self.no_work {
-            self.work = Work::open(host).ok();
-            self.no_work = self.work.is_none();
-        }
+        self.open_work(host);
         let Some(work) = &self.work else {
             return;
         };
@@ -496,6 +517,47 @@ impl NativeReader {
         if let Ok(spec) = WorkSpec::new(key, token) {
             work.declare(host, &spec.after_ms(after), &mut input, &mut out)
                 .ok();
+        }
+    }
+
+    /// The work service, opened at the first need; a host without it is asked once.
+    fn open_work(&mut self, host: &Host<'_>) {
+        if self.work.is_none() && !self.no_work {
+            self.work = Work::open(host).ok();
+            self.no_work = self.work.is_none();
+        }
+    }
+
+    /// The action `reader.auto-turn` ran: the timer starts or stops for the
+    /// reading screen shown.
+    fn auto_turn_toggle(&mut self, host: &Host<'_>) {
+        self.open_work(host);
+        let top = self.screens.top_instance(SCREEN);
+        self.hands.toggle(host, top, self.work.as_ref());
+    }
+
+    /// The reader is left (a screen opens, the device sleeps or stops, another
+    /// action runs): the timer stops.
+    fn auto_turn_leave(&mut self, host: &Host<'_>) {
+        self.hands.leave(host, self.work.as_ref());
+    }
+
+    /// The timer is due: the screen turns the page, as the next-page action
+    /// does, and the quiet time starts again; at the end of the book it stops.
+    fn auto_turn_due(&mut self, host: &Host<'_>, now_ms: u64) {
+        let (Some(docs), Some(ui)) = (&self.docs, &self.ui) else {
+            return self.auto_turn_leave(host);
+        };
+        let (library, screens) = (self.library.as_ref(), &mut self.screens);
+        let due = self
+            .hands
+            .due(host, (now_ms, self.work.as_ref()), |instance, input| {
+                let view = screens.get(instance).ok_or(Error::State)?;
+                view.input(host, (docs, library, ui), input)?;
+                Ok(view.take_turned())
+            });
+        if due == Due::Turned {
+            self.start_quiet(host);
         }
     }
 
@@ -527,6 +589,7 @@ impl Plugin for NativeReader {
     ) -> Result<(), Error> {
         let Some(event) = read_event!(
             incoming;
+            kinds::ActionRun,
             kinds::ScreenOpened,
             kinds::ScreenShown,
             kinds::ScreenClosed,
@@ -539,6 +602,21 @@ impl Plugin for NativeReader {
             return Ok(());
         };
         match event {
+            // The timer of the pages that turn by themselves (a quiet run: the
+            // host refuses messages in it).
+            Event::WorkDue(due) if token == WORK_DUE && due.key() == native_handsfree::KEY => {
+                self.auto_turn_due(host, due.now_ms());
+                Ok(())
+            }
+            // The action `reader.auto-turn`; any other action of the reader stops it.
+            Event::ActionRun { .. } if token == native_handsfree::action_token() => {
+                self.auto_turn_toggle(host);
+                Ok(())
+            }
+            Event::ActionRun { .. } if native_handsfree::is_reader_action(token) => {
+                self.auto_turn_leave(host);
+                Ok(())
+            }
             // The search's work is due (the work's own token, as declared).
             Event::WorkDue(due) if token == WORK_DUE && due.token() == SEARCH_WORK => {
                 self.search_due(host);
@@ -553,6 +631,9 @@ impl Plugin for NativeReader {
             Event::WorkDue(_) | Event::Suspend { .. } | Event::Stopping { .. }
                 if matches!(token, WORK_DUE | SUSPEND | STOPPING) =>
             {
+                if token != WORK_DUE {
+                    self.auto_turn_leave(host);
+                }
                 self.save_now(host);
                 Ok(())
             }
@@ -565,15 +646,7 @@ impl Plugin for NativeReader {
             // other screens come with their slices (`PORTING-7.md`).
             Event::ScreenOpened {
                 instance, handover, ..
-            } => match token {
-                SCREEN => self.open(host, instance, handover),
-                TOC => self.open_toc(host, instance, handover),
-                ANNOTATIONS => self.open_notes(host, instance, handover),
-                SEARCH => self.open_search(host, instance, handover),
-                FOOTNOTE => self.open_note(host, instance, handover),
-                SKIM => self.open_skim(host, instance, handover),
-                _ => Ok(()),
-            },
+            } => self.screen_opened(host, token, instance, handover),
             Event::ScreenShown {
                 instance: Some(instance),
                 ..
@@ -594,7 +667,10 @@ impl Plugin for NativeReader {
             },
             Event::ScreenClosed { instance, .. } => {
                 match token {
-                    SCREEN => self.close(host, instance),
+                    SCREEN => {
+                        self.hands.closed(host, instance, self.work.as_ref());
+                        self.close(host, instance);
+                    }
                     TOC => self.close_toc(host, instance),
                     SEARCH => {
                         if let Some(view) = self.searches.get(instance) {
@@ -697,6 +773,16 @@ impl Plugin for NativeReader {
                 self.follow = Some((path, href));
             }
             return Ok(handled);
+        }
+        if token == SCREEN {
+            // The timer sees the input first: it stops, or counts anew.
+            if native_handsfree::classify(&input) == Kind::Toggle {
+                self.open_work(host);
+            }
+            let top = self.screens.top_instance(token);
+            if let Some(handled) = self.hands.input(host, top, &input, self.work.as_ref()) {
+                return Ok(handled);
+            }
         }
         let (handled, turned) = match (self.screens.top(token), &self.docs, &self.ui) {
             (Some(view), Some(docs), Some(ui)) => {
