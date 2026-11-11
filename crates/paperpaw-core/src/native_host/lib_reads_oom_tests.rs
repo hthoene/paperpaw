@@ -365,7 +365,7 @@ fn every_allocation_of_a_query_refuses_cleanly() {
             sweep_to(
                 |reads, seen| {
                     let (mut rows, mut keys) = (0_u64, 0_u64);
-                    let end = reads.query(&ask(cursor, sort, words), &mut |record| {
+                    let end = reads.query(&ask(cursor, sort, words), "", &mut |record| {
                         let Record::ServiceLibEntry(e) = record else {
                             panic!()
                         };
@@ -428,7 +428,7 @@ fn the_heap_one_query_holds_at_its_most_is_the_window_and_one_line() {
     let run = |sort, cursor| {
         peak(
             |r| {
-                r.query(&ask(sort, cursor), &mut |_| {
+                r.query(&ask(sort, cursor), "", &mut |_| {
                     core::ops::ControlFlow::Continue(())
                 })
                 .unwrap();

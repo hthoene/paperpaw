@@ -188,6 +188,7 @@ impl<'a> Engine<'a> {
     fn new(
         reads: &'a CatalogReads,
         q: &wire::ServiceLibQuery<'_>,
+        archive: &str,
         hide: &'a dyn Fn(&str) -> bool,
     ) -> Result<Self, i32> {
         use catalog::Show;
@@ -218,15 +219,13 @@ impl<'a> Engine<'a> {
             push_lower(&mut lower, word, usize::MAX)?;
             words.push(lower);
         }
-        let mut archive = None;
-        if q.flags & 0b10 != 0 {
-            reads.env.archive_folder(&mut |folder| {
-                let folder = folder.trim_matches('/');
-                if !folder.is_empty() {
-                    archive = copy(folder).ok();
-                }
-            });
-        }
+        // The archive folder, left out where the query says so.
+        let folder = archive.trim_matches('/');
+        let archive = if q.flags & 0b10 != 0 && !folder.is_empty() {
+            Some(copy(folder)?)
+        } else {
+            None
+        };
         let order = match q.sort {
             1 => Order::Author,
             2 => Order::Series,
@@ -400,10 +399,11 @@ fn opened_list(reads: &CatalogReads) -> Result<Vec<u64>, i32> {
 pub(super) fn query(
     reads: &CatalogReads,
     q: &wire::ServiceLibQuery<'_>,
+    archive: &str,
     hide: &dyn Fn(&str) -> bool,
     visit: Rows<'_>,
 ) -> Result<RowsEnd, i32> {
-    let engine = Engine::new(reads, q, hide)?;
+    let engine = Engine::new(reads, q, archive, hide)?;
     for _ in 0..TRIES {
         let generation = reads.generation()?;
         if q.generation != 0 && q.generation != generation {
