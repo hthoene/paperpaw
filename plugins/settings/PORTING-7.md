@@ -216,4 +216,4 @@ same screen waits (`settings-covered-by-foreign-screen`).
   end); the TXT reading flow's peak (`memory.rs`) from 234.1 to 168.0 KiB, which the start and the book now
   set (168.0 KiB at the first page, 136.2 KiB live), not Settings. The gate of #248 (108.5 KiB) is not met
   by the Settings change alone: what native plugins keep resident at start is Core's.
-- Set aside again at activation (todo 380): `shells/web/tests/commands.rs` (it opens `core.settings` and expects the screen `settings.list`), new in train t10.
+- Set aside again at activation (todo 380): `shells/web/tests/commands.rs` (opens `core.settings`, expects `settings.list`) and `shells/web/tests/emulator.rs` `the_settings_open_from_the_menu_and_the_quick_panel`.
