@@ -1311,7 +1311,7 @@ fn register_look_settings(r: &mut Registrar) -> Result<(), RegisterError> {
 
 /// Buttons, the panel's refresh, sleep, rotation, notices and long
 /// presses.
-static DEVICE: [SettingSpec; 16] = [
+static DEVICE: [SettingSpec; 17] = [
     SettingSpec::choice(
         settings::KEYMAP_PRESET.static_str(),
         "core.setting.keymap-preset",
@@ -1339,6 +1339,16 @@ static DEVICE: [SettingSpec; 16] = [
     )
     .advanced()
     .description("core.setting.flash-screens.help"),
+    SettingSpec::number(
+        crate::refresh::UI_FULL_REFRESH_INTERVAL,
+        "core.setting.ui-full-refresh-interval",
+        0,
+        1000,
+        0,
+        groups::DISPLAY,
+    )
+    .advanced()
+    .description("core.setting.ui-full-refresh-interval.help"),
     SettingSpec::switch(
         settings::PICTURES_IN_GRAYS.static_str(),
         "core.setting.pictures-in-grays",

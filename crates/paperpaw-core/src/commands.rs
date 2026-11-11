@@ -113,14 +113,17 @@ impl Kernel {
             });
             // Items far apart make a large region without being much.
             let weight = weight.min(area(dirty));
-            let interval = match mode.does_clean_itself() {
+            let interval = |key: &str| {
+                let settings = &self.shared.settings;
+                settings.int(key).clamp(0, i64::from(u32::MAX)) as u32
+            };
+            let every = match mode.does_clean_itself() {
                 // Cleaned when the screen asks, never every few frames.
-                true => 0,
-                false => self
-                    .shared
-                    .settings
-                    .int(core_settings::FULL_REFRESH_INTERVAL.as_str())
-                    .clamp(0, i64::from(u32::MAX)) as u32,
+                true => crate::refresh::Intervals::default(),
+                false => crate::refresh::Intervals {
+                    pages: interval(core_settings::FULL_REFRESH_INTERVAL.as_str()),
+                    ui: interval(crate::refresh::UI_FULL_REFRESH_INTERVAL),
+                },
             };
             let screen = self.framebuffer.bounds();
             let mut requested = match mode.wants_fastest() && set.is_none() {
@@ -154,10 +157,7 @@ impl Kernel {
                         .bool(core_settings::PICTURES_IN_GRAYS.as_str())
                     && self.pictures_drawn());
             self.frame.refresh.weigh(Some(weight));
-            let (mode, region) = self
-                .frame
-                .refresh
-                .decide(requested, dirty, screen, interval);
+            let (mode, region) = self.frame.refresh.decide(requested, dirty, screen, every);
             let top = self.stack.last();
             let mut refresh =
                 paperpaw_sdk::filters::Refresh::new(mode, region, top.map(|t| t.id.clone()));
