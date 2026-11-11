@@ -266,15 +266,18 @@ fn a_blocks_records_come_in_the_order_the_host_checks() {
         let Ok(reply) = run(&mut p, &io, &call(8, |c| c.offset = offset)) else {
             continue;
         };
-        let ranks: Vec<u8> = rows(&reply)
-            .iter()
-            .map(rank)
-            .filter(|r| *r != 9)
-            .collect();
-        assert!(ranks.windows(2).all(|w| w[0] <= w[1]), "offset {offset}: {ranks:?}");
+        let ranks: Vec<u8> = rows(&reply).iter().map(rank).filter(|r| *r != 9).collect();
+        assert!(
+            ranks.windows(2).all(|w| w[0] <= w[1]),
+            "offset {offset}: {ranks:?}"
+        );
     }
     let reply = block_at(&mut p, &io, 0);
-    assert!(rows(&reply).iter().any(|r| matches!(r, stage::Record::FmtInlineLang(_))));
+    assert!(
+        rows(&reply)
+            .iter()
+            .any(|r| matches!(r, stage::Record::FmtInlineLang(_)))
+    );
 }
 
 fn block_at(p: &mut FormatProvider, io: &dyn Storage, offset: u32) -> Vec<u8> {
