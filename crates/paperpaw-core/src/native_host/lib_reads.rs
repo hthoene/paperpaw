@@ -51,12 +51,14 @@ mod annotations;
 mod book;
 mod delete;
 mod field;
+mod fields;
 mod importer;
 mod jobs;
 mod position;
 mod provide;
 mod query;
 mod removal;
+mod series;
 mod status;
 mod write;
 
@@ -93,6 +95,10 @@ pub trait CatalogEnv {
     fn book_data_kept(&self, _path: &str) -> Result<bool, i32> {
         Ok(false)
     }
+    /// The translated title of the book field `id` (`<plugin>.<name>`) as its
+    /// plugin declared it (`book_field.spec`); nothing where there is none: a
+    /// row then shows the field's name.
+    fn field_title(&self, _id: &str, _visit: &mut dyn FnMut(&str)) {}
     /// The archive folder setting (`files.archive`), a root-1 path: the books
     /// in it are left out of a query that says so (`lib_query.flags` bit 1).
     /// Where the host says nothing there is no archive.
@@ -247,6 +253,20 @@ impl LibQuery for CatalogReads {
 
     fn query(&self, query: &wire::ServiceLibQuery<'_>, visit: Rows<'_>) -> Result<RowsEnd, i32> {
         query::query(self, query, &|_| false, visit)
+    }
+
+    fn next_in_series(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
+        self.next_in_series_hiding(book, &|_| false, visit)
+    }
+
+    fn fields(
+        &self,
+        book: BookRef<'_>,
+        cursor: u32,
+        generation: u32,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        self.read_fields(book, cursor, generation, visit)
     }
 
     fn book(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {

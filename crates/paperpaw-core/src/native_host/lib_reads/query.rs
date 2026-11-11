@@ -47,6 +47,8 @@ const TITLE: usize = 128;
 const AUTHOR: usize = 96;
 const SERIES: usize = 64;
 const NUMBER: usize = 16;
+/// The bytes of the three texts of a row.
+pub(super) const ENTRY_BUFFER: usize = TITLE + AUTHOR + SERIES;
 /// `lib_entry.progress` of a book never opened.
 const NEVER_OPENED: u32 = 255;
 
@@ -130,7 +132,7 @@ fn copy(text: &str) -> Result<String, i32> {
 }
 
 /// `text` cut to at most `max` bytes at a character.
-fn head(text: &str, max: usize) -> &str {
+pub(super) fn head(text: &str, max: usize) -> &str {
     let mut end = text.len().min(max);
     while !text.is_char_boundary(end) {
         end -= 1;
@@ -433,10 +435,18 @@ fn emit(reads: &CatalogReads, slots: &[Slot], visit: Rows<'_>) -> Result<u32, i3
         return Ok(0);
     }
     let changes = catalog::try_changes(&*reads.storage).map_err(fail)?;
-    let mut buffer = zeroed(TITLE + AUTHOR + SERIES)?;
+    let mut buffer = zeroed(ENTRY_BUFFER)?;
     let mut rows = 0_u32;
     for slot in slots {
-        if row(reads, &changes, slot, &mut buffer, visit)?.is_break() {
+        if row(
+            reads,
+            &changes,
+            (slot.offset, &slot.key.path),
+            &mut buffer,
+            visit,
+        )?
+        .is_break()
+        {
             break;
         }
         rows += 1;
@@ -460,7 +470,7 @@ struct Line {
 fn line(
     reads: &CatalogReads,
     changes: &catalog::Changes,
-    slot: &Slot,
+    (offset, path): (u64, &str),
     buffer: &mut [u8],
 ) -> Result<(Line, catalog::Filled), i32> {
     let (title_b, rest) = buffer.split_at_mut(TITLE);
@@ -469,14 +479,14 @@ fn line(
     let seen = catalog::try_book_at_with(
         &*reads.storage,
         changes,
-        slot.offset,
+        offset,
         catalog::BookTexts::new(title_b, author_b, series_b),
         &mut |view, filled| {
             let mut number = [0_u8; 32];
             let given = view.number.as_bytes();
             let kept = given.len().min(number.len());
             number[..kept].copy_from_slice(&given[..kept]);
-            if view.path == slot.key.path {
+            if view.path == path {
                 line = Some((
                     Line {
                         number,
@@ -499,15 +509,18 @@ fn line(
     }
 }
 
-/// `Break` when the page cannot take the row: it is not counted.
-fn row(
+/// The `lib_entry` of the book whose line starts at `offset` and whose path is
+/// `path` (`buffer` holds its three texts, [`ENTRY_BUFFER`] bytes): `Break`
+/// when the page cannot take the row, which is then not counted.
+pub(super) fn row(
     reads: &CatalogReads,
     changes: &catalog::Changes,
-    slot: &Slot,
+    at: (u64, &str),
     buffer: &mut [u8],
     visit: Rows<'_>,
 ) -> Result<ControlFlow<()>, i32> {
-    let (line, filled) = line(reads, changes, slot, buffer)?;
+    let (offset, path) = at;
+    let (line, filled) = line(reads, changes, at, buffer)?;
     let (title_b, rest) = buffer.split_at(TITLE);
     let (author_b, series_b) = rest.split_at(AUTHOR);
     let title = valid_prefix(&title_b[..filled.title]);
@@ -519,7 +532,7 @@ fn row(
     );
     let status = line.status;
     let opened = status.opened || status.progress.is_some();
-    let indexed = book::indexed(reads, &slot.key.path, line.size)?;
+    let indexed = book::indexed(reads, path, line.size)?;
     let mut flags = 0;
     for (set, bit) in [
         (status.favourite, flag::FAVOURITE),
@@ -536,7 +549,7 @@ fn row(
         }
     }
     Ok(visit(Record::ServiceLibEntry(wire::ServiceLibEntry {
-        key: u32::try_from(slot.offset).map_err(|_| ERR_NO_SPACE)?,
+        key: u32::try_from(offset).map_err(|_| ERR_NO_SPACE)?,
         title,
         author,
         series,
