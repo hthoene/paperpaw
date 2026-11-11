@@ -224,6 +224,9 @@ impl Wiped {
     }
 }
 
+/// The owner of what the host made itself (no plugin has this key).
+const HOST_OWNER: u64 = u64::MAX;
+
 enum State {
     Made {
         owner: u64,
@@ -482,6 +485,45 @@ impl UiStore {
         if content > PARAM_BYTES_MAX {
             return Err(ERR_NO_SPACE);
         }
+        self.insert(
+            params,
+            State::Made {
+                owner: who.owner,
+                epoch: who.epoch,
+            },
+        )
+    }
+
+    /// The hand-over of the host's own for the dialog of `request` of `kind`
+    /// (both ASCII decimal): the params `core.request` and `core.kind`
+    /// (`docs/abi/ui.md` 3.2), which op 16 refuses a plugin. No plugin made
+    /// it: it is made **claimed**, so that the stack's `attach` gives it to
+    /// the dialog's instance as it gives one a plugin's `open` names, and
+    /// [`Self::release`] frees it where the screen opens without it.
+    ///
+    /// # Errors
+    /// As [`Self::handover_make`].
+    pub(crate) fn handover_dialog(&self, request: &str, kind: &str) -> Result<u32, i32> {
+        self.insert(
+            &[
+                Param {
+                    key: "core.request",
+                    value: request,
+                },
+                Param {
+                    key: "core.kind",
+                    value: kind,
+                },
+            ],
+            State::Claimed {
+                owner: HOST_OWNER,
+                batch: u64::MAX,
+            },
+        )
+    }
+
+    /// Keeps a hand-over of `params` (checked) in `state`.
+    fn insert(&self, params: &[Param<'_>], state: State) -> Result<u32, i32> {
         // Encode once into a block of exactly the size.
         let mut framed = 0_usize;
         for param in params {
@@ -513,10 +555,7 @@ impl UiStore {
         inner.params_bytes += framed;
         inner.entries.push(Entry {
             id,
-            state: State::Made {
-                owner: who.owner,
-                epoch: who.epoch,
-            },
+            state,
             params: block,
             count: u32::try_from(params.len()).map_err(|_| ERR_INVALID)?,
             text: Text::default(),

@@ -556,3 +556,27 @@ fn a_handed_file_goes_with_its_instance_and_a_busy_store_is_a_state_error() {
     s.instance_closed(6).unwrap();
     assert_eq!(handed(&s, 6), Err(ERR_DENIED));
 }
+
+#[test]
+fn the_host_makes_the_hand_over_of_a_dialog_with_the_params_a_plugin_cannot() {
+    let s = store();
+    // Op 16 refuses a `core.` key to a plugin.
+    assert_eq!(
+        s.handover_make(who(1, 1), &[p("core.request", "7")]),
+        Err(ERR_INVALID)
+    );
+    let id = s.handover_dialog("7", "0").unwrap();
+    // Claimed, so the stack's attach gives it to the dialog's instance.
+    s.attach(Some(id), 5).unwrap();
+    assert_eq!(
+        read_params(&s, 5, id).unwrap(),
+        [
+            ("core.request".into(), "7".into()),
+            ("core.kind".into(), "0".into())
+        ]
+    );
+    // One no screen took is freed by the release.
+    let loose = s.handover_dialog("8", "0").unwrap();
+    s.release(loose).unwrap();
+    assert_eq!(s.attach(Some(loose), 6), Err(ERR_STATE));
+}
