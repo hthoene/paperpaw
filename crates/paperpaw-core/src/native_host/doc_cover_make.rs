@@ -19,8 +19,11 @@
 //!
 //! A book is noted once the format answered its cover call, with the picture
 //! or with none (`ERR_NOT_FOUND`: a book without a cover is not sent again and
-//! again). A call that failed otherwise notes nothing and counts the book as
-//! failed (`library.md`: `ERR_NOT_FOUND` until the next start).
+//! again). A call that cannot be made now (`ERR_BUSY`, no memory) notes
+//! nothing and fails nothing: the book is asked for again after the bit, the
+//! library's cap of failed jobs in a row bounding the retries. A call that
+//! failed otherwise notes nothing and counts the book as failed
+//! (`library.md`: `ERR_NOT_FOUND` until the next start).
 //!
 //! **The memo:** a key per book, [`COVERS_MADE`] of them, the most recently
 //! asked first (a hit moves to the front; the least recently asked is written
@@ -39,7 +42,7 @@ use crate::native_host::{
     lib_cover::path_key,
 };
 use alloc::vec::Vec;
-use paperpaw_native::host_glue::ERR_NOT_FOUND;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, ERR_NOT_FOUND};
 
 /// How many books' covers are noted as made (a page of a list, twice over).
 pub(super) const COVERS_MADE: usize = 32;
@@ -69,6 +72,9 @@ pub(super) enum Cover {
     Noted { crowded: bool },
     /// The call failed (not noted): the book counts as failed.
     Failed,
+    /// Not now (the book table held, no memory): not noted, the book not
+    /// failed; asked for again after the bit.
+    Later,
 }
 
 impl Cover {
@@ -78,12 +84,22 @@ impl Cover {
             Self::Noted { crowded: false } => JobStep::Ended { ready: true, key },
             // A failed job of no book: counted towards the library's cap of
             // raises, no book remembered.
-            Self::Noted { crowded: true } => JobStep::Ended {
+            Self::Noted { crowded: true } | Self::Later => JobStep::Ended {
                 ready: false,
                 key: 0,
             },
             Self::Failed => JobStep::Ended { ready: false, key },
         }
+    }
+}
+
+/// A cover call that failed with `status`: not now for the passing ones (the
+/// book table held, the format not started yet, no memory), else for good.
+fn failed(status: i32) -> Cover {
+    if status == ERR_BUSY || status == ERR_NO_MEMORY {
+        Cover::Later
+    } else {
+        Cover::Failed
     }
 }
 
@@ -163,12 +179,13 @@ impl DocState {
         if document.format_gone {
             return Cover::Failed;
         }
-        let Ok(found) = self.format_target(document.format) else {
-            return Cover::Failed;
+        let found = match self.format_target(document.format) {
+            Ok(found) => found,
+            Err(status) => return failed(status),
         };
         let mut out = Vec::new();
         if out.try_reserve_exact(REPLY_BYTES).is_err() {
-            return Cover::Failed;
+            return Cover::Later;
         }
         out.resize(REPLY_BYTES, 0);
         let found: (_, BookKind) = found;
@@ -176,7 +193,7 @@ impl DocState {
             Ok(_) | Err(ERR_NOT_FOUND) => Cover::Noted {
                 crowded: self.note_cover_made(self.book_key(document.id)),
             },
-            Err(_) => Cover::Failed,
+            Err(status) => failed(status),
         }
     }
 
