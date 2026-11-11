@@ -312,7 +312,11 @@ mod tests {
     #[test]
     fn the_percent_of_the_indexes_is_what_is_read_of_what_there_is() {
         let mut index = Index::default();
-        assert_eq!(index.percent(), 0, "nothing to read is not a division by zero");
+        assert_eq!(
+            index.percent(),
+            0,
+            "nothing to read is not a division by zero"
+        );
         (index.done, index.total) = (50, 200);
         assert_eq!(index.percent(), 25);
         index.done = 200;
