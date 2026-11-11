@@ -4,7 +4,10 @@
 
 use alloc::vec::Vec;
 
-use miniz_oxide::inflate::decompress_to_vec_zlib_with_limit;
+use miniz_oxide::inflate::{
+    TINFLStatus,
+    core::{DecompressorOxide, decompress, inflate_flags},
+};
 
 /// The start of a WOFF file.
 pub(crate) const SIGNATURE: &[u8; 4] = b"wOFF";
@@ -18,6 +21,19 @@ fn u16_at(data: &[u8], at: usize) -> Option<u16> {
 
 fn u32_at(data: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_be_bytes(data.get(at..at + 4)?.try_into().ok()?))
+}
+
+/// Inflates the zlib stream `stored` into exactly `out`: the stream must end
+/// with the last byte of it. The decoder is made on the heap, in place (its
+/// 10 KB are no stack frame), and nothing else is allocated.
+fn inflate_exact(stored: &[u8], out: &mut [u8]) -> Option<()> {
+    let mut decoder: Vec<DecompressorOxide> = Vec::new();
+    decoder.try_reserve_exact(1).ok()?;
+    decoder.resize_with(1, DecompressorOxide::default);
+    let flags = inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER
+        | inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
+    let (status, _, written) = decompress(decoder.first_mut()?, stored, out, 0, flags);
+    (status == TINFLStatus::Done && written == out.len()).then_some(())
 }
 
 /// The font `woff` holds, at most `max` bytes; `None` if it is not a
@@ -61,11 +77,9 @@ pub(crate) fn to_font(woff: &[u8], max: usize) -> Option<Vec<u8>> {
             return None;
         }
         if compressed < length {
-            let table = decompress_to_vec_zlib_with_limit(stored, length).ok()?;
-            if table.len() != length {
-                return None;
-            }
-            font.extend_from_slice(&table);
+            // Within the room reserved: the table is inflated in place.
+            font.resize(at + length, 0);
+            inflate_exact(stored, font.get_mut(at..)?)?;
         } else if compressed == length {
             font.extend_from_slice(stored);
         } else {
