@@ -219,7 +219,9 @@ fn the_cover_job_goes_on_by_timed_wakes_on_an_idle_device_and_holds_no_timer_off
         assert_eq!(log.calls.borrow().len(), 1);
         assert_eq!(kernel.shared.native_instances.doc_retry(), Some(10_100));
         assert!(!kernel.shared.native_instances.service_more());
-        assert_eq!(kernel.service_due(), Some(Instant(10_100)));
+        // The shell is woken at the retry at the latest (the opener's event
+        // for the step may ask earlier).
+        assert!(kernel.service_due().is_some_and(|at| at.millis() <= 10_100));
         // Before then no step; at the wake the next one.
         kernel.now = Instant(10_099);
         assert!(!kernel.native_doc_pump());
