@@ -1124,7 +1124,7 @@ impl<C, M, T> Drop for Construction<'_, C, M, T> {
 
 /// A committed batch: its records with their lease, and the declarations
 /// staged beside them, which the caller moves out before it retains the
-/// records ([`into_retained`](Self::into_retained) keeps only those).
+/// records (`into_retained` keeps only those).
 /// Declarations drop before the records, and the lease drops last.
 #[non_exhaustive]
 pub struct RegistrationBatch<'a, C, M, T> {
