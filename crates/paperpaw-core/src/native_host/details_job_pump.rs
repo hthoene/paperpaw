@@ -1,0 +1,401 @@
+//! The host's details job, the kernel's side (`docs/abi/library.md` 2.1): the
+//! books of native format plugins are in the catalog from the walk on, but
+//! the walk cannot read them (the kernel's stand-in format answers "not
+//! ready", `native_book_formats`), so their lines name the file and have no
+//! size. Once a walk has published, the host reads them itself, one book at a
+//! time, through the format plugin (`doc_details_job`) and keeps what it read
+//! (`library::keep_native_details`); the next walk makes their lines from it.
+//!
+//! **When.** Armed when a walk publishes or `core.catalog-changed` is heard
+//! (`library_events`), disarmed when the catalog has no book left to read. A
+//! book's job begins from the service pump, never in a callback, only once the
+//! kernel's start has returned, when no background job of either kind runs (it
+//! is the device's one slot, `doc_cover_job`), and when no book is open for
+//! reading or showing. A reader's open takes its place at once (the book is
+//! looked at again later); the device's sleep ends it, and nothing starts one
+//! after the wake until a walk arms it again.
+//!
+//! **Which.** The catalog is read from a byte cursor, a line at a time (a 256
+//! byte chunk and the SDK's line view on the stack, nothing kept): a book of a
+//! native format's stand-in, of no size (its details unread), whose file is
+//! there, and that did not fail in a job of this run or crash one before
+//! (the library's ring of failed books). At most [`LINES_PER_PASS`] lines a
+//! pass. The status log is not read (a removed book's file is gone, and so is
+//! its job).
+//!
+//! **The catalog again.** Never once per book: when the catalog has no book
+//! left, one `core.catalog-wanted` (made anew) where at least one book was
+//! kept since the last; while it runs, one at most every two minutes, and also
+//! only where something was kept. A walk that follows a pass that kept
+//! nothing arms a pass that finds nothing and wants nothing: no loop.
+//!
+//! **Power.** Nothing here asks for another pass or holds the idle or sleep
+//! timer off: the job goes on at the pump's passes that come for any other
+//! reason, as the cover job does.
+use super::{
+    admitted_features::AdmittedFeatures,
+    doc_service::details::DetailsJob,
+    host_services::Caller,
+    lib_cover::path_key,
+    native_declarations::NativeDeclarations,
+    native_host_call::HostRoute,
+    registry_service::Sources,
+    ui_store::HOST_OWNER,
+};
+use crate::abi7::context::{Frame, registry_views::RegistryView};
+use alloc::string::String;
+use paperpaw_native::host_glue::{
+    ERR_BUSY, ERR_CANCELLED, ERR_DENIED, ERR_FULL, ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND,
+    ERR_STATE, ERR_UNSUPPORTED,
+};
+use paperpaw_platform::{Storage, StorageError};
+use paperpaw_sdk::builtin::events;
+use paperpaw_sdk::library::{self, catalog};
+
+/// The most catalog lines one pass looks at.
+const LINES_PER_PASS: usize = 32;
+/// The bytes read at once when a line's end is looked for.
+const CHUNK: usize = 256;
+
+/// The pump's frame for the details job's open: the kernel's settings,
+/// declarations and registry, no callback (the format is called through the
+/// pump's route, never through a frame).
+struct PumpFrame<'a> {
+    env: &'a paperpaw_sdk::Env<'a>,
+    sources: Sources<'a>,
+    directory: Option<&'a NativeDeclarations>,
+    log: super::device_log::DeviceLog,
+}
+
+impl Frame for PumpFrame<'_> {
+    fn settings(&self) -> &paperpaw_sdk::Settings {
+        self.env.settings()
+    }
+    fn translator(&self) -> &paperpaw_i18n::Translator {
+        self.env.i18n()
+    }
+    fn kernel_env(&self) -> Option<&paperpaw_sdk::Env<'_>> {
+        Some(self.env)
+    }
+    fn storage(&self) -> Option<&dyn Storage> {
+        Some(self.env.storage())
+    }
+    fn log(&self, line: core::fmt::Arguments<'_>) {
+        self.log.line(line);
+    }
+    fn registry(&self) -> Result<&dyn RegistryView, i32> {
+        Ok(&self.sources)
+    }
+    fn with_declarations(&self, visit: &mut dyn FnMut(&dyn core::any::Any)) -> Result<(), i32> {
+        let directory = self.directory.ok_or(ERR_UNSUPPORTED)?;
+        let store = directory.store.try_borrow().map_err(|_| ERR_BUSY)?;
+        visit(&*store);
+        Ok(())
+    }
+}
+
+/// What a look at the catalog found.
+enum Look {
+    /// A book to read: its path, where its line begins and the next one.
+    Book { path: String, line: u64, next: u64 },
+    /// None in this pass's lines: the next look begins here.
+    More(u64),
+    /// None left.
+    End,
+}
+
+/// What became of a pass.
+enum Pass {
+    Nothing,
+    End,
+    Started,
+    /// The open of the book at `line` (the next at `next`, its key `key`)
+    /// answered `status`.
+    Refused {
+        status: i32,
+        line: u64,
+        next: u64,
+        key: u64,
+    },
+}
+
+/// The catalog's file, reserved fallibly.
+fn catalog_file() -> Result<String, i32> {
+    const NAME: &str = "/catalog.txt";
+    let mut file = String::new();
+    file.try_reserve_exact(library::DIR.len() + NAME.len())
+        .map_err(|_| ERR_NO_MEMORY)?;
+    file.push_str(library::DIR);
+    file.push_str(NAME);
+    Ok(file)
+}
+
+/// Where the line after the one at `at` begins (the end of the file for a
+/// last line without its newline); `None` where `at` is the end.
+fn line_end(storage: &dyn Storage, file: &str, at: u64) -> Result<Option<u64>, i32> {
+    let mut chunk = [0_u8; CHUNK];
+    let mut offset = at;
+    loop {
+        let n = match storage.read_at(file, offset, &mut chunk) {
+            Ok(n) => n,
+            Err(StorageError::NotFound) => return Ok(None),
+            Err(error) => return Err(super::storage::status(error)),
+        };
+        if n == 0 {
+            return Ok((offset > at).then_some(offset));
+        }
+        if let Some(end) = chunk[..n].iter().position(|&byte| byte == b'\n') {
+            return Ok(Some(offset + end as u64 + 1));
+        }
+        offset += n as u64;
+    }
+}
+
+/// `at`, or the start of the next line where `at` is inside one (the catalog
+/// was made again since the cursor was kept).
+fn line_start(storage: &dyn Storage, file: &str, at: u64) -> Result<u64, i32> {
+    if at == 0 {
+        return Ok(0);
+    }
+    let mut before = [0_u8; 1];
+    match storage.read_at(file, at - 1, &mut before) {
+        Ok(1) if before[0] == b'\n' => Ok(at),
+        Ok(_) => Ok(line_end(storage, file, at)?.unwrap_or(at)),
+        Err(StorageError::NotFound) => Ok(at),
+        Err(error) => Err(super::storage::status(error)),
+    }
+}
+
+/// The next book to read from `from` (see the module): `wanted` says whether
+/// a book of no size is one.
+fn look(storage: &dyn Storage, from: u64, wanted: &dyn Fn(&str) -> bool) -> Result<Look, i32> {
+    let file = catalog_file()?;
+    // The status log is not read: a removed book's file is gone.
+    let changes = catalog::Changes::default();
+    let mut at = line_start(storage, &file, from)?;
+    for _ in 0..LINES_PER_PASS {
+        let Some(next) = line_end(storage, &file, at)? else {
+            return Ok(Look::End);
+        };
+        let mut found = None;
+        catalog::try_view_at_with(storage, &changes, at, &mut |view| {
+            if view.size.is_none() && wanted(view.path) && storage.exists(view.path) {
+                found = Some(super::lib_cover::owned(view.path));
+            }
+        })
+        .map_err(super::lib_reads::fail)?;
+        if let Some(path) = found {
+            return Ok(Look::Book {
+                path: path?,
+                line: at,
+                next,
+            });
+        }
+        at = next;
+    }
+    Ok(Look::More(at))
+}
+
+impl crate::Kernel {
+    /// The details job begins on the next book that needs one, where it may
+    /// (see the module). Never asks for another pass.
+    #[inline(never)]
+    pub(crate) fn native_details_job_pump(&mut self) {
+        let pass = self.native_details_pass();
+        match pass {
+            Pass::Nothing => {}
+            Pass::End => self.native_details_wanted(true),
+            Pass::Started => {
+                // What the format staged runs now; a book that is ready at
+                // once is read in this pass.
+                self.native_outbox_run();
+                self.native_cover_job_pump();
+            }
+            Pass::Refused {
+                status,
+                line,
+                next,
+                key,
+            } => {
+                self.native_outbox_run();
+                self.native_details_refused(status, line, next, key);
+            }
+        }
+    }
+
+    /// One pass's look: the book whose job begins, if any.
+    fn native_details_pass(&self) -> Pass {
+        let instances = &self.shared.native_instances;
+        // Never inside a callback, nor while something staged waits.
+        if instances.depth() != 0 || instances.outbox.full() {
+            return Pass::Nothing;
+        }
+        let Some(hosts) = instances.hosts() else {
+            return Pass::Nothing;
+        };
+        let (Some(documents), Some(library)) = (hosts.documents(), hosts.library()) else {
+            return Pass::Nothing;
+        };
+        let Some(job) = documents.0.details_job() else {
+            return Pass::Nothing;
+        };
+        let run = job.run();
+        let active = documents.0.cover_job_active();
+        // A job that left the table without an end (an open took its place).
+        if run.running() && !active {
+            run.gone();
+        }
+        if !run.armed() || active || !documents.0.cover_jobs_allowed() || job.reading_open() {
+            return Pass::Nothing;
+        }
+        let natives = &self.shared.registry.native_book_formats;
+        if natives.is_empty() {
+            run.disarm();
+            return Pass::Nothing;
+        }
+        let env = self.shared.env(self.now);
+        let formats = &self.shared.formats;
+        let wanted = |path: &str| {
+            formats
+                .for_path(path)
+                .is_some_and(|spec| natives.has(spec.id.as_str()))
+                && !library.0.book_failed(path_key(path))
+        };
+        let (path, line, next) = match look(env.storage(), run.cursor(), &wanted) {
+            Ok(Look::Book { path, line, next }) => (path, line, next),
+            Ok(Look::More(at)) => {
+                run.set_cursor(at);
+                return Pass::Nothing;
+            }
+            Ok(Look::End) => {
+                run.disarm();
+                return Pass::End;
+            }
+            // The card or the memory: the next pass looks again.
+            Err(_) => return Pass::Nothing,
+        };
+        let directory = self.shared.registry.native_declarations.as_deref();
+        let frame = PumpFrame {
+            env: &env,
+            sources: Sources {
+                env: &env,
+                directory,
+                generation: &self.shared.registry_generation,
+            },
+            directory,
+            log: self.shared.device_log,
+        };
+        let who = Caller {
+            owner: HOST_OWNER,
+            plugin: "",
+            features: AdmittedFeatures::NONE,
+            hosts,
+        };
+        let route = HostRoute {
+            registry: instances,
+            env: &env,
+            meter: &self.shared.meter,
+        };
+        match job.start(&frame, &who, &route, &path) {
+            Ok(()) => {
+                run.started(line, next);
+                Pass::Started
+            }
+            Err(status) => Pass::Refused {
+                status,
+                line,
+                next,
+                key: path_key(&path),
+            },
+        }
+    }
+
+    /// The open of a book answered `status`: tried again later where nothing
+    /// was wrong with the book, else passed by (and remembered as failed where
+    /// the format failed it).
+    fn native_details_refused(&self, status: i32, line: u64, next: u64, key: u64) {
+        let Some(hosts) = self.shared.native_instances.hosts() else {
+            return;
+        };
+        let Some(run) = hosts
+            .documents()
+            .and_then(|documents| documents.0.details_job())
+            .map(DetailsJob::run)
+        else {
+            return;
+        };
+        match status {
+            // The format not started yet, no place, no memory: again later.
+            ERR_BUSY | ERR_FULL | ERR_NO_MEMORY => run.later(line, next),
+            // No fault of the book (its file, the card, a format that left).
+            ERR_NOT_FOUND | ERR_IO | ERR_CANCELLED | ERR_STATE | ERR_DENIED | ERR_UNSUPPORTED => {
+                run.set_cursor(next);
+            }
+            // The format failed the book.
+            _ => {
+                run.set_cursor(next);
+                if let Some(library) = hosts.library() {
+                    library.0.details_job_ended(key);
+                }
+            }
+        }
+    }
+
+    /// The details job ended (`cover_job_pump`): `filled` where its book's
+    /// details were kept, `key` its book's where the format failed it.
+    pub(crate) fn native_details_job_ended(&mut self, filled: bool, key: u64) {
+        let Some(hosts) = self.shared.native_instances.hosts() else {
+            return;
+        };
+        if let Some(library) = hosts.library() {
+            library.0.details_job_ended(key);
+        }
+        if let Some(run) = hosts
+            .documents()
+            .and_then(|documents| documents.0.details_job())
+            .map(DetailsJob::run)
+        {
+            run.ended();
+            if filled {
+                run.filled();
+            }
+        }
+        self.native_details_wanted(false);
+    }
+
+    /// `core.catalog-wanted` (made anew) where the run says it is due: the
+    /// catalog's `end`, or two minutes since the last (see the module).
+    fn native_details_wanted(&mut self, end: bool) {
+        let now = self.now.millis();
+        let due = self
+            .shared
+            .native_instances
+            .hosts()
+            .and_then(|hosts| hosts.documents())
+            .and_then(|documents| documents.0.details_job())
+            .is_some_and(|job| job.run().wanted(now, end));
+        if due {
+            self.output
+                .commands
+                .push(events::CATALOG_WANTED.emit(events::CatalogWanted::new(true)));
+        }
+    }
+
+    /// A walk published, or the catalog changed: the details job looks at the
+    /// catalog from its start (`library_events`).
+    pub(crate) fn native_details_arm(&self) {
+        if let Some(job) = self
+            .shared
+            .native_instances
+            .hosts()
+            .and_then(|hosts| hosts.documents())
+            .and_then(|documents| documents.0.details_job())
+        {
+            job.run().arm(self.now.millis());
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "details_job_pump_tests.rs"]
+mod tests;

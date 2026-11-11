@@ -15,9 +15,14 @@
 //!   format left) leaves only its row, which this step frees.
 //! * No frame: the format's `close` goes through the pump's route, as a
 //!   preparing step's call does.
+//! * The slot is the device's one background job, of either kind
+//!   (`JobKind`): the library's cover, or the host's details job
+//!   (`doc_details_job`), whose book is read here before it is closed. The
+//!   marker, the start gate, the end at sleep, the place any other open takes
+//!   and the failure after [`LATER_MAX`] steps are the same for both.
 use super::{DocState, NoImages};
 use crate::native_host::{
-    doc_service::{Document, FAILED, JobStep, PREPARING, PrepareStep, READY},
+    doc_service::{Document, FAILED, JobKind, JobStep, PREPARING, PrepareStep, READY, details},
     fmt_call::{Route, Stage},
     host_services::HostServices,
 };
@@ -45,7 +50,7 @@ impl DocState {
 
     /// The key of the path of the book of document `document` (what the
     /// library keeps of a failed book), 0 where the book is not held.
-    fn book_key(&self, document: u32) -> u64 {
+    pub(super) fn book_key(&self, document: u32) -> u64 {
         self.books.try_borrow().map_or(0, |books| {
             books
                 .iter()
@@ -63,9 +68,15 @@ impl DocState {
         }
     }
 
-    /// One look at the cover job; ends it when it is ready or failed.
+    /// One look at the job; ends it when it is ready or failed (a details
+    /// job's book is read first, and `keep` keeps what was read).
     #[inline(never)]
-    pub(super) fn cover_job_next(&self, hosts: &HostServices, route: &dyn Route) -> JobStep {
+    pub(super) fn cover_job_next(
+        &self,
+        hosts: &HostServices,
+        route: &dyn Route,
+        keep: &mut details::Keep<'_>,
+    ) -> JobStep {
         let Some(job) = self.table.cover_job() else {
             // A job that an open took the place of: its marker is left.
             self.unguard();
@@ -80,6 +91,9 @@ impl DocState {
         }
         if job.state == PREPARING {
             return JobStep::Wait;
+        }
+        if job.job_kind == JobKind::Details {
+            return self.details_end(hosts, route, &job, keep);
         }
         // A card that failed is no fault of the book: not remembered as failed.
         let key = if job.state == FAILED && job.status == ERR_IO {
@@ -135,7 +149,7 @@ impl DocState {
 
     /// Ends a job whose preparation is over, as `close` would: the cache is
     /// finished, the format gets op 4, the book's hold is given back.
-    fn end_job(&self, hosts: &HostServices, route: &dyn Route, document: &Document) {
+    pub(super) fn end_job(&self, hosts: &HostServices, route: &dyn Route, document: &Document) {
         self.finish_cache(hosts, document.id);
         if !document.format_gone
             && let Ok((target, _)) = self.format_target(document.format)

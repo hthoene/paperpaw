@@ -63,6 +63,10 @@ pub(crate) struct LibraryHost {
     /// failing books cannot loop a screen that redraws on it. A job that is
     /// ready, or the next start, resets it.
     cover_job_fails: core::cell::Cell<u8>,
+    /// A `cover` was told "busy" while a job had the one slot: the screens ask
+    /// again when it ends (a cover job's end raises bit 6 in any case; a
+    /// details job's end, only for this).
+    cover_waiting: Cell<bool>,
     /// What the device's wirings told (the screen's long side for op 7).
     policy: Option<Rc<super::lib_edits::EditPolicy>>,
 }
@@ -94,6 +98,7 @@ impl LibraryHost {
             cover_failed: core::cell::Cell::new([0; COVER_FAILED]),
             cover_failed_next: core::cell::Cell::new(0),
             cover_job_fails: core::cell::Cell::new(0),
+            cover_waiting: Cell::new(false),
             policy: None,
         }
     }
@@ -253,18 +258,18 @@ impl LibQuery for LibraryHost {
         // The path is copied out of the catalog read: the format call takes
         // the frame, not a borrow of the catalog.
         let path = self.reads.path_of(book, lib_cover::owned)?;
-        // A book whose cover job failed has no cover: not asked again.
-        if self
-            .cover_failed
-            .get()
-            .contains(&lib_cover::path_key(&path))
-        {
+        // A book whose job failed has no cover: not asked again.
+        if self.book_failed(lib_cover::path_key(&path)) {
             return Err(ERR_NOT_FOUND);
         }
         match lib_cover::make(cx, who, &path, side, visit) {
             // Preparing (DOCX, MOBI): the book is the cover job, or waits for
-            // it; `cover_job_ended` raises bit 6 when the job has ended.
-            Ok(lib_cover::Covered::Queued) => Err(ERR_BUSY),
+            // it (or for the details job); `cover_job_ended` (or
+            // `details_job_ended`) raises bit 6 when the job has ended.
+            Ok(lib_cover::Covered::Queued) => {
+                self.cover_waiting.set(true);
+                Err(ERR_BUSY)
+            }
             Ok(lib_cover::Covered::Done) => {
                 self.cover_retries.set(0);
                 Ok(())
@@ -294,7 +299,17 @@ impl LibQuery for LibraryHost {
     fn cover_jobs_began(&self) {
         self.changes.raise(lib_changed::COVER, "");
     }
+    fn book_failed(&self, key: u64) -> bool {
+        key != 0 && self.cover_failed.get().contains(&key)
+    }
+    fn details_job_ended(&self, key: u64) {
+        self.remember_failed(key);
+        if self.cover_waiting.replace(false) {
+            self.changes.raise(lib_changed::COVER, "");
+        }
+    }
     fn cover_job_ended(&self, ready: bool, key: u64) {
+        self.cover_waiting.set(false);
         if ready {
             self.cover_job_fails.set(0);
         } else {

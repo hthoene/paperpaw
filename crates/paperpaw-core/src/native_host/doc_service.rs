@@ -31,11 +31,14 @@ use paperpaw_native::host_glue::{
 mod args;
 mod check;
 pub(crate) mod cover;
+pub(crate) mod details;
 mod report;
 mod table;
 #[allow(unused_imports, reason = "the shell builds the table with its limits")]
 pub(crate) use args::ROOT_HANDED;
-pub(crate) use table::{Document, DocumentTable, FAILED, FormatRef, Limits, PREPARING, READY};
+pub(crate) use table::{
+    Document, DocumentTable, FAILED, FormatRef, JobKind, Limits, PREPARING, READY,
+};
 
 /// Operations of `core.format` the host calls (`document.md` 3).
 pub(crate) mod fmt {
@@ -245,14 +248,20 @@ pub(crate) trait DocHost {
     ) -> PrepareStep {
         PrepareStep::Idle
     }
-    /// One look at the library's cover job (`doc_cover_job`): ended when its
-    /// preparation is over. Run by the kernel's pump, never inside a callback.
+    /// One look at the background job (`doc_cover_job`): ended when its
+    /// preparation is over; a details job's book is read first and `keep`
+    /// keeps what was read. Run by the kernel's pump, never inside a callback.
     fn cover_job_step(
         &self,
         _hosts: &super::host_services::HostServices,
         _route: &dyn super::fmt_call::Route,
+        _keep: &mut details::Keep<'_>,
     ) -> JobStep {
         JobStep::None
+    }
+    /// The host's details job (`doc_details_job`), where the host has one.
+    fn details_job(&self) -> Option<&dyn details::DetailsJob> {
+        None
     }
     /// Whether the cover job is the document of the book at `path`.
     fn cover_job_path_is(&self, _path: &str) -> bool {
@@ -410,6 +419,9 @@ pub(crate) enum JobStep {
     /// Its preparation is over and it is closed: `ready` (else failed), and the
     /// key of its book's path (`lib_cover::path_key`).
     Ended { ready: bool, key: u64 },
+    /// A details job ended (closed): whether its book's details were kept, and
+    /// the key of a book that failed (0: none).
+    DetailsEnded { filled: bool, key: u64 },
 }
 
 /// What one step of the preparing loop did.

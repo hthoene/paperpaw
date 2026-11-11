@@ -225,7 +225,7 @@ impl Wiped {
 }
 
 /// The owner of what the host made itself (no plugin has this key).
-const HOST_OWNER: u64 = u64::MAX;
+pub(crate) const HOST_OWNER: u64 = u64::MAX;
 /// Whether `owner` is the host's own key (no plugin's).
 pub(crate) const fn is_host_owner(owner: u64) -> bool {
     owner == HOST_OWNER

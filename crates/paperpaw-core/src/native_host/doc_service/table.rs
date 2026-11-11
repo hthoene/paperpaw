@@ -27,6 +27,15 @@ pub(crate) const BACKGROUND: u32 = 1 << 2;
 /// `event.document_closed.reason` 4 `needed`: its place went to a book to show.
 pub(crate) const NEEDED: u32 = 4;
 
+/// What the one background job of the device does (`doc_cover_job`): the
+/// library's cover of a preparing book, or the host's read of a native book's
+/// details (`doc_details_job`). One slot, one marker, whichever kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum JobKind {
+    Cover,
+    Details,
+}
+
 /// How many `event.document_closed` records the table keeps for each place it
 /// has: a document that closes while its last one is still undelivered. An
 /// open is admitted only while a record can be kept for every document that
@@ -121,6 +130,8 @@ pub(crate) struct Document {
     /// that the preparing loop converts it, ended by the host when it is
     /// ready or failed. One per device; always `background` as well.
     pub(crate) cover_job: bool,
+    /// What the job does, where `cover_job` (the slot is the same for both).
+    pub(crate) job_kind: JobKind,
     /// The host's `reader_opened` accepted this document and `reader_closed`
     /// has not been called yet: the one record of whether the book is still
     /// held, whichever path ends the document.
@@ -293,6 +304,7 @@ impl DocumentTable {
             closed_by_host: 0,
             background: flags & BACKGROUND != 0,
             cover_job: false,
+            job_kind: JobKind::Cover,
             reader_held: false,
             format_gone: false,
             block: None,
@@ -311,6 +323,11 @@ impl DocumentTable {
     /// `false` (the document stays as it was) where a job runs already, or the
     /// table is held.
     pub(crate) fn start_cover_job(&self, owner: u64, id: u32) -> bool {
+        self.start_job(owner, id, JobKind::Cover)
+    }
+
+    /// [`Self::start_cover_job`] for a job of `kind`: the one slot, whichever.
+    pub(crate) fn start_job(&self, owner: u64, id: u32, kind: JobKind) -> bool {
         let Ok(mut rows) = self.rows() else {
             return false;
         };
@@ -320,6 +337,7 @@ impl DocumentTable {
         match rows.iter_mut().find(|d| d.id == id && d.owner == owner) {
             Some(document) if document.closed_by_host == 0 => {
                 document.cover_job = true;
+                document.job_kind = kind;
                 document.background = true;
                 true
             }
@@ -469,6 +487,14 @@ impl DocumentTable {
             .any(|d| !d.cover_job && !d.background && d.closed_by_host == 0)
     }
 
+    /// Whether a book is open for reading or showing (a held table counts as
+    /// one): no details job begins then (`doc_details_job`).
+    pub(crate) fn any_reading(&self) -> bool {
+        self.documents
+            .try_borrow()
+            .map_or(true, |rows| Self::reading(&rows))
+    }
+
     /// Whether every preparing document is the cover job (and one is): the
     /// preparing loop's "more work" then does not hold the device awake.
     pub(crate) fn only_cover_job_preparing(&self) -> bool {
@@ -582,6 +608,10 @@ impl DocumentTable {
     /// Keep `event.document_closed` for `document`'s opener. Never fails for
     /// a document that was live: `open` left room for it.
     pub(crate) fn raise_closed(&self, document: &Document, reason: u32) {
+        // The host's own document (the details job) has no opener to tell.
+        if crate::native_host::ui_store::is_host_owner(document.owner) {
+            return;
+        }
         let Ok(mut events) = self.closed.try_borrow_mut() else {
             debug_assert!(false, "the event queue is never held across a call");
             return;

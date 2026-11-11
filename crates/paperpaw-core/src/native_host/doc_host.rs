@@ -29,7 +29,7 @@ use super::{
     doc_service::{
         Document, DocumentTable, FormatCall, FormatRef, Limits, Options, format_stopped,
     },
-    fmt_call::{FrameRoute, ImageMap, Opener, Stage},
+    fmt_call::{FrameRoute, ImageMap, Opener, Route, Stage},
     format_index::FormatIndex,
     format_scope::BookKind,
     host_services::Caller,
@@ -145,6 +145,8 @@ pub(crate) struct DocState {
     job_guarded: Cell<bool>,
     /// A `cover` asked for a job before that (`allow_cover_jobs`).
     job_held_back: Cell<bool>,
+    /// The details job's run (`doc_details_job`).
+    details: super::doc_service::details::DetailsRun,
     /// The card, for the first bytes a file is told by (`with_storage`).
     storage: Option<Rc<dyn Storage>>,
     /// The most bytes one document's cache may hold.
@@ -254,6 +256,7 @@ impl DocState {
             jobs_allowed: Cell::new(false),
             job_guarded: Cell::new(false),
             job_held_back: Cell::new(false),
+            details: super::doc_service::details::DetailsRun::default(),
             storage: None,
             cache_cap: limits.cache_bytes(),
             last_prepared: Cell::new(0),
@@ -594,6 +597,7 @@ impl super::doc_service::DocHost for DocState {
             state: self,
             frame,
             who,
+            route: None,
         });
     }
     frameless!();
@@ -632,8 +636,12 @@ impl super::doc_service::DocHost for DocState {
         &self,
         hosts: &super::host_services::HostServices,
         route: &dyn super::fmt_call::Route,
+        keep: &mut super::doc_service::details::Keep<'_>,
     ) -> super::doc_service::JobStep {
-        self.cover_job_next(hosts, route)
+        self.cover_job_next(hosts, route, keep)
+    }
+    fn details_job(&self) -> Option<&dyn super::doc_service::details::DetailsJob> {
+        Some(self)
     }
     fn cover_job_path_is(&self, path: &str) -> bool {
         self.cover_job_path_is(path)
@@ -712,11 +720,14 @@ impl super::doc_service::DocHost for DocState {
     }
 }
 
-/// The host of one call: the state, the caller's frame and the caller.
+/// The host of one call: the state, the caller's frame and the caller; the
+/// details job's open (`doc_details_job`) calls the format through the pump's
+/// `route` instead of the frame.
 struct Bound<'a> {
     state: &'a DocState,
     frame: &'a dyn Frame,
     who: &'a Caller<'a>,
+    route: Option<&'a dyn Route>,
 }
 
 impl Bound<'_> {
@@ -976,9 +987,9 @@ impl Bound<'_> {
             .read_at(&joined, 0, &mut first)
             .map_err(super::storage::status)?;
         first.truncate(read);
-        let route = FrameRoute(self.frame);
+        let frame_route = FrameRoute(self.frame);
         let stage = Stage {
-            route: &route,
+            route: self.route.unwrap_or(&frame_route),
             images: &NoImages,
         };
         for format in candidates.iter().take(count) {
@@ -1143,14 +1154,15 @@ impl super::doc_service::DocHost for Bound<'_> {
             self.prepare_cache(call, &css)?;
         }
         let _scope = self.enter_scope(target.plugin, call, kind, &css)?;
-        let route = FrameRoute(self.frame);
+        let frame_route = FrameRoute(self.frame);
+        let route = self.route.unwrap_or(&frame_route);
         let pictures = self.state.storage.as_deref().map(|storage| DocImages {
             table: self.who.hosts.images(),
             storage,
             state: self.state,
         });
         let stage = Stage {
-            route: &route,
+            route,
             images: match &pictures {
                 Some(pictures) => pictures,
                 None => &NoImages,
@@ -1193,9 +1205,9 @@ impl super::doc_service::DocHost for Bound<'_> {
             return;
         }
         scratch.resize(4096, 0);
-        let route = FrameRoute(self.frame);
+        let frame_route = FrameRoute(self.frame);
         Stage {
-            route: &route,
+            route: self.route.unwrap_or(&frame_route),
             images: &NoImages,
         }
         .close(target, document.id, &mut scratch);
@@ -1284,6 +1296,8 @@ impl super::doc_service::DocHost for Bound<'_> {
 
 #[path = "doc_cover_job.rs"]
 mod cover_job;
+#[path = "doc_details_job.rs"]
+mod details_job;
 #[path = "doc_prepare.rs"]
 mod prepare;
 

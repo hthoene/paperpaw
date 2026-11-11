@@ -257,6 +257,9 @@ impl crate::Kernel {
         let doc_more = self.native_doc_pump();
         // A cover job whose preparation is over ends here (`doc_cover_job`).
         self.native_cover_job_pump();
+        // The host's details job begins on the next native book whose details
+        // are unread (`details_job_pump`); it never asks for another pass.
+        self.native_details_job_pump();
         // Questions open their dialogs and their answers come back.
         let dialog_more = self.native_dialog_pump();
         // The outcomes of Wi-Fi requests reach their senders (`wifi_events`).

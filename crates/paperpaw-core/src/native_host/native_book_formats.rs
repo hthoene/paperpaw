@@ -109,6 +109,17 @@ fn stand_in(
 }
 
 impl NativeBookFormats {
+    /// Whether the format `id` of `Formats` is a native format's stand-in:
+    /// its books are read by the host's details job (`doc_details_job`).
+    pub(crate) fn has(&self, id: &str) -> bool {
+        self.ids.iter().any(|(own, _)| own.as_str() == id)
+    }
+
+    /// Whether there is no stand-in (no native format).
+    pub(crate) fn is_empty(&self) -> bool {
+        self.ids.is_empty()
+    }
+
     /// Makes the stand-ins of `store`'s formats in `formats` again where
     /// `generation` is not the one they were made at, or the last sync was
     /// cut short: one the heap refused is made again at the next call.
