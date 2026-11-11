@@ -55,9 +55,7 @@ fn started(state: Option<&str>, config: &str) -> String {
     if let Some(state) = state {
         storage = storage.with(STATE, state);
     }
-    let builder = Kernel::builder(DEVICE)
-        .storage(storage)
-        .user_config(config);
+    let builder = Kernel::builder(DEVICE).storage(storage).user_config(config);
     let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
     let mut now = 0;
     let mut effects: Effects = kernel.start(Instant(now));
@@ -80,7 +78,10 @@ const LANGUAGE: &str = "[core]\nlanguage = en\n";
 
 #[test]
 fn the_last_book_opens_at_the_start() {
-    let shown = started(Some("[reader]\nlast = books/alice-in-wonderland.txt\n"), LANGUAGE);
+    let shown = started(
+        Some("[reader]\nlast = books/alice-in-wonderland.txt\n"),
+        LANGUAGE,
+    );
     assert_eq!(shown, "reader.screen");
 }
 
@@ -94,7 +95,10 @@ fn a_book_gone_from_the_card_leaves_the_home_screen() {
 fn nothing_remembered_leaves_the_home_screen() {
     assert_eq!(started(None, LANGUAGE), "home.dashboard");
     // A file that is not the reader's.
-    assert_eq!(started(Some("\u{1}\u{2} not a state"), LANGUAGE), "home.dashboard");
+    assert_eq!(
+        started(Some("\u{1}\u{2} not a state"), LANGUAGE),
+        "home.dashboard"
+    );
 }
 
 #[test]

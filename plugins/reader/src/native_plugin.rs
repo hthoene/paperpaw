@@ -616,6 +616,20 @@ impl NativeReader {
         }
     }
 
+    /// The reading screen is on top: its view is told, and a note it was asked to
+    /// follow is shown.
+    fn reading_shown(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+    ) -> Result<(), Error> {
+        self.screens.shown(SCREEN, instance)?;
+        if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
+            view.shown(host, docs);
+        }
+        self.follow_note(host, instance)
+    }
+
     /// The start of the device (`Event::Started`): the book read last opens again where the setting
     /// asks for it.
     fn reopen_last(&mut self, host: &Host<'_>) -> Result<(), Error> {
@@ -730,13 +744,7 @@ impl Plugin for NativeReader {
                 instance: Some(instance),
                 ..
             } => match token {
-                SCREEN => {
-                    self.screens.shown(SCREEN, instance)?;
-                    if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
-                        view.shown(host, docs);
-                    }
-                    self.follow_note(host, instance)
-                }
+                SCREEN => self.reading_shown(host, instance),
                 TOC => self.tocs.shown(TOC, instance),
                 SEARCH => self.searches.shown(SEARCH, instance),
                 ANNOTATIONS => self.annotations.shown(ANNOTATIONS, instance),
