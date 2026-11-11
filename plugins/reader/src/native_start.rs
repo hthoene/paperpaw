@@ -37,8 +37,16 @@ pub fn reopen_last(host: &Host<'_>, ui: &Ui) -> Result<(), Error> {
     let Some(path) = last_book(host)? else {
         return Ok(());
     };
-    if !on_the_card(host, &path)? {
-        return Ok(());
+    match on_the_card(host, &path)? {
+        Card::There => {}
+        // The book is gone (moved or removed): it is forgotten, and the start stays
+        // at home, without an error screen. A card that merely failed to answer
+        // forgets nothing.
+        Card::Gone => {
+            paperpaw_sdk::native::storage::remove(host, Root::Data, native_state::STATE).ok();
+            return Ok(());
+        }
+        Card::Unknown => return Ok(()),
     }
     // A path of at most 512 bytes (`MAX_PATH`) and its key in; the host asks for room
     // for the largest answer of the operation (`max_reply` 4,096), though the handle is 8.
@@ -64,14 +72,24 @@ fn last_book(host: &Host<'_>) -> Result<Option<alloc::string::String>, Error> {
     }
 }
 
+/// Whether a book is on the card.
+enum Card {
+    There,
+    /// The card says there is no such file.
+    Gone,
+    /// The card could not say.
+    Unknown,
+}
+
 /// Whether the file at `path` is on the card (a book moved or removed is not).
-fn on_the_card(host: &Host<'_>, path: &str) -> Result<bool, Error> {
+fn on_the_card(host: &Host<'_>, path: &str) -> Result<Card, Error> {
     let files = Files::open(host)?;
     // The stat answers up to `max_reply` (4,096 bytes) and the host asks for room for it.
     let (mut input, mut out) = (buffer(1024)?, buffer(4096)?);
     let found = match files.stat(host, Root::Files, path, &mut input, &mut out) {
-        Ok(_) => Ok(true),
-        Err(Error::NotFound | Error::Invalid | Error::NoSpace) => Ok(false),
+        Ok(_) => Ok(Card::There),
+        Err(Error::NotFound) => Ok(Card::Gone),
+        Err(Error::Invalid | Error::NoSpace) => Ok(Card::Unknown),
         Err(error) => Err(error),
     };
     files.release(host).ok();

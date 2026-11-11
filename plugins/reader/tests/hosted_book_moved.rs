@@ -43,7 +43,7 @@ fn after_move(last: &str, from: &str, to: &str) -> String {
         .storage()
         .write(STATE, text.as_bytes())
         .unwrap();
-    drop(reader.kernel().start(Instant(0)));
+    let _ = reader.kernel().start(Instant(0));
     let moved = events::BookMoved::new(from.into(), to.into()).to_params();
     let effects = reader
         .kernel()
