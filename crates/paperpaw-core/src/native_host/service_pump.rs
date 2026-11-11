@@ -258,6 +258,8 @@ impl crate::Kernel {
                 || wifi_more
                 || firmware_more,
         );
+        // Saved passwords that did not open here: said once per start.
+        self.secrets_notice();
     }
 
     /// When the pump wants to run again: now while events remain, else at

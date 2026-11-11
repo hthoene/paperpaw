@@ -15,7 +15,7 @@ use crate::{
     Kernel,
     native_host::{
         secrets_service::SecretsHost,
-        secrets_text::{open_text, seal_text},
+        secrets_text::{open_text_noting, seal_text},
     },
 };
 use alloc::{rc::Rc, string::String};
@@ -60,7 +60,13 @@ impl Kernel {
     /// The list of `text` (the file), sealed lines opened by `host`'s sealer.
     pub(crate) fn decode_secrets(text: &str, host: Option<&Rc<dyn SecretsHost>>) -> Secrets {
         match host {
-            Some(host) => Secrets::decode(&open_text(text, host.sealer())),
+            Some(host) => {
+                let (opened, unopened) = open_text_noting(text, host.sealer());
+                if unopened {
+                    host.unopened();
+                }
+                Secrets::decode(&opened)
+            }
             None => Secrets::decode(text),
         }
     }
@@ -89,6 +95,17 @@ impl Kernel {
         if !self.secrets_opened && self.secrets_host().is_some() {
             self.secrets_opened = true;
             self.read_secrets();
+        }
+    }
+
+    /// Tells the user once per start that saved passwords from another device
+    /// (or under a lost key) cannot be opened here, whichever path found such
+    /// a line first (a native plugin's call, or interface 6's reading). From
+    /// the service pump, after the start: the notice waits behind a guard.
+    pub(crate) fn secrets_notice(&mut self) {
+        if self.secrets_host().is_some_and(|host| host.take_unopened()) {
+            let text = String::from(self.shared.translator.tr("core.secrets-unopened"));
+            self.notify(text);
         }
     }
 }

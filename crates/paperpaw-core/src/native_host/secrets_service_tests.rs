@@ -218,6 +218,7 @@ struct Host {
     source: Source,
     has_source: bool,
     notices: Cell<u32>,
+    unopened: Cell<u32>,
 }
 impl SecretsHost for Host {
     fn storage(&self) -> &dyn Storage {
@@ -231,6 +232,9 @@ impl SecretsHost for Host {
     }
     fn unreadable(&self) {
         self.notices.set(self.notices.get() + 1);
+    }
+    fn unopened(&self) {
+        self.unopened.set(self.unopened.get() + 1);
     }
 }
 
@@ -408,6 +412,7 @@ fn host(seal: Seal) -> Rc<Host> {
         },
         has_source: true,
         notices: Cell::new(0),
+        unopened: Cell::new(0),
     })
 }
 
@@ -744,6 +749,29 @@ fn a_device_that_does_not_seal_refuses_keep_and_writes_nothing_but_still_reads_v
         file.extend_from_slice(b"mail.sealed\t\t\ts1:00aa\n");
         v.host.card.put(file::FILE, &file);
         assert_eq!(v.get("mail", "sealed").err(), Some(ERR_NOT_FOUND));
+    });
+}
+
+#[test]
+fn a_sealed_line_that_does_not_open_tells_the_host_and_a_veiled_or_good_one_does_not() {
+    with_view(|v| {
+        v.keep("mail", "password", "", "pw").unwrap();
+        assert_eq!(v.get("mail", "password").unwrap().0, "pw");
+        assert_eq!(v.host.unopened.get(), 0, "it opened");
+        // Interface 6's veiled values open everywhere.
+        let mut file = interface6(&[("stats.webdav", "stats.webdav", false, "d")]);
+        file.extend_from_slice(&v.host.card.file());
+        v.host.card.put(file::FILE, &file);
+        assert_eq!(v.get("stats", "webdav").unwrap().0, "d");
+        assert_eq!(v.host.unopened.get(), 0);
+        // A line sealed on another device (here: bytes no key opens).
+        file.extend_from_slice(b"mail.other\t\t\ts1:00aa\n");
+        v.host.card.put(file::FILE, &file);
+        assert_eq!(v.get("mail", "other").err(), Some(ERR_NOT_FOUND));
+        assert_eq!(v.host.unopened.get(), 1, "told once for the call");
+        // Each call that meets it says so; the kernel tells the user once.
+        assert_eq!(v.get("mail", "password").unwrap().0, "pw");
+        assert!(v.host.unopened.get() >= 1);
     });
 }
 

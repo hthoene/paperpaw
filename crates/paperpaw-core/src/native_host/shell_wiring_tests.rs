@@ -372,3 +372,15 @@ fn the_library_transactions_learn_the_memory_class_and_clock_from_wirings_of_the
         .unwrap();
     assert!(policy.is_small());
 }
+
+#[test]
+fn a_value_that_does_not_open_is_told_once_per_start() {
+    let host = SecretsInputs::new(storage(), Rc::new(Keyed)).host();
+    assert!(!host.take_unopened(), "nothing to tell");
+    host.unopened();
+    host.unopened();
+    assert!(host.take_unopened());
+    assert!(!host.take_unopened(), "once");
+    host.unopened();
+    assert!(!host.take_unopened(), "once per start, not once per line");
+}

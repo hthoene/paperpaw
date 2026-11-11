@@ -222,3 +222,32 @@ fn a_shell_that_wired_core_secrets_seals_with_no_native_plugin_admitted() {
     assert!(!kernel.secrets().saved("wifi.Work"));
     assert_eq!(file(&kernel), written);
 }
+
+#[test]
+fn a_card_from_another_device_is_told_once_per_start() {
+    use crate::native_host::shell_wiring::{SecretsInputs, SecretsLifecycle};
+    let theirs = seal_text(&veiled(&[("mail.pw", "one")]), "", &Fake::new(3)).unwrap();
+    let mut kernel = Kernel::builder(crate::tests::DEVICE)
+        .storage(MemoryStorage::new().with(FILE, theirs.as_bytes()))
+        .plugin(crate::tests::NoticePlugin {
+            log: crate::tests::log(),
+        })
+        .build()
+        .unwrap();
+    kernel.start(paperpaw_platform::Instant(0));
+    // No native plugin runs: the shell wired `core.secrets` only.
+    let mine: Rc<dyn Storage> = Rc::new(MemoryStorage::new());
+    let lifecycle = SecretsLifecycle::new(SecretsInputs::new(mine, Rc::new(Fake::new(9))).host());
+    kernel.wire_secrets(&lifecycle);
+    assert_eq!(kernel.secrets().get("mail.pw"), None, "absent here");
+    assert!(kernel.notice.is_none());
+    kernel.finish();
+    assert!(kernel.notice.is_some(), "told");
+    kernel.tick(paperpaw_platform::Instant(10_000));
+    assert!(kernel.notice.is_none(), "the notice went by");
+    // Read again by a save: not told twice in one start; the line stays.
+    kernel.set_secret(SecretChange::keep("wifi.Home", "Home", "two"));
+    kernel.tick(paperpaw_platform::Instant(11_000));
+    assert!(kernel.notice.is_none());
+    assert!(file(&kernel).contains(theirs.lines().next().unwrap()));
+}

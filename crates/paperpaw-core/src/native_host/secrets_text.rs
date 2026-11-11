@@ -98,18 +98,33 @@ impl Drop for Scratch {
 
 /// `text` with every sealed line `sealer` opens turned into a veiled one.
 pub(crate) fn open_text(text: &str, sealer: &dyn Sealer) -> String {
+    open_text_noting(text, sealer).0
+}
+
+/// [`open_text`], and whether a sealed line did not open here (another
+/// device's card, a lost key): the kernel tells the user once per start.
+pub(crate) fn open_text_noting(text: &str, sealer: &dyn Sealer) -> (String, bool) {
     let mut out = String::new();
+    let mut unopened = false;
     // Without room for the buffers nothing opens: the lines stay as they are.
     let mut scratch = Scratch::new().ok();
     for line in text.lines() {
         let line = line.trim_end_matches('\r');
         match scratch.as_mut().and_then(|s| opened(line, sealer, s)) {
             Some(veiled) => out.push_str(&veiled),
-            None => out.push_str(line),
+            None => {
+                unopened |= scratch.is_some() && is_sealed(line);
+                out.push_str(line);
+            }
         }
         out.push('\n');
     }
-    out
+    (out, unopened)
+}
+
+/// Whether `line` holds a sealed value.
+fn is_sealed(line: &str) -> bool {
+    fields(line).is_some_and(|[.., value]| value.starts_with("s1:"))
 }
 
 /// The veiled form of the sealed `line`, if it is one and opens here.

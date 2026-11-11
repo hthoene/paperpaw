@@ -406,6 +406,8 @@ pub(super) struct Opener<'a> {
     pub(super) sealer: &'a dyn Sealer,
     pub(super) plain: Buf,
     pub(super) blob: Buf,
+    /// A sealed value did not open here (another device's, a lost key).
+    pub(super) unopened: bool,
 }
 
 impl<'a> Opener<'a> {
@@ -414,6 +416,7 @@ impl<'a> Opener<'a> {
             sealer,
             plain: Buf::new(SEALED_MAX)?,
             blob: Buf::new(SEALED_MAX)?,
+            unopened: false,
         })
     }
 
@@ -442,6 +445,9 @@ impl<'a> Opener<'a> {
             }),
         };
         self.blob.clear();
+        if opened.is_err() && matches!(row.field, Field::Sealed(_)) {
+            self.unopened = true;
+        }
         let text = opened.is_ok()
             && self.plain.len <= VALUE_MAX
             && core::str::from_utf8(self.plain.as_bytes()).is_ok();
