@@ -57,6 +57,11 @@ pub(crate) fn decide(file: Option<&str>, overrides: &str, id: &str, default_on: 
     }
 }
 
+/// The built-in plugins the device cannot be without (they fill the roles
+/// that switch the others on and off and show the menus): one that crashed is
+/// held back for one start only, never saved off ([`NativeDecision::CrashedOnce`]).
+pub const ESSENTIAL: [&str; 3] = ["plugin-manager", "settings", "menu"];
+
 /// The configuration the on/off decisions are made from, read once at the
 /// start ([`Kernel::native_config`]): the file on the device and the shell's
 /// overrides.
@@ -84,11 +89,13 @@ pub enum NativeDecision {
     /// A card plugin the last crash was in: switched off in the file
     /// ([`PluginProblem::Crashed`]).
     Crashed,
-    /// A built-in plugin the last crash was in: not hosted this start
-    /// ([`PluginProblem::Crashed`]) but **left switched on** in the file. One
-    /// of them may be the only plugin of a role the device needs (plugin
-    /// manager, settings, menu): switched off for good it could be turned on
-    /// again only by editing the file on a PC. The next start hosts it again.
+    /// An **essential** built-in plugin ([`ESSENTIAL`]: the plugin manager,
+    /// settings, menu) the last crash was in: not hosted this start
+    /// ([`PluginProblem::Crashed`]) but **left switched on** in the file.
+    /// Switched off for good, the device could be left without the only way
+    /// to switch it on again but editing the file on a PC. The next start
+    /// hosts it again. Any other built-in plugin that crashed is
+    /// [`Self::Crashed`]: off from the next start on.
     CrashedOnce,
 }
 
@@ -147,7 +154,9 @@ impl Kernel {
     /// crash was in is switched off in the file, and with none known so is
     /// every card plugin that was on; this saves the file. A built-in plugin
     /// the crash was in is held back this start only
-    /// ([`NativeDecision::CrashedOnce`]) and never saved off.
+    /// ([`NativeDecision::CrashedOnce`]) and never saved off when it is
+    /// [`ESSENTIAL`]; any other built-in one is switched off like a card
+    /// plugin ([`NativeDecision::Crashed`]).
     pub fn native_decide(
         &mut self,
         config: &NativeConfig,
@@ -168,12 +177,11 @@ impl Kernel {
         let crashed_here = culprit.as_deref() == Some(id);
         // Built-in plugins run in safe mode; the one that crashed is held
         // back this start only, and not saved off.
-        if !from_card {
-            return if crashed_here {
-                NativeDecision::CrashedOnce
-            } else {
-                NativeDecision::Host
-            };
+        if !from_card && !crashed_here {
+            return NativeDecision::Host;
+        }
+        if !from_card && ESSENTIAL.contains(&id) {
+            return NativeDecision::CrashedOnce;
         }
         let switch_off = culprit.is_none() || crashed_here;
         if switch_off {
