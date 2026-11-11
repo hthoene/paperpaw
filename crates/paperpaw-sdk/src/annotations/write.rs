@@ -381,7 +381,7 @@ struct Out<'s> {
 }
 
 impl Out<'_> {
-    fn put(&mut self, bytes: &[u8]) -> Result<(), Error> {
+    fn put_bytes(&mut self, bytes: &[u8]) -> Result<(), Error> {
         if self.chunk.len() + bytes.len() > 4096 {
             self.flush()?;
         }
@@ -392,8 +392,8 @@ impl Out<'_> {
         Ok(())
     }
     fn line(&mut self, bytes: &[u8]) -> Result<(), Error> {
-        self.put(bytes)?;
-        self.put(b"\n")
+        self.put_bytes(bytes)?;
+        self.put_bytes(b"\n")
     }
     fn flush(&mut self) -> Result<(), Error> {
         if !self.chunk.is_empty() {
@@ -459,7 +459,7 @@ fn merge(
         header,
         "{MARK}{FILE_VERSION}\n# next-id {next_id}\n# generation {generation}\n"
     );
-    out.put(header.as_bytes())?;
+    out.put_bytes(header.as_bytes())?;
     let convert = info.version < FILE_VERSION;
     let windows = if convert {
         convert_windows()
@@ -523,8 +523,8 @@ fn merge(
     };
     let mut passed = |piece: Option<&[u8]>| -> Result<(), Error> {
         match piece {
-            Some(bytes) => out.borrow_mut().put(bytes),
-            None => out.borrow_mut().put(b"\n"),
+            Some(bytes) => out.borrow_mut().put_bytes(bytes),
+            None => out.borrow_mut().put_bytes(b"\n"),
         }
     };
     lines(storage, file, &mut visit, &mut passed)?;
