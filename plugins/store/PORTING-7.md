@@ -278,3 +278,93 @@ Each is an ignored case in `tests/acceptance_pending.rs`. The interface-6 tests
 - `native_plugin.rs`: the entry and the `Wire` over the host. Still open (other
   slices): the screens, the downloads and installs, the requests of other plugins, the
   first-run offer.
+
+## Ported in slice 3: the screens (`src/native_screens.rs`, `src/native_screen_*.rs`, `src/native_ask.rs`; ticket #244, assignment #2286)
+
+Status of the plugin is unchanged: **not complete** (the interface-6 plugin stays
+in place; its removal comes with the PR that finishes the port).
+
+- The contract (`native_screens.rs`): `StoreView` (`List`, `View`, `Letters`, `Source`,
+  `Plugin`, `Shots`, `Fetch`, `Offer`) with `open`, `shown`, `closed`, `resume`,
+  `hidden`, `draw`, `input`, `event`, `started`, `answered`, `returned`. Each answers
+  with a `Next` (open a screen, close, fetch the list or a page, install, update,
+  remove, stop, *Update all*, say a text, ask, restart) that `native_plugin.rs` carries
+  out. What a screen reads comes through `Ctx` (host, data folder, `Loader`,
+  `Installs`); `LoaderView` makes the slice-1 `native_load::Loader` one.
+- Screens, as the interface-6 ones (`list.rs`, `view.rs`, `letters.rs`, `source.rs`,
+  `page.rs`, `shots.rs`, `fetch.rs`): the start with the views and things to do, a
+  view (section, order, search, the letters to jump to), where the library is read
+  from, a plugin's page with its pictures, the progress of a fetch (list, *Update
+  all*, plugins another plugin asked for), the first-run offer.
+- `native_ask.rs`: the dialog of plugins other plugins ask for (events 77 and 78),
+  the first-run offer, and the offer of Literata's bold and italic, as pure functions
+  of what the plugin read; the answer to the one who asked is one `PluginOutcome` for
+  each id (`answer_plugin`) where interface 6 sent one event with lists.
+- Declarations (`declarations::screens`, `declarations::setup`): `store.list` and
+  `store.fetch` single, `store.plugin`, `store.view`, `store.letters`, `store.source`,
+  `store.shots`, `store.offer` as before; the setup step `store.setup`. The test
+  `native_declarations` compares the ids and titles with the interface-6
+  registration.
+- Memory (#248): nothing is built at the start. A screen builds its rows when it
+  opens or comes on top, lists are read from the index on the card a page at a time,
+  a plugin's page is held for the one screen and dropped (`forget_page`), no state is
+  kept between screens. Texts are copied once; every allocation is fallible. Frames
+  stay under 2,048 bytes.
+- **Not run on a host.** Pure functions and the screens' layout are tested; no screen
+  has run against the host yet. It runs when `native_plugin.rs` (slice 1) routes the
+  screen tokens to `StoreView`, when the downloads and installs (Port E, slice 2) give
+  `Installs`, and when native plugins are activated (#243). The store's start heap
+  against Beta 3's 99.9 KiB is measured then (`--heap-report`).
+- Open: the `Installs` adapter over Port E's steps and queue; the metadata `used` list
+  (`native/metadata.json`) for any host call a screen makes that slice 1 did not
+  (Port A regenerates it); the lazy `ItemList` (ui-kit has none: rows of a page of the
+  index are built eagerly, as Wi-Fi's).
+
+### Review of #1136: what was fixed, and what the wiring must do
+
+- The ask dialog of requested plugins names every plugin it lets through (no cut
+  text); plugins that do not fit are answered *declined*, not fetched (consent).
+  *Remove* on a plugin's page asks keep or remove again (`store.remove-question`).
+  Every id of a request gets an outcome on every path (partial list: not found;
+  closed dialog, stale request, refused queue: declined or failed; no memory:
+  `Reply::AnswerAll`).
+- The shots' `closed` cannot be refused: the image id and the net handle are released
+  first with stack buffers. Download progress redraws one row of the page
+  (`ItemList::set_value`, an additive ui-kit change) instead of rebuilding all rows.
+  The offer's choice and its rows never disagree (`toggled`, `chosen_of`).
+- Shots and fetch hold nothing between frames: their texts come through stack
+  buffers (`copy_message`/`format_message`, 512 B message + 256 B arguments in the fetch;
+  the shots read their three texts once at open). A text too long for them (a long
+  list of names) is said through a `Messages` made for that one text and dropped. The
+  page counter of the shots is said by `header::pager` through two stack buffers
+  (96 + 128 B; an additive change in ui-kit, owner: Plugin Engineer). Strings and
+  paint ops of a frame are allocated as in the other screens.
+- **For the wiring (`native_plugin.rs`, Port A):** answer `Dialog.not_found` and
+  `Dialog.declined` at once, handle `Reply::AnswerAll` and `Asked::stale`; route the
+  Remove question's answer (`answered`, tag `REMOVE`); release the image id of an
+  `ImageReady` that arrives for a closed shots screen; call `forget_page` when a page
+  screen closes; the install's trust check needs the page's author key
+  (`trust::expect`). The store stays out of `NATIVE_PLUGINS` until the screens are
+  routed.
+- Differences from Beta 3, on purpose or open: the screens read what the plugin
+  passes in (`Installs`, `LoaderView`) instead of `env`; the free-space/room notes
+  and the offline offer depend on the facts the wiring provides (`flash_hint`,
+  `no_room`, `can_install`); the setup step's applicability and badge are pushed by
+  the plugin (`set_item_state`) because they cannot be declared.
+- **Unsupported-device screen: not ported (open).** Beta 3's start shows *No plugins
+  for this device* (`store.unsupported`, with its help) when the library does not know
+  the device (`env.catalog_device()` is none). Natively `Facts::read` gives `None`
+  then, `Loader::start_list` asks nothing, and `Trouble` has no such state, so the
+  start would show *Loading* for ever. Open for the wiring (Port A, `native_load`): a
+  state for it (`Trouble::Unsupported`, or `Loader::device_known`), then the start's
+  empty state says `store.unsupported` (texts exist, en/de).
+
+### Gates before the store joins `NATIVE_PLUGINS`
+
+- **Frame sizes** (X4: every frame under 2,048 B): measure with `tools/stack-frames.py` on the
+  X4 build of the store **and of the reader**: the reader now uses the new ui-kit
+  `header::pager` stack-buffer page-label helper (added for the shots screen), so its
+  frames change too. Not measured yet (owner: Port D for the store, Plugin Engineer for
+  the reader).
+- The wiring items above, the metadata `used` list, and the heap measurement against
+  Beta 3's 99.9 KiB (store start).

@@ -6,7 +6,8 @@
 //! install and the first-run offer follow (`PORTING-7.md`).
 use paperpaw_sdk::builtin::groups;
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, EventKind, Kind, MenuEntryDecl, SpecDecl,
+    ActionDecl, Declarations, DeclareError, EventKind, Instances, Kind, MenuEntryDecl, ScreenDecl,
+    SetupPage, SetupStepDecl, SpecDecl,
 };
 
 /// PaperPaw's own plugin library.
@@ -16,6 +17,57 @@ pub const OFFICIAL_LIST: &str = "https://paperpaw.org/api/v1/plugins.json";
 pub const OPEN_TOKEN: u32 = 1;
 /// The end of a request (`core.net`).
 pub const HTTP_TOKEN: u32 = 2;
+/// The screens' tokens: the start, the page of a plugin, a view, the letters,
+/// the source, the pictures and the progress of a fetch.
+pub const LIST_SCREEN: u32 = 20;
+pub const PLUGIN_SCREEN: u32 = 21;
+pub const VIEW_SCREEN: u32 = 22;
+pub const LETTERS_SCREEN: u32 = 23;
+pub const SOURCE_SCREEN: u32 = 24;
+pub const SHOTS_SCREEN: u32 = 25;
+pub const FETCH_SCREEN: u32 = 26;
+/// The first-run offer's page of the setup.
+pub const OFFER_SCREEN: u32 = 27;
+
+/// The eight screens of the store: the start and the progress of a fetch are
+/// single, as in Beta 3; the others come once for each set of parameters.
+pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.screen(ScreenDecl::new("list", "store.title", LIST_SCREEN).instances(Instances::Single))?;
+    d.screen(ScreenDecl::new("plugin", "store.title", PLUGIN_SCREEN))?;
+    d.screen(ScreenDecl::new("view", "store.title", VIEW_SCREEN))?;
+    d.screen(ScreenDecl::new("letters", "store.letter", LETTERS_SCREEN))?;
+    d.screen(ScreenDecl::new("source", "store.source", SOURCE_SCREEN))?;
+    d.screen(ScreenDecl::new("shots", "store.shots", SHOTS_SCREEN))?;
+    d.screen(
+        ScreenDecl::new("fetch", "store.fetch.title", FETCH_SCREEN).instances(Instances::Single),
+    )?;
+    d.screen(ScreenDecl::new("offer", "store.offer.title", OFFER_SCREEN))?;
+    d.submit()?;
+    Ok(())
+}
+
+/// The setup's step that offers a few plugins (`store.offer`), after the
+/// keyboard's and before Wi-Fi's. It applies until the plugin says it does not
+/// (`command.set_item_state`, where no plugin of the offer can be added here;
+/// `native_screen_offer::applies`), and the item state carries the badge of
+/// what became of those chosen. The page closes at once if it is opened all
+/// the same with nothing to offer.
+pub fn setup<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    let mut step = SetupStepDecl::new(
+        "setup",
+        "store.offer.title",
+        SetupPage::Screen("store.offer"),
+    );
+    step.help = "store.offer.help";
+    step.order = 55;
+    d.setup_step(step)?;
+    d.submit()?;
+    Ok(())
+}
 
 /// The library's address, and the switch for community plugins.
 pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
