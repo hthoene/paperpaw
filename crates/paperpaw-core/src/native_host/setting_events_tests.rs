@@ -653,17 +653,16 @@ fn a_registry_bit_raised_while_the_queues_are_borrowed_is_dropped_without_a_pani
     assert!(w.hints.borrow().is_empty());
 }
 
-/// Makes plugin `manager` the network manager (`core.network-manager`).
+/// Makes plugin `manager` the network manager (`core.network-manager`, which
+/// the kernel defines with the default `wifi`).
 fn manager(w: &mut World, manager: &'static str) {
     w.kernel
         .shared
         .settings
-        .define(paperpaw_sdk::SettingSpec::text(
+        .set(
             crate::native_host::commands::dev::NETWORK_MANAGER,
-            "manager",
-            manager,
-            paperpaw_sdk::builtin::groups::OTHER,
-        ))
+            paperpaw_sdk::SettingValue::Text(manager.into()),
+        )
         .unwrap();
 }
 
