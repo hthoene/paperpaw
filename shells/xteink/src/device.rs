@@ -17,6 +17,11 @@ pub const LIGHT_SLEEP: Setting<bool> = Setting::new("x4.light-sleep");
 /// only shows the sleep picture: the computer keeps the link (a developer's
 /// choice, see `firmware::dozing`).
 pub const STAY_AWAKE_USB: Setting<bool> = Setting::new("x4.stay-awake-usb");
+/// Whether the X4 stays awake on USB until its owner chooses otherwise: only the
+/// owner's test image does (todo 532), so that a remote test does not lose
+/// its link to a sleep (the sleep timer dozes instead, see `firmware/dozing.rs`).
+/// Released firmware leaves it off, as before.
+const STAY_AWAKE_USB_DEFAULT: bool = cfg!(feature = "test-image");
 /// How quickly presses are answered on battery: *Faster* sleeps the
 /// processor less between readings of the buttons, and the X4 Pro's panel
 /// stays powered; *Saving* sleeps it longer, for a little less current
@@ -160,7 +165,7 @@ static SETTINGS: [SettingSpec; 3] = [
     SettingSpec::switch(
         STAY_AWAKE_USB.static_str(),
         "x4.stay-awake-usb",
-        false,
+        STAY_AWAKE_USB_DEFAULT,
         groups::DEVELOPER,
     )
     .description("x4.stay-awake-usb.help"),

@@ -59,3 +59,24 @@ fn the_release_build_sets_the_release_feature() {
     );
     assert!(read("shells/xteink/Cargo.toml").contains("\nrelease = []"));
 }
+
+/// The test image keeps the X4 awake on USB (todo 532: a remote test loses its
+/// link to a sleep); no other build changes the setting's default.
+#[test]
+fn only_the_test_image_stays_awake_on_usb_by_default() {
+    let device = read("shells/xteink/src/device.rs");
+    assert!(
+        device.contains(r#"const STAY_AWAKE_USB_DEFAULT: bool = cfg!(feature = "test-image");"#),
+        "the stay-awake default must be the test image's feature alone"
+    );
+    let setting = device
+        .split(r#"STAY_AWAKE_USB.static_str(),"#)
+        .nth(1)
+        .expect("the stay-awake setting");
+    let spec: Vec<&str> = setting.lines().take(4).collect();
+    assert!(
+        spec.iter()
+            .any(|line| line.trim() == "STAY_AWAKE_USB_DEFAULT,"),
+        "the setting's default is not the test image's constant: {spec:?}"
+    );
+}
