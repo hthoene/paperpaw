@@ -14,6 +14,11 @@
   ],
   "features": [
     {
+      "key": "uses.library",
+      "required": false,
+      "revision": 1
+    },
+    {
       "key": "uses.storage",
       "required": true,
       "revision": 1
@@ -77,5 +82,5 @@
     }
   ],
   "target": "esp32c3-riscv32imc-ilp32-soft-le",
-  "total_bytes": 267
+  "total_bytes": 287
 }

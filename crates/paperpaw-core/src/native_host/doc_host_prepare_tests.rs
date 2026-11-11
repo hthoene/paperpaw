@@ -153,6 +153,27 @@ fn a_step_that_cannot_be_made_now_is_tried_again_and_the_document_still_prepares
 }
 
 #[test]
+fn a_step_made_later_still_passes_the_turn_to_the_next_document() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        let first = preparing(w, "books/a.epub");
+        let second = preparing(w, "books/b.epub");
+        // The first one's step cannot be made now: the next step is the
+        // second one's, not the first one's again (it would starve the rest).
+        *w.reply.borrow_mut() = Err(ERR_BUSY);
+        assert_eq!(step(w), PrepareStep::Later);
+        answer(w, PREPARING, 200_000, 0);
+        assert_eq!(step(w), PrepareStep::More);
+        assert_eq!(changed_event(w), Some((second, PREPARING, 200_000)));
+        // And then the first one has its turn.
+        answer(w, PREPARING, 100_000, 0);
+        assert_eq!(step(w), PrepareStep::More);
+        assert_eq!(changed_event(w), Some((first, PREPARING, 100_000)));
+        assert_eq!(changed_event(w), None);
+    });
+}
+
+#[test]
 fn a_failed_answer_must_carry_its_error_and_a_progress_is_at_most_a_million() {
     // State 2 without a status, and progress above 1,000,000 ppm: malformed.
     for (state, progress, status) in [(FAILED, 0, 0), (PREPARING, 1_000_001, 0)] {

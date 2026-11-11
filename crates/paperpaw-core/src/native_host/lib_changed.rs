@@ -12,13 +12,6 @@ use alloc::string::String;
 use core::cell::RefCell;
 
 /// `event.library_changed.what`: books added, removed or moved.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "delete, import and move (#1050, #1081) raise it; this goes with the first caller"
-    )
-)]
 pub(crate) const BOOKS: u32 = 1;
 /// Status (finished, favourite, opened).
 pub(crate) const STATUS: u32 = 1 << 1;
@@ -29,10 +22,6 @@ pub(crate) const ANNOTATIONS: u32 = 1 << 3;
 /// Fields or badges.
 pub(crate) const FIELDS: u32 = 1 << 4;
 /// The walk progressed or ended.
-#[expect(
-    dead_code,
-    reason = "the walk (Firmware) raises it; this goes with the first caller"
-)]
 pub(crate) const WALK: u32 = 1 << 5;
 /// A cover is ready, or a `cover` call that answered `ERR_BUSY` may be asked
 /// again.
