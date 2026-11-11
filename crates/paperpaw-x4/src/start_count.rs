@@ -56,6 +56,15 @@ impl Count {
         true
     }
 
+    /// Native code cannot be run safely any more in this start (the band was
+    /// lost after a sleep): the count says the starts failed, so that the
+    /// start that follows the reset goes without native plugins, whether or
+    /// not the first frame of this one was shown. Without it a reset would
+    /// host them again and a nap could end in a reset each time.
+    pub fn lost_the_band(&mut self) {
+        self.failed = self.failed.max(FAILED_STARTS);
+    }
+
     /// The first frame is shown: the start went well.
     pub fn started(&mut self) {
         *self = Self::default();
@@ -116,6 +125,20 @@ mod tests {
         assert_eq!(count.decide(true, false), Some(Refusal::KeyHeld));
         assert_eq!(count.decide(false, true), Some(Refusal::FailedStarts));
         assert_eq!(count.decide(false, false), None);
+    }
+
+    #[test]
+    fn a_lost_band_after_the_first_frame_sends_the_next_start_without_native() {
+        let mut count = Count::default();
+        // A start that went well (first frame shown), then the band is lost.
+        assert_eq!(start(&mut count, true), None);
+        count.lost_the_band();
+        // The reset that follows: no native plugins, however clean the last
+        // start looked.
+        assert_eq!(count.decide(false, false), Some(Refusal::FailedStarts));
+        // That start counts anew: native is tried again at the one after.
+        count = Count::default();
+        assert_eq!(start(&mut count, true), None);
     }
 
     #[test]
