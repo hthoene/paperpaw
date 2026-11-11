@@ -152,6 +152,15 @@ impl Screens {
         }
     }
 
+    /// The id and title of every interface-7 plugin's screen.
+    pub(crate) fn native_titles(&self) -> impl Iterator<Item = &(Id, Cow<'static, str>)> {
+        self.titles
+            .iter()
+            .zip(&self.made)
+            .filter(|(_, made)| matches!(made, Made::Native(_)))
+            .map(|(title, _)| title)
+    }
+
     pub(crate) fn remove_native_owner(&mut self, owner: &str) {
         let mut at = 0;
         while at < self.made.len() {

@@ -461,6 +461,11 @@ impl NativeInstances {
             .and_then(super::shared::Shared::try_clone)
     }
 
+    /// The ids of the interface-7 plugins known, enabled or not.
+    pub(crate) fn plugin_ids(&self) -> impl Iterator<Item = &Id> {
+        self.entries.iter().map(|entry| &entry.id)
+    }
+
     /// A lease of the installed, enabled plugin `key` (`None` for none, or
     /// where memory refuses the clone).
     pub(crate) fn lease(&self, key: u64) -> Option<NativeLease> {

@@ -10314,12 +10314,14 @@ pub macro paperpaw_sdk::role_settings!
 pub macro paperpaw_sdk::service_type!
 #[non_exhaustive] pub enum paperpaw_sdk::Action<'a>
 pub paperpaw_sdk::Action::Fixed(&'static paperpaw_sdk::FixedAction)
+pub paperpaw_sdk::Action::Native(&'a paperpaw_sdk::NativeAction)
 pub paperpaw_sdk::Action::Spec(&'a paperpaw_sdk::ActionSpec)
 impl<'a> paperpaw_sdk::Action<'a>
 pub fn paperpaw_sdk::Action<'a>::description(self) -> core::option::Option<&'a str>
 pub fn paperpaw_sdk::Action<'a>::hint(self) -> &'a paperpaw_sdk::ActionHint
 pub fn paperpaw_sdk::Action<'a>::id(self) -> &'a paperpaw_sdk::Id
 pub fn paperpaw_sdk::Action<'a>::is_sealed(self) -> bool
+pub fn paperpaw_sdk::Action<'a>::native(self) -> core::option::Option<(u64, u32)>
 pub fn paperpaw_sdk::Action<'a>::run(self, &paperpaw_sdk::Env<'_>, &paperpaw_sdk::Params, &mut paperpaw_sdk::Commands) -> bool
 pub fn paperpaw_sdk::Action<'a>::runs_itself(self) -> bool
 pub fn paperpaw_sdk::Action<'a>::search_keywords(self) -> core::option::Option<&'a str>
@@ -11393,6 +11395,7 @@ pub const fn paperpaw_sdk::Metrics::mm(&self, u32) -> u32
 pub const fn paperpaw_sdk::Metrics::new(u16) -> Self
 pub fn paperpaw_sdk::Metrics::pt(&self, f32) -> f32
 pub const fn paperpaw_sdk::Metrics::tenth_mm(&self, u32) -> u32
+pub struct paperpaw_sdk::NativeAction
 #[non_exhaustive] pub struct paperpaw_sdk::ObserverSpec
 pub paperpaw_sdk::ObserverSpec::id: paperpaw_sdk::Id
 pub paperpaw_sdk::ObserverSpec::observer: paperpaw_sdk::Observer
