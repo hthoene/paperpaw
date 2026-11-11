@@ -15,7 +15,7 @@ use crate::native_host::{
 };
 use alloc::{rc::Rc, vec::Vec};
 use core::cell::RefCell;
-use paperpaw_native::host_glue::{ERR_INVALID, OK};
+use paperpaw_native::host_glue::{ERR_FULL, ERR_INVALID, OK};
 use paperpaw_sdk::{Command, Id, Instant, Params, Speech};
 
 /// What one plugin was told: `cookie`, `status`.
@@ -319,4 +319,88 @@ fn a_stop_while_another_texts_is_first_drops_only_the_submitters_waiting_text() 
     assert_eq!(w.calls(), [SpeechCall::Stop]);
     w.pump();
     assert_eq!(*w.a.1.borrow(), [(1, 1)]);
+}
+
+/// A batch of `command.speak` (and stops) through a stage that is told the
+/// plugin holds `held` texts.
+fn stage_speech(held: usize, batches: &[&[(u32, bool)]]) -> Vec<i32> {
+    use crate::native_host::commands::{WireCommand, commands_decode, commands_encode};
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .speech(true)
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(Instant(0));
+    let owner = Id::new_static("probe");
+    let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 8192);
+    stage.set_speech_held(held);
+    let mut statuses = Vec::new();
+    for batch in batches {
+        // (flags, true) is a speak; (_, false) a stop.
+        let commands: Vec<WireCommand<'_>> = batch
+            .iter()
+            .map(|&(flags, speak)| {
+                if speak {
+                    WireCommand::Speak {
+                        cookie: 1,
+                        text: "x",
+                        language: "",
+                        rate: 100,
+                        flags,
+                    }
+                } else {
+                    WireCommand::StopSpeaking {}
+                }
+            })
+            .collect();
+        let mut bytes = [0; 1024];
+        let len = commands_encode(&commands, &mut bytes).unwrap();
+        statuses.push(stage.stage(&commands_decode(&bytes[..len]).unwrap()));
+    }
+    statuses
+}
+
+#[test]
+fn a_plugin_holds_at_most_four_texts_a_queued_fifth_is_err_full() {
+    // One being spoken and two waiting: one more fits, the next does not.
+    assert_eq!(
+        stage_speech(3, &[&[(1, true)], &[(1, true)]]),
+        [OK, ERR_FULL]
+    );
+    // Five in one batch: the whole batch is refused.
+    assert_eq!(
+        stage_speech(
+            0,
+            &[&[(1, true), (1, true), (1, true), (1, true), (1, true)]]
+        ),
+        [ERR_FULL]
+    );
+    // A speak that replaces never meets the cap, and starts the count again.
+    assert_eq!(
+        stage_speech(
+            4,
+            &[
+                &[(0, true)],
+                &[(1, true), (1, true), (1, true)],
+                &[(1, true)]
+            ]
+        ),
+        [OK, OK, ERR_FULL]
+    );
+    // A stop frees the plugin's texts.
+    assert_eq!(stage_speech(4, &[&[(0, false)], &[(1, true)]]), [OK, OK]);
+}
+
+#[test]
+fn the_kernels_speech_counts_a_plugins_texts() {
+    let mut w = world(true);
+    let (a, b) = (w.a.0.clone(), w.b.0.clone());
+    w.speak(&a, 1, 0);
+    w.speak(&a, 2, 1);
+    w.speak(&b, 3, 1);
+    assert_eq!(w.kernel.io.speech.owned_texts("a"), 2);
+    assert_eq!(w.kernel.io.speech.owned_texts("b"), 1);
+    // A replacing text of `b` ends all.
+    w.speak(&b, 4, 0);
+    assert_eq!(w.kernel.io.speech.owned_texts("a"), 0);
+    assert_eq!(w.kernel.io.speech.owned_texts("b"), 1);
 }

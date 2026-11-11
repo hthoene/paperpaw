@@ -187,6 +187,15 @@ impl Speech {
         core::mem::take(&mut self.calls)
     }
 
+    /// How many texts of the native plugin `owner` are being spoken or wait
+    /// (`ui.md` section 7 caps them per plugin).
+    pub fn owned_texts(&self, owner: &str) -> usize {
+        self.speaking
+            .iter()
+            .filter(|s| native::is_reply(&s.reply) && s.params.get(native::OWNER) == Some(owner))
+            .count()
+    }
+
     /// Whether a text is being spoken.
     pub fn speaking(&self) -> bool {
         !self.speaking.is_empty()

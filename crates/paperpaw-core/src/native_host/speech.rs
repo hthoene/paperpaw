@@ -21,7 +21,7 @@ use super::registrations as wire;
 use crate::Kernel;
 use alloc::{boxed::Box, string::String};
 use core::fmt::Write;
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY};
+use paperpaw_native::host_glue::{ERR_FULL, ERR_INVALID, ERR_NO_MEMORY};
 use paperpaw_sdk::{Command, Id, Params, Speech};
 
 /// The reply id of a native plugin's speech (the kernel's, no plugin's).
@@ -36,7 +36,25 @@ const STATUS: &str = "status";
 /// `command.speak.rate`: 50 to 300 percent.
 const RATE: core::ops::RangeInclusive<u32> = 50..=300;
 /// `command.speak.flags` bit 0: after what is spoken, not in its place.
-const QUEUE: u32 = 1;
+pub(crate) const QUEUE: u32 = 1;
+
+/// The most texts of one native plugin, the one being spoken included.
+pub(crate) const MAX_TEXTS: usize = 4;
+
+/// What a native speech command does to the count of a plugin's texts:
+/// `Some(queued)` for a speak, `None` for a stop.
+pub(crate) fn count(texts: &mut usize, speak: Option<bool>) -> Result<(), i32> {
+    match speak {
+        // After what is spoken: beyond the cap nothing is queued.
+        Some(true) if *texts >= MAX_TEXTS => return Err(ERR_FULL),
+        Some(true) => *texts += 1,
+        // In place of everything: the one text.
+        Some(false) => *texts = 1,
+        // The plugin's own texts end.
+        None => *texts = 0,
+    }
+    Ok(())
+}
 
 /// Whether `event` is the reply event of a native plugin's speech.
 pub(crate) fn is_reply(event: &Id) -> bool {
