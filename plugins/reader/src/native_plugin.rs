@@ -6,7 +6,10 @@
 //! (`PORTING-7.md`). What the reader decides without a host is in the
 //! `native_*` models, tested without one.
 use crate::{
-    declarations::{FOOTNOTE, SCREEN, SETTING_CHANGED, STOPPING, SUSPEND, TOC, WORK_DUE},
+    declarations::{
+        ANNOTATIONS, FOOTNOTE, SCREEN, SETTING_CHANGED, STOPPING, SUSPEND, TOC, WORK_DUE,
+    },
+    native_annotations_view::{AnnotationsView, Outcome as NotesOutcome},
     native_footnote::{Footnote, Pressed},
     native_pages,
     native_toc_view::{Outcome, TocView},
@@ -64,6 +67,8 @@ pub struct NativeReader {
     no_work: bool,
     screens: Screens<View>,
     tocs: Screens<TocView>,
+    /// The annotations screens.
+    annotations: Screens<AnnotationsView>,
     /// The notes over the pages.
     notes: Screens<Footnote>,
     /// *Go to the note* pressed: the book and the link, followed when its
@@ -174,6 +179,60 @@ impl NativeReader {
             CommandSender::new(host, &mut scratch).back()?;
         }
         Ok(handled)
+    }
+
+    /// The annotations opened: their notes are read with it.
+    fn open_notes(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
+    ) -> Result<(), Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        // Without the library there are no notes to list: the screen says so.
+        if self.library.is_none() {
+            self.library = Library::open(host).ok();
+        }
+        let Some(ui) = &self.ui else {
+            return Err(Error::State);
+        };
+        let view = AnnotationsView::open(host, ui, self.library.as_ref(), handover)?;
+        self.annotations.open(instance, view)
+    }
+
+    /// An input of the annotations; a choice goes to the reading screen below
+    /// and closes this one.
+    fn notes_input(&mut self, host: &Host<'_>, input: &Input<'_>) -> Result<Handled, Error> {
+        let Some(view) = self.annotations.top(ANNOTATIONS) else {
+            return Ok(Handled::No);
+        };
+        let (handled, outcome) = view.input(host, self.library.as_ref(), input)?;
+        if let NotesOutcome::Go(place) = outcome {
+            if let Some(reading) = self.screens.top(SCREEN) {
+                reading.go_to((place.section, place.offset))?;
+                if reading.take_turned() {
+                    self.start_quiet(host);
+                }
+            }
+            let mut scratch = [0; 64];
+            CommandSender::new(host, &mut scratch).back()?;
+        }
+        Ok(handled)
+    }
+
+    /// Opens the annotations of the book on show: the same hand-over as the
+    /// table of contents (where the book is and where the reader is in it).
+    fn show_notes(&mut self, host: &Host<'_>) -> Result<Handled, Error> {
+        let (Some(view), Some(ui)) = (self.screens.top(SCREEN), &self.ui) else {
+            return Ok(Handled::No);
+        };
+        let Some(params) = view.toc_params() else {
+            return Ok(Handled::No);
+        };
+        crate::native_annotations_view::show(host, ui, &params)?;
+        Ok(Handled::Yes)
     }
 
     /// A setting changed: every reading screen lays its page out again (a
@@ -290,6 +349,7 @@ impl Plugin for NativeReader {
             } => match token {
                 SCREEN => self.open(host, instance, handover),
                 TOC => self.open_toc(host, instance, handover),
+                ANNOTATIONS => self.open_notes(host, instance, handover),
                 FOOTNOTE => self.open_note(host, instance, handover),
                 _ => Ok(()),
             },
@@ -305,6 +365,7 @@ impl Plugin for NativeReader {
                     self.follow_note(host, instance)
                 }
                 TOC => self.tocs.shown(TOC, instance),
+                ANNOTATIONS => self.annotations.shown(ANNOTATIONS, instance),
                 FOOTNOTE => self.notes.shown(FOOTNOTE, instance),
                 _ => Ok(()),
             },
@@ -312,6 +373,7 @@ impl Plugin for NativeReader {
                 match token {
                     SCREEN => self.close(host, instance),
                     TOC => self.close_toc(host, instance),
+                    ANNOTATIONS => self.annotations.close(instance),
                     FOOTNOTE => self.notes.close(instance),
                     _ => {}
                 }
@@ -324,6 +386,10 @@ impl Plugin for NativeReader {
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
         if token == TOC {
             let view = self.tocs.top(token).ok_or(Error::State)?;
+            return view.draw(host, &mut frame);
+        }
+        if token == ANNOTATIONS {
+            let view = self.annotations.top(token).ok_or(Error::State)?;
             return view.draw(host, &mut frame);
         }
         if token == FOOTNOTE {
@@ -339,6 +405,20 @@ impl Plugin for NativeReader {
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
         if token == TOC {
             return self.toc_input(host, &input);
+        }
+        if token == ANNOTATIONS {
+            return self.notes_input(host, &input);
+        }
+        if token == SCREEN
+            && matches!(
+                input,
+                Input::Action {
+                    action: "reader.show-annotations",
+                    ..
+                }
+            )
+        {
+            return self.show_notes(host);
         }
         if token == FOOTNOTE {
             let Some(note) = self.notes.top(token) else {
