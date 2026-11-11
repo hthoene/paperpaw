@@ -346,6 +346,30 @@ impl<D: Dispatch> NativeScreen<D> {
         }
     }
 
+    /// Whether the kernel's draw of this screen is to reach the plugin: it is on
+    /// the stack, and the screens above it (none, for the top one) are all
+    /// overlays. Under an overlay of another plugin a screen that is secret, or at
+    /// or below a guard, is not drawn (its area stays blank: the sleep screen over a
+    /// locked device never shows the page or the PIN screen).
+    fn shown_below(&self, env: &Env<'_>) -> bool {
+        let Some(key) = self.key else {
+            return false;
+        };
+        let stack = env.stack();
+        let Some(at) = stack.iter().rposition(|entry| entry.key == key) else {
+            return false;
+        };
+        let above = &stack[at + 1..];
+        if !above.iter().all(|entry| entry.overlay) {
+            return false;
+        }
+        let guarded = self.secret() || stack[at..].iter().any(|entry| entry.guards);
+        let foreign = above
+            .iter()
+            .any(|entry| entry.screen.namespace() != self.id.namespace());
+        !(guarded && foreign)
+    }
+
     fn draw_visible(&self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         let pane = env.content();
         let pane = Rect::new(0, 0, pane.width, pane.height);
@@ -398,12 +422,11 @@ impl<D: Dispatch> Screen for NativeScreen<D> {
     }
 
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
-        // The native contract sends neither draw nor input below the top screen.
-        // Compare instance keys, since several instances may have the same id.
-        if self
-            .key
-            .is_some_and(|key| env.stack().last().is_some_and(|entry| entry.key == key))
-        {
+        // Only the top screen has input, but one below overlays only is drawn as if
+        // it were on top, the overlays after it (`ui.md` 1.2, bit 2 `overlay`): the
+        // page under a menu or a dialog shows. Instance keys are compared, since
+        // several instances may have the same id.
+        if self.shown_below(env) {
             self.draw_visible(canvas, env);
         }
     }
