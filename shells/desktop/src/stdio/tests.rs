@@ -430,6 +430,7 @@ fn ready_says_the_protocol_and_profiles() {
 /// `"wifi": "online"` starts the device in the workshop's network, as
 /// `--wifi online` does; anything else but `off` is an error.
 #[test]
+#[ignore = "needs native activation (Wi-Fi is a native-only plugin since #244 and the desktop does not offer uses.wifi: the Wi-Fi page is not there)"]
 fn a_device_starts_online_where_asked() {
     assert!(parse(r#"{"op": "start", "profile": "p", "library": "l", "wifi": "maybe"}"#).is_err());
     let _one = crate::one_device_at_a_time();
