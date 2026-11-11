@@ -837,6 +837,16 @@ mod tests {
     }
 
     #[test]
+    fn no_channel_is_made_until_a_socket_could_report() {
+        let sock = NativeSock::new();
+        assert!(sock.arrived().is_none());
+        sock.pump_with(&Core::new(0), true);
+        assert!(sock.arrived().is_none());
+        sock.events();
+        assert!(sock.arrived().is_some());
+    }
+
+    #[test]
     fn a_connection_sends_and_reads_only_what_was_asked() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
