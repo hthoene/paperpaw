@@ -181,6 +181,19 @@ impl ItemList {
         Ok(())
     }
 
+    /// Replaces the value (the text at the right) of the row at `index`, in
+    /// place: for a number that moves (a download's progress) where the rest
+    /// of the list stays as it is. `false` where `index` is no row.
+    pub fn set_value(&mut self, index: usize, value: String) -> bool {
+        match self.items.get_mut(index) {
+            Some(Item::Row(row)) => {
+                row.value = value;
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Zeroes the text of every item and empties the list: for a list that
     /// showed a secret (a password drawn for the user to read) and is closed.
     pub fn wipe(&mut self) {
@@ -1083,6 +1096,20 @@ mod tests {
 
     fn action(action: &str) -> Input<'_> {
         Input::Action { now_ms: 0, action }
+    }
+
+    #[test]
+    fn a_value_is_replaced_in_place_and_a_heading_has_none() {
+        let mut list = ItemList::new(items("hrr"));
+        list.set_focus(2);
+        assert!(list.set_value(1, "42 %".into()));
+        assert!(!list.set_value(0, "x".into()), "a heading has no value");
+        assert!(!list.set_value(9, "x".into()));
+        assert_eq!(list.focus(), 2);
+        let Item::Row(row) = &list.items()[1] else {
+            panic!("a row")
+        };
+        assert_eq!((row.title.as_str(), row.value.as_str()), ("r", "42 %"));
     }
 
     #[test]

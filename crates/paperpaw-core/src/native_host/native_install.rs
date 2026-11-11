@@ -576,16 +576,15 @@ impl crate::Kernel {
             .map(paperpaw_platform::Instant)
     }
 
-    /// What a plugin declared, staged for its publication: the screens, offers,
-    /// actions, choices, settings and groups in the registry's staging and the
-    /// resources (fonts, hyphenation) as they are to be kept.
+    /// What the plugin's declarations stage for the kernel's registries, and
+    /// its resource files: every value the host mapped, taken in order.
     fn stage_owned(
         &self,
         owned: Vec<Owned>,
-        instance: &NativeLease,
         key: u64,
         owner: &Id,
         folder: &str,
+        instance: &NativeLease,
     ) -> Result<(crate::registry::Staging, super::native_resources::Resources), shell::Error> {
         let mut staging = crate::registry::Staging::default();
         let mut resources = super::native_resources::Resources::default();
@@ -680,7 +679,7 @@ impl crate::Kernel {
             events,
         ))
         .map_err(shell::Error::Status)?;
-        let (staging, resources) = self.stage_owned(owned, &instance, key, owner, folder)?;
+        let (staging, resources) = self.stage_owned(owned, key, owner, folder, &instance)?;
         self.shared
             .native_instances
             .install(key, instance.try_clone().map_err(shell::Error::Status)?)
@@ -858,10 +857,11 @@ impl crate::Kernel {
         // exist, a guarded one or a value outside the plugin's namespace, with
         // a log line). Their `title` is not read here: the declaration store
         // keeps it for the registry.
+        // (As the settings defined above, they stay if a later step of the
+        // publication fails.)
         self.plugin_choices.append(&mut choices);
         self.add_plugin_choices();
-        // The configuration's values for what it declared, after the choices
-        // that it and the others add (a value may name one).
+        // After the choices: a configured value can name one.
         self.apply_late_config();
         self.publish_fonts(owner, resources)
     }

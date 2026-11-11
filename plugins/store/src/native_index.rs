@@ -48,6 +48,7 @@ pub type Names<'a> = [&'a str; 4];
 ///
 /// # Errors
 /// `NoMemory`.
+#[inline(never)]
 pub fn line_at(storage: &dyn Storage, path: &str, offset: u32) -> Result<Option<String>, Error> {
     let mut buf = [0u8; 256];
     let mut at = u64::from(offset);
@@ -95,6 +96,7 @@ struct Writer<'a> {
 }
 
 impl Writer<'_> {
+    #[inline(never)]
     fn flush(&mut self) {
         self.written &= self.storage.append(self.index, &self.lines).is_ok();
         self.written &= self.storage.append(self.offsets, &self.starts).is_ok();
@@ -102,6 +104,7 @@ impl Writer<'_> {
         self.starts.clear();
     }
 
+    #[inline(never)]
     fn entry(&mut self, entry: &Entry) -> Result<(), Error> {
         add_to_run(&mut self.runs, entry.group)?;
         let line = entry.line()?;
@@ -123,6 +126,7 @@ impl Writer<'_> {
 ///
 /// # Errors
 /// `NoMemory`; `Io` where the card refused a write (no index is left).
+#[inline(never)]
 pub fn build(
     storage: &dyn Storage,
     json: &str,
@@ -173,6 +177,7 @@ pub fn build(
     }
 }
 
+#[inline(never)]
 fn read_json(
     storage: &dyn Storage,
     json: &str,
@@ -196,6 +201,7 @@ fn read_json(
     reader.finish(&mut |e| out.entry(&e))
 }
 
+#[inline(never)]
 fn remove_all(storage: &dyn Storage, names: Names<'_>) {
     for path in names {
         match storage.remove(path) {
@@ -204,6 +210,7 @@ fn remove_all(storage: &dyn Storage, names: Names<'_>) {
     }
 }
 
+#[inline(never)]
 fn write_sections(storage: &dyn Storage, path: &str, list: &List) -> Result<(), Error> {
     let mut text = String::new();
     for (key, ids) in SECTIONS.iter().zip(&list.picks.sections) {
@@ -219,6 +226,7 @@ fn write_sections(storage: &dyn Storage, path: &str, list: &List) -> Result<(), 
     storage.write(path, text.as_bytes()).map_err(|_| Error::Io)
 }
 
+#[inline(never)]
 fn write_head(
     storage: &dyn Storage,
     path: &str,
@@ -412,6 +420,7 @@ impl Index {
     ///
     /// # Errors
     /// `NoMemory`.
+    #[inline(never)]
     pub fn entry(&self, storage: &dyn Storage, n: usize) -> Result<Option<Entry>, Error> {
         let Some(offset) = number_at(storage, OFFSETS, n) else {
             return Ok(None);
@@ -446,6 +455,7 @@ impl Index {
     ///
     /// # Errors
     /// `NoMemory`, or what `found` says.
+    #[inline(never)]
     pub fn scan(
         &self,
         storage: &dyn Storage,
@@ -626,6 +636,7 @@ impl Index {
 }
 
 /// Sorts `run` and appends it to the runs file; whether the card kept it.
+#[inline(never)]
 fn flush(storage: &dyn Storage, run: &mut Vec<Keyed>, runs: &mut Vec<u32>) -> Result<bool, Error> {
     paperpaw_sdk::sort::sort_by(run, |a, b| order_of(*a, *b));
     let mut bytes = Vec::new();
@@ -711,6 +722,7 @@ pub fn hit(storage: &dyn Storage, n: usize) -> Option<usize> {
 /// built (the one kept before is not touched), or a move into place (the head
 /// is taken away first, so a move cut short leaves no head and so no index:
 /// the next visit fetches the list again).
+#[inline(never)]
 pub fn take(
     storage: &dyn Storage,
     fetched: &str,

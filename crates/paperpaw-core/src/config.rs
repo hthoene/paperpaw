@@ -635,7 +635,21 @@ impl Kernel {
                 }
             }
         }
-        for (id, value) in secrets_moved {
+        self.move_secrets(secrets_moved);
+        // Kept apart (see `KeySources::user`).
+        for problem in self.shared.keymap.load(source, Origin::User, false) {
+            self.warn(
+                WarningSource::UserConfig,
+                Some(problem.line),
+                problem.message.into_owned(),
+            );
+        }
+    }
+
+    /// Secret settings the configuration file kept: moved to the secrets and
+    /// taken out of the file once they are saved there.
+    pub(crate) fn move_secrets(&mut self, moved: Vec<(String, String)>) {
+        for (id, value) in moved {
             let label = self
                 .shared
                 .settings
@@ -654,14 +668,6 @@ impl Kernel {
                     paperpaw_config::remove(source, section, key)
                 });
             }
-        }
-        // Kept apart (see `KeySources::user`).
-        for problem in self.shared.keymap.load(source, Origin::User, false) {
-            self.warn(
-                WarningSource::UserConfig,
-                Some(problem.line),
-                problem.message.into_owned(),
-            );
         }
     }
 

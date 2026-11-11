@@ -535,6 +535,10 @@ impl KernelBuilder {
     }
 }
 
+/// The most values kept for settings nobody had declared when the file was
+/// read (see `keep_config_value`): more are only warned about.
+const MAX_LATE_CONFIG: usize = 64;
+
 impl BuilderParts {
     /// The kernel, built where it is returned: it is large, and each copy
     /// would take room on the stack while it is built (the X4's is small).
@@ -878,8 +882,8 @@ impl BuilderParts {
             plugin_defaults: Vec::new(),
             late_device_defaults: Vec::new(),
             late_config: Vec::new(),
-            plugin_choices: Vec::new(),
             native_catalogs_added: false,
+            plugin_choices: Vec::new(),
             now: Instant::default(),
         }
     }
@@ -1175,7 +1179,8 @@ impl Kernel {
     /// Without room it is only warned about, as before.
     pub(crate) fn keep_config_value(&mut self, id: &str, value: &str, line: Option<u32>) {
         let (mut own_id, mut own_value) = (String::new(), String::new());
-        if own_id.try_reserve_exact(id.len()).is_err()
+        if self.late_config.len() >= MAX_LATE_CONFIG
+            || own_id.try_reserve_exact(id.len()).is_err()
             || own_value.try_reserve_exact(value.len()).is_err()
             || self.late_config.try_reserve(1).is_err()
         {
@@ -1203,21 +1208,27 @@ impl Kernel {
             self.late_config = waiting;
             return;
         }
+        let mut secrets = Vec::new();
         for (id, value, line) in waiting {
-            if self.shared.settings.spec(&id).is_none() {
+            let Some(spec) = self.shared.settings.spec(&id) else {
                 left.push((id, value, line));
                 continue;
-            }
+            };
+            let secret = spec.extra().secret;
             let unknown = format!("`{id}`: {}", paperpaw_sdk::SettingError::Unknown);
             self.warnings.retain(|warning| {
                 !(warning.line == line
                     && matches!(warning.source, WarningSource::UserConfig)
                     && warning.message == unknown)
             });
-            if let Err(error) = self.shared.settings.set_from_text(&id, &value) {
+            // A secret goes to the secrets, as one read at the build does.
+            if secret {
+                secrets.push((id, value));
+            } else if let Err(error) = self.shared.settings.set_from_text(&id, &value) {
                 self.warn(WarningSource::UserConfig, line, format!("`{id}`: {error}"));
             }
         }
+        self.move_secrets(secrets);
         self.late_config = left;
     }
 
