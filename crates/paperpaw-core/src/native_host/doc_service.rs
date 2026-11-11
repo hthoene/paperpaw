@@ -1143,12 +1143,12 @@ fn prepare<'a>(
                 // The cover is index `u32::MAX` (`document.md` 5): its own
                 // size, larger when asked.
                 call.op = fmt::COVER;
-                call.cover_side = args::image_side(r.side, document.cover_side)?;
+                call.cover_side = args::image_side(r.side, document.cover_side);
                 call.image_side = document.image_side;
             } else {
                 call.op = fmt::IMAGE;
                 call.index = r.index;
-                call.image_side = args::image_side(r.side, document.image_side)?;
+                call.image_side = args::image_side(r.side, document.image_side);
                 call.cover_side = document.cover_side;
             }
             Check::Image
