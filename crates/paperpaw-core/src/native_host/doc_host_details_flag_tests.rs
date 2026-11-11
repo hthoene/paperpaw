@@ -195,3 +195,59 @@ fn a_details_open_beside_a_conversion_of_the_same_cache_is_busy() {
         );
     });
 }
+
+#[test]
+fn a_details_open_removes_no_other_conversion_of_the_book() {
+    world(|w| {
+        install_docx(w);
+        w.makes_cache.set(true);
+        // Two finished conversions of the book (a reader's, with other
+        // sides): the most a book keeps.
+        for side in [300, 400] {
+            *w.reply.borrow_mut() = Ok(state(READY));
+            let document = w
+                .call(
+                    AdmittedFeatures::test(1, FEATURES),
+                    1,
+                    &[Record::ServiceDocOpen(wire::ServiceDocOpen {
+                        root: 1,
+                        path: "books/a.docx",
+                        format: "",
+                        flags: 0,
+                        image_side: 0,
+                        cover_side: side,
+                        css_root: 0,
+                        css_path: "",
+                    })],
+                )
+                .unwrap();
+            let (state, _): (wire::ServiceDocState<'_>, usize) =
+                crate::native_host::codec::prefix(&document).unwrap();
+            w.call(
+                AdmittedFeatures::NONE,
+                18,
+                &[Record::ServiceDocRef(wire::ServiceDocRef {
+                    document: state.document,
+                })],
+            )
+            .unwrap();
+        }
+        let mut folders: Vec<std::string::String> = Vec::new();
+        for at in 0..w.scoped.borrow().len() {
+            let folder = seen_cache(w, at);
+            if !folder.is_empty() && !folders.contains(&folder) {
+                folders.push(folder);
+            }
+        }
+        assert_eq!(folders.len(), 2, "{folders:?}");
+        assert_ne!(folders[0], folders[1]);
+        // The details job's open: a third conversion, no room made for it.
+        start(w, "books/a.docx", READY).unwrap();
+        for folder in &folders {
+            assert!(
+                w.card.get(&std::format!("{folder}/{STAMP}")).is_some(),
+                "{folder} kept"
+            );
+        }
+    });
+}
