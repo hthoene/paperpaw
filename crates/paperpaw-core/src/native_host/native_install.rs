@@ -842,8 +842,9 @@ fn map_declarations(
     // the old and the new list at the registration peak. A setting that a
     // table in the program stands for takes a place only for a run of them.
     let mut upcoming = usize::from(!fixed.is_empty());
+    let mut declared_settings = 0;
     view.visit(&mut |record| match record {
-        Record::SettingSpec(_) if !fixed.is_empty() => {}
+        Record::SettingSpec(_) if !fixed.is_empty() => declared_settings += 1,
         Record::ScreenSpec(_)
         | Record::ActionSpec(_)
         | Record::SettingSpec(_)
@@ -864,7 +865,7 @@ fn map_declarations(
     // The table entries the plugin's settings stand for.
     let mut entries: Vec<u16> = Vec::new();
     entries
-        .try_reserve_exact(fixed.len())
+        .try_reserve_exact(fixed.len().min(declared_settings))
         .map_err(|_| ERR_NO_MEMORY)?;
     let mut result: Result<(), i32> = Ok(());
     view.visit(&mut |record| {
@@ -882,11 +883,13 @@ fn map_declarations(
             }
             if let Some(value) = map_record(view.plugin, record)? {
                 if let Owned::Setting(spec) = &value
-                    && let Some(at) = super::fixed_settings::find(fixed, spec, 0)
+                    && let Some(at) = super::fixed_settings::find(fixed, spec)
                 {
                     // Equal to an entry of the plugin's table: that entry is
                     // kept, and the copy made here goes at once. The records
-                    // come in no order the table keeps.
+                    // come in no order the table keeps; the entries are put
+                    // in the table's order below. A setting that matches
+                    // none stays a copy and is published before them.
                     entries.push(u16::try_from(at).map_err(|_| ERR_INVALID)?);
                     return Ok(());
                 }

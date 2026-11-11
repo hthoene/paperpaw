@@ -305,13 +305,6 @@ fn on_the_card(
         .files(card)
 }
 
-/// Registers every plugin of `paperpaw_app::NATIVE_PLUGINS` with `kernel` for
-/// the device of `profile`; the number registered. Call before the kernel
-/// starts, once.
-///
-/// # Errors
-/// [`Unavailable`] where the shared host views cannot be made; then nothing is
-/// registered.
 /// A value the linker puts in this program's read-only data (the same segment
 /// as the plugins' declaration bytes), to find that segment by.
 static RODATA_ANCHOR: [u8; 16] = *b"paperpaw-rodata\0";
@@ -355,6 +348,13 @@ fn mapping_of(maps: &str, address: usize) -> Option<(usize, usize)> {
     None
 }
 
+/// Registers every plugin of `paperpaw_app::NATIVE_PLUGINS` with `kernel` for
+/// the device of `profile`; the number registered. Call before the kernel
+/// starts, once.
+///
+/// # Errors
+/// [`Unavailable`] where the shared host views cannot be made; then nothing is
+/// registered.
 pub fn register(
     kernel: &mut Kernel,
     profile: &'static Profile,
@@ -477,6 +477,24 @@ pub fn register(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A linked plugin's declaration bytes are read-only statics like its
+    /// metadata; if the metadata lay outside the image found here the
+    /// declarations would be copied again, unseen, so none may.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_linked_plugins_read_only_statics_lie_in_the_image() {
+        let (start, len) = rodata_image();
+        assert!(len > 0, "no image");
+        let (start, end) = (start as usize, start as usize + len);
+        for (id, linked) in paperpaw_app::NATIVE_PLUGINS.iter() {
+            let at = linked.metadata().as_ptr() as usize;
+            assert!(
+                (start..end).contains(&at),
+                "{id}: its metadata is outside the image"
+            );
+        }
+    }
 
     #[test]
     fn the_read_only_mapping_is_the_one_that_holds_the_address() {
