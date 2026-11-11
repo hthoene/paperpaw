@@ -683,6 +683,8 @@ impl crate::Kernel {
     /// Called once by [`Kernel::start`](crate::Kernel::start); a later install
     /// grows them again, as it always did.
     pub(crate) fn native_hosted(&mut self) {
+        // Values for settings no plugin declared are not kept any longer.
+        self.late_config = Vec::new();
         self.shrink_to_fit();
         self.shared.native_instances.shrink_to_fit();
     }
@@ -770,6 +772,7 @@ impl crate::Kernel {
         // The device's defaults for what the plugin has declared (the kernel
         // was built before it, so they were not known then).
         self.apply_late_defaults();
+        self.apply_late_config();
         self.publish_fonts(owner, resources)
     }
 }

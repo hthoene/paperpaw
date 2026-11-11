@@ -347,6 +347,11 @@ pub struct Kernel {
     /// is built): `(setting, value)`, applied as the declaring plugin is
     /// published (`native_install`).
     late_device_defaults: Vec<(String, String)>,
+    /// The values the configuration gave for settings nobody had declared
+    /// when it was read (the same native plugins' ones): `(setting, value,
+    /// line)`, set as the declaring plugin is published (`native_install`),
+    /// and dropped at the start.
+    late_config: Vec<(String, String, Option<u32>)>,
     /// Values plugins offer among other plugins' choices, added once all
     /// are registered: `(plugin, setting, value)`.
     plugin_choices: Vec<(Id, Id, Cow<'static, str>)>,
