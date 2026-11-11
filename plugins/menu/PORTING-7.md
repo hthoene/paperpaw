@@ -115,9 +115,13 @@ through a hand-over).
 Differences from Beta 3, named:
 - Short labels: Beta 3 translated the entry's *title key* followed by `.short`; a registry row has
   only the translated title, so the bar asks for the *entry id* followed by `.short`
-  (`reader.read-aloud.short` = "Listen", `reader.toggle-bookmark.short` = "Bookmark") and shows the
-  title where there is none (`reader.show-toc` shows "Contents", `reader.quick-settings` "Font and
-  layout"). Needs the title key or a short title in `reg_menu_row` (REG).
+  (`reader.read-aloud.short` = "Listen") and, for a setting, its title key's
+  (`core.night-mode` → `core.setting.night-mode.short` = "Night"). The reader names the short labels
+  of the entries whose ids differ from their title keys (`reader.show-toc.short`,
+  `reader.quick-settings.short`, `reader.show-annotations.short`, `reader.skim-book.short`, en/de),
+  so the bar matches Beta 3 (emulator, X4, en/de). A plugin whose entry ids differ from its title
+  keys needs such `<entry id>.short` keys; else its full title shows. `shorten()` has no scripted-host
+  test (the scripted host has no message catalogs).
 - The page does not follow the reader while the bar is open (Beta 3's `MENU_PAGE` event, #117:
   pages counted after the bar opened); interface 7 has no such event (SDK/host).
 - Where no status font is bound the bar uses the interface font (Beta 3 drew only the empty bar).
