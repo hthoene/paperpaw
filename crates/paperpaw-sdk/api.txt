@@ -3432,6 +3432,7 @@ pub paperpaw_sdk::native::declare::EventKind::ServedRequest
 pub paperpaw_sdk::native::declare::EventKind::Server
 pub paperpaw_sdk::native::declare::EventKind::SettingChanged
 pub paperpaw_sdk::native::declare::EventKind::Socket
+pub paperpaw_sdk::native::declare::EventKind::Spoken
 pub paperpaw_sdk::native::declare::EventKind::StackChanged
 pub paperpaw_sdk::native::declare::EventKind::Started
 pub paperpaw_sdk::native::declare::EventKind::StatusChanged

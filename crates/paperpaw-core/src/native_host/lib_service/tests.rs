@@ -13,6 +13,8 @@ use paperpaw_sdk::{Env, Settings};
 
 #[path = "tests/catalog_reads.rs"]
 mod catalog_reads;
+#[path = "tests/edit_host.rs"]
+mod edit_host;
 #[path = "tests/query.rs"]
 mod query;
 #[path = "tests/write.rs"]

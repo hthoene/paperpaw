@@ -633,9 +633,10 @@ pub(in crate::native_host) fn arm_failure(nth: u32) {
 
 #[test]
 fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_calls_make() {
-    // The 1st allocation is the room reserved for the owner's retirement (the
-    // owner is not admitted: a status), the 2nd the id, the 3rd the owner.
-    for nth in [1, 2, 3] {
+    // The 1st allocation is the room reserved for the owner's retirement and
+    // the 2nd the owner's place in the heap accounting (the owner is not
+    // admitted: a status), the 3rd the id, the 4th the owner.
+    for nth in [1, 2, 3, 4] {
         reset(NORMAL);
         let module = Module::new();
         let resources = super::super::HostResources::try_new().unwrap();
@@ -654,7 +655,7 @@ fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_c
             )
         };
         arm_failure(0);
-        let expected = if nth == 1 {
+        let expected = if nth <= 2 {
             Error::Status(host_glue::ERR_NO_MEMORY)
         } else {
             Error::Allocation
@@ -1481,6 +1482,8 @@ mod command_dispatch;
 #[path = "stage_broker_native_tests.rs"]
 mod stage_broker_native;
 
+#[path = "native_device_defaults_tests.rs"]
+mod native_device_defaults;
 #[path = "native_screen_install_tests.rs"]
 mod native_screen_install;
 

@@ -1,5 +1,5 @@
 //! The requests of the web page on interface 7: the page itself, listing,
-//! downloading, uploading, making folders and deleting. The rules of `web.rs`
+//! downloading, uploading, making folders, moving, renaming and deleting. The rules of `web.rs`
 //! over the card as `core.files` shows it (root 1: the host leaves out
 //! `plugins` and `.paperpaw` and checks every path by identity), host-free: the
 //! card is a [`Card`], allocation is fallible, and an answer is small data the
@@ -9,9 +9,10 @@
 //! answer is *403*, and after a few wrong keys *429* for a while (the SDK's
 //! `served::Guard`). Paths are plain names ([`files::is_plain_name`]: nothing
 //! hidden, no `..`); the settings file can be fetched but not changed
-//! ([`read_only`]). Installing plugins from the computer is `native_install`;
-//! moving and renaming are *501* until the library follows moves
-//! (`PORTING-7.md`).
+//! ([`read_only`]). Installing plugins from the computer is `native_install`.
+//! Moving, deleting and putting books are the library's where the file is a
+//! book (the card does it: `native_files`), so what the library keeps for a
+//! book goes along (`PORTING-7.md`).
 use alloc::string::String;
 use paperpaw_sdk::Instant;
 use paperpaw_sdk::files;
@@ -54,22 +55,34 @@ pub trait Card {
     /// # Errors
     /// The host's refusal.
     fn make_dir(&mut self, path: &str) -> Result<(), Error>;
-    /// Removes the file or folder at `path` and all in it.
+    /// Removes the file or folder at `path` and all in it (`is_dir`): a book
+    /// with all that is kept for it, a folder with the books in it (the host
+    /// forgets them).
     ///
     /// # Errors
-    /// The host's refusal.
-    fn remove(&mut self, path: &str) -> Result<(), Error>;
+    /// The host's refusal (`Busy` for a path it uses).
+    fn remove(&mut self, path: &str, is_dir: bool) -> Result<(), Error>;
+    /// Moves the file or folder `from` to `to` (`is_dir`: a folder), never over
+    /// what is there; a book keeps what is kept for it. The folder of `to` is
+    /// there.
+    ///
+    /// # Errors
+    /// The host's refusal: `State` where `to` is there, `Busy` while the host
+    /// uses a path or moves another, `Denied`, `Full`.
+    fn move_to(&mut self, from: &str, to: &str, is_dir: bool) -> Result<(), Error>;
     /// Bytes free for new files; `None` while not known.
     ///
     /// # Errors
     /// The host's refusal.
     fn free(&mut self) -> Result<Option<u64>, Error>;
     /// Puts what a request sent (`body`, a file of the data folder; none for an
-    /// empty one) at `path`.
+    /// empty one) at `path`, never over what is there; a book into the
+    /// library's folder is catalogued at once. Gives the path it was put at
+    /// (the card takes the next free name if `path` was taken meanwhile).
     ///
     /// # Errors
     /// The host's refusal (`Full` for a full card).
-    fn put(&mut self, body: Option<&str>, path: &str) -> Result<(), Error>;
+    fn put(&mut self, body: Option<&str>, path: &str) -> Result<String, Error>;
 }
 
 /// What an answer carries.
@@ -102,6 +115,8 @@ pub enum Done {
     Sent,
     Folder,
     Deleted,
+    /// Moved or renamed: the name it has now.
+    Moved,
     NotReceived,
 }
 
@@ -127,10 +142,8 @@ const READ_ONLY: Fail = Fail(403, "PaperPaw's settings cannot be changed from he
 /// secrets in `core.secrets`, but a card from Beta 3 can still hold plain ones
 /// until its first load moves them out).
 const NO_FETCH: Fail = Fail(403, "PaperPaw's settings cannot be fetched from here.");
-const NOT_YET: Fail = Fail(
-    501,
-    "Not available from here yet: use the device (see PORTING-7).",
-);
+const BAD_NAME: Fail = Fail(400, "bad name");
+const INTO_ITSELF: Fail = Fail(400, "a folder cannot go into itself");
 
 /// Why a request is refused: the status and the words.
 #[derive(Debug)]
@@ -142,7 +155,11 @@ impl From<Error> for Fail {
             Error::NotFound => NOT_FOUND,
             Error::Invalid | Error::NoSpace | Error::Utf8 => BAD_PATH,
             Error::Full => Fail(507, "no room on the card"),
-            Error::NoMemory | Error::Busy => Fail(503, "busy, try again"),
+            // The host uses the path (a book being read, a move going on).
+            Error::Busy => Fail(409, "busy, try again"),
+            Error::State => Fail(409, "exists"),
+            Error::Denied => Fail(403, "not allowed"),
+            Error::NoMemory => Fail(503, "busy, try again"),
             _ => Fail(500, "failed"),
         }
     }
@@ -271,8 +288,9 @@ fn route(
         ("PUT", "/api/file") => upload(card, request, &wanted),
         ("POST", "/api/mkdir") => {
             let at = free_place(card, &wanted)?;
+            let name = copy(files::name(&at))?;
             card.make_dir(&at)?;
-            Ok(ok(Some((Done::Folder, copy(files::name(&at))?))))
+            Ok(ok(Some((Done::Folder, name))))
         }
         ("POST", "/api/delete") => {
             let found = locate(card, &wanted, false)?;
@@ -284,12 +302,10 @@ fn route(
                 return Err(READ_ONLY);
             }
             let name = copy(files::name(&found.path))?;
-            card.remove(&found.path)?;
+            card.remove(&found.path, found.is_dir == Some(true))?;
             Ok(ok(Some((Done::Deleted, name))))
         }
-        // The library does not follow a move yet (`PORTING-7.md`): said, not
-        // left unanswered.
-        ("POST", "/api/move") => Err(NOT_YET),
+        ("POST", "/api/move") => relocate(card, query, &wanted),
         _ => Err(NOT_FOUND),
     }
 }
@@ -318,8 +334,69 @@ fn upload(card: &mut dyn Card, request: &Request<'_>, wanted: &str) -> Result<Ou
     if card.free()?.is_some_and(|free| request.body_len > free) {
         return Err(Fail(507, "no room on the card"));
     }
-    card.put(request.body, &at)?;
-    Ok(ok(Some((Done::Received, copy(files::name(&at))?))))
+    let put = card.put(request.body, &at)?;
+    // Done: a line that cannot be kept is not a failed upload.
+    let done = copy(files::name(&put))
+        .ok()
+        .map(|name| (Done::Received, name));
+    Ok(ok(done))
+}
+
+/// One file or folder moved or renamed: from where it is to a folder there
+/// (`to`, which must be there), under its name or `name`; never over what is
+/// there (`name (2)` then), a folder never into itself, the settings neither
+/// moved nor a target, and the same place no change.
+fn relocate(card: &mut dyn Card, query: &str, wanted: &str) -> Result<Outcome, Fail> {
+    let from = locate(card, wanted, false)?;
+    // Not everything at once.
+    if from.path.is_empty() {
+        return Err(NOT_FOUND);
+    }
+    if read_only(&from.path) {
+        return Err(READ_ONLY);
+    }
+    let to = param(query, "to")?.unwrap_or_default();
+    let folder = locate(card, &to, false)?;
+    if folder.is_dir != Some(true) {
+        return Err(NOT_FOUND);
+    }
+    let name = match param(query, "name")? {
+        Some(name) => name,
+        None => copy(files::name(&from.path))?,
+    };
+    if !files::is_plain_name(&name) {
+        return Err(BAD_NAME);
+    }
+    if same_name(&join(&folder.path, &name)?, &from.path) {
+        return Ok(ok(None));
+    }
+    if from.is_dir == Some(true) && is_within(&folder.path, &from.path) {
+        return Err(INTO_ITSELF);
+    }
+    let at = free_path(card, &folder.path, &name)?;
+    if read_only(&at) {
+        return Err(READ_ONLY);
+    }
+    let name = copy(files::name(&at))?;
+    card.move_to(&from.path, &at, from.is_dir == Some(true))?;
+    Ok(ok(Some((Done::Moved, name))))
+}
+
+/// Whether `path` is the folder `dir` or lies in it, as the card names things
+/// (case is ignored); every path lies in `""`.
+fn is_within(path: &str, dir: &str) -> bool {
+    let mut parts = path.split('/');
+    dir.is_empty()
+        || dir
+            .split('/')
+            .all(|d| parts.next().is_some_and(|p| same_name(p, d)))
+}
+
+/// Whether `a` and `b` are one name for the card, which ignores case.
+fn same_name(a: &str, b: &str) -> bool {
+    a.chars()
+        .flat_map(char::to_lowercase)
+        .eq(b.chars().flat_map(char::to_lowercase))
 }
 
 /// The entries of the folder `wanted` from the `from`th on (hidden ones left

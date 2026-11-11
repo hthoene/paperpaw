@@ -16,11 +16,12 @@
 //! move job (`ERR_BUSY`), how FAT names reach the protected folders, and the
 //! journalled rename of the user's files. Until a shell wires it, the
 //! family answers `ERR_UNSUPPORTED`.
-use super::{
-    host_services::Caller as HostCaller,
-    registrations::{self as wire, Record},
-};
+use super::{host_services::Caller as HostCaller, registrations::Record};
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
+use crate::native_host::codec;
+// The tests build their inputs with the wire types.
+#[cfg(test)]
+use super::registrations as wire;
 use alloc::rc::Rc;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_STATE, ERR_UNSUPPORTED};
 use paperpaw_platform::Storage;
@@ -147,7 +148,7 @@ pub(crate) fn backend(
         who: &who,
         scope: caller.hosts.format_scope(),
     };
-    let record = wire::records_decode_single(input)?;
+    let record = codec::decode_single(input)?;
     match op.id {
         op::LIST => read::list(&view, record, out),
         op::STAT => read::stat(&view, record, out),
@@ -170,11 +171,11 @@ struct View<'a> {
 
 /// A record the host built, framed into `out`; its length.
 fn encode(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
-    let length = wire::record_framed_len(record).map_err(|_| ERR_INVALID)?;
+    let length = codec::framed_len(record).map_err(|_| ERR_INVALID)?;
     if length > out.len() {
         return Err(paperpaw_native::host_glue::ERR_NO_SPACE);
     }
-    wire::record_encode_one(record, out)
+    codec::encode_one(record, out)
 }
 
 #[cfg(test)]

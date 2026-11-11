@@ -766,7 +766,13 @@ impl Bound<'_> {
                     return Ok(());
                 }
                 let used = row.encode(&mut bytes)?;
-                if let Record::ServiceRegPlugin(row) = wire::record_decode_one(&bytes[..used])? {
+                // One bare record, exactly (the frame is the whole encoding).
+                let (raw, length) = wire::RawRecord::prefix(&bytes[..used])?;
+                if length != used {
+                    return Err(ERR_INVALID);
+                }
+                if raw.tag() == wire::SERVICE_REG_PLUGIN_TAG {
+                    let row: wire::ServiceRegPlugin<'_> = raw.decode()?;
                     version = copy(row.version);
                 }
                 Ok(())

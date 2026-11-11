@@ -66,6 +66,13 @@ pub(crate) struct SettingEvents {
 }
 
 impl SettingEvents {
+    /// Gives back the room the queues kept while plugins were hosted.
+    pub(crate) fn shrink_to_fit(&self) {
+        if let Ok(mut queues) = self.queues.try_borrow_mut() {
+            super::shrink::shrink(&mut queues);
+        }
+    }
+
     /// Whether any running plugin subscribed to the event (else nothing is
     /// captured for it).
     pub(crate) fn wanted(instances: &NativeInstances) -> bool {

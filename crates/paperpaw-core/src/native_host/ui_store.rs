@@ -171,7 +171,7 @@ pub(crate) struct Info {
 fn params_in(block: &[u8], mut ok: impl FnMut(&str, &str) -> bool) -> bool {
     let mut rest = block;
     while !rest.is_empty() {
-        let Ok((Record::ServiceUiParam(param), used)) = wire::record_decode_prefix(rest) else {
+        let Ok((param, used)) = codec::prefix::<wire::ServiceUiParam<'_>>(rest) else {
             return false;
         };
         if !ok(param.key, param.value) {
@@ -186,9 +186,7 @@ fn params_in(block: &[u8], mut ok: impl FnMut(&str, &str) -> bool) -> bool {
 fn value_of<'a>(block: &'a [u8], key: &str) -> Option<&'a str> {
     let mut rest = block;
     while !rest.is_empty() {
-        let (Record::ServiceUiParam(param), used) = wire::record_decode_prefix(rest).ok()? else {
-            return None;
-        };
+        let (param, used) = codec::prefix::<wire::ServiceUiParam<'_>>(rest).ok()?;
         if param.key == key {
             return Some(param.value);
         }
@@ -856,7 +854,7 @@ impl UiStore {
         let (mut root, mut path) = (None, None);
         let mut rest = &entry.params.0[..];
         while !rest.is_empty() {
-            let Ok((Record::ServiceUiParam(param), used)) = wire::record_decode_prefix(rest) else {
+            let Ok((param, used)) = codec::prefix::<wire::ServiceUiParam<'_>>(rest) else {
                 return Err(ERR_DENIED);
             };
             let slot = match param.key {
