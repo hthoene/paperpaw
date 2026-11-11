@@ -416,7 +416,15 @@ impl NativeTransfer {
     /// Sends the answer to request `number`; one the host cannot take now is kept
     /// for the next callback or the retry timer.
     fn deliver(&mut self, host: &Host<'_>, number: u32, reply: Reply) -> Result<(), Error> {
-        if let Sent::Busy = self.respond(host, number, &reply)? {
+        // An answer that cannot be made now for want of memory waits like a busy
+        // host: what it answers was done already (a book taken, a plugin sent),
+        // so a "try again" would only turn the retry into "not offered".
+        let sent = match self.respond(host, number, &reply) {
+            Ok(sent) => sent,
+            Err(Error::NoMemory) => Sent::Busy,
+            Err(error) => return Err(error),
+        };
+        if let Sent::Busy = sent {
             self.keep(
                 host,
                 Pending {
@@ -429,17 +437,24 @@ impl NativeTransfer {
         Ok(())
     }
 
-    /// Keeps an answer for another try, the oldest going where too many wait.
+    /// Keeps an answer for another try. Where too many wait, the oldest is tried
+    /// once more and then goes: its request ends with the host's own timeout.
     fn keep(&mut self, host: &Host<'_>, pending: Pending) -> Result<(), Error> {
         let Some(screen) = self.cable.as_mut() else {
             return Ok(());
         };
-        if screen.pending.len() >= MOST_PENDING {
-            screen.pending.remove(0);
-        }
         screen.pending.try_reserve(1).map_err(|_| Error::NoMemory)?;
+        let oldest = if screen.pending.len() >= MOST_PENDING {
+            Some(screen.pending.remove(0))
+        } else {
+            None
+        };
         screen.pending.push(pending);
         let at = screen.clock.saturating_add(RETRY_MS);
+        if let Some(oldest) = oldest {
+            // Best effort: it was kept for being busy, so this may be too.
+            let _ = self.respond(host, oldest.number, &oldest.reply);
+        }
         self.arm(host, RETRY_KEY, at)
     }
 

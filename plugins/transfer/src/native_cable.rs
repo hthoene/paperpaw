@@ -471,6 +471,11 @@ impl Cable {
         if self.permission == Permission::Asking {
             return Ok(Reply::text(409, "{\"why\":\"asking about another offer\"}"));
         }
+        // An install is running for the offer before: a new offer would forget
+        // what is being installed.
+        if self.installing.is_some() {
+            return Ok(Reply::text(409, BUSY));
+        }
         // A new offer ends the one before, what was sent for it too.
         self.forget_offer(host);
         self.set(Permission::None);

@@ -212,7 +212,12 @@ against that contract; what needs the host's cable is `tests/cable_native.rs`, i
 - **`POST /api/delete`**: a book file is `Library::delete` (`paths=[path]`, `with_notes` on: interface 6 deleted
   everything kept for the book and the user asked on the page); a folder is `remove_tree` (the host forgets the books
   below it), any other file `remove_tree` too. The answers of the host are the same as for a move (a book the reader has
-  open is `Busy`, *409*).
+  open is `Busy`, *409*). Deliberate (Manager, #244): deleting a book from the page takes its notes with it, exactly
+  like deleting in the library: one rule.
+- **Cable answers (review fixes)**: `POST /api/offer` while a plugin installs is *409* `busy` (a new offer would forget
+  the install); an answer that cannot be built for want of memory waits for the retry timer like a busy host (what it
+  answers was done already, so a "try again" would make the retry *403*); where four answers wait, the oldest is tried
+  once more before it goes.
 - **`PUT /api/file`**: the body (a file of the data folder, root 0) is **imported** (`Library::import`, `from` the
   body's root-0 path, `folder` the part of the target below the library folder, `Existing::FreeName`, so the book is
   catalogued at once and the walk need not find it) when the target is a book name (an extension of the formats,

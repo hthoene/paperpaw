@@ -567,6 +567,10 @@ fn a_plugin_is_installed_in_one_step_when_the_host_ends_it() {
     );
     // One at a time.
     assert_eq!(rig.status("POST", "/api/plugin/airy", None), 409);
+    // A new offer would forget what is being installed: busy too, and the
+    // install still ends as asked.
+    assert_eq!(rig.offer(&plugin_offer()), 409);
+    assert!(rig.cable.waiting());
     // The end of another request is not this one's.
     let other = rig
         .cable
