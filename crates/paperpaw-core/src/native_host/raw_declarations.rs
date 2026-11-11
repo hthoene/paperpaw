@@ -387,14 +387,9 @@ fn index_size(batches: usize, names: usize) -> Result<usize, i32> {
 }
 fn growth(current: [usize; 2], needed: [usize; 2], budget: usize) -> Result<[usize; 2], i32> {
     let base = core::array::from_fn::<_, 2, _>(|i| current[i].max(needed[i]));
-    // In steps (16 batches, 64 names), not by doubling: doubling left a
-    // 512-name vector for 407 names and no room under the budget for the
-    // pack's 65th batch, and growing one at a time moves the vectors each
-    // time. The step is cut to the budget below.
-    const STEP: [usize; 2] = [16, 64];
     let desired = core::array::from_fn::<_, 2, _>(|i| {
         if needed[i] > current[i] {
-            needed[i].div_ceil(STEP[i]) * STEP[i]
+            current[i].saturating_mul(2).max(needed[i])
         } else {
             current[i]
         }
