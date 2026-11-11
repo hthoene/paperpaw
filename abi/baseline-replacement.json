@@ -1,9 +1,0 @@
-{
-  "replaces_sha256": "4089330924ec676ed8c2d91f4cae7d07d38e25aa6004daee880db3636f523eab",
-  "lock_sha256": "7e727076abe43a86045d404f9d094963633e9c0f5cd24dce30221997eb50d6ed",
-  "reason": "interface 7 is unreleased (draft 34): command.install_author gains the required sha256 (bytes 32, empty for none), the code's expected digest that device.md 5.2 has named since draft 30 and the schema missed (growth commands have no optional fields); event.action_run gains the optional flags (u32, appended, 0 default; bit 0 background)",
-  "ticket": "#228",
-  "waives": [
-    "compatible"
-  ]
-}

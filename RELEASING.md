@@ -28,3 +28,15 @@ review the new release section and remove only the fragments already
 included in it. Do not rerun with another version to bypass the duplicate
 version check. Keep the release branch free of unrelated edits while
 collecting. The release workflow rejects leftover fragments before builds.
+
+## Freezing the plugin interface (1.0)
+
+Interface 7 is one interface until 1.0 (`abi/interface-7/README.md`). Freezing it is the owner's
+decision, in one pull request that:
+
+1. deletes `native::DRAFT` and the line `draft = N` of `crates/paperpaw-sdk/interface.txt`, and
+   appends `0 frozen ... (#...)` to `abi/interface-7/blessings.txt`;
+2. releases the ABI lock: sets `released_minor` in `abi/abi.lock` to the schema's `minor`
+   (`tools/abi-gen.py --check` then holds it), so every append-only check of the lock runs again.
+
+`tools/abi-reference-check.py` refuses a frozen interface 7 whose lock is not released.

@@ -2,6 +2,7 @@
 use super::{
     canvas::CanvasScope,
     environment::EnvironmentScope,
+    fonts_data::DataFont,
     resources::{FontKey, FontRole, OwnerResources},
 };
 use crate::abi7::{context::Frame, graphics};
@@ -43,7 +44,10 @@ fn resolve_role(fonts: &Fonts, role: FontRole) -> Option<FontHandle<'_>> {
     }
 }
 
-fn resolve<'a>(frame: &'a dyn Frame, key: &FontKey) -> Result<FontHandle<'a>, i32> {
+fn resolve<'a>(frame: &'a dyn Frame, key: &'a FontKey) -> Result<FontHandle<'a>, i32> {
+    if let FontKey::Data(font) = key {
+        return font.handle();
+    }
     let fonts = frame.fonts().ok_or(ERR_STATE)?;
     match key {
         FontKey::Role(role) => resolve_role(fonts, *role).ok_or(ERR_NOT_FOUND),
@@ -53,6 +57,7 @@ fn resolve<'a>(frame: &'a dyn Frame, key: &FontKey) -> Result<FontHandle<'a>, i3
             }
             fonts.get(id.as_str()).ok_or(ERR_STATE)
         }
+        FontKey::Data(_) => Err(ERR_STATE),
     }
 }
 
@@ -62,7 +67,15 @@ fn with_font<R>(
     handle: u32,
     call: impl FnOnce(&FontHandle<'_>) -> Result<R, i32>,
 ) -> Result<R, i32> {
-    scope.with_frame(|frame| owner.with_font(handle, |key| call(&resolve(frame, key)?)))?
+    scope.with_frame(|frame| {
+        owner.with_font(handle, |key| {
+            if let FontKey::Data(font) = key {
+                // Once the file is changed or removed the handle is stale.
+                font.check(owner, frame.callback_epoch().ok())?;
+            }
+            call(&resolve(frame, key)?)
+        })
+    })?
 }
 
 /// Validate scalar output ranges without borrowing or initializing their storage.
@@ -96,6 +109,25 @@ fn status(result: Result<(), i32>) -> i32 {
     result.map_or_else(|error| error, |()| OK)
 }
 
+/// The key of a font file in the plugin's own data folder: `data:<path>`.
+const DATA_KEY: &str = "data:";
+
+/// A role key, or a registered font id.
+fn named_or_role(frame: &dyn Frame, key: &str) -> Result<FontKey, i32> {
+    let fonts = frame.fonts().ok_or(ERR_STATE)?;
+    if key.starts_with("role:") {
+        let role = role(key).ok_or(ERR_NOT_FOUND)?;
+        if !matches!(role, FontRole::Icons) && resolve_role(fonts, role).is_none() {
+            return Err(ERR_NOT_FOUND);
+        }
+        return Ok(FontKey::Role(role));
+    }
+    let acquired = frame.font_generation().ok_or(ERR_STATE)?;
+    let font = fonts.get(key).ok_or(ERR_NOT_FOUND)?;
+    let id = font.id().try_clone().ok_or(ERR_NO_MEMORY)?;
+    Ok(FontKey::Named { id, acquired })
+}
+
 /// Acquire slot 7. The key is copied only for a named font, using checked allocation.
 ///
 /// # Safety
@@ -111,20 +143,11 @@ pub(crate) unsafe fn acquire(
         outputs([out])?;
         // SAFETY: caller guarantees readable input for this synchronous call.
         let key = unsafe { buffers::text_in(key, 128) }?;
-        let key = scope.with_frame(|frame| {
-            let fonts = frame.fonts().ok_or(ERR_STATE)?;
-            if key.starts_with("role:") {
-                let role = role(key).ok_or(ERR_NOT_FOUND)?;
-                if !matches!(role, FontRole::Icons) && resolve_role(fonts, role).is_none() {
-                    return Err(ERR_NOT_FOUND);
-                }
-                return Ok(FontKey::Role(role));
-            }
-            let acquired = frame.font_generation().ok_or(ERR_STATE)?;
-            let font = fonts.get(key).ok_or(ERR_NOT_FOUND)?;
-            let id = font.id().try_clone().ok_or(ERR_NO_MEMORY)?;
-            Ok(FontKey::Named { id, acquired })
-        })??;
+        let key = if let Some(path) = key.strip_prefix(DATA_KEY) {
+            FontKey::Data(DataFont::open(scope, owner, path)?)
+        } else {
+            scope.with_frame(|frame| named_or_role(frame, key))??
+        };
         let handle = owner.insert_font(key)?;
         // SAFETY: validated scalar output; no fallible step follows publication.
         unsafe { out.write(handle) };
@@ -338,8 +361,110 @@ pub(crate) unsafe fn draw(
         let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
         let width = with_font(scope, owner, handle, |font| {
             canvas.with_canvas(|canvas| {
-                graphics::text_draw(canvas, font, size, x, i64::from(baseline), text, color)
-                    .map_err(|_| ERR_INVALID)
+                let width =
+                    graphics::text_draw(canvas, font, size, x, i64::from(baseline), text, color)
+                        .map_err(|_| ERR_INVALID)?;
+                // Told as text where somebody asks, as a legacy label is
+                // (`screens-input.md` 6.1); nothing is done otherwise.
+                if canvas.is_describing() {
+                    let line = font.line_metrics(size);
+                    #[allow(
+                        clippy::cast_precision_loss,
+                        reason = "a baseline on a screen is far below 2^24"
+                    )]
+                    let top = baseline as f32 - line.ascent;
+                    let height = line.ascent + line.descent;
+                    super::canvas_describe::told_text(canvas, text, x, top, width, height);
+                }
+                Ok(width)
+            })?
+        })?;
+        // SAFETY: output was validated before drawing.
+        unsafe { out.write(width) };
+        Ok(())
+    })())
+}
+
+/// The curve of slot 41's `tone` bytes: none for the handle's own, or exactly 16.
+const TONE_BYTES: usize = 16;
+/// Slot 41's `flags`: bit 0 `sharp`.
+const INKED_SHARP: u32 = 1;
+/// The widest `extra` (more is clamped to it, not refused).
+const EXTRA_MAX: u32 = 16;
+
+/// Slot 41: `text.draw_inked`. Draws as slot 14 does, with glyphs widened by
+/// `extra` (above 16 clamped to 16) and the coverage drawn in `tone` (none: the
+/// handle's own; else 16 opacities), `flags` bit 0 `sharp` drawing the chosen
+/// curve without grays at the canvas's `mono_coverage`. The order of refusals
+/// is no canvas (`ERR_STATE`), then a stale handle (`ERR_STATE`), then the
+/// arguments (`ERR_INVALID`, `ERR_UTF8`); all of them come before the first
+/// pixel, so a refused call draws nothing. Nothing is allocated: the curve is
+/// read from the call's own 16 bytes.
+///
+/// # Safety
+/// Text and tone must be readable and unchanged. Output must be writable,
+/// exclusive and disjoint from them and from host state for the call.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "matches the ABI text draw scalars"
+)]
+pub(crate) unsafe fn draw_inked(
+    scope: &EnvironmentScope,
+    owner: &OwnerResources,
+    canvas: &CanvasScope,
+    handle: u32,
+    size: f32,
+    x: f32,
+    baseline: i32,
+    color: u32,
+    text: PpBytes,
+    extra: u32,
+    tone: PpBytes,
+    flags: u32,
+    out: *mut f32,
+) -> i32 {
+    status((|| {
+        canvas.present()?;
+        with_font(scope, owner, handle, |_| Ok(()))?;
+        outputs([out])?;
+        size_check(size)?;
+        if color >> 24 != 0 || flags & !INKED_SHARP != 0 {
+            return Err(ERR_INVALID);
+        }
+        let [_, red, green, blue] = color.to_be_bytes();
+        let color = Color::rgb(red, green, blue);
+        // SAFETY: the caller provides live readable input.
+        let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
+        // SAFETY: as above.
+        let tone = unsafe { buffers::bytes_in(tone, TONE_BYTES) }?;
+        if !tone.is_empty() && tone.len() != TONE_BYTES {
+            return Err(ERR_INVALID);
+        }
+        let given = <[u8; TONE_BYTES]>::try_from(tone)
+            .ok()
+            .map(paperpaw_sdk::text::ToneCurve::from_alphas);
+        // Widening is clamped; it never refuses.
+        let extra = u16::try_from(extra.min(EXTRA_MAX)).unwrap_or(0);
+        let width = with_font(scope, owner, handle, |font| {
+            canvas.with_canvas(|canvas| {
+                let curve = given.unwrap_or_else(|| font.text_ink().tone());
+                let curve = if flags & INKED_SHARP != 0 {
+                    curve.sharp(canvas.mono_coverage())
+                } else {
+                    curve
+                };
+                graphics::text_draw_toned(
+                    canvas,
+                    font,
+                    size,
+                    x,
+                    i64::from(baseline),
+                    text,
+                    color,
+                    extra,
+                    curve,
+                )
+                .map_err(|_| ERR_INVALID)
             })?
         })?;
         // SAFETY: output was validated before drawing.
@@ -351,6 +476,10 @@ pub(crate) unsafe fn draw(
 #[cfg(test)]
 #[path = "fonts_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "fonts_inked_tests.rs"]
+mod inked_tests;
 
 /// The longest text slot 39 reads (`screens-input.md` section 4).
 const COVERS_MAX: usize = 1024;

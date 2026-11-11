@@ -12,8 +12,8 @@ const RECORDS: usize = wire::COMMAND_MAX_RECORDS;
 /// Most rotation statements one install carries (a wire batch holds 8 commands: the install,
 /// the author record and 6 rotations).
 pub const MAX_ROTATIONS: usize = 6;
-/// Most revocations one call of [`CommandSender::trust_revoked`] takes (the host's limit per
-/// batch, `docs/abi/device.md` 3).
+/// Most revocations one call of [`CommandSender::trust_revoked`] takes. The SDK sends them
+/// in wire batches of 8 commands (`docs/abi/device.md` 3).
 pub const MAX_REVOCATIONS: usize = 16;
 
 /// One step of an author's key rotation: the key it leads to and the old key's signature over

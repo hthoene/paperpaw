@@ -299,12 +299,112 @@ fn drawing_is_banded_clipped_and_checked() {
         Err(ERR_NOT_FOUND)
     );
     // Reserved flag bits are unsupported, never silently ignored.
-    for bad in [4, 8, 0x80, 0x1_0000, u32::MAX, FILL | 0x40] {
+    for bad in [0x20, 0x40, 0x80, 0x1_0000, u32::MAX, FILL | 0x40] {
         assert_eq!(
             t.draw(A, id, &mut canvas, &storage, 0, 0, 8, 4, bad),
             Err(ERR_UNSUPPORTED)
         );
     }
+}
+
+#[test]
+fn stretch_fills_the_rectangle_and_drops_the_shape() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    gray_file(&storage, "c/p.gray", 8, 4, 40);
+    let id = add(&t, A, doc(1, 0), "c/p.gray").unwrap();
+    let mut fb = screen();
+    let mut canvas = fb.canvas();
+    // 8x4 into 20x20 at (10, 10): every pixel of the rectangle, none outside.
+    t.draw(A, id, &mut canvas, &storage, 10, 10, 20, 20, STRETCH)
+        .unwrap();
+    for (x, y) in [(10, 10), (29, 10), (10, 29), (29, 29), (20, 12)] {
+        assert_eq!(gray(&canvas, x, y), 40, "({x}, {y})");
+    }
+    for (x, y) in [(9, 20), (30, 20), (20, 9), (20, 30)] {
+        assert_eq!(gray(&canvas, x, y), 255, "({x}, {y})");
+    }
+    // An empty rectangle draws nothing; one over 65,535 pixels is invalid.
+    assert_eq!(
+        t.draw(A, id, &mut canvas, &storage, 0, 0, 0, 20, STRETCH),
+        Ok(())
+    );
+    assert_eq!(
+        t.draw(A, id, &mut canvas, &storage, 0, 0, 65_536, 20, STRETCH),
+        Err(ERR_INVALID)
+    );
+}
+
+#[test]
+fn flags_that_choose_two_ways_at_once_are_invalid_before_anything_else() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    gray_file(&storage, "c/p.gray", 8, 4, 40);
+    let id = add(&t, A, doc(1, 0), "c/p.gray").unwrap();
+    let mut fb = screen();
+    let mut canvas = fb.canvas();
+    for bad in [FILL | STRETCH, DOTS | GRAYS, FILL | STRETCH | SMALL | DOTS] {
+        assert_eq!(
+            t.draw(A, id, &mut canvas, &storage, 0, 0, 8, 4, bad),
+            Err(ERR_INVALID),
+            "{bad:#x}"
+        );
+        assert_eq!(
+            t.draw(B, id, &mut canvas, &storage, 0, 0, 8, 4, bad),
+            Err(ERR_INVALID),
+            "{bad:#x}: invalid whoever asks"
+        );
+    }
+    assert_eq!(gray(&canvas, 3, 2), 255, "nothing was drawn");
+    // Each alone, and with the others that go with it, is fine.
+    for good in [
+        FILL,
+        STRETCH,
+        DOTS,
+        GRAYS,
+        STRETCH | DOTS | SMALL,
+        FILL | GRAYS,
+    ] {
+        assert_eq!(
+            t.draw(A, id, &mut canvas, &storage, 0, 0, 8, 4, good),
+            Ok(()),
+            "{good:#x}"
+        );
+    }
+}
+
+#[test]
+fn dots_are_black_and_white_where_the_panel_has_grays_and_grays_are_the_panels() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    gray_file(&storage, "c/p.gray", 16, 16, 128);
+    let id = t.add(A, doc(1, 0), "c/p.gray", 16, 16, false).unwrap();
+    let count = |flags| {
+        let mut fb = screen();
+        let mut canvas = fb.canvas();
+        t.draw(A, id, &mut canvas, &storage, 0, 0, 16, 16, flags)
+            .unwrap();
+        let mut seen = [0_u32; 3];
+        for y in 0..16 {
+            for x in 0..16 {
+                match gray(&canvas, x, y) {
+                    0 => seen[0] += 1,
+                    255 => seen[1] += 1,
+                    128 => seen[2] += 1,
+                    other => panic!("an unexpected gray {other}"),
+                }
+            }
+        }
+        seen
+    };
+    // The panel's own rule on a Gray8 frame: the gray as it is.
+    assert_eq!(count(0), [0, 0, 256]);
+    assert_eq!(count(GRAYS), [0, 0, 256]);
+    // Dots: only black and white, about half each.
+    let [black, white, mid] = count(DOTS);
+    assert_eq!(mid, 0);
+    assert_eq!(black + white, 256);
+    assert!((96..=160).contains(&white), "{white} white of 256");
 }
 
 fn alpha_file(storage: &MemoryStorage, path: &str, width: u32, height: u32, gray: u8, alpha: u8) {
@@ -614,6 +714,93 @@ fn a_fmt_image_record_becomes_the_openers_doc_image() {
         t.map_fmt_image(&storage, A, 7, CACHE, &lying, true, true),
         Ok(None)
     );
+}
+
+#[test]
+fn a_picture_not_decoded_yet_comes_without_an_id_and_its_index() {
+    use super::super::stages_wire::core_format_v1::FmtImage;
+    let t = ImageTable::new();
+    // No cache file yet: the format decodes it when the opener asks (op 16).
+    let storage = MemoryStorage::new();
+    let pending = FmtImage::new("img/12.gray", 12, 300, 200, 1);
+    let edge = FmtImage::new("img/13.gray", 13, 1_600, 1, 1);
+    assert!(matches!(
+        t.map_fmt_image(&storage, A, 7, CACHE, &edge, true, true),
+        Ok(Some(doc)) if doc.image == 0 && doc.width == 1_600
+    ));
+    assert_eq!(
+        t.map_fmt_image(&storage, A, 7, CACHE, &pending, true, true),
+        Ok(Some(wire::ServiceDocImage {
+            image: 0,
+            index: 12,
+            width: 300,
+            height: 200,
+            flags: 0b10,
+        }))
+    );
+    // Nothing was handed out for it.
+    assert!(t.info(A, 1).is_err());
+    // A decoded picture whose file is not there is still left out.
+    let decoded = FmtImage::new("img/12.gray", 12, 300, 200, 0);
+    assert_eq!(
+        t.map_fmt_image(&storage, A, 7, CACHE, &decoded, true, true),
+        Ok(None)
+    );
+    // A pending one is still checked for what can be checked without the
+    // file: the path and a size a document image can have (1 to 1,600).
+    for (n, bad) in [
+        FmtImage::new("../x.gray", 12, 300, 200, 1),
+        FmtImage::new(".host/x.gray", 12, 300, 200, 1),
+        FmtImage::new("img/12.gray", 12, 0, 200, 1),
+        FmtImage::new("img/12.gray", 12, 300, 1_601, 1),
+        FmtImage::new("img/12.gray", 12, u32::MAX, 200, 1),
+    ]
+    .iter()
+    .enumerate()
+    {
+        assert_eq!(
+            t.map_fmt_image(&storage, A, 7, CACHE, bad, true, true),
+            Ok(None),
+            "case {n}"
+        );
+    }
+}
+
+#[test]
+fn a_picture_not_decoded_yet_is_checked_at_the_edges() {
+    use super::super::stages_wire::core_format_v1::FmtImage;
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    // A file there whose header says another size does not vouch for the
+    // record: no id, the record's own size, as for a file not there yet.
+    gray_file(&storage, ".paperpaw/cache/k/f/c/a.gray", 8, 4, 40);
+    let other_size = FmtImage::new("a.gray", 6, 9, 4, 1);
+    assert_eq!(
+        t.map_fmt_image(&storage, A, 7, CACHE, &other_size, true, true),
+        Ok(Some(wire::ServiceDocImage {
+            image: 0,
+            index: 6,
+            width: 9,
+            height: 4,
+            flags: 0b10,
+        }))
+    );
+    assert!(t.info(A, 1).is_err(), "no id handed out");
+    // One pixel wide, 1,600 high: the narrowest and tallest box.
+    let tall = FmtImage::new("img/14.gray", 14, 1, 1_600, 1);
+    assert!(matches!(
+        t.map_fmt_image(&storage, A, 7, CACHE, &tall, true, true),
+        Ok(Some(doc)) if doc.image == 0 && (doc.width, doc.height) == (1, 1_600)
+    ));
+    // The cache folder, `/` and the path: 512 bytes pass, 513 do not.
+    let folders = std::vec!["d".repeat(98); 4].join("/");
+    let room = PATH_MAX - CACHE.len() - 1 - folders.len() - 1;
+    for (name, kept) in [("n".repeat(room), true), ("n".repeat(room + 1), false)] {
+        let path = std::format!("{folders}/{name}");
+        let image = FmtImage::new(&path, 15, 300, 200, 1);
+        let mapped = t.map_fmt_image(&storage, A, 7, CACHE, &image, true, true);
+        assert_eq!(mapped.map(|doc| doc.is_some()), Ok(kept), "{}", path.len());
+    }
 }
 
 /// A card whose reads stop working after a number of them.

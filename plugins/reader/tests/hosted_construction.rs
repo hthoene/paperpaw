@@ -14,7 +14,15 @@ fn construct() -> Result<(), String> {
     hosted::try_construct(
         paperpaw_plugin_reader::NATIVE_ENTRY.entry(),
         "reader",
-        &["core.ui"],
+        &[
+            "core.device",
+            "core.document",
+            "core.files",
+            "core.library",
+            "core.registry",
+            "core.ui",
+            "core.work",
+        ],
     )
 }
 

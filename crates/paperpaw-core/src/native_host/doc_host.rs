@@ -17,12 +17,10 @@
 //!   declarations when the registry generation moved (one walk, never per
 //!   call); documents of a format that went end as the format stopped.
 //!
-//! Not served yet, each answered as the contract's "none" and never
-//! half-done: the images of a document (`map_image` leaves a picture out, so
-//! no image id exists to end), `event.document_changed` (88: nothing raises
-//! it before the preparing loop), sniffing a file's first 512 bytes,
-//! root 5, the preparing loop and the cache (`format.spec.flags` `prepared`
-//! formats open and answer as their op 2 does), the root-6 cache stamps.
+//! The preparing loop (`doc_pump`, `doc_prepare`): a `prepared` format whose
+//! open answered state 1 gets op 3 `prepare` from the service pump, a step a
+//! pass, never inside a callback; the opener hears `event.document_changed`
+//! (88) with the latest state.
 //!
 //! Memory: the state is the table (about 40 bytes a document), one small
 //! index (under 100 bytes a format) and one `Book` per open document
@@ -33,7 +31,7 @@ use super::{
     },
     fmt_call::{FrameRoute, ImageMap, Opener, Stage},
     format_index::FormatIndex,
-    format_scope::{BookKind, FormatBook},
+    format_scope::BookKind,
     host_services::Caller,
     owner_paths::OwnerPaths,
     paths_in_use::PathsInUse,
@@ -46,8 +44,8 @@ use crate::native_host::codec;
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::{cell::Cell, cell::RefCell, ops::ControlFlow};
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_CANCELLED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND,
-    ERR_STATE, ERR_UNSUPPORTED,
+    ERR_BUSY, ERR_CANCELLED, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE,
+    ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
 };
 use paperpaw_platform::Storage;
 
@@ -63,6 +61,8 @@ const FOLDER: u32 = 1 << 2;
 /// What an open document's reader hold needs to be given back.
 struct Book {
     document: u32,
+    /// The root the book was opened on (1: a book of the library).
+    root: u32,
     /// The path as the host named it to the in-use table (root 1: the card
     /// path); empty when the book is not held.
     ///
@@ -70,6 +70,8 @@ struct Book {
     /// cannot be refused.
     path: String,
     held: bool,
+    /// The owner key of the plugin whose folder the book is in (root 5), else 0.
+    maker: u64,
     /// The cache the format reads and writes as root 6, once the open began
     /// to make it.
     cache: Option<Cache>,
@@ -90,6 +92,9 @@ struct Cache {
     finished: bool,
     /// The bytes the stamp says the cache holds.
     stamped: u64,
+    /// The card path of the user's CSS file the open named (root 4 of the
+    /// format's calls that may read it); `""` for none.
+    css: String,
 }
 
 impl Cache {
@@ -132,15 +137,83 @@ pub(crate) struct DocState {
     /// The kernel's clock as the event pump last gave it: events are stamped
     /// with it.
     now: Cell<u64>,
+    /// Steps of the cover job that could not be made, in a row (`doc_cover_job`).
+    job_later: Cell<u8>,
+    /// Whether the kernel's start has returned: before, no cover job begins.
+    jobs_allowed: Cell<bool>,
+    /// The cover job's marker is on the card (`cover_job_marker`).
+    job_guarded: Cell<bool>,
+    /// A `cover` asked for a job where none may begin (before that, or with a
+    /// book open for reading), or the job was displaced: it begins again when
+    /// released (`cover_jobs_released`).
+    job_held_back: Cell<bool>,
+    /// Not before this time (the kernel's clock, ms): what displaced the job
+    /// is done by then.
+    job_resume_at: Cell<u64>,
+    /// A library list screen was up until this time (the kernel's clock, ms)
+    /// at the latest: the job takes no step before the quiet moment after it
+    /// is over (`cover_job_list`).
+    list_quiet_until: Cell<u64>,
+    /// The key of the book of the job that runs (or ran last).
+    job_key: Cell<u64>,
+    /// The book the job was displaced for last, and how many times in a row;
+    /// at [`DISPLACED_MAX`] the book is given up until the next start.
+    job_displaced: Cell<(u64, u8)>,
+    /// When the job that runs began (the kernel's clock, ms), and the time
+    /// the books' jobs have run in all (key, ms): the cap per book and start
+    /// ([`JOB_AWAKE_MAX_MS`]).
+    job_started: Cell<u64>,
+    job_used: Cell<(u64, u64)>,
+    /// The book given up (0: none), for the library's failure ring.
+    job_given_up: Cell<u64>,
+    /// The job is to end at the next pump pass (a suspend that came inside a
+    /// callback).
+    job_suspend: Cell<bool>,
+    /// The books whose cover the cover job made (or found none of) since the
+    /// start, by path key, the oldest written over (`doc_cover_make`).
+    covers_made: Cell<[u64; cover_make::COVERS_MADE]>,
+    /// Which of `covers_made` were asked for since the last cover was made
+    /// (bit `n` for entry `n`): the books on screen.
+    covers_shown: Cell<u32>,
     /// The card, for the first bytes a file is told by (`with_storage`).
     storage: Option<Rc<dyn Storage>>,
     /// The most bytes one document's cache may hold.
     cache_cap: u64,
+    /// The id of the document whose preparation was stepped last (the
+    /// turn goes on after it).
+    last_prepared: Cell<u32>,
+    /// The books kept at most: the device's places for documents.
+    books_max: usize,
+    /// Whether the screen keeps colour (a picture's colour flag).
+    colour: bool,
+    /// Documents that ended where the image table could not be reached (the
+    /// host ended them, or the table was busy): their image ids end with the
+    /// next call.
+    pending_images: RefCell<Vec<u32>>,
+    /// A document's image ids could not be recorded as ended (logged once).
+    images_lost: Cell<bool>,
+    /// The document a left-out picture was last logged for (0 none): one
+    /// line per run of the same document, not one a picture (a reader
+    /// switching between two documents logs each switch).
+    pictures_logged: Cell<u32>,
     /// An event was raised since the pump's last pass: it asks for one. An
     /// event whose owner does not run stays queued without asking again, so
     /// an idle device is not woken for it.
     fresh: Cell<bool>,
+    /// The reading session and the events it raises (`doc_reading.rs`).
+    reading: super::doc_reading::Reading,
 }
+
+/// How long after a displacement (a book to show, a ready cover) the job waits
+/// before it begins again.
+const RESUME_AFTER_MS: u64 = 2_000;
+/// A job displaced this many times in a row for the same book is not started
+/// again until the next start.
+const DISPLACED_MAX: u8 = 3;
+/// The most one book's cover job may run in all (awake time, ms) between two
+/// starts of the device, wherever it was displaced and began again; then the
+/// book counts as failed (no cover until the next start).
+const JOB_AWAKE_MAX_MS: u64 = 10 * 60 * 1_000;
 
 /// Nothing is drawn from a format's picture yet: it is left out.
 struct NoImages;
@@ -156,6 +229,43 @@ impl ImageMap for NoImages {
     }
 }
 
+/// A format's pictures as the opener's image ids: the cache files of the
+/// document's folder, checked, in the image table (`document.md` 5).
+struct DocImages<'a> {
+    table: &'a super::image_service::ImageTable,
+    storage: &'a dyn Storage,
+    state: &'a DocState,
+}
+
+impl ImageMap for DocImages<'_> {
+    fn map(
+        &self,
+        owner: u64,
+        document: u32,
+        image: &local::FmtImage<'_>,
+        in_block: bool,
+    ) -> Result<Option<wire::ServiceDocImage>, i32> {
+        let books = self.state.books.try_borrow().map_err(|_| ERR_BUSY)?;
+        let Some(cache) = books
+            .iter()
+            .find(|book| book.document == document)
+            .and_then(|book| book.cache.as_ref())
+        else {
+            // A document without a cache has no picture to vouch for.
+            return Ok(None);
+        };
+        self.table.map_fmt_image(
+            self.storage,
+            owner,
+            document,
+            &cache.folder,
+            image,
+            in_block,
+            self.state.colour,
+        )
+    }
+}
+
 impl DocState {
     /// The state for a device with `limits` open documents and a screen whose
     /// long side is `long_side` pixels; reader holds go to `in_use`.
@@ -168,14 +278,9 @@ impl DocState {
         in_use: Rc<PathsInUse>,
     ) -> Result<Self, i32> {
         let table = DocumentTable::try_new(limits)?;
-        let mut unfinished = Vec::new();
-        unfinished
-            .try_reserve_exact(super::format_index::DEVICE)
-            .map_err(|_| ERR_NO_MEMORY)?;
-        let mut books = Vec::new();
-        books
-            .try_reserve_exact(limits.device)
-            .map_err(|_| ERR_NO_MEMORY)?;
+        // The lists are reserved at first use (`hold_book`, `keep_unfinished`,
+        // `ended_images`): a device that never opens a document keeps none.
+        let (unfinished, images_pending, books) = (Vec::new(), Vec::new(), Vec::new());
         Ok(Self {
             table,
             index: RefCell::new(FormatIndex::new()),
@@ -186,9 +291,30 @@ impl DocState {
             skipped: Cell::new(0),
             unfinished: RefCell::new(unfinished),
             now: Cell::new(0),
+            job_later: Cell::new(0),
+            jobs_allowed: Cell::new(false),
+            job_guarded: Cell::new(false),
+            job_held_back: Cell::new(false),
+            job_resume_at: Cell::new(0),
+            list_quiet_until: Cell::new(0),
+            job_key: Cell::new(0),
+            job_displaced: Cell::new((0, 0)),
+            job_given_up: Cell::new(0),
+            job_started: Cell::new(0),
+            job_used: Cell::new((0, 0)),
+            job_suspend: Cell::new(false),
+            covers_made: Cell::new([0; cover_make::COVERS_MADE]),
+            covers_shown: Cell::new(0),
             storage: None,
             cache_cap: limits.cache_bytes(),
+            last_prepared: Cell::new(0),
+            books_max: limits.device,
+            colour: false,
+            pending_images: RefCell::new(images_pending),
+            images_lost: Cell::new(false),
+            pictures_logged: Cell::new(0),
             fresh: Cell::new(false),
+            reading: super::doc_reading::Reading::new(),
         })
     }
 
@@ -200,16 +326,64 @@ impl DocState {
         self
     }
 
-    /// The oldest `event.document_closed` of `owner`, encoded into `out`. It
+    /// The state for a screen that keeps colour (or not): a picture's
+    /// `doc_image.flags` bit 0.
+    #[must_use]
+    pub(crate) fn with_colour(mut self, colour: bool) -> Self {
+        self.colour = colour;
+        self
+    }
+
+    /// The image ids of `document` end with the next call (the image table is
+    /// not at hand here).
+    fn ended_images(&self, document: u32) {
+        if let Ok(mut pending) = self.pending_images.try_borrow_mut()
+            && pending.try_reserve(1).is_ok()
+        {
+            pending.push(document);
+        } else {
+            // Not recorded: the ids live until their plugin stops (at most 8
+            // each). The next call with a frame says so, once.
+            self.images_lost.set(true);
+        }
+    }
+
+    /// The image ids of the documents that ended out of reach of the table
+    /// end now (`images` is the device's table).
+    fn end_pending_images(&self, images: &super::image_service::ImageTable) {
+        if let Ok(mut pending) = self.pending_images.try_borrow_mut() {
+            pending.retain(|document| images.document_closed(*document).is_err());
+        }
+    }
+
+    /// The oldest `event.document_closed` of `owner`, encoded into `out` as
+    /// the one-record batch a callback decodes (`codec::encode_event`). It
     /// is taken when it is encoded: a callback that refuses it does not get
     /// it again (as every service event).
     fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<usize>, i32> {
-        self.table.take_closed(owner, |event| {
-            codec::encode_one(
+        let closed = self.table.take_closed(owner, |event| {
+            codec::encode_event(
                 &Record::EventDocumentClosed(wire::EventDocumentClosed {
                     now_ms: self.now.get(),
                     document: event.document,
                     reason: event.reason,
+                }),
+                out,
+            )
+        })?;
+        if closed.is_some() {
+            return Ok(closed);
+        }
+        // The state or the progress of a preparing document moved: its latest
+        // values, one event for however many steps it took since (`document.md`
+        // 2.1).
+        self.table.take_changed(owner, |document| {
+            codec::encode_event(
+                &Record::EventDocumentChanged(wire::EventDocumentChanged {
+                    now_ms: self.now.get(),
+                    document: document.id,
+                    state: document.state,
+                    progress_ppm: document.progress_ppm,
                 }),
                 out,
             )
@@ -233,13 +407,19 @@ impl DocState {
         plugin: Option<&str>,
     ) -> Result<(), i32> {
         let mut books = self.books.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+        if books.capacity() == 0 {
+            books
+                .try_reserve_exact(self.books_max)
+                .map_err(|_| ERR_NO_MEMORY)?;
+        }
         if books.len() >= books.capacity() {
             return Err(ERR_FULL);
         }
         // The in-use table names the card path: root 1 is the card's top
-        // (without a leading slash), root 0 the opener's data folder. The
-        // install folder (root 5) is not held yet.
-        let held = root == 1 || root == 0;
+        // (without a leading slash), root 0 the opener's data folder, root 5
+        // the handed file's card path.
+        // Root 5's path is the card path the hand-over resolved to.
+        let held = root == 1 || root == 0 || root == super::doc_service::ROOT_HANDED;
         let copy = if root == 0 {
             // Without a caller there is no data folder to name.
             if plugin.is_none() {
@@ -271,14 +451,19 @@ impl DocState {
         }
         books.push(Book {
             document,
+            root,
             path: copy,
             held,
+            maker: 0,
             cache: None,
         });
         Ok(())
     }
 
-    fn reader_closed(&self, document: u32) {
+    /// The document ended at `now_ms`: its reading session (if it had one)
+    /// ends, and the reader hold is given back.
+    fn reader_closed_at(&self, document: u32, now_ms: u64) {
+        self.reading.document_ended(now_ms, document);
         let Ok(mut books) = self.books.try_borrow_mut() else {
             return;
         };
@@ -336,13 +521,22 @@ impl DocState {
     }
 
     fn keep_unfinished(&self, format: FormatRef) {
-        // The room is reserved for every format the device can hold, and a
-        // reference is kept once: a full list cannot happen. If it did, the
-        // format's documents would stay until their reader closes them.
-        if let Ok(mut pending) = self.unfinished.try_borrow_mut()
-            && pending.len() < pending.capacity()
-        {
-            pending.push(format);
+        // The room is reserved for every format the device can hold at the
+        // first reference, and a reference is kept once: a full list cannot
+        // happen. If it did, or the room cannot be had, the reference is
+        // dropped and the format's documents stay until their reader closes
+        // them.
+        if let Ok(mut pending) = self.unfinished.try_borrow_mut() {
+            if pending.capacity() == 0
+                && pending
+                    .try_reserve_exact(super::format_index::DEVICE)
+                    .is_err()
+            {
+                return;
+            }
+            if pending.len() < pending.capacity() {
+                pending.push(format);
+            }
         }
     }
 
@@ -377,9 +571,6 @@ macro_rules! frameless {
         ) -> Result<u64, i32> {
             self.state().conversion_key(open, format, options)
         }
-        fn end_images(&self, _document: &Document) {
-            // No image id exists until pictures are mapped.
-        }
         fn document_closed(&self, document: &Document, reason: u32) {
             self.state().table.raise_closed(document, reason);
             self.state().fresh.set(true);
@@ -388,7 +579,7 @@ macro_rules! frameless {
             self.state().next_event(owner, out)
         }
         fn events_waiting(&self) -> bool {
-            self.state().fresh.get()
+            self.state().fresh.get() || self.state().reading.waiting()
         }
         fn set_now(&self, now_ms: u64) {
             // The pass that takes the events starts here: what was raised
@@ -396,16 +587,55 @@ macro_rules! frameless {
             self.state().fresh.set(false);
             self.state().now.set(now_ms);
         }
-        fn reader_closed(&self, document: u32) {
-            self.state().reader_closed(document);
+        fn take_reading_edge(&self) -> Option<super::doc_reading::Edge> {
+            self.state().reading.take_edge()
+        }
+        fn reading_sleep(&self, now_ms: u64) {
+            self.state().reading.sleep(now_ms);
+        }
+        fn cover_jobs_allowed(&self) -> bool {
+            self.state().jobs_allowed.get()
+        }
+        fn cover_job_held_back(&self) {
+            self.state().job_held_back.set(true);
+        }
+        fn cover_job_displaced(&self) {
+            self.state().displaced();
+        }
+        fn cover_job_list(&self, up: bool) -> Option<u64> {
+            self.state().list_hold(up)
+        }
+        fn cover_job_guard(&self, path: &str) -> Result<(), i32> {
+            self.state().guard(path)
+        }
+        fn cover_job_unguard(&self) {
+            self.state().unguard();
+        }
+        fn handed_maker(&self, document: u32, maker: u64) {
+            if let Ok(mut books) = self.state().books.try_borrow_mut()
+                && let Some(book) = books.iter_mut().find(|book| book.document == document)
+            {
+                book.maker = maker;
+            }
+        }
+        fn document_of_maker(&self, maker: u64) -> Option<u32> {
+            let books = self.state().books.try_borrow().ok()?;
+            books
+                .iter()
+                .find(|book| maker != 0 && book.maker == maker)
+                .map(|book| book.document)
         }
         fn map_image(
             &self,
             _document: &Document,
-            _image: &wire::ServiceDocImage,
+            image: &wire::ServiceDocImage,
             _in_block: bool,
         ) -> Result<Option<u32>, i32> {
-            Ok(None)
+            // The stage adapter mapped the picture when it translated the
+            // format's answer (`DocImages`: the cache check and the id), so
+            // the record carries the opener's id (0 where all are out, in a
+            // block stream); a picture that failed the check is not here.
+            Ok(Some(image.image))
         }
         fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
             self.state().formats_of_owner(owner, visit);
@@ -436,14 +666,87 @@ impl super::doc_service::DocHost for DocState {
         });
     }
     frameless!();
+    fn end_images(&self, document: &Document) {
+        self.ended_images(document.id);
+    }
+    fn flush_images(&self, images: &super::image_service::ImageTable) {
+        self.end_pending_images(images);
+    }
     fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
         self.hold_book(document, root, path, None)
+    }
+    fn reader_closed(&self, document: u32) {
+        // Without a frame the pump's clock stamps the close of a session.
+        self.reader_closed_at(document, self.now.get());
     }
     fn root_access(&self, _root: u32) -> Result<(), i32> {
         Err(ERR_UNSUPPORTED)
     }
     fn select_format(&self, _: u32, _: &str, _: &str) -> Result<FormatRef, i32> {
         Err(ERR_UNSUPPORTED)
+    }
+    fn preparing(&self) -> bool {
+        self.table.any_preparing()
+    }
+    fn prepare_step(
+        &self,
+        hosts: &super::host_services::HostServices,
+        route: &dyn super::fmt_call::Route,
+    ) -> super::doc_service::PrepareStep {
+        let step = self.prepare_next(hosts, route);
+        self.cover_job_stepped(step);
+        step
+    }
+    fn cover_job_step(
+        &self,
+        hosts: &super::host_services::HostServices,
+        route: &dyn super::fmt_call::Route,
+    ) -> super::doc_service::JobStep {
+        self.cover_job_next(hosts, route)
+    }
+    fn cover_at(&self, path: &str) -> super::doc_host::CoverAt {
+        self.cover_at(path)
+    }
+    fn cover_job_active(&self) -> bool {
+        // A marker with no job: the pump's look removes it.
+        self.table.cover_job().is_some()
+            || self.table.cover_make().is_some()
+            || self.job_guarded.get()
+    }
+    fn only_cover_job_preparing(&self) -> bool {
+        self.table.only_cover_job_preparing()
+    }
+    fn cover_job_suspend_later(&self) {
+        self.job_suspend.set(true);
+    }
+    fn cover_job_given_up(&self) -> u64 {
+        self.job_given_up.replace(0)
+    }
+    fn cover_jobs_released(&self) -> bool {
+        if !self.job_held_back.get()
+            || !self.jobs_allowed.get()
+            || self.now.get() < self.job_resume_at.get()
+            || self.table.cover_job().is_some()
+            || self.table.reading_besides(0)
+        {
+            return false;
+        }
+        self.job_held_back.set(false);
+        true
+    }
+    fn allow_cover_jobs(&self) -> u64 {
+        self.jobs_allowed.set(true);
+        // A marker from before: the reset happened in that book's job.
+        self.storage
+            .as_deref()
+            .map_or(0, super::cover_job_marker::take)
+    }
+    fn cover_job_abort(
+        &self,
+        hosts: &super::host_services::HostServices,
+        route: &dyn super::fmt_call::Route,
+    ) {
+        self.cover_job_end(hosts, route);
     }
     fn call_format(&self, _: &FormatCall<'_>, _: &mut [u8]) -> Result<usize, i32> {
         Err(ERR_UNSUPPORTED)
@@ -487,6 +790,14 @@ struct Bound<'a> {
 }
 
 impl Bound<'_> {
+    /// The kernel's clock now, milliseconds (the pump's where the frame has
+    /// no environment).
+    fn clock(&self) -> u64 {
+        self.frame
+            .kernel_env()
+            .map_or_else(|| self.state.now.get(), |env| env.now().millis())
+    }
+
     fn state(&self) -> &DocState {
         self.state
     }
@@ -554,67 +865,18 @@ impl Bound<'_> {
                 content,
                 finished: made.bytes.is_some(),
                 stamped: made.bytes.unwrap_or(0),
+                css: copy(css)?,
             });
         }
         Ok(())
     }
 
-    /// The last document of a cache closes: what a format wrote after the
-    /// stamp was made is put in the stamp (so a reopen counts it), and the
-    /// folder's count goes (it is made again from the stamp at the next open).
-    /// A cache another open document uses is left as it is.
     fn finish_cache(&self, document: u32) {
-        let (Some(storage), Ok(books)) =
-            (self.state.storage.as_deref(), self.state.books.try_borrow())
-        else {
-            return;
-        };
-        let Some(cache) = books
-            .iter()
-            .find(|book| book.document == document)
-            .and_then(|book| book.cache.as_ref())
-        else {
-            return;
-        };
-        let shared = books.iter().any(|b| {
-            b.document != document && b.cache.as_ref().is_some_and(|c| c.folder == cache.folder)
-        });
-        if shared {
-            return;
-        }
-        let scope = self.who.hosts.format_scope();
-        let bytes = scope.total(&cache.folder);
-        if cache.finished && bytes != cache.stamped {
-            let _ = super::doc_cache::complete(storage, &cache.identity(), bytes);
-        }
-        scope.reset(&cache.folder);
+        self.state.finish_cache(self.who.hosts, document);
     }
 
-    /// A call answered `ERR_NO_SPACE` while the cache was being made: the
-    /// partial cache is removed (`document.md` 3, Cache quota), unless another
-    /// open document uses the folder. What a bounded removal leaves is
-    /// removed with the next open, as an unfinished folder.
     fn discard_cache(&self, document: u32) {
-        let (Some(storage), Ok(books)) =
-            (self.state.storage.as_deref(), self.state.books.try_borrow())
-        else {
-            return;
-        };
-        let Some(cache) = books
-            .iter()
-            .find(|book| book.document == document)
-            .and_then(|book| book.cache.as_ref())
-            .filter(|cache| !cache.finished)
-        else {
-            return;
-        };
-        let shared = books.iter().any(|b| {
-            b.document != document && b.cache.as_ref().is_some_and(|c| c.folder == cache.folder)
-        });
-        if !shared {
-            let _ = super::doc_cache::clear(storage, &cache.folder);
-            self.who.hosts.format_scope().reset(&cache.folder);
-        }
+        self.state.discard_cache(self.who.hosts, document);
     }
 
     /// The version of the plugin `plugin` as the registry says it (a new
@@ -637,7 +899,13 @@ impl Bound<'_> {
                     return Ok(());
                 }
                 let used = row.encode(&mut bytes)?;
-                if let Record::ServiceRegPlugin(row) = wire::record_decode_one(&bytes[..used])? {
+                // One bare record, exactly (the frame is the whole encoding).
+                let (raw, length) = wire::RawRecord::prefix(&bytes[..used])?;
+                if length != used {
+                    return Err(ERR_INVALID);
+                }
+                if raw.tag() == wire::SERVICE_REG_PLUGIN_TAG {
+                    let row: wire::ServiceRegPlugin<'_> = raw.decode()?;
                     version = copy(row.version);
                 }
                 Ok(())
@@ -662,8 +930,8 @@ impl Bound<'_> {
         super::owner_paths::OwnerPaths::join_for(self.who, call.css_root, call.css_path)
     }
 
-    /// The format's call for `call.document` begins: its roots 3, 4 (and later
-    /// 6) are the document's, until the guard is dropped.
+    /// The format's call for `call.document` begins: its roots 3, 4 and 6 are
+    /// the document's, until the guard is dropped.
     fn enter_scope(
         &self,
         owner: u64,
@@ -671,35 +939,15 @@ impl Bound<'_> {
         kind: BookKind,
         css: &str,
     ) -> Result<super::format_scope::Guard<'_>, i32> {
-        let books = self.state.books.try_borrow().map_err(|_| ERR_BUSY)?;
-        let book = books
-            .iter()
-            .find(|book| book.document == call.document)
-            .ok_or(ERR_CANCELLED)?;
-        let opened = if kind == BookKind::Siblings {
-            book.path.rsplit('/').next().unwrap_or("")
-        } else {
-            ""
-        };
-        self.who.hosts.format_scope().enter(
-            owner,
-            &FormatBook {
-                path: &book.path,
-                kind,
-                opened,
-                document: call.document,
-                cache: book.cache.as_ref().map_or("", |cache| &cache.folder),
-                css,
-                cache_cap: self.state.cache_cap,
-                quota: None,
-            },
-        )
+        self.state
+            .enter_scope(self.who.hosts, owner, call.document, kind, css)
     }
 
     /// The index in line with the declarations, if the registry changed since
     /// it was. The documents of a format that went end as it stopped.
     fn sync(&self) -> Result<(), i32> {
         self.end_unfinished();
+        self.end_pending_images();
         let generation = self.frame.registry()?.generation();
         if self.state.synced.get() == generation {
             return Ok(());
@@ -730,11 +978,22 @@ impl Bound<'_> {
         for format in gone.iter().take(count) {
             if format_stopped(self, *format).is_err() {
                 // A table was borrowed: the next call ends the rest. The
-                // room is reserved for every format the device can hold.
+                // room is reserved at the first reference, for every format
+                // the device can hold.
                 self.state.keep_unfinished(*format);
             }
         }
         Ok(())
+    }
+
+    /// The image ids of documents that ended out of reach of the table end.
+    fn end_pending_images(&self) {
+        self.state.end_pending_images(self.who.hosts.images());
+        if self.state.images_lost.replace(false) {
+            self.frame.log(format_args!(
+                "document: image ids of an ended document kept"
+            ));
+        }
     }
 
     /// Ends the documents of formats an earlier call could not finish.
@@ -804,6 +1063,17 @@ impl Bound<'_> {
         Err(ERR_NOT_FOUND)
     }
 
+    /// Whether the caller's plugin declares a reading app.
+    fn declares_reader(&self) -> bool {
+        let mut declares = false;
+        let _ = self.frame.with_declarations(&mut |any| {
+            if let Some(store) = any.downcast_ref::<super::declaration_store::DeclarationStore>() {
+                store.each_reader(&mut |reader| declares |= reader.plugin == self.who.plugin);
+            }
+        });
+        declares
+    }
+
     fn translate_format<'r>(&'r self, row: Record<'r>) -> Record<'r> {
         match row {
             Record::ServiceDocFormat(format) => Record::ServiceDocFormat(wire::ServiceDocFormat {
@@ -820,9 +1090,50 @@ impl super::doc_service::DocHost for Bound<'_> {
         self
     }
     frameless!();
+    fn picture_left_out(&self, document: u32) {
+        if self.state.pictures_logged.replace(document) != document {
+            self.frame.log(format_args!(
+                "document {document}: a picture was left out, its block keeps its text"
+            ));
+        }
+    }
+    fn end_images(&self, document: &Document) {
+        // The ids end now where the table can be had, else with the next call.
+        if self
+            .who
+            .hosts
+            .images()
+            .document_closed(document.id)
+            .is_err()
+        {
+            self.state.ended_images(document.id);
+        }
+    }
     fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
         self.state
             .hold_book(document, root, path, Some(self.who.plugin))
+    }
+    fn reader_closed(&self, document: u32) {
+        self.state.reader_closed_at(document, self.clock());
+    }
+    fn reading_report(
+        &self,
+        document: &Document,
+        report: &wire::ServiceDocReport<'_>,
+    ) -> Result<(), i32> {
+        // Only a book of the library that its opener, a reading app (it
+        // declares a `reader.spec`) on top of the screen stack, reports drives
+        // the session (`document.md` 2.4). Which of its screens is on top is
+        // not told by the stack rows.
+        let books = self.state.books.try_borrow().map_err(|_| ERR_BUSY)?;
+        let book = books.iter().find(|book| book.document == document.id);
+        let library = book.is_some_and(|book| book.root == 1) && !document.background;
+        let facts = super::doc_reading::Facts {
+            document: document.id,
+            counts: library && self.declares_reader() && self.shows_screen(document.owner),
+            path: book.map_or("", |book| book.path.as_str()),
+        };
+        self.state.reading.report(self.clock(), &facts, report)
     }
 
     fn root_access(&self, root: u32) -> Result<(), i32> {
@@ -830,9 +1141,51 @@ impl super::doc_service::DocHost for Bound<'_> {
             0 => Ok(()),
             // The card's top needs `uses.storage` (decision 125).
             1 => self.who.features.feature("uses.storage"),
-            // The handed file is not wired yet.
+            // The handed file is resolved by `handed_open`.
             5 => Err(ERR_UNSUPPORTED),
             _ => Err(ERR_INVALID),
+        }
+    }
+
+    #[inline(never)]
+    fn handed_open(&self, path: &str) -> Result<super::doc_service::HandedBook, i32> {
+        // Until the `core.ui` store is wired no file is handed.
+        if self.who.hosts.ui().is_none() {
+            return Err(ERR_UNSUPPORTED);
+        }
+        // An instance that is not a reader screen has no hand-over.
+        let instance = self.frame.calling_instance().map_err(|_| ERR_DENIED)?;
+        let mut handed = Err(ERR_DENIED);
+        self.who.hosts.handed_file(instance, &mut |file| {
+            // Only the one file the hand-over names, in a folder of its maker.
+            let ours = file.path == path && matches!(file.root, 0 | 2);
+            handed = if ours && file.path.len() <= 512 {
+                copy(file.path).map(|text| (file.maker, file.root, text))
+            } else {
+                Err(ERR_DENIED)
+            };
+        })?;
+        let (maker, root, file_path) = handed?;
+        // The maker may be gone: its key never names another plugin.
+        let mut id: Result<String, i32> = Err(ERR_NOT_FOUND);
+        self.frame.with_declarations(&mut |any| {
+            let Some(store) = any.downcast_ref::<super::declaration_store::DeclarationStore>()
+            else {
+                return;
+            };
+            if let Some(name) = store.plugin_id_of_owner(maker) {
+                id = copy(name);
+            }
+        })?;
+        let joined = OwnerPaths::join(Some(&id?), root, &file_path)?;
+        let storage = self.state.storage.as_ref().ok_or(ERR_UNSUPPORTED)?;
+        match storage.size(&joined) {
+            Ok(_) => Ok(super::doc_service::HandedBook {
+                card_path: joined,
+                maker,
+            }),
+            Err(paperpaw_platform::StorageError::NotFound) => Err(ERR_NOT_FOUND),
+            Err(error) => Err(super::storage::status(error)),
         }
     }
 
@@ -851,17 +1204,7 @@ impl super::doc_service::DocHost for Bound<'_> {
     }
 
     fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32> {
-        let (target, kind) = {
-            let index = self.state.index()?;
-            let kind = if index.has_flag(call.format, FOLDER) {
-                BookKind::Folder
-            } else if index.has_flag(call.format, SIBLINGS) {
-                BookKind::Siblings
-            } else {
-                BookKind::File
-            };
-            (index.target(call.format).ok_or(ERR_CANCELLED)?, kind)
-        };
+        let (target, kind) = self.state.format_target(call.format)?;
         let siblings = kind == BookKind::Siblings;
         // The format's roots 3 and 4 are this call's book and CSS file for as
         // long as the guard lives.
@@ -871,9 +1214,17 @@ impl super::doc_service::DocHost for Bound<'_> {
         }
         let _scope = self.enter_scope(target.plugin, call, kind, &css)?;
         let route = FrameRoute(self.frame);
+        let pictures = self.state.storage.as_deref().map(|storage| DocImages {
+            table: self.who.hosts.images(),
+            storage,
+            state: self.state,
+        });
         let stage = Stage {
             route: &route,
-            images: &NoImages,
+            images: match &pictures {
+                Some(pictures) => pictures,
+                None => &NoImages,
+            },
         };
         let mut result = Err(ERR_NOT_FOUND);
         let mut run = |sibling: &str| {
@@ -921,39 +1272,7 @@ impl super::doc_service::DocHost for Bound<'_> {
     }
 
     fn document_ready(&self, document: u32) {
-        let Some(storage) = self.state.storage.as_deref() else {
-            return;
-        };
-        let stamped = {
-            let Ok(books) = self.state.books.try_borrow() else {
-                return;
-            };
-            let Some(cache) = books
-                .iter()
-                .find(|book| book.document == document)
-                .and_then(|book| book.cache.as_ref())
-                // A finished cache found at the open keeps its stamp.
-                .filter(|cache| !cache.finished)
-            else {
-                return;
-            };
-            let bytes = self.who.hosts.format_scope().total(&cache.folder);
-            // A stamp that cannot be made leaves the cache unfinished: the next
-            // open makes it again.
-            if super::doc_cache::complete(storage, &cache.identity(), bytes).is_err() {
-                return;
-            }
-            bytes
-        };
-        if let Ok(mut books) = self.state.books.try_borrow_mut()
-            && let Some(cache) = books
-                .iter_mut()
-                .find(|book| book.document == document)
-                .and_then(|book| book.cache.as_mut())
-        {
-            cache.finished = true;
-            cache.stamped = stamped;
-        }
+        self.state.document_ready(self.who.hosts, document);
     }
 
     fn shows_screen(&self, owner: u64) -> bool {
@@ -1032,6 +1351,14 @@ impl super::doc_service::DocHost for Bound<'_> {
             .row(format, &mut |row| visit(self.translate_format(row)))
     }
 }
+
+#[path = "doc_cover_job.rs"]
+mod cover_job;
+#[path = "doc_cover_make.rs"]
+mod cover_make;
+pub(crate) use cover_make::CoverAt;
+#[path = "doc_prepare.rs"]
+mod prepare;
 
 #[cfg(test)]
 #[path = "doc_host_tests.rs"]

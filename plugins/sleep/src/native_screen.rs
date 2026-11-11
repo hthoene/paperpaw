@@ -21,7 +21,7 @@ use paperpaw_sdk::{
         image::ImageStyle,
         settings::{self, SettingValue},
         snapshot::{self, Snapshot},
-        ui::{Compose, HandoverId, Ui, UiCursor, WidgetHandle},
+        ui::{Compose, HandoverId, MadeWidget, Ui, UiCursor, WidgetHandle},
     },
 };
 use paperpaw_ui_kit::{
@@ -40,8 +40,9 @@ const READER: &str = "core.reader";
 const OFF: &str = "off";
 /// Most pages of the screen stack read for the page below.
 const MOST_STACK_PAGES: usize = 8;
-/// Room for the longest text setting and its frame.
-const VALUE_BUFFER: usize = 4096 + 64;
+/// Room for the longest text setting and its frame: the most `settings.read`
+/// takes (a bigger output buffer is `ERR_INVALID`).
+const VALUE_BUFFER: usize = 4096;
 /// Most lines the message takes.
 const MOST_LINES: usize = 4;
 
@@ -466,11 +467,9 @@ impl Sleeping {
                 continue;
             }
             let handle = match ui.widget_make(host, id, WIDGETS_PLACE, &mut input, &mut out) {
-                Ok(handle) if !handle.is_own() => handle,
-                Ok(handle) => {
-                    drop_all(host, ui, [handle]);
-                    continue;
-                }
+                Ok(MadeWidget::Widget(handle)) => handle,
+                // One the plugin draws itself is not asked for.
+                Ok(_) => continue,
                 // A widget that is gone, or not for this screen: left out.
                 Err(Error::NotFound | Error::Denied) => continue,
                 Err(error) => return Err(error),
@@ -512,11 +511,8 @@ impl Sleeping {
         }
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let handle = match ui.widget_make(host, id, OVERLAY_PLACE, &mut input, &mut out) {
-            Ok(handle) if !handle.is_own() => handle,
-            Ok(handle) => {
-                drop_all(host, ui, [handle]);
-                return Ok(None);
-            }
+            Ok(MadeWidget::Widget(handle)) => handle,
+            Ok(_) => return Ok(None),
             Err(Error::NotFound | Error::Denied) => return Ok(None),
             Err(error) => return Err(error),
         };

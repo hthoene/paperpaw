@@ -114,6 +114,7 @@ fn prepare(root: u32, path: &str, cookie: u32) -> ImageCommand {
         side: 0,
         cookie,
         colour: false,
+        recipe: Default::default(),
     }
 }
 
@@ -176,11 +177,56 @@ fn root_one_never_reaches_the_plugins_folder_or_the_hosts() {
     while w.kernel.native_image_pump() {}
     let mut told = w.told();
     told.sort_unstable();
-    // Each is answered with the card status (4), none was decoded.
+    // Each is answered with the card status (4), none was decoded; the
+    // folder of a plugin that is no running data plugin is not there (6).
     assert_eq!(
         told.iter().map(|t| (t.0, t.1)).collect::<Vec<_>>(),
-        [(1, 4), (2, 4), (3, 4), (4, 4)]
+        [(1, 6), (2, 4), (3, 4), (4, 4)]
     );
+}
+
+#[test]
+fn root_one_reaches_a_running_data_plugins_files_only() {
+    use crate::native_host::{
+        data_plugin_folders::DataPluginFolders, host_services::HostServices,
+        storage_files::StorageFiles,
+    };
+    let hosts = HostServices::new();
+    let folders = Rc::new(DataPluginFolders::default());
+    folders.replace(["owls"].into_iter(), 1).unwrap();
+    let storage: Rc<dyn paperpaw_platform::Storage> = Rc::new(MemoryStorage::new());
+    hosts
+        .wire_files(Rc::new(
+            StorageFiles::new(storage, Rc::default(), Rc::default())
+                .with_data_plugins(folders.clone()),
+        ))
+        .unwrap();
+    let roots = Roots {
+        plugin: "sleep",
+        hosts: &hosts,
+    };
+    let resolve = |path: &str| roots.resolve(1, 1, path);
+    assert_eq!(
+        resolve("plugins/owls/owl.png").as_deref(),
+        Ok("plugins/owls/owl.png")
+    );
+    assert_eq!(
+        resolve("PLUGINS/OWLS/a.png").as_deref(),
+        Ok("PLUGINS/OWLS/a.png")
+    );
+    // A code plugin's folder, a prefix of the name and an alias are not there.
+    for gone in [
+        "plugins/weather/a.png",
+        "plugins/owl/a.png",
+        "plugins/OWLS~1/a.png",
+    ] {
+        assert_eq!(resolve(gone), Err(ERR_NOT_FOUND), "{gone}");
+    }
+    // The kernel's own folders stay refused.
+    assert_eq!(resolve(".paperpaw/cache/a.png"), Err(ERR_DENIED));
+    // A data plugin that stops running is not there any more.
+    folders.replace(core::iter::empty(), 2).unwrap();
+    assert_eq!(resolve("plugins/owls/owl.png"), Err(ERR_NOT_FOUND));
 }
 
 #[test]
@@ -353,6 +399,7 @@ fn requests_held_outside_the_table_count_against_the_plugins_room() {
         side: 0,
         cookie: 1,
         flags: 0,
+        tone: &[],
     };
     let mut bytes = [0; 256];
     let two = commands_encode(&[command, command], &mut bytes).unwrap();

@@ -31,6 +31,7 @@ fn book<T>(make: impl Fn(wire::EventBookOpened<'static>) -> T) -> T {
         page: Some(1),
         pages: Some(2),
         reason: 1,
+        chapter_left: None,
     })
 }
 
@@ -63,6 +64,7 @@ fn fixtures() -> Vec<Vec<u8>> {
                 page: Some(1),
                 pages: Some(2),
                 insert: Some(3),
+                chapter_left: None,
             }),
             Record::EventScreenShown(EventScreenShown {
                 last_input: 0,
@@ -112,6 +114,7 @@ fn fixtures() -> Vec<Vec<u8>> {
                 page: r.page,
                 pages: r.pages,
                 reason: r.reason,
+                chapter_left: None,
             })),
             Record::EventBookFinished(book(|r| EventBookFinished {
                 now_ms: r.now_ms,
@@ -125,6 +128,7 @@ fn fixtures() -> Vec<Vec<u8>> {
                 page: r.page,
                 pages: r.pages,
                 reason: r.reason,
+                chapter_left: None,
             })),
             Record::EventBookMoved(EventBookMoved {
                 now_ms: 42,
@@ -235,6 +239,7 @@ fn fixtures() -> Vec<Vec<u8>> {
                 image: 3,
                 width: 480,
                 height: 800,
+                luma: &[],
             }),
             Record::EventSocket(EventSocket {
                 now_ms: 42,
@@ -269,6 +274,11 @@ fn fixtures() -> Vec<Vec<u8>> {
             Record::EventLookupReady(EventLookupReady {
                 now_ms: 42,
                 provider: "wikipedia.lookup",
+            }),
+            Record::EventDocumentClosed(EventDocumentClosed {
+                now_ms: 42,
+                document: 3,
+                reason: 4,
             }),
             Record::EventTextTyped(EventTextTyped {
                 now_ms: 42,
@@ -323,6 +333,12 @@ fn fixtures() -> Vec<Vec<u8>> {
                 now_ms: 42,
                 cookie: 8,
                 status: 1,
+            }),
+            Record::EventDocumentChanged(EventDocumentChanged {
+                now_ms: 42,
+                document: 3,
+                state: 1,
+                progress_ppm: 250_000,
             }),
         ]
         .into_iter()

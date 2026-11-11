@@ -49,10 +49,14 @@ pub(crate) trait LibWrite {
     fn can_delete(&self, _path: &str) -> (i32, u32) {
         (ERR_UNSUPPORTED, 0)
     }
-    /// Remove a book and everything kept for it. The service has applied the
-    /// annotation rule already. A book that is gone is only forgotten.
-    fn delete(&self, _path: &str) -> (i32, u32) {
-        (ERR_UNSUPPORTED, 0)
+    /// Remove the books at `paths` (at most 7, each of them accepted by
+    /// `can_delete`: `OK`, or `ERR_NOT_FOUND`, which is only forgotten) and
+    /// everything kept for each, as one journalled job; the status of each in
+    /// order. A call that is refused as a whole (`ERR_BUSY`: a job is open)
+    /// removed nothing. The service has applied the annotation rule already
+    /// (`with_notes` says the view asked about the annotations).
+    fn delete(&self, _paths: &[&str], _with_notes: bool) -> Result<[i32; 7], i32> {
+        Err(ERR_UNSUPPORTED)
     }
     /// Move a book and everything kept for it (`replace`: an existing `to`).
     ///
@@ -114,6 +118,31 @@ pub(crate) trait LibWrite {
     fn now_ms(&self) -> u64 {
         0
     }
+    /// The receipts of `owner`'s committed transactions end: it begins a new
+    /// one, or it stopped. Default: none kept.
+    fn receipts_ended(&self, _owner: u64) {}
+    /// The change of the library waiting to be told to the plugins
+    /// (`event.library_changed`, 91): the bits raised since the last call and
+    /// the catalog generation and the one book they were about (empty: none or
+    /// several), given to `visit` (`what`, `generation`, `path`) and forgotten.
+    /// `false` when none waits, or where the host raises none. The kernel's
+    /// pump calls it between callbacks, never a plugin.
+    fn take_changed(&self, _visit: &mut dyn FnMut(u32, u32, &str)) -> bool {
+        false
+    }
+    /// Whether a view of the library read it (op 1 or 2) for the first time
+    /// since the start or the last wake, forgotten as it is told: the kernel's
+    /// pump then wants the catalog (`core.catalog-wanted`), once. `false` where
+    /// the host asks for none.
+    fn take_catalog_wanted(&self) -> bool {
+        false
+    }
+    /// The device woke: the next view to read the library wants the catalog
+    /// again (books may have been copied while it slept).
+    fn catalog_ask_again(&self) {}
+    /// The kernel's catalog changed (a walk or a catch-up ended): the plugins
+    /// read the library again (`event.library_changed`).
+    fn catalog_changed(&self) {}
     /// The open transactions; `None` where the host has none.
     fn transactions(&self) -> Option<&Transactions> {
         None

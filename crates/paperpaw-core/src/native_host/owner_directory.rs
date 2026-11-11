@@ -94,6 +94,25 @@ impl OwnerDirectory {
             .topmost_screen(owner)
     }
 
+    /// Whether an enabled plugin with the id `id` has a screen on the stack
+    /// (shown or covered). Unknown state (the table or the snapshot held or
+    /// stale) says `true`: the caller holds back; no stack attached says
+    /// `false` (no screens). No allocation.
+    pub(crate) fn plugin_has_screen(&self, id: &str) -> bool {
+        let Ok(screens) = self.screens.try_borrow() else {
+            return true;
+        };
+        let Some(screens) = screens.as_ref() else {
+            return false;
+        };
+        let Ok(rows) = self.rows.try_borrow() else {
+            return true;
+        };
+        rows.iter()
+            .filter(|row| row.id == id)
+            .any(|row| screens.has_screen(row.key).unwrap_or(true))
+    }
+
     /// Whether the work scheduler can be asked now (attached and not in use):
     /// when it cannot, a caller that needs to know that no run is current
     /// fails closed (`current_run` alone says `None` for both).
@@ -161,6 +180,15 @@ impl OwnerDirectory {
         let waiting = self.late_closes.replace([None; LATE_CLOSES]);
         for run in waiting.into_iter().flatten() {
             self.resource_closed(u64::from(run), now_ms);
+        }
+    }
+
+    /// Gives back the room the rows kept while owners were admitted one by
+    /// one (the list grows by doubling): called once the plugins are hosted.
+    /// A list in use is left as it is.
+    pub(crate) fn shrink_to_fit(&self) {
+        if let Ok(mut rows) = self.rows.try_borrow_mut() {
+            super::shrink::shrink(&mut rows);
         }
     }
 
@@ -298,6 +326,35 @@ mod tests {
     }
 
     #[test]
+    fn a_plugin_has_a_screen_while_one_of_its_rows_is_on_the_stack() {
+        use crate::native_host::stack_rows::{HOST, OVERLAY, StackRow, StackRows};
+        let row = |instance, owner, flags| StackRow {
+            instance,
+            owner,
+            flags,
+        };
+        let dir = OwnerDirectory::new();
+        dir.admit(5, "files").unwrap();
+        dir.admit(6, "home").unwrap();
+        assert!(!dir.plugin_has_screen("files"), "no stack, no screens");
+        let rows = Rc::new(StackRows::default());
+        dir.attach_screens(&rows);
+        rows.update([row(1, 6, 0)]);
+        assert!(!dir.plugin_has_screen("files") && dir.plugin_has_screen("home"));
+        // Covered by another owner's screen, or by a dialog: still up.
+        rows.update([
+            row(1, 5, 0),
+            row(2, 6, 0),
+            row(3, 5, OVERLAY),
+            row(4, 0, HOST),
+        ]);
+        assert!(dir.plugin_has_screen("files"));
+        rows.update([row(2, 6, 0), row(4, 0, HOST)]);
+        assert!(!dir.plugin_has_screen("files"), "gone from the stack");
+        assert!(!dir.plugin_has_screen("nobody"));
+    }
+
+    #[test]
     fn subscriptions_belong_to_their_owner_only() {
         let dir = OwnerDirectory::new();
         dir.admit(1, "a").unwrap();
@@ -346,5 +403,28 @@ mod tests {
         }
         dir.admit(1, "a").unwrap();
         assert_eq!(id_of(&dir, 1).as_deref(), Ok("a"));
+    }
+}
+
+#[cfg(test)]
+mod shrink_tests {
+    extern crate std;
+    use super::*;
+
+    #[test]
+    fn the_rows_give_back_what_doubling_kept() {
+        let directory = OwnerDirectory::new();
+        for key in 1..=13_u64 {
+            directory.admit(key, "plugin").unwrap();
+        }
+        let capacity = |d: &OwnerDirectory| d.rows.borrow().capacity();
+        assert!(capacity(&directory) >= 16);
+        directory.shrink_to_fit();
+        assert_eq!(capacity(&directory), 13);
+        // A list that is being read is left as it is.
+        let reading = directory.rows.borrow();
+        directory.shrink_to_fit();
+        drop(reading);
+        assert_eq!(directory.rows.borrow().len(), 13);
     }
 }

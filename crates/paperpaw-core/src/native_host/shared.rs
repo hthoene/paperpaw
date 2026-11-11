@@ -1,6 +1,8 @@
 //! Private single-threaded shared ownership with checked allocation and counts.
 //!
-//! Production values are a dispatch budget or a boxed FlatInstance; plugin
+//! Production values are a dispatch budget, a boxed FlatInstance or the one
+//! `FlatHost` all native plugins' dispatches share (`Kernel::shared_flat_host`,
+//! made with the first plugin; the kernel and each dispatch hold a handle); plugin
 //! contexts stay inside PinnedOwner, never a bare HostOwner in Shared. The
 //! instance holds no Shared back-pointer. Subscription closures hold handles
 //! outside the instance, so teardown removes subscriptions to release them.
@@ -184,6 +186,29 @@ pub(crate) fn try_box<T>(value: T) -> Option<Box<T>> {
     // initialized before its Box is made. Box uses this same global allocator.
     unsafe {
         pointer.write(value);
+        Some(Box::from_raw(pointer))
+    }
+}
+
+/// [`try_box`] for a value that is big: `make` runs only once the room is
+/// there, and its value is written straight into it (not built on this
+/// frame and copied). Nothing is built where the heap has no room.
+#[inline(always)]
+pub(crate) fn try_box_with<T>(make: impl FnOnce() -> T) -> Option<Box<T>> {
+    let layout = Layout::new::<T>();
+    let pointer = if layout.size() == 0 {
+        NonNull::<T>::dangling().as_ptr()
+    } else {
+        // SAFETY: exact layout; a null allocation is handled without writing.
+        unsafe { alloc(layout).cast::<T>() }
+    };
+    if pointer.is_null() {
+        return None;
+    }
+    // SAFETY: owned, suitably aligned storage for T (or a ZST dangling pointer),
+    // initialized before its Box is made. Box uses this same global allocator.
+    unsafe {
+        pointer.write(make());
         Some(Box::from_raw(pointer))
     }
 }

@@ -62,6 +62,7 @@ mod device;
 #[cfg(feature = "ppn5")]
 mod device_host;
 mod dual;
+mod entropy;
 mod firmware;
 #[cfg(feature = "remote")]
 mod gray_test;
@@ -87,6 +88,8 @@ mod provision;
 mod remote;
 mod roots;
 mod safe_mode;
+#[cfg(feature = "ppn5")]
+mod secrets;
 mod serve;
 #[cfg(feature = "ppn5")]
 mod serve7;
@@ -402,6 +405,8 @@ fn start() -> Firmware {
         card_swap: ready.card_swap,
         #[cfg(feature = "ppn5")]
         device: ready.device,
+        #[cfg(feature = "ppn5")]
+        secrets: secrets::Secrets::new(ready.secrets),
         #[cfg(all(feature = "static-native", feature = "esp32c3"))]
         device_table,
         state: State::default(),
@@ -455,6 +460,9 @@ struct Ready {
     /// The device behind `core.device`.
     #[cfg(feature = "ppn5")]
     device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
+    /// What the loader leaves of `core.secrets` for the main loop.
+    #[cfg(feature = "ppn5")]
+    secrets: secrets::Kept,
     staged: native::bundle::Staged,
     /// The flash, to let the web flasher's bundle go once installed.
     flash: ota::Flash,
@@ -642,6 +650,9 @@ fn prepare() -> Ready {
     // leaves none. Put it there once if no start did (`paperpaw-default-packs`);
     // after the flasher's bundle, so that its own copy is found, not doubled.
     native::seed::hyphenation(storage.as_ref());
+    // What the loader leaves of `core.secrets` for the main loop.
+    #[cfg(feature = "ppn5")]
+    let kept = secrets::Kept::default();
     let code = code_plugins(
         ota.as_ref(),
         &flash,
@@ -649,6 +660,8 @@ fn prepare() -> Ready {
         host_net,
         #[cfg(feature = "ppn5")]
         device.clone(),
+        #[cfg(feature = "ppn5")]
+        kept.clone(),
     );
     #[cfg(feature = "ppn5")]
     network.attach_device(device.clone());
@@ -683,6 +696,8 @@ fn prepare() -> Ready {
         code,
         #[cfg(feature = "ppn5")]
         device,
+        #[cfg(feature = "ppn5")]
+        secrets: kept,
         staged,
         flash,
     }
@@ -836,6 +851,7 @@ fn code_plugins(
     flash: &ota::Flash,
     #[cfg(feature = "ppn5")] host_net: alloc::rc::Rc<host_net::Bridge>,
     #[cfg(feature = "ppn5")] device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
+    #[cfg(feature = "ppn5")] secrets: secrets::Kept,
 ) -> CodePlugins {
     if ota.is_some_and(ota::Ota::on_trial) {
         info!("native: an update on trial starts without code plugins");
@@ -865,6 +881,8 @@ fn code_plugins(
         host_net,
         #[cfg(feature = "ppn5")]
         device,
+        #[cfg(feature = "ppn5")]
+        secrets::Wiring::new(flash.clone(), secrets),
     ))
 }
 

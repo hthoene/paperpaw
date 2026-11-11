@@ -10,7 +10,7 @@ use registrations::{
     ActionSpec, Record, ScreenSpec, SettingExtra, SettingGroup, SettingSpec, records_decode,
     records_encode,
 };
-use staged::{IMAGE_DECLARATIONS_MAX, IMAGE_INDEX_MAX_BYTES};
+use staged::{IMAGE_DECLARATIONS_MAX, IMAGE_INDEX_MAX_BYTES, SPECS_MAX};
 
 fn encode(records: &[Record<'_>]) -> Vec<u8> {
     let mut bytes = vec![0; registrations::REGISTRATION_MAX_BYTES];
@@ -276,7 +276,7 @@ fn image_entry_limit_accepts_512_and_refuses_the_513th() {
 }
 #[test]
 fn image_index_budget_accepts_the_last_fitting_slot_and_refuses_the_next() {
-    assert_eq!(IMAGE_INDEX_MAX_BYTES, 8192);
+    assert_eq!(IMAGE_INDEX_MAX_BYTES, 12288);
     let cost = size_of::<raw_declarations::RawBatch>() + size_of::<declaration_index::NameEntry>();
     let fitting = IMAGE_INDEX_MAX_BYTES / cost;
     let (accepted, bytes) = image_limit(fitting + 1, 1);
@@ -793,4 +793,60 @@ fn a_batch_outside_the_image_range_is_copied_and_never_read_through_the_image() 
         Err(ERR_INVALID),
         "a range cut short refuses the batch"
     );
+}
+
+/// `count` specs named `s0`, `s1`, … in batches of `per_batch`, as wire bytes.
+fn spec_batches(count: usize, per_batch: usize) -> Vec<Vec<u8>> {
+    let names: Vec<String> = (0..count).map(|n| format!("s{n}")).collect();
+    names
+        .chunks(per_batch)
+        .map(|chunk| {
+            let records: Vec<_> = chunk
+                .iter()
+                .map(|name| match spec() {
+                    Record::SettingSpec(s) => Record::SettingSpec(SettingSpec { name, ..s }),
+                    other => other,
+                })
+                .collect();
+            encode(&records)
+        })
+        .collect()
+}
+
+/// How many of `count` specs are accepted: borrowed from `image` or copied.
+fn accepted_specs(count: usize, image: bool) -> usize {
+    let batches = spec_batches(count, 8);
+    let whole: Vec<u8> = batches.concat();
+    let owner = pin!(HostOwner::new((), ()));
+    let scope = pin!(RegistrationScope::<Registration>::new());
+    let mut construction = owner.as_ref().begin::<Registration>("fixture").unwrap();
+    if image {
+        construction.set_image(&whole).unwrap();
+    }
+    let mut accepted = 0;
+    let mut start = 0;
+    for batch in &batches {
+        let bytes = &whole[start..start + batch.len()];
+        start += batch.len();
+        let status = scope
+            .as_ref()
+            .scope(&mut construction, || submit(&scope, bytes))
+            .unwrap();
+        if status != OK {
+            assert_eq!(status, ERR_NO_SPACE);
+            break;
+        }
+        accepted += 8.min(count - accepted);
+    }
+    accepted
+}
+
+#[test]
+fn a_linked_plugin_with_more_than_128_specs_is_borrowed_from_its_image_not_copied() {
+    // The widget pack declares 131 settings: past the owned-copy limit of 128
+    // (the `Factory(-3)` of a linked plugin hosted without an image), within
+    // the image limit.
+    let many = SPECS_MAX + 3;
+    assert_eq!(accepted_specs(many, true), many);
+    assert_eq!(accepted_specs(many, false), SPECS_MAX);
 }

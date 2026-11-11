@@ -34,9 +34,12 @@ use super::{
     native_instances::InstanceState,
     registrations::{self as wire},
 };
+use crate::native_host::codec;
 use alloc::{format, string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_NO_MEMORY, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{
+    ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED,
+};
 
 /// Commands kept for a later pass: four requests a plugin may have waiting
 /// and a release or two, for the few plugins that ask at once.
@@ -61,8 +64,9 @@ const TRIES_MAX: u8 = 3;
 /// the memory that was missing.
 const FAILED_MAX: usize = 8;
 
-/// The room of an `event.image_ready` record (a header and 28 bytes).
-const RECORD_BYTES: usize = 64;
+/// The room of an `event.image_ready` record (a header, 28 bytes and the
+/// 64-byte brightness grid with its length).
+const RECORD_BYTES: usize = 128;
 
 /// What the pump keeps between passes.
 #[derive(Default)]
@@ -105,6 +109,19 @@ impl ImageRoots for Roots<'_> {
         } else {
             String::new()
         };
+        if root == 1 && super::data_plugin_folders::plugin_folder_of(path).is_some() {
+            // A data plugin's folder is shown, read only (`files.md` 1.1);
+            // that of any other plugin is a file that is not there.
+            let shown = self
+                .hosts
+                .files()
+                .zip(super::data_plugin_folders::plugin_folder_of(path))
+                .is_some_and(|(files, name)| files.0.data_folder(name));
+            if !shown {
+                return Err(ERR_NOT_FOUND);
+            }
+            return join(&["", "", "", ""], path);
+        }
         let excluded = match root {
             // The host's own folder of received files.
             0 => first.eq_ignore_ascii_case(".received"),
@@ -124,15 +141,20 @@ impl ImageRoots for Roots<'_> {
         } else {
             ["", "", "", ""]
         };
-        let length = prefix.iter().map(|part| part.len()).sum::<usize>() + path.len();
-        let mut full = String::new();
-        full.try_reserve_exact(length).map_err(|_| ERR_NO_MEMORY)?;
-        for part in prefix {
-            full.push_str(part);
-        }
-        full.push_str(path);
-        Ok(full)
+        join(&prefix, path)
     }
+}
+
+/// `prefix` and `path` as one card path, with room reserved first.
+fn join(prefix: &[&str; 4], path: &str) -> Result<String, i32> {
+    let length = prefix.iter().map(|part| part.len()).sum::<usize>() + path.len();
+    let mut full = String::new();
+    full.try_reserve_exact(length).map_err(|_| ERR_NO_MEMORY)?;
+    for part in prefix {
+        full.push_str(part);
+    }
+    full.push_str(path);
+    Ok(full)
 }
 
 /// The decoder's view of the device.
@@ -147,6 +169,8 @@ fn decode_env(device: &paperpaw_platform::DeviceInfo) -> DecodeEnv {
             colour,
             max_side: super::image_service::MAX_SIDE,
             png_row_max: usize::MAX,
+            turn_band: 1 << 20,
+            turn_reads: usize::MAX,
         }
     }
 }
@@ -271,6 +295,9 @@ impl crate::Kernel {
 
     /// One pass of the picture pump (see the module). `true` when work
     /// remains for another pass.
+    // Its own frame: the pump keeps the services' passes apart, so that no
+    // frame adds their locals (the firmware's frame limit for host code).
+    #[inline(never)]
     pub(crate) fn native_image_pump(&mut self) -> bool {
         if self.shared.native_instances.depth() == 0 {
             self.native_outbox_run();
@@ -377,6 +404,7 @@ impl crate::Kernel {
                     image: 0,
                     width: 0,
                     height: 0,
+                    luma: None,
                 });
             }
             if pump.held.borrow().is_none() {
@@ -423,7 +451,7 @@ impl crate::Kernel {
             return None;
         };
         let mut record = [0u8; RECORD_BYTES];
-        let len = wire::records_encode(&[ready.record(self.now.millis())], &mut record).ok()?;
+        let len = codec::encode_batch(&[ready.record(self.now.millis())], &mut record).ok()?;
         self.native_event_call(owner, &lease, &record[..len]).err()
     }
 }

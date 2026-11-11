@@ -50,7 +50,11 @@ pub(crate) struct AddedMade {
 #[derive(Clone, Copy)]
 pub(crate) enum Maker<'a> {
     Added(&'a AddedMade),
-    Native(&'a crate::native_host::native_screen_factory::NativeMade),
+    /// With the screen's id, kept once, in the registry's titles.
+    Native(
+        &'a Id,
+        &'a crate::native_host::native_screen_factory::NativeMade,
+    ),
     Fixed(&'static paperpaw_sdk::FixedScreen),
 }
 
@@ -63,7 +67,7 @@ impl Maker<'_> {
         match self {
             Maker::Added(made) => Ok((made.factory)(env, params)),
             Maker::Fixed(fixed) => Ok(fixed.make(env, params)),
-            Maker::Native(made) => made.make(params),
+            Maker::Native(id, made) => made.make(id, params),
         }
     }
 
@@ -73,7 +77,7 @@ impl Maker<'_> {
         params: &paperpaw_sdk::Params,
     ) -> Result<Option<alloc::boxed::Box<dyn paperpaw_sdk::Screen>>, i32> {
         match self {
-            Maker::Native(made) => made.make(params).map(Some),
+            Maker::Native(id, made) => made.make(id, params).map(Some),
             _ => Ok(None),
         }
     }
@@ -88,19 +92,19 @@ impl Maker<'_> {
         match self {
             Maker::Added(made) => *screen = (made.factory)(env, params),
             Maker::Fixed(fixed) => *screen = fixed.make(env, params),
-            Maker::Native(_) => {}
+            Maker::Native(..) => {}
         }
     }
 
     pub(crate) fn is_native(self) -> bool {
-        matches!(self, Maker::Native(_))
+        matches!(self, Maker::Native(..))
     }
 
     pub(crate) fn refresh_on_open(self) -> Option<paperpaw_sdk::RefreshMode> {
         match self {
             Maker::Added(made) => made.refresh_on_open,
             Maker::Fixed(fixed) => fixed.refresh(),
-            Maker::Native(made) => made.refresh(),
+            Maker::Native(_, made) => made.refresh(),
         }
     }
 
@@ -108,7 +112,7 @@ impl Maker<'_> {
         match self {
             Maker::Added(made) => made.instances,
             Maker::Fixed(fixed) => fixed.how_many(),
-            Maker::Native(made) => made.instances,
+            Maker::Native(_, made) => made.instances,
         }
     }
 }
@@ -139,13 +143,22 @@ impl Screens {
         match self.find(id.borrow()) {
             Ok(at) => Some(match &self.made[at] {
                 Made::Added(made) => Maker::Added(made),
-                Made::Native(made) => Maker::Native(made),
+                Made::Native(made) => Maker::Native(&self.titles[at].0, made),
             }),
             Err(_) => self
                 .find_fixed(id.borrow())
                 .ok()
                 .map(|at| Maker::Fixed(self.fixed[at])),
         }
+    }
+
+    /// The id and title of every interface-7 plugin's screen.
+    pub(crate) fn native_titles(&self) -> impl Iterator<Item = &(Id, Cow<'static, str>)> {
+        self.titles
+            .iter()
+            .zip(&self.made)
+            .filter(|(_, made)| matches!(made, Made::Native(_)))
+            .map(|(title, _)| title)
     }
 
     pub(crate) fn remove_native_owner(&mut self, owner: &str) {
@@ -205,11 +218,7 @@ impl Screens {
         &mut self,
         screen: crate::native_host::native_screen_factory::NativeScreenSpec,
     ) {
-        self.insert_made(
-            screen.id,
-            Cow::Owned(screen.title),
-            Made::Native(screen.made),
-        );
+        self.insert_made(screen.id, screen.title, Made::Native(screen.made));
     }
 
     fn insert_made(&mut self, id: Id, title: Cow<'static, str>, made: Made) {
@@ -334,6 +343,9 @@ impl Subscriptions {
 pub(crate) struct Registry {
     pub(crate) native_declarations:
         Option<crate::native_host::native_declarations::DirectoryHandle>,
+    /// The stand-ins of native formats in the kernel's `Formats` (their files
+    /// are books of the library).
+    pub(crate) native_book_formats: crate::native_host::native_book_formats::NativeBookFormats,
     pub(crate) screens: Screens,
     pub(crate) slots: VecMap<Id, SlotSpec>,
     /// When screens show the row of hints, where they said.
@@ -548,15 +560,58 @@ impl paperpaw_sdk::ScreenMaker for Registry {
 /// the program ([`SettingSpec::fixed`]).
 pub(crate) enum Staged {
     Owned(alloc::boxed::Box<SettingSpec>),
-    /// Spec `.1` of the list `.0`, kept by a reference to the list.
-    Fixed(&'static [SettingSpec], usize),
+    /// Some settings of the table `.0` kept in the program, a table's worth
+    /// as one entry (not one for each of them).
+    Table(&'static [SettingSpec], Picked),
+}
+
+/// Which settings of a table a [`Staged::Table`] stands for.
+pub(crate) enum Picked {
+    /// All of them.
+    All,
+    /// The entries at these places, in the order they are defined in (the
+    /// list the plugin's admission made, kept as it is: no copy).
+    Some(Vec<u16>),
 }
 
 impl Staged {
-    pub(crate) fn spec(&self) -> &SettingSpec {
+    /// How many settings this entry stands for.
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            Staged::Owned(_) => 1,
+            Staged::Table(list, Picked::All) => list.len(),
+            Staged::Table(_, Picked::Some(entries)) => entries.len(),
+        }
+    }
+
+    /// The `n`th setting of this entry, `n < self.len()`.
+    fn get(&self, n: usize) -> &SettingSpec {
         match self {
             Staged::Owned(spec) => spec,
-            Staged::Fixed(list, at) => &list[*at],
+            Staged::Table(list, Picked::All) => &list[n],
+            Staged::Table(list, Picked::Some(entries)) => &list[usize::from(entries[n])],
+        }
+    }
+
+    /// The settings this entry stands for, in order.
+    pub(crate) fn specs(&self) -> impl Iterator<Item = &SettingSpec> {
+        (0..self.len()).map(|n| self.get(n))
+    }
+
+    /// Defines the settings this entry stands for in `settings`, which has
+    /// room and no setting of their ids (checked by the caller).
+    pub(crate) fn define_in(
+        self,
+        settings: &mut paperpaw_sdk::Settings,
+    ) -> Result<(), RegisterError> {
+        match self {
+            Staged::Owned(spec) => settings.define(*spec),
+            Staged::Table(list, Picked::All) => {
+                (0..list.len()).try_for_each(|at| settings.define_fixed(list, at))
+            }
+            Staged::Table(list, Picked::Some(entries)) => entries
+                .iter()
+                .try_for_each(|&at| settings.define_fixed(list, usize::from(at))),
         }
     }
 }
@@ -566,6 +621,8 @@ impl Staged {
 #[derive(Default)]
 pub(crate) struct Staging {
     actions: Vec<ActionSpec>,
+    /// Interface-7 plugins' actions, kept without a handler (#248).
+    native_actions: Vec<paperpaw_sdk::NativeAction>,
     screens: Vec<ScreenSpec>,
     native_screens: Vec<crate::native_host::native_screen_factory::NativeScreenSpec>,
     slots: Vec<SlotSpec>,
@@ -650,6 +707,15 @@ fn push_native<T>(target: &mut Vec<T>, value: T) -> Result<(), i32> {
 }
 
 impl Staging {
+    /// A choice a native plugin adds to another plugin's choice setting.
+    pub(crate) fn native_choice(
+        &mut self,
+        setting: Id,
+        value: alloc::string::String,
+    ) -> Result<(), i32> {
+        push_native(&mut self.choices, (setting, Cow::Owned(value)))
+    }
+
     pub(crate) fn native_screen(
         &mut self,
         owner: &Id,
@@ -671,6 +737,32 @@ impl Staging {
             return Err(paperpaw_native::host_glue::ERR_INVALID);
         }
         push_native(&mut self.native_screens, screen)
+    }
+
+    /// Stages the plugin's action `action`, without infallible growth. An id
+    /// of another plugin, or one staged already, is `ERR_INVALID`.
+    pub(crate) fn native_action(
+        &mut self,
+        owner: &Id,
+        action: paperpaw_sdk::NativeAction,
+    ) -> Result<(), i32> {
+        let id = paperpaw_sdk::Action::Native(&action).id();
+        if id.namespace() != owner.as_str()
+            || self.actions.iter().any(|other| &other.id == id)
+            || self
+                .native_actions
+                .iter()
+                .any(|other| paperpaw_sdk::Action::Native(other).id() == id)
+        {
+            return Err(paperpaw_native::host_glue::ERR_INVALID);
+        }
+        push_native(&mut self.native_actions, action)
+    }
+
+    /// How many native actions are staged: the room a publication makes in
+    /// the kernel's actions before it merges.
+    pub(crate) fn native_action_count(&self) -> usize {
+        self.native_actions.len()
     }
 
     /// Stages the offer of the plugin's screen `screen` for `slot`, without
@@ -695,14 +787,55 @@ impl Staging {
         )
     }
 
-    /// How many actions, settings and setting groups are staged: what a
-    /// native publication must make room for before it merges.
+    /// How many actions, settings made on the heap and setting groups are
+    /// staged: what a native publication must make room for before it merges
+    /// (the settings kept in the program need only a place in the indexes:
+    /// [`Self::native_fixed_count`]).
     pub(crate) fn native_counts(&self) -> (usize, usize, usize) {
         (
             self.actions.len(),
-            self.settings.len(),
+            self.settings
+                .iter()
+                .filter(|setting| matches!(setting, Staged::Owned(_)))
+                .count(),
             self.setting_groups.len(),
         )
+    }
+
+    /// How many staged settings are kept in the program.
+    pub(crate) fn native_fixed_count(&self) -> usize {
+        self.settings
+            .iter()
+            .filter(|setting| matches!(setting, Staged::Table(..)))
+            .map(Staged::len)
+            .sum()
+    }
+
+    /// Stages the entries `entries` of `list`, a table in the program whose
+    /// entries equal what the plugin declared, without a copy of them on the
+    /// heap: one entry for all of them, the list taken as it is.
+    pub(crate) fn native_fixed_entries(
+        &mut self,
+        list: &'static [SettingSpec],
+        entries: Vec<u16>,
+    ) -> Result<(), i32> {
+        if entries.iter().any(|&at| usize::from(at) >= list.len()) {
+            return Err(paperpaw_native::host_glue::ERR_INVALID);
+        }
+        push_native(
+            &mut self.settings,
+            Staged::Table(list, Picked::Some(entries)),
+        )
+    }
+
+    /// Stages the setting group `group` of the plugin `owner`, without
+    /// infallible growth.
+    pub(crate) fn native_group(
+        &mut self,
+        owner: &Id,
+        group: paperpaw_sdk::SettingGroup,
+    ) -> Result<(), i32> {
+        self.native(owner, Contribution::SettingGroup(group))
     }
 
     /// Stage already decoded native contributions without infallible growth.
@@ -746,6 +879,11 @@ impl Staging {
                 self.fixed_actions
                     .iter()
                     .flat_map(|list| list.iter().map(|a| a.id())),
+            )
+            .chain(
+                self.native_actions
+                    .iter()
+                    .map(|a| paperpaw_sdk::Action::Native(a).id()),
             )
             .find(|id| actions.contains(id.as_str()))
             .or_else(|| {
@@ -813,6 +951,9 @@ impl Staging {
         for list in self.fixed_actions.drain(..) {
             actions.insert_fixed(list);
         }
+        for action in self.native_actions.drain(..) {
+            actions.insert_native(action);
+        }
         for screen in self.screens.drain(..) {
             registry.screens.insert(screen);
         }
@@ -860,9 +1001,7 @@ pub(crate) fn stage(
             }),
             Contribution::Setting(setting) => staging.settings.push(Staged::Owned(setting)),
             Contribution::FixedSettings(list) => {
-                staging
-                    .settings
-                    .extend((0..list.len()).map(|at| Staged::Fixed(list, at)));
+                staging.settings.push(Staged::Table(list, Picked::All))
             }
             Contribution::SettingGroup(group) => staging.setting_groups.push(group),
             Contribution::SettingDefault { setting, value, .. } => {

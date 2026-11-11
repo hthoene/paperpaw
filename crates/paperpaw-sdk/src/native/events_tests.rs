@@ -41,6 +41,7 @@ fn page() -> EventPageTurned<'static> {
         chapter: "One",
         page: Some(12),
         pages: Some(300),
+        chapter_left: None,
     }
 }
 #[test]
@@ -78,6 +79,63 @@ fn page_vectors_preserve_counters_and_borrow_input_strings() {
         assert!(bytes.as_ptr_range().contains(&got.path().as_ptr()));
         assert!(bytes.as_ptr_range().contains(&got.title().as_ptr()));
         assert!(bytes.as_ptr_range().contains(&got.chapter().as_ptr()));
+    }
+}
+#[test]
+fn chapter_left_is_read_present_and_absent_and_bounded_by_the_pages_after_this_one() {
+    let mut bytes = [0; 1200];
+    // Page 12 of 300: 288 pages follow it; 0 is the chapter's last page.
+    for left in [None, Some(0), Some(1), Some(288)] {
+        let record = EventPageTurned {
+            chapter_left: left,
+            ..page()
+        };
+        let len = records_encode(&[Record::EventPageTurned(record)], &mut bytes).unwrap();
+        let Event::PageTurned(got) = decode(&bytes[..len]).unwrap() else {
+            panic!()
+        };
+        assert_eq!(got.chapter_left(), left);
+        assert_eq!((got.page(), got.pages()), (Some(12), Some(300)));
+    }
+    // On the last page nothing follows: only 0.
+    let last = EventPageTurned {
+        page: Some(300),
+        chapter_left: Some(0),
+        ..page()
+    };
+    let len = records_encode(&[Record::EventPageTurned(last)], &mut bytes).unwrap();
+    assert!(decode(&bytes[..len]).is_ok());
+    for refused in [
+        // Past the pages after this one, and past them on the last page.
+        EventPageTurned {
+            chapter_left: Some(289),
+            ..page()
+        },
+        EventPageTurned {
+            page: Some(300),
+            chapter_left: Some(1),
+            ..page()
+        },
+        // Without the page, without the page count, or without either.
+        EventPageTurned {
+            page: None,
+            chapter_left: Some(0),
+            ..page()
+        },
+        EventPageTurned {
+            pages: None,
+            chapter_left: Some(0),
+            ..page()
+        },
+        EventPageTurned {
+            page: None,
+            pages: None,
+            chapter_left: Some(0),
+            ..page()
+        },
+    ] {
+        let n = records_encode(&[Record::EventPageTurned(refused)], &mut bytes).unwrap();
+        assert_eq!(decode(&bytes[..n]), Err(Error::Invalid), "{refused:?}");
     }
 }
 #[test]
@@ -791,4 +849,106 @@ fn every_failed_reason_of_a_server_is_told_as_the_http_reasons() {
         };
         assert_eq!(got.state(), ServerState::Failed { reason });
     }
+}
+
+#[test]
+fn document_changed_reads_the_document_its_state_and_progress() {
+    use crate::native::document::{DocId, Preparation};
+    let encode = |state| {
+        let mut bytes = [0; 64];
+        let n = wire::records_encode(
+            &[wire::Record::EventDocumentChanged(
+                wire::EventDocumentChanged {
+                    now_ms: 5,
+                    document: 3,
+                    state,
+                    progress_ppm: 250_000,
+                },
+            )],
+            &mut bytes,
+        )
+        .unwrap();
+        (bytes, n)
+    };
+    for (state, preparation) in [
+        (0, Preparation::Ready),
+        (1, Preparation::Preparing),
+        (2, Preparation::Failed),
+        // A state this SDK does not know reads as failed, as `DocState` does.
+        (9, Preparation::Failed),
+    ] {
+        let (bytes, n) = encode(state);
+        assert_eq!(
+            Event::decode(&bytes[..n]),
+            Ok(Event::DocumentChanged {
+                now_ms: 5,
+                document: DocId::from_wire(3),
+                state: preparation,
+                progress_ppm: 250_000,
+            })
+        );
+        let decoded = Incoming::new(&bytes[..n])
+            .unwrap()
+            .decode_as::<kinds::DocumentChanged>();
+        assert!(
+            matches!(decoded, Ok(Some(Event::DocumentChanged { .. }))),
+            "{decoded:?}"
+        );
+    }
+    // Every truncation and a byte too many are refused, never a panic.
+    let (bytes, n) = encode(1);
+    for end in 0..n {
+        assert!(Event::decode(&bytes[..end]).is_err(), "{end}");
+    }
+    let mut longer = bytes[..n].to_vec();
+    longer.push(0);
+    assert!(Event::decode(&longer).is_err());
+}
+
+/// `event.document_closed` alone in its batch, as the host delivers it: read whole
+/// and by its kind, both give `expected`.
+fn check_document_closed(document: u32, reason: u32, expected: Result<Event<'static>, Error>) {
+    let mut bytes = [0; 64];
+    let n = wire::records_encode(
+        &[wire::Record::EventDocumentClosed(
+            wire::EventDocumentClosed {
+                now_ms: 9,
+                document,
+                reason,
+            },
+        )],
+        &mut bytes,
+    )
+    .unwrap();
+    assert_eq!(Event::decode(&bytes[..n]), expected);
+    let incoming = Incoming::new(&bytes[..n]).unwrap();
+    assert_eq!(
+        incoming.decode_as::<kinds::DocumentClosed>(),
+        expected.map(Some)
+    );
+    assert_eq!(incoming.decode_as::<kinds::LookupReady>(), Ok(None));
+}
+
+#[test]
+fn document_closed_names_the_document_and_why() {
+    use crate::native::document::{DocClosedReason as Why, DocId};
+    for (wire_reason, reason) in [
+        (1, Why::FormatStopped),
+        (2, Why::CardRemoved),
+        (3, Why::BookGone),
+        (4, Why::Needed),
+        // Reasons the SDK does not know count as 1 (`document.md` 2.1).
+        (0, Why::FormatStopped),
+        (5, Why::FormatStopped),
+        (u32::MAX, Why::FormatStopped),
+    ] {
+        let expected = Event::DocumentClosed {
+            now_ms: 9,
+            document: DocId::named(7).unwrap(),
+            reason,
+        };
+        check_document_closed(7, wire_reason, Ok(expected));
+    }
+    // 0 is never a document id: refused, not a closed document.
+    check_document_closed(0, 1, Err(Error::Invalid));
 }

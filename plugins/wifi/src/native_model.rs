@@ -28,6 +28,29 @@ pub enum PageRow {
     WhileCharging,
 }
 
+/// A vector with room for exactly `count` items (`push` would take room for
+/// four at the first one).
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn room<T>(count: usize) -> Result<Vec<T>, Error> {
+    let mut items = Vec::new();
+    items
+        .try_reserve_exact(count)
+        .map_err(|_| Error::NoMemory)?;
+    Ok(items)
+}
+
+/// A vector of the one `item`, with room for exactly it.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn one<T>(item: T) -> Result<Vec<T>, Error> {
+    let mut items = room(1)?;
+    items.push(item);
+    Ok(items)
+}
+
 /// The rows of the Wi-Fi page: where no network is kept the setup with a
 /// phone comes first, below the radio; else the networks (while the radio
 /// is on) and then the setup.
@@ -35,8 +58,8 @@ pub enum PageRow {
 /// # Errors
 /// [`Error::NoMemory`].
 pub fn page_rows(kept: bool, radio_on: bool) -> Result<Vec<PageRow>, Error> {
-    let mut rows = Vec::new();
-    rows.try_reserve_exact(6).map_err(|_| Error::NoMemory)?;
+    // The radio, the phone, the three settings, and the networks while on.
+    let mut rows = room(5 + usize::from(radio_on))?;
     rows.push(PageRow::Radio);
     if !kept {
         rows.push(PageRow::Phone);
@@ -124,16 +147,17 @@ pub enum Link {
 /// # Errors
 /// [`Error::NoMemory`].
 pub fn note_keys(link: Link, saved: bool, network: &Network) -> Result<Vec<&'static str>, Error> {
-    let mut keys = Vec::new();
+    // At most three keys: the room is exact.
+    let mut keys = room(3)?;
     match link {
-        Link::Connected => push(&mut keys, "wifi.network.connected")?,
-        Link::Connecting => push(&mut keys, "wifi.network.connecting")?,
-        Link::Apart if saved => push(&mut keys, "wifi.network.saved")?,
+        Link::Connected => keys.push("wifi.network.connected"),
+        Link::Connecting => keys.push("wifi.network.connecting"),
+        Link::Apart if saved => keys.push("wifi.network.saved"),
         Link::Apart => {}
     }
-    push(&mut keys, signal_key(network.signal))?;
+    keys.push(signal_key(network.signal));
     if !network.secured {
-        push(&mut keys, "wifi.network.open")?;
+        keys.push("wifi.network.open");
     }
     Ok(keys)
 }
@@ -230,6 +254,17 @@ mod tests {
             page_rows(true, false).unwrap(),
             [Radio, Phone, OnDemand, IdleOff, WhileCharging]
         );
+    }
+
+    #[test]
+    fn rooms_are_exact() {
+        assert_eq!(one(7u8).unwrap().capacity(), 1);
+        assert_eq!(room::<u8>(0).unwrap().capacity(), 0);
+        assert_eq!(page_rows(true, true).unwrap().capacity(), 6);
+        assert_eq!(page_rows(true, false).unwrap().capacity(), 5);
+        let keys = note_keys(Link::Apart, false, &net("a", -50, true)).unwrap();
+        assert_eq!(keys.len(), 1);
+        assert!(keys.capacity() <= 3);
     }
 
     #[test]

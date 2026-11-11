@@ -39,6 +39,7 @@ use super::{
     ui_service::UiServices,
 };
 use crate::abi7::context::Frame;
+use crate::native_host::codec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{
@@ -219,7 +220,7 @@ impl UiServices {
             now_ms,
             instance: notice.instance,
         });
-        let len = wire::records_encode(&[record], out)?;
+        let len = codec::encode_batch(&[record], out)?;
         Ok(Some((notice, len)))
     }
 
@@ -293,14 +294,19 @@ impl UiServices {
             .next_screen(after))
     }
 
-    /// A callback of `plugin` returned: its status handles end with it.
+    /// A callback of `plugin` returned: its status handles end with it, and the
+    /// hand-overs it made that no `open` claimed are freed (`ui.md` 1.1: one
+    /// valid in the callback that made it only). A store in use leaves them to
+    /// the plugin's stop.
     pub(crate) fn callback_ended(&self, plugin: u64, callback: u64) -> Result<(), i32> {
+        let made = super::ui_store::Stamp::new(plugin, callback)
+            .and_then(|stamp| self.store.end_callback(stamp));
         self.widgets
             .handles
             .try_borrow_mut()
             .map_err(|_| ERR_BUSY)?
             .end_callback(plugin, callback);
-        Ok(())
+        made
     }
 
     /// A callback of `plugin` returned a failure: the questions it asked in it
@@ -420,7 +426,7 @@ fn base_of(widget: &str) -> Result<&str, i32> {
 }
 
 fn instance_reply(instance: u32, flags: u32, out: &mut [u8]) -> Result<usize, i32> {
-    wire::record_encode_one(
+    codec::encode_one(
         &Record::ServiceUiInstance(wire::ServiceUiInstance { instance, flags }),
         out,
     )
@@ -434,9 +440,7 @@ pub(super) fn widget_make(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let Record::ServiceUiWidgetRef(reference) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let reference: wire::ServiceUiWidgetRef<'_> = codec::single(input)?;
     let base = base_of(reference.widget)?;
     // Depth 1 only (ui.md, PR #419): a child holds no widgets.
     frame.callback_epoch()?;
@@ -479,9 +483,7 @@ pub(super) fn widget_make(
 
 /// Op 5: drops an instance, for its maker only.
 pub(super) fn widget_drop(ui: &UiServices, who: &Caller<'_>, input: &[u8]) -> Result<(), i32> {
-    let Record::ServiceUiInstance(instance) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let instance: wire::ServiceUiInstance = codec::single(input)?;
     if instance.flags != 0 {
         return Err(ERR_INVALID);
     }
@@ -691,9 +693,7 @@ pub(super) fn status_values(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let Record::ServiceUiStatusAsk(ask) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let ask: wire::ServiceUiStatusAsk<'_> = codec::single(input)?;
     let epoch = nested_gate(frame)?;
     below_guard_gate(frame, who)?;
     let (items, count) = split_items(ask.items)?;
@@ -735,7 +735,7 @@ pub(super) fn status_values(
     }
     let mut used = 0;
     for (item, row) in items.iter().zip(&rows) {
-        used += wire::record_encode_one(
+        used += codec::encode_one(
             &Record::ServiceUiStatusValue(wire::ServiceUiStatusValue {
                 item,
                 flags: row.flags,
@@ -752,7 +752,7 @@ pub(super) fn status_values(
         next: 0,
         cursor: None,
     };
-    used += wire::record_encode_one(
+    used += codec::encode_one(
         &Record::ServiceEnd(end),
         out.get_mut(used..).ok_or(ERR_INVALID)?,
     )?;
@@ -767,9 +767,7 @@ pub(super) fn status_line(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let Record::ServiceUiStatusAsk(ask) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let ask: wire::ServiceUiStatusAsk<'_> = codec::single(input)?;
     let epoch = nested_gate(frame)?;
     below_guard_gate(frame, who)?;
     if ask.items.is_empty() || ask.items.len() > ITEM_BYTES || ask.items.contains('\n') {

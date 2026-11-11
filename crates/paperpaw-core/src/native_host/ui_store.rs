@@ -171,7 +171,7 @@ pub(crate) struct Info {
 fn params_in(block: &[u8], mut ok: impl FnMut(&str, &str) -> bool) -> bool {
     let mut rest = block;
     while !rest.is_empty() {
-        let Ok((Record::ServiceUiParam(param), used)) = wire::record_decode_prefix(rest) else {
+        let Ok((param, used)) = codec::prefix::<wire::ServiceUiParam<'_>>(rest) else {
             return false;
         };
         if !ok(param.key, param.value) {
@@ -186,9 +186,7 @@ fn params_in(block: &[u8], mut ok: impl FnMut(&str, &str) -> bool) -> bool {
 fn value_of<'a>(block: &'a [u8], key: &str) -> Option<&'a str> {
     let mut rest = block;
     while !rest.is_empty() {
-        let (Record::ServiceUiParam(param), used) = wire::record_decode_prefix(rest).ok()? else {
-            return None;
-        };
+        let (param, used) = codec::prefix::<wire::ServiceUiParam<'_>>(rest).ok()?;
         if param.key == key {
             return Some(param.value);
         }
@@ -225,6 +223,31 @@ impl Wiped {
         Ok(Self(data))
     }
 }
+
+/// The owner of what the host made itself (no plugin has this key).
+const HOST_OWNER: u64 = u64::MAX;
+/// Whether `owner` is the host's own key (no plugin's).
+pub(crate) const fn is_host_owner(owner: u64) -> bool {
+    owner == HOST_OWNER
+}
+
+/// `Entry::passed_on` of a hand-over that passes no file on (an owner key is
+/// a counter that never gets here). Not the host's key: a hand-over the host
+/// made has [`HOST_OWNER`] as its maker, and the two must never be confused.
+const NO_MAKER: u64 = u64::MAX - 1;
+const _: () = assert!(NO_MAKER != HOST_OWNER);
+/// The document table's own owner of the host's job is neither.
+const _: () =
+    assert!(super::doc_service::HOST_JOB != HOST_OWNER && super::doc_service::HOST_JOB != NO_MAKER);
+/// Hand-overs beyond the limit the host may make for its dialogs, so that a
+/// plugin that fills the table (`Limits::handovers`) cannot make every text
+/// question fail.
+const HOST_ROOM: usize = 2;
+/// The bytes of params the host may make for them beyond the limit of the
+/// plugins' ([`HOST_ROOM`] of the two params `core.request` and `core.kind`,
+/// framed, are under 100 each), so that a plugin that fills the pool
+/// (`Limits::params_bytes`) cannot make every text question fail either.
+const HOST_BYTES: usize = HOST_ROOM * 128;
 
 enum State {
     Made {
@@ -263,6 +286,10 @@ const DESCRIPTOR: usize = core::mem::size_of::<Wiped>();
 pub(super) struct Entry {
     pub(super) id: u32,
     state: State,
+    /// The maker of the handed file this hand-over passes on (see
+    /// [`UiStore::handover_passing_on`]); [`NO_MAKER`] for a hand-over of the
+    /// maker's own.
+    passed_on: u64,
     /// The params as `ui_param` records, framed.
     params: Wiped,
     count: u32,
@@ -280,6 +307,8 @@ pub(super) struct Inner {
     pub(super) question_memory: usize,
     /// Answers of a host dialog the store did not take, not yet logged.
     pub(super) refused: u32,
+    /// The clipboard (`core.ui` ops 18 and 19).
+    pub(super) clipboard: super::ui_clipboard::ClipboardState,
 }
 
 /// The store.
@@ -436,6 +465,7 @@ impl UiStore {
                 secret_memory: 0,
                 question_memory: 0,
                 refused: 0,
+                clipboard: super::ui_clipboard::ClipboardState::default(),
             }),
         }
     }
@@ -465,6 +495,32 @@ impl UiStore {
     /// that is not allowed, `ERR_NO_SPACE` over the byte cap, `ERR_FULL` when
     /// the device's params are full, `ERR_NO_MEMORY`.
     pub(crate) fn handover_make(&self, who: Stamp, params: &[Param<'_>]) -> Result<u32, i32> {
+        self.handover_of(who, params, NO_MAKER)
+    }
+
+    /// Op 16 for a reader instance that holds a handed file and hands it on
+    /// (to its table-of-contents screen): the host has checked that `params`
+    /// name that file (`root` `5`, the same `path`) and rewrites `root` to the
+    /// file's own, so the new hand-over names the same file of `maker`, the
+    /// plugin that handed it first, and the instance it opens reads the file
+    /// as root 5 too ([`Self::handed_file`]). No plugin can make one: only
+    /// the service calls this, after the check.
+    pub(crate) fn handover_passing_on(
+        &self,
+        who: Stamp,
+        params: &[Param<'_>],
+        maker: u64,
+    ) -> Result<u32, i32> {
+        // A file the host made a hand-over for is nobody's to pass on: a
+        // hand-over naming the host as its maker would resolve against the
+        // passing plugin's own folder.
+        if maker == HOST_OWNER || maker == NO_MAKER {
+            return Err(ERR_DENIED);
+        }
+        self.handover_of(who, params, maker)
+    }
+
+    fn handover_of(&self, who: Stamp, params: &[Param<'_>], passed_on: u64) -> Result<u32, i32> {
         if params.len() > PARAMS_MAX {
             return Err(ERR_NO_SPACE);
         }
@@ -481,17 +537,179 @@ impl UiStore {
         if content > PARAM_BYTES_MAX {
             return Err(ERR_NO_SPACE);
         }
+        self.insert(
+            params.iter().copied(),
+            State::Made {
+                owner: who.owner,
+                epoch: who.epoch,
+            },
+            (0, 0),
+            passed_on,
+        )
+    }
+
+    /// The hand-over of the host's own for the dialog of `request` of `kind`
+    /// (both ASCII decimal): the params `core.request` and `core.kind`
+    /// (`docs/abi/ui.md` 3.2), which op 16 refuses a plugin. No plugin made
+    /// it: it is made **claimed**, so that the stack's `attach` gives it to
+    /// the dialog's instance as it gives one a plugin's `open` names, and
+    /// [`Self::release`] frees it where the screen opens without it.
+    ///
+    /// # Errors
+    /// As [`Self::handover_make`].
+    pub(crate) fn handover_dialog(&self, request: &str, kind: &str) -> Result<u32, i32> {
+        self.insert(
+            [
+                Param {
+                    key: "core.request",
+                    value: request,
+                },
+                Param {
+                    key: "core.kind",
+                    value: kind,
+                },
+            ]
+            .into_iter(),
+            // `batch` is a number no `claim` makes (they count up from 0), so
+            // that no plugin's rollback frees it.
+            State::Claimed {
+                owner: HOST_OWNER,
+                batch: u64::MAX,
+            },
+            (HOST_ROOM, HOST_BYTES),
+            NO_MAKER,
+        )
+    }
+
+    /// The hand-over of the host's own for a native screen opened without
+    /// one: by `Kernel::open` with interface-6 `Params` (a shell's script or
+    /// request, an interface-6 plugin, the kernel), never for a native
+    /// plugin's `command.open` (that one names its own, or none). Its params
+    /// are those of `params` a plugin's op 16 could name (other keys, and a key
+    /// again, are left out), under op 16's caps; `text` (interface 6
+    /// `params::TEXT`) is also its text (op 10), and stays a param only where
+    /// it fits those caps. Made **claimed** by the host as
+    /// [`Self::handover_dialog`]'s, so the stack's `attach` gives it to the
+    /// instance (freed when it closes) and [`Self::release`] frees it where it
+    /// does not open; but under the plugins' limits, never in the room kept
+    /// for the host's dialogs.
+    ///
+    /// # Errors
+    /// `ERR_NO_SPACE` when the params beyond `text` exceed op 16's caps;
+    /// `ERR_FULL` when the plugins' table or params are full; `ERR_NO_MEMORY`.
+    /// Nothing is kept then. A text the device cannot keep (longer than a
+    /// hand-over's, or past the texts' memory: on the X4 about 2 KiB) is left
+    /// out, the params kept.
+    pub(crate) fn handover_params(&self, params: &[Param<'_>]) -> Result<u32, i32> {
+        // Interface 6 names the long text so; it is also the hand-over's text.
+        const TEXT: &str = "text";
+        if params.len() > 2 * PARAMS_MAX {
+            return Err(ERR_NO_SPACE);
+        }
+        let named = |at: usize, param: &Param<'_>| {
+            key_fine(param.key)
+                && !param.key.starts_with("core.")
+                && !params[..at].iter().any(|before| before.key == param.key)
+        };
+        let others = params
+            .iter()
+            .enumerate()
+            .filter(move |(at, param)| param.key != TEXT && named(*at, param))
+            .map(|(_, param)| *param);
+        let (count, content) = others
+            .clone()
+            .fold((0_usize, 0_usize), |(count, bytes), param| {
+                (count + 1, bytes + param.key.len() + param.value.len())
+            });
+        if count > PARAMS_MAX || content > PARAM_BYTES_MAX {
+            return Err(ERR_NO_SPACE);
+        }
+        let text = params
+            .iter()
+            .find(|param| param.key == TEXT)
+            .map_or("", |param| param.value);
+        let as_param = !text.is_empty()
+            && count < PARAMS_MAX
+            && content + TEXT.len() + text.len() <= PARAM_BYTES_MAX;
+        let text_param = as_param.then_some(Param {
+            key: TEXT,
+            value: text,
+        });
+        let id = self.insert(
+            others.chain(text_param),
+            State::Claimed {
+                owner: HOST_OWNER,
+                batch: u64::MAX,
+            },
+            // Under the plugins' limits: the room kept beyond them is the
+            // host's dialogs' alone, so that they never fail (#1137 R1).
+            (0, 0),
+            NO_MAKER,
+        )?;
+        // A text the device has no room for (the X4 keeps 2 KiB of texts) is
+        // left out; the params are kept.
+        if !text.is_empty() && text.len() <= TEXT_MAX {
+            self.host_text(id, text.as_bytes());
+        }
+        Ok(id)
+    }
+
+    /// The host's own text of its hand-over `id`, in parts as op 9 writes
+    /// them, committed, in one borrow; where a part is refused the text is
+    /// left out whole (its memory given back) and `false` comes back.
+    fn host_text(&self, id: u32, text: &[u8]) -> bool {
+        let Ok(mut inner) = self.inner() else {
+            return false;
+        };
+        let Some(at) = Self::position(&inner, id) else {
+            return false;
+        };
+        let rules = WriteRules {
+            slots_free: Self::text_slots(&inner) < self.limits.texts,
+            memory_cap: self.limits.text_memory,
+            text_cap: TEXT_MAX,
+        };
+        let Inner {
+            entries,
+            text_memory,
+            ..
+        } = &mut *inner;
+        let kept = &mut entries[at].text;
+        let mut offset = 0;
+        for part in text.chunks(PART_MAX) {
+            let last = offset + part.len() == text.len();
+            if write_part(kept, text_memory, &rules, offset, part, last).is_err() {
+                *text_memory -= kept.charged.min(*text_memory);
+                *kept = Text::default();
+                return false;
+            }
+            offset += part.len();
+        }
+        true
+    }
+
+    /// Keeps a hand-over of `params` (checked) in `state`, `room` (hand-overs,
+    /// bytes) beyond the limits allowed.
+    fn insert<'p>(
+        &self,
+        params: impl Iterator<Item = Param<'p>> + Clone,
+        state: State,
+        room: (usize, usize),
+        passed_on: u64,
+    ) -> Result<u32, i32> {
         // Encode once into a block of exactly the size.
         let mut framed = 0_usize;
-        for param in params {
+        let mut count = 0_u32;
+        for param in params.clone() {
+            count += 1;
             framed += codec::framed_len(&Record::ServiceUiParam(wire::ServiceUiParam {
                 key: param.key,
                 value: param.value,
             }))?;
         }
         let mut inner = self.inner()?;
-        if inner.params_bytes + framed > self.limits.params_bytes
-            || inner.entries.len() >= self.limits.handovers
+        if inner.params_bytes + framed > self.limits.params_bytes + room.1
+            || inner.entries.len() >= self.limits.handovers + room.0
         {
             return Err(ERR_FULL);
         }
@@ -507,17 +725,19 @@ impl UiStore {
             });
             used += codec::encode_one(&record, &mut block.0[used..])?;
         }
-        inner.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        // Exactly one more: the usual growth would take room for four.
+        inner
+            .entries
+            .try_reserve_exact(1)
+            .map_err(|_| ERR_NO_MEMORY)?;
         let id = self.alloc_id()?;
         inner.params_bytes += framed;
         inner.entries.push(Entry {
             id,
-            state: State::Made {
-                owner: who.owner,
-                epoch: who.epoch,
-            },
+            state,
+            passed_on,
             params: block,
-            count: u32::try_from(params.len()).map_err(|_| ERR_INVALID)?,
+            count,
             text: Text::default(),
         });
         Ok(id)
@@ -781,6 +1001,10 @@ impl UiStore {
 
     fn free(inner: &mut Inner, at: usize) {
         let entry = inner.entries.remove(at);
+        if inner.entries.is_empty() {
+            // Hold nothing while no hand-over is kept.
+            inner.entries = Vec::new();
+        }
         inner.params_bytes -= entry.params.0.len();
         inner.text_memory -= entry.text.charged.min(inner.text_memory);
     }
@@ -850,10 +1074,16 @@ impl UiStore {
         let State::Owned { maker, .. } = entry.state else {
             return Err(ERR_DENIED);
         };
+        // A hand-over that passes a handed file on names the first maker's.
+        let maker = if entry.passed_on == NO_MAKER {
+            maker
+        } else {
+            entry.passed_on
+        };
         let (mut root, mut path) = (None, None);
         let mut rest = &entry.params.0[..];
         while !rest.is_empty() {
-            let Ok((Record::ServiceUiParam(param), used)) = wire::record_decode_prefix(rest) else {
+            let Ok((param, used)) = codec::prefix::<wire::ServiceUiParam<'_>>(rest) else {
                 return Err(ERR_DENIED);
             };
             let slot = match param.key {

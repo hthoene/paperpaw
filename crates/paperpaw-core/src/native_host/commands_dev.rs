@@ -16,8 +16,9 @@ use super::{CommandBatch, CommandStage, WireCommand, ui};
 #[path = "commands_dev_firmware.rs"]
 mod firmware;
 use crate::native_host::{admitted_features::AdmittedFeatures, radio_requests::*};
-use alloc::{rc::Rc, string::String, vec::Vec};
+use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
 use core::{cell::RefCell, fmt, time::Duration};
+pub use firmware::FEATURE_INSTALL;
 pub(crate) use firmware::{FirmwareContext, FirmwareOp, FwRelease};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED,
@@ -228,6 +229,13 @@ impl Drop for Release {
     }
 }
 
+impl DevBatch {
+    /// Whether it holds no command to apply.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+}
+
 /// What [`CommandStage::into_dev_output`] returns.
 #[cfg(test)]
 pub(crate) type DevBatchOutput = (Vec<Command>, Option<ui::Redraw>, u8, DevBatch);
@@ -276,13 +284,16 @@ impl<'a> DevContext<'a> {
 /// The stage's DEV state. Dropping it with items still reserved gives their
 /// table entries back.
 pub(super) struct DevStage<'a> {
-    owner: &'a Id,
     ctx: DevContext<'a>,
     items: Vec<DevItem>,
     /// The token its table entries carry; 0 until it reserves the first.
     token: u32,
     /// The firmware requests this stage accepted (given back when it drops).
     fw: Option<FwRelease>,
+    /// The box its batch will wait in for the kernel, made with the first
+    /// DEV command: that command answers `ERR_NO_MEMORY` where it cannot be,
+    /// and a batch answered `OK` needs nothing more to be kept.
+    boxed: Option<Box<DevBatch>>,
 }
 
 impl DevStage<'_> {
@@ -335,40 +346,78 @@ impl<'a> CommandStage<'a> {
     /// submitting instance's features and the kernel's table). The stage
     /// gives back its own reservations when dropped; it never touches those
     /// of another stage.
+    #[cfg(test)]
     pub(crate) fn with_dev(mut self, ctx: DevContext<'a>) -> Self {
+        self.admit_dev(ctx);
+        self
+    }
+
+    /// As [`Self::with_dev`], on a stage already lent (the instance's
+    /// features are known only inside its callback scope). While no guard
+    /// was named, the guard is read from the stage's own stack.
+    pub(crate) fn admit_dev(&mut self, mut ctx: DevContext<'a>) {
+        if ctx.guard_owner.is_none()
+            && let Some(ui) = &self.ui
+        {
+            ctx = ctx.guarded_by(ui.env().stack());
+        }
         self.dev = Some(DevStage {
-            owner: self.owner,
             ctx,
             items: Vec::new(),
             token: 0,
             fw: None,
+            boxed: None,
         });
-        self
     }
 
     /// Like `into_ui_output`, with the DEV commands to apply in order. The
     /// reservations pass to the returned batch, which gives back the ones it
     /// never applied when dropped.
+    #[cfg(test)]
     pub(crate) fn into_dev_output(mut self) -> (Vec<Command>, Option<ui::Redraw>, u8, DevBatch) {
-        let fw = self.dev.as_mut().and_then(|dev| dev.fw.take());
-        let (items, release) = match self.dev.as_mut() {
-            Some(dev) => (
-                core::mem::take(&mut dev.items),
-                // The token moves to the batch; the stage must not give back
-                // what the batch now owns.
-                Some(Release {
-                    table: Rc::clone(&dev.ctx.requests),
-                    token: core::mem::take(&mut dev.token),
-                }),
-            ),
-            None => (Vec::new(), None),
-        };
+        let batch = self.take_dev();
         let (commands, redraw, hop) = self.into_ui_output();
-        (commands, redraw, hop, DevBatch { items, release, fw })
+        (commands, redraw, hop, batch)
+    }
+
+    /// [`Self::take_dev`] for a batch that waits for the kernel: in the box
+    /// made with its first command (nothing is allocated here), and only when
+    /// it holds a command, so that a waiting batch without one costs a
+    /// pointer.
+    pub(crate) fn take_dev_boxed(&mut self) -> Option<Box<DevBatch>> {
+        let boxed = self.dev.as_mut().and_then(|dev| dev.boxed.take());
+        let batch = self.take_dev();
+        if batch.is_empty() {
+            return None;
+        }
+        // A kept command was staged after `dev_reserve` made the box.
+        let mut boxed = boxed?;
+        *boxed = batch;
+        Some(boxed)
+    }
+
+    /// The DEV commands to apply in order (call it before the stage is
+    /// turned into its output). The reservations pass to the batch, which
+    /// gives back the ones it never applied when dropped.
+    pub(crate) fn take_dev(&mut self) -> DevBatch {
+        let Some(dev) = self.dev.as_mut() else {
+            return DevBatch::default();
+        };
+        DevBatch {
+            items: core::mem::take(&mut dev.items),
+            // The token moves to the batch; the stage must not give back
+            // what the batch now owns.
+            release: Some(Release {
+                table: Rc::clone(&dev.ctx.requests),
+                token: core::mem::take(&mut dev.token),
+            }),
+            fw: dev.fw.take(),
+        }
     }
 
     /// Check the DEV commands of a batch without keeping anything; the bytes
     /// they will copy.
+    #[inline(never)]
     pub(super) fn validate_dev(&self, batch: &CommandBatch<'_>) -> Result<usize, i32> {
         let Some(dev) = &self.dev else {
             return if batch.iter().any(|command| is_dev(&command)) {
@@ -493,21 +542,29 @@ impl<'a> CommandStage<'a> {
     }
 
     /// Room for this batch's DEV items, before any is pushed.
+    #[inline(never)]
     pub(super) fn dev_reserve(&mut self, batch: &CommandBatch<'_>) -> Result<(), i32> {
         let count = batch.iter().filter(|command| is_dev(command)).count();
         match &mut self.dev {
-            Some(dev) => dev.items.try_reserve(count).map_err(|_| ERR_NO_MEMORY),
-            None => Ok(()),
+            Some(dev) if count > 0 => {
+                if dev.boxed.is_none() {
+                    let made = crate::native_host::shared::try_box(DevBatch::default());
+                    dev.boxed = Some(made.ok_or(ERR_NO_MEMORY)?);
+                }
+                dev.items.try_reserve(count).map_err(|_| ERR_NO_MEMORY)
+            }
+            _ => Ok(()),
         }
     }
 
     /// Keep one validated DEV command after the ordinary ones before it.
-    pub(super) fn dev_push(&mut self, command: WireCommand<'_>) -> Result<(), i32> {
+    #[inline(never)]
+    pub(super) fn dev_push(&mut self, command: &WireCommand<'_>) -> Result<(), i32> {
         let at = self.staged.len();
-        if firmware::is_evidence(&command) {
-            return self.firmware_evidence(&command);
+        if firmware::is_evidence(command) {
+            return self.firmware_evidence(command);
         }
-        let op = match command {
+        let op = match *command {
             WireCommand::WifiOn { .. } => DevOp::WifiOn,
             WireCommand::WifiOff { .. } => DevOp::WifiOff,
             WireCommand::WifiScan { .. } => DevOp::WifiScan,
@@ -532,7 +589,7 @@ impl<'a> CommandStage<'a> {
                 ssid,
                 password,
             } => join_op(request, true, ssid, password.expose())?,
-            _ => self.firmware_op(&command)?,
+            _ => self.firmware_op(command)?,
         };
         let dev = self.dev.as_mut().ok_or(ERR_UNSUPPORTED)?;
         // Capacity was reserved by `dev_reserve`; this cannot reallocate.
@@ -663,27 +720,39 @@ impl crate::Kernel {
     /// is applied after every command before it in its batch; the shell acts
     /// on the kernel's sleep, power-off and restart flags once the frame is
     /// shown (`Effects`).
+    #[cfg(test)]
     pub(crate) fn drain_native_dev(
         &mut self,
         owner: &Id,
         commands: Vec<Command>,
         redraw: Option<ui::Redraw>,
-        mut batch: DevBatch,
+        batch: DevBatch,
+        host: &DevHost<'_>,
+    ) {
+        let opens = super::Opens::default();
+        self.drain_native_batch(owner, (commands, redraw, opens), batch, host);
+    }
+
+    /// Applies the DEV items of `batch` whose place is at or before the
+    /// ordinary command `index` (`None`: all that are left).
+    pub(crate) fn apply_dev_until(
+        &mut self,
+        owner: &Id,
+        batch: &mut DevBatch,
+        index: Option<usize>,
         host: &DevHost<'_>,
     ) {
         let token = batch.release.as_ref().map_or(0, |release| release.token);
+        let due = batch
+            .items
+            .iter()
+            .take_while(|item| index.is_none_or(|index| item.at <= index))
+            .count();
         let mut fw = batch.fw.take();
-        let mut items = core::mem::take(&mut batch.items).into_iter().peekable();
-        for (index, command) in commands.into_iter().enumerate() {
-            while let Some(item) = items.next_if(|item| item.at <= index) {
-                self.apply_dev(owner, item.op, host, token, &mut fw);
-            }
-            self.drain_native_command(owner, command);
-        }
-        for item in items {
+        for item in batch.items.drain(..due) {
             self.apply_dev(owner, item.op, host, token, &mut fw);
         }
-        self.finish_native_redraw(owner, redraw);
+        batch.fw = fw;
     }
 
     fn apply_dev(
@@ -702,6 +771,10 @@ impl crate::Kernel {
             DevOp::NetworkNone => self.apply(Command::NoNetwork),
             DevOp::GoOnline { for_ms } => self.apply_go_online(for_ms, host),
             DevOp::Sleep => self.apply(Command::Sleep),
+            // A guard that came up since the submit holds them too.
+            DevOp::PowerOff | DevOp::Restart if self.guarded_against(owner) => {
+                self.warn_runtime("native power-off or restart dropped: another plugin guards");
+            }
             DevOp::PowerOff => self.apply(Command::PowerOff),
             DevOp::Restart => self.apply(Command::Restart),
             DevOp::Wear { mode, automatic } => {
@@ -715,6 +788,13 @@ impl crate::Kernel {
             DevOp::Join(join) => self.apply_join(owner, join, host, token),
             DevOp::Firmware(op) => Self::apply_firmware(op, fw),
         }
+    }
+
+    /// Whether a screen of another plugin than `owner` guards the device now.
+    fn guarded_against(&self, owner: &Id) -> bool {
+        self.guard()
+            .and_then(|guard| self.stack.get(guard))
+            .is_some_and(|guard| guard.id.namespace() != owner.as_str())
     }
 
     fn radio_stops(&mut self, command: WifiCommand) {
@@ -740,12 +820,17 @@ impl crate::Kernel {
         self.shared.reader = reader;
     }
 
+    /// The plugin the user chose as network manager (`core.network-manager`).
+    pub(crate) fn network_manager(&self) -> Option<&str> {
+        match self.shared.settings.global(NETWORK_MANAGER) {
+            Some(SettingValue::Text(text)) if !text.is_empty() => Some(&**text),
+            _ => None,
+        }
+    }
+
     /// Whether `owner` is the plugin the user chose as network manager.
     fn is_network_manager(&self, owner: &Id) -> bool {
-        matches!(
-            self.shared.settings.global(NETWORK_MANAGER),
-            Some(SettingValue::Text(text)) if &**text == owner.as_str()
-        )
+        self.network_manager() == Some(owner.as_str())
     }
 
     fn apply_join(&mut self, owner: &Id, join: JoinOp, host: &DevHost<'_>, token: u32) {

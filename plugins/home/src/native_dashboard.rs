@@ -94,6 +94,8 @@ struct Laid {
     wide: bool,
     /// How wide and high the corner of an item is that a finger sizes it by.
     handle: u16,
+    /// The status line above the grid (`home.status-bar`), made and placed.
+    status: Option<(Made, Rect)>,
 }
 
 /// Which of the footer's buttons are there.
@@ -204,6 +206,9 @@ impl Dashboard {
         let released = font.release();
         let laid = made?;
         if let Err(error) = released {
+            if let Some((made, _)) = laid.status {
+                made.release(host, ui);
+            }
             release_cells(host, ui, laid.cells);
             return Err(error);
         }
@@ -303,6 +308,13 @@ impl Dashboard {
                 return Err(error);
             }
         };
+        let status = match Self::status_bar(host, ui, frame.status) {
+            Ok(status) => status,
+            Err(error) => {
+                release_cells(host, ui, cells);
+                return Err(error);
+            }
+        };
         Ok(Laid {
             frame,
             cells,
@@ -321,7 +333,31 @@ impl Dashboard {
             slot,
             wide,
             handle: (metrics.row / 2).max(16),
+            status,
         })
+    }
+
+    /// The status line above the grid: this plugin's own widget, placed where the
+    /// frame keeps its strip. One that cannot be made leaves the strip empty.
+    fn status_bar(
+        host: &Host<'_>,
+        ui: &Ui,
+        strip: Option<Rect>,
+    ) -> Result<Option<(Made, Rect)>, Error> {
+        let Some(rect) = strip else {
+            return Ok(None);
+        };
+        match Made::make(host, ui, native_pages::STATUS, PLACE) {
+            Ok(made) => match made.place(host, ui, rect) {
+                Ok(()) => Ok(Some((made, rect))),
+                Err(error) => {
+                    made.release(host, ui);
+                    Err(error)
+                }
+            },
+            Err(Error::NotFound | Error::Denied) => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     /// The widgets with no place yet (and no cells declared) are measured at the
@@ -534,10 +570,30 @@ impl Dashboard {
         Ok((word, wide))
     }
 
+    /// Whether a page is held.
+    #[must_use]
+    pub const fn holds_page(&self) -> bool {
+        self.laid.is_some()
+    }
+
+    /// Another screen is over this one: the page, and the widgets made for it,
+    /// are let go and laid out again when it is shown (as it always is, shown
+    /// again). What a finger or the buttons are doing with the page keeps it.
+    pub fn cover(&mut self, host: &Host<'_>, ui: &Ui) {
+        if self.options.is_some() || self.moving.is_some() || self.drag.is_some() {
+            return;
+        }
+        self.drop_widgets(host, ui);
+        self.stale = true;
+    }
+
     /// The widgets of the page before are let go; a refusal is of no matter
     /// (the host drops them when the screen closes).
     fn drop_widgets(&mut self, host: &Host<'_>, ui: &Ui) {
         if let Some(laid) = self.laid.take() {
+            if let Some((made, _)) = laid.status {
+                made.release(host, ui);
+            }
             release_cells(host, ui, laid.cells);
         }
     }
@@ -690,7 +746,8 @@ impl Dashboard {
         compose_each(
             laid.cells
                 .iter()
-                .filter_map(|cell| Some((cell.widget.as_ref()?, cell.rect))),
+                .filter_map(|cell| Some((cell.widget.as_ref()?, cell.rect)))
+                .chain(laid.status.as_ref().map(|(made, rect)| (made, *rect))),
             |made, rect| made.draw(host, ui, frame, rect),
         )?;
         paint::replay(frame, font, above.iter())?;
@@ -784,6 +841,28 @@ impl Dashboard {
         let Some(laid) = self.laid.as_ref() else {
             return Ok(Handled::No);
         };
+        // The status line's items that do something, by a tap only (they are out
+        // of the buttons' focus order, as on interface 6).
+        if !self.editing
+            && let Some((made, rect)) = laid
+                .status
+                .as_ref()
+                .filter(|(_, rect)| inside(*rect, point))
+        {
+            // A refusal of the line's targets leaves the tap to the grid.
+            match made.targets(host, ui, *rect) {
+                Ok(found) => {
+                    for (target, at) in found {
+                        if inside(at, point) {
+                            made.input(host, ui, target, point, kind)?;
+                            return Ok(Handled::Yes);
+                        }
+                    }
+                }
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(_) => {}
+            }
+        }
         // The nearest target the point is in: widgets' own first (they answer
         // at their places), then the tools and the buttons.
         let hit = laid

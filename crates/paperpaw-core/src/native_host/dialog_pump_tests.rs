@@ -248,6 +248,9 @@ fn the_dialog_opens_in_its_slot_after_the_asking_callback_returned() {
     });
     let top = w.kernel.stack.last().unwrap().serial;
     assert_eq!(w.store.dialog_of(top).map(|d| d.0), Some(id));
+    // A dialog that is not native (this one) keeps the params: the host's
+    // hand-over no screen took is freed.
+    assert_eq!(w.store.len(), 0);
 }
 
 #[test]
@@ -716,4 +719,114 @@ fn a_second_answer_is_not_logged_as_refused() {
             .iter()
             .all(|warning| !warning.message.contains("was not taken"))
     );
+}
+
+/// A text op 18 committed goes out to the shell (`Io::Copy`); with no memory
+/// for the copy it is skipped and the log says so.
+#[test]
+fn a_committed_clipboard_text_is_copied_out_or_the_log_says_why_not() {
+    let mut w = world(Ok(OK));
+    w.store.bind_clipboard(&w.kernel.shared.clipboard);
+    let who = crate::native_host::ui_store::Stamp::new(w.owner, 1).unwrap();
+    w.store.clipboard_write(who, 0, "copied", true).unwrap();
+    w.kernel.clipboard_copy_out();
+    assert_eq!(
+        w.kernel.io.clipboard.take_copied().as_deref(),
+        Some("copied")
+    );
+    // The next commit finds no memory for its copy.
+    w.store.clipboard_write(who, 0, "lost", true).unwrap();
+    crate::native_host::shell::tests::FAIL_NTH.with(|n| n.set(1));
+    w.kernel.clipboard_copy_out();
+    crate::native_host::shell::tests::FAIL_NTH.with(|n| n.set(0));
+    assert!(w.kernel.io.clipboard.take_copied().is_none());
+    assert!(
+        w.kernel
+            .take_warnings()
+            .iter()
+            .any(|warning| warning.message.contains("could not be copied out"))
+    );
+}
+
+#[test]
+fn a_tool_cannot_stage_a_text_question_where_no_native_keyboard_serves_the_slot() {
+    let mut w = world(Ok(OK));
+    // The slot's plugin (`d`) is no native instance here.
+    let staged = w.kernel.stage_text_question(Instant(10), "Name", false);
+    assert!(staged.is_err());
+    assert_eq!(w.store.request_count(), 0);
+    OPENED.with(|opened| assert!(opened.borrow().is_empty()));
+}
+
+#[test]
+fn a_tool_stages_a_text_question_and_the_keyboard_slot_opens_for_it() {
+    let mut w = world(Ok(OK));
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    w.kernel
+        .shared
+        .native_instances
+        .test_insert(
+            Id::try_parse("d").unwrap(),
+            Some(
+                NativeLease::try_new(Asker {
+                    seen: Rc::clone(&seen),
+                    status: Ok(OK),
+                })
+                .unwrap(),
+            ),
+            true,
+        )
+        .unwrap();
+    assert_eq!(w.kernel.keyboard_screen(), Some(&KEYBOARD_SCREEN));
+    w.kernel
+        .stage_text_question(Instant(10), "Name", false)
+        .unwrap();
+    assert_eq!(w.kernel.active_screen(), Some(&KEYBOARD_SCREEN));
+    // The params a plugin's `ui.ask` makes: the request (kept in the store)
+    // and the kind, 0 for text.
+    OPENED.with(|opened| {
+        let opened = opened.borrow();
+        assert_eq!(opened.len(), 1);
+        assert_eq!(opened[0].1, "0");
+        assert!(w.store.is_request(opened[0].0.parse().unwrap()));
+    });
+}
+
+#[test]
+fn a_staged_secret_question_is_secret_and_a_second_one_is_refused() {
+    let mut w = world(Ok(OK));
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    w.kernel
+        .shared
+        .native_instances
+        .test_insert(
+            Id::try_parse("d").unwrap(),
+            Some(
+                NativeLease::try_new(Asker {
+                    seen: Rc::clone(&seen),
+                    status: Ok(OK),
+                })
+                .unwrap(),
+            ),
+            true,
+        )
+        .unwrap();
+    w.kernel
+        .stage_text_question(Instant(10), "PIN", true)
+        .unwrap();
+    assert_eq!(w.kernel.active_screen(), Some(&KEYBOARD_SCREEN));
+    let request = OPENED.with(|opened| opened.borrow()[0].0.parse::<u32>().unwrap());
+    let top = w.kernel.stack.last().unwrap().serial;
+    assert!(
+        w.store
+            .question(top, request, |shown| shown.flags & 4 != 0)
+            .unwrap()
+    );
+    // One open: another is refused, nothing is replaced.
+    assert!(
+        w.kernel
+            .stage_text_question(Instant(20), "Again", false)
+            .is_err()
+    );
+    assert_eq!(w.store.request_count(), 1);
 }

@@ -9,6 +9,7 @@
 //! transactions, fields, provide, receipts). Every op needs the feature
 //! `uses.library`, which the generic dispatcher checks against the opening
 //! instance's admitted features before this code runs.
+use super::lib_cover::CoverCx;
 use super::{
     host_services::Caller as HostCaller,
     registrations::{self as wire, Record},
@@ -30,10 +31,9 @@ mod write;
 pub(crate) use args::BookRef;
 #[allow(unused_imports, reason = "the catalog reads implement it")]
 pub(crate) use query::{LibQuery, One, Rows};
+pub(crate) use write::{BookId, CommitRequest, Committed, StageItem, Transactions};
 #[allow(unused_imports, reason = "the catalog's write half implements it")]
-pub(crate) use write::LibWrite;
-#[cfg(test)]
-pub(crate) use write::Transactions;
+pub(crate) use write::{FieldKind, ImportRequest, LibWrite, StoredPosition};
 
 /// The calling plugin: its host owner id and its plugin id.
 #[derive(Clone, Copy, Debug)]
@@ -70,13 +70,16 @@ pub(crate) struct LibServices(pub(crate) Rc<dyn LibHost>);
 /// # Errors
 /// `ERR_BUSY` when the table is borrowed; a retry ends them.
 pub(crate) fn owner_stopped(host: &dyn LibHost, owner: u64) -> Result<(), i32> {
-    host.transactions()
-        .map_or(Ok(()), |t| t.close_owner(owner, |id| host.abort_staged(id)))
+    let closed = host
+        .transactions()
+        .map_or(Ok(()), |t| t.close_owner(owner, |id| host.abort_staged(id)));
+    host.receipts_ended(owner);
+    closed
 }
 
 /// The `core.library` backend.
 pub(crate) fn backend(
-    _frame: &dyn Frame,
+    frame: &dyn Frame,
     caller: &HostCaller<'_>,
     op: &ServiceOp,
     input: &[u8],
@@ -90,7 +93,10 @@ pub(crate) fn backend(
     };
     let host: &dyn LibHost = &*services.0;
     match op.id {
-        1..=7 | 13 | 15 | 16 | 22 | 25 => query::run(host, &who, op, input, out),
+        1..=7 | 13 | 15 | 16 | 22 | 25 => {
+            let cx = CoverCx { frame, caller };
+            query::run(frame, host, &who, &cx, op, input, out)
+        }
         8..=12 | 14 | 17..=21 | 23 | 24 | 26 => write::run(host, &who, op, input, out),
         _ => Err(ERR_UNSUPPORTED),
     }

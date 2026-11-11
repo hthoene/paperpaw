@@ -47,6 +47,18 @@ pub(crate) trait NativeInstance: Dispatch {
     ) -> Result<i32, i32> {
         self.service_event(bytes, env)
     }
+    /// The `event` callback at `token` with the one-record `bytes`, lent the
+    /// command `stage` (an action's `event.action_run`). An instance without a
+    /// stage path takes it without one.
+    fn event_staged(
+        &self,
+        token: u32,
+        bytes: &[u8],
+        env: &paperpaw_sdk::Env<'_>,
+        _stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.event(token, bytes, env)
+    }
     /// A widget's `input` callback at `token` with the one-record `bytes`
     /// (`input.widget`), lent the command `stage`. An instance without a
     /// stage path takes it without one.
@@ -105,6 +117,16 @@ impl NativeLease {
         stage: &mut super::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.live()?.input_staged(token, bytes, env, stage)
+    }
+    /// The `event` callback at `token`, lent the command `stage`.
+    pub(crate) fn event_staged(
+        &self,
+        token: u32,
+        bytes: &[u8],
+        env: &paperpaw_sdk::Env<'_>,
+        stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.live()?.event_staged(token, bytes, env, stage)
     }
     /// As [`Self::service_event`], with the callback's command stage.
     pub(crate) fn service_event_staged(
@@ -182,11 +204,18 @@ struct Entry {
     replacement: Option<String>,
     retry_at: u64,
     failure_reported: bool,
+    /// It declared `uses.install` (it may answer plugin requests).
+    installer: bool,
 }
 
 #[derive(Default)]
 pub(crate) struct NativeInstances {
     entries: Vec<Entry>,
+    /// The plugin requests under way (`plugin_requests.rs`); nothing is
+    /// allocated before the first request.
+    pub(crate) plugin_requests: core::cell::RefCell<super::plugin_requests::PluginRequests>,
+    /// The callbacks of plugins that failed (`event_failures.rs`).
+    pub(crate) event_failures: super::event_failures::EventFailures,
     callbacks: CallbackClock,
     pool: Option<OwnerResourceView>,
     orphan_retry_at: Cell<u64>,
@@ -200,6 +229,12 @@ pub(crate) struct NativeInstances {
     /// When the library's move job may be pumped again after a step that
     /// failed (`moves_pump`).
     moves_retry: Cell<Option<u64>>,
+    /// When the document preparing loop may step again after a step that
+    /// could not be made (`doc_pump`).
+    doc_retry: Cell<Option<u64>>,
+    /// How many steps of the preparing loop in a row could not be made (its
+    /// back-off).
+    doc_failures: Cell<u8>,
     /// How many steps in a row were refused (the back-off of `moves_pump`).
     moves_failures: Cell<u8>,
     /// The count of begun moves the pump last saw (`moves_pump`).
@@ -216,9 +251,16 @@ pub(crate) struct NativeInstances {
     /// The commands a callback staged, till the kernel runs them (see
     /// `event_call`).
     pub(super) outbox: super::event_call::Outbox,
+    /// The actions run since the kernel last called its pump (see
+    /// `native_action`); made when the first native action is declared.
+    actions: core::cell::RefCell<Option<super::shared::Shared<super::native_action::ActionQueue>>>,
     /// The hand-over the staged `open` being applied names: `Some(None)` an
     /// open of none, `None` no staged open (see `Kernel::drain_native_opens`).
     pending_handover: Cell<Option<Option<u32>>>,
+    /// The kernel handles every plugin's dispatch reads (meter, stack rows,
+    /// declaration directory …): one for all, made with the first plugin
+    /// (`Kernel::shared_flat_host`), so each keeps a handle, not a copy.
+    pub(super) flat_host: Option<super::shared::Shared<super::FlatHost>>,
     #[cfg(test)]
     fixture_pool: Option<super::HostResources>,
 }
@@ -264,6 +306,13 @@ impl NativeInstances {
     pub(crate) fn with_id(&self, key: u64, visit: &mut dyn FnMut(&str)) -> bool {
         self.directory()
             .is_some_and(|directory| directory.with_id(key, visit).is_ok())
+    }
+
+    /// Whether the enabled plugin `id` has a screen on the stack
+    /// ([`OwnerDirectory::plugin_has_screen`]).
+    pub(crate) fn plugin_has_screen(&self, id: &str) -> bool {
+        self.directory()
+            .is_some_and(|directory| directory.plugin_has_screen(id))
     }
 
     /// How many owner-directory updates were skipped since the last call.
@@ -316,6 +365,33 @@ impl NativeInstances {
         self.pool.as_ref()?.ui()
     }
 
+    /// What the screens' callbacks stage for the kernel, once the pool is
+    /// adopted (a kernel with no native plugin has none).
+    pub(crate) fn screen_stage(&self) -> Option<&super::screen_stage::ScreenStage> {
+        Some(&self.pool.as_ref()?.hosts().screen_stage)
+    }
+
+    /// Notes that the instance of `key` declared `uses.install`.
+    pub(crate) fn set_installer(&mut self, key: u64, installer: bool) {
+        if let Some(entry) = self.entry_mut(key) {
+            entry.installer = installer;
+        }
+    }
+
+    /// Whether the running instance of `key` may answer plugin requests.
+    pub(crate) fn is_installer(&self, key: u64) -> bool {
+        self.entry(key)
+            .is_some_and(|entry| entry.enabled && entry.installer)
+    }
+
+    /// The host owner key of the running plugin `id`, if it has an instance.
+    pub(crate) fn key_of(&self, id: &str) -> Option<u64> {
+        self.entries
+            .iter()
+            .find(|entry| entry.enabled && entry.id.as_str() == id)
+            .map(|entry| entry.key)
+    }
+
     /// Retain the device pool before any fallible admission work, including
     /// the first failed factory. Its orphan cleanup must remain reachable.
     pub(crate) fn adopt_pool(&mut self, identity: OwnerResourceView) -> Result<(), i32> {
@@ -365,8 +441,55 @@ impl NativeInstances {
             replacement: None,
             retry_at: 0,
             failure_reported: false,
+            installer: false,
         });
         Ok(key)
+    }
+
+    /// The queue the actions of native plugins wait in, made on the first
+    /// call.
+    ///
+    /// # Errors
+    /// `ERR_NO_MEMORY` when it cannot be made.
+    pub(crate) fn action_queue(
+        &self,
+    ) -> Result<super::shared::Shared<super::native_action::ActionQueue>, i32> {
+        let mut slot = self.actions.try_borrow_mut().map_err(|_| ERR_STATE)?;
+        if slot.is_none() {
+            *slot = Some(
+                super::shared::Shared::try_new(super::native_action::ActionQueue::default())
+                    .map_err(|_| ERR_NO_MEMORY)?,
+            );
+        }
+        slot.as_ref()
+            .and_then(super::shared::Shared::try_clone)
+            .ok_or(ERR_NO_MEMORY)
+    }
+
+    /// The queue of actions if one was made (no action was ever declared
+    /// without it).
+    pub(crate) fn action_queue_made(
+        &self,
+    ) -> Option<super::shared::Shared<super::native_action::ActionQueue>> {
+        self.actions
+            .try_borrow()
+            .ok()?
+            .as_ref()
+            .and_then(super::shared::Shared::try_clone)
+    }
+
+    /// The ids of the interface-7 plugins known, enabled or not.
+    pub(crate) fn plugin_ids(&self) -> impl Iterator<Item = &Id> {
+        self.entries.iter().map(|entry| &entry.id)
+    }
+
+    /// A lease of the installed, enabled plugin `key` (`None` for none, or
+    /// where memory refuses the clone).
+    pub(crate) fn lease(&self, key: u64) -> Option<NativeLease> {
+        self.entry(key)
+            .filter(|entry| entry.enabled)
+            .and_then(|entry| entry.instance.as_ref())
+            .and_then(|lease| lease.try_clone().ok())
     }
 
     pub(crate) fn id(&self, key: u64) -> Option<&Id> {
@@ -453,6 +576,8 @@ impl NativeInstances {
             return Err(ERR_STATE);
         }
         entry.instance = Some(instance);
+        // A plugin that starts again may fail anew, and be said.
+        self.event_failures.forget(key);
         if let Some(directory) = self.directory() {
             directory.subscribe(key, subscribed);
         }
@@ -677,6 +802,28 @@ impl NativeInstances {
         self.moves_retry.set(at);
     }
 
+    pub(crate) fn doc_retry(&self) -> Option<u64> {
+        self.doc_retry.get()
+    }
+
+    pub(crate) fn set_doc_retry(&self, at: Option<u64>) {
+        self.doc_retry.set(at);
+    }
+
+    /// Counts one more step of the preparing loop that could not be made and
+    /// returns how many in a row.
+    pub(crate) fn doc_failed(&self) -> u8 {
+        let failures = self.doc_failures.get().saturating_add(1);
+        self.doc_failures.set(failures);
+        failures
+    }
+
+    /// A step of the preparing loop was made, or none is due: the back-off
+    /// starts over.
+    pub(crate) fn doc_ok(&self) {
+        self.doc_failures.set(0);
+    }
+
     /// Counts one more refused step and returns how many in a row.
     pub(crate) fn moves_failed(&self) -> u8 {
         let failures = self.moves_failures.get().saturating_add(1);
@@ -712,6 +859,20 @@ impl NativeInstances {
     /// The device's `core.work` host, once the shell wired it.
     pub(crate) fn work_services(&self) -> Option<&super::work_service::WorkServices> {
         self.pool.as_ref()?.hosts().work()
+    }
+
+    /// Gives back what the tables kept in reserve while the plugins were
+    /// hosted one by one (every list grows by doubling): called once, when
+    /// the shell has hosted them all ([`Kernel::start`](crate::Kernel::start)).
+    pub(crate) fn shrink_to_fit(&mut self) {
+        super::shrink::shrink(&mut self.entries);
+        self.setting_events.shrink_to_fit();
+        if let Some(directory) = self.directory() {
+            directory.shrink_to_fit();
+        }
+        if let Some(hosts) = self.hosts() {
+            hosts.shrink_to_fit();
+        }
     }
 
     /// The device's wired host views (none before a pool is adopted).
@@ -818,6 +979,11 @@ impl NativeIdentity {
     /// The device's `core.ui` service (widget handles), once a shell wired it.
     pub(crate) fn ui_services(&self) -> Option<&super::ui_service::UiServices> {
         self.pool.as_ref()?.ui()
+    }
+
+    /// What the screens' callbacks stage for the kernel (`screen_stage`).
+    pub(crate) fn screen_stage(&self) -> Option<&super::screen_stage::ScreenStage> {
+        Some(&self.pool.as_ref()?.hosts().screen_stage)
     }
 }
 

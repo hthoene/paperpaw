@@ -142,7 +142,7 @@ pub mod work;
 
 pub use action::{
     Action, ActionHandler, ActionHint, ActionOverride, ActionSpec, Actions, FixedAction,
-    FixedHandler, Observer, ObserverSpec,
+    FixedHandler, NativeAction, Observer, ObserverSpec,
 };
 pub use command::{
     Broadcast, Command, HttpOptions, HttpRequest, MAX_CLIPBOARD, ServerResponse, SocketRead, Speech,
@@ -168,6 +168,9 @@ pub use env::EnvParts;
 pub use env::{Capabilities, Capability, Env, Metrics};
 pub use event::{Event, EventData, EventHandler, FixedSubscription};
 pub use fonts::{FontFace, FontHandle, FontSet, FontSpec, Fonts};
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+pub use fonts::{OpenError as FontOpenError, open_file as open_font_file};
 pub use formats::{
     COVER_FIT, FormatOpener, FormatPrepared, FormatSpec, Formats, IMAGE_FIT, OpenOptions, cover_fit,
 };

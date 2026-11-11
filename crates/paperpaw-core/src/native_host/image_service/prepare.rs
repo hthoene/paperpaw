@@ -4,13 +4,14 @@
 //! resolved to a card path, `uses.storage`) and the delivery of
 //! `event.image_ready` are the shell's; this is the queue, the decode and the
 //! ids.
+use super::recipe::{self, Recipe, ToneSink};
 use super::{ImageTable, Origin, PREPARED_IMAGES};
 use super::{MAX_SIDE, wire};
 use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{ERR_FULL, ERR_INVALID, ERR_NO_MEMORY};
 use paperpaw_platform::Storage;
-use paperpaw_sdk::image::{ColorWriter, Fit, Format, GrayWriter, ImageError, Source};
+use paperpaw_sdk::image::{AlphaWriter, ColorWriter, Fit, Format, GrayWriter, ImageError, Source};
 
 /// Waiting requests a plugin may have.
 pub(crate) const WAITING: usize = 4;
@@ -61,6 +62,13 @@ pub(crate) struct Env {
     /// The most bytes of a PNG's source row (8 KiB on the X4, `usize::MAX`
     /// elsewhere): a wider PNG is status 3 and is not decoded.
     pub(crate) png_row_max: usize,
+    /// The most bytes of one tile of a quarter turn (`turn`): 32 KiB on the
+    /// X4 (the draw's own ceiling), 1 MiB elsewhere.
+    pub(crate) turn_band: usize,
+    /// The most short reads a quarter turn makes (16,384 on the X4, where a
+    /// turn runs in one main-loop turn; `usize::MAX` elsewhere): a picture
+    /// that would need more is status 3 and is not turned.
+    pub(crate) turn_reads: usize,
 }
 
 /// Entries of the cache folder a sweep call looks at.
@@ -84,6 +92,8 @@ impl Env {
             colour,
             max_side: 1_600,
             png_row_max: 8 * 1024,
+            turn_band: 32 * 1024,
+            turn_reads: 16_384,
         }
     }
 }
@@ -262,6 +272,8 @@ pub(crate) struct Waiting {
     cookie: u32,
     side: u32,
     colour: bool,
+    /// What `image_prepare` asked besides the size and the colour.
+    recipe: Recipe,
     /// The card path of the source.
     source: String,
 }
@@ -275,11 +287,14 @@ pub(crate) struct Ready {
     pub(crate) image: u32,
     pub(crate) width: u32,
     pub(crate) height: u32,
+    /// The mean brightness of an 8 by 8 grid over the picture, for a ready
+    /// one.
+    pub(crate) luma: Option<[u8; recipe::LUMA_BYTES]>,
 }
 
 impl Ready {
     /// The record the plugin gets, `now_ms` the event's time.
-    pub(crate) fn record(&self, now_ms: u64) -> wire::Record<'static> {
+    pub(crate) fn record(&self, now_ms: u64) -> wire::Record<'_> {
         wire::Record::EventImageReady(wire::EventImageReady {
             now_ms,
             cookie: self.cookie,
@@ -287,6 +302,7 @@ impl Ready {
             image: self.image,
             width: self.width,
             height: self.height,
+            luma: self.luma.as_ref().map_or(&[][..], |grid| &grid[..]),
         })
     }
 }
@@ -370,6 +386,7 @@ impl ImageTable {
         side: u32,
         cookie: u32,
         colour: bool,
+        recipe: &Recipe,
     ) -> Result<(), i32> {
         if source.is_empty() || source.len() > super::PATH_MAX {
             return Err(ERR_INVALID);
@@ -378,6 +395,7 @@ impl ImageTable {
         if inner.room(owner) == 0 {
             return Err(ERR_FULL);
         }
+        let recipe = recipe.try_copy()?;
         let mut owned = String::new();
         owned
             .try_reserve_exact(source.len())
@@ -395,6 +413,7 @@ impl ImageTable {
             cookie,
             side,
             colour,
+            recipe,
             source: owned,
         });
         Ok(())
@@ -431,7 +450,7 @@ impl ImageTable {
                 Some(inner.waiting.remove(0))
             };
             let number = inner.seq;
-            inner.seq = inner.seq.wrapping_add(1);
+            inner.seq = inner.seq.wrapping_add(1) & 0x7fff_ffff;
             (job, garbage, number)
         };
         if let Some((owner, seq)) = garbage {
@@ -481,6 +500,7 @@ impl ImageTable {
             image: 0,
             width: 0,
             height: 0,
+            luma: None,
         });
         Ok(())
     }
@@ -618,6 +638,7 @@ impl ImageTable {
             image: 0,
             width: 0,
             height: 0,
+            luma: None,
         };
         let side =
             if job.side == 0 { env.screen } else { job.side }.clamp(1, env.max_side.min(MAX_SIDE));
@@ -637,18 +658,21 @@ impl ImageTable {
         if png_row_over(storage, &job.source, env.png_row_max) {
             return fail(TOO_LARGE);
         }
-        match run(storage, &job.source, &path, side, colour) {
-            Ok(()) => {}
-            Err(error) => {
-                let _ = storage.remove(&path);
-                return fail(status_of(&error));
-            }
+        if let Err(status) = make(storage, &job, (&path, number), side, colour, env) {
+            return fail(status);
         }
         // What the decoder wrote must be whole: its size is its header's.
-        let Ok((_, width, height)) = paperpaw_sdk::ui::probe_picture(storage, &path) else {
+        let Ok((kind, width, height)) = paperpaw_sdk::ui::probe_picture(storage, &path) else {
             let _ = storage.remove(&path);
             return fail(CARD);
         };
+        let channels = match kind {
+            paperpaw_sdk::ui::PictureKind::Color => 3,
+            paperpaw_sdk::ui::PictureKind::Alpha => 2,
+            _ => 1,
+        };
+        let luma = recipe::luma_grid(storage, &path, (width as usize, height as usize, channels));
+        let colour = kind == paperpaw_sdk::ui::PictureKind::Color;
         match self.add_prepared(job.owner, number, width, height, colour) {
             Ok(image) => Ready {
                 owner: job.owner,
@@ -657,6 +681,7 @@ impl ImageTable {
                 image,
                 width,
                 height,
+                luma,
             },
             Err(_) => {
                 let _ = storage.remove(&path);
@@ -666,6 +691,14 @@ impl ImageTable {
     }
 }
 
+/// What a cache file holds: gray, colour, or gray with its opacity.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Made {
+    Gray,
+    Colour,
+    SeeThrough,
+}
+
 /// Decodes the picture at `from` into the cache file `to`, at most `side`
 /// pixels on the longest side.
 fn run(
@@ -673,7 +706,7 @@ fn run(
     from: &str,
     to: &str,
     side: u32,
-    colour: bool,
+    (made, tone): (Made, Option<&[u8]>),
 ) -> Result<(), ImageError> {
     let mut head = [0_u8; 8];
     let n = storage
@@ -689,15 +722,103 @@ fn run(
         short: side,
         long: side,
     };
-    if colour {
-        let mut writer = ColorWriter::new(storage, to);
-        paperpaw_sdk::image::decode(format, &mut source, fit, &mut writer)
-            .and_then(|()| writer.finish())
-    } else {
-        let mut writer = GrayWriter::new(storage, to);
-        paperpaw_sdk::image::decode(format, &mut source, fit, &mut writer)
-            .and_then(|()| writer.finish())
+    match made {
+        Made::Colour => {
+            let mut writer = ColorWriter::new(storage, to);
+            decode_into(format, &mut source, fit, &mut writer, tone)?;
+            writer.finish()
+        }
+        Made::Gray => {
+            let mut writer = GrayWriter::new(storage, to);
+            decode_into(format, &mut source, fit, &mut writer, tone)?;
+            writer.finish()
+        }
+        Made::SeeThrough => {
+            let mut writer = AlphaWriter::new(storage, to);
+            decode_into(format, &mut source, fit, &mut writer, tone)?;
+            writer.finish()
+        }
     }
+}
+
+/// The decode into `writer`, through the tone table where there is one.
+fn decode_into<S: paperpaw_sdk::image::ImageSink>(
+    format: Format,
+    source: &mut FileSource<'_>,
+    fit: Fit,
+    writer: &mut S,
+    tone: Option<&[u8]>,
+) -> Result<(), ImageError> {
+    match tone {
+        Some(table) => {
+            let mut toned = ToneSink::new(writer, table);
+            paperpaw_sdk::image::decode(format, source, fit, &mut toned)
+        }
+        None => paperpaw_sdk::image::decode(format, source, fit, writer),
+    }
+}
+
+/// The name of the file a turned picture is first decoded to: made like
+/// [`file_name`] with the top bit of the number set, so that the boot sweep
+/// removes one a power cut left.
+fn first_name(owner: u64, number: u32) -> Result<String, i32> {
+    file_name(owner, number | 0x8000_0000)
+}
+
+/// Decodes the request's picture to `path` (the final file) with its recipe:
+/// the tone table while it is decoded, then the turn its JPEG's EXIF
+/// orientation asks for. Nothing is left behind on a failure; the status is
+/// the answer.
+fn make(
+    storage: &dyn Storage,
+    job: &Waiting,
+    (path, number): (&str, u32),
+    side: u32,
+    colour: bool,
+    env: Env,
+) -> Result<(), u32> {
+    let tone = job.recipe.tone.as_deref();
+    // The orientation is read before the decode, so that a picture that is
+    // not turned is decoded straight into its file.
+    let mut head = [0_u8; 8];
+    let format = storage
+        .read_at(&job.source, 0, &mut head)
+        .ok()
+        .and_then(|n| Format::detect(head.get(..n)?));
+    let is_jpeg = format == Some(Format::Jpeg);
+    // Only a PNG or a GIF has transparency to keep; it is gray then.
+    let made = match format {
+        Some(Format::Png | Format::Gif) if job.recipe.see_through => Made::SeeThrough,
+        _ if colour => Made::Colour,
+        _ => Made::Gray,
+    };
+    let orientation = if job.recipe.turn && is_jpeg {
+        recipe::exif_orientation(storage, &job.source)
+    } else {
+        1
+    };
+    if !recipe::needs_turn(orientation) {
+        return run(storage, &job.source, path, side, (made, tone)).map_err(|error| {
+            let _ = storage.remove(path);
+            status_of(&error)
+        });
+    }
+    let first = first_name(job.owner, number).map_err(|_| NO_MEMORY)?;
+    // Only a JPEG is turned: gray or colour.
+    let turned = run(storage, &job.source, &first, side, (made, tone)).and_then(|()| {
+        recipe::turn_file(
+            storage,
+            (&first, path),
+            orientation,
+            if colour { 3 } else { 1 },
+            (env.turn_band, env.turn_reads),
+        )
+    });
+    let _ = storage.remove(&first);
+    turned.map_err(|error| {
+        let _ = storage.remove(path);
+        status_of(&error)
+    })
 }
 
 #[cfg(test)]

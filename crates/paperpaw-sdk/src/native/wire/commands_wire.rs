@@ -150,6 +150,8 @@ pub const COMMAND_SCREEN_POLICY_TAG: u32 = 1563;
 pub const COMMAND_IMAGE_PREPARE_TAG: u32 = 1559;
 /// Maximum bytes of `command.image_prepare.path`.
 pub const COMMAND_IMAGE_PREPARE_PATH_MAX_BYTES: usize = 512;
+/// Maximum bytes of `command.image_prepare.tone`.
+pub const COMMAND_IMAGE_PREPARE_TONE_MAX_BYTES: usize = 256;
 /// Wire tag of the `command.image_release` command.
 pub const COMMAND_IMAGE_RELEASE_TAG: u32 = 1560;
 /// Wire tag of the `command.wifi_on` command.
@@ -260,6 +262,8 @@ pub const COMMAND_SET_HINT_TAG: u32 = 1594;
 pub const COMMAND_SET_HINT_ACTION_MAX_BYTES: usize = 128;
 /// Maximum bytes of `command.set_hint.label`.
 pub const COMMAND_SET_HINT_LABEL_MAX_BYTES: usize = 64;
+/// Wire tag of the `command.firmware_dual_boot` command.
+pub const COMMAND_FIRMWARE_DUAL_BOOT_TAG: u32 = 1595;
 pub const COMMAND_SET_SETTING_TAG: u32 = 4;
 
 /// A command borrowed from one validated batch. No Rust value crosses the ABI.
@@ -468,6 +472,8 @@ pub enum Command<'a> {
         cookie: u32,
         /// Little-endian u32.
         flags: u32,
+        /// At most 256 bytes.
+        tone: &'a [u8],
     },
     /// The `command.image_release` command (`docs/abi/document.md`).
     ImageRelease {
@@ -658,6 +664,13 @@ pub enum Command<'a> {
         kind: u32,
         /// UTF-8 text of at most 64 bytes.
         label: &'a str,
+    },
+    /// The `command.firmware_dual_boot` command (`docs/abi/registry.md`).
+    FirmwareDualBoot {
+        /// Little-endian u32.
+        request: u32,
+        /// Little-endian u32.
+        mode: u32,
     },
 }
 
@@ -1146,6 +1159,7 @@ pub fn commands_decode(bytes: &[u8]) -> Result<CommandBatch<'_>, i32> {
                     side: u32::from_le_bytes(scalar(body.take(4)?)),
                     cookie: u32::from_le_bytes(scalar(body.take(4)?)),
                     flags: u32::from_le_bytes(scalar(body.take(4)?)),
+                    tone: blob(body.bytes()?, COMMAND_IMAGE_PREPARE_TONE_MAX_BYTES)?,
                 }
             }
             COMMAND_IMAGE_RELEASE_TAG => {
@@ -1356,6 +1370,13 @@ pub fn commands_decode(bytes: &[u8]) -> Result<CommandBatch<'_>, i32> {
                     label: text(body.bytes()?, COMMAND_SET_HINT_LABEL_MAX_BYTES)?,
                 }
             }
+            COMMAND_FIRMWARE_DUAL_BOOT_TAG => {
+                body.bitmap()?;
+                Command::FirmwareDualBoot {
+                    request: u32::from_le_bytes(scalar(body.take(4)?)),
+                    mode: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
             _ => return Err(-1),
         });
     }
@@ -1557,9 +1578,10 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
         }
         Command::StopSpeaking {} => Ok((COMMAND_STOP_SPEAKING_TAG, 1)),
         Command::ScreenPolicy { .. } => Ok((COMMAND_SCREEN_POLICY_TAG, 1 + 8)),
-        Command::ImagePrepare { path, .. } => {
+        Command::ImagePrepare { path, tone, .. } => {
             let mut len = 1 + 16;
             len += blob_len(path.len(), COMMAND_IMAGE_PREPARE_PATH_MAX_BYTES)?;
+            len += blob_len(tone.len(), COMMAND_IMAGE_PREPARE_TONE_MAX_BYTES)?;
             Ok((COMMAND_IMAGE_PREPARE_TAG, len))
         }
         Command::ImageRelease { .. } => Ok((COMMAND_IMAGE_RELEASE_TAG, 1 + 4)),
@@ -1668,6 +1690,7 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
             len += blob_len(label.len(), COMMAND_SET_HINT_LABEL_MAX_BYTES)?;
             Ok((COMMAND_SET_HINT_TAG, len))
         }
+        Command::FirmwareDualBoot { .. } => Ok((COMMAND_FIRMWARE_DUAL_BOOT_TAG, 1 + 8)),
     }
 }
 
@@ -1860,6 +1883,7 @@ pub fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize
                     side,
                     cookie,
                     flags,
+                    tone,
                 } => {
                     out[offset..offset + 4].copy_from_slice(&root.to_le_bytes());
                     offset += 4;
@@ -1870,6 +1894,7 @@ pub fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize
                     offset += 4;
                     out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
                     offset += 4;
+                    write_blob(tone, out, &mut offset);
                 }
                 Command::ImageRelease { image } => {
                     out[offset..offset + 4].copy_from_slice(&image.to_le_bytes());
@@ -2051,6 +2076,12 @@ pub fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize
                     out[offset..offset + 4].copy_from_slice(&kind.to_le_bytes());
                     offset += 4;
                     write_blob(label.as_bytes(), out, &mut offset);
+                }
+                Command::FirmwareDualBoot { request, mode } => {
+                    out[offset..offset + 4].copy_from_slice(&request.to_le_bytes());
+                    offset += 4;
+                    out[offset..offset + 4].copy_from_slice(&mode.to_le_bytes());
+                    offset += 4;
                 }
                 Command::SetSetting { .. } => {}
             }

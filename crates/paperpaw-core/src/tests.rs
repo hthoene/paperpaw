@@ -62,7 +62,7 @@ pub(crate) const DEVICE: DeviceInfo = DeviceInfo::new(
     paperpaw_platform::MemoryClass::Large,
 );
 
-type Log = Rc<RefCell<Vec<String>>>;
+pub(crate) type Log = Rc<RefCell<Vec<String>>>;
 
 /// A configurable plugin providing one screen bound to the home slot.
 struct TestPlugin {
@@ -203,7 +203,7 @@ fn tap(kernel: &mut Kernel, at: u64, x: i32, y: i32) -> crate::Effects {
     effects
 }
 
-fn log() -> Log {
+pub(crate) fn log() -> Log {
     Rc::new(RefCell::new(Vec::new()))
 }
 
@@ -738,7 +738,7 @@ fn reports_unknown_references_in_config() {
 }
 
 /// A plugin contributing two tiny bitmap fonts.
-struct FontPlugin;
+pub(crate) struct FontPlugin;
 
 impl Plugin for FontPlugin {
     fn manifest(&self) -> Manifest {
@@ -1087,8 +1087,8 @@ fn the_active_screen_is_described_alone() {
 }
 
 /// The base screen and the half overlay as the notice.
-struct NoticePlugin {
-    log: Log,
+pub(crate) struct NoticePlugin {
+    pub(crate) log: Log,
 }
 
 impl Plugin for NoticePlugin {
@@ -3280,6 +3280,7 @@ mod input_kinds;
 mod kernel_calls;
 mod key_guard;
 mod library_catalog;
+mod library_catalog_native;
 mod net_demand;
 mod net_policy_wiring;
 mod panes;

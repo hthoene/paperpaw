@@ -68,14 +68,12 @@ fn plugins(kernel: &Kernel) -> Vec<(String, PluginState)> {
         .collect()
 }
 
-/// The crate a plugin comes from: the formats of `format-epub` share it;
-/// none for the app's own (Pebble), which no plugin crate lists.
+/// The crate a plugin comes from; none for the app's own (Pebble), which no
+/// plugin crate lists.
 fn crate_of(id: &str) -> Option<String> {
-    let id = match id {
-        "format-html" | "format-fb2" | "format-markdown" | "format-cbz" => "format-epub",
-        "pebble" => return None,
-        id => id,
-    };
+    if id == "pebble" {
+        return None;
+    }
     Some(format!("paperpaw-plugin-{id}"))
 }
 

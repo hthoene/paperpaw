@@ -6,6 +6,7 @@
     reason = "a part of the kernel, which sees all of it; not every part uses every name"
 )]
 use super::*;
+use crate::native_host::speech as native_speech;
 
 /// Runs a plugin's handler with a [`Commands`](paperpaw_sdk::Commands) of
 /// its own, then queues what it sent at the end of `out`.
@@ -20,6 +21,35 @@ pub(crate) fn handing<R>(
 }
 
 impl Kernel {
+    /// How often the panel is cleaned now: after page turns, as set, and
+    /// after refreshes of the user interface where set (#255), except
+    /// while reading, where a clock or a progress line neither counts nor
+    /// flashes. Screens that clean themselves are never cleaned so.
+    fn refresh_intervals(
+        &self,
+        mode: &paperpaw_sdk::realtime::ScreenMode,
+    ) -> crate::refresh::Intervals {
+        if mode.does_clean_itself() {
+            return crate::refresh::Intervals::default();
+        }
+        let interval = |key: &str| {
+            let settings = &self.shared.settings;
+            settings.int(key).clamp(0, i64::from(u32::MAX)) as u32
+        };
+        let reading = self
+            .stack
+            .last()
+            .and_then(|top| top.slot.as_ref())
+            .is_some_and(|slot| *slot == slots::READER);
+        crate::refresh::Intervals {
+            pages: interval(core_settings::FULL_REFRESH_INTERVAL.as_str()),
+            ui: match reading {
+                true => 0,
+                false => interval(crate::refresh::UI_FULL_REFRESH_INTERVAL),
+            },
+        }
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "longer than the limit from before it was set; split it when it is next changed"
@@ -112,15 +142,7 @@ impl Kernel {
             });
             // Items far apart make a large region without being much.
             let weight = weight.min(area(dirty));
-            let interval = match mode.does_clean_itself() {
-                // Cleaned when the screen asks, never every few frames.
-                true => 0,
-                false => self
-                    .shared
-                    .settings
-                    .int(core_settings::FULL_REFRESH_INTERVAL.as_str())
-                    .clamp(0, i64::from(u32::MAX)) as u32,
-            };
+            let every = self.refresh_intervals(&mode);
             let screen = self.framebuffer.bounds();
             let mut requested = match mode.wants_fastest() && set.is_none() {
                 true => Self::fastest_mode(&mode, requested),
@@ -153,10 +175,7 @@ impl Kernel {
                         .bool(core_settings::PICTURES_IN_GRAYS.as_str())
                     && self.pictures_drawn());
             self.frame.refresh.weigh(Some(weight));
-            let (mode, region) = self
-                .frame
-                .refresh
-                .decide(requested, dirty, screen, interval);
+            let (mode, region) = self.frame.refresh.decide(requested, dirty, screen, every);
             let top = self.stack.last();
             let mut refresh =
                 paperpaw_sdk::filters::Refresh::new(mode, region, top.map(|t| t.id.clone()));
@@ -189,7 +208,7 @@ impl Kernel {
                     // Counted as done, after the filters.
                     self.frame
                         .refresh
-                        .done(refresh.mode, refresh.region, screen);
+                        .done(refresh.mode, refresh.region, screen, every);
                     self.frame.refresh.weigh(None);
                     effects.refresh = Some((refresh.region, refresh.mode));
                     effects.grays = refresh.grays;
@@ -304,6 +323,13 @@ impl Kernel {
             // messages. Make room before on_show or another command translates.
             self.forget_read_messages_if_full();
             if self.output.commands.is_empty() {
+                // The actions native plugins ran in this call (a button's,
+                // a menu row's, a rule's: `Command::RunAction` runs them
+                // above) reach their plugins; what they ask for is the next
+                // round's.
+                if self.native_actions_run() {
+                    continue;
+                }
                 // The makers of widgets dropped meanwhile hear of it; what
                 // they stage is the next round's.
                 if self.deliver_widget_drops() {
@@ -592,6 +618,19 @@ impl Kernel {
     /// Emits `event` to the plugin `only` alone where one is named: its
     /// handlers and screens hear it, no other plugin's.
     pub(crate) fn emit_to(&mut self, event: &Id, params: &Params, only: Option<&str>) {
+        self.emit_from(event, params, only, true);
+    }
+
+    /// [`Self::emit_to`]; the native plugins that subscribed hear it too only
+    /// where `natives` (`false` for an event they have queued already: the
+    /// reading session's, `native_host/reading_events.rs`).
+    pub(crate) fn emit_from(
+        &mut self,
+        event: &Id,
+        params: &Params,
+        only: Option<&str>,
+        natives: bool,
+    ) {
         // The reader's answer to pairing is the kernel's alone.
         if self.bluetooth_answer(event, params) {
             return;
@@ -607,10 +646,22 @@ impl Kernel {
         if *event == events::BOOK_CLOSED {
             self.shared.hyphenation.close_tables();
         }
+        // A walk wanted sees every native format admitted by now.
+        if *event == events::CATALOG_WANTED {
+            self.native_book_formats_sync();
+        }
+        // Woken: the next native view of the library wants the catalog again.
+        if *event == events::RESUME {
+            self.native_library_woke();
+        }
+        // The catalog the walk made reaches the native views too.
+        if *event == events::CATALOG_CHANGED {
+            self.native_library_catalog_changed();
+        }
         self.tasks_follow_books(event, params);
         let guarded = self.guarded_screens();
         if let Some(screens) = guarded {
-            return self.emit_to_guard(event, params, &screens);
+            return self.emit_to_guard(event, params, &screens, natives);
         }
         // Moments for declared work, and jobs waiting for this event.
         self.works.saw(event, params);
@@ -653,7 +704,9 @@ impl Kernel {
         }
         // The native plugins that subscribed to a kernel event (tick, the
         // lifecycle, the page turned), queued in their one order.
-        self.native_core_event(event, params, &hears);
+        if natives {
+            self.native_core_event(event, params, &hears);
+        }
         if refused_secret {
             self.warn_runtime("a plugin asked what only the settings editor may; not done");
         }
@@ -707,7 +760,7 @@ impl Kernel {
     /// [`Self::emit`] for an event of a screen guarding the device: to the
     /// plugins of `screens` that subscribed to it, then to `screens`. No
     /// other plugin, screen, bar or rule hears it.
-    fn emit_to_guard(&mut self, event: &Id, params: &Params, screens: &[usize]) {
+    fn emit_to_guard(&mut self, event: &Id, params: &Params, screens: &[usize], natives: bool) {
         let owners: Vec<String> = screens
             .iter()
             .map(|&i| self.stack[i].id.namespace().to_string())
@@ -726,9 +779,11 @@ impl Kernel {
             let reserved = Reserved::of(&self.shared.settings, &self.shared.registry);
             vet_reserved(&mut self.output.commands, from, plugin.as_str(), &reserved);
         }
-        self.native_core_event(event, params, &|plugin| {
-            owners.iter().any(|owner| owner == plugin)
-        });
+        if natives {
+            self.native_core_event(event, params, &|plugin| {
+                owners.iter().any(|owner| owner == plugin)
+            });
+        }
         let keys: Vec<_> = screens.iter().map(|&i| self.stack[i].serial).collect();
         for key in keys {
             // Each where it is now: one may have closed meanwhile.
@@ -889,6 +944,20 @@ impl Kernel {
         self.stop_voice();
     }
 
+    /// A text to speak, or a native plugin's stop (`native_host::speech`): its
+    /// own speech only; it reaches here from the command stage alone (an
+    /// interface-6 plugin's is refused in `vet_reserved`).
+    fn apply_speak(&mut self, speech: paperpaw_sdk::Speech) {
+        if native_speech::is_stop(speech.reply()) {
+            if let Some(owner) = speech.params().get(native_speech::OWNER) {
+                self.io.speech.stop_owned(owner);
+            }
+            return;
+        }
+        self.speak(speech);
+        self.io.focus_spoken = false;
+    }
+
     fn apply_io(&mut self, command: Command) {
         // Network, store and firmware work want the heap: the hyphenation
         // tables open give theirs back (opened again at the next word).
@@ -949,17 +1018,14 @@ impl Kernel {
                 )),
             },
             Command::SetClipboard(text) => {
-                self.shared.clipboard = clipped(&text);
-                self.io.clipboard.copy(self.shared.clipboard.clone());
+                self.shared.clipboard.set(clipped(&text));
+                self.io.clipboard.copy(self.shared.clipboard.get());
             }
             Command::ReadClipboard(reply, params) if self.io.clipboard.system => {
                 self.io.clipboard.read(reply, params);
             }
             Command::ReadClipboard(reply, params) => self.reply_clipboard(reply, params),
-            Command::Speak(speech) => {
-                self.speak(*speech);
-                self.io.focus_spoken = false;
-            }
+            Command::Speak(speech) => self.apply_speak(*speech),
             Command::StopSpeaking => {
                 self.stop_speaking();
                 self.io.focus_spoken = false;
@@ -1157,25 +1223,34 @@ pub(crate) fn vet_reserved(
     let before = out.len();
     let mut index = 0;
     out.retain(|command| {
+        // The host's own speech replies and stop request: only a native
+        // plugin's command stage makes them, or `event.spoken` could be
+        // forged for another plugin; no plugin is exempt, the settings
+        // editor included.
+        let host_speech = matches!(command, Command::Speak(speech)
+            if native_speech::is_reply(speech.reply()) || native_speech::is_stop(speech.reply()));
         let refused = index >= from
-            && !editor
-            && match command {
-                Command::SetSecret(change) => change.id.split('.').next() != Some(owner),
-                Command::SetSetting(id, _) | Command::ResetSetting(id) => guarded(id),
-                // Text typed for another plugin's secret or guarded
-                // setting, or asked for: the kernel would set it.
-                command if !keyboard && typed_for(command).is_some() => {
-                    typed_for(command).flatten().is_none_or(|params| {
-                        params
-                            .get(paperpaw_sdk::builtin::params::ID)
-                            .is_some_and(|id| foreign(id, kept))
-                    })
-                }
-                // The sleep screen shows over the lock; the settings
-                // editor has these rights.
-                Command::BindSlot(slot, _) => *slot == slots::SLEEP || *slot == slots::SETTINGS,
-                _ => false,
-            };
+            && (host_speech
+                || !editor
+                    && match command {
+                        Command::SetSecret(change) => change.id.split('.').next() != Some(owner),
+                        Command::SetSetting(id, _) | Command::ResetSetting(id) => guarded(id),
+                        // Text typed for another plugin's secret or guarded
+                        // setting, or asked for: the kernel would set it.
+                        command if !keyboard && typed_for(command).is_some() => {
+                            typed_for(command).flatten().is_none_or(|params| {
+                                params
+                                    .get(paperpaw_sdk::builtin::params::ID)
+                                    .is_some_and(|id| foreign(id, kept))
+                            })
+                        }
+                        // The sleep screen shows over the lock; the settings
+                        // editor has these rights.
+                        Command::BindSlot(slot, _) => {
+                            *slot == slots::SLEEP || *slot == slots::SETTINGS
+                        }
+                        _ => false,
+                    });
         index += 1;
         !refused
     });

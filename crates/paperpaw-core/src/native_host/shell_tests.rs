@@ -3,6 +3,7 @@
 //! order against the module, and the refusals.
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 extern crate std;
+use super::frame_tests::in_frame;
 use super::*;
 use alloc::vec;
 use core::alloc::Layout;
@@ -37,12 +38,12 @@ std::thread_local! {
     /// An address to watch (0: none) and whether a block holding it was freed.
     static WATCH: Cell<usize> = const { Cell::new(0) };
     static WATCH_FREED: Cell<bool> = const { Cell::new(false) };
-    static ZERO_WATCH: Cell<Option<(usize, usize)>> = const { Cell::new(None) };
-    static ZERO_RESULT: Cell<Option<bool>> = const { Cell::new(None) };
     /// `make` registers the one event only (the flat adapter routes no draw).
     static EVENT_ONLY: Cell<bool> = const { Cell::new(false) };
     /// `make` also registers for `event.tick`.
     static TICKS_TOO: Cell<bool> = const { Cell::new(false) };
+    /// The draw callback draws with `text.draw_inked` (`shell_inked_tests.rs`).
+    static DRAW_INKED: Cell<bool> = const { Cell::new(false) };
 }
 
 /// The test binary's allocator: the system's, failing on request so the
@@ -85,38 +86,15 @@ unsafe impl core::alloc::GlobalAlloc for Failing {
         if HEAP_SHIELD.try_with(Cell::get) == Ok(false) {
             let _ = HEAP_LIVE.try_with(|live| live.set(live.get().saturating_sub(layout.size())));
         }
-        let _ = ZERO_WATCH.try_with(|watch| {
-            if let Some((at, length)) = watch.get()
-                && at == ptr.addr()
-                && length <= layout.size()
-            {
-                // SAFETY: this allocation has not been freed yet. The backend
-                // initialized and registered this entire byte range for inspection.
-                let bytes = unsafe { core::slice::from_raw_parts(ptr, length) };
-                let zeroed = bytes.iter().all(|byte| *byte == 0);
-                watch.set(None);
-                let _ = ZERO_RESULT.try_with(|result| result.set(Some(zeroed)));
-            }
-        });
         // SAFETY: allocated by `alloc` above.
         unsafe { std::alloc::System.dealloc(ptr, layout) }
     }
 }
 
-/// Observe the initialized scratch immediately before its actual deallocation.
-pub(crate) fn watch_zeroed_scratch(bytes: &[u8]) {
-    ZERO_RESULT.with(|result| result.set(None));
-    ZERO_WATCH.with(|watch| watch.set(Some((bytes.as_ptr().addr(), bytes.len()))));
-}
-
-pub(crate) fn scratch_zeroed_before_free() -> Option<bool> {
-    ZERO_RESULT.with(Cell::take)
-}
-
 #[global_allocator]
 static ALLOCATOR: Failing = Failing;
 
-const NORMAL: u8 = 0;
+pub(in crate::native_host) const NORMAL: u8 = 0;
 const FAILS: u8 = 1;
 /// `make` returns OK with an output table that does not validate.
 const BAD_TABLE: u8 = 2;
@@ -137,7 +115,8 @@ fn logged() -> Vec<&'static str> {
     LOG.with(|log| log.borrow().clone())
 }
 
-fn reset(mode: u8) {
+pub(in crate::native_host) fn reset(mode: u8) {
+    super::frame_tests::clear();
     EXPECT_CORE.with(|expected| expected.set(false));
     LOG.with(|log| log.borrow_mut().clear());
     MODE.with(|m| m.set(mode));
@@ -149,10 +128,11 @@ fn reset(mode: u8) {
     UNCOVERED.with(|u| u.set(0));
     EVENT_ONLY.with(|e| e.set(false));
     TICKS_TOO.with(|e| e.set(false));
+    DRAW_INKED.with(|d| d.set(false));
 }
 
 /// The shell's heap and clock.
-struct Heap;
+pub(in crate::native_host) struct Heap;
 
 impl Services for Heap {
     fn alloc(&self, size: usize, align: usize) -> *mut u8 {
@@ -174,7 +154,7 @@ impl Services for Heap {
 }
 
 /// What keeps the plugin alive: its destructor checks the module still is.
-struct Module;
+pub(in crate::native_host) struct Module;
 
 impl Module {
     fn new() -> Self {
@@ -199,6 +179,7 @@ struct Fake {
 
 unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *const PpPlugin) -> i32 {
     MAKES.with(|m| m.set(m.get() + 1));
+    in_frame(1, ctx);
     let mode = MODE.with(Cell::get);
     if mode == FAILS {
         return ERR_INVALID;
@@ -301,6 +282,7 @@ unsafe extern "C" fn destroy(state: *mut c_void) {
     let fake = state.cast::<Fake>();
     // SAFETY: the block `make` wrote, destroyed once.
     let (host, ctx) = unsafe { ((*fake).host, (*fake).ctx) };
+    in_frame(8, ctx);
     // SAFETY: the table and context outlive the destructor.
     unsafe {
         ((*host).heap_dealloc)(ctx, state, size_of::<Fake>(), align_of::<Fake>());
@@ -309,6 +291,8 @@ unsafe extern "C" fn destroy(state: *mut c_void) {
 
 unsafe extern "C" fn event(state: *mut c_void, token: u32, input: PpBytes, reply: PpBuffer) -> i32 {
     // Started and the other events 32-39 have no reply family (section 6).
+    // SAFETY: the block `make` wrote, live while it is dispatched.
+    in_frame(2, unsafe { (*state.cast::<Fake>()).ctx });
     if token != TOKEN || input.len != 3 || reply.ptr.is_null() || reply.cap != 0 {
         return ERR_INVALID;
     }
@@ -320,24 +304,29 @@ unsafe extern "C" fn event(state: *mut c_void, token: u32, input: PpBytes, reply
 }
 
 unsafe extern "C" fn draw(state: *mut c_void, token: u32, frame: PpBytes) -> i32 {
+    // SAFETY: as for `event`.
+    in_frame(4, unsafe { (*state.cast::<Fake>()).ctx });
     if !has_expected_core_frame(state) {
         return host_glue::ERR_STATE;
     }
     if token != TOKEN || frame.len == 0 || frame.ptr.is_null() {
         return ERR_INVALID;
     }
+    if DRAW_INKED.with(Cell::get) {
+        return inked::draw(state);
+    }
     // A positive result is a fault, never a length: the host maps it.
     if frame.len == 1 { 1 } else { OK }
 }
 
-fn frame() -> Vec<u8> {
+pub(in crate::native_host) fn frame() -> Vec<u8> {
     let mut bytes = [0; 64];
     let frame = super::super::frames::screen(0, 0, 8, 8, (0, 8));
     let len = super::super::frames::encode(&frame, &mut bytes).unwrap();
     bytes[..len].to_vec()
 }
 
-fn fake() -> Hosted<Heap, Module> {
+pub(in crate::native_host) fn fake() -> Hosted<Heap, Module> {
     // SAFETY: `make` is this file's plugin, always callable; no image.
     unsafe {
         Hosted::new(
@@ -354,7 +343,7 @@ fn fake() -> Hosted<Heap, Module> {
     .unwrap()
 }
 
-fn finish<S: Services, M>(hosted: &Hosted<S, M>) {
+pub(in crate::native_host) fn finish<S: Services, M>(hosted: &Hosted<S, M>) {
     hosted.owner().revoke();
     hosted.owner().finish().unwrap();
 }
@@ -625,9 +614,10 @@ pub(in crate::native_host) fn arm_failure(nth: u32) {
 
 #[test]
 fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_calls_make() {
-    // The 1st allocation is the room reserved for the owner's retirement (the
-    // owner is not admitted: a status), the 2nd the id, the 3rd the owner.
-    for nth in [1, 2, 3] {
+    // The 1st allocation is the room reserved for the owner's retirement and
+    // the 2nd the owner's place in the heap accounting (the owner is not
+    // admitted: a status), the 3rd the id, the 4th the owner.
+    for nth in [1, 2, 3, 4] {
         reset(NORMAL);
         let module = Module::new();
         let resources = super::super::HostResources::try_new().unwrap();
@@ -646,7 +636,7 @@ fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_c
             )
         };
         arm_failure(0);
-        let expected = if nth == 1 {
+        let expected = if nth <= 2 {
             Error::Status(host_glue::ERR_NO_MEMORY)
         } else {
             Error::Allocation
@@ -1346,6 +1336,9 @@ fn kernel_dispatch_supplies_real_core_views_and_clears_them_after_callbacks() {
     finish(&hosted);
 }
 
+#[path = "shell_inked_tests.rs"]
+mod inked;
+
 #[path = "shell_service_oom_tests.rs"]
 mod service_oom;
 
@@ -1473,8 +1466,14 @@ mod command_dispatch;
 #[path = "stage_broker_native_tests.rs"]
 mod stage_broker_native;
 
+#[path = "native_device_defaults_tests.rs"]
+mod native_device_defaults;
+#[path = "native_late_config_tests.rs"]
+mod native_late_config;
 #[path = "native_screen_install_tests.rs"]
 mod native_screen_install;
 
+#[path = "shell_describe_tests.rs"]
+mod describe;
 #[path = "shell_refuse_tests.rs"]
 mod refuse;

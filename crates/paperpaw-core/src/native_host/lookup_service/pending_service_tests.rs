@@ -23,7 +23,7 @@ struct Host {
     ready: Cell<bool>,
 }
 impl LookupHost for Host {
-    fn ask(&self, _: u64, ask: &Ask<'_>, out: &mut [u8]) -> Result<usize, i32> {
+    fn ask(&self, _frame: &dyn Frame, _: u64, ask: &Ask<'_>, out: &mut [u8]) -> Result<usize, i32> {
         let (provider, pending) = match ask.cursor {
             0 => ("wiki", !self.ready.get()),
             1 => ("translate", !self.ready.get()),
@@ -154,6 +154,20 @@ fn a_pending_ask_is_kept_for_a_subscribed_asker_and_ready_tells_it_once() {
         ("wiki".into(), 1, "definition".into())
     );
     assert_eq!(rig.service().pending_len(), 0);
+}
+
+#[test]
+fn the_table_of_pending_asks_is_made_by_the_first_kept_ask_and_not_before() {
+    let rig = rig(&[7]);
+    assert!(rig.service().pending.borrow().is_none());
+    // An answer at once keeps nothing: still no table.
+    rig.host.ready.set(true);
+    rig.ask(7, "tree", 0);
+    assert!(rig.service().pending.borrow().is_none());
+    // A command that matches nothing makes it, and counts.
+    assert_eq!(rig.ready(WIKI, "tree"), Vec::<u64>::new());
+    assert!(rig.service().pending.borrow().is_some());
+    assert_eq!(rig.service().unmatched(), 1);
 }
 
 #[test]

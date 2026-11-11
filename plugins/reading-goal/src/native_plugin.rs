@@ -12,7 +12,6 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, DrawPurpose, Input},
         commands::{CommandSender, PluginEnabled},
         events::{AnswerOutcome, Answered, BookKind, Event, Incoming, kinds},
-        fonts::{Font, FontRole},
         image::{ImageId, ImageReady, ImageStyle, PrepareImage, PrepareRoot},
         registrations,
         registry::{PageCursor, Registry, RegistryPluginState},
@@ -224,15 +223,7 @@ impl Plugin for NativeReadingGoal {
         let mut out = Vec::new();
         let picture = self.pictures.of(today.mood);
         let room = native_widget::draw(&mut cx, &mut out, area, &today, picture.is_some())?;
-        let bold = if out
-            .iter()
-            .any(|op| matches!(op, paperpaw_ui_kit::Paint::Bold { .. }))
-        {
-            Some(Font::acquire_role(host, FontRole::UiBold)?)
-        } else {
-            None
-        };
-        paint::replay_with(&mut frame, &cx.font, bold.as_ref(), &out)?;
+        paint::replay(&mut frame, &cx.font, &out)?;
         // The cat over what the frame drew. Where the host refuses it, the
         // widget is the frame and the minutes.
         if let (Some(image), Some(room)) = (picture, room) {

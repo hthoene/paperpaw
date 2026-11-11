@@ -1,14 +1,29 @@
-# Interface-7 port (slices 1 to 3f: the pages' model, the declarations, the native entry, the dashboard, *Add*, arranging, icons, the tools drawer)
+# Interface-7 port (complete: the pages' model, the declarations, the native entry, the dashboard, *Add*, arranging, icons, the tools drawer, the built-in widgets, the status line, help hints)
 
-Version 1.0.6. Partial: the host-free model of the pages, the declarations, the native entry, the
-dashboard (viewing, editing, *Add*, arranging), the icons and the tools drawer are native; the
-built-in widgets, the status line, the fitting to a new grid and what needs the host are not (see
-*Not ported yet* and *Blockers*). The interface-6 `Home` and everything of it stays until the host
-activates native plugins (then it goes together, no shim).
+Version 1.0.6. Complete on the plugin side: everything interface 6 did is native (the pages' model,
+the declarations, the dashboard with viewing, editing, *Add*, arranging with the buttons and with a
+finger, the icons and the tools drawer, the built-in widgets (date, clock, continue, recent shelf, status
+line), the status line above the grid, reflow, the help hints). What is left is named exactly under
+*Open host pieces* below and is not plugin work. The interface-6 `Home` and everything of it stays
+until the host activates native plugins (then it goes together, no shim).
+
+## Open host pieces (what activation of home waits for)
+
+- **H1/H3/H4:** the screens, composition (`ui.compose`, #827) and pointer input to a native screen on a
+  real host with a screen stack: every ignored case in `tests/acceptance_pending.rs` is only that.
+  The X4 refuses the compose family until its stack gate passes (ui.md 8.2).
+- **`event.widget_changed` (86):** home subscribes to it (`WIDGET_CHANGED`, `EventKind::WidgetChanged`,
+  #1071) and the page is laid out and drawn anew where the dashboard is on top (`refresh`), as the
+  minute tick does; seen only on a host with a screen stack (H1/H3). The scripted host proves the
+  subscription and that a change with no dashboard on top draws nothing.
+- **Scripted host:** it keeps no settings store, so the end-to-end case of the grid's reflow
+  (`home-grid-reflow`, `HOST-settings-store`) runs only on a real host; `native_reflow` is unit-tested.
+- **Device gates:** heap peak and time of the dashboard's draw (status line about 17 KiB and the recent
+  shelf about 13 KiB in one callback) are not measured on the X4.
 
 ## Ported
 
-- `src/native_grid.rs`: the grid of cells the pages are laid out in. Items (a widget or a tool)
+- `native_grid` (now `paperpaw_ui_kit::dashboard::grid`, re-exported under this name; shared with picture-home): the grid of cells the pages are laid out in. Items (a widget or a tool)
   with the cells they take, the text they are kept as (`parse` / `write`, the SDK's format; a test
   pins that the SDK writes the same text), and putting them in a grid: `fit`, `refit` (a
   landscape home from the portrait one), `add`. The same rules as `paperpaw_sdk::widgets::grid`,
@@ -30,20 +45,13 @@ activates native plugins (then it goes together, no shim).
 storage and the layout on its side, reflow, with allocation-refusal sweeps over every function. The
 interface-6 suites in `tests/` still pin the behaviour end to end.
 
-## Not ported yet (explicit)
+## Not ported (by design)
 
-Each is an ignored case in `tests/acceptance_pending.rs`; the section *Blockers* below says for
-each what it waits for.
-
-- The built-in widgets still in `blocks.rs`: the status line, continue reading and recently read,
-  with their settings and groups, and the covers and the recent books they show (the date and the
-  clock are native: slice 4a).
-- The status line above the grid (composed through slot 35).
-- *Add*'s gallery, the ready-made layouts and the rows' icons; the options' *Settings* entry;
-  the finger's drag of an item and its corner (the footer items' grips are native: slice 4f).
-- The fitting of the pages to a new grid (`native_pages::reflow` is ready).
-- The ready-made layouts and the rows' icons of *Add*.
-- The help hints (`help.hint` declarations).
+- The picker screen of the setting `home.status.line` (a whole line another plugin draws): the setting
+  is a text that holds an id, not chosen from a list. The three lists use home's items screen.
+- The battery percentage step of the status line (an owner draws its own value; the layout drops by
+  priority and width only).
+- Ready-made layouts: interface 6 had none (a doc line spoke of `layouts`, a function that never existed).
 
 ## Activation items (todo 90)
 
@@ -137,7 +145,7 @@ parts without the host:
   interface-6 `frame`, with the widget gap from `core.widgets.gap`), the footer's buttons (actions
   from the right, as many as leave the dots their middle), the dots, the page that shows and how
   pages turn.
-- `native_focus.rs`: the buttons' focus over the page's targets (tools, what each widget answers with
+- `native_focus` (now `paperpaw_ui_kit::dashboard::focus`, re-exported; also `native_arrange` as `dashboard::arrange`): the buttons' focus over the page's targets (tools, what each widget answers with
   `widget_targets`, the footer's actions): the first press only shows the focus, left/right and
   next/previous go round, up/down go to the nearest target (round where the arrows stay on the page:
   `core.arrows-stay-on-page`, read at every layout like `ui::list::stays_on_page`), confirm runs the
@@ -247,7 +255,9 @@ and leaves the old layout (see *Add*). The page is laid out anew from the settin
 - At a show the focus is drawn only if `home.focus-at-once` is on **and** the last input was by buttons
   (`event.screen_shown.last_input`, draft 30: buttons 1; touch, pen and "not known" get none, as
   Kernel ruled): `focus_at_show` in `native_dashboard.rs`. Drawing it waits for H1/H4: `home-dashboard`.
-- The status line above the grid is made room for but not drawn (`home-status-line`).
+- The status line above the grid (`home.status-bar`) is the plugin's own status widget, made and placed in
+  the strip the frame keeps (`native_dashboard::status_bar`), drawn with the cells and tapped for an
+  item's action (`Made::targets`/`input`); it stays out of the buttons' focus order, as on interface 6.
 - Icons (slice 3e): a tool shows its icon above its name, the icon in the same frame for every tool (the
   ink of a circle) so that names side by side line up, names of tools in a row keeping to the most lines
   any of them takes; a tool its plugin shows on is drawn light on a dark ground and one it shows not
@@ -295,7 +305,7 @@ and each widget's title, category and group with the interface-6 registration.
 `src/native_widgets.rs` (`Widgets`, in `NativeHome`): the instances a screen made
 (`event.widget_made` / `widget_dropped`; a widget that is none of ours is none of our business), the
 `core.widget` stage (measure: the height; place; targets: none, a tap on these does nothing as on
-interface 6), the draw of an instance (`DrawPurpose::Widget`, the kit's `Cx` and `paint::replay_with`)
+interface 6), the draw of an instance (`DrawPurpose::Widget`, the kit's `Cx` and `paint::replay`)
 and the minute tick that tells the maker (`command.widget_changed`) what shows something new.
 `src/native_date.rs` and `src/native_clock.rs` are the two widgets, over the kit's look, text and
 layout (the same arithmetic as interface 6 `blocks.rs`: the date as large as set, smaller down to the
@@ -327,7 +337,6 @@ Differences from interface 6 (each deliberate):
 
 ### Gaps
 
-- The status line is still an interface-6 widget (`blocks.rs`); the next slice.
 - Drawing and sizing go through the host (H1/H3 composition, #827): the cases `home-builtin-widgets`
   and `home-dashboard` stay ignored. The scripted host has no fonts, so the drawing is covered by the
   pure parts (`split_time`, the shares) and the declaration tests; the widgets' draw is not run
@@ -401,7 +410,7 @@ place `status-line` that names the three lists. `tests/widgets_declarations.rs` 
 the id, the title and the category with the interface-6 registration; `tests/scripted_widgets.rs`
 has a status instance.
 
-`src/native_status_layout.rs` is the pure arithmetic of `blocks.rs`: the three parts (left, centre
+`paperpaw_ui_kit::status_line::layout` (formerly `src/native_status_layout.rs`) is the pure arithmetic of `blocks.rs`: the three parts (left, centre
 and right) and the dropping of the items of the lowest priority (of equal ones the centre's, then the left's,
 then the right's) until the line fits, with 0.4 of a text size between items; a text that is
 still too wide is shortened to its room.
@@ -425,8 +434,7 @@ Differences from interface 6 (each deliberate):
   holds an id; it is not chosen from a list. (The three lists use home's items screen.)
 - Items another plugin owns and says it draws itself (`is_own`) are left to it and not shown;
   hidden private values (`is_hidden`) are left out.
-- The status bar above the grid (a line the dashboard shows by itself) waits until the dashboard
-  composes widgets; this slice is the widget.
+- The status bar above the grid is the same widget in the dashboard's strip (slice 5, below).
 
 Allocation refusals: where a list cannot grow (the placed items, the tappable ones) the item
 is left out silently, as a line too narrow would leave it out; the draw does not fail for it.
@@ -516,13 +524,13 @@ Legend: (a) solved here, (b) solved by an approved or open PR, (c) open: the mis
 | widgets in the screen, status line, reflow, gallery | H3 composition (slot 35) | (b) #827 (draft, needs Senior; the X4 refuses until its stack gate, ui.md 8.2) |
 | dashboard slice (`HOME-dashboard-slice`) | the dashboard measures widgets | (a) done in slices 3b–3d; the stale blocker is gone |
 | cell hints (`KERNEL-cell-hints`) | a widget's declared cells | (a) done (#824) |
-| subscriptions (`HOME-subscriptions-slice`) | tick and `widget_changed` | (a) the minute tick is subscribed to (`TICK`) and redraws a dashboard that is on top. (c) the host does not deliver `event.widget_changed` (86) yet (core has only its codec; `command.widget_changed` is unsupported too) |
-| built-in widgets (`WIDGETS-declarations`) | status line, continue, recent are still `blocks.rs` | (a) date and clock native (slice 4a); the continue card and the recent shelf native (slice 4b: `core.library`, `library.cover`, `canvas.draw_image`). (c) the status line (composition #827 is wired by H3a) |
-| status line (`HOME-status-line-slice`) | the line above the grid | (c) plugin work on top of #827 (the line is composed like a status place) |
+| subscriptions (`HOME-subscriptions-slice`) | tick and `widget_changed` | (a) the minute tick is subscribed to (`TICK`) and redraws a dashboard that is on top. (b) core delivers `event.widget_changed` (86) to the maker that subscribes. (c) the declare SDK's `EventKind` has no variant for 86 (asked of Services) |
+| built-in widgets (`WIDGETS-declarations`) | status line, continue, recent are still `blocks.rs` | (a) date and clock native (slice 4a); the continue card and the recent shelf native (slice 4b: `core.library`, `library.cover`, `canvas.draw_image`). (a) the status line is native (slice 4c, `native_status`, now `paperpaw_ui_kit::status_line`) |
+| status line (`HOME-status-line-slice`) | the line above the grid | (a) done (slice 5: the status widget in the frame's strip); seen only on a host with composition (#827) |
 | reflow (`HOME-reflow-slice`) | the setting-change handler | (a) done (slice 4d: `native_reflow`; event 64 admitted by #763) |
-| help hints | `help.hint` declarations (`home.tips.*`) | (b) admitted by #818 (draft): home declares them after it lands |
+| help hints | `help.hint` declarations (`home.tips.*`) | (a) done (slice 5: `declarations::help`, nine hints, a declaration test) |
 | gallery (`HOME-add-gallery`) | H3 composition | (a) done (slice 4g); drawn on a real host only |
-| ready-made layouts, rows' icons (`HOME-add-layouts`) | | (c) plugin work; #517 (icon admission) and #624 (glyph call) are merged, so the `517` blocker is gone |
+| ready-made layouts, rows' icons (`HOME-add-layouts`) | | (a) the rows' icons are native; interface 6 had no ready-made layouts, so none is owed |
 | options' *Settings* (`HOME-item-settings`) | | (a) done (slice 4e: `native_item_settings`) |
 | grip drag (`KIT-grip-drag`) | the kit's view takes a hold and a tap | (a) done (slice 4f: pointer samples in the kit's items view); the host already forwards raw pointers to the screen on top (Input Engineer, todo 379), a status 1 on the down captures the contact |
 | hosted construction | #944 | (a) the host admits all declarations and `make` constructs in the real registered scope (`tests/hosted_construction.rs`, hosted harness #788) |
@@ -555,3 +563,26 @@ card, shelf and status line visible on the home screen and in the gallery) is ba
 - Not covered without a real host: the drawing of own widgets on the dashboard and in the gallery
   (the scripted host has no screen stack); the status line widget composes its values inside the
   screen's draw as it does inside a widget's draw.
+
+## Slice 5: the status line above the grid, help hints (todo 463 / #243)
+
+- `home.status-bar` on: the frame keeps the strip (`native_dash::frame`) and the dashboard makes the
+  plugin's own `home.status` widget for it (`Made::Mine`, no host call), places it there, draws it with
+  the cells (its frame, texts, and the values its owners draw, composed) and forwards a tap on an item
+  that has an action of its own (`status_line::action`). While editing, a tap there does nothing. Its
+  targets are not in the buttons' focus order. A line that cannot be made leaves the strip empty.
+  Seen only on a host with composition: `home-status-line`.
+- The nine help hints (`home.tips.quick` and `.back` with their zones, `.home`, `.tools`, `.arrange` for
+  touch, `.move`, `.select`, `.menu`, `.panel` for buttons) are declared natively (`declarations::help`,
+  batches submitted at `make`) as interface 6 declared them; `tests/abi7_declarations.rs` pins the
+  nine and their texts in both languages.
+
+## Home state while another screen is over it (#248)
+
+The dashboard holds its laid-out page (cells, targets, texts, the widgets made for it) only while it
+is on top. `event.stack_changed` (token `STACK_CHANGED`) reads the stack top; a dashboard under
+another screen lets its page and widgets go (`Dashboard::cover`) and sets `stale`, so the next
+`ScreenShown` lays it out again, which it always did (`shown()` marks the page stale). A page with
+options open, an item being moved or a finger's drag is kept. The stack is read only when a page is
+held; the request buffer is 256 bytes, the reply 4,096.
+`Screens::open` grows exactly since #1184 (a dashboard's state is 600 bytes).

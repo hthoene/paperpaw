@@ -50,12 +50,22 @@ Records: `abi/services/core.library@1.def` and `core.lookup@1.def`.
 - [D] `book_field.spec` (interface 6 `BookField`): a field `<plugin>.<name>` the plugin keeps with
   books (a rating, "on loan"), `title` a catalog key; `flags` bit 0 `in_catalog` (a short value, at
   most 64 bytes, kept in the catalog so queries and rows show it), else at most 1,024 bytes kept per
-  book. Other bits `ERR_INVALID`. At most 8 per plugin, 64 device-wide.
+  book. Other bits `ERR_INVALID`. At most 8 per plugin (a ninth is `ERR_INVALID` for the batch)
+  and 64 device-wide (`ERR_FULL` for the batch that would pass it); the plugin does not load,
+  `reg_plugin.problem` 16 (`registry.md`). A `name` twice in one plugin is `ERR_INVALID` for the
+  batch; two plugins may use the same name (the field is `<plugin>.<name>`).
 - [D] `book_badge.spec` (interface 6 `BookBadge`): a badge on a book's row, answered by its owner
   through the host-defined stage `core.book-badge` (major 1, generated stage schema; input
   `badge.ask` with up to 16 book keys of a page, reply up to 16 `badge.value`: `key`, `text: str 16`
   a few letters, or `icon: str 64`); asked when a page of rows is read, never while drawing; views
-  show two at most. `flags` reserved, 0.
+  show two at most. `flags` reserved, 0. At most 4 per plugin (a fifth is `ERR_INVALID` for the
+  batch) and 16 device-wide (`ERR_FULL` for the batch that would pass it); the plugin does not
+  load, `reg_plugin.problem` 17 (`registry.md`). A `name` twice in one plugin is `ERR_INVALID` for
+  the batch; two plugins may use the same name.
+- [D] **Order of fields and badges** (stable across loads and updates): by owning plugin id, then
+  by `name`, both in byte order; never by load order, so a plugin that reloads or updates keeps
+  its place. Op 22 lists fields in this order. A row's `badges` (`lib_entry`, at most two) are the
+  first two in this order whose owner answered a non-empty `text` or `icon` for that book.
 - [D] `book_data.spec` (interface 6 `add_book_data`, `add_book_cache`): the plugin keeps a folder
   per book in its own Data (root 0) at `books/<name>/<book key>/` (the book key of section 6);
   `kind` 0 user data (moved with the book, removed with it), 1 cache (made again from the book: also
@@ -79,8 +89,8 @@ that fit 4,096 bytes). Three kinds of generation, never mixed up:
   `lib_edit_head.annotation_generation`): it changes on every committed annotation change of that
   book only.
 - the **field generation** of one book (`lib_field_page.generation`, the `service.end.generation`
-  of op 22 `fields`): it changes on every `set_field` on that book and every move of its data
-  (section 4). A later `fields` page asked with a stale field generation is `ERR_STATE`.
+  of op 22 `fields`): it changes when the content of the book's fields changes (a `set_field`
+  that changes a value or removes a field, a move of its data that changes them; section 4). A later `fields` page asked with a stale field generation is `ERR_STATE`.
 
 | Op | Name | Input | Reply | Effect |
 | --- | --- | --- | --- | --- |
@@ -202,8 +212,8 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
 - [D] `lib_entry` (one row, short enough that 10 fit a page): `key`, `title: str 128`, `author: str
   96`, `series: str 64`, `number: str 16`, `progress` (0-100, 255 never opened), `flags` (bit 0
   favourite, 1 opened, 2 finished, 3 new, 4 indexed, 5-7: title, author, series cut for the row),
-  `added`, `badges: str 64` (the first two badges, `\n` between, section 1). A row's texts are cut
-  only for the row; op 3 and op 4 have them whole.
+  `added`, `badges: str 64` (the first two badges in section 1's order, `\n` between). A row's
+  texts are cut only for the row; op 3 and op 4 have them whole.
 - [D] `lib_book` (op 3): `key`, `generation`, `path: str 512`, `title: str 512`, `author: str 512`,
   `series: str 256`, `number: str 32`, `progress`, `flags` (as `lib_entry`, bits 5-7 the long form
   was cut too; bit 8 `missing`: the book's file is not on the card now, looked up by the host when
@@ -223,9 +233,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   nor every ancestor.
 - [D] `next_in_series` (interface 6 `Index::next_in_series`, Port Reviewer on #696): the series'
   **lowest unread book**, not the book after the given one: of the books in the given book's series
-  never opened (`progress` 255), the one with the lowest series number, ties by catalog key; the
-  given book itself when it is that one. `ERR_NOT_FOUND` when the book has no series or every book
-  of it was opened. Interface 6 listed this for every series begun; a plugin that wants that list
+  never opened (`progress` 255 and `lib_entry` flag `opened` clear), the one with the lowest series
+  number, ties by catalog key; the given book itself when it is that one. `ERR_NOT_FOUND` when the
+  book has no series or every book of it was opened. Interface 6 listed this for every series begun; a plugin that wants that list
   asks op 6 with a book of each series it shows.
 - [D] **Paging of `query` and `facets`** (interface 6's keyset paging, `catalog::query_in`):
   `cursor` is the index in the result of the page's first row (0 for the first page). Under one
@@ -233,7 +243,7 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   the host walks the catalog in the query's order and skips `cursor` matches. A cursor of an older
   catalog generation is `ERR_STATE`: ask again from 0. `end.total` counts every match, not only the
   pages read. Sort 4 (recently opened) orders by the opened rank first, then title, then path, so
-  equal ranks keep one order. Facets page the same way; for tags and folders `first` is
+  equal ranks keep one order. A sort key is the lowercase text of its order (title; author and title; series and number) **cut at 96 bytes**, and a tie, a cut included, goes by path, so the order stays fixed under one generation. Facets page the same way; for tags and folders `first` is
   `0xFFFF_FFFF` (no jump: a book can carry several). Where a device cap stops a walk early (a cap of
   the X4, never a memory shortage), `service.end.flags` bit 3 `partial` says the result is cut.
 - [D] **Checkpoints are a cache, never needed.** To spare the skip, the host may keep checkpoints in
@@ -255,12 +265,70 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   (DOC op 15) on first use and kept in the host's cover cache; `ERR_NOT_FOUND` for a book without
   one; while it is being made `ERR_BUSY` and `event.library_changed` bit 6 when it is ready
   (interface 6 lazy covers).
+  **Made covers inline, the rest in the background (#248).** A cover the host already made is
+  answered inside the asking call, in the caller's frame: the host opens the book as the caller
+  (root 1, no `uses.storage`), asks the format (DOC op 15), which reads it from its cache and
+  decodes nothing, adopts the picture as the caller's own id (the same cover file has one id) and
+  closes the document. Any other cover is `ERR_BUSY`: no picture is decoded in a list's frame. A
+  book that is ready at its open stays open as the host's one **cover to make**, beside the cover
+  job (a job held back for the list never keeps it waiting): the pump's next look asks the format
+  for the cover (DOC op 17) outside every frame, closes the document and raises bit 6 (not while a
+  book is open for reading: it then only ends, and the list asks again when shown). While one
+  waits, other covers not made are `ERR_BUSY` without the book being opened. A preparing book
+  goes to the cover job below, which does the same once it is ready. A book counts as made once
+  its format answered (a picture, or none: `ERR_NOT_FOUND` inline from then on); one that cannot be made
+  now (`ERR_BUSY`, no memory) is asked again after bit 6, counted towards the failed-jobs cap below
+  but no book failed; one that failed otherwise counts the book as failed (below). The host remembers 32 made books in RAM (256 bytes),
+  the least recently asked written over; a card change, move or delete only means an inline
+  decode again, never a wrong picture. A cover made while more than 32 are on screen (asked since
+  the last made) would write over one shown: it counts towards the failed-jobs cap below instead
+  of resetting it, so the raises end. A format that is not running yet is `ERR_BUSY` with bit 6 raised, so the caller
+  asks again (one counter for the whole library host, not per book: after 6 raises in a row it
+  raises no more until a cover is made); a full document table is `ERR_BUSY` and **raises nothing**
+  (it does not clear by itself: the caller closes a document).
+  **Preparing books (DOCX, MOBI): the cover job.** A format whose first `open` is still *preparing*
+  (a conversion not yet in the cache) is `ERR_BUSY`, and the first such `cover` keeps its document
+  open as the one **cover job** of the device: a background document (any other open takes its place
+  first, the reader on the X4's two places always wins; sleep, a pulled card and any open that is
+  not this `cover` end it). The preparing loop (DOC section on preparing) converts it a step a pass
+  between inputs, and when it is ready or failed the host ends it and raises bit 6 once. The next
+  `cover` then makes the picture as above. A second book waits (`ERR_BUSY`, asked again after the
+  bit). No job begins before the kernel's start has returned, nor while a book is open for reading
+  (`ERR_BUSY`, nothing raised; bit 6 follows once jobs may begin). The job's document is the
+  host's own (it takes no plugin's document cap, so the caller's ready covers are made beside it).
+  A job that an open displaced (a book to show) is held back the same way, and for 2 s after the
+  displacement; it then **starts again from the beginning**: a cache is whole or not used
+  (`document.md` 2.1), nothing of a partial conversion is kept. A job displaced 3 times in a row
+  for the same book is not started again for that book until the next start (no cover, as for a
+  failed book). A job takes **no preparing step (no conversion) while the library's list screen (the
+  files plugin's) is on the screen stack**, shown or covered, and for 2 s after it left it: a
+  conversion's peak must not come beside the list's buffers. A book that is ready (its cover only
+  to be made) is not held. The row stays open meanwhile; the time held is no awake time of the
+  book. A job never holds the device awake
+  and does not restart after a sleep until a new `cover` asks. Between two of its steps the pump waits 100 ms (1 s in the power modes Saving and Offline), a
+  timed wake, so the job goes on on an idle device. A book's job may run 10 minutes in all per
+  start of the device (displaced and begun again counts together); then the book counts as failed
+  (as above). If a job's memory for the format's
+  `close` cannot be had (4 KiB, once, when the job ends) the format is not told and keeps its state
+  for that document until it stops. A book whose job failed (the
+  format could not prepare it, 8 steps in a row that could not be made) is `ERR_NOT_FOUND`, never
+  `ERR_BUSY` again, until the next start: the host remembers 8 such books in memory only, and after
+  8 failed jobs in a row raises no more bits (a ready job or the next start resets the run). A card
+  error is not the book's. **Crash guard:** when a job begins the host writes the book's key to
+  `.paperpaw/cover-job.txt` (and syncs); it removes the file when the job ends however it ends; if it
+  cannot write it the job does not begin and the book counts as failed (`ERR_NOT_FOUND`, as above).
+  At the next start a file (exactly 16 hexadecimal digits; any other file names no book) still
+  there means a reset happened in that job (or a plain power loss: then the book is counted failed
+  for that run only), and its book is counted as failed. The format's first `open` of a book (the call
+  that reports *preparing*) is not covered by the marker.
 
 ### 2.2 Status, positions, annotations
 
 - [D] `set_status` (`lib_status`: `lib_ref`, `set`, `clear`: bit 0 finished, 1 favourite, 2 opened):
   both masks applied together, idempotent; `finished` set raises nothing more (EVT 67 is the
-  reader's session event, not this).
+  reader's session event, not this). A favourites or opened list that cannot be read (not text, a
+  card error) fails the call and is left as it is; the other changes of the same call may already
+  be made, and applying the same masks again finishes it.
 - [D] **Positions** (interface 6 `Position`): `lib_position` (`section`, `offset`, `insert`,
   `progress_ppm`, `conversion: u64` with `flags` bit 1 `has_conversion` (interface 6
   `Option<u64>`: absent and 0 differ), `updated: u64` seconds since 1970, 0 for an unknown clock,
@@ -334,6 +402,17 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   card until the plugin's next `edit_begin`, 10 minutes, or
   the plugin stops (`ERR_NOT_FOUND` after). A plugin advances its own sync state only after a commit
   answered `OK`.
+- [D] **What the host checks at the commit, beyond the above:** an `id` named by two edits of one
+  transaction, a `client_key` named by two adds or upserts of it, and an `add` (action 0) whose
+  `client_key` the book already has are `ERR_INVALID` (a repeated import uses upsert); an `upsert`
+  whose key the book has replaces that annotation and keeps its id (receipt `action` 3). A row is
+  one line of the file (`annotations.rs` reads lines of at most 8 KiB): an annotation whose text,
+  note, key and XPointers make a longer line is `ERR_NO_SPACE`. The host checks nothing about a
+  range in sections: it does not know the book's sections. A book the library's move job holds is
+  `ERR_BUSY` at `edit_begin`. The new rows are written in reading order (by start, then end), the
+  old rows keep the file's order. Receipts are not kept across a restart. The interface 6 path (the Beta 3 reader and widgets) keeps a
+  row's id and `client_key` by its kind and place; of two rows at one place (imports by key) it may
+  hand them to the other when it removes one.
 - [D] **End of a transaction:** `edit_commit` on a live transaction of the caller ends it whatever
   it answers: `OK`, a refusal of the book (`ERR_STATE`, `ERR_NOT_FOUND`, `ERR_INVALID`), parts that
   did not arrive whole, or a reply too small for `lib_committed`. Nothing of a refused commit is
@@ -344,14 +423,18 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
 - [D] **Sizes of one edit:** an XPointer at most 1,024 bytes (as `doc_xpointer`), a note at most
   3 KiB (interface 6), a highlighted text bounded only by the transaction's cap (interface 6 caps
   it by the annotation file alone); each part of `edit_text` at most 3,072
-  bytes, joined in order. A transaction's staged bytes are capped as a whole (below), so no count
-  of edits or parts is capped by itself.
+  bytes, joined in order. A transaction's staged bytes are capped as a whole (below), and its edits are
+  too: 1,024, and 128 on the X4 (`ERR_NO_SPACE` at the `edit_add` that passes it), because a commit
+  holds a 40-byte row per edit while it merges (40 KiB at 1,024, 5 KiB on the X4; besides a 5 KiB record buffer and the text of one row, at most a line of 8 KiB; unmeasured on the device, #250).
 - [D] Transaction limits and lifetime: one open transaction per plugin and two device-wide
-  (`ERR_FULL`); it lives across callbacks until commit, abort or 10 minutes without a call (then
-  aborted, logged) or the plugin stops; staged edits are kept in a host temp file on the card, not
-  in memory (at most the annotation file's 1 MiB cap, `annotations.rs:45`, `ERR_NO_SPACE` beyond). A
-  power cut aborts every open transaction (the temp file is removed at start); the book's
-  annotations stay as they were. Notes keep interface 6's 3 KiB cap per note.
+  (`ERR_FULL`); it lives across callbacks until commit, abort, 10 minutes without a call (then
+  aborted, logged) or the plugin stops. A host with no clock at all counts 10 s for every call of
+  the transaction ops by anyone, so 60 calls end an idle transaction: a fallback only (another
+  plugin's calls can end a live transaction, which then answers `ERR_NOT_FOUND`: begin again);
+  every shell with `core.work` has the clock. Staged edits are kept in a host temp file on the
+  card, not in memory (at most the annotation file's 1 MiB cap, `annotations.rs:45`, `ERR_NO_SPACE`
+  beyond). A power cut aborts every open transaction (the temp file is removed at start); the
+  book's annotations stay as they were. Notes keep interface 6's 3 KiB cap per note.
 
 ### 2.3 Files: delete, move, import
 
@@ -373,6 +456,11 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   anything else `lib_result.status` `ERR_INVALID`. A book with annotations is `ERR_STATE` unless
   `with_notes` (the view asked the user; read-later and wallabag pass it for their own downloads).
   One `lib_result` per path.
+  **A status that is not `OK` means the book is not gone yet:** a card error that may pass
+  (a fault, a full card, memory) is retried by the host's journalled job until it is done, so
+  the book may still be listed meanwhile and its data is still there; a file the card refuses for
+  good is left as it is and answers `ERR_IO`. `OK` means the file is gone (what is kept for it
+  follows from the job).
 - [D] `move` (`lib_move`: `from`, `to`, root 1 both, `flags` bit 0 replace an existing `to`): the
   file and everything kept for it follow (keys change, section 6), each through the card's
   journalled move (section 6); EVT 68 and `library_changed`.
@@ -395,7 +483,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   `ERR_STATE` (nothing changes); bit 1 makes the name free as `name (2).ext`, `(3)` and so on, and
   answers the path taken. Bit 0 `replace` is allowed only where the existing file is one **this
   plugin imported** and nobody moved since (the host keeps the importer's id with the book's data;
-  a move by the user or another plugin clears it); anything else `ERR_DENIED`. A replaced book
+  a move by the user or another plugin clears it), and only while the file at that path is still
+  the one the plugin imported (size and partial MD5 are kept with the importer's id); a file put
+  there since is `ERR_DENIED`, and so is anything else. A replaced book
   keeps its key, positions and annotations (an updated feed issue), and its document caches are
   dropped.
 
@@ -408,7 +498,8 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
 - [D] A hint (registrable, coalesced per plugin): `what` bit 0 books added, removed or moved (a new
   generation), 1 status, 2 positions, 3 annotations, 4 fields or badges, 5 the walk progressed or
   ended, 6 a cover is ready; `path` the one book it was about, empty for several (re-read what you
-  show). The changer gets it too, so every view updates the same way.
+  show). The changer gets it too, so every view updates the same way. `generation` is the
+  catalog's; `0` means the host could not tell it just now (re-read, as for an empty `path`).
 
 ## 4. Book data and badges
 
@@ -421,9 +512,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   fit a reply): input `lib_ref` and `lib_field_page` (`cursor` the index of the page's first row,
   0 to start, then `service.end.next`; `generation` 0 to start, then the `service.end.generation`
   of the first page). Rows are ordered by owning plugin id, then field name. `end.generation` is
-  the book's field generation, which every `set_field` on the book and every move of its data
-  advances; a later page asked with another generation answers `ERR_STATE` (start again at 0), as
-  annotations do. A page holds as many whole rows as fit in 4,096 bytes; `flags` bit 0 `last` on
+  the book's field generation, which changes when the content of the book's fields changes; a
+  later page asked with another generation answers `ERR_STATE` (start again at 0), as annotations
+  do. A page holds as many whole rows as fit in 4,096 bytes; `flags` bit 0 `last` on
   the last page. `set_field` (`lib_field_set`: `lib_ref`, `field` one of the caller's own,
   `value`, empty removes) changes the caller's only (`ERR_DENIED` for another's). In-catalog fields
   over 64 bytes `ERR_NO_SPACE`.
@@ -431,7 +522,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   book's data on the card and read when asked; the in-memory catalog gains nothing per field or
   per book for them. In-catalog values are written into the walk's sorted index file
   (`sorted.idx`, #328), so queries, sorting and filters on them read the card step by step as for
-  titles, never a table in RAM.
+  titles, never a table in RAM. An in-catalog field value reaches queries (filters, sorting)
+  only at the next walk of that book, as in interface 6; a read of the book's own fields (op 22)
+  sees it at once.
 
 ## 5. Provided metadata (calibre)
 
