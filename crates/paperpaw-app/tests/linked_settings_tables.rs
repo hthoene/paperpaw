@@ -50,21 +50,30 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
     }
     // A plugin with settings has its table (one that is not listed costs
     // memory): the ones that declare settings today.
+    #[cfg_attr(
+        not(feature = "native-linked-store"),
+        allow(
+            unused_mut,
+            reason = "the store's plugins are added only with the feature"
+        )
+    )]
     let mut with_settings = vec![
         "keyboard",
         "lock",
         "help",
-        "home",
         "opds",
         "power",
-        "reader",
         "bluetooth",
         "menu",
         "settings",
         "file-manager",
     ];
     #[cfg(feature = "native-linked-store")]
-    with_settings.extend(["aids", "news", "vocabulary"]);
+    with_settings.push("aids");
+    #[cfg(feature = "native-linked-reading")]
+    with_settings.extend(["home", "reader"]);
+    #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
+    with_settings.extend(["news", "vocabulary"]);
     for id in with_settings {
         assert!(
             !paperpaw_app::fixed_tables(id).settings.is_empty(),
@@ -73,9 +82,21 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
     }
     // The plugins that declare setting groups have their table of them (an
     // empty or stale one only costs memory, silently).
-    let mut with_groups = vec!["bluetooth", "home", "keyboard", "lock", "power", "reader"];
+    #[cfg_attr(
+        not(feature = "native-linked-store"),
+        allow(
+            unused_mut,
+            reason = "the store's plugins are added only with the feature"
+        )
+    )]
+    let mut with_groups = vec!["bluetooth", "keyboard", "lock", "power"];
     #[cfg(feature = "native-linked-store")]
-    with_groups.extend(["news", "vocabulary", "widgets"]);
+    with_groups.push("widgets");
+    #[cfg(feature = "native-linked-reading")]
+    // (Reader declares no group of its own: its settings sit in core groups.)
+    with_groups.push("home");
+    #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
+    with_groups.extend(["news", "vocabulary"]);
     for id in with_groups {
         assert!(
             !paperpaw_app::fixed_tables(id).groups.is_empty(),

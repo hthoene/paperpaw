@@ -244,19 +244,21 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
         "bluetooth" => tables!(paperpaw_plugin_bluetooth),
         "file-manager" => tables!(paperpaw_plugin_file_manager),
         "help" => tables!(paperpaw_plugin_help),
+        #[cfg(feature = "native-linked-reading")]
         "home" => tables!(paperpaw_plugin_home),
         "keyboard" => tables!(paperpaw_plugin_keyboard),
         "lock" => tables!(paperpaw_plugin_lock),
         "menu" => tables!(paperpaw_plugin_menu),
         "opds" => tables!(paperpaw_plugin_opds),
         "power" => tables!(paperpaw_plugin_power),
+        #[cfg(feature = "native-linked-reading")]
         "reader" => tables!(paperpaw_plugin_reader),
         "settings" => tables!(paperpaw_plugin_settings),
         #[cfg(feature = "native-linked-store")]
         "aids" => tables!(paperpaw_plugin_aids),
-        #[cfg(feature = "native-linked-store")]
+        #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
         "news" => tables!(paperpaw_plugin_news),
-        #[cfg(feature = "native-linked-store")]
+        #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
         "vocabulary" => tables!(paperpaw_plugin_vocabulary),
         #[cfg(feature = "native-linked-store")]
         "widgets" => tables!(paperpaw_plugin_widgets),
