@@ -494,3 +494,49 @@ fn a_book_whose_job_a_reset_ended_is_skipped_from_the_start() {
     assert_eq!(kept_title(&w, "books/a.epub"), None);
     assert_eq!(kept_title(&w, "books/b.epub").as_deref(), Some("Dune"));
 }
+
+/// Runs what is due within a minute and more, as time goes on.
+fn run(kernel: &mut crate::Kernel, mut now: u64, mut effects: crate::Effects) -> u64 {
+    for _ in 0..2000 {
+        match effects.wake_at() {
+            Some(at) if at.0 <= now + 61_000 => {
+                now = now.max(at.0);
+                effects = kernel.tick(Instant(now));
+            }
+            _ => break,
+        }
+    }
+    now
+}
+
+#[test]
+fn the_walk_after_the_job_makes_the_books_line_from_what_the_format_named() {
+    use paperpaw_sdk::event::EventData;
+    let mut w = world(&["books/a.epub"]);
+    let effects = w.kernel.start(Instant(0));
+    let mut now = run(&mut w.kernel, 0, effects);
+    // A view asks for the catalog: the walk lists the book by its file.
+    let ask = events::CatalogWanted::new(false).to_params();
+    let effects = w
+        .kernel
+        .send_event(Instant(now), events::CATALOG_WANTED.id().clone(), ask);
+    now = run(&mut w.kernel, now, effects);
+    let line = || {
+        let mut found = None;
+        catalog::each(&*w.card, &mut |record| found = Some(record));
+        found.unwrap()
+    };
+    // The passes that come anyway: the job reads the book, wants the catalog.
+    for _ in 0..4 {
+        now += 1_000;
+        let effects = w.kernel.tick(Instant(now));
+        now = run(&mut w.kernel, now, effects);
+    }
+    assert_eq!(w.format.opens(), 1, "read once");
+    let record = line();
+    assert_eq!(record.path, "books/a.epub");
+    assert_eq!(record.title, "Dune");
+    assert_eq!(record.author, "Author");
+    assert_eq!(record.size, Some(6), "its details are read");
+    assert!(!w.docs.details_job().unwrap().run().armed());
+}
