@@ -3,7 +3,7 @@
 //! A child of the shell, which keeps the plugin's context private.
 use super::{Context, PpBuffer, PpBytes, c_void, host_glue};
 
-pub(super) unsafe extern "C" fn storage_size<S>(
+pub(super) unsafe extern "C" fn storage_size<S: 'static>(
     ctx: *mut c_void,
     root: u32,
     path: PpBytes,
@@ -28,7 +28,7 @@ pub(super) unsafe extern "C" fn storage_size<S>(
     }
 }
 
-pub(super) unsafe extern "C" fn storage_read_at<S>(
+pub(super) unsafe extern "C" fn storage_read_at<S: 'static>(
     ctx: *mut c_void,
     root: u32,
     path: PpBytes,
@@ -57,14 +57,14 @@ pub(super) unsafe extern "C" fn storage_read_at<S>(
 
 /// What lets a storage slot of this plugin name the document its format call
 /// is for (roots 3, 4 and 6).
-fn format_of<S>(context: &Context<S>) -> Option<super::super::storage_slots::Format<'_>> {
+fn format_of<S: 'static>(context: &Context<S>) -> Option<super::super::storage_slots::Format<'_>> {
     Some(super::super::storage_slots::Format {
         scope: context.resources.hosts().format_scope(),
         owner: context.resources.owner_id(),
     })
 }
 
-pub(super) unsafe extern "C" fn storage_write<S>(
+pub(super) unsafe extern "C" fn storage_write<S: 'static>(
     ctx: *mut c_void,
     root: u32,
     path: PpBytes,
@@ -91,7 +91,7 @@ pub(super) unsafe extern "C" fn storage_write<S>(
     }
 }
 
-pub(super) unsafe extern "C" fn storage_append<S>(
+pub(super) unsafe extern "C" fn storage_append<S: 'static>(
     ctx: *mut c_void,
     root: u32,
     path: PpBytes,
@@ -118,7 +118,7 @@ pub(super) unsafe extern "C" fn storage_append<S>(
     }
 }
 
-pub(super) unsafe extern "C" fn storage_rename<S>(
+pub(super) unsafe extern "C" fn storage_rename<S: 'static>(
     ctx: *mut c_void,
     root: u32,
     from: PpBytes,
@@ -145,7 +145,7 @@ pub(super) unsafe extern "C" fn storage_rename<S>(
     }
 }
 
-pub(super) unsafe extern "C" fn storage_remove<S>(
+pub(super) unsafe extern "C" fn storage_remove<S: 'static>(
     ctx: *mut c_void,
     root: u32,
     path: PpBytes,
@@ -170,7 +170,7 @@ pub(super) unsafe extern "C" fn storage_remove<S>(
     }
 }
 
-pub(super) unsafe extern "C" fn storage_sync<S>(ctx: *mut c_void) -> i32 {
+pub(super) unsafe extern "C" fn storage_sync<S: 'static>(ctx: *mut c_void) -> i32 {
     // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;

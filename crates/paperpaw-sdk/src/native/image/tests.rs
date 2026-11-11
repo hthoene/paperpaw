@@ -242,7 +242,8 @@ fn prepare_and_release_stage_their_commands_and_refuse_a_long_path_first() {
             path: "cats/1.jpg",
             side: 0,
             cookie: 77,
-            flags: 0
+            flags: 0,
+            tone: &[]
         }
     );
     assert_eq!(
@@ -252,7 +253,8 @@ fn prepare_and_release_stage_their_commands_and_refuse_a_long_path_first() {
             path: "a.png",
             side: 9_999,
             cookie: 78,
-            flags: 1
+            flags: 1,
+            tone: &[]
         }
     );
     assert_eq!(
@@ -262,7 +264,8 @@ fn prepare_and_release_stage_their_commands_and_refuse_a_long_path_first() {
             path: "cats/2.png",
             side: 300,
             cookie: 79,
-            flags: 0
+            flags: 0,
+            tone: &[]
         }
     );
     assert_eq!(sent(4), Command::ImageRelease { image: 3 });
@@ -276,6 +279,7 @@ fn ready(status: u32, image: u32) -> Result<ImageReady, Error> {
         image,
         width: 320,
         height: 200,
+        luma: &[],
     })
 }
 
@@ -326,10 +330,94 @@ fn image_ready_arrives_as_an_event() {
         image: 4,
         width: 320,
         height: 200,
+        luma: &[],
     });
     let n = records_encode(&[record], &mut bytes).unwrap();
     let Event::ImageReady(got) = Event::decode(&bytes[..n]).unwrap() else {
         panic!("not an image event")
     };
     assert_eq!((got.now_ms(), got.cookie()), (5, 77));
+}
+
+#[test]
+fn prepare_sets_the_turn_flag_and_carries_the_tone_table() {
+    let table: [u8; TONE_BYTES] = core::array::from_fn(|i| 255 - i as u8);
+    let plain = PrepareImage::new(PrepareRoot::Data, "a.jpg", 1);
+    assert!(matches!(
+        plain.command().unwrap(),
+        Command::ImagePrepare {
+            flags: 0,
+            tone: &[],
+            ..
+        }
+    ));
+    let turned = plain.turn().colour();
+    let Command::ImagePrepare { flags, tone, .. } = turned.tone(&table).command().unwrap() else {
+        panic!("not a prepare");
+    };
+    assert_eq!(flags, COLOUR | TURN);
+    assert_eq!(tone, &table[..]);
+    let Command::ImagePrepare { flags, tone, .. } = plain.turn().command().unwrap() else {
+        panic!("not a prepare");
+    };
+    assert_eq!((flags, tone.len()), (TURN, 0));
+}
+
+#[test]
+fn the_new_draw_styles_set_their_bits_and_the_pairs_replace_each_other() {
+    assert_eq!(ImageStyle::new().stretch().flags(), STRETCH);
+    assert_eq!(ImageStyle::new().dots().flags(), DOTS);
+    assert_eq!(ImageStyle::new().grays().flags(), GRAYS);
+    // fill and stretch, dots and grays: the last one asked for counts, so the
+    // host never gets the invalid pair from the builder.
+    assert_eq!(ImageStyle::new().fill().stretch().flags(), STRETCH);
+    assert_eq!(ImageStyle::new().stretch().fill().flags(), FILL);
+    assert_eq!(ImageStyle::new().dots().grays().flags(), GRAYS);
+    assert_eq!(ImageStyle::new().grays().dots().flags(), DOTS);
+    let all = ImageStyle::new().stretch().dots().small().transparency(10);
+    assert_eq!(all.flags(), STRETCH | DOTS | SMALL | 10 << 8);
+}
+
+#[test]
+fn a_draw_with_the_new_bits_reaches_the_host_as_they_are() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let frame = FrameRect::new(0, 0, 480, 800);
+    let canvas = Canvas::from(&host, frame, frame);
+    canvas
+        .draw_image(
+            ImageId::new(2).unwrap(),
+            FrameRect::new(1, 2, 3, 4),
+            ImageStyle::new().stretch().dots(),
+        )
+        .unwrap();
+    assert_eq!(ctx.draws.borrow()[0][5], i64::from(STRETCH | DOTS));
+}
+
+#[test]
+fn image_ready_carries_the_brightness_grid_of_a_ready_picture_only() {
+    let grid: [u8; LUMA_BYTES] = core::array::from_fn(|i| i as u8 * 4);
+    let with = |status, luma: &[u8]| {
+        ImageReady::decode(wire::EventImageReady {
+            now_ms: 5,
+            cookie: 77,
+            status,
+            image: if status == 0 { 4 } else { 0 },
+            width: 320,
+            height: 200,
+            luma,
+        })
+    };
+    assert_eq!(with(0, &grid).unwrap().luma(), Some(&grid));
+    assert_eq!(with(0, &[]).unwrap().luma(), None);
+    // Not a ready picture: no grid, however it came.
+    assert_eq!(with(2, &grid).unwrap().luma(), None);
+    // 63 or 65 bytes are no grid: the event is refused.
+    assert_eq!(with(0, &grid[..63]), Err(Error::Invalid));
+    let long = [0_u8; 65];
+    assert_eq!(with(0, &long), Err(Error::Invalid));
 }

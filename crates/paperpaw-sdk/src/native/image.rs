@@ -25,10 +25,19 @@ pub const WAITING_MAX: usize = 4;
 /// Bits of `doc_image.flags` (from `image.info`); bit 0 is also `image_prepare.flags`.
 const COLOUR: u32 = 1;
 const NOT_DECODED: u32 = 1 << 1;
+/// Bit 1 of `image_prepare.flags`: apply a JPEG's EXIF orientation.
+const TURN: u32 = 1 << 1;
 /// Bits of `canvas.draw_image` flags.
 const FILL: u32 = 1;
 const SMALL: u32 = 1 << 1;
+const STRETCH: u32 = 1 << 2;
+const DOTS: u32 = 1 << 3;
+const GRAYS: u32 = 1 << 4;
 const TRANSPARENCY_SHIFT: u32 = 8;
+/// The bytes of a tone table (`image_prepare.tone`).
+pub const TONE_BYTES: usize = 256;
+/// The bytes of the brightness grid of `event.image_ready`: 8 by 8, row by row.
+pub const LUMA_BYTES: usize = 64;
 
 /// The id of a decoded picture the host may draw. Ids are per plugin and never 0;
 /// one ends with `image_release`, with its document or when the plugin stops.
@@ -146,10 +155,35 @@ impl ImageStyle {
         Self { flags: 0 }
     }
 
-    /// Fill the rectangle and crop what does not fit.
+    /// Fill the rectangle and crop what does not fit. Replaces
+    /// [`stretch`](Self::stretch).
     #[must_use]
     pub const fn fill(mut self) -> Self {
-        self.flags |= FILL;
+        self.flags = self.flags & !STRETCH | FILL;
+        self
+    }
+
+    /// Scale to the rectangle and drop the picture's shape. Replaces
+    /// [`fill`](Self::fill).
+    #[must_use]
+    pub const fn stretch(mut self) -> Self {
+        self.flags = self.flags & !FILL | STRETCH;
+        self
+    }
+
+    /// Draw in black and white dots, also on a panel with grays. Replaces
+    /// [`grays`](Self::grays); neither is the panel's own rule.
+    #[must_use]
+    pub const fn dots(mut self) -> Self {
+        self.flags = self.flags & !GRAYS | DOTS;
+        self
+    }
+
+    /// Draw in the panel's grays where it has them. Replaces
+    /// [`dots`](Self::dots).
+    #[must_use]
+    pub const fn grays(mut self) -> Self {
+        self.flags = self.flags & !DOTS | GRAYS;
         self
     }
 
@@ -234,6 +268,8 @@ pub struct PrepareImage<'a> {
     cookie: u32,
     side: u32,
     colour: bool,
+    turn: bool,
+    tone: Option<&'a [u8; TONE_BYTES]>,
 }
 
 impl<'a> PrepareImage<'a> {
@@ -247,6 +283,8 @@ impl<'a> PrepareImage<'a> {
             cookie,
             side: 0,
             colour: false,
+            turn: false,
+            tone: None,
         }
     }
 
@@ -265,6 +303,24 @@ impl<'a> PrepareImage<'a> {
         self
     }
 
+    /// Turn a JPEG as its EXIF orientation says while it is decoded (the
+    /// size in [`ImageReady`] is the size after the turn). Another format is
+    /// not turned.
+    #[must_use]
+    pub const fn turn(mut self) -> Self {
+        self.turn = true;
+        self
+    }
+
+    /// Map every gray (every colour channel) through `table` while the picture
+    /// is decoded: `table[value]` is the new value. The plugin keeps its own
+    /// curve; the host defines no brightness or contrast.
+    #[must_use]
+    pub const fn tone(mut self, table: &'a [u8; TONE_BYTES]) -> Self {
+        self.tone = Some(table);
+        self
+    }
+
     pub(crate) fn command(&self) -> Result<Command<'a>, Error> {
         if self.path.len() > COMMAND_IMAGE_PREPARE_PATH_MAX_BYTES {
             return Err(Error::Invalid);
@@ -278,7 +334,8 @@ impl<'a> PrepareImage<'a> {
             path: self.path,
             side: self.side,
             cookie: self.cookie,
-            flags: if self.colour { COLOUR } else { 0 },
+            flags: if self.colour { COLOUR } else { 0 } | if self.turn { TURN } else { 0 },
+            tone: self.tone.map_or(&[], |table| &table[..]),
         })
     }
 }
@@ -314,10 +371,11 @@ pub struct ImageReady {
     image: Option<ImageId>,
     width: u32,
     height: u32,
+    luma: Option<[u8; LUMA_BYTES]>,
 }
 
 impl ImageReady {
-    pub(crate) fn decode(r: wire::EventImageReady) -> Result<Self, Error> {
+    pub(crate) fn decode(r: wire::EventImageReady<'_>) -> Result<Self, Error> {
         let status = match r.status {
             0 => ImageStatus::Ready,
             1 => ImageStatus::Unsupported,
@@ -334,6 +392,13 @@ impl ImageReady {
         } else {
             None
         };
+        // The brightness grid comes with a ready picture only: none, or 64 bytes.
+        let luma = match r.luma.len() {
+            0 => None,
+            LUMA_BYTES if ready => <[u8; LUMA_BYTES]>::try_from(r.luma).ok(),
+            LUMA_BYTES => None,
+            _ => return Err(Error::Invalid),
+        };
         Ok(Self {
             now_ms: r.now_ms,
             cookie: r.cookie,
@@ -341,6 +406,7 @@ impl ImageReady {
             image,
             width: if ready { r.width } else { 0 },
             height: if ready { r.height } else { 0 },
+            luma,
         })
     }
 
@@ -378,6 +444,15 @@ impl ImageReady {
     #[must_use]
     pub const fn height(&self) -> u32 {
         self.height
+    }
+
+    /// The mean brightness (0 to 255) of an 8 by 8 grid over the prepared
+    /// picture, row by row: the plugin works out how bright it is behind any
+    /// rectangle from it. `None` unless the picture is ready and the host
+    /// made the grid.
+    #[must_use]
+    pub const fn luma(&self) -> Option<&[u8; LUMA_BYTES]> {
+        self.luma.as_ref()
     }
 }
 

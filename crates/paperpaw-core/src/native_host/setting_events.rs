@@ -363,6 +363,9 @@ impl crate::Kernel {
 
     /// Tells the waiting events, a few to a plugin in a pass; `true` when
     /// some wait (another pass). Never inside a callback.
+    // Its own frame: the pump keeps the services' passes apart, so that no
+    // frame adds their locals (the firmware's frame limit for host code).
+    #[inline(never)]
     pub(crate) fn native_setting_pump(&mut self) -> bool {
         let events = &self.shared.native_instances.setting_events;
         events.prune(&self.shared.native_instances);

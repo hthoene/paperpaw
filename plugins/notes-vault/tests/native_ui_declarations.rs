@@ -60,17 +60,12 @@ fn the_format_image_is_what_the_builder_makes() {
 }
 
 /// The format declaration is valid (the host checks its name, title and
-/// extensions) but the host takes no format plugins yet: `ERR_UNSUPPORTED`.
-/// The plugin's `make` goes on without it. `BLOCKED DOC-format-declaration`
-/// when the host admits it (Host #417, Core #944).
+/// extensions) and the host admits it (`document.md` section 1).
 #[test]
-fn the_host_checks_the_format_and_does_not_take_it_yet() {
+fn the_host_checks_the_format_and_admits_it() {
     for batch in format_batches() {
         let records = records_decode(&batch).unwrap();
-        assert_eq!(
-            validate_batch("notes-vault", &records),
-            Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
-        );
+        validate_batch("notes-vault", &records).unwrap();
     }
 }
 

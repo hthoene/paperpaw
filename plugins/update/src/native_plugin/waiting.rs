@@ -49,6 +49,9 @@ pub struct Waited {
     crates: String,
     /// The crates built in now the server says are not in its plugin library.
     unknown: String,
+    /// Every plugin built in now the update has no build of, as the answer
+    /// lists its crates (what is gone after it; empty where it lists none).
+    leaves: String,
 }
 
 /// The work that asks the server again: not before `after_ms`, within `within_ms`,
@@ -163,8 +166,18 @@ impl NativeUpdate {
     /// one's text where nothing better is known and its id. A first-party crate is
     /// named after its plugin.
     fn shown(&mut self, host: &Host<'_>, wanted: &[(&str, &str)]) -> Result<String, Error> {
+        let names = self.shown_each(host, wanted)?;
+        join(&names, ", ")
+    }
+
+    /// The same, one name each (in the order of `wanted`).
+    pub(super) fn shown_each(
+        &mut self,
+        host: &Host<'_>,
+        wanted: &[(&str, &str)],
+    ) -> Result<Vec<String>, Error> {
         if wanted.is_empty() {
-            return Ok(String::new());
+            return Ok(Vec::new());
         }
         let mut names = Vec::new();
         names
@@ -190,7 +203,7 @@ impl NativeUpdate {
                 None => break,
             }
         }
-        join(&names, ", ")
+        Ok(names)
     }
 
     /// The page's view of the update `offer`: it waits where plugins in use have
@@ -202,8 +215,10 @@ impl NativeUpdate {
             self.still(host, &mut holding)?;
         }
         if holding.is_empty() {
-            return Ok(View::Offer(offer));
+            let leaves = self.left_by_offer(host, &offer, true)?;
+            return Ok(View::Offer(offer, leaves));
         }
+        let leaves = self.left_by_offer(host, &offer, false)?;
         let plugins: Vec<(&str, &str)> = {
             let mut list = Vec::new();
             list.try_reserve_exact(holding.plugins.len())
@@ -228,6 +243,7 @@ impl NativeUpdate {
             stopping,
             crates,
             unknown,
+            leaves,
         };
         Ok(if self.anyway {
             View::Anyway(waited)
@@ -448,7 +464,13 @@ pub(super) fn texts(
         if !waited.stopping.is_empty() {
             help = messages.format(host, "update.stopping", &list(&waited.stopping))?;
         }
-        let gone = join_names(&waited.crates, &waited.unknown)?;
+        // What is gone: all the update has no build of, where the answer says;
+        // else the crates it names as not ready or not in the library.
+        let gone = if waited.leaves.is_empty() {
+            join_names(&waited.crates, &waited.unknown)?
+        } else {
+            copy(&waited.leaves)?
+        };
         if !gone.is_empty() {
             let text = messages.format(host, "update.leaves.anyway", &list(&gone))?;
             help = if help.is_empty() {
@@ -472,7 +494,7 @@ pub(super) fn texts(
 }
 
 /// The argument `plugins` of a text.
-const fn list(text: &str) -> [Arg<'_>; 1] {
+pub(super) const fn list(text: &str) -> [Arg<'_>; 1] {
     [Arg::Text {
         name: "plugins",
         value: text,

@@ -2,7 +2,7 @@
 
 Status: contract of family 1a (#228). It replaces the stage and `service.call` parts of PR #231
 (`stages-images-services.md`, never merged); images (N6) come with their own family. Everything
-here is appended (records, `PpHost` slots 32-34, service schemas), so it is the next draft (12): the
+here is appended (records, `PpHost` slots 32-34, service schemas), so it changed interface 7: the
 one-line `PpHost` shape and the SDK `Record` shape change. Items marked [D] are decided.
 
 It builds on `screens-input.md`: reply buffers (section 6), lifetime and cancellation (section 7),

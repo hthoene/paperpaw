@@ -51,6 +51,9 @@ impl crate::Kernel {
 
     /// One pass of the work scheduler (see the module). `true` when plugin
     /// calls remain for another pass.
+    // Its own frame: the pump keeps the services' passes apart, so that no
+    // frame adds their locals (the firmware's frame limit for host code).
+    #[inline(never)]
     pub(crate) fn native_work_pump(&mut self) -> bool {
         // A batch left waiting runs first, so no entry is taken for a callback
         // that is then refused.

@@ -4,6 +4,8 @@ use crate::Color;
 
 /// Maximum UTF-8 key size accepted by the font.acquire slot.
 pub(super) const FONT_ACQUIRE_MAX_BYTES: usize = 128;
+/// The key prefix of a font file in the plugin's data folder.
+const DATA_KEY: &str = "data:";
 /// Maximum UTF-8 text size accepted by the text.measure slot.
 pub(super) const TEXT_MEASURE_MAX_BYTES: usize = 4096;
 /// Maximum UTF-8 text size accepted by the text.draw slot.
@@ -143,6 +145,34 @@ impl<'cb> Font<'cb> {
             host,
             handle: Some(handle),
         })
+    }
+
+    /// Acquire the font file at `path` in the plugin's own data folder
+    /// (the key `data:<path>`): a font pack (`.ppfp`) or a TrueType or
+    /// OpenType file the plugin keeps there, to draw text in it though no
+    /// registry holds it (a font not installed yet). The host opens it when
+    /// acquired, nothing is registered, and it needs no permission. It counts
+    /// toward the plugin's font handles (8, shared with roles and ids). Once the
+    /// file is changed or removed the handle answers State on text calls:
+    /// acquire it again. Without allocating.
+    ///
+    /// # Errors
+    /// Returns Invalid for a path that makes the key longer than 128 bytes
+    /// (a path of at most 123), or the host's refusal: Invalid for a path
+    /// outside the data folder (`..`, a leading `/`, a root) or a file that
+    /// is no font, NotFound for a missing file, Full beyond the handle cap.
+    pub fn acquire_data(host: &'cb Host<'cb>, path: impl AsRef<str>) -> Result<Self, Error> {
+        let path = path.as_ref();
+        let mut key = [0_u8; FONT_ACQUIRE_MAX_BYTES];
+        let slot = key
+            .get_mut(..DATA_KEY.len() + path.len())
+            .ok_or(Error::Invalid)?;
+        let (head, rest) = slot.split_at_mut(DATA_KEY.len());
+        head.copy_from_slice(DATA_KEY.as_bytes());
+        rest.copy_from_slice(path.as_bytes());
+        // The prefix and the path are UTF-8, so is the whole.
+        let key = core::str::from_utf8(slot).map_err(|_| Error::Invalid)?;
+        Self::acquire(host, key)
     }
 
     /// Acquire a font that follows the reader's selected role on each call.

@@ -91,10 +91,14 @@ struct World<'a> {
     sniffs: RefCell<Vec<u64>>,
     /// What the format answers to the next call.
     reply: RefCell<Result<Vec<u8>, i32>>,
+    /// The screen instance the opener's call runs in (`Frame::calling_instance`).
+    instance: Cell<Option<u32>>,
     /// (owner, token, the call's fmt op) of each call made to a format.
     calls: RefCell<Vec<(u64, u32, u32)>>,
     hosts: HostServices,
     state: Rc<DocState>,
+    /// The owner of the screen on top of the stack.
+    top: Cell<u64>,
 }
 
 impl RegistryView for World<'_> {
@@ -154,7 +158,7 @@ impl Frame for World<'_> {
     fn with_stack(&self, visit: &mut dyn FnMut(&dyn UiStackView)) -> Result<(), i32> {
         visit(&Rows(&[Row {
             instance: 1,
-            owner: OPENER,
+            owner: self.top.get(),
             overlay: false,
             guards: false,
             secret: false,
@@ -162,6 +166,9 @@ impl Frame for World<'_> {
             guard_dialog: false,
         }]));
         Ok(())
+    }
+    fn calling_instance(&self) -> Result<u32, i32> {
+        self.instance.get().ok_or(ERR_STATE)
     }
     fn plugin_name(&self, plugin: &str, visit: &mut dyn FnMut(&str)) -> Result<(), i32> {
         visit(&std::format!("Name of {plugin}"));
@@ -527,10 +534,12 @@ fn world<R>(body: impl FnOnce(&World<'_>) -> R) -> R {
         version: Cell::new("1.0.0"),
         scoped: RefCell::new(Vec::new()),
         fail: Cell::new(0),
+        instance: Cell::new(None),
         reply: RefCell::new(Ok(state_reply())),
         calls: RefCell::new(Vec::new()),
         hosts,
         state,
+        top: Cell::new(OPENER),
     };
     body(&world)
 }
@@ -811,8 +820,10 @@ fn malformed_input_and_unwired_roots_are_refused_before_a_format_is_called() {
                 "op {id}"
             );
         }
-        // `doc_open` names root 0 or 1 only; any other root is invalid.
-        assert_eq!(w.open(5, "a.epub"), Err(ERR_INVALID));
+        // `doc_open` names root 0, 1 or 5 only; root 5 needs a hand-over
+        // (unsupported while no `core.ui` store is wired), any other is invalid.
+        assert_eq!(w.open(5, "a.epub"), Err(ERR_UNSUPPORTED));
+        assert_eq!(w.open(2, "a.epub"), Err(ERR_INVALID));
         assert!(w.open(9, "a.epub").is_err());
         assert!(w.calls.borrow().is_empty());
         assert_eq!(w.state.table.len(), 0);
@@ -1165,204 +1176,14 @@ fn seen_cache(w: &World<'_>, at: usize) -> std::string::String {
     w.scoped.borrow()[at].5.clone()
 }
 
-fn conversion_of(folder: &str) -> &str {
-    folder.rsplit('/').next().unwrap()
-}
+#[path = "doc_host_cache_tests.rs"]
+mod cache;
 
-#[test]
-fn an_open_has_its_cache_folder_and_a_finished_open_is_stamped_for_its_conversion() {
-    world(|w| {
-        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
-        w.makes_cache.set(true);
-        let close = |document: u32| {
-            w.call(
-                AdmittedFeatures::NONE,
-                18,
-                &[Record::ServiceDocRef(wire::ServiceDocRef { document })],
-            )
-            .unwrap();
-        };
-        close(w.open(1, "books/a.epub").unwrap());
-        let folder = seen_cache(w, 0);
-        assert!(folder.starts_with(".paperpaw/cache/"), "{folder}");
-        assert!(folder.contains("/epub/"), "{folder}");
-        assert_eq!(conversion_of(&folder).len(), 16);
-        // The format answered ready: the stamp is made.
-        assert!(
-            w.card
-                .get(&std::format!(
-                    "{folder}/{}",
-                    crate::native_host::doc_cache::STAMP
-                ))
-                .is_some()
-        );
-        // The finished cache is kept for the next open of the same conversion.
-        close(w.open(1, "books/a.epub").unwrap());
-        assert_eq!(seen_cache(w, 1), folder);
-        assert!(w.card.get(&std::format!("{folder}/pages/1")).is_some());
-        // A new version of the format makes it stale: it is made again.
-        w.version.set("2.0.0");
-        w.makes_cache.set(false);
-        close(w.open(1, "books/a.epub").unwrap());
-        assert!(w.card.get(&std::format!("{folder}/pages/1")).is_none());
-        // Another book has another cache.
-        close(w.open(1, "books/b.epub").unwrap());
-        assert_ne!(seen_cache(w, 3), folder);
-    });
-}
+#[path = "doc_host_protected_tests.rs"]
+mod protected_tests;
 
-#[test]
-fn a_half_made_cache_is_removed_at_the_next_open_and_a_ready_open_that_made_none_is_not_stamped() {
-    world(|w| {
-        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
-        let close = |document: u32| {
-            w.call(
-                AdmittedFeatures::NONE,
-                18,
-                &[Record::ServiceDocRef(wire::ServiceDocRef { document })],
-            )
-            .unwrap();
-        };
-        close(w.open(1, "books/a.epub").unwrap());
-        let folder = seen_cache(w, 0);
-        assert!(
-            w.card
-                .get(&std::format!(
-                    "{folder}/{}",
-                    crate::native_host::doc_cache::STAMP
-                ))
-                .is_none()
-        );
-        // A cache of a cut preparation: pages and no stamp.
-        w.card
-            .write(&std::format!("{folder}/pages/9"), b"old")
-            .unwrap();
-        close(w.open(1, "books/a.epub").unwrap());
-        assert!(w.card.get(&std::format!("{folder}/pages/9")).is_none());
-    });
-}
+#[path = "doc_host_root5_tests.rs"]
+mod root5_tests;
 
-/// Opens `path` (with the CSS file `css` of root 1 when it is not empty) and
-/// closes the document again; the folder of its cache is the format's call
-/// number `at`.
-fn open_and_close(w: &World<'_>, path: &str, css: &str) {
-    let document = if css.is_empty() {
-        w.open(1, path)
-    } else {
-        w.open_with_css(1, path, 1, css)
-    }
-    .unwrap();
-    w.call(
-        AdmittedFeatures::NONE,
-        18,
-        &[Record::ServiceDocRef(wire::ServiceDocRef { document })],
-    )
-    .unwrap();
-}
-
-#[test]
-fn a_book_replaced_at_its_path_or_an_edited_css_file_makes_the_cache_again() {
-    world(|w| {
-        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
-        w.makes_cache.set(true);
-        w.card.write("books/a.epub", b"first edition").unwrap();
-        w.card.write("style.css", b"p { color: red }").unwrap();
-        open_and_close(w, "books/a.epub", "style.css");
-        let folder = seen_cache(w, 0);
-        let page = std::format!("{folder}/pages/1");
-        w.card.write(&page, b"old text").unwrap();
-        // The same book and CSS file: the finished cache is used as it is.
-        w.makes_cache.set(false);
-        open_and_close(w, "books/a.epub", "style.css");
-        assert_eq!(w.card.get(&page).as_deref(), Some(&b"old text"[..]));
-        // Another edition of the book at the same path, even of the same size.
-        w.card.write("books/a.epub", b"FIRST EDITION").unwrap();
-        open_and_close(w, "books/a.epub", "style.css");
-        assert!(w.card.get(&page).is_none(), "the old book's cache is used");
-        // The cache of the new edition is finished in turn; then the CSS file
-        // is edited (other bytes, same size).
-        w.makes_cache.set(true);
-        open_and_close(w, "books/a.epub", "style.css");
-        w.card.write(&page, b"new text").unwrap();
-        w.makes_cache.set(false);
-        open_and_close(w, "books/a.epub", "style.css");
-        assert_eq!(w.card.get(&page).as_deref(), Some(&b"new text"[..]));
-        w.card.write("style.css", b"p { color: RED }").unwrap();
-        open_and_close(w, "books/a.epub", "style.css");
-        assert!(w.card.get(&page).is_none(), "the old CSS's cache is used");
-    });
-}
-
-#[test]
-fn a_finished_cache_found_at_the_open_keeps_its_stamp() {
-    world(|w| {
-        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
-        w.makes_cache.set(true);
-        w.card.write("books/a.epub", b"book").unwrap();
-        open_and_close(w, "books/a.epub", "");
-        let folder = seen_cache(w, 0);
-        let stamp = std::format!("{folder}/{}", crate::native_host::doc_cache::STAMP);
-        let first = w.card.get(&stamp).unwrap();
-        // One rename made it (from the host's folder); finding it current at
-        // the next opens makes no other: the host does not make it again.
-        assert_eq!(w.renames.get(), 1);
-        open_and_close(w, "books/a.epub", "");
-        open_and_close(w, "books/a.epub", "");
-        assert_eq!(w.renames.get(), 1);
-        assert_eq!(w.card.get(&stamp).unwrap(), first);
-    });
-}
-
-#[test]
-fn a_cache_that_ran_out_of_room_is_removed_with_what_was_counted() {
-    world(|w| {
-        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
-        w.makes_cache.set(true);
-        w.card.write("books/a.epub", b"book").unwrap();
-        *w.reply.borrow_mut() = Err(ERR_NO_SPACE);
-        assert_eq!(w.open(1, "books/a.epub"), Err(ERR_NO_SPACE));
-        let folder = seen_cache(w, 0);
-        assert!(!folder.is_empty());
-        assert!(w.card.get(&std::format!("{folder}/pages/1")).is_none());
-        assert_eq!(w.hosts.format_scope().total(&folder), 0);
-    });
-}
-
-#[test]
-fn what_a_format_wrote_after_the_stamp_is_in_the_stamp_when_its_last_document_closes() {
-    world(|w| {
-        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
-        w.makes_cache.set(true);
-        w.card.write("books/a.epub", b"book").unwrap();
-        let id = w.open(1, "books/a.epub").unwrap();
-        let folder = seen_cache(w, 0);
-        let stamp = std::format!("{folder}/{}", crate::native_host::doc_cache::STAMP);
-        let bytes = |w: &World<'_>| {
-            let text = w.card.get(&stamp).unwrap();
-            let line = text.rsplit(|b| *b == b'\n').nth(1).unwrap().to_vec();
-            std::string::String::from_utf8(line).unwrap()
-        };
-        // The format answered ready with nothing counted; it writes on later.
-        assert_eq!(bytes(w), "0");
-        let scope = w.hosts.format_scope();
-        scope.charge(&folder, 700, 0, u64::MAX).unwrap();
-        // A second document of the same cache keeps the count.
-        let second = w.open(1, "books/a.epub").unwrap();
-        let close = |document: u32| {
-            w.call(
-                AdmittedFeatures::NONE,
-                18,
-                &[Record::ServiceDocRef(wire::ServiceDocRef { document })],
-            )
-            .unwrap();
-        };
-        close(id);
-        assert_eq!((bytes(w), scope.total(&folder)), ("0".into(), 700));
-        close(second);
-        // The last one closed: the stamp says it, the count starts again
-        // from the stamp at the next open.
-        assert_eq!((bytes(w), scope.total(&folder)), ("700".into(), 0));
-        open_and_close(w, "books/a.epub", "");
-        assert_eq!(bytes(w), "700");
-    });
-}
+#[path = "doc_host_report_tests.rs"]
+mod report_tests;
