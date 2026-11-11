@@ -56,6 +56,11 @@ pub static NATIVE_SETTINGS: &[paperpaw_sdk::SettingSpec] = &native_settings::SET
 /// like [`NATIVE_SETTINGS`].
 #[cfg(feature = "linked")]
 pub static NATIVE_GROUPS: &[paperpaw_sdk::SettingGroupSpec] = &native_settings::GROUPS;
+
+/// The full ids the plugin declares, sorted, as a table kept in the program
+/// like [`NATIVE_SETTINGS`] (the kernel takes them in place of copies).
+#[cfg(feature = "linked")]
+pub static NATIVE_IDS: &[paperpaw_sdk::Id] = &native_settings::IDS;
 /// The interface-7 plugin.
 pub mod native_plugin;
 

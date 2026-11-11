@@ -13,7 +13,7 @@ use paperpaw_sdk::native::{
 };
 use paperpaw_ui_kit::{Item, ItemList, ItemStep, Messages, mem::push, text::copy};
 
-use super::{Ask, DOTS, NativeOpds, Pending, View};
+use super::{Ask, DOTS, Opds, Pending, View};
 use crate::native_catalogs::{self as catalogs, Catalog};
 use crate::native_keep as keep;
 use crate::native_model::MAX_URL;
@@ -100,7 +100,7 @@ impl EditView {
     }
 }
 
-impl NativeOpds {
+impl Opds {
     /// The editor opened for the catalog that was asked for.
     pub(super) fn opened_edit(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
         let index = match self.pending.take() {

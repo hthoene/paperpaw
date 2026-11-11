@@ -72,6 +72,7 @@ pub paperpaw_native::host_glue::PpHeap::size: u32
 pub paperpaw_native::host_glue::PpHost::blob_read: fn(*mut core::ffi::c_void, u32, u64, paperpaw_native::host_glue::PpBuffer) -> i32
 pub paperpaw_native::host_glue::PpHost::blob_release: fn(*mut core::ffi::c_void, u32) -> i32
 pub paperpaw_native::host_glue::PpHost::canvas_clip: fn(*mut core::ffi::c_void, i32, i32, u32, u32) -> i32
+pub paperpaw_native::host_glue::PpHost::canvas_describe: fn(*mut core::ffi::c_void, u32, u32, paperpaw_native::host_glue::PpBytes, i32, i32, u32, u32) -> i32
 pub paperpaw_native::host_glue::PpHost::canvas_draw_image: fn(*mut core::ffi::c_void, u32, i32, i32, u32, u32, u32) -> i32
 pub paperpaw_native::host_glue::PpHost::canvas_draw_line: fn(*mut core::ffi::c_void, i32, i32, i32, i32, u32, u32) -> i32
 pub paperpaw_native::host_glue::PpHost::canvas_fill_rect: fn(*mut core::ffi::c_void, i32, i32, u32, u32, u32) -> i32

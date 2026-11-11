@@ -148,3 +148,62 @@ pub fn fixed_groups_source(plugin: &str, name: &str, batches: &[&[u8]]) -> Resul
         "pub static {name}: [paperpaw_sdk::SettingGroupSpec; {count}] = [\n{rows}];\n"
     ))
 }
+
+/// Rust source of `pub static <name>: [paperpaw_sdk::Id; N]`: every full id
+/// the `batches` of `plugin` name where the kernel makes an id of a record
+/// (the plugin's own id; its screens, actions, settings and setting groups
+/// as `<plugin>.<name>`; a group's page; and as written, a setting's group,
+/// a group's parent, a slot offer's slot and screen, a choice's setting),
+/// sorted by their text and each once. The kernel takes an id it finds here
+/// in place of a copy on the heap (`FixedTables::with_ids`). Meant for a
+/// build script; the generated code names `paperpaw_sdk::Id` in full. A text
+/// that is not an id is left out (the kernel refuses its record anyway).
+///
+/// # Errors
+/// A batch that does not decode.
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+pub fn fixed_ids_source(plugin: &str, name: &str, batches: &[&[u8]]) -> Result<String, String> {
+    let mut ids: Vec<String> = Vec::new();
+    ids.push(String::from(plugin));
+    let own = |name: &str| format!("{plugin}.{name}");
+    for bytes in batches {
+        let batch = records_decode(bytes).map_err(|code| format!("batch: error {code}"))?;
+        for record in batch.iter() {
+            match record {
+                Record::ScreenSpec(screen) => ids.push(own(screen.name)),
+                Record::ActionSpec(action) => ids.push(own(action.name)),
+                Record::SettingSpec(spec) => {
+                    ids.push(own(spec.name));
+                    ids.push(String::from(spec.group));
+                }
+                Record::SettingGroup(group) => {
+                    ids.push(own(group.name));
+                    if !group.page.is_empty() {
+                        ids.push(own(group.page));
+                    }
+                    if !group.parent.is_empty() {
+                        ids.push(String::from(group.parent));
+                    }
+                }
+                Record::SlotOffer(offer) => {
+                    ids.push(String::from(offer.slot));
+                    ids.push(String::from(offer.screen));
+                }
+                Record::SettingChoice(choice) => ids.push(String::from(choice.key)),
+                // No other record is made an id of by the kernel.
+                _ => {}
+            }
+        }
+    }
+    ids.retain(|id| crate::id::is_valid(id));
+    ids.sort_unstable();
+    ids.dedup();
+    let mut rows = String::new();
+    for id in &ids {
+        let _ = writeln!(rows, "    paperpaw_sdk::Id::new_static({id:?}),");
+    }
+    Ok(format!(
+        "pub static {name}: [paperpaw_sdk::Id; {}] = [\n{rows}];\n",
+        ids.len()
+    ))
+}

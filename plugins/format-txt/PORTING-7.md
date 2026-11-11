@@ -64,4 +64,4 @@ in a shipped build: `NativeTxt` is not in `paperpaw_app::NATIVE_PLUGINS` yet). R
 
 The interface-6 `TxtFormat` registration, `TxtDocument` use of `utf8_copy` and its plugin-folder
 cache stay until the host activates native plugins; they go together then (no shim).
-X4 `.ppn` size: not measurable yet (built into Beta 3, no artifact; no entry point yet).
+X4 `.ppn` (`tools/plugin-files7/build.sh x4 --only format-txt`, version 1.0.2): 55,984 bytes; the packer accepts every frame (below 2,048 B). The `linked` hosted tests pass (`cargo test --features linked`).

@@ -17,11 +17,13 @@ native-entry = []
 
 [dependencies]
 paperpaw-sdk.workspace = true
-paperpaw-plugin-format-epub.workspace = true
+paperpaw-epub-family.workspace = true
 paperpaw-ui-kit.workspace = true
 
 [build-dependencies]
-paperpaw-sdk.workspace = true
+# `kernel` only for the build script (not unified with the plugin's own use of
+# the SDK): it makes the tables a linked build keeps in the program.
+paperpaw-sdk = { workspace = true, features = ["kernel"] }
 
 [dev-dependencies]
 paperpaw-core.workspace = true

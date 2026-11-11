@@ -51,3 +51,58 @@ fn the_entry_is_found_anywhere_in_the_table() {
     assert_eq!(find(&TABLE, &gone), None);
     assert_eq!(find(&[], &gone), None);
 }
+
+/// A plugin's id table names every id the host makes of its records, sorted
+/// and once each, and leaves out what is not an id.
+#[test]
+fn the_id_table_is_sorted_and_holds_the_ids_the_host_makes() {
+    use crate::native_host::registrations::{
+        ActionSpec, Record, ScreenSpec, SettingGroup, SlotOffer, records_encode,
+    };
+    let records = [
+        Record::ScreenSpec(ScreenSpec {
+            name: "main",
+            title: "p.main",
+            token: 1,
+            flags: 0,
+        }),
+        Record::ActionSpec(ActionSpec {
+            name: "open",
+            title: "p.open",
+            token: 2,
+            flags: 0,
+        }),
+        Record::SettingGroup(SettingGroup {
+            name: "g",
+            title: "p.g",
+            order: 0,
+            page: "main",
+            parent: "core.reader",
+        }),
+        Record::SlotOffer(SlotOffer {
+            slot: "home.slot",
+            screen: "p.main",
+            priority: 0,
+        }),
+        // Not an id: left out of the table (the host refuses the record).
+        Record::SlotOffer(SlotOffer {
+            slot: "Not An Id",
+            screen: "p.main",
+            priority: 0,
+        }),
+    ];
+    let mut bytes = alloc::vec![0; 1024];
+    let len = records_encode(&records, &mut bytes).unwrap();
+    let source =
+        paperpaw_sdk::native::declare::fixed_ids_source("p", "IDS", &[&bytes[..len]]).unwrap();
+    let ids: alloc::vec::Vec<&str> = source
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("paperpaw_sdk::Id::new_static(\""))
+        .filter_map(|line| line.strip_suffix("\"),"))
+        .collect();
+    assert_eq!(
+        ids,
+        ["core.reader", "home.slot", "p", "p.g", "p.main", "p.open"]
+    );
+    assert!(source.starts_with("pub static IDS: [paperpaw_sdk::Id; 6] = ["));
+}

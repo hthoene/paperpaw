@@ -45,6 +45,11 @@ fn fonts() -> paperpaw_app::Fonts {
 /// The screen on top after the start, on a card with the book, `state` as the
 /// reader's `state.ini` (none: no file) and `config` as the user's settings.
 fn started(state: Option<&str>, config: &str) -> String {
+    started_with_state(state, config).0
+}
+
+/// [`started`], and the reader's `state.ini` after the start (none: no file).
+fn started_with_state(state: Option<&str>, config: &str) -> (String, Option<String>) {
     let mut storage = MemoryStorage::new()
         .with(
             BOOK,
@@ -71,7 +76,13 @@ fn started(state: Option<&str>, config: &str) -> String {
     let mut text = String::new();
     let screen = kernel.active_screen().map_or("", |id| id.as_str());
     write!(text, "{screen}").unwrap();
-    text
+    let mut kept = vec![0u8; 4096];
+    let kept = kernel
+        .storage()
+        .read_at(STATE, 0, &mut kept)
+        .ok()
+        .map(|n| String::from_utf8_lossy(&kept[..n]).into_owned());
+    (text, kept)
 }
 
 const LANGUAGE: &str = "[core]\nlanguage = en\n";
@@ -89,6 +100,22 @@ fn the_last_book_opens_at_the_start() {
 fn a_book_gone_from_the_card_leaves_the_home_screen() {
     let shown = started(Some("[reader]\nlast = books/gone.txt\n"), LANGUAGE);
     assert_eq!(shown, "home.dashboard");
+}
+
+/// The book is forgotten once it is found gone: the next start has nothing to look for.
+#[test]
+#[ignore = "needs native activation (the reader in NATIVE_PLUGINS, Core #944): the interface-6 reader keeps the path"]
+fn a_book_gone_from_the_card_is_forgotten() {
+    let (shown, kept) = started_with_state(Some("[reader]\nlast = books/gone.txt\n"), LANGUAGE);
+    assert_eq!(shown, "home.dashboard");
+    assert_eq!(kept, None);
+    // One still there is kept.
+    let (shown, kept) = started_with_state(
+        Some("[reader]\nlast = books/alice-in-wonderland.txt\n"),
+        LANGUAGE,
+    );
+    assert_eq!(shown, "reader.screen");
+    assert!(kept.is_some_and(|text| text.contains("alice-in-wonderland")));
 }
 
 #[test]

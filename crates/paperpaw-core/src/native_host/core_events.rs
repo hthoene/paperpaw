@@ -48,7 +48,7 @@ const QUEUE_MAX: usize = 28;
 
 /// The lifecycle events that are edges, held encoded (and `library_changed`,
 /// held the same way: its queue must not be pruned for want of a listener).
-const EDGE_TAGS: [u32; 11] = [
+const EDGE_TAGS: [u32; 12] = [
     wire::EVENT_SCREEN_READY_TAG,
     wire::EVENT_STARTED_TAG,
     wire::EVENT_BATTERY_MEASURED_TAG,
@@ -56,6 +56,7 @@ const EDGE_TAGS: [u32; 11] = [
     wire::EVENT_BOOK_OPENED_TAG,
     wire::EVENT_BOOK_CLOSED_TAG,
     wire::EVENT_BOOK_FINISHED_TAG,
+    wire::EVENT_BOOK_MOVED_TAG,
     wire::EVENT_LIBRARY_CHANGED_TAG,
     wire::EVENT_SPOKEN_TAG,
     wire::EVENT_PLUGINS_REQUESTED_TAG,
@@ -82,6 +83,8 @@ fn tag_of(event: &Id) -> Option<u32> {
         wire::EVENT_BOOK_CLOSED_TAG
     } else if *event == builtin::BOOK_FINISHED {
         wire::EVENT_BOOK_FINISHED_TAG
+    } else if *event == builtin::BOOK_MOVED {
+        wire::EVENT_BOOK_MOVED_TAG
     } else if *event == super::native_tick::TICK {
         wire::EVENT_TICK_TAG
     } else {
@@ -124,6 +127,7 @@ fn drop_note(tag: u32) -> &'static str {
         wire::EVENT_BOOK_OPENED_TAG => "a native plugin lost event.book_opened; not retried",
         wire::EVENT_BOOK_CLOSED_TAG => "a native plugin lost event.book_closed; not retried",
         wire::EVENT_BOOK_FINISHED_TAG => "a native plugin lost event.book_finished; not retried",
+        wire::EVENT_BOOK_MOVED_TAG => "a native plugin lost event.book_moved; not retried",
         wire::EVENT_SCREEN_READY_TAG => "a native plugin lost event.screen_ready; not retried",
         wire::EVENT_LIBRARY_CHANGED_TAG => {
             "a native plugin lost event.library_changed; not retried"
@@ -171,6 +175,21 @@ fn hold_edge(queue: &mut Pending, tag: u32, now_ms: u64, params: &Params) -> Res
         }
         wire::EVENT_BATTERY_MEASURED_TAG => {
             let record = wire::Record::EventBatteryMeasured(wire::EventBatteryMeasured { now_ms });
+            queue.push_record(tag, &record)
+        }
+        wire::EVENT_BOOK_MOVED_TAG => {
+            // The old and the new path as they are: a path over the record's
+            // cap is not told cut (a cut path names a book that does not
+            // exist) but dropped, and logged once like any lost event. A move
+            // without both paths says nothing true to tell either.
+            let from = params.get("from").ok_or(ERR_INVALID)?;
+            let path = params.get("path").ok_or(ERR_INVALID)?;
+            if from.len() > wire::EVENT_BOOK_MOVED_FROM_MAX_BYTES
+                || path.len() > wire::EVENT_BOOK_MOVED_PATH_MAX_BYTES
+            {
+                return Err(ERR_INVALID);
+            }
+            let record = wire::Record::EventBookMoved(wire::EventBookMoved { now_ms, from, path });
             queue.push_record(tag, &record)
         }
         _ => {

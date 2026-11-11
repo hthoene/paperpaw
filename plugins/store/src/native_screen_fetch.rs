@@ -230,7 +230,7 @@ pub fn settle(kind: Kind, tally: &Tally, queued: bool, list: Trouble) -> Phase {
             Trouble::Loading => Phase::Working,
             Trouble::None => Phase::Done,
             Trouble::Offline => Phase::Failed(Why::Offline),
-            Trouble::Failed => Phase::Failed(Why::Unreachable),
+            Trouble::Failed | Trouble::Unsupported => Phase::Failed(Why::Unreachable),
         };
     }
     if queued || tally.busy {
