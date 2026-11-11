@@ -67,8 +67,58 @@ impl CachePaths {
             &self.xpointers,
             &self.pictures,
         ] {
-            storage.append(path, &[])?;
+            // Truncated, not appended to: where the folder could not be
+            // removed (the host's cache is no tree the format may remove),
+            // what an aborted try left must not stay.
+            storage.write(path, &[])?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use paperpaw_sdk::{DirEntry, MemoryStorage};
+
+    /// A storage that cannot remove a tree, as the native roots cannot.
+    struct NoTrees(MemoryStorage);
+
+    impl Storage for NoTrees {
+        fn read_at(&self, p: &str, o: u64, b: &mut [u8]) -> Result<usize, StorageError> {
+            self.0.read_at(p, o, b)
+        }
+        fn size(&self, p: &str) -> Result<u64, StorageError> {
+            self.0.size(p)
+        }
+        fn write(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+            self.0.write(p, d)
+        }
+        fn append(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+            self.0.append(p, d)
+        }
+        fn list(&self, d: &str, v: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            self.0.list(d, v)
+        }
+        fn remove(&self, p: &str) -> Result<(), StorageError> {
+            self.0.remove(p)
+        }
+        fn rename(&self, a: &str, b: &str) -> Result<(), StorageError> {
+            self.0.rename(a, b)
+        }
+    }
+
+    #[test]
+    fn a_retry_starts_from_empty_files_even_where_no_tree_can_be_removed() {
+        let storage = NoTrees(MemoryStorage::new());
+        let paths = CachePaths::new("cache", "3").unwrap();
+        // What an aborted conversion left: text and an index, no end mark.
+        storage.write(&paths.text, b"half a chapter").unwrap();
+        storage.write(&paths.index, b"half an index").unwrap();
+        paths.begin(&storage).unwrap();
+        for path in [&paths.text, &paths.index, &paths.pictures] {
+            assert_eq!(storage.size(path), Ok(0), "{path}");
+        }
+        assert!(!storage.exists(&paths.end));
     }
 }
