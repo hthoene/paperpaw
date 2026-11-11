@@ -368,9 +368,23 @@ fn now() -> Instant {
 
 #[main]
 fn main() -> ! {
+    // Counted first: a start that dies before anything else (#2556) must
+    // not go on dying; after two, this one leaves the band off and goes
+    // without native plugins (`safe_mode::check`).
+    let earlier = safe_mode::begin();
     stack::paint();
-    stack::arm_band();
-    start().run()
+    if !paperpaw_x4::start_count::early::refuses(earlier) {
+        stack::arm_band();
+    }
+    let mut firmware = start();
+    // The radios the kernel has are told to the device once, now that the
+    // kernel exists (it answers their state itself).
+    #[cfg(feature = "ppn5")]
+    {
+        device_host::present(&firmware.device, &firmware.kernel);
+        device_host::check(&firmware.device, &firmware.kernel);
+    }
+    firmware.run()
 }
 
 /// Everything before the main loop, in frames of their own: what only the
@@ -423,13 +437,10 @@ fn start() -> Firmware {
     if let Some(at) = bundle {
         native::bundle::forget(&flash, at);
     }
-    // The radios the kernel has are told to the device once, now that the
-    // kernel exists (it answers their state itself).
-    #[cfg(feature = "ppn5")]
-    {
-        device_host::present(&firmware.device, &firmware.kernel);
-        device_host::check(&firmware.device, &firmware.kernel);
-    }
+    // Nothing here borrows `firmware`: a local that is borrowed after it is
+    // built cannot be returned in place, and the copy takes 7.8 KB more of the
+    // stack (#2556: with the band, the start's path no longer fitted). What
+    // needs the kernel built runs in `main`, on the firmware where it lies.
     power::mark(power::at::START_KERNEL);
     info!(
         "startup: kernel ready in {} ms",

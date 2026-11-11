@@ -183,7 +183,7 @@ fn kind(refresh: Refresh) -> usize {
 
 impl Firmware {
     /// Starts the kernel, then runs the main loop.
-    pub fn run(mut self) -> ! {
+    pub fn run(&mut self) -> ! {
         crate::startup::finish(&mut self.panel);
         // Startup released its bands before loading the kernel. Drive the
         // first frame whole instead of comparing its old panel memories.

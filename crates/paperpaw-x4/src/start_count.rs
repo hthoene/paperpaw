@@ -71,6 +71,52 @@ impl Count {
     }
 }
 
+/// Starts counted from the very first instruction, before the stack's band,
+/// the card or anything that could fail has run: the owner's test image
+/// panicked in its first flash read (#2556), before the count above (which
+/// begins when native plugins load) knew anything. One word of RTC memory
+/// holds it: [`early::next`] at the start, [`early::CLEARED`] at the first
+/// frame.
+pub mod early {
+    use super::FAILED_STARTS;
+
+    /// The word's high half: says the number was written by a start of this
+    /// firmware, not left by chance (noise counts as no starts).
+    const MAGIC: u32 = 0xEA51_0000;
+    /// What the first frame leaves: no start that failed.
+    pub const CLEARED: u32 = MAGIC;
+
+    /// How many starts before this one did not reach their first frame, read
+    /// from the word the last start left.
+    pub fn previous(word: u32) -> u8 {
+        if word & 0xFFFF_0000 == MAGIC {
+            // Under 0xFF: more is as bad as that many.
+            (word & 0xFF) as u8
+        } else {
+            0
+        }
+    }
+
+    /// The word this start leaves, counting itself.
+    pub fn next(word: u32) -> u32 {
+        MAGIC | u32::from(previous(word).saturating_add(1))
+    }
+
+    /// The word a start that goes without native plugins because of
+    /// `previous` leaves: it counts as the first one anew, so that the next
+    /// start tries native again and a loop of early failures stays in the
+    /// safe mode (the band is left off while it lasts).
+    pub fn anew() -> u32 {
+        MAGIC | 1
+    }
+
+    /// Whether this start goes without native plugins and without arming the
+    /// band (the band's own trap may be what the starts before it died of).
+    pub fn refuses(previous: u8) -> bool {
+        previous >= FAILED_STARTS
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,5 +195,34 @@ mod tests {
         };
         count.loading();
         assert_eq!(count.failed, u8::MAX);
+    }
+
+    #[test]
+    fn starts_that_die_before_anything_else_are_counted_from_the_first_word() {
+        // Power was cut: noise counts as no failed start.
+        assert_eq!(early::previous(0), 0);
+        assert_eq!(early::previous(0xFFFF_FFFF), 0);
+        assert_eq!(early::previous(early::CLEARED), 0);
+        let one = early::next(0);
+        assert_eq!(early::previous(one), 1);
+        assert!(!early::refuses(early::previous(one)));
+        let two = early::next(one);
+        assert_eq!(early::previous(two), 2);
+        // The third start goes without native plugins and without the band.
+        assert!(early::refuses(early::previous(two)));
+        // It counts as the first anew, so that the next one does not refuse
+        // for the same two, and the one after a refused one does again.
+        assert_eq!(early::previous(early::anew()), 1);
+        assert!(!early::refuses(early::previous(early::anew())));
+        assert!(early::refuses(early::previous(early::next(early::anew()))));
+    }
+
+    #[test]
+    fn the_early_count_does_not_run_over() {
+        let mut word = early::CLEARED;
+        for _ in 0..1000 {
+            word = early::next(word);
+        }
+        assert_eq!(early::previous(word), 255);
     }
 }
