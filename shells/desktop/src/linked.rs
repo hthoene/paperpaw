@@ -251,6 +251,16 @@ impl CatalogEnv for Catalog {
             .as_secs();
         u32::try_from(seconds / 86_400).ok()
     }
+    /// The wall clock in milliseconds: the idle time of an annotation
+    /// transaction and the life of its receipt. A simulated clock is none.
+    fn now_ms(&self) -> u64 {
+        if self.simulated {
+            return 0;
+        }
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(0))
+    }
 }
 
 /// The sealer of the secrets, or why there is none (then `core.secrets` is

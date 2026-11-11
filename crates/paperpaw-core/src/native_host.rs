@@ -271,6 +271,7 @@ pub(crate) mod lib_changed;
     dead_code,
     reason = "wired by HostWiring::library; the write half is todo 307"
 )]
+pub(crate) mod lib_edits;
 pub(crate) mod lib_host;
 #[allow(dead_code, reason = "wired by the LIB write half (Services, #1050)")]
 pub(crate) mod lib_jobs;
