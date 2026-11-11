@@ -1484,6 +1484,8 @@ mod stage_broker_native;
 
 #[path = "native_device_defaults_tests.rs"]
 mod native_device_defaults;
+#[path = "native_late_config_tests.rs"]
+mod native_late_config;
 #[path = "native_screen_install_tests.rs"]
 mod native_screen_install;
 

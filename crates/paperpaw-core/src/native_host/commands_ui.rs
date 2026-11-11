@@ -1,7 +1,7 @@
 //! Host-only UI authority and deferred redraw effects for one callback.
 use super::*;
 use crate::native_host::stack_rows::StackRows;
-use paperpaw_native::host_glue::ERR_NOT_FOUND;
+use paperpaw_native::host_glue::{ERR_DENIED, ERR_FULL, ERR_NOT_FOUND};
 use paperpaw_platform::RefreshMode;
 use paperpaw_sdk::{Env, IdError, Params, ScreenKey};
 
@@ -312,6 +312,19 @@ impl<'a> CommandStage<'a> {
                 Ok(text.len() + language.len())
             }
             WireCommand::StopSpeaking {} => Ok(0),
+            // Plugin requests (`plugin_requests.rs`): every id valid here, the
+            // room for the request in `validate_plugin_requests`.
+            WireCommand::RequestPlugins { plugins } => {
+                for id in plugins.split('\n').filter(|id| !id.is_empty()) {
+                    copy_id(id)?;
+                    // `core` is not a plugin to ask for (`registry.md` 5): the
+                    // whole batch is refused.
+                    if id == crate::core_plugin::CORE.as_str() {
+                        return Err(ERR_DENIED);
+                    }
+                }
+                Ok(plugins.len())
+            }
             _ => Err(ERR_UNSUPPORTED),
         }
     }
@@ -336,6 +349,33 @@ impl<'a> CommandStage<'a> {
                 WireCommand::Speak { flags, .. } => count(&mut texts, Some(flags & QUEUE != 0))?,
                 WireCommand::StopSpeaking {} => count(&mut texts, None)?,
                 _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// At most `plugin_requests::MAX_OPEN` requests are open device-wide, and
+    /// `MAX_PER_PLUGIN` per plugin:
+    /// another is `ERR_FULL` at submit, the batch refused whole (what is staged
+    /// already and what the batch holds count with the kernel's own).
+    pub(super) fn validate_plugin_requests(&self, batch: &CommandBatch<'_>) -> Result<(), i32> {
+        use crate::native_host::plugin_requests::{MAX_OPEN, MAX_PER_PLUGIN};
+        let staged = self
+            .staged
+            .iter()
+            .filter(|command| matches!(command, Command::RequestPlugins { .. }))
+            .count();
+        let mut open = self.requests_open + staged;
+        let mut own = usize::from(self.own_requests) + staged;
+        for command in batch.iter() {
+            if matches!(command, WireCommand::RequestPlugins { .. }) {
+                // Device-wide, and per plugin so that one cannot hold every
+                // slot: `ERR_FULL`, the batch refused whole.
+                if open >= MAX_OPEN || own >= MAX_PER_PLUGIN {
+                    return Err(ERR_FULL);
+                }
+                open += 1;
+                own += 1;
             }
         }
         Ok(())
@@ -379,6 +419,16 @@ impl<'a> CommandStage<'a> {
                 (rate, flags),
             ),
             WireCommand::StopSpeaking {} => crate::native_host::speech::stop(self.owner),
+            WireCommand::RequestPlugins { plugins } => {
+                let mut ids = alloc::vec::Vec::new();
+                ids.try_reserve_exact(plugins.split('\n').count())
+                    .map_err(|_| ERR_NO_MEMORY)?;
+                for id in plugins.split('\n').filter(|id| !id.is_empty()) {
+                    ids.push(copy_id(id)?);
+                }
+                let by = self.owner.try_clone().ok_or(ERR_NO_MEMORY)?;
+                Ok(Command::RequestPlugins { by, plugins: ids })
+            }
             _ => Err(ERR_UNSUPPORTED),
         }
     }

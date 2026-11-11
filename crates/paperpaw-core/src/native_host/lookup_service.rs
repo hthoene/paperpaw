@@ -82,7 +82,10 @@ pub(crate) struct LookupServices {
     host: Rc<dyn LookupHost>,
     /// The shell's device log: the lines of [`Self::note`] reach it.
     log: crate::native_host::device_log::DeviceLog,
-    pending: RefCell<PendingAsks>,
+    /// The table of pending asks, made at the first ask that is kept or the
+    /// first ready command (`table`): a device that never waits for a
+    /// provider keeps none.
+    pending: RefCell<Option<alloc::boxed::Box<PendingAsks>>>,
 }
 
 impl LookupServices {
@@ -93,8 +96,17 @@ impl LookupServices {
         Self {
             host,
             log,
-            pending: RefCell::new(PendingAsks::new()),
+            pending: RefCell::new(None),
         }
+    }
+
+    /// The table in `slot`, made first if there is none; `None` where it
+    /// cannot be allocated.
+    fn table(slot: &mut Option<alloc::boxed::Box<PendingAsks>>) -> Option<&mut PendingAsks> {
+        if slot.is_none() {
+            *slot = crate::native_host::shared::try_box(PendingAsks::new());
+        }
+        slot.as_deref_mut()
     }
 
     /// Whether the full-table line is due (once a minute).
@@ -102,7 +114,7 @@ impl LookupServices {
         let now = self.host.now_ms();
         self.pending
             .try_borrow_mut()
-            .is_ok_and(|mut table| table.full_log_due(now))
+            .is_ok_and(|mut table| table.as_mut().is_some_and(|table| table.full_log_due(now)))
     }
 
     /// One fixed line: to the device log, and to the host's own
@@ -129,7 +141,10 @@ impl LookupServices {
         // Take the askers out and let go of the table before delivering, so
         // delivery may stop a plugin or record a new ask.
         let (askers, count, log_due) = {
-            let Ok(mut table) = self.pending.try_borrow_mut() else {
+            let Ok(mut slot) = self.pending.try_borrow_mut() else {
+                return;
+            };
+            let Some(table) = Self::table(&mut slot) else {
                 return;
             };
             let (askers, count) = table.take(provider, hash, now);
@@ -147,7 +162,9 @@ impl LookupServices {
     /// without an event. The production host must call this on every plugin
     /// stop, or a stopped plugin's asks stay until their deadline.
     pub(crate) fn stopped(&self, owner: u64) {
-        if let Ok(mut table) = self.pending.try_borrow_mut() {
+        if let Ok(mut slot) = self.pending.try_borrow_mut()
+            && let Some(table) = slot.as_mut()
+        {
             table.stopped(owner);
         }
     }
@@ -155,13 +172,19 @@ impl LookupServices {
     /// How many ready commands matched no pending ask, since the start.
     #[cfg(test)]
     pub(crate) fn unmatched(&self) -> u32 {
-        self.pending.borrow().unmatched()
+        self.pending
+            .borrow()
+            .as_ref()
+            .map_or(0, |table| table.unmatched())
     }
 
     /// The pending asks kept now.
     #[cfg(test)]
     pub(crate) fn pending_len(&self) -> usize {
-        self.pending.borrow().len()
+        self.pending
+            .borrow()
+            .as_ref()
+            .map_or(0, |table| table.len())
     }
 
     /// Keeps the ask whose answer the provider gave as pending, for an asker
@@ -181,9 +204,11 @@ impl LookupServices {
         };
         let hash = pending::ask_hash(ask.language, ask.text);
         let now = self.host.now_ms();
-        let Ok(mut table) = self.pending.try_borrow_mut() else {
+        let Ok(mut slot) = self.pending.try_borrow_mut() else {
             return Err(());
         };
+        // No room for the table is no room for the ask.
+        let table = Self::table(&mut slot).ok_or(())?;
         table.record(asker, provider, hash, now).map_err(|_| ())
     }
 }
