@@ -881,7 +881,7 @@ fn closed_event(w: &World<'_>, owner: u64) -> Result<Option<(u32, u32)>, i32> {
     let Some(length) = w.state.next_event(owner, &mut out)? else {
         return Ok(None);
     };
-    match wire::record_decode_one(&out[..length]).unwrap() {
+    match crate::native_host::codec::decode_any_single(&out[..length]).unwrap() {
         Record::EventDocumentClosed(event) => Ok(Some((event.document, event.reason))),
         other => panic!("{other:?}"),
     }

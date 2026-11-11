@@ -150,7 +150,7 @@ fn a_maker_that_goes_while_its_file_is_open_ends_the_document_and_its_hold() {
         );
         let mut out = [0_u8; 64];
         let length = w.state.next_event(OPENER, &mut out).unwrap().unwrap();
-        match wire::record_decode_one(&out[..length]).unwrap() {
+        match crate::native_host::codec::decode_any_single(&out[..length]).unwrap() {
             Record::EventDocumentClosed(event) => {
                 assert_eq!((event.document, event.reason), (document, 3));
             }

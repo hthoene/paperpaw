@@ -288,12 +288,13 @@ impl DocState {
         }
     }
 
-    /// The oldest `event.document_closed` of `owner`, encoded into `out`. It
+    /// The oldest `event.document_closed` of `owner`, encoded into `out` as
+    /// the one-record batch a callback decodes (`codec::encode_event`). It
     /// is taken when it is encoded: a callback that refuses it does not get
     /// it again (as every service event).
     fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<usize>, i32> {
         let closed = self.table.take_closed(owner, |event| {
-            codec::encode_one(
+            codec::encode_event(
                 &Record::EventDocumentClosed(wire::EventDocumentClosed {
                     now_ms: self.now.get(),
                     document: event.document,
@@ -309,7 +310,7 @@ impl DocState {
         // values, one event for however many steps it took since (`document.md`
         // 2.1).
         self.table.take_changed(owner, |document| {
-            codec::encode_one(
+            codec::encode_event(
                 &Record::EventDocumentChanged(wire::EventDocumentChanged {
                     now_ms: self.now.get(),
                     document: document.id,

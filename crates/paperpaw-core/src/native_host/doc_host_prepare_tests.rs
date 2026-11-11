@@ -50,7 +50,7 @@ fn changed_event(w: &World<'_>) -> Option<(u32, u32, u32)> {
         .state
         .next_event(OPENER, &mut out)
         .unwrap_or_else(|e| panic!("next_event {e}"))?;
-    match wire::record_decode_one(&out[..length]).unwrap() {
+    match crate::native_host::codec::decode_any_single(&out[..length]).unwrap() {
         Record::EventDocumentChanged(event) => {
             Some((event.document, event.state, event.progress_ppm))
         }
@@ -239,7 +239,7 @@ fn a_format_that_stopped_while_a_book_prepares_ends_it_and_the_opener_hears_it()
         );
         let mut out = [0_u8; 64];
         let length = w.state.next_event(OPENER, &mut out).unwrap().unwrap();
-        match wire::record_decode_one(&out[..length]).unwrap() {
+        match crate::native_host::codec::decode_any_single(&out[..length]).unwrap() {
             Record::EventDocumentClosed(event) => {
                 assert_eq!((event.document, event.reason), (document, 1))
             }
