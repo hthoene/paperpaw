@@ -75,7 +75,7 @@ pub(crate) fn index_details(env: &Env<'_>, path: &str) -> (Book, bool) {
 
 /// Keeps what the host read of the book at `path` through its native
 /// format plugin (`core.document` ops 5 and 6): title, first author,
-/// series and its number, subjects as tags, as [`index_details`] keeps an
+/// series and its number, subjects as tags, as `index_details` keeps an
 /// interface 6 format's, marked as read. The next walk makes the book's
 /// line from them.
 ///
