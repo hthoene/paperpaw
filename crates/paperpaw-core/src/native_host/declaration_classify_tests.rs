@@ -29,9 +29,7 @@ fn classify_reports_the_statuses_of_a_decoded_batch_in_the_same_order() {
     let len = records_encode(&records, &mut bytes).unwrap();
     bytes.truncate(len);
     let whole = |bytes: &[u8]| {
-        host_records_decode(bytes)
-            .and_then(|batch| declarations::validate_batch("fixture", &batch))
-            .map(|()| ())
+        host_records_decode(bytes).and_then(|batch| declarations::validate_batch("fixture", &batch))
     };
     // Record 2 refused, the batch decodes: record 2's status.
     assert_eq!(whole(&bytes), Err(ERR_UNSUPPORTED));
