@@ -1,7 +1,9 @@
 //! The native declarations name what the interface-6 registration names: the
 //! group, the nine settings (kinds, defaults, choices, titles, help, editors,
-//! units), the screens, the slot, the icon, the needs and the two places of
-//! widgets. The hidden hints of the sleep screen are not declared yet.
+//! units; the picker as the editor of the picture and the widget over the
+//! page), the screens (the picker and the sleep screen), the slot, the icon,
+//! the needs and the two places of widgets. The hidden hints of the sleep
+//! screen are not declared yet.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
 #[allow(dead_code, reason = "tokens the plugin uses later")]
@@ -173,6 +175,7 @@ fn screens_slot_icon_needs_and_places_match() {
         ]
     );
     assert_eq!(batches(|d| declarations::screens(d).unwrap()).len(), 1);
+    assert_ne!(declarations::PICK, declarations::SCREEN);
     assert!(!batches(|d| declarations::navigation(d).unwrap()).is_empty());
 }
 
@@ -195,21 +198,14 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert_eq!(native.groups, old.groups);
     assert_eq!(native.specs.len(), 9);
     assert_eq!(native.specs, old.specs);
-    // The picker of the picture and of the widget over the page (`pick-overlay`) is
-    // blocked (`PORTING-7.md`): the two settings have no editor, and there is no
-    // screen for one to open.
-    let without_picker = |rows: &[String], key: &str| -> Vec<String> {
-        rows.iter()
-            .filter(|row| !row.contains(key))
-            .cloned()
-            .collect()
-    };
-    let old_extras: Vec<String> = without_picker(&old.extras, "pick-overlay");
-    assert_eq!(native.extras, old_extras);
-    assert_eq!(old.extras.len(), native.extras.len() + 2);
-    let old_screens: Vec<String> = without_picker(&old.screens, "pick-overlay");
-    assert_eq!(native.screens, old_screens);
-    assert_eq!(old.screens.len(), native.screens.len() + 1);
+    // The picker of the picture and of the widget over the page (`pick-overlay`):
+    // the editor of both settings, and its screen, as in interface 6.
+    assert_eq!(native.extras, old.extras);
+    let picked = |rows: &[String]| rows.iter().filter(|r| r.contains("pick-overlay")).count();
+    assert_eq!(picked(&native.extras), 2);
+    assert_eq!(native.screens, old.screens);
+    assert_eq!(native.screens.len(), 2);
+    assert_eq!(picked(&native.screens), 1);
     // The navigation records, decoded: the offer, the two places of widgets
     // (their settings, the layout, the condition), the icon and the ten needs.
     assert_eq!(native.slots, old.slots);

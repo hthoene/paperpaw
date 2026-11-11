@@ -5,8 +5,12 @@
 //! The device waking closes it (`event.resume`); a screen still there when the
 //! device is awake goes at the next press, so that it never keeps an awake
 //! device to itself. While asleep every press but *sleep* and *home* is taken.
+//!
+//! The picker of the picture or the widget over the page (`sleep.pick-overlay`,
+//! `native_picker`) is the plugin's second screen.
 use crate::{
-    declarations::{EVENTS, IMAGE_READY, PLUGINS_CHANGED, SCREEN, SETTING_CHANGED, STARTED},
+    declarations::{EVENTS, IMAGE_READY, PICK, PLUGINS_CHANGED, SCREEN, SETTING_CHANGED, STARTED},
+    native_picker::Picker,
     native_screen::{Sleeping, read_text},
     native_sleep,
 };
@@ -46,6 +50,8 @@ mod image {
 pub struct NativeSleep {
     ui: Option<Ui>,
     screens: Screens<Sleeping>,
+    /// The pickers open; each goes with its screen.
+    pickers: Screens<Picker>,
     /// Opened for the slot offers the first time a foreign mode needs them,
     /// then kept for the plugin's lifetime (as `ui`).
     registry: Option<Registry>,
@@ -90,16 +96,37 @@ impl Plugin for NativeSleep {
             Event::ScreenOpened {
                 instance, handover, ..
             } if token == SCREEN => self.opened(host, instance, handover),
+            Event::ScreenOpened { instance, .. } if token == PICK => {
+                // Without the registry the pictures folder is still there.
+                let registry = match self.registry(host) {
+                    Ok(registry) => Some(registry),
+                    Err(Error::NoMemory) => return Err(Error::NoMemory),
+                    Err(_) => None,
+                };
+                let picker = Picker::read(host, registry)?;
+                self.pickers.open(instance, picker)
+            }
             Event::ScreenShown {
                 instance: Some(instance),
                 ..
             } if token == SCREEN => self.shown(host, instance),
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } if token == PICK => self.pickers.shown(PICK, instance),
             Event::ScreenClosed { instance, .. } if token == SCREEN => {
-                // The pictures go back to the host with the screen.
+                // The pictures go back to the host with the screen, and why
+                // the picture over the page did not show is kept.
+                let mut kept = Ok(());
                 if let Some(view) = self.screens.get(instance) {
                     view.release(host);
+                    kept = view.note_over(host);
                 }
                 self.screens.close(instance);
+                kept
+            }
+            Event::ScreenClosed { instance, .. } if token == PICK => {
+                self.pickers.close(instance);
                 Ok(())
             }
             Event::ImageReady(ready) if token == IMAGE_READY => self.image_ready(host, &ready),
@@ -120,6 +147,10 @@ impl Plugin for NativeSleep {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        if token == PICK {
+            let picker = self.pickers.top(token).ok_or(Error::State)?;
+            return picker.draw(host, &mut frame);
+        }
         if token != SCREEN {
             return Err(Error::Invalid);
         }
@@ -134,6 +165,12 @@ impl Plugin for NativeSleep {
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        if token == PICK {
+            return match self.pickers.top(token) {
+                Some(picker) => picker.input(host, &input),
+                None => Ok(Handled::No),
+            };
+        }
         let Some(view) = self.screens.top(token) else {
             return Ok(Handled::No);
         };

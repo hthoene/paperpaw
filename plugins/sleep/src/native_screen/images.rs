@@ -12,6 +12,7 @@
 //! [`crate::native_sleep`] falls back: the picture to the cat, the cover to
 //! the cat, the picture over the page to the cover.
 use super::Sleeping;
+use crate::native_pick::Failure;
 use crate::native_sleep::{self as model, Content, Pictures};
 use alloc::string::String;
 use paperpaw_sdk::{
@@ -73,6 +74,8 @@ pub(super) struct Pics {
     cover_tried: bool,
     /// The cat or the logo could not be made: the message stays alone.
     given_up: bool,
+    /// The file asked for to go over the page (for why it did not show).
+    over_path: String,
 }
 
 impl Sleeping {
@@ -145,7 +148,8 @@ impl Sleeping {
     /// # Errors
     /// [`Error::NoMemory`].
     pub fn begin(&mut self, host: &Host<'_>, cookie: &mut u32) -> Result<(), Error> {
-        only_memory(self.advance(host, cookie))
+        only_memory(self.advance(host, cookie))?;
+        self.note_over(host)
     }
 
     /// The host's answer to a picture asked for: true if it was ours. The
@@ -167,7 +171,7 @@ impl Sleeping {
         }
         self.pics.asked = None;
         let before = self.shows();
-        match (ready.status(), ready.image()) {
+        let status = match (ready.status(), ready.image()) {
             (ImageStatus::Ready, Some(id)) => {
                 let held = Held {
                     id,
@@ -175,10 +179,20 @@ impl Sleeping {
                     height: ready.height(),
                 };
                 self.pics.main = Some((kind, held));
+                ImageStatus::Ready
             }
-            _ => self.fail(kind),
+            (ImageStatus::Ready, None) => ImageStatus::Damaged,
+            (status, _) => status,
+        };
+        if status != ImageStatus::Ready {
+            self.fail(kind);
+        }
+        if kind == Kind::Over {
+            let why = Failure::of(&self.pics.over_path, status)?;
+            self.note(why);
         }
         only_memory(self.advance(host, cookie))?;
+        self.note_over(host)?;
         if self.pics.asked.is_none() && self.shows() != before {
             let mut scratch = [0; 64];
             only_memory(self.refresh(&mut CommandSender::new(host, &mut scratch)))?;
@@ -289,6 +303,9 @@ impl Sleeping {
                     None => next_in_folder(host)?,
                 };
                 let Some(path) = path else {
+                    if kind == Kind::Over {
+                        self.note(Some(Failure::EmptyFolder));
+                    }
                     return Ok(false);
                 };
                 (PrepareRoot::Library, path)
@@ -301,10 +318,19 @@ impl Sleeping {
         match CommandSender::new(host, &mut scratch).image_prepare(&request) {
             Ok(()) => {
                 self.pics.asked = Some((*cookie, kind));
+                if kind == Kind::Over {
+                    self.pics.over_path = path;
+                }
                 Ok(true)
             }
             Err(Error::NoMemory) => Err(Error::NoMemory),
-            Err(_) => Ok(false),
+            // Not to be had (no consent for the card, a path refused).
+            Err(_) => {
+                if kind == Kind::Over {
+                    self.note(Some(Failure::Missing(path)));
+                }
+                Ok(false)
+            }
         }
     }
 
