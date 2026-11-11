@@ -9,6 +9,7 @@ use alloc::rc::Rc;
 use alloc::string::ToString;
 use core::cell::Cell;
 use core::ops::ControlFlow;
+use paperpaw_native::host_glue::ERR_NOT_FOUND;
 use paperpaw_sdk::MemoryStorage;
 use std::string::String;
 
