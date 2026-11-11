@@ -209,7 +209,17 @@ impl Assembler {
         let wanted = self.wanted.take();
         let cells = core::mem::take(&mut self.cells);
         let columns = core::mem::take(&mut self.columns);
-        finish(block, &langs, expect, (wanted, cells, columns)).map(Some)
+        finish(
+            block,
+            &langs,
+            expect,
+            Extras {
+                wanted,
+                cells,
+                columns,
+            },
+        )
+        .map(Some)
     }
 
     fn take(&mut self, piece: Piece<'_>) -> Result<(), Error> {
@@ -291,7 +301,7 @@ impl Assembler {
                 // travels as the decimal text of the path.
                 let mut path = alloc::string::String::new();
                 path.try_reserve_exact(10).map_err(|_| Error::NoMemory)?;
-                let _ = core::fmt::Write::write_fmt(&mut path, format_args!("{handle}"));
+                push_decimal(&mut path, handle);
                 block.image = Some(ImageRef {
                     path,
                     width,
@@ -327,6 +337,21 @@ const fn full(len: usize) -> Result<(), Error> {
     }
 }
 
+/// `n` as decimal digits appended to `out`, which has room for them.
+fn push_decimal(out: &mut alloc::string::String, n: u32) {
+    let mut digits = [0u8; 10];
+    let (mut rest, mut len) = (n, 0);
+    loop {
+        digits[len] = b'0' + (rest % 10) as u8;
+        len += 1;
+        rest /= 10;
+        if rest == 0 {
+            break;
+        }
+    }
+    out.extend(digits[..len].iter().rev().map(|&d| char::from(d)));
+}
+
 fn narrow(value: Option<u32>) -> Option<u16> {
     value.map(|v| u16::try_from(v).unwrap_or(u16::MAX))
 }
@@ -358,17 +383,25 @@ fn start(head: &Head<'_>, text: alloc::string::String) -> Block {
     block
 }
 
+/// What a picture or a table row brought besides its head.
+struct Extras {
+    /// What the head said the block is, and its row flags (header, first, last).
+    wanted: Option<(BlockKind, (bool, bool, bool))>,
+    cells: Vec<TableCell>,
+    columns: Vec<u16>,
+}
+
 /// The joined block, checked: the text is what the head said, runs and
 /// annotations lie inside it on character boundaries and runs are sorted.
 fn finish(
     mut block: Block,
     langs: &[Lang],
     expect: usize,
-    (wanted, cells, columns): (
-        Option<(BlockKind, (bool, bool, bool))>,
-        Vec<TableCell>,
-        Vec<u16>,
-    ),
+    Extras {
+        wanted,
+        cells,
+        columns,
+    }: Extras,
 ) -> Result<Block, Error> {
     if block.text.len() != expect {
         return Err(Error::Invalid);
