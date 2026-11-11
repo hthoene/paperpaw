@@ -270,12 +270,12 @@ fn an_interface_6_plugin_cannot_forge_an_ending_or_stop_anothers_speech() {
     w.speak(&a, 5, 0);
     w.calls();
     // Its commands with the host's ids are refused by the vetting...
-    let reserved = crate::commands::Reserved::of(
-        &w.kernel.shared.settings,
-        &w.kernel.shared.registry,
-    );
+    let reserved =
+        crate::commands::Reserved::of(&w.kernel.shared.settings, &w.kernel.shared.registry);
     let mut out = alloc::vec![forged(super::SPOKEN), forged(super::STOP)];
-    assert!(crate::commands::vet_reserved(&mut out, 0, "evil", &reserved));
+    assert!(crate::commands::vet_reserved(
+        &mut out, 0, "evil", &reserved
+    ));
     assert!(out.is_empty());
     // ... and on the event bus they are no events of the speech at all.
     for id in [super::SPOKEN, super::STOP] {

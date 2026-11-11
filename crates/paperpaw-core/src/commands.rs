@@ -890,6 +890,20 @@ impl Kernel {
         self.stop_voice();
     }
 
+    /// A text to speak, or a native plugin's stop (`native_host::speech`): its
+    /// own speech only; it reaches here from the command stage alone (an
+    /// interface-6 plugin's is refused in `vet_reserved`).
+    fn apply_speak(&mut self, speech: paperpaw_sdk::Speech) {
+        if native_speech::is_stop(speech.reply()) {
+            if let Some(owner) = speech.params().get(native_speech::OWNER) {
+                self.io.speech.stop_owned(owner);
+            }
+            return;
+        }
+        self.speak(speech);
+        self.io.focus_spoken = false;
+    }
+
     fn apply_io(&mut self, command: Command) {
         // Network, store and firmware work want the heap: the hyphenation
         // tables open give theirs back (opened again at the next word).
@@ -957,18 +971,7 @@ impl Kernel {
                 self.io.clipboard.read(reply, params);
             }
             Command::ReadClipboard(reply, params) => self.reply_clipboard(reply, params),
-            // A native plugin's stop (`native_host::speech`): its own speech
-            // only; it reaches here from the command stage alone (an
-            // interface-6 plugin's is refused in `vet_reserved`).
-            Command::Speak(speech) if native_speech::is_stop(speech.reply()) => {
-                if let Some(owner) = speech.params().get(native_speech::OWNER) {
-                    self.io.speech.stop_owned(owner);
-                }
-            }
-            Command::Speak(speech) => {
-                self.speak(*speech);
-                self.io.focus_spoken = false;
-            }
+            Command::Speak(speech) => self.apply_speak(*speech),
             Command::StopSpeaking => {
                 self.stop_speaking();
                 self.io.focus_spoken = false;
@@ -1187,7 +1190,8 @@ pub(crate) fn vet_reserved(
                 // native plugin's command stage makes them, or `event.spoken`
                 // could be forged for another plugin.
                 Command::Speak(speech) => {
-                    native_speech::is_reply(speech.reply()) || native_speech::is_stop(speech.reply())
+                    native_speech::is_reply(speech.reply())
+                        || native_speech::is_stop(speech.reply())
                 }
                 _ => false,
             };

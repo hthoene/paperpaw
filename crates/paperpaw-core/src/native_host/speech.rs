@@ -119,14 +119,18 @@ impl Kernel {
             else {
                 continue;
             };
-            self.native_queue_event(wire::EVENT_SPOKEN_TAG, &|plugin| plugin == owner, &|queue| {
-                let record = wire::Record::EventSpoken(wire::EventSpoken {
-                    now_ms,
-                    cookie,
-                    status,
-                });
-                queue.push_record(wire::EVENT_SPOKEN_TAG, &record)
-            });
+            self.native_queue_event(
+                wire::EVENT_SPOKEN_TAG,
+                &|plugin| plugin == owner,
+                &|queue| {
+                    let record = wire::Record::EventSpoken(wire::EventSpoken {
+                        now_ms,
+                        cookie,
+                        status,
+                    });
+                    queue.push_record(wire::EVENT_SPOKEN_TAG, &record)
+                },
+            );
         }
         false
     }

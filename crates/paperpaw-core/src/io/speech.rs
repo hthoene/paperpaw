@@ -77,7 +77,10 @@ impl Speech {
         if !available {
             // Native plugins hear status 3 (no speech on this device) at once.
             if native::is_reply(speech.reply()) {
-                self.ended.push(native::with_status(speech.params().clone(), Ended::NoSpeech as u32));
+                self.ended.push(native::with_status(
+                    speech.params().clone(),
+                    Ended::NoSpeech as u32,
+                ));
                 return;
             }
             return reply(speech.reply().clone(), speech.params().clone(), false, out);
@@ -110,7 +113,8 @@ impl Speech {
     fn drop_all(&mut self) {
         for speaking in self.speaking.drain(..) {
             if native::is_reply(&speaking.reply) {
-                self.ended.push(native::with_status(speaking.params, Ended::Stopped as u32));
+                self.ended
+                    .push(native::with_status(speaking.params, Ended::Stopped as u32));
             }
         }
     }
@@ -140,7 +144,8 @@ impl Speech {
         while at < self.speaking.len() {
             if mine(&self.speaking[at]) {
                 let gone = self.speaking.remove(at);
-                self.ended.push(native::with_status(gone.params, Ended::Stopped as u32));
+                self.ended
+                    .push(native::with_status(gone.params, Ended::Stopped as u32));
             } else {
                 at += 1;
             }
@@ -158,12 +163,17 @@ impl Speech {
     pub fn done(&mut self, id: u32, spoken: bool, out: &mut Vec<Command>) {
         if let Some(at) = self.speaking.iter().position(|s| s.id == id) {
             let speaking = self.speaking.remove(at);
-            let ended = if spoken {
-                Ended::Spoken
+            if native::is_reply(&speaking.reply) {
+                let ended = if spoken {
+                    Ended::Spoken
+                } else {
+                    Ended::NoVoice
+                };
+                self.ended
+                    .push(native::with_status(speaking.params, ended as u32));
             } else {
-                Ended::NoVoice
-            };
-            reply(speaking.reply, speaking.params, ended, out);
+                reply(speaking.reply, speaking.params, spoken, out);
+            }
         }
     }
 
