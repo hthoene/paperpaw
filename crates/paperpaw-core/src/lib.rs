@@ -357,6 +357,9 @@ pub struct Kernel {
     /// Values plugins offer among other plugins' choices, added once all
     /// are registered: `(plugin, setting, value)`.
     plugin_choices: Vec<(Id, Id, Cow<'static, str>)>,
+    /// The built-in catalogs of the linked plugins are added (once; see
+    /// [`Kernel::claim_native_catalogs`]).
+    native_catalogs_added: bool,
     now: Instant,
     input: gestures::InputState,
     io: network::IoState,

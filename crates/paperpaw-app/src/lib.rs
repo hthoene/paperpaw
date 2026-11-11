@@ -275,10 +275,15 @@ pub fn native_catalogs(id: &str) -> &'static [&'static str] {
 /// Adds the catalogs of every linked plugin of [`NATIVE_PLUGINS`] to the
 /// kernel's translator, before the kernel starts (one call for a shell that
 /// registers the plugins itself, `register_native_plugins` makes it for its
-/// own): without them the texts of a linked plugin (a title, a key's label) are
+/// own; a second call adds nothing): without them the texts of a linked plugin (a title, a key's label) are
 /// not found. The room for them is asked for once.
 #[cfg(feature = "native-linked")]
 pub fn add_native_catalogs(kernel: &mut paperpaw_core::Kernel) {
+    // Once: a shell that calls it after `register_native_plugins` (which does)
+    // adds nothing twice.
+    if !kernel.claim_native_catalogs() {
+        return;
+    }
     let plugins = NATIVE_PLUGINS
         .iter()
         .filter(|(id, _)| !native_catalogs(id).is_empty())

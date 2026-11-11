@@ -604,6 +604,14 @@ impl Kernel {
         }
     }
 
+    /// `true` the first time it is asked, `false` after: the linked plugins'
+    /// catalogs are added once, whoever asks first (`add_native_catalogs`),
+    /// so a shell that adds them after `register_native_plugins` has
+    /// done it does not add them twice.
+    pub fn claim_native_catalogs(&mut self) -> bool {
+        !core::mem::replace(&mut self.native_catalogs_added, true)
+    }
+
     /// Room for the catalogs `plugins` more plugins bring, in the languages chosen, asked for once
     /// before [`Kernel::add_catalog`] (as the start does for the plugins it
     /// registers): the list does not grow by doubling.

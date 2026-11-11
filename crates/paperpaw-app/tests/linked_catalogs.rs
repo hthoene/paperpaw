@@ -37,4 +37,9 @@ fn the_kernel_finds_the_texts_of_a_linked_plugin() {
     assert_eq!(kernel.translator().tr("keyboard.done"), "keyboard.done");
     paperpaw_app::add_native_catalogs(&mut kernel);
     assert_ne!(kernel.translator().tr("keyboard.done"), "keyboard.done");
+    // A second call adds nothing (a shell that calls it after
+    // `register_native_plugins` did).
+    let before = kernel.translator().tr("keyboard.done").to_string();
+    paperpaw_app::add_native_catalogs(&mut kernel);
+    assert_eq!(kernel.translator().tr("keyboard.done"), before);
 }
