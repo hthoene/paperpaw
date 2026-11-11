@@ -70,6 +70,12 @@ impl NativeInstance for Probe {
             wire::Record::EventBookOpened(event) => (wire::EVENT_BOOK_OPENED_TAG, event.now_ms),
             wire::Record::EventBookClosed(event) => (wire::EVENT_BOOK_CLOSED_TAG, event.now_ms),
             wire::Record::EventBookFinished(event) => (wire::EVENT_BOOK_FINISHED_TAG, event.now_ms),
+            wire::Record::EventBookMoved(event) => {
+                self.titles
+                    .borrow_mut()
+                    .push(alloc::format!("{}>{}", event.from, event.path));
+                (wire::EVENT_BOOK_MOVED_TAG, event.now_ms)
+            }
             wire::Record::EventPageTurned(event) => {
                 self.titles.borrow_mut().push(event.title.into());
                 (wire::EVENT_PAGE_TURNED_TAG, event.now_ms)
@@ -182,6 +188,7 @@ fn raise(kernel: &mut crate::Kernel, tag: u32, params: &Params) {
         wire::EVENT_BOOK_OPENED_TAG => builtin::BOOK_OPENED.id().clone(),
         wire::EVENT_BOOK_CLOSED_TAG => builtin::BOOK_CLOSED.id().clone(),
         wire::EVENT_BOOK_FINISHED_TAG => builtin::BOOK_FINISHED.id().clone(),
+        wire::EVENT_BOOK_MOVED_TAG => builtin::BOOK_MOVED.id().clone(),
         _ => builtin::PAGE_TURNED.id().clone(),
     };
     kernel.emit(&event, params);
@@ -500,4 +507,70 @@ fn a_book_event_without_a_location_is_not_told_and_is_logged_once() {
     }
     assert!(tags(&w, 'a').is_empty());
     assert_eq!(w.kernel.take_warnings().len(), 1);
+}
+
+/// The params of a move of a book from `from` to `path`.
+fn moved(from: &str, path: &str) -> Params {
+    use paperpaw_sdk::event::EventData;
+    builtin::BookMoved::new(from.into(), path.into()).to_params()
+}
+
+#[test]
+fn a_moved_book_is_told_to_its_subscribers_with_both_paths_and_to_no_one_else() {
+    let mut w = world(&[wire::EVENT_BOOK_MOVED_TAG], &[wire::EVENT_STARTED_TAG]);
+    raise(
+        &mut w.kernel,
+        wire::EVENT_BOOK_MOVED_TAG,
+        &moved("books/a.txt", "books/new/a.txt"),
+    );
+    assert_eq!(tags(&w, 'a'), [wire::EVENT_BOOK_MOVED_TAG]);
+    assert!(tags(&w, 'b').is_empty());
+    assert_eq!(*w.titles.borrow(), ["books/a.txt>books/new/a.txt"]);
+    // Told: nothing waits.
+    assert!(
+        w.kernel
+            .shared
+            .native_instances
+            .setting_events
+            .waiting()
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_moved_book_with_a_path_over_the_cap_is_dropped_whole_and_logged_once_not_cut() {
+    let mut w = world(&[wire::EVENT_BOOK_MOVED_TAG], &[]);
+    w.kernel.take_warnings();
+    let long = "a".repeat(513);
+    for _ in 0..2 {
+        raise(
+            &mut w.kernel,
+            wire::EVENT_BOOK_MOVED_TAG,
+            &moved(&long, "b.txt"),
+        );
+        raise(
+            &mut w.kernel,
+            wire::EVENT_BOOK_MOVED_TAG,
+            &moved("a.txt", &long),
+        );
+    }
+    assert!(tags(&w, 'a').is_empty(), "never told with a cut path");
+    assert_eq!(w.kernel.take_warnings().len(), 1, "logged once");
+    // The caps themselves still pass.
+    let edge = "a".repeat(512);
+    raise(
+        &mut w.kernel,
+        wire::EVENT_BOOK_MOVED_TAG,
+        &moved(&edge, &edge),
+    );
+    assert_eq!(tags(&w, 'a'), [wire::EVENT_BOOK_MOVED_TAG]);
+}
+
+#[test]
+fn a_move_without_both_paths_is_dropped_without_a_panic() {
+    let mut w = world(&[wire::EVENT_BOOK_MOVED_TAG], &[]);
+    let mut params = Params::new();
+    params.set("from", "books/a.txt");
+    raise(&mut w.kernel, wire::EVENT_BOOK_MOVED_TAG, &params);
+    assert!(tags(&w, 'a').is_empty());
 }

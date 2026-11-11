@@ -44,10 +44,11 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_UNSUPPORTED};
 /// subscription before they deliver), `event.library_changed` 91
 /// (`core.library`, `library_events`), and `event.book_opened`,
 /// `event.book_closed`, `event.book_finished`, `event.book_moved` and
-/// `event.book_removed` (65-69): registered now,
-/// delivered when the reader port produces them (`core-events.md` 3.3: the
-/// host never fails a registration for an event a device does not raise, and
-/// until the reading session reports, nothing raises these). The same holds
+/// `event.book_removed` (65-69): registered always; `event.book_moved` is
+/// delivered (`core_events`: the library's move raises it), the others when
+/// the reader port produces them (`core-events.md` 3.3: the host never fails a
+/// registration for an event a device does not raise, and until the reading
+/// session reports, nothing raises these). The same holds
 /// for `event.stack_changed` (81, a hint, `ui.md` 5.1): a plugin that closes
 /// what a covering screen hides registers for it.
 ///
