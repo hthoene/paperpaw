@@ -57,7 +57,25 @@ impl crate::Kernel {
     }
 }
 
+/// The plugin whose screens are the library's lists: the job takes no step
+/// while one of them is on the stack.
+const LIST_PLUGIN: &str = "files";
+
 impl crate::Kernel {
+    /// Tells the document host whether a library list screen is up, before the
+    /// pass steps any preparation (the cover job holds back while one is: the
+    /// conversion's peak must not come beside the list's buffers).
+    #[inline(never)]
+    pub(crate) fn native_cover_list(&mut self) {
+        let instances = &self.shared.native_instances;
+        let Some(documents) = instances.hosts().and_then(|hosts| hosts.documents()) else {
+            return;
+        };
+        documents
+            .0
+            .cover_job_list(instances.plugin_has_screen(LIST_PLUGIN));
+    }
+
     /// The end of `Kernel::start`: its effects, then cover jobs of the library
     /// may begin (a format's crash inside start would count as a failed start,
     /// `doc_cover_job`).

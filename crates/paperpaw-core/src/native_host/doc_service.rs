@@ -297,6 +297,11 @@ pub(crate) trait DocHost {
     /// is done before it starts again from the beginning (a cache is whole or
     /// not used: nothing of the job's work is kept).
     fn cover_job_displaced(&self) {}
+    /// A library list screen is up (`up`) or is not: the cover job takes no
+    /// step while one is up and for a quiet moment after it closes, so that
+    /// no conversion peaks beside the list's buffers. The time held does not
+    /// count toward the job's awake time. Said by the pump before it steps.
+    fn cover_job_list(&self, _up: bool) {}
     /// The key of a book whose job was displaced too often in a row (0: none):
     /// the library counts it as failed (no cover until the next start).
     fn cover_job_given_up(&self) -> u64 {

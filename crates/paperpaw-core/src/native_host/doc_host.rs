@@ -150,6 +150,10 @@ pub(crate) struct DocState {
     /// Not before this time (the kernel's clock, ms): what displaced the job
     /// is done by then.
     job_resume_at: Cell<u64>,
+    /// A library list screen was up until this time (the kernel's clock, ms)
+    /// at the latest: the job takes no step before the quiet moment after it
+    /// is over (`cover_job_list`).
+    list_quiet_until: Cell<u64>,
     /// The key of the book of the job that runs (or ran last).
     job_key: Cell<u64>,
     /// The book the job was displaced for last, and how many times in a row;
@@ -289,6 +293,7 @@ impl DocState {
             job_guarded: Cell::new(false),
             job_held_back: Cell::new(false),
             job_resume_at: Cell::new(0),
+            list_quiet_until: Cell::new(0),
             job_key: Cell::new(0),
             job_displaced: Cell::new((0, 0)),
             job_given_up: Cell::new(0),
@@ -593,6 +598,9 @@ macro_rules! frameless {
         fn cover_job_displaced(&self) {
             self.state().displaced();
         }
+        fn cover_job_list(&self, up: bool) {
+            self.state().list_hold(up);
+        }
         fn cover_job_guard(&self, path: &str) -> Result<(), i32> {
             self.state().guard(path)
         }
@@ -713,6 +721,7 @@ impl super::doc_service::DocHost for DocState {
             || !self.jobs_allowed.get()
             || self.now.get() < self.job_resume_at.get()
             || self.table.cover_job().is_some()
+            || self.table.list_held()
             || self.table.reading_besides(0)
         {
             return false;
