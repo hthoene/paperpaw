@@ -138,14 +138,20 @@ pub fn kept_with(
     evicted: &mut alloc::vec::Vec<String>,
 ) -> Result<String, Error> {
     let mut names: alloc::vec::Vec<&str> = alloc::vec::Vec::new();
-    names.try_reserve(keep + 2).map_err(|_| Error::NoMemory)?;
+    // Room for every line of the list (a damaged one may be long) and the name.
+    names
+        .try_reserve_exact(list.lines().count() + 1)
+        .map_err(|_| Error::NoMemory)?;
     for line in list.lines().filter(|l| !l.is_empty() && *l != name) {
         names.push(line);
     }
     names.push(name);
     let drop = names.len().saturating_sub(keep);
     let mut out = String::new();
-    out.try_reserve(names.len() * 28)
+    out.try_reserve_exact(list.len() + name.len() + 2)
+        .map_err(|_| Error::NoMemory)?;
+    evicted
+        .try_reserve(names.len().saturating_sub(keep))
         .map_err(|_| Error::NoMemory)?;
     for (i, line) in names.iter().enumerate() {
         if i < drop {
@@ -167,7 +173,9 @@ pub fn kept_with(
 /// used longest ago, keeping [`KEPT`]. A list or a file that cannot be
 /// handled leaves the files alone: they take room, not data.
 pub fn keep(storage: &dyn Storage, name: &str) {
-    let mut buffer = [0u8; KEPT_MAX];
+    let Ok(mut buffer) = paperpaw_ui_kit::mem::buffer(KEPT_MAX) else {
+        return;
+    };
     let read = storage.read_at(KEPT_FILE, 0, &mut buffer).unwrap_or(0);
     let list = core::str::from_utf8(&buffer[..read]).unwrap_or("");
     let mut evicted = alloc::vec::Vec::new();

@@ -132,6 +132,11 @@ fn an_unreadable_section_is_passed_and_a_busy_book_stops_the_scan() {
         scan.step(&storage, &mut |_| Err(Error::Busy)),
         Step::Stopped
     );
+    for error in [Error::Cancelled, Error::Denied, Error::State] {
+        let mut scan = Scan::new("/b/closed", 1, 3).unwrap();
+        assert_eq!(scan.step(&storage, &mut |_| Err(error)), Step::Stopped);
+        assert!(scan.entries().is_empty());
+    }
     // Stopped stays stopped and keeps nothing.
     assert_eq!(scan.step(&storage, &mut |_| Ok(None)), Step::Stopped);
     assert_eq!(load(&storage, "/b/busy", 1).unwrap(), None);

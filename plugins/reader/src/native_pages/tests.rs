@@ -144,6 +144,11 @@ fn the_settings_that_change_the_layout_are_told_from_those_that_change_the_ink()
         "core.hyphenate",
         "core.hyphen-min-left",
         "core.hyphen-min-right",
+        // The status lines' room is part of the layout.
+        "reader.status.size",
+        "reader.status.edge",
+        "reader.status.top-lines",
+        "reader.status.bottom-lines",
         "",
     ] {
         assert!(affects_layout(key), "{key}");

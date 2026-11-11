@@ -45,7 +45,7 @@ pub fn next<'l>(list: &'l str, chosen: &str) -> &'l str {
 /// # Errors
 /// [`Error::NoMemory`].
 pub fn load(storage: &dyn Storage) -> Result<[String; 2], Error> {
-    let mut bytes = [0u8; MAX + 1];
+    let mut bytes = paperpaw_ui_kit::mem::buffer(MAX + 1)?;
     let read = storage.read_at(FILE, 0, &mut bytes).unwrap_or(0);
     let Some(data) = bytes.get(..read).filter(|_| read <= MAX) else {
         return Ok([String::new(), String::new()]);

@@ -333,9 +333,9 @@ fn track_of((line, gap): (u16, u16), bar: Rect) -> Rect {
     let h = line.saturating_mul(3).max(3).min(bar.height);
     let inset = (knob_of(bar) / 2 + gap / 2).min(bar.width / 4);
     Rect::new(
-        bar.x + inset,
-        bar.y + (bar.height - h) / 2,
-        bar.width - 2 * inset,
+        bar.x.saturating_add(inset),
+        bar.y.saturating_add(bar.height.saturating_sub(h) / 2),
+        bar.width.saturating_sub(inset.saturating_mul(2)),
         h,
     )
 }

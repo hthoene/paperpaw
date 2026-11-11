@@ -199,7 +199,9 @@ fn write_kept(
 /// [`FILES_KEPT`]. A list that cannot be handled leaves the files alone: they
 /// take room, not data.
 fn keep(storage: &dyn Storage, name: &str) {
-    let mut buffer = [0u8; LIST_MAX];
+    let Ok(mut buffer) = paperpaw_ui_kit::mem::buffer(LIST_MAX) else {
+        return;
+    };
     let read = storage.read_at(KEPT_FILE, 0, &mut buffer).unwrap_or(0);
     let list = core::str::from_utf8(buffer.get(..read).unwrap_or(&[])).unwrap_or("");
     let mut evicted = Vec::new();
@@ -292,10 +294,14 @@ impl Scan {
                     self.next = native_toc::next_place(self.next, block.end);
                 }
                 Ok(None) => self.next = Place::new(self.next.section.saturating_add(1), 0),
-                Err(Error::NoMemory | Error::Busy) => {
+                // The book closed (or is going): nothing is kept.
+                Err(
+                    Error::NoMemory | Error::Busy | Error::Cancelled | Error::Denied | Error::State,
+                ) => {
                     self.end = Some(false);
                     return Step::Stopped;
                 }
+                // A section the book cannot give is passed.
                 Err(_) => self.next = Place::new(self.next.section.saturating_add(1), 0),
             }
         }

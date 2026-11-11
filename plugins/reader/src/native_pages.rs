@@ -170,6 +170,10 @@ pub fn affects_layout(key: &str) -> bool {
                 | "core.hyphenate"
                 | "core.hyphen-min-left"
                 | "core.hyphen-min-right"
+                | "reader.status.size"
+                | "reader.status.edge"
+                | "reader.status.top-lines"
+                | "reader.status.bottom-lines"
         )
 }
 
