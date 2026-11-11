@@ -30,9 +30,13 @@ mod list;
 pub mod native_ask;
 #[doc(hidden)]
 pub mod native_device;
+#[doc(hidden)]
+pub mod native_download;
 mod native_entry;
 #[doc(hidden)]
 pub mod native_index;
+#[doc(hidden)]
+pub mod native_install;
 #[doc(hidden)]
 pub mod native_item;
 #[doc(hidden)]
