@@ -224,14 +224,17 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   calls op 3 `prepare` on it (a format that gets op 3 there answers `ERR_STATE`). It writes no
   converted document to root 6, only the cover picture file op 17 names. A format may also ignore
   the bit and open as usual; an answer of preparing to a `details` open is never prepared: the
-  host closes the document (op 4), keeps no details and removes the partial cache. The host never
-  makes the `.complete` stamp for a `details` open, whatever the format answered (a cache finished
-  before keeps its stamp); what such an open wrote in an unstamped root 6 is removed at the next
-  open that uses that cache, as any unstamped cache (a cover made there goes with it, as when an
-  older conversion is removed). A `details` document is the host job's alone: any other open
-  closes it first and is a new open, prepared as usual. The job sets the bit only for a format
-  whose `format.spec` has bit 0 `prepared`; it opens other formats as before, and their caches are
-  stamped as usual.
+  host closes the document (op 4) and keeps no details. A `details` open neither makes the
+  `.complete` stamp nor removes an unstamped root 6, whatever the format answered (a cache
+  finished before keeps its stamp): it reads what is there, so the cover picture it made survives
+  the next `details` open. In an unstamped root 6 the format reads only that cover picture file
+  (which may be from a half-made conversion: the host checks it as any cached picture, section 5)
+  and nothing else. Only an open without `details` removes an unstamped root 6 (the cover goes
+  with it) and prepares. A `details` open of a conversion another document is preparing is
+  `ERR_BUSY`. A `details` document is the host job's alone: any other open closes it first and is
+  a new open, prepared as usual. Bit 3 may come with bit 2 `background`. The job sets the bit only
+  for a format whose `format.spec` has bit 0 `prepared`; it opens other formats as before, and
+  their caches are stamped as usual.
 - [D] **A preparation that does not move fails.** After 32 answers in a row of state 1 whose
   `progress_ppm` is not higher than the highest one this preparation gave (equal or lower counts),
   the host fails the document with `ERR_TIMEOUT`, exactly as if the format had answered failed:
