@@ -298,10 +298,13 @@ in place; its removal comes with the PR that finishes the port).
   first with stack buffers. Download progress redraws one row of the page
   (`ItemList::set_value`, an additive ui-kit change) instead of rebuilding all rows.
   The offer's choice and its rows never disagree (`toggled`, `chosen_of`).
-- Shots and fetch hold one `Messages` while they are on top (given back when covered
-  or closed): about 5 KiB held, not made each frame; the other per-frame
-  allocations (strings, paint ops) are as in the other screens. To measure on a
-  device after activation.
+- Shots and fetch hold nothing between frames: their texts come through stack
+  buffers (`copy_message`/`format_message`, 512 B message + 256 B arguments in the fetch;
+  the shots read their three texts once at open). A text too long for them (a long
+  list of names) is said through a `Messages` made for that one text and dropped. The
+  page counter of the shots is said by `header::pager` through two stack buffers
+  (96 + 128 B; an additive change in ui-kit, owner: Plugin Engineer). Strings and
+  paint ops of a frame are allocated as in the other screens.
 - **For the wiring (`native_plugin.rs`, Port A):** answer `Dialog.not_found` and
   `Dialog.declined` at once, handle `Reply::AnswerAll` and `Asked::stale`; route the
   Remove question's answer (`answered`, tag `REMOVE`); release the image id of an

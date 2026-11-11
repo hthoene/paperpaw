@@ -210,10 +210,6 @@ pub struct View {
     header: Page,
     width: u16,
     texts: Texts,
-    /// The buffers of the page counter's text (`1 / 3`), made by the first frame
-    /// of a view with more than one picture and kept while the screen is on top:
-    /// a frame makes none. Given back when the screen is covered.
-    messages: Messages,
 }
 
 /// The texts the screen says, read once when it opens: a frame borrows them and
@@ -445,7 +441,6 @@ impl Screen for View {
             header: Page::default(),
             width: 0,
             texts: Texts::read(ctx.host)?,
-            messages: Messages::default(),
         };
         view.fetch(ctx)?;
         Ok(view)
@@ -469,21 +464,20 @@ impl Screen for View {
         let style = Style::read(host, &display, &font)?;
         let (width, height) = (display.display_width(), display.display_height());
         let mut head = Page::default();
-        // The counter's buffers are the view's own, taken for the call.
-        let mut messages = core::mem::take(&mut self.messages);
+        // The counter's text comes through stack buffers (`header::pager`); the
+        // buffers asked for here stay empty unless a label did not fit them.
         let prepared = header::prepare(
             &mut head,
             host,
             &font,
             &style,
-            &mut messages,
+            &mut Messages::default(),
             &self.texts.title,
             width,
             display.has_touch(),
             self.at,
             self.count,
         );
-        self.messages = messages;
         if let Err(error) = prepared {
             let _ = font.release();
             return Err(error);
@@ -547,12 +541,7 @@ impl Screen for View {
         if let Some(net) = self.net.take() {
             let _ = net.release(ctx.host);
         }
-        self.messages = Messages::default();
         Ok(())
-    }
-
-    fn hidden(&mut self) {
-        self.messages = Messages::default();
     }
 
     fn event(&mut self, ctx: &Ctx<'_>, event: &Event<'_>) -> Result<Next, Error> {

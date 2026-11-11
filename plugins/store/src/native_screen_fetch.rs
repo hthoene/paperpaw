@@ -39,7 +39,7 @@ use paperpaw_sdk::native::{
     callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
     events::Event,
     fonts::{Font, FontRole},
-    formatting::Arg,
+    formatting::{self, Arg},
     snapshot,
 };
 use paperpaw_sdk::{Point, Rect};
@@ -655,28 +655,54 @@ fn bar(body: &mut Vec<Paint>, style: &Style, bar: Rect, permille: u16) -> Result
     )
 }
 
-/// The host's catalog said through the screen's own buffers (a `Messages` it
-/// keeps), so that a frame makes none.
-struct Held<'h, 'a, 'm> {
+/// The host's catalog said through stack buffers: nothing is held between
+/// frames and a frame makes no 4 KiB buffer. A text or an argument that does not
+/// fit them (a long list of names) is said through a `Messages` made for that
+/// one text and dropped at once.
+struct Held<'h, 'a> {
     host: &'h Host<'a>,
-    messages: &'m mut Messages,
 }
 
-impl Say for Held<'_, '_, '_> {
+/// The stack buffers of one text: the message, and the arguments' encoding.
+const OUT: usize = 512;
+const ARGS: usize = 256;
+
+fn owned(bytes: &[u8]) -> Result<String, Error> {
+    copy(core::str::from_utf8(bytes).map_err(|_| Error::Utf8)?)
+}
+
+impl Say for Held<'_, '_> {
     fn lookup(&mut self, key: &str) -> Result<Option<String>, Error> {
-        match self.messages.copy(self.host, key) {
-            Ok(text) => Ok(Some(text)),
+        let mut out = [0; OUT];
+        match formatting::copy_message(self.host, key, &mut out) {
+            Ok(found) => Ok(Some(copy(found)?)),
             Err(Error::NotFound | Error::Invalid) => Ok(None),
+            Err(Error::NoSpace) => match Messages::default().copy(self.host, key) {
+                Ok(text) => Ok(Some(text)),
+                Err(Error::NotFound | Error::Invalid) => Ok(None),
+                Err(error) => Err(error),
+            },
             Err(error) => Err(error),
         }
     }
 
     fn format(&mut self, key: &str, args: &[Arg<'_>]) -> Result<String, Error> {
-        self.messages.format(self.host, key, args)
+        let (mut scratch, mut out) = ([0; ARGS], [0; OUT]);
+        let mut buffers = formatting::FormatBuffers::new(&mut scratch, &mut out);
+        match formatting::format_message(self.host, key, args, &mut buffers) {
+            Ok(length) => owned(out.get(..length).ok_or(Error::NoSpace)?),
+            Err(Error::NoSpace) => Messages::default().format(self.host, key, args),
+            Err(error) => Err(error),
+        }
     }
 
     fn digits(&mut self, text: &str) -> Result<String, Error> {
-        self.messages.digits(self.host, text)
+        let mut out = [0; 64];
+        match formatting::digits(self.host, text, &mut out) {
+            Ok(length) => owned(out.get(..length).ok_or(Error::NoSpace)?),
+            Err(Error::NoSpace) => Messages::default().digits(self.host, text),
+            Err(error) => Err(error),
+        }
     }
 }
 
@@ -684,10 +710,6 @@ impl Say for Held<'_, '_, '_> {
 #[derive(Debug)]
 pub struct View {
     core: Core,
-    /// The buffers the texts of a frame are said through: made by the first
-    /// frame, kept while the screen is on top (a frame makes none), given back
-    /// when it is covered or closed.
-    messages: Messages,
     /// The header's back arrow of the last frame (touch devices).
     back: Option<Rect>,
     /// The rows of the end of the last frame.
@@ -719,10 +741,7 @@ impl View {
         let font = Font::acquire_role(host, FontRole::Ui)?;
         let style = Style::read(host, &display, &font)?;
         let (width, height) = (display.display_width(), display.display_height());
-        let mut say = Held {
-            host,
-            messages: &mut self.messages,
-        };
+        let mut say = Held { host };
         let title = say.text("store.fetch.title")?;
         let mut page = Page::default();
         header::prepare(
@@ -730,7 +749,8 @@ impl View {
             host,
             &font,
             &style,
-            say.messages,
+            // One title with no pager: the header asks the buffers for nothing.
+            &mut Messages::default(),
             &title,
             width,
             display.has_touch(),
@@ -823,7 +843,6 @@ impl Screen for View {
         drop(core.refresh(ctx.installs, ctx.loader.list_state()));
         Ok(Self {
             core,
-            messages: Messages::default(),
             back: None,
             hits: Vec::new(),
         })
@@ -835,7 +854,6 @@ impl Screen for View {
 
     fn hidden(&mut self) {
         self.core.hide();
-        self.messages = Messages::default();
     }
 
     fn draw(&mut self, ctx: &Ctx<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
