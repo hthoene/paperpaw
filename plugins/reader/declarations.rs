@@ -139,8 +139,8 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
         // One instance for each set of parameters (the book, the section), as in
         // interface 6.
         let decl = ScreenDecl::new(name, title, token).instances(Instances::PerParams);
-        // The note is laid over the page, which shows above it.
-        d.screen(if token == FOOTNOTE {
+        // The note and the skim bar are laid over the page, which shows above them.
+        d.screen(if matches!(token, FOOTNOTE | SKIM) {
             decl.overlay()
         } else {
             decl

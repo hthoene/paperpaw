@@ -7,11 +7,12 @@
 //! `native_*` models, tested without one.
 use crate::{
     declarations::{
-        ANNOTATIONS, FOOTNOTE, SCREEN, SETTING_CHANGED, STOPPING, SUSPEND, TOC, WORK_DUE,
+        ANNOTATIONS, FOOTNOTE, SCREEN, SETTING_CHANGED, SKIM, STOPPING, SUSPEND, TOC, WORK_DUE,
     },
     native_annotations_view::{AnnotationsView, Outcome as NotesOutcome},
     native_footnote::{Footnote, Pressed},
-    native_index, native_pages,
+    native_index, native_pages, native_skim_view,
+    native_skim_view::SkimView,
     native_toc_view::{Outcome, TocView},
     native_view::View,
 };
@@ -71,6 +72,8 @@ pub struct NativeReader {
     annotations: Screens<AnnotationsView>,
     /// The notes over the pages.
     notes: Screens<Footnote>,
+    /// The skim screens over the pages.
+    skims: Screens<SkimView>,
     /// *Go to the note* pressed: the book and the link, followed when its
     /// reading screen is shown again.
     follow: Option<(String, String)>,
@@ -180,6 +183,31 @@ impl NativeReader {
             let mut scratch = [0; 64];
             CommandSender::new(host, &mut scratch).back()?;
         }
+        Ok(handled)
+    }
+
+    /// The skim screen opened over the page.
+    fn open_skim(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+        handover: Option<paperpaw_sdk::native::ui::HandoverId>,
+    ) -> Result<(), Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        let view = SkimView::open(host, ui, handover)?;
+        self.skims.open(instance, view)
+    }
+
+    /// An input of the skim screen. The move it asks for belongs to the reading
+    /// screen, which does not carry it out yet (`PORTING-7.md`, R6b).
+    fn skim_input(&mut self, host: &Host<'_>, input: &Input<'_>) -> Result<Handled, Error> {
+        let Some(view) = self.skims.top(SKIM) else {
+            return Ok(Handled::No);
+        };
+        let (handled, _move) = view.input(host, input)?;
         Ok(handled)
     }
 
@@ -384,6 +412,7 @@ impl Plugin for NativeReader {
                 TOC => self.open_toc(host, instance, handover),
                 ANNOTATIONS => self.open_notes(host, instance, handover),
                 FOOTNOTE => self.open_note(host, instance, handover),
+                SKIM => self.open_skim(host, instance, handover),
                 _ => Ok(()),
             },
             Event::ScreenShown {
@@ -400,6 +429,7 @@ impl Plugin for NativeReader {
                 TOC => self.tocs.shown(TOC, instance),
                 ANNOTATIONS => self.annotations.shown(ANNOTATIONS, instance),
                 FOOTNOTE => self.notes.shown(FOOTNOTE, instance),
+                SKIM => self.skims.shown(SKIM, instance),
                 _ => Ok(()),
             },
             Event::ScreenClosed { instance, .. } => {
@@ -408,6 +438,7 @@ impl Plugin for NativeReader {
                     TOC => self.close_toc(host, instance),
                     ANNOTATIONS => self.annotations.close(instance),
                     FOOTNOTE => self.notes.close(instance),
+                    SKIM => self.skims.close(instance),
                     _ => {}
                 }
                 Ok(())
@@ -428,6 +459,10 @@ impl Plugin for NativeReader {
         if token == FOOTNOTE {
             let note = self.notes.top(token).ok_or(Error::State)?;
             return note.draw(host, &mut frame);
+        }
+        if token == SKIM {
+            let skim = self.skims.top(token).ok_or(Error::State)?;
+            return skim.draw(host, &mut frame);
         }
         let (Some(view), Some(docs)) = (self.screens.top(token), &self.docs) else {
             return Err(Error::State);
@@ -452,6 +487,22 @@ impl Plugin for NativeReader {
             )
         {
             return self.show_notes(host);
+        }
+        if token == SKIM {
+            return self.skim_input(host, &input);
+        }
+        if token == SCREEN
+            && matches!(
+                input,
+                Input::Action {
+                    action: "reader.skim-book",
+                    ..
+                }
+            )
+            && let Some(ui) = &self.ui
+        {
+            native_skim_view::show(host, ui, ("", "", "0", ""))?;
+            return Ok(Handled::Yes);
         }
         if token == FOOTNOTE {
             let Some(note) = self.notes.top(token) else {
