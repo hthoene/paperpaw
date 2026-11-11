@@ -91,14 +91,7 @@ impl Plugin for CorePlugin {
                 paperpaw_sdk::SettingValue::Text(Cow::Owned(String::from(text))),
             ));
         })?;
-        // Each plugin's network (its settings made by the kernel).
-        static NETWORK: SettingGroupSpec =
-            SettingGroupSpec::new(crate::work::NETWORK_GROUP, "core.group.network")
-                .order(87)
-                .within(groups::PLUGINS);
-        r.add_setting_group(&NETWORK)?;
-        static NETWORK_ICON: [(Id, &str); 1] = [(crate::work::NETWORK_GROUP, "world")];
-        r.add_icons(&NETWORK_ICON)?;
+        crate::work::register_network(r)?;
         Ok(())
     }
 }

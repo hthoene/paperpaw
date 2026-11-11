@@ -25,6 +25,7 @@ type Hints = Rc<RefCell<Vec<(u32, u32)>>>;
 
 const SETTING: &[u32] = &[wire::EVENT_SETTING_CHANGED_TAG];
 const HINTS: &[u32] = &[70, 71, 72, 73, 74];
+const RADIO: &[u32] = &[92, 94, 95];
 
 struct Probe {
     name: char,
@@ -56,6 +57,9 @@ impl NativeInstance for Probe {
                 (wire::EVENT_REGISTRY_CHANGED_TAG, event.what)
             }
             wire::Record::EventPreviewChanged(_) => (wire::EVENT_PREVIEW_CHANGED_TAG, 0),
+            wire::Record::EventWifiScanned(event) => (wire::EVENT_WIFI_SCANNED_TAG, event.networks),
+            wire::Record::EventNetworkWanted(_) => (wire::EVENT_NETWORK_WANTED_TAG, 0),
+            wire::Record::EventNetworkIdle(_) => (wire::EVENT_NETWORK_IDLE_TAG, 0),
             wire::Record::EventChargeChanged(event) => {
                 (wire::EVENT_CHARGE_CHANGED_TAG, event.flags)
             }
@@ -155,6 +159,7 @@ fn world(b_subscribes: bool) -> World {
 /// Plugins `a` (event 64) and `b` (the tags `b_tags`).
 fn world_with(b_tags: &'static [u32]) -> World {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .wifi(true)
         .plugin(Declares("a", ["a.plain", "a.token", "a.widget.token"]))
         .plugin(Declares("b", ["b.plain", "b.token", "b.widget.token"]))
         .plugin(Declares("c", ["c.size", "c.token", "c.widget.token"]))
@@ -646,4 +651,74 @@ fn a_registry_bit_raised_while_the_queues_are_borrowed_is_dropped_without_a_pani
     }
     run(&mut w);
     assert!(w.hints.borrow().is_empty());
+}
+
+/// Makes plugin `manager` the network manager (`core.network-manager`, which
+/// the kernel defines with the default `wifi`).
+fn manager(w: &mut World, manager: &'static str) {
+    w.kernel
+        .shared
+        .settings
+        .set(
+            crate::native_host::commands::dev::NETWORK_MANAGER,
+            paperpaw_sdk::SettingValue::Text(manager.into()),
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_scan_tells_its_subscribers_how_many_networks_it_found() {
+    use crate::WifiEvent;
+    use paperpaw_platform::Instant;
+    use paperpaw_sdk::wifi::WifiNetwork;
+    let mut w = world_with(RADIO);
+    let net = |ssid: &str, signal| WifiNetwork::new(String::from(ssid), signal, true);
+    w.kernel.wifi_event(
+        Instant(1),
+        WifiEvent::Scanned(alloc::vec![
+            net("Home", -50),
+            net("", -40),
+            net("Cafe", -70)
+        ]),
+    );
+    run(&mut w);
+    // Hidden names are left out: the count is what Wi-Fi keeps.
+    assert_eq!(*w.hints.borrow(), [(92, 2)]);
+    assert!(w.a.1.borrow().is_empty());
+}
+
+#[test]
+fn wanted_and_idle_go_to_the_network_manager_alone_and_scanned_to_every_subscriber() {
+    let mut w = world_with(RADIO);
+    manager(&mut w, "a");
+    for tag in [92, 94, 95] {
+        w.kernel.native_hint(tag);
+    }
+    run(&mut w);
+    // `b` is no manager: only the scan; `a` subscribed to none of them.
+    assert_eq!(*w.hints.borrow(), [(92, 0)]);
+    let mut w = world_with(RADIO);
+    manager(&mut w, "b");
+    for tag in [94, 95, 94] {
+        w.kernel.native_hint(tag);
+    }
+    run(&mut w);
+    assert_eq!(*w.hints.borrow(), [(95, 0), (94, 0)]);
+}
+
+#[test]
+fn without_a_network_manager_wanted_and_idle_go_nowhere() {
+    let mut w = world_with(RADIO);
+    w.kernel.native_hint(wire::EVENT_NETWORK_WANTED_TAG);
+    w.kernel.native_hint(wire::EVENT_NETWORK_IDLE_TAG);
+    run(&mut w);
+    assert!(w.hints.borrow().is_empty());
+    assert!(
+        w.kernel
+            .shared
+            .native_instances
+            .setting_events
+            .waiting()
+            .is_empty()
+    );
 }
