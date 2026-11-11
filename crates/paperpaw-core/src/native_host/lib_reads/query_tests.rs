@@ -523,3 +523,17 @@ fn a_title_that_begins_another_comes_first_whatever_the_paths() {
     down.flags = 1;
     assert_eq!(keys(&down), [s.at[1], s.at[0], s.at[2]]);
 }
+
+#[test]
+fn a_nul_in_a_title_is_left_out_of_its_sort_key() {
+    // "a<NUL>c" sorts as "ac", after "ab" (with the NUL it would come first),
+    // and "a<NUL>b" ties with "ab", which the path then orders.
+    let s = shelf(&[
+        line("books/a.epub", "A", "a\0c", "", "", ["", "", "1"]),
+        line("books/b.epub", "A", "ab", "", "", ["", "", "1"]),
+        line("books/c.epub", "A", "a\0b", "", "", ["", "", "1"]),
+    ]);
+    let (rows, _) = page(&s.reads(), &ask(), 9).unwrap();
+    let keys: Vec<u64> = rows.iter().map(|r| u64::from(r.key)).collect();
+    assert_eq!(keys, [s.at[1], s.at[2], s.at[0]]);
+}

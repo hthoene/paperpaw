@@ -3,9 +3,9 @@
 //!
 //! Memory: no list outlives the call and none grows with the catalog. The
 //! catalog is read a line at a time (the SDK's `try_each_at`) and a book that
-//! is found only leaves a *slot* behind: its sort key (cut at 96 bytes of text
-//! and the path, in one buffer) and where its line starts (32 bytes and the
-//! buffer a slot). A pass keeps the [`WINDOW`]
+//! is found only leaves a *slot* behind: its sort key (the text cut at 96
+//! bytes and the path, in one buffer) and where its line starts. A slot is a
+//! 32-byte record and that one buffer. A pass keeps the [`WINDOW`]
 //! first slots after a bound (keyset selection); a cursor of `k` rows is
 //! reached by `k / WINDOW` passes that keep keys only, each starting after the
 //! last key of the pass before, so the page costs `cursor / 32 + 2` scans of the
