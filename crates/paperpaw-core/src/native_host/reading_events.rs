@@ -59,7 +59,7 @@ impl Kernel {
     // Its own frame: the page turn's record is the largest (under 1.1 KB).
     #[inline(never)]
     fn native_reading_queue(&mut self, edge: &super::doc_reading::Edge) {
-        let Ok(record) = super::registrations::records_decode_single(&edge.bytes) else {
+        let Ok(record) = super::codec::decode_single(&edge.bytes) else {
             return;
         };
         let tag = edge.tag;
