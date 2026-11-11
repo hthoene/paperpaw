@@ -61,3 +61,22 @@ fn the_root_of_a_hand_over_is_written_as_it_is_read() {
     assert_eq!(root_code(Root::Library), "1");
     assert_eq!(root_code(Root::Handed), "5");
 }
+
+#[test]
+fn a_turn_past_the_last_page_stays_on_it() {
+    use paperpaw_sdk::{document::ImageRef, layout::PageImage};
+    // Past the book's end the format has nothing: the page laid there is empty.
+    assert!(matches!(onto(Ok(Page::default())), Onto::Stay));
+    // A page with only a picture on it is a page.
+    let mut page = Page::default();
+    let picture = ImageRef {
+        path: "pictures/1.ppi".into(),
+        width: 10,
+        height: 10,
+    };
+    page.images
+        .push(PageImage::new(0.0, 0.0, 10.0, 10.0, picture));
+    assert!(matches!(onto(Ok(page)), Onto::Page(_)));
+    // A layout that failed does not keep the reader on the page: the draw says why.
+    assert!(matches!(onto(Err(Error::NoMemory)), Onto::Unlaid));
+}
