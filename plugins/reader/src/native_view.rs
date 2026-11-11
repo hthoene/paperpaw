@@ -417,6 +417,19 @@ impl View {
         )
     }
 
+    /// A screen that had no room to open its book says so in a few words, as
+    /// Beta 3 did (the callback then ends well and the screen is kept, so the
+    /// run goes on); other errors stay.
+    ///
+    /// # Errors
+    /// `error` itself, unless it is `NoMemory`.
+    pub fn when_full(error: Error) -> Result<Self, Error> {
+        match error {
+            Error::NoMemory => Ok(Self::message("reader.no-memory")),
+            other => Err(other),
+        }
+    }
+
     const fn message(key: &'static str) -> Self {
         Self {
             body: Body::Message(key),

@@ -15,6 +15,8 @@ use paperpaw_sdk::{Env, Settings};
 mod catalog_reads;
 #[path = "tests/edit_host.rs"]
 mod edit_host;
+#[path = "tests/position_host.rs"]
+mod position_host;
 #[path = "tests/query.rs"]
 mod query;
 #[path = "tests/write.rs"]
