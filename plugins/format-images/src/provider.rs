@@ -41,7 +41,9 @@ const TEXT: usize = 1024;
 /// Rows of a reply, one of them the closing `fmt.end`.
 const ROWS: usize = 64;
 const END_LAST: u32 = 1;
-const END_MORE: u32 = 2;
+/// The `generation` of a paged list (`document.md` section 3: the format's own for the
+/// document, never 0): the lists of a document do not change, so one value serves.
+const LIST_GENERATION: u32 = 1;
 const FLAG_WHOLE_PAGES: u32 = 1;
 
 /// The book (path `""`) and the cache (any other path) as one storage.
@@ -197,9 +199,9 @@ fn page(rows: &[Record<'_>], from: usize, total: usize, out: &mut [u8]) -> Resul
         frame.clear();
         frame.extend(rows.iter().take(take).cloned());
         frame.push(Record::FmtEnd(stage::FmtEnd::new(
-            if more { END_MORE } else { 0 },
+            if more { 0 } else { END_LAST },
             u32::try_from(total).map_err(|_| Error::Invalid)?,
-            0,
+            LIST_GENERATION,
             u32::try_from(next).map_err(|_| Error::Invalid)?,
             None,
         )));
@@ -372,7 +374,10 @@ impl ImagesProvider {
                 )
             }
             10 | 11 | 12 | 13 | 15 => Err(Error::NotFound),
-            9 | 14 | 16 => one(Record::FmtEnd(stage::FmtEnd::new(0, 0, 0, 0, None)), out),
+            9 | 14 | 16 => one(
+                Record::FmtEnd(stage::FmtEnd::new(END_LAST, 0, LIST_GENERATION, 0, None)),
+                out,
+            ),
             _ => Err(Error::Unsupported),
         }
     }

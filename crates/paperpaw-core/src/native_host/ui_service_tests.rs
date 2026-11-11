@@ -875,3 +875,73 @@ fn a_clipboard_written_in_many_parts_is_assembled_and_read_whole() {
         assert!(expected.starts_with(&part));
     });
 }
+
+/// What `handed_file` shows for `instance`: the maker, the root, the path.
+fn handed_of(v: &View<'_>, instance: u32) -> Result<(u64, u32, String), i32> {
+    let mut seen = None;
+    v.store.handed_file(instance, &mut |h| {
+        seen = Some((h.maker, h.root, String::from(h.path)));
+    })?;
+    seen.ok_or(ERR_STATE)
+}
+
+#[test]
+fn a_reader_holding_a_handed_file_passes_it_on_to_its_own_screen() {
+    const MAKER: u64 = 9;
+    const READER: u64 = 12;
+    view(|v| {
+        // A maker hands its file over; the reader's instance 4 holds it.
+        let made = v
+            .make(MAKER, &[("root", "2"), ("path", "licences.md")])
+            .unwrap();
+        v.open_with(MAKER, made, 4);
+        // The reader's callback hands "root 5" and the same path to its
+        // table-of-contents screen (instance 5).
+        v.stack.instance.set(Some(4));
+        let toc = v
+            .make(READER, &[("root", "5"), ("path", "licences.md")])
+            .unwrap();
+        v.open_with(READER, toc, 5);
+        // The screen's file is the maker's, as a root of its own folders: the
+        // same file as instance 4's, and the screen reads the params of the
+        // hand-over the maker made.
+        assert_eq!(handed_of(v, 5), handed_of(v, 4));
+        assert_eq!(handed_of(v, 5), Ok((MAKER, 2, String::from("licences.md"))));
+        v.stack.instance.set(Some(5));
+        let (rows, _) = v.params(READER, toc).unwrap();
+        assert!(rows.contains(&(String::from("root"), String::from("2"))));
+        // And the screen passes it on again (a chain keeps the first maker).
+        let again = v
+            .make(READER, &[("root", "5"), ("path", "licences.md")])
+            .unwrap();
+        v.open_with(READER, again, 6);
+        assert_eq!(handed_of(v, 6), Ok((MAKER, 2, String::from("licences.md"))));
+        // The maker stopping does not take the file from the instances; the
+        // host (doc_open) ends the document with the maker.
+        v.store.owner_stopped(MAKER).unwrap();
+        assert_eq!(handed_of(v, 5), Ok((MAKER, 2, String::from("licences.md"))));
+    });
+}
+
+#[test]
+fn a_root_of_five_is_passed_on_only_for_the_file_the_instance_holds() {
+    view(|v| {
+        let made = v.make(9, &[("root", "0"), ("path", "a.txt")]).unwrap();
+        v.open_with(9, made, 4);
+        let five = |path: &str| v.make(12, &[("root", "5"), ("path", path)]);
+        // Another path than the one held.
+        v.stack.instance.set(Some(4));
+        assert_eq!(five("b.txt").err(), Some(ERR_DENIED));
+        assert_eq!(five("").err(), Some(ERR_DENIED));
+        // No path at all.
+        assert_eq!(v.make(12, &[("root", "5")]).err(), Some(ERR_DENIED));
+        // An instance that holds no hand-over, and a call from no instance.
+        v.stack.instance.set(Some(77));
+        assert_eq!(five("a.txt").err(), Some(ERR_DENIED));
+        v.stack.instance.set(None);
+        assert_eq!(five("a.txt").err(), Some(ERR_DENIED));
+        // A book of the library (root 1) and the maker's own roots are as before.
+        assert!(v.make(12, &[("root", "1"), ("path", "a.txt")]).is_ok());
+        assert!(v.make(12, &[("root", "0"), ("path", "a.txt")]).is_ok());
+    });
+}

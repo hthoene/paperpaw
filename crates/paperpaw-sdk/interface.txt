@@ -9,4 +9,4 @@ x4 = rustc 1.99.0
 x4-pro = esp 1.97.0.0
 android = rustc 1.99.0
 third-party = ed25519-compact 2.6.0, font-types 0.12.7, miniz_oxide 0.9.1, read-fonts 0.45.1, skrifa 0.48.0
-fingerprint = x86_64 0007f2953232969f
+fingerprint = x86_64 0007f5411b3d9ce4
