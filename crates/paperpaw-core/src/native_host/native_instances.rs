@@ -257,6 +257,10 @@ pub(crate) struct NativeInstances {
     /// The hand-over the staged `open` being applied names: `Some(None)` an
     /// open of none, `None` no staged open (see `Kernel::drain_native_opens`).
     pending_handover: Cell<Option<Option<u32>>>,
+    /// The kernel handles every plugin's dispatch reads (meter, stack rows,
+    /// declaration directory …): one for all, made with the first plugin
+    /// (`Kernel::shared_flat_host`), so each keeps a handle, not a copy.
+    pub(super) flat_host: Option<super::shared::Shared<super::FlatHost>>,
     #[cfg(test)]
     fixture_pool: Option<super::HostResources>,
 }
@@ -302,6 +306,13 @@ impl NativeInstances {
     pub(crate) fn with_id(&self, key: u64, visit: &mut dyn FnMut(&str)) -> bool {
         self.directory()
             .is_some_and(|directory| directory.with_id(key, visit).is_ok())
+    }
+
+    /// Whether the enabled plugin `id` has a screen on the stack
+    /// ([`OwnerDirectory::plugin_has_screen`]).
+    pub(crate) fn plugin_has_screen(&self, id: &str) -> bool {
+        self.directory()
+            .is_some_and(|directory| directory.plugin_has_screen(id))
     }
 
     /// How many owner-directory updates were skipped since the last call.

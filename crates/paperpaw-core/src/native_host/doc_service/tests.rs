@@ -98,6 +98,14 @@ pub(crate) struct Fake {
     pub(crate) shows: Cell<u64>,
     /// The documents `picture_left_out` was called for, in order.
     pub(crate) left_out: RefCell<Vec<u32>>,
+    /// The kernel's start has not returned: no cover job begins.
+    pub(crate) jobs_blocked: Cell<bool>,
+    /// A `cover` asked for a job while `jobs_blocked`.
+    pub(crate) held_back: Cell<bool>,
+    /// The cover job's marker cannot be written (`cover_job_guard`).
+    pub(crate) guard_fails: Cell<bool>,
+    /// The paths the marker was written for, and whether it was removed.
+    pub(crate) guarded: RefCell<Vec<std::string::String>>,
 }
 impl Fake {
     pub(crate) fn new(limits: Limits) -> Rc<Self> {
@@ -126,6 +134,10 @@ impl Fake {
             released: RefCell::new(Vec::new()),
             reader_refuses: Cell::new(None),
             left_out: RefCell::new(Vec::new()),
+            jobs_blocked: Cell::new(false),
+            held_back: Cell::new(false),
+            guard_fails: Cell::new(false),
+            guarded: RefCell::new(Vec::new()),
             shows: Cell::new(0),
         })
     }
@@ -232,6 +244,19 @@ impl DocHost for Fake {
     }
     fn shows_screen(&self, owner: u64) -> bool {
         self.shows.get() & (1 << owner) != 0
+    }
+    fn cover_jobs_allowed(&self) -> bool {
+        !self.jobs_blocked.get()
+    }
+    fn cover_job_guard(&self, path: &str) -> Result<(), i32> {
+        if self.guard_fails.get() {
+            return Err(ERR_IO);
+        }
+        self.guarded.borrow_mut().push(path.into());
+        Ok(())
+    }
+    fn cover_job_held_back(&self) {
+        self.held_back.set(true);
     }
     fn picture_left_out(&self, document: u32) {
         self.left_out.borrow_mut().push(document);

@@ -226,6 +226,8 @@ pub(crate) mod book_data_steps;
 pub(crate) mod busy_adapters;
 #[path = "native_host/call_services.rs"]
 mod call_services;
+mod cover_job_marker;
+mod cover_job_pump;
 pub(crate) mod data_plugin_folders;
 #[path = "native_host/data_services.rs"]
 mod data_services;
@@ -297,6 +299,7 @@ pub(crate) mod linked_plugins;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
 mod moves_pump;
+pub(crate) mod native_book_formats;
 pub(crate) mod native_host_call;
 #[allow(
     dead_code,

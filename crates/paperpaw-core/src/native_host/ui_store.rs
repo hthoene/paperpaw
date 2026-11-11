@@ -236,6 +236,9 @@ pub(crate) const fn is_host_owner(owner: u64) -> bool {
 /// made has [`HOST_OWNER`] as its maker, and the two must never be confused.
 const NO_MAKER: u64 = u64::MAX - 1;
 const _: () = assert!(NO_MAKER != HOST_OWNER);
+/// The document table's own owner of the host's job is neither.
+const _: () =
+    assert!(super::doc_service::HOST_JOB != HOST_OWNER && super::doc_service::HOST_JOB != NO_MAKER);
 /// Hand-overs beyond the limit the host may make for its dialogs, so that a
 /// plugin that fills the table (`Limits::handovers`) cannot make every text
 /// question fail.

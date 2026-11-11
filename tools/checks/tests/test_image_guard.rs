@@ -1,6 +1,6 @@
-//! The test image's veiling sealer (decision 156, `paperpaw_x4::native_offer::VeilSeal`)
-//! never ships: its features are in no default list and no release build, and
-//! the firmware refuses `test-image` together with `release` at compile time.
+//! The test image (decision 156, #2462: the high-water log of `src/high_water.rs`)
+//! never ships: its feature is in no default list and no release build, and the
+//! firmware refuses `test-image` together with `release` at compile time.
 
 #![allow(
     clippy::unwrap_used,
@@ -24,22 +24,18 @@ fn default_features(manifest: &str) -> String {
 }
 
 #[test]
-fn the_veiling_sealer_is_in_no_default_feature_list() {
+fn the_test_image_is_in_no_default_feature_list() {
     for path in ["shells/xteink/Cargo.toml", "crates/paperpaw-x4/Cargo.toml"] {
         let default = default_features(&read(path));
-        assert!(
-            !default.contains("test-image") && !default.contains("test-veil"),
-            "{path}: {default}"
-        );
+        assert!(!default.contains("test-image"), "{path}: {default}");
     }
 }
 
 #[test]
 fn no_release_build_asks_for_the_test_image() {
     for path in [".github/workflows/release.yml", "RELEASING.md"] {
-        let text = read(path);
         assert!(
-            !text.contains("test-image") && !text.contains("test-veil"),
+            !read(path).contains("test-image"),
             "{path} mentions the test image"
         );
     }
@@ -49,8 +45,7 @@ fn no_release_build_asks_for_the_test_image() {
 fn the_firmware_refuses_a_test_image_that_is_a_release() {
     let main = read("shells/xteink/src/main.rs");
     assert!(main.contains(r#"all(feature = "test-image", feature = "release")"#));
-    let manifest = read("shells/xteink/Cargo.toml");
-    assert!(manifest.contains("test-image = [\"native-on\", \"paperpaw-x4/test-veil\"]"));
+    assert!(read("shells/xteink/Cargo.toml").contains("test-image = [\"native-on\"]"));
 }
 
 /// The release build sets `release`, which refuses `test-image` at compile
@@ -63,17 +58,4 @@ fn the_release_build_sets_the_release_feature() {
         "release.yml must build the firmware with the `release` feature"
     );
     assert!(read("shells/xteink/Cargo.toml").contains("\nrelease = []"));
-}
-
-/// `paperpaw-x4/test-veil` (which reports `secrets-veiled`) is switched on by
-/// `test-image` alone, the feature that also wires `VeilSeal`.
-#[test]
-fn test_veil_is_switched_on_by_the_test_image_alone() {
-    let manifest = read("shells/xteink/Cargo.toml");
-    let on: Vec<_> = manifest
-        .lines()
-        .filter(|l| l.contains("paperpaw-x4/test-veil"))
-        .collect();
-    assert_eq!(on.len(), 1, "{on:?}");
-    assert!(on[0].trim_start().starts_with("test-image"), "{on:?}");
 }

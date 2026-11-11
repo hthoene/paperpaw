@@ -16,7 +16,7 @@ use super::secrets_file::{
     NAME_MAX, SEALED_MARK, SEALED_MAX, Sealer, VALUE_MAX, aad_of, is_hex, nibble, veil,
 };
 use alloc::{string::String, vec::Vec};
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_IO, ERR_NO_MEMORY};
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND};
 
 /// One line split into its fields (`id`, `label`, flags, value), as the
 /// interface-6 text writes them.
@@ -97,33 +97,60 @@ impl Drop for Scratch {
 }
 
 /// `text` with every sealed line `sealer` opens turned into a veiled one.
+#[cfg(test)]
 pub(crate) fn open_text(text: &str, sealer: &dyn Sealer) -> String {
+    open_text_noting(text, sealer).0
+}
+
+/// [`open_text`], and whether a sealed line did not open here (another
+/// device's card, a lost key): the kernel tells the user once per start. Only
+/// the sealer's `ERR_NOT_FOUND` counts; a busy or unreadable flash (`ERR_BUSY`
+/// during an update) is not "another device" (Senior R1, #254).
+pub(crate) fn open_text_noting(text: &str, sealer: &dyn Sealer) -> (String, bool) {
     let mut out = String::new();
+    let mut unopened = false;
     // Without room for the buffers nothing opens: the lines stay as they are.
     let mut scratch = Scratch::new().ok();
     for line in text.lines() {
         let line = line.trim_end_matches('\r');
-        match scratch.as_mut().and_then(|s| opened(line, sealer, s)) {
-            Some(veiled) => out.push_str(&veiled),
-            None => out.push_str(line),
+        let result = match scratch.as_mut() {
+            Some(scratch) => opened(line, sealer, scratch),
+            None => Err(ERR_NO_MEMORY),
+        };
+        match result {
+            Ok(veiled) => out.push_str(&veiled),
+            Err(status) => {
+                unopened |= status == ERR_NOT_FOUND && is_sealed(line);
+                out.push_str(line);
+            }
         }
         out.push('\n');
     }
-    out
+    (out, unopened)
 }
 
-/// The veiled form of the sealed `line`, if it is one and opens here.
-fn opened(line: &str, sealer: &dyn Sealer, scratch: &mut Scratch) -> Option<String> {
-    let [id, label, flags, value] = fields(line)?;
-    let sealed = unhex(value.strip_prefix("s1:")?)?;
+/// Whether `line` holds a sealed value.
+fn is_sealed(line: &str) -> bool {
+    fields(line).is_some_and(|[.., value]| value.starts_with("s1:"))
+}
+
+/// The veiled form of the sealed `line`, if it is one and opens here; else the
+/// sealer's status, or `ERR_INVALID` for a line that is not a sealed one.
+fn opened(line: &str, sealer: &dyn Sealer, scratch: &mut Scratch) -> Result<String, i32> {
+    let [id, label, flags, value] = fields(line).ok_or(ERR_INVALID)?;
+    let hex = value.strip_prefix("s1:").ok_or(ERR_INVALID)?;
+    let sealed = unhex(hex).ok_or(ERR_INVALID)?;
     if sealed.len() > SEALED_MAX {
-        return None;
+        return Err(ERR_INVALID);
     }
-    let (owner, name) = owner_name(id)?;
+    let (owner, name) = owner_name(id).ok_or(ERR_INVALID)?;
     let mut aad = [0_u8; 2 * NAME_MAX + 1];
-    let aad = aad_of(&owner, &name, &mut aad).ok()?;
-    let length = sealer.open(aad, &sealed, &mut scratch.plain).ok();
-    let veiled = length.filter(|&n| n <= VALUE_MAX).map(|n| {
+    let aad = aad_of(&owner, &name, &mut aad).map_err(|_| ERR_INVALID)?;
+    // The sealer's own status, so the caller can tell "absent here" apart.
+    let length = sealer
+        .open(aad, &sealed, &mut scratch.plain)
+        .and_then(|n| if n <= VALUE_MAX { Ok(n) } else { Err(ERR_IO) });
+    let veiled = length.map(|n| {
         let value = &mut scratch.plain[..n];
         veil(value);
         let mut text = String::new();
@@ -179,7 +206,7 @@ fn kept<'a>(
                 (i, l, f) == (id, label, flags) && v.as_bytes().starts_with(SEALED_MARK)
             })
         })
-        .find(|old| opened(old, sealer, scratch).as_deref() == Some(line))
+        .find(|old| opened(old, sealer, scratch).ok().as_deref() == Some(line))
 }
 
 /// Whether `previous` (the file as read) holds exactly `line`.

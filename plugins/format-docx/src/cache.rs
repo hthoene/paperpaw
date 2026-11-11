@@ -135,12 +135,36 @@ impl Output {
         self.error.is_some() || self.full || self.oom
     }
 
-    pub(crate) fn block(&mut self, block: &Block<'_>) {
+    /// `block` added to the waiting blocks. What waits goes to the card in
+    /// folder `dir` first where the block would not fit with it, and the
+    /// room for the block is taken once, to the byte: no `Vec` grows by
+    /// doubling (old and new copy live together then), and what waits never
+    /// passes `FLUSH` and one block.
+    pub(crate) fn block(&mut self, storage: &dyn Storage, dir: &str, block: &Block<'_>) {
         if self.oom {
             return;
         }
         let text = block.text.as_bytes();
         let text = &text[..text.len().min(MOST_TEXT)];
+        let runs = block.runs.len().min(MOST_PARTS);
+        let checks = block.checks.len().min(MOST_PARTS);
+        let size = 8 + 12 * usize::from(block.image.is_some()) + text.len() + 6 * (runs + checks);
+        if !self.blocks.is_empty() && self.blocks.len() + size > FLUSH {
+            self.flush(storage, dir, true);
+            if self.error.is_some() || self.oom {
+                return;
+            }
+        }
+        let room = FLUSH.max(size);
+        if self.blocks.capacity() < room
+            && self
+                .blocks
+                .try_reserve_exact(room - self.blocks.len())
+                .is_err()
+        {
+            self.oom = true;
+            return;
+        }
         let at = self.written + self.blocks.len();
         if at + text.len() + 1024 > MOST_BLOCKS {
             self.full = true;

@@ -2479,6 +2479,7 @@ dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
  "paperpaw-native",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
 ]
 
@@ -2973,6 +2974,7 @@ dependencies = [
 name = "paperpaw-x4"
 version = "0.6.0-beta.3"
 dependencies = [
+ "aes-gcm",
  "embedded-hal",
  "paperpaw-app",
  "paperpaw-config",

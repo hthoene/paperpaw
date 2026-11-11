@@ -11,11 +11,6 @@ authors.workspace = true
 categories = ["no-std", "embedded"]
 keywords = ["e-reader", "e-ink", "epaper", "ssd1677", "xteink"]
 
-[features]
-# The veiling sealer of test images only (`native_offer::VeilSeal`); never in a
-# release (the firmware's `release` feature refuses it).
-test-veil = []
-
 [dependencies]
 embedded-hal = "1.0"
 # The `core.device` host the firmware wires (`device_host`): the kernel's trait.
@@ -31,6 +26,9 @@ paperpaw-config.workspace = true
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
 
 [dev-dependencies]
+# The secrets sealer's rules with a real AES-256-GCM (`key_sealer`); the
+# firmware's cipher is mbedTLS.
+aes-gcm = { version = "0.10", default-features = false, features = ["aes"] }
 # The tests of `generation` on smoltcp's own socket set, as the firmware uses it.
 smoltcp = { version = "0.12", default-features = false, features = ["medium-ethernet", "proto-ipv4", "socket-udp", "alloc"] }
 # The whole update path (`tests/update_path.rs`): update files signed and

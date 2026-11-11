@@ -1204,7 +1204,12 @@ mod protected_tests;
 #[path = "doc_host_root5_tests.rs"]
 mod root5_tests;
 
+#[path = "doc_host_cover_job_tests.rs"]
+mod cover_job_tests;
 #[path = "doc_host_prepare_tests.rs"]
 mod prepare_tests;
 #[path = "doc_host_report_tests.rs"]
 mod report_tests;
+
+#[path = "doc_pump_tests.rs"]
+mod pump_tests;

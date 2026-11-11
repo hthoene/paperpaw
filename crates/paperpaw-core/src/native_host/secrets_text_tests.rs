@@ -13,6 +13,8 @@ pub(crate) struct Fake {
     pub(crate) key: u8,
     /// Seals no value now (no radio noise for a nonce): `seal` is `ERR_STATE`.
     pub(crate) fails: Cell<bool>,
+    /// Opens nothing now, with this status (a busy or unreadable flash).
+    pub(crate) open_fault: Cell<Option<i32>>,
 }
 
 impl Fake {
@@ -20,6 +22,7 @@ impl Fake {
         Self {
             key,
             fails: Cell::new(false),
+            open_fault: Cell::new(None),
         }
     }
     fn tag(&self, aad: &[u8], body: &[u8]) -> [u8; 16] {
@@ -50,10 +53,15 @@ impl Sealer for Fake {
         Ok(total)
     }
     fn open(&self, aad: &[u8], sealed: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-        let body_len = sealed.len().checked_sub(28).ok_or(ERR_IO)?;
+        if let Some(fault) = self.open_fault.get() {
+            return Err(fault);
+        }
+        // As the device's sealer: too short is `ERR_INVALID`, another key's
+        // value `ERR_NOT_FOUND`.
+        let body_len = sealed.len().checked_sub(28).ok_or(ERR_INVALID)?;
         let (body, tag) = sealed.split_at(12 + body_len);
         if self.tag(aad, body) != tag {
-            return Err(ERR_IO);
+            return Err(ERR_NOT_FOUND);
         }
         let out = out.get_mut(..body_len).ok_or(ERR_IO)?;
         for (i, b) in body[12..].iter().enumerate() {

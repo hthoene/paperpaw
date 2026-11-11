@@ -21,6 +21,35 @@ pub(crate) fn handing<R>(
 }
 
 impl Kernel {
+    /// How often the panel is cleaned now: after page turns, as set, and
+    /// after refreshes of the user interface where set (#255), except
+    /// while reading, where a clock or a progress line neither counts nor
+    /// flashes. Screens that clean themselves are never cleaned so.
+    fn refresh_intervals(
+        &self,
+        mode: &paperpaw_sdk::realtime::ScreenMode,
+    ) -> crate::refresh::Intervals {
+        if mode.does_clean_itself() {
+            return crate::refresh::Intervals::default();
+        }
+        let interval = |key: &str| {
+            let settings = &self.shared.settings;
+            settings.int(key).clamp(0, i64::from(u32::MAX)) as u32
+        };
+        let reading = self
+            .stack
+            .last()
+            .and_then(|top| top.slot.as_ref())
+            .is_some_and(|slot| *slot == slots::READER);
+        crate::refresh::Intervals {
+            pages: interval(core_settings::FULL_REFRESH_INTERVAL.as_str()),
+            ui: match reading {
+                true => 0,
+                false => interval(crate::refresh::UI_FULL_REFRESH_INTERVAL),
+            },
+        }
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "longer than the limit from before it was set; split it when it is next changed"
@@ -113,15 +142,7 @@ impl Kernel {
             });
             // Items far apart make a large region without being much.
             let weight = weight.min(area(dirty));
-            let interval = match mode.does_clean_itself() {
-                // Cleaned when the screen asks, never every few frames.
-                true => 0,
-                false => self
-                    .shared
-                    .settings
-                    .int(core_settings::FULL_REFRESH_INTERVAL.as_str())
-                    .clamp(0, i64::from(u32::MAX)) as u32,
-            };
+            let every = self.refresh_intervals(&mode);
             let screen = self.framebuffer.bounds();
             let mut requested = match mode.wants_fastest() && set.is_none() {
                 true => Self::fastest_mode(&mode, requested),
@@ -154,10 +175,7 @@ impl Kernel {
                         .bool(core_settings::PICTURES_IN_GRAYS.as_str())
                     && self.pictures_drawn());
             self.frame.refresh.weigh(Some(weight));
-            let (mode, region) = self
-                .frame
-                .refresh
-                .decide(requested, dirty, screen, interval);
+            let (mode, region) = self.frame.refresh.decide(requested, dirty, screen, every);
             let top = self.stack.last();
             let mut refresh =
                 paperpaw_sdk::filters::Refresh::new(mode, region, top.map(|t| t.id.clone()));
@@ -190,7 +208,7 @@ impl Kernel {
                     // Counted as done, after the filters.
                     self.frame
                         .refresh
-                        .done(refresh.mode, refresh.region, screen);
+                        .done(refresh.mode, refresh.region, screen, every);
                     self.frame.refresh.weigh(None);
                     effects.refresh = Some((refresh.region, refresh.mode));
                     effects.grays = refresh.grays;
@@ -600,6 +618,19 @@ impl Kernel {
     /// Emits `event` to the plugin `only` alone where one is named: its
     /// handlers and screens hear it, no other plugin's.
     pub(crate) fn emit_to(&mut self, event: &Id, params: &Params, only: Option<&str>) {
+        self.emit_from(event, params, only, true);
+    }
+
+    /// [`Self::emit_to`]; the native plugins that subscribed hear it too only
+    /// where `natives` (`false` for an event they have queued already: the
+    /// reading session's, `native_host/reading_events.rs`).
+    pub(crate) fn emit_from(
+        &mut self,
+        event: &Id,
+        params: &Params,
+        only: Option<&str>,
+        natives: bool,
+    ) {
         // The reader's answer to pairing is the kernel's alone.
         if self.bluetooth_answer(event, params) {
             return;
@@ -615,10 +646,22 @@ impl Kernel {
         if *event == events::BOOK_CLOSED {
             self.shared.hyphenation.close_tables();
         }
+        // A walk wanted sees every native format admitted by now.
+        if *event == events::CATALOG_WANTED {
+            self.native_book_formats_sync();
+        }
+        // Woken: the next native view of the library wants the catalog again.
+        if *event == events::RESUME {
+            self.native_library_woke();
+        }
+        // The catalog the walk made reaches the native views too.
+        if *event == events::CATALOG_CHANGED {
+            self.native_library_catalog_changed();
+        }
         self.tasks_follow_books(event, params);
         let guarded = self.guarded_screens();
         if let Some(screens) = guarded {
-            return self.emit_to_guard(event, params, &screens);
+            return self.emit_to_guard(event, params, &screens, natives);
         }
         // Moments for declared work, and jobs waiting for this event.
         self.works.saw(event, params);
@@ -661,7 +704,9 @@ impl Kernel {
         }
         // The native plugins that subscribed to a kernel event (tick, the
         // lifecycle, the page turned), queued in their one order.
-        self.native_core_event(event, params, &hears);
+        if natives {
+            self.native_core_event(event, params, &hears);
+        }
         if refused_secret {
             self.warn_runtime("a plugin asked what only the settings editor may; not done");
         }
@@ -715,7 +760,7 @@ impl Kernel {
     /// [`Self::emit`] for an event of a screen guarding the device: to the
     /// plugins of `screens` that subscribed to it, then to `screens`. No
     /// other plugin, screen, bar or rule hears it.
-    fn emit_to_guard(&mut self, event: &Id, params: &Params, screens: &[usize]) {
+    fn emit_to_guard(&mut self, event: &Id, params: &Params, screens: &[usize], natives: bool) {
         let owners: Vec<String> = screens
             .iter()
             .map(|&i| self.stack[i].id.namespace().to_string())
@@ -734,9 +779,11 @@ impl Kernel {
             let reserved = Reserved::of(&self.shared.settings, &self.shared.registry);
             vet_reserved(&mut self.output.commands, from, plugin.as_str(), &reserved);
         }
-        self.native_core_event(event, params, &|plugin| {
-            owners.iter().any(|owner| owner == plugin)
-        });
+        if natives {
+            self.native_core_event(event, params, &|plugin| {
+                owners.iter().any(|owner| owner == plugin)
+            });
+        }
         let keys: Vec<_> = screens.iter().map(|&i| self.stack[i].serial).collect();
         for key in keys {
             // Each where it is now: one may have closed meanwhile.

@@ -2,14 +2,14 @@
 //! slots they fill, the actions with their menu entries, icons, device needs
 //! and key bindings, and the events it hears. Compared with the interface-6
 //! registration by `tests/abi7_declarations.rs`. What has no native
-//! declaration yet (status places, the sample widget, the reading app, the
+//! declaration yet (status places, the sample widget, the
 //! book data folder, screen hints, help, the setup step, the reader's stages)
 //! is listed in `PORTING-7.md`.
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, Instances, KeyBindingDecl, Kind,
-    MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl, StageDecl, StatusItemDecl, StatusLineDecl,
-    StatusPlaceDecl,
+    MenuEntryDecl, ReaderDecl, ScreenDecl, SlotOfferDecl, SpecDecl, StageDecl, StatusItemDecl,
+    StatusLineDecl, StatusPlaceDecl,
 };
 
 /// Callback tokens: stable within this plugin. Screens from 10, actions from
@@ -41,6 +41,10 @@ pub const STACK_CHANGED: u32 = 17;
 /// only to plugins that subscribed (`docs/abi/ui.md` 7), so without this
 /// reading aloud stops after one sentence.
 pub const SPOKEN: u32 = 16;
+/// A document's state moved (`event.document_changed`, 88): a book opened for
+/// the first time opens when its preparation is done (`native_view/preparing.rs`).
+/// It goes only to plugins that subscribed.
+pub const DOCUMENT_CHANGED: u32 = 18;
 /// The token of the search's background scan (`core.work`, key `search`): a step
 /// of the book is read each time. Not a subscription: the work's own token comes
 /// back in `event.work_due`, which the reader hears as `WORK_DUE`.
@@ -328,6 +332,11 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
             decl
         })?;
     }
+    // The reading app `reader.app` (interface 6 `ReaderSpec`): its screen shows
+    // books of every format. The host counts a book's reading session only for
+    // a reader it knows: without this, no progress, "Continue reading" or book
+    // event.
+    d.reader(ReaderDecl::new("app", "reader.screen"))?;
     d.submit()
 }
 
@@ -533,6 +542,7 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.subscribe_event(EventKind::SettingChanged, SETTING_CHANGED)?;
     d.subscribe_event(EventKind::StackChanged, STACK_CHANGED)?;
     d.subscribe_event(EventKind::Spoken, SPOKEN)?;
+    d.subscribe_event(EventKind::DocumentChanged, DOCUMENT_CHANGED)?;
     d.submit()
 }
 
