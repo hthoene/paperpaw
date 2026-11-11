@@ -390,3 +390,34 @@ fn two_small_items_far_apart_are_no_page_and_keep_a_picture_in_place() {
     kernel.apply(Command::Redraw(RefreshMode::Partial));
     assert_eq!(mode(kernel.finish()).map(|m| m.1), Some(RefreshMode::Full));
 }
+
+/// A follow-up of `command.redraw_area` held back by a filter is drawn as
+/// the follow-up when it is drawn at last: its screen's draws are marked.
+#[test]
+fn a_deferred_followup_is_still_drawn_as_the_followup() {
+    let (mut kernel, _) = refreshing();
+    let key = kernel.shared.stack.last().unwrap().key;
+    let area = crate::native_host::commands::Area::new(0, 0, 10, 5).unwrap();
+    kernel.frame.followup = Some(crate::native_host::commands::Followup {
+        screen: key,
+        mode: Some(RefreshMode::Partial),
+        areas: alloc::vec![area],
+    });
+    // The filter holds its refresh back (said to be a status line's).
+    kernel.output.refresh_cause = Some(RefreshCause::Status);
+    assert_eq!(kernel.tick(Instant(10)).refresh(), None);
+    assert!(kernel.frame.followup.is_none());
+    // Calls before it is drawn keep the frame the follow-up's.
+    kernel.tick(Instant(20));
+    assert_eq!(kernel.frame.followup_frame, Some(key));
+    // A page turn takes it along: drawn with the marker.
+    assert!(kernel.run_action(Instant(30), TURN).refresh().is_some());
+    let rows = Rc::clone(&kernel.shared.stack_rows);
+    let mut marked = false;
+    kernel.render(&mut |_, _| marked |= rows.is_followup(key));
+    assert!(marked, "the deferred follow-up drawn unmarked");
+    assert!(!kernel.shared.stack_rows.is_followup(key));
+    // Drawn: the next call ends it.
+    kernel.tick(Instant(40));
+    assert_eq!(kernel.frame.followup_frame, None);
+}
