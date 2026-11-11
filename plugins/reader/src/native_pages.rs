@@ -6,7 +6,10 @@
 //! reference until it goes at activation. Everything is allocation-free
 //! or fallible.
 use alloc::vec::Vec;
-use paperpaw_sdk::native::{Error, callbacks::Input};
+use paperpaw_sdk::{
+    layout::{BookStyles, Style},
+    native::{Error, callbacks::Input},
+};
 
 /// The reading settings a page is set with, in the units the settings use.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -112,6 +115,25 @@ impl Reading {
         self.balanced = balanced;
         self.book = book;
         self
+    }
+
+    /// How the text is set, as Beta 3 set it: body text of `size` pixels,
+    /// paragraphs indented by a part of the size and spaced by a part of the
+    /// body's `line` height (the size times the line spacing, at least the
+    /// font's own distance), the lines kept together, the line breaking and
+    /// the book's own styles.
+    #[must_use]
+    pub fn style(&self, size: f32, line: f32) -> Style {
+        let (indent, space) = self.paragraphs;
+        Style::new(
+            line * f32::from(space) / 100.0,
+            size * f32::from(indent) / 100.0,
+            size,
+            self.justify,
+        )
+        .lines_kept(self.lines_kept.0, self.lines_kept.1)
+        .balanced(self.balanced)
+        .book(BookStyles::from_bits(self.book))
     }
 
     /// The same with room for status lines `top` and `bottom` pixels from the

@@ -914,23 +914,10 @@ impl Setup {
         self.reading.size_pt * f32::from(self.display.display_dpi()) / 72.0
     }
 
-    /// How the text is set, as Beta 3 set it: paragraphs indented by a part
-    /// of the size and spaced by a part of a line, the lines kept together,
-    /// the line breaking and the book's own styles.
-    fn style(&self) -> Style {
-        let reading = &self.reading;
-        let size = self.base();
-        let (indent, space) = reading.paragraphs;
-        let line = size * reading.spacing_factor();
-        Style::new(
-            line * f32::from(space) / 100.0,
-            size * f32::from(indent) / 100.0,
-            size,
-            reading.justify,
-        )
-        .lines_kept(reading.lines_kept.0, reading.lines_kept.1)
-        .balanced(reading.balanced)
-        .book(BookStyles::from_bits(reading.book))
+    /// How the text is set, with paragraphs spaced by parts of the body's
+    /// `line` height (`Reading::style`).
+    fn style(&self, line: f32) -> Style {
+        self.reading.style(self.base(), line)
     }
 }
 
@@ -1307,7 +1294,7 @@ impl Open {
         area: native_pages::Box,
     ) -> Result<Page, Error> {
         let document = HostDocument::new(host, docs, self.id, self.sections, self.whole_pages)?;
-        let style = setup.style();
+        let style = setup.style(faces.line_height());
         let cx = LayoutContext::new(&document, &NoStorage, f32::from(area.width), &style, faces);
         layout_page(&cx, Locator::new(start.0, start.1), f32::from(area.height)).map_err(|error| {
             match document_error_kind(&error) {

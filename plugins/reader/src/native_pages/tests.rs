@@ -217,3 +217,29 @@ fn the_paragraph_settings_lay_the_page_out_again() {
         assert!(!affects_ink(key), "{key}");
     }
 }
+
+#[test]
+fn paragraphs_are_set_apart_by_parts_of_the_size_and_of_the_line() {
+    let r = Reading::new(14, 130, 100, 6, 0, true);
+    // Until the settings say: not set apart, line by line, all book styles.
+    let plain = r.style(20.0, 27.0);
+    assert!(plain.indent.abs() < 1e-6 && plain.paragraph_spacing.abs() < 1e-6);
+    assert_eq!((plain.widows, plain.orphans, plain.balanced), (1, 1, false));
+    assert_eq!(plain.book.bits(), BookStyles::ALL.bits());
+    assert!(plain.justify && (plain.em - 20.0).abs() < 1e-6);
+    // Indent 150 % of the size; space 50 % of the line the faces set (27 px
+    // here, more than size x spacing = 26 when the font is taller).
+    let set = r
+        .with_paragraphs((true, 150), (true, 50))
+        .with_lines((2, 3), true, BookStyles::ALIGN.bits())
+        .style(20.0, 27.0);
+    assert!((set.indent - 30.0).abs() < 1e-4);
+    assert!((set.paragraph_spacing - 13.5).abs() < 1e-4);
+    assert_eq!((set.widows, set.orphans, set.balanced), (2, 3, true));
+    assert_eq!(set.book.bits(), BookStyles::ALIGN.bits());
+    // Switched off, the sizes are not used.
+    let off = r
+        .with_paragraphs((false, 150), (false, 50))
+        .style(20.0, 27.0);
+    assert!(off.indent.abs() < 1e-6 && off.paragraph_spacing.abs() < 1e-6);
+}

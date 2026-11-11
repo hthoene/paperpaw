@@ -105,6 +105,10 @@ fn body_lines_keep_the_readers_spacing_and_headings_are_set_by_their_size() {
     assert!((height - 38.4).abs() < 1e-3);
     assert!((ascent - (25.6 + (38.4 - 33.6) / 2.0)).abs() < 1e-3);
     assert!(!faces.failed());
+    assert!((faces.line_height() - 30.0).abs() < 1e-4);
+    // At spacing 1.0 the font's own distance (21) beats the size (20).
+    let natural = Faces::new(&fake, 20.0, 1.0).unwrap();
+    assert!((natural.line_height() - 21.0).abs() < 1e-4);
 }
 
 #[test]
