@@ -428,9 +428,11 @@ impl DocState {
     }
 
     fn keep_unfinished(&self, format: FormatRef) {
-        // The room is reserved for every format the device can hold, and a
-        // reference is kept once: a full list cannot happen. If it did, the
-        // format's documents would stay until their reader closes them.
+        // The room is reserved for every format the device can hold at the
+        // first reference, and a reference is kept once: a full list cannot
+        // happen. If it did, or the room cannot be had, the reference is
+        // dropped and the format's documents stay until their reader closes
+        // them.
         if let Ok(mut pending) = self.unfinished.try_borrow_mut() {
             if pending.capacity() == 0
                 && pending
@@ -872,7 +874,8 @@ impl Bound<'_> {
         for format in gone.iter().take(count) {
             if format_stopped(self, *format).is_err() {
                 // A table was borrowed: the next call ends the rest. The
-                // room is reserved for every format the device can hold.
+                // room is reserved at the first reference, for every format
+                // the device can hold.
                 self.state.keep_unfinished(*format);
             }
         }
