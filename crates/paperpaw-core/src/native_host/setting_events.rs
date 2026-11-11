@@ -286,6 +286,16 @@ impl SettingEvents {
         })
     }
 
+    /// The bytes the held edges charge the device budget (0 when none is held).
+    #[cfg(test)]
+    pub(crate) fn budget_used(&self) -> usize {
+        self.budget
+            .try_borrow()
+            .ok()
+            .and_then(|budget| budget.as_ref().map(EventBudget::used))
+            .unwrap_or(0)
+    }
+
     /// The owners with something waiting, in the pump's order.
     pub(super) fn waiting(&self) -> Vec<u64> {
         let Ok(queues) = self.queues.try_borrow() else {
