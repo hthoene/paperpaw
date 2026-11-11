@@ -129,6 +129,9 @@ struct Open {
     turned: bool,
     /// The pictures of the page on show: drawn a frame after its text (#252).
     pictures: pictures::Pass,
+    /// Where the last frame put the screen (its top left in screen pixels):
+    /// the pictures' boxes are asked for in screen pixels.
+    frame_at: (i32, i32),
     /// A jump from another screen is not yet reported to the host.
     report_due: bool,
     /// The book's title as a report carries it.
@@ -363,6 +366,7 @@ impl View {
             unsaved: false,
             turned: false,
             pictures: pictures::Pass::Whole,
+            frame_at: (0, 0),
             report_due: false,
             said: false,
             title,
@@ -1260,6 +1264,7 @@ impl Open {
             self.words = native_wordbox::word_boxes(&faces, page, area)?;
         }
         let rect = frame.rect;
+        self.frame_at = (rect.x, rect.y);
         let canvas = frame.draw_canvas()?;
         canvas.fill_rectangle(rect, Color::WHITE)?;
         let look = Look::read(host, setup.display.display_gray_levels())?;

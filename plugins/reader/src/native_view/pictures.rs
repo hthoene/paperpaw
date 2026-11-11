@@ -56,7 +56,11 @@ impl Open {
         let Some(area) = Setup::read(host).ok().and_then(|setup| self.area(&setup)) else {
             return Ok(());
         };
-        let origin = (f32::from(area.x), f32::from(area.y));
+        // The boxes in screen pixels, as the draw puts them (`draw_with`).
+        let origin = (
+            self.frame_at.0 as f32 + f32::from(area.x),
+            self.frame_at.1 as f32 + f32::from(area.y),
+        );
         if ask_second_pass(host, picture_boxes(page, origin)) {
             self.pictures = Pass::Text;
         }
