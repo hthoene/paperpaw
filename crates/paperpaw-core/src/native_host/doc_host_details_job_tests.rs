@@ -11,7 +11,7 @@ use crate::native_host::{
     fmt_call::FrameRoute,
     lib_cover::path_key,
 };
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NOT_FOUND, ERR_TIMEOUT};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_TIMEOUT};
 use paperpaw_sdk::document::Metadata;
 
 fn encoded(record: local::Record<'_>) -> Vec<u8> {
