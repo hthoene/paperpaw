@@ -1185,8 +1185,21 @@ type Classes = [Option<(Kind, u32)>; REGISTRATION_MAX_RECORDS];
 /// (`abi/heap-word.md` section 6) under a plugin's own frames.
 #[inline(never)]
 fn classify(id: &str, bytes: &[u8]) -> Result<(Classes, [usize; KIND_COUNT]), i32> {
+    let mut counts = [0usize; KIND_COUNT];
+    let mut kinds = [None; REGISTRATION_MAX_RECORDS];
+    let mut index = 0;
+    // One visit checks and classifies each record: `host_records_visit` has
+    // decoded the whole batch once before the first record is visited, so a
+    // decoding error anywhere still comes before any record's own status.
     let len = host_records_visit(bytes, REGISTRATION_MAX_RECORDS, &mut |record| {
-        declarations::validate_record(id, &record)
+        declarations::validate_record(id, &record)?;
+        if let Some(kind) = Kind::of(&record) {
+            let hash = super::declaration_index::record_hash(record).ok_or(ERR_INVALID)?;
+            *kinds.get_mut(index).ok_or(ERR_INVALID)? = Some((kind, hash));
+            *counts.get_mut(kind as usize).ok_or(ERR_INVALID)? += 1;
+        }
+        index += 1;
+        Ok(())
     })?;
     // The frames must tile the batch exactly: a lookup walks their headers
     // to reach a record by its place (`raw_declarations::record_at`).
@@ -1196,18 +1209,6 @@ fn classify(id: &str, bytes: &[u8]) -> Result<(Classes, [usize; KIND_COUNT]), i3
             .get(..len)
             .is_some_and(|framing| framing.windows(2).all(|pair| pair[0] < pair[1]))
     );
-    let mut counts = [0usize; KIND_COUNT];
-    let mut kinds = [None; REGISTRATION_MAX_RECORDS];
-    let mut index = 0;
-    host_records_visit(bytes, REGISTRATION_MAX_RECORDS, &mut |record| {
-        if let Some(kind) = Kind::of(&record) {
-            let hash = super::declaration_index::record_hash(record).ok_or(ERR_INVALID)?;
-            *kinds.get_mut(index).ok_or(ERR_INVALID)? = Some((kind, hash));
-            *counts.get_mut(kind as usize).ok_or(ERR_INVALID)? += 1;
-        }
-        index += 1;
-        Ok(())
-    })?;
     Ok((kinds, counts))
 }
 
