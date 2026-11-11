@@ -7,6 +7,7 @@ use crate::{
     paint::{self},
     text,
 };
+use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_sdk::native::canvas::PartRole;
 use paperpaw_sdk::{
@@ -168,21 +169,7 @@ impl ItemList {
         }
         let mut header = crate::Page::default();
         if let (Some(bar), true) = (sheet.pager, starts.len() > 1) {
-            let mut messages = Messages::new()?;
-            let label = messages.format(
-                host,
-                "core.page-of",
-                &[
-                    Arg::Int {
-                        name: "page",
-                        value: page.saturating_add(1) as i64,
-                    },
-                    Arg::Int {
-                        name: "pages",
-                        value: starts.len() as i64,
-                    },
-                ],
-            )?;
+            let label = page_label(host, page, starts.len())?;
             let touch = display.has_touch();
             pager(
                 &mut body,
@@ -204,6 +191,28 @@ impl ItemList {
         self.steps = steps;
         Ok(sheet.region)
     }
+}
+
+/// The pager's "page N of M" text.
+///
+/// # Errors
+/// Propagates catalog and allocation errors.
+fn page_label(host: &Host<'_>, page: usize, pages: usize) -> Result<String, Error> {
+    let mut messages = Messages::new()?;
+    messages.format(
+        host,
+        "core.page-of",
+        &[
+            Arg::Int {
+                name: "page",
+                value: page.saturating_add(1) as i64,
+            },
+            Arg::Int {
+                name: "pages",
+                value: pages as i64,
+            },
+        ],
+    )
 }
 
 /// The pager bar: the page of pages in the middle, and on touch screens an
