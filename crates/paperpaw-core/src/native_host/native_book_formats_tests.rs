@@ -246,7 +246,7 @@ fn ten_native_formats_are_one_stand_in_of_little_memory() {
     ];
     for (n, id) in names.iter().enumerate() {
         let list = std::format!("x{n}\ny{n}");
-        declare(&mut store, &plugin(*id), "f", &list);
+        declare(&mut store, &plugin(id), "f", &list);
     }
     let mut formats = Formats::new();
     let mut stand_ins = NativeBookFormats::default();
