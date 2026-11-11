@@ -233,7 +233,9 @@ fn in_safe_mode_the_linked_plugins_run_but_the_one_the_crash_was_in() {
         .find(|plugin| plugin.manifest.id.as_str() == "menu")
         .expect("menu is listed");
     assert_eq!(menu.state, PluginState::Off);
-    assert!(!menu.enabled);
+    // A built-in that crashed is held back for this start only (`CrashedOnce`,
+    // Files' #1065 follow-up): it stays switched on in the list.
+    assert!(menu.enabled);
     assert_eq!(menu.problem, Some(PluginProblem::Crashed));
     // A built-in plugin that did not crash is hosted as before.
     let (state, enabled) = state(&kernel, "settings").expect("settings is listed");

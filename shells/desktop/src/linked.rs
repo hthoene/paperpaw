@@ -23,7 +23,7 @@ use paperpaw_core::native_host::flat::FlatDepth;
 use paperpaw_core::native_host::shell::DATA_SERVICES;
 use paperpaw_core::native_host::shell_wiring::{
     CatalogEnv, NetInputs, NetLimits, NetReports, SecretsInputs, SockInputs, SockLimits,
-    SockReports, WorkDevice, WorkInputs,
+    SockReports, WiredHosts, WorkDevice, WorkInputs,
 };
 use paperpaw_core::native_host::{HostResources, HostWiring, TeardownStep};
 use paperpaw_native::metadata::{self, Feature, Service};
@@ -358,6 +358,18 @@ fn mapping_of(maps: &str, address: usize) -> Option<(usize, usize)> {
     None
 }
 
+/// What is wired, from the wiring's own answer and the card's families.
+fn wired_services(wired: &WiredHosts, on_card: Wired) -> Wired {
+    Wired {
+        secrets: wired.secrets().is_some(),
+        work: true,
+        net: wired.net().is_some(),
+        sockets: wired.sockets().is_some(),
+        lookup: true,
+        ..on_card
+    }
+}
+
 /// Registers every plugin of `paperpaw_app::NATIVE_PLUGINS` with `kernel` for
 /// the device of `profile`; the number registered. Call before the kernel
 /// starts, once.
@@ -436,14 +448,7 @@ pub fn register(
     {
         eprintln!("native plugins: the secrets file could not be upgraded ({status})");
     }
-    let on = Wired {
-        secrets: wired.secrets().is_some(),
-        work: true,
-        net: wired.net().is_some(),
-        sockets: wired.sockets().is_some(),
-        lookup: true,
-        ..on_card
-    };
+    let on = wired_services(&wired, on_card);
     *inputs.net.borrow_mut() =
         transport
             .zip(wired.net().cloned())
