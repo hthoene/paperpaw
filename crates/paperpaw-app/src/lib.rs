@@ -160,9 +160,21 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
     macro_rules! tables {
         ($plugin:ident) => {
             FixedTables::new($plugin::NATIVE_SETTINGS, $plugin::NATIVE_GROUPS)
+                .with_ids($plugin::NATIVE_IDS)
         };
     }
     match id {
+        "about" => tables!(paperpaw_plugin_about),
+        "files" => tables!(paperpaw_plugin_files),
+        "plugin-manager" => tables!(paperpaw_plugin_plugin_manager),
+        "setup" => tables!(paperpaw_plugin_setup),
+        "transfer" => tables!(paperpaw_plugin_transfer),
+        "update" => tables!(paperpaw_plugin_update),
+        "wifi" => tables!(paperpaw_plugin_wifi),
+        #[cfg(feature = "native-linked-store")]
+        "mail" => tables!(paperpaw_plugin_mail),
+        #[cfg(feature = "native-linked-store")]
+        "notes-vault" => tables!(paperpaw_plugin_notes_vault),
         "bluetooth" => tables!(paperpaw_plugin_bluetooth),
         "file-manager" => tables!(paperpaw_plugin_file_manager),
         "help" => tables!(paperpaw_plugin_help),
@@ -232,6 +244,7 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
     if outcome.try_reserve_exact(NATIVE_PLUGINS.len()).is_err() {
         return outcome;
     }
+    add_native_catalogs(kernel);
     for (id, linked) in &NATIVE_PLUGINS {
         let Some(share) = resources.try_clone() else {
             outcome.push((*id, Err(Error::Allocation)));
@@ -256,6 +269,43 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
         outcome.push((*id, status));
     }
     outcome
+}
+
+/// The translation catalogs plugin `id` brings built in, as the texts of its
+/// `i18n/<language>.ini` files (a linked native plugin has no code file to
+/// carry them: `screens-input.md` [D]). Empty for a plugin with none.
+#[cfg(feature = "native-linked")]
+#[must_use]
+pub fn native_catalogs(id: &str) -> &'static [&'static str] {
+    const CATALOGS: &[(&str, &[&str])] = include!(concat!(env!("OUT_DIR"), "/native_catalogs.rs"));
+    CATALOGS
+        .iter()
+        .find_map(|(plugin, catalogs)| (*plugin == id).then_some(*catalogs))
+        .unwrap_or(&[])
+}
+
+/// Adds the catalogs of every linked plugin of [`NATIVE_PLUGINS`] to the
+/// kernel's translator, before the kernel starts (one call for a shell that
+/// registers the plugins itself, `register_native_plugins` makes it for its
+/// own; a second call adds nothing): without them the texts of a linked plugin (a title, a key's label) are
+/// not found. The room for them is asked for once.
+#[cfg(feature = "native-linked")]
+pub fn add_native_catalogs(kernel: &mut paperpaw_core::Kernel) {
+    // Once: a shell that calls it after `register_native_plugins` (which does)
+    // adds nothing twice.
+    if !kernel.claim_native_catalogs() {
+        return;
+    }
+    let plugins = NATIVE_PLUGINS
+        .iter()
+        .filter(|(id, _)| !native_catalogs(id).is_empty())
+        .count();
+    kernel.reserve_catalogs(plugins);
+    for (id, _) in NATIVE_PLUGINS {
+        for source in native_catalogs(id) {
+            kernel.add_catalog(source);
+        }
+    }
 }
 
 /// The network settings of every networked first-party plugin, kept in
@@ -305,11 +355,11 @@ pub fn install_with(
     let _ = store;
     let mut b = builder
         .plugin(paperpaw_plugin_format_txt::TxtFormat)
-        .plugin(paperpaw_plugin_format_epub::EpubFormat)
-        .plugin(paperpaw_plugin_format_epub::HtmlFormat)
-        .plugin(paperpaw_plugin_format_epub::Fb2Format)
-        .plugin(paperpaw_plugin_format_epub::MarkdownFormat)
-        .plugin(paperpaw_plugin_format_epub::CbzFormat)
+        .plugin(paperpaw_epub_family::EpubFormat)
+        .plugin(paperpaw_epub_family::HtmlFormat)
+        .plugin(paperpaw_epub_family::Fb2Format)
+        .plugin(paperpaw_epub_family::MarkdownFormat)
+        .plugin(paperpaw_epub_family::CbzFormat)
         .plugin(paperpaw_plugin_format_xtc::XtcFormat)
         .plugin(paperpaw_plugin_dictionary::DictionaryPlugin)
         .plugin(paperpaw_plugin_reader::Reader);

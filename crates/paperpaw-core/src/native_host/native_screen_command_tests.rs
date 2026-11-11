@@ -5,7 +5,7 @@
 //! the screen stack as it was.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 use super::super::*;
-use super::{BOUND, STAGED, STAGED_ANSWER, STAGED_ON_SHOWN, key};
+use super::{BOUND, STAGED, STAGED_ANSWER, STAGED_HANDOVER, STAGED_ON_SHOWN, key};
 use crate::native_host::commands::{WireCommand, commands_encode};
 use paperpaw_sdk::{Id, Params};
 
@@ -209,6 +209,56 @@ fn a_callback_that_fails_after_submitting_applies_nothing() {
     show(&mut kernel, "factory.screen");
     key(&mut kernel, 100, "confirm");
     assert_eq!(stack(&kernel), ["factory.screen"]);
+    unstage();
+}
+
+/// The pool wired to a hand-over store, as the device's is; the stage of every
+/// callback then takes the hand-overs its own callback made.
+fn with_store() -> crate::native_host::shared::Shared<crate::native_host::ui_store::UiStore> {
+    use crate::native_host::{
+        shared::Shared,
+        ui_service::UiServices,
+        ui_store::{Limits, UiStore},
+    };
+    let store = Shared::try_new(UiStore::new(Limits::ELSEWHERE)).unwrap();
+    let pool = crate::native_host::HostResources::try_new().unwrap();
+    pool.hosts()
+        .wire_ui(UiServices::new(store.try_clone().unwrap(), false))
+        .unwrap();
+    super::super::POOL.with(|slot| *slot.borrow_mut() = Some(pool));
+    store
+}
+
+#[test]
+fn an_open_naming_a_hand_over_its_own_callback_made_is_applied_and_the_target_reads_it() {
+    let store = with_store();
+    super::super::OPENED.with(|opened| opened.borrow_mut().clear());
+    let mut kernel = staged(2, &[], false, 1);
+    STAGED_HANDOVER.with(|made| *made.borrow_mut() = Some((store.try_clone().unwrap(), 0)));
+    show(&mut kernel, "factory.screen");
+    key(&mut kernel, 100, "confirm");
+    STAGED_HANDOVER.with(|made| *made.borrow_mut() = None);
+    assert_eq!(stack(&kernel), ["factory.screen", "factory.screen"]);
+    let top = kernel.stack.last().unwrap().serial;
+    // The new instance heard of it: one hand-over of one param, no text.
+    let opened = super::super::OPENED.with(|opened| opened.borrow().clone());
+    assert_eq!(opened.last().map(|o| (o.0, o.2, o.3)), Some((top, 1, 0)));
+    // Nothing stays claimed or unowned: the instance holds it.
+    assert_eq!(store.len(), 1);
+    unstage();
+}
+
+#[test]
+fn an_open_naming_a_hand_over_nobody_made_is_refused_whole_and_the_stack_is_unchanged() {
+    let store = with_store();
+    let mut kernel = staged(2, &[], false, 1);
+    STAGED_HANDOVER.with(|made| *made.borrow_mut() = Some((store.try_clone().unwrap(), 99)));
+    show(&mut kernel, "factory.screen");
+    key(&mut kernel, 100, "confirm");
+    STAGED_HANDOVER.with(|made| *made.borrow_mut() = None);
+    assert_eq!(stack(&kernel), ["factory.screen"]);
+    // The hand-over the callback made is freed at its end, never left behind.
+    assert_eq!(store.len(), 0);
     unstage();
 }
 

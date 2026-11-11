@@ -17,11 +17,20 @@ type Seen = Option<[u64; 6]>;
 /// Runs `read` with its 1st, 2nd, ... allocation refused until one passes
 /// them all; returns how many it made.
 fn sweep(read: impl Fn(&CatalogReads, &mut Seen) -> Result<(), i32>, card: &Card) -> u32 {
+    sweep_to(read, card, 64)
+}
+
+/// [`sweep`] for a read that makes up to `limit - 1` allocations.
+fn sweep_to(
+    read: impl Fn(&CatalogReads, &mut Seen) -> Result<(), i32>,
+    card: &Card,
+    limit: u32,
+) -> u32 {
     let reads = card.reads();
     let mut whole: Seen = None;
     read(&reads, &mut whole).unwrap();
     assert!(whole.is_some());
-    for nth in 1..64 {
+    for nth in 1..limit {
         let mut seen: Seen = None;
         arm_failure(nth);
         let result = read(&reads, &mut seen);
@@ -37,7 +46,7 @@ fn sweep(read: impl Fn(&CatalogReads, &mut Seen) -> Result<(), i32>, card: &Card
             }
         }
     }
-    panic!("a read makes more than 63 allocations");
+    panic!("a read makes more than {} allocations", limit - 1);
 }
 
 #[test]
@@ -327,4 +336,108 @@ fn the_heap_one_catalog_read_holds_at_its_most_is_small() {
             && peaks[7] <= 1_280,
         "{peaks:?}"
     );
+}
+
+/// A query reads every line of the catalog and makes a key for each book
+/// it finds: each of those allocations refuses in turn, over two passes (a
+/// cursor of 3), and a query that survives them all answers what the
+/// unrefused one did.
+#[test]
+fn every_allocation_of_a_query_refuses_cleanly() {
+    reset(NORMAL);
+    let card = card();
+    let ask = |cursor, sort, words: &'static str| wire::ServiceLibQuery {
+        show: 0,
+        sort,
+        flags: 0,
+        words,
+        author: "",
+        series: "",
+        tag: "",
+        folder: "",
+        added_since: 0,
+        cursor,
+        generation: 0,
+        facet: 0,
+    };
+    let counts = [(0, 0, ""), (3, 1, ""), (0, 2, "e"), (1, 3, ""), (0, 4, "")].map(
+        |(cursor, sort, words)| {
+            sweep_to(
+                |reads, seen| {
+                    let (mut rows, mut keys) = (0_u64, 0_u64);
+                    let end = reads.query(&ask(cursor, sort, words), &mut |record| {
+                        let Record::ServiceLibEntry(e) = record else {
+                            panic!()
+                        };
+                        rows += 1;
+                        keys += u64::from(e.key) + e.title.len() as u64;
+                        core::ops::ControlFlow::Continue(())
+                    })?;
+                    *seen = Some([rows, keys, end.total.into(), end.next.into(), 0, 0]);
+                    Ok(())
+                },
+                &card,
+                2_000,
+            )
+        },
+    );
+    assert!(counts.iter().all(|&n| n >= 1), "{counts:?}");
+}
+
+/// The heap of one `query` pass over a shelf of 300 books with the names of
+/// a real one (home's recent list, the files list): the page's 32 slots are
+/// what it holds, besides the line being read.
+#[test]
+fn the_heap_one_query_holds_at_its_most_is_the_window_and_one_line() {
+    use paperpaw_sdk::MemoryStorage;
+    reset(NORMAL);
+    let mut text = std::string::String::from("\tcatalog\t2\t1\n");
+    for n in 0..300_u32 {
+        text.push_str(&std::format!(
+            "books/library/Some Folder/{n:03}-a-reasonably-long-file-name.epub\tFirstname Lastname {n}\t\
+             A Reasonably Long Book Title, Number {n}\tA Series Name\t{}\t\t{}\t\t19990\t\t123456\n",
+            n % 12,
+            if n % 3 == 0 { "40" } else { "" },
+        ));
+    }
+    let card = Card {
+        storage: std::rc::Rc::new(
+            MemoryStorage::new().with(".paperpaw/library/catalog.txt", text.into_bytes()),
+        ),
+        env: card().env,
+        a: 0,
+        b: 0,
+        c: 0,
+        d: 0,
+        e: 0,
+    };
+    let ask = |sort, cursor| wire::ServiceLibQuery {
+        show: 0,
+        sort,
+        flags: 0,
+        words: "",
+        author: "",
+        series: "",
+        tag: "",
+        folder: "",
+        added_since: 0,
+        cursor,
+        generation: 0,
+        facet: 0,
+    };
+    let run = |sort, cursor| {
+        peak(
+            |r| {
+                r.query(&ask(sort, cursor), &mut |_| {
+                    core::ops::ControlFlow::Continue(())
+                })
+                .unwrap();
+            },
+            &card,
+        )
+    };
+    let peaks = [run(0, 0), run(4, 0), run(0, 100)];
+    std::eprintln!("QUERY HEAP PEAKS (title, recent, title from 100): {peaks:?}");
+    // The window of 32 slots (64 bytes and two short strings each) and a line.
+    assert!(peaks.iter().all(|&peak| peak <= 8_192), "{peaks:?}");
 }

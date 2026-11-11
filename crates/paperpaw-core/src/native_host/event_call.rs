@@ -28,6 +28,9 @@ pub(crate) struct Staged {
     pub(crate) commands: Vec<Command>,
     pub(crate) redraw: Option<Redraw>,
     pub(crate) images: Vec<ImageCommand>,
+    /// The hand-overs its opens name, and the screens they replace: for the
+    /// drain (`Kernel::drain_native_opens`).
+    pub(crate) opens: super::commands::Opens,
     /// What a screen's callback stages besides (empty for a service's event,
     /// whose stage admits none of it).
     pub(crate) screen: ScreenEffects,
@@ -82,6 +85,7 @@ impl Staged {
             commands,
             redraw,
             images,
+            opens: super::commands::Opens::default(),
             screen: ScreenEffects::default(),
         }
     }
@@ -126,9 +130,20 @@ impl crate::Kernel {
         lease: &NativeLease,
         bytes: &[u8],
     ) -> Result<i32, i32> {
-        self.native_staged_call(owner, |env, stage| {
+        let status = self.native_staged_call(owner, |env, stage| {
             lease.service_event_staged(bytes, env, stage)
-        })
+        });
+        // A failure of the plugin's callback is noted, for a warning
+        // (`event_failures.rs`): the callers discard the status.
+        if let Err(code) = status {
+            let tag =
+                super::registrations::RawRecord::single(bytes).map_or(0, |record| record.tag());
+            self.shared
+                .native_instances
+                .event_failures
+                .note(owner, tag, code);
+        }
+        status
     }
 
     /// As [`Self::native_event_call`], for the `input` callback of a widget
@@ -169,7 +184,13 @@ impl crate::Kernel {
                 CALLBACK_COMMAND_BYTES,
             )
             .with_ui(&env, self.event_screen(id), 0, self.screen_keys_remaining())
-            .with_widgets(instances.ui_services(), owner);
+            .with_widgets(instances.ui_services(), owner)
+            .with_handover_store(instances.ui_services().map(|ui| &ui.store));
+            // An event's or an action's callback sets its items' states too, as
+            // a screen's does (`update` marks its menu item).
+            if let Some(directory) = self.shared.registry.native_declarations.as_ref() {
+                stage = stage.with_item_states(super::commands::ItemAdmit { directory });
+            }
             stage.set_images_held(self.image_held(owner));
             stage.set_speech_held(self.io.speech.owned_texts(id.as_str()));
             stage.set_requests_open(
@@ -191,6 +212,7 @@ impl crate::Kernel {
                 // failed borrow is a host fault: the callback fails
                 // (`ERR_BUSY`, as in the shell path) and its batch is dropped.
                 let widgets = stage.take_widget_changes();
+                let item_states = stage.take_item_states();
                 let answers = stage.take_answers();
                 let marked = match instances.ui_services() {
                     Some(ui) if !widgets.is_empty() => ui.widgets_changed(owner, &widgets),
@@ -200,14 +222,17 @@ impl crate::Kernel {
                     status = Err(error);
                     None
                 } else {
-                    let (commands, redraw, _hop) = stage.into_ui_output();
+                    let (commands, redraw, _hop, opens) = stage.into_ui_output_with_opens();
                     (!commands.is_empty()
                         || redraw.is_some()
                         || !images.is_empty()
+                        || !item_states.0.is_empty()
                         || !answers.is_empty())
                     .then(|| {
                         let mut staged = Staged::new(owner, commands, redraw, images);
+                        staged.screen.item_states = item_states;
                         staged.screen.answers = answers;
+                        staged.opens = opens;
                         staged
                     })
                 }

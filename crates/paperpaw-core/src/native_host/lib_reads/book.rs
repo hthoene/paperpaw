@@ -22,14 +22,14 @@ const NEW_DAYS: u32 = 30;
 /// `lib_book.progress` of a book never opened.
 const NEVER_OPENED: u32 = 255;
 
-mod flag {
-    pub(super) const FAVOURITE: u32 = 1;
-    pub(super) const OPENED: u32 = 1 << 1;
-    pub(super) const FINISHED: u32 = 1 << 2;
-    pub(super) const NEW: u32 = 1 << 3;
-    pub(super) const INDEXED: u32 = 1 << 4;
+pub(super) mod flag {
+    pub(in crate::native_host::lib_reads) const FAVOURITE: u32 = 1;
+    pub(in crate::native_host::lib_reads) const OPENED: u32 = 1 << 1;
+    pub(in crate::native_host::lib_reads) const FINISHED: u32 = 1 << 2;
+    pub(in crate::native_host::lib_reads) const NEW: u32 = 1 << 3;
+    pub(in crate::native_host::lib_reads) const INDEXED: u32 = 1 << 4;
     /// Title, author, series cut: bits 5-7.
-    pub(super) const CUT: [u32; 3] = [1 << 5, 1 << 6, 1 << 7];
+    pub(in crate::native_host::lib_reads) const CUT: [u32; 3] = [1 << 5, 1 << 6, 1 << 7];
 }
 
 /// What of a line `book` keeps beyond the path and the number (copied into
@@ -254,7 +254,7 @@ pub(super) fn file_present(reads: &CatalogReads, path: &str) -> Result<bool, i32
 
 /// Whether the library read title, author and cover from the book (its
 /// details say so); a file the details do not belong to is not indexed.
-fn indexed(reads: &CatalogReads, path: &str, size: Option<u64>) -> Result<bool, i32> {
+pub(super) fn indexed(reads: &CatalogReads, path: &str, size: Option<u64>) -> Result<bool, i32> {
     let size = match size {
         Some(size) => size,
         None => match reads.storage.size(path) {
@@ -266,7 +266,7 @@ fn indexed(reads: &CatalogReads, path: &str, size: Option<u64>) -> Result<bool, 
 }
 
 /// Added within the last [`NEW_DAYS`] days and not opened.
-fn is_new(reads: &CatalogReads, added: Option<u32>, opened: bool) -> bool {
+pub(super) fn is_new(reads: &CatalogReads, added: Option<u32>, opened: bool) -> bool {
     match (added, reads.env.today()) {
         (Some(added), Some(today)) => !opened && today >= added && today - added <= NEW_DAYS,
         _ => false,

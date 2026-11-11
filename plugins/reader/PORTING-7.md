@@ -795,7 +795,8 @@ relative to the data folder).
   path in the reader bound to `core.reader` (as the home screen opens a book). A missing file, an
   unreadable `state.ini` or a refused stat leaves the start screen. Beta 3's `reopen_last_book`.
 - The last book is written (`state.ini`, Beta 3's form) when a library book opens; best effort.
-- Not yet: `event.book_moved` (the last book following a moved book).
+- `event.book_moved` (token `BOOK_MOVED`): the last book read follows a moved book (`native_start::follow`; Beta 3's
+  `book_moved`; the book's data folder is moved by the host).
 - The host asks for a reply buffer of the operation's `max_reply` (4,096 bytes for `core.files` stat and
   `ui.handover`) and answers `NoSpace` below it: both buffers are 4,096 (transient, freed at once).
 - **Blocked on Core (todo 474):** the host's command stage has no hand-over store yet (`commands.rs`

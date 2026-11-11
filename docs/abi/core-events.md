@@ -78,6 +78,10 @@ All fields are required unless marked optional; `now_ms` is first, as in every e
   the user once that the path is too long. `title` and `chapter` are display text and are cut at a
   UTF-8 boundary.
   `book_moved` names the old and the new path; a book moved out of root 1 is `book_removed`.
+  A `book_moved` record is up to about 1 KiB (two paths of 512 bytes), so only three or four moves
+  can wait for one plugin (its queue holds 4,096 bytes): a folder move of many books can overflow it,
+  and the moves that do not fit are dropped, logged once for the plugin until its queue is empty
+  again, and not retried. A move with a path over 512 bytes is dropped whole, never cut.
 - [D] **`event.wifi_changed.state`:** 0 off, 1 on and not connected, 2 connecting, 3 connected, 4
   access point (the device's own network, for transfer). Other values are reserved: a consumer
   treats them as "not connected".
