@@ -157,6 +157,9 @@ pub struct View {
     body: Body,
     /// Reading aloud, where the book is read aloud (`native_view/aloud.rs`).
     speaker: Speaker,
+    /// *Read aloud* was asked while the book was prepared: it starts once the
+    /// book is open and the reading screen is on top (`take_aloud_kept`).
+    aloud_kept: bool,
 }
 
 /// The hand-over's values, as far as the screen reads them.
@@ -271,6 +274,7 @@ impl View {
             Preparation::Preparing => Ok(Self {
                 body: Body::Preparing(book),
                 speaker: Speaker::new(0),
+                aloud_kept: false,
             }),
             _ => {
                 Self::forget(host, docs, id);
@@ -379,6 +383,7 @@ impl View {
         Ok(Self {
             body: Body::Open(open),
             speaker: Speaker::new(0),
+            aloud_kept: false,
         })
     }
 
@@ -434,6 +439,7 @@ impl View {
         Self {
             body: Body::Message(key),
             speaker: Speaker::new(0),
+            aloud_kept: false,
         }
     }
 
