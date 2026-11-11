@@ -3358,6 +3358,7 @@ pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::close_screen(&m
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::new(&'cb paperpaw_sdk::native::Host<'cb>, &'buf mut [u8]) -> Self
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::open_screen(&mut self, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::queue_redraw(&mut self, paperpaw_sdk::native::commands::RedrawMode) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::queue_redraw_area(&mut self, paperpaw_sdk::native::commands::RedrawMode, paperpaw_sdk::native::callbacks::FrameRect) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::run_action(&mut self, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::set_setting(&mut self, impl core::convert::AsRef<str>, paperpaw_sdk::native::settings::SettingValue<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl core::fmt::Debug for paperpaw_sdk::native::commands::CommandSender<'_, '_>
