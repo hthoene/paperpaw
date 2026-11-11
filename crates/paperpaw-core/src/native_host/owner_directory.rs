@@ -164,6 +164,15 @@ impl OwnerDirectory {
         }
     }
 
+    /// Gives back the room the rows kept while owners were admitted one by
+    /// one (the list grows by doubling): called once the plugins are hosted.
+    /// A list in use is left as it is.
+    pub(crate) fn shrink_to_fit(&self) {
+        if let Ok(mut rows) = self.rows.try_borrow_mut() {
+            super::shrink::shrink(&mut rows);
+        }
+    }
+
     /// Adds the row of an enabled owner (no subscriptions yet).
     ///
     /// # Errors
@@ -346,5 +355,28 @@ mod tests {
         }
         dir.admit(1, "a").unwrap();
         assert_eq!(id_of(&dir, 1).as_deref(), Ok("a"));
+    }
+}
+
+#[cfg(test)]
+mod shrink_tests {
+    extern crate std;
+    use super::*;
+
+    #[test]
+    fn the_rows_give_back_what_doubling_kept() {
+        let directory = OwnerDirectory::new();
+        for key in 1..=13_u64 {
+            directory.admit(key, "plugin").unwrap();
+        }
+        let capacity = |d: &OwnerDirectory| d.rows.borrow().capacity();
+        assert!(capacity(&directory) >= 16);
+        directory.shrink_to_fit();
+        assert_eq!(capacity(&directory), 13);
+        // A list that is being read is left as it is.
+        let reading = directory.rows.borrow();
+        directory.shrink_to_fit();
+        drop(reading);
+        assert_eq!(directory.rows.borrow().len(), 13);
     }
 }

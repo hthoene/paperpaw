@@ -35,12 +35,25 @@ pub fn wipe_text(text: String) {
     wipe(&mut bytes);
 }
 
-/// Appends `item` after reserving room for it.
+/// The least a full vector grows by at one push.
+const GROW_LEAST: usize = 16;
+
+/// Appends `item` after reserving room for it. A full vector grows by its
+/// length up to 16 elements, and by an eighth of its length where that is more,
+/// not by doubling: a list of a few hundred never holds the half again that
+/// doubling leaves empty (at most an eighth and 16 spare), while a long one
+/// still reallocates only a few times per doubling (copying stays linear). Where
+/// that does not fit, it grows by one.
 ///
 /// # Errors
 /// [`Error::NoMemory`] when the vector cannot grow; it is left unchanged.
 pub fn push<T>(items: &mut Vec<T>, item: T) -> Result<(), Error> {
-    items.try_reserve(1).map_err(|_| Error::NoMemory)?;
+    if items.len() == items.capacity() {
+        let more = items.len().clamp(1, GROW_LEAST).max(items.len() / 8);
+        if items.try_reserve_exact(more).is_err() {
+            items.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
+        }
+    }
     items.push(item);
     Ok(())
 }
@@ -193,6 +206,35 @@ pub fn copy_strs<'a>(items: &[&'a str]) -> Result<Vec<&'a str>, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_full_vector_grows_by_its_length_up_to_a_few_and_never_doubles() {
+        let mut items: alloc::vec::Vec<u32> = alloc::vec::Vec::new();
+        let mut most_spare = 0;
+        for n in 0..300 {
+            push(&mut items, n).unwrap();
+            most_spare = most_spare.max(items.capacity() - items.len());
+        }
+        assert_eq!(items.len(), 300);
+        assert!(items.iter().copied().eq(0..300));
+        // Doubling would leave up to 255 spare at 300; an eighth and 16 leave 53.
+        assert!(most_spare <= 300 / 8 + GROW_LEAST, "{most_spare}");
+    }
+
+    #[test]
+    fn a_long_vector_is_copied_a_few_times_not_every_sixteen_pushes() {
+        let mut items: alloc::vec::Vec<u8> = alloc::vec::Vec::new();
+        let (mut moves, mut at) = (0, core::ptr::null());
+        for n in 0..65_536_u32 {
+            push(&mut items, n as u8).unwrap();
+            if items.as_ptr() != at {
+                moves += 1;
+                at = items.as_ptr();
+            }
+        }
+        // About 8 growths per doubling over 12 doublings, not 4,096.
+        assert!(moves < 200, "{moves}");
+    }
 
     #[test]
     fn lowercase_matches_the_standard_conversion_for_plain_text() {

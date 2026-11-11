@@ -202,7 +202,8 @@ impl Dashboard {
             picture::release(host, image);
         }
         if let Some((number, side)) = change.ask {
-            if picture::ask(host, self.backdrop.path(), number, side).is_err() {
+            let tone = self.backdrop.tone();
+            if picture::ask(host, self.backdrop.path(), number, (side, tone.as_ref())).is_err() {
                 self.backdrop.refused();
                 return Ok(());
             }
@@ -232,6 +233,7 @@ impl Dashboard {
             ready.status(),
             ready.image(),
             (ready.width(), ready.height()),
+            ready.luma(),
         );
         match landed {
             Landed::Ignore(held) => {

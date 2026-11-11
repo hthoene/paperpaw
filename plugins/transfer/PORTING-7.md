@@ -1,11 +1,11 @@
-# Interface-7 port (slices 1 to 3: the decisions and declarations, the native entry and the transfer screen, installs, the phone's keyboard and the offers)
+# Interface-7 port (slices 1 to 4: the decisions and declarations, the native entry and the transfer screen, installs, the phone's keyboard, the offers and the cable)
 
-Version 1.0.4 (already above its Beta 3 version, 1.0.3; no further bump). Status: **not complete**: the native
-entry (`NativeTransfer`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin `transfer`) serves the page
-and shows its address, installs plugins sent from the computer, types for the phone's keyboard, offers to go online and
-opens the reader's own network; the cable and moving files are named blocked steps below, so the plugin is **gated**:
-it is not in `NATIVE_PLUGINS` and not in `tools/plugin-files7/complete.txt` (its native file is not the whole
-plugin). The interface-6 `Transfer`, `web.rs`, `plugins.rs`, `cable.rs`, `phone.rs`, `link.rs` and everything of
+Version 1.0.4 (already above its Beta 3 version, 1.0.3; no further bump). Status: **complete** (named differences below): the
+native entry (`NativeTransfer`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin `transfer`) serves the page
+and shows its address, installs plugins sent from the computer, types for the phone's keyboard, offers to go online,
+opens the reader's own network, moves, renames and deletes files through the library and answers a computer at the USB
+cable. It is in `NATIVE_PLUGINS` (linked under `native-linked`) and in `tools/plugin-files7/complete.txt`. The interface-6
+`Transfer`, `web.rs`, `plugins.rs`, `cable.rs`, `phone.rs`, `link.rs` and everything of
 them stay until the host activates native plugins (then they go together, no shim; see the removal step).
 
 ## Ported (slice 1)
@@ -23,9 +23,9 @@ them stay until the host activates native plugins (then they go together, no shi
 
 - `src/native_plugin.rs` (`NativeTransfer`): `make` submits the transfer screen, the navigation (action `open`,
   menu entry, icon) and the event subscriptions (`event.server`, `event.served_request`, and in slice 3
-  `event.install_done`, `event.wifi_done`, `event.work_due`; `declarations::events`). The cable's screen and its slot
-  offer are **built but not submitted** (`declarations::cable_later`): the host would open a screen the plugin cannot
-  show; the phone's are submitted since slice 3. *Wi-Fi transfer* (`transfer.open`) opens the screen.
+  `event.install_done`, `event.wifi_done`, `event.work_due`; `declarations::events`). The phone's screen and slot offer
+  are submitted since slice 3, the cable's since slice 4 (`declarations::cable`). *Wi-Fi transfer* (`transfer.open`)
+  opens the screen.
 - **Serving** lives on the screen (`network.md` 5.1): when the screen is shown for the first time the plugin writes
   the page and calls `Net::serve(token 1, port 8080, max_body 64 MiB)`; the host takes the next port when 8080 is
   in use and says which in `started`. Closing the screen stops the server (`stop_serving` on the close, which the
@@ -48,13 +48,15 @@ them stay until the host activates native plugins (then they go together, no shi
   firmware's transfer does not wait for a file on the card), the translated texts, the device's name
   (`core.device-name`) and the library folder (`core.library-folder`) go where it names them, and the finished page is
   written into the data folder (`page.html`) and sent with `Response::send_file` (an inline body holds 2,048 bytes).
-  The page reads a new `T.noMove` that hides *Move* and *Rename* (see below); the interface-6 page never sets it.
+  The page's `T.noMove` (hides *Move* and *Rename*) is no longer set: moving and renaming are native (see
+  *Moving, deleting and uploading through the library*).
 - **The requests** (`src/native_web.rs`, over a `Card` trait; `src/native_files.rs` is the `core.files` root 1 one):
   `GET /` (the page), `GET /api/list` (an inline answer of at most 2,000 bytes; folders with more entries go on in
   parts with `next`, as before), `GET /api/file` (the file whole, `send_file` from the card: the host streams it),
   `PUT /api/file` (the body the host saved under `.received/<server>/<request>` is **moved** to the card under a
-  free name, `name (2)`; refused with 507 when the body is longer than the free room `core.files` `space` says, the
-  card's own *full* is 507 too), `POST /api/mkdir`, `POST /api/delete` (a folder with all in it, `remove_tree`), each
+  free name, `name (2)` (a book into the library folder is imported, see below); refused with 507 when the body is longer than the free room `core.files` `space` says, the
+  card's own *full* is 507 too), `POST /api/mkdir`, `POST /api/delete` (a folder with all in it, `remove_tree`; a book through the library),
+  `POST /api/move` (see below), each
   with the key. Paths are plain names (no hidden, no `..`, no trailing dot or space); the host checks root 1 by
   identity (`plugins` and `.paperpaw` are never reached). `paperpaw.ini` can be fetched but not put, made over or
   deleted (any case). Nothing a computer sends can fail the plugin: an error while answering is answered 500 or 503
@@ -67,7 +69,7 @@ them stay until the host activates native plugins (then they go together, no shi
   the same bytes, weak draws, no source), `native_draw.rs` (the code's place and that its rectangles cover each dark
   module once), `native_page.rs` (the strings go where the page names them; every text the page reads is given),
   `tests/abi7_declarations.rs` (what `make` submits has no slot offer; the events), `tests/native_linked_entry.rs`,
-  `tests/hosted_construction.rs` (`make` is refused as `Unsupported` until the host admits every family, Core #944).
+  `tests/hosted_construction.rs` (the plugin is constructed in the real registered scope of the host; since the host admits `install_done`, `wifi_done` and `work_due` the construction is asserted, no longer refused).
 
 ## Ported (slice 3: installing plugins, the phone's keyboard, the offers, the hint)
 
@@ -120,9 +122,131 @@ them stay until the host activates native plugins (then they go together, no shi
   network is served by leaving the router's network first).
 - **The page's hint for a book sent outside the library folder**: `T.books` is the extensions of the formats
   (`core.document` op 19, no permission; each once, at most 128), so the page names the library folder as before.
-- **What the host admits**: `event.install_done`, `event.wifi_done` and `event.work_due` are not admitted by the
-  host's registration check yet (Core #944; update's port waits for the same two), so `make` is refused as `Unsupported`
-  there (`tests/hosted_construction.rs`: the construction test is ignored, with the refusal asserted beside it).
+- **What the host admits**: `event.install_done`, `event.wifi_done` and `event.work_due` are admitted now (the
+  train has them): `tests/hosted_construction.rs` constructs the plugin in the real registered scope (slice 4 also
+  with the cable's screen and slot offer and `core.library`); the interface-7 loader still has to activate native
+  plugins (Core #944).
+
+## Ported (slice 4: the cable)
+
+Kernel's ruling (#244): `transfer.cable` stays a **plain native screen** offered on slot `core.cable`, no stage. The
+host (Kernel #900, `origin/kernel/cable-native-228`, not in this branch) opens it when a computer talks over the USB
+cable and no server runs, and serves the cable to the one plugin that serves port 0 from its showing screen. Ported
+against that contract; what needs the host's cable is `tests/cable_native.rs`, ignored with
+`needs native activation (#900 cable host)` (assertions kept).
+
+- **The screen** (`src/native_plugin/cable.rs`, token `CABLE`, one at a time): when first shown it calls
+  `Net::serve(Server::cable(3).max_body(64 MiB))`; the server's `event.server` is its state (`started`; `failed` says
+  why, as the Wi-Fi's; `stopped` while it was running too). It shows what interface 6 showed (waiting / a computer is
+  connected / asking / allowed / not allowed, and below it the last thing said: receiving, received, installing,
+  installed, not installed) as the list's empty-state footer, en and de (new keys `transfer.cable.waiting`, `.linked`,
+  `.asking`, `.asking.text`, `.allowed.title`, `.refused.title`, `.installing`). Closing the screen (host *Back* or the
+  idle timer) ends the permission, stops the server (idempotent), removes what was staged and cancels its timers.
+- **The protocol** (`src/native_cable.rs` host-free over a `CableHost` trait; `src/native_cable/host.rs` the host's
+  part): `GET /api/hello`, `GET /api/plugins`, `POST`/`GET /api/offer`, `PUT /api/plugin/<id>/<path>`,
+  `POST /api/plugin/<id>`, `PUT /api/book/<name>` with the interface-6 statuses: 202/409/507/400 for the offer, 403
+  `not allowed on the device` before the permission and 404 after, 422 `not as offered`. The offer body is the saved
+  body file, read a line at a time by `native_cable::read_offer` over `ui-kit`'s `Volume` (at most `MAX_FILES` lines
+  of `MAX_LINE`, the file at most `MAX_OFFER` bytes; the line rules are `native_transfer::Offer::take`, now public
+  with `Offer::finish`). The reader is asked with `Ui::ask(Question::confirm)` (title and text as `cable.rs`
+  `question`, the yes word `transfer.cable.allow`, the dialog's own *No*); `event.answered` names the request, so it
+  counts for that offer only, and a dialog closed without an answer (outcome cancelled) refuses.
+  `staged_as_offered` is ported (`native_cable::staged_as_offered`: the staged files, found by a bounded walk of the
+  cable's folder, are exactly the offered ones, each with its size and SHA-256, checked again at the install).
+- **The files** go to the cable's own folder in the data folder (`cable/<id>/<path>`, apart from the Wi-Fi's
+  `staging/<id>`, which the Wi-Fi screen cleans; the cable cleans its own when its screen opens and closes), through
+  `HostPlugins::staging_in`. A book goes with `core.library` `import` (`Existing::FreeName`, `from` = the host-saved
+  body file), after its SHA-256 was checked; offered once, taken once. `uses.library` is declared **optional**
+  (`core.library` is in the metadata): without the grant a book is *501*. The install is the Wi-Fi's command
+  (`install_plugin(request, Data, "cable/<id>", update, allow_older)`, requests from `0x7ffe_0000`).
+- **Timers and busy answers**: an exact timer (`core.work`, `at_ms`, key `transfer.cable-idle`) closes the screen after
+  five minutes without a request (not while the reader is asked or the host asks about an install: it counts again from
+  the answer); a `respond` refused as `Busy` (the host's cable queue is full) is kept (at most 4) and sent again with
+  the next request or the retry timer (`transfer.cable-retry`, every 250 ms, about 100 s), never lost silently.
+- **Guard**: none (a computer at the cable; interface 6 had none); the permission is the reader's answer.
+- Tests: `native_cable/tests.rs` (the permission state machine, answers for another offer, the offer's limits and
+  refusals, files as offered, the install waiting for the host and its refusals, `staged_as_offered`, books, the
+  library's refusals, close, and `fail_alloc::sweep` over the plugin flow, a book, the offer's file and the staged
+  check), `native_cable/host.rs` (sizes with whole numbers), `tests/abi7_declarations.rs` (the cable batch and its
+  slot decoded by the host's rules), `tests/cable_native.rs` (ignored: the hosted flow).
+- **Differences from interface 6** (case by case against `src/cable.rs` and `tests/cable.rs`):
+  (a) `hello`'s `fingerprint` is `null`: `core.device` has none in interface 7 (it has `abi_major`, `abi_draft` and
+  `target` in `native`); `version` is the firmware's (`core.device` `firmware`), else the SDK's.
+  (b) `POST /api/plugin/<id>`: the **host asks the reader** before it installs (decision 132), a second question after
+  the one about the offer. The answer is held and sent when `install_done` ends the request (200 installed, 422 refused
+  with the host's reason word: `not approved`, `damaged`, `not trusted`, `built for another PaperPaw`, ...); a reader
+  slower than the host's 120 s answer time leaves the computer without an answer (`GET /api/plugins` shows the
+  result). The checks of the folder, the code and the trust are the host's, not `Commit::approved`; a refused install
+  drops the offer's plugin and its staged files.
+  (c) `GET /api/plugins` over the cable is an inline answer (the cable takes no `file`): cut at 2,000 bytes with
+  `"next":<n>` where more follow (`?skip=<n>`); `origin` is `built-in` or `installed`.
+  (d) The question's text is at most 1,024 bytes (`core.ui`): names that do not fit are counted in *and N more*; sizes
+  are written with whole numbers only (same words as before).
+  (e) A question closed without an answer is the host's cancel (`event.answered`), not a scan of the stack: a screen
+  shown over it never counted, and now nothing has to be asked. The *Back* that ends the permission closes the screen;
+  the 403 `ended on the device` and the 10 s pause are the kernel's (#900).
+  (f) Books are catalogued by `core.library` at once (no `library::added` event); the library's name rules are
+  stricter than the offer's (a trailing dot, reserved device names): *422* `name` for such a name; a full card is *507*.
+  (g) A question that cannot be asked now (`Full`, `Busy`: another is open) is *503* `cannot ask now`, new.
+  (h) The Wi-Fi exclusion is one way: an offer for a plugin the Wi-Fi transfer holds (staged or asking) is *409*, but
+  the Wi-Fi's `PUT` is not refused while the cable is offered the same plugin (the folders are apart; the host
+  refuses a second install of the plugin while one runs).
+  (i) A file of size 0 comes without a body and is *403* `not offered`, as in interface 6.
+
+## Moving, deleting and uploading through the library (`native_web.rs`, `native_files.rs`)
+
+- **`POST /api/move?path=&to=[&name=]`** (the page's *Move* and *Rename*; interface 6's rules, kept): the source is
+  there and is not the top or `paperpaw.ini`; `to` is a folder that is there (the top for none); `name` is a plain
+  name (the source's own when none); the target is never over what is there (`name (2)`, before the extension);
+  a folder never goes into itself or below itself (*400*); `paperpaw.ini` is neither moved nor a target
+  (*403*); the same place (as the card names it, case ignored) answers *200* and changes nothing, so a rename that only
+  changes case is no change. The reader's line is *Moved: {name}* (`transfer.moved`, the name it has now; en and de).
+  **A book file** (the library's preflight `can_delete` says it is one: the file-manager's rule, the format by
+  extension or sniffing) is moved by `Library::move_to` (`replace` off), so its position, notes, fields and the
+  plugins' data follow and its key changes (`library.md` 2.3 and 6). **A folder or any other file** is
+  `core.files` `move` (root 1 to root 1, `replace` off): the host's library follows every move on root 1 by itself
+  (`files.md` 2.6), books below a folder included, so the plugin sends no moved event (interface 6's
+  `tell_moved` is gone). Differences from interface 6: the host's refusals are said (*409* `busy, try again` for
+  `Busy`, which is also a move job running for another move, *409* `exists` for `State`, *403* `not allowed` for
+  `Denied`, *507* for `Full`, as for any change; out of memory stays *503*).
+- **`POST /api/delete`**: a book file is `Library::delete` (`paths=[path]`, `with_notes` on: interface 6 deleted
+  everything kept for the book and the user asked on the page); a folder is `remove_tree` (the host forgets the books
+  below it), any other file `remove_tree` too. The answers of the host are the same as for a move (a book the reader has
+  open is `Busy`, *409*). Deliberate (Manager, #244): deleting a book from the page takes its notes with it, exactly
+  like deleting in the library: one rule.
+- **Cable answers (review fixes)**: `POST /api/offer` while a plugin installs is *409* `busy` (a new offer would forget
+  the install); an answer that cannot be built for want of memory waits for the retry timer like a busy host (what it
+  answers was done already, so a "try again" would make the retry *403*); where four answers wait, the oldest is tried
+  once more before it goes.
+- **`PUT /api/file`**: the body (a file of the data folder, root 0) is **imported** (`Library::import`, `from` the
+  body's root-0 path, `folder` the part of the target below the library folder, `Existing::FreeName`, so the book is
+  catalogued at once and the walk need not find it) when the target is a book name (an extension of the formats,
+  `core.document` `formats`, as the page's hint does) inside the library folder (`core.library-folder`, read per
+  upload; case ignored; an empty setting is the whole card). Everything else is moved with `core.files` as before.
+  Where the library refuses the names (`Invalid`, nothing sent) the body is moved as before. The line says the name the
+  host took.
+- **Without the library** (`Library::open` refused: not declared or not allowed) books are files: the same calls go
+  to `core.files`, which the host's library follows on root 1. `uses.library` is declared **optional** and
+  `core.library` is in the services (`uses.storage` was already required, which move and delete need).
+- Tests: `native_web/tests.rs` over the in-memory card, which logs whether the library or the card did each change
+  (a file, a book, a folder, into itself, over what is there, the same place, the settings, missing and hostile
+  names, the host's refusals, an allocation sweep of each route), `native_files.rs` (the library folder and the
+  book names).
+
+## Memory of the transfer screen on the X4 (#248)
+
+- **Beta 3 (interface 6), measured** (emulator `--heap-report`, X4 profile, `wait:300,reset-peak,run:transfer.open,wait:600`
+  on t10): the heap is 67.9 KiB at home and 89.8 KiB with the transfer screen open (+21.9 KiB); the peak since the reset
+  is 103.3 KiB (+35.4 KiB over home).
+- **Native: not measured yet, named.** The desktop emulator cannot run the native plugin end to end today: it does not
+  back `uses.install` (a refusal at admission; a local, uncommitted measurement patch offering it let `make` pass), and a
+  native plugin's `core.network.transfer` and `core.saving.transfer` settings are made at admission only with Services
+  #894 (`NET-SETTINGS-NATIVE`), so the `transfer.open` action does nothing (`unknown setting`). The X4 packer accepts
+  the file (`tools/plugin-files7/build.sh x4 --only transfer`: 250,784 bytes, every frame under 2,048 B). The gate of
+  #248 for this screen stays open until the flow runs natively; what is kept from Beta 3: streamed transfers (a body is
+  a file of the data folder, a download a `send_file`; no body in memory), an inline answer of at most 2,000 bytes, the
+  listing in parts, the page written to the data folder, buffers of one request on the heap and gone with it, one
+  `core.files` handle with its two buffers per request, fallible allocation everywhere (sweeps in the tests).
 
 ## `paperpaw.ini`: not served, not changed (defence in depth)
 
@@ -135,23 +259,11 @@ still refuses uploading over it, deleting, moving and renaming it (403). Pinned 
 `the_settings_are_not_served` and `the_settings_cannot_be_put_made_or_deleted_over`; the interface-6 parity test
 compares `read_only` with the interface-6 rule.
 
-## Blocked and next steps
+## What is not there, and the rest (all named, none blocks the port)
 
-1. **Moving and renaming files** (`POST /api/move`: 501; the page hides *Move* and *Rename*). The library keeps
-   positions, notes and catalog data under a book's key, and a plain `core.files` move would leave them behind.
-   `core.library`'s `move` (`library.md`: the file and everything kept for it follow) is not in the SDK
-   (`native::library` has query, book, fields and annotations only). **Needs `Library::move` (and `delete`,
-   `import`) from Services.** The same op is wanted for books uploaded (`import`: a journalled move that catalogues
-   at once; today the walk finds the file) and deleted: *Delete* removes the file or folder through `core.files`, and
-   what the library kept for a removed book (its notes) is left for the walk's clean-up (interface 6 emitted
-   `BOOK_REMOVED` and told the moved).
+1. ~~Moving and renaming files~~: native (see *Moving, deleting and uploading through the library*).
 2. ~~Installing plugins from the computer~~: native (slice 3).
-3. **The cable** (`cable.rs`, the screen `transfer.cable`, slot `core.cable`): **missing: the stage declaration for
-   `core.cable`** (a plugin cannot declare that it serves the host's cable stage; the server itself exists:
-   `Server::cable(token)`, port 0), **and the dialogs** (#847/#854 are not merged: the reader is asked before anything
-   is written, H2, and the offer's plugin and books are named in it). With them: the offer (`native_transfer::Offer`
-   is ported and tested), the staged-files check (`staged_as_offered`, not ported) and the install by the same
-   `install_plugin`. The screen and its slot offer are built (`declarations::cable_later`) but not submitted.
+3. ~~The cable~~: native (slice 4).
 4. ~~The phone's keyboard~~: native (slice 3).
 5. **The reader's own network**, what is not there: its button on *Starting* and while serving at a router (see
    above); the rest is native (slice 3). Everything else the offline mode needed is native.
@@ -169,5 +281,5 @@ compares `read_only` with the interface-6 rule.
    `native_parity_tests.rs` once nothing is left to compare), the `HOW` table kept for the manifest; `data/page.html`
    and `data/phone.html` stay (the native page is built from the first).
 2. The app's registration of `Transfer` (`crates/paperpaw-app/src/lib.rs`).
-3. List `NativeTransfer` in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt` only when blocked steps 1 to 6
-   are native (every user-visible function works natively), and then submit `screens_later` and `offers`.
+3. `NativeTransfer` is in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt` (done with the port: every user-visible
+   function works natively); the sweep removes the interface-6 form from `install_with` with the rest.

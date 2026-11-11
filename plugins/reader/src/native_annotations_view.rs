@@ -338,18 +338,29 @@ impl AnnotationsView {
 /// # Errors
 /// `NoMemory` and the host's refusals.
 pub fn show(host: &Host<'_>, ui: &Ui, params: &[(&'static str, String); 4]) -> Result<(), Error> {
-    let [(k0, v0), (k1, v1), (k2, v2), (k3, v3)] = params;
-    let list = [
-        Param::new(k0, v0)?,
-        Param::new(k1, v1)?,
-        Param::new(k2, v2)?,
-        Param::new(k3, v3)?,
-    ];
+    open_screen(host, ui, "reader.annotations", params)
+}
+
+/// Opens the reader's screen `screen` with a hand-over of `params`.
+///
+/// # Errors
+/// `NoMemory` and the host's refusals.
+pub fn open_screen(
+    host: &Host<'_>,
+    ui: &Ui,
+    screen: &str,
+    params: &[(&'static str, String)],
+) -> Result<(), Error> {
+    let mut list = Vec::new();
+    list.try_reserve_exact(params.len())
+        .map_err(|_| Error::NoMemory)?;
+    for (key, value) in params {
+        list.push(Param::new(key, value)?);
+    }
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
     let handover = ui.handover(host, &list, &mut input, &mut out)?;
     let mut scratch = [0; 256];
-    CommandSender::new(host, &mut scratch)
-        .open(Open::screen("reader.annotations")?.handover(handover))?;
+    CommandSender::new(host, &mut scratch).open(Open::screen(screen)?.handover(handover))?;
     Ok(())
 }
 
