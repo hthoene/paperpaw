@@ -3,6 +3,7 @@
 //! they are shared at the book's first read, never over a shared file.
 extern crate std;
 use super::*;
+use crate::native_host::lib_reads::CatalogReads;
 use crate::native_host::lib_reads::tests::{Card, annotation_file, card};
 use crate::native_host::lib_service::{BookRef, LibQuery};
 use crate::native_host::registrations::Record;
