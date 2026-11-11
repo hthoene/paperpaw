@@ -7,6 +7,7 @@
 //! failed. The document is given back once: when it failed, or when the screen
 //! closes.
 
+use paperpaw_sdk::native::commands::RedrawMode;
 use paperpaw_sdk::native::{
     Error, Host,
     document::{DocId, Documents, Preparation},
@@ -95,7 +96,15 @@ impl View {
                 }
                 // `opened` gives the document back on a refusal on the way.
                 match Self::opened(host, (docs, library), book) {
-                    Ok(opened) => self.body = opened.body,
+                    Ok(opened) => {
+                        self.body = opened.body;
+                        // Shown already: its pictures are asked for now.
+                        if let Body::Open(open) = &mut self.body
+                            && open.pictures_pending()
+                        {
+                            open.redraw_page(host, RedrawMode::Partial).ok();
+                        }
+                    }
                     Err(Error::NoMemory) => {
                         self.body = Body::Message("reader.no-memory");
                         return Err(Error::NoMemory);
