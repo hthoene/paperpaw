@@ -271,10 +271,25 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   the document. A format that is not running yet is `ERR_BUSY` with bit 6 raised, so the caller
   asks again (one counter for the whole library host, not per book: after 6 raises in a row it
   raises no more until a cover is made); a full document table is `ERR_BUSY` and **raises nothing**
-  (it does not clear by itself: the caller closes a document); a format whose first `open` is still *preparing*
-  (a conversion not yet in the cache: DOCX, MOBI) is `ERR_NOT_FOUND` for now, and the cover appears
-  after the book has been prepared once (reading it). The background job that makes those covers
-  and raises bit 6 when they are ready is the contract's own design and comes later.
+  (it does not clear by itself: the caller closes a document).
+  **Preparing books (DOCX, MOBI): the cover job.** A format whose first `open` is still *preparing*
+  (a conversion not yet in the cache) is `ERR_BUSY`, and the first such `cover` keeps its document
+  open as the one **cover job** of the device: a background document (any other open takes its place
+  first, the reader on the X4's two places always wins; sleep, a pulled card and any open that is
+  not this `cover` end it). The preparing loop (DOC section on preparing) converts it a step a pass
+  between inputs, and when it is ready or failed the host ends it and raises bit 6 once. The next
+  `cover` then makes the picture as above. A second book waits (`ERR_BUSY`, asked again after the
+  bit). No job begins before the kernel's start has returned (the bit follows it), and none holds the
+  device awake or restarts after a sleep until a new `cover` asks. A book whose job failed (the
+  format could not prepare it, 8 steps in a row that could not be made) is `ERR_NOT_FOUND`, never
+  `ERR_BUSY` again, until the next start: the host remembers 8 such books in memory only, and after
+  8 failed jobs in a row raises no more bits (a ready job or the next start resets the run). A card
+  error is not the book's. **Crash guard:** when a job begins the host writes the book's key to
+  `.paperpaw/cover-job.txt` (and syncs); it removes the file when the job ends however it ends; if it
+  cannot write it the job does not begin (`ERR_BUSY`, nothing raised). At the next start a file still
+  there means a reset happened in that job (or a plain power loss: then the book is counted failed
+  for that run only), and its book is counted as failed. The format's first `open` of a book (the call
+  that reports *preparing*) is not covered by the marker.
 
 ### 2.2 Status, positions, annotations
 
