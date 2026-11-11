@@ -438,19 +438,28 @@ impl Kernel {
     ) -> Option<crate::native_host::ui_store::Info> {
         use crate::native_host::ui_store::{Info, Param};
         let store = self.shared.native_instances.ui_store()?;
+        let count = params.iter().count();
         let mut list = Vec::new();
-        let made = list
-            .try_reserve_exact(params.iter().count())
-            .map_err(|_| paperpaw_native::host_glue::ERR_NO_MEMORY)
-            .and_then(|()| {
-                list.extend(params.iter().map(|(key, value)| Param { key, value }));
-                store.handover_params(&list)
+        // More than op 16 could ever take is refused before anything is
+        // allocated.
+        let made = (if count > 2 * crate::native_host::ui_store::PARAMS_MAX {
+            Err(paperpaw_native::host_glue::ERR_NO_SPACE)
+        } else {
+            Ok(())
+        })
+        .and_then(|()| {
+            list.try_reserve_exact(count)
+                .map_err(|_| paperpaw_native::host_glue::ERR_NO_MEMORY)
+        })
+        .and_then(|()| {
+            list.extend(params.iter().map(|(key, value)| Param { key, value }));
+            store.handover_params(&list)
+        })
+        .and_then(|id| {
+            store.attach(Some(id), serial).inspect_err(|_| {
+                let _ = store.release(id);
             })
-            .and_then(|id| {
-                store.attach(Some(id), serial).inspect_err(|_| {
-                    let _ = store.release(id);
-                })
-            });
+        });
         drop(list);
         let info = made.is_ok().then(|| store.info(serial)).flatten();
         if made.is_err() {
