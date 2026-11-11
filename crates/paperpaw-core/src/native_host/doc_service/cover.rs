@@ -61,7 +61,7 @@ pub(crate) fn make(
     // the job has not made is not made here either: no picture is decoded in
     // the asking list's frame (`doc_cover_make`).
     let inline = match services.0.cover_at(path) {
-        CoverAt::Job => return Ok(Made::Queued),
+        CoverAt::Job | CoverAt::Wait => return Ok(Made::Queued),
         CoverAt::Made => true,
         CoverAt::Unmade => false,
     };
@@ -129,13 +129,23 @@ fn covered(
             .map(Made::Image)
     } else if failed {
         Err(ERR_NOT_FOUND)
-        // Below: preparing, or ready with a cover the job has not made.
+        // Below: preparing, or ready with a cover not made yet.
     } else if !host.cover_jobs_allowed() || host.table().reading_besides(document) {
         // The kernel is still starting (a crash of the format in a job there
         // would count as a failed start), or a book is open for reading (the
         // job takes no step then). Not now: the host raises the change when
         // jobs may begin, and the book is asked for again.
         host.cover_job_held_back();
+        Ok(Made::Queued)
+    } else if ready {
+        // Ready, its cover not made yet: the document stays open as the
+        // host's cover to make, beside any cover job (one the list holds back
+        // never keeps it waiting); the pump's next look asks the format for
+        // the cover and ends it (`doc_cover_make`). Where one waits already,
+        // this book is asked for again when that ends.
+        if host.table().start_cover_make(host.owner(), document) {
+            return Ok(Made::Queued);
+        }
         Ok(Made::Queued)
     } else {
         // Preparing: the document stays open as the cover job, which the

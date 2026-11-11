@@ -34,6 +34,7 @@ const SCRATCH: usize = 4096;
 
 impl DocState {
     /// Whether the cover job is the document of the book at `path`.
+    #[cfg(test)]
     pub(super) fn cover_job_path_is(&self, path: &str) -> bool {
         let Some(job) = self.table.cover_job() else {
             return false;
@@ -149,6 +150,11 @@ impl DocState {
             self.cover_job_end(hosts, route);
             return JobStep::None;
         }
+        // A ready book's cover to make goes first: it never waits behind a
+        // job (`doc_cover_make`).
+        if let Some(row) = self.table.cover_make() {
+            return self.cover_make_next(hosts, route, &row);
+        }
         let Some(job) = self.table.cover_job() else {
             // A job that an open took the place of: its marker is left.
             self.unguard();
@@ -166,9 +172,7 @@ impl DocState {
         }
         // Ready: the format makes the cover now, outside the list's frame
         // (`doc_cover_make`).
-        if job.state == READY {
-            self.make_job_cover(hosts, route, &job);
-        }
+        let made = (job.state == READY).then(|| self.make_cover(hosts, route, &job));
         // A card that failed is no fault of the book: not remembered as failed.
         let key = if job.state == FAILED && job.status == ERR_IO {
             0
@@ -182,10 +186,7 @@ impl DocState {
         self.unguard();
         // It came to an end by itself: displacements are not in a row.
         self.job_displaced.set((0, 0));
-        JobStep::Ended {
-            ready: job.state == READY,
-            key,
-        }
+        made.map_or(JobStep::Ended { ready: false, key }, |made| made.step(key))
     }
 
     /// Notes what a preparing step did for the cover job: steps that cannot be
@@ -235,12 +236,13 @@ impl DocState {
         if let Some(job) = self.table.take_cover_job() {
             self.end_job(hosts, route, &job);
         }
+        self.cover_make_end(hosts, route);
         self.unguard();
     }
 
     /// Ends a job whose preparation is over, as `close` would: the cache is
     /// finished, the format gets op 4, the book's hold is given back.
-    fn end_job(&self, hosts: &HostServices, route: &dyn Route, document: &Document) {
+    pub(super) fn end_job(&self, hosts: &HostServices, route: &dyn Route, document: &Document) {
         self.finish_cache(hosts, document.id);
         if !document.format_gone
             && let Ok((target, _)) = self.format_target(document.format)
