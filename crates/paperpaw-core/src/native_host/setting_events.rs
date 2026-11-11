@@ -327,6 +327,17 @@ impl SettingEvents {
     }
 
     /// The owners with something waiting, in the pump's order.
+    /// Whether an event waits for any plugin: what `Kernel::service_due`
+    /// asks so that an event raised after this call's pump (the kernel's
+    /// `started`, raised as its commands run) is told at once, not at the next
+    /// deadline. Nothing is allocated; a queue table in use says no (its user
+    /// is the pump, which asks for its own next pass).
+    pub(super) fn any_waiting(&self) -> bool {
+        self.queues
+            .try_borrow()
+            .is_ok_and(|queues| queues.iter().any(|(_, queue)| !queue.is_empty()))
+    }
+
     pub(super) fn waiting(&self) -> Vec<u64> {
         let Ok(queues) = self.queues.try_borrow() else {
             return Vec::new();
