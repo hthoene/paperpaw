@@ -85,7 +85,7 @@ run cargo build --release --locked --target riscv32imc-unknown-none-elf --no-def
 # 2. One image for the whole flash, as the release makes it.
 run mkdir -p "$bundle"
 run espflash save-image --chip esp32c3 --merge --skip-padding --flash-size 16mb \
-  --partition-table partitions.csv "$elf" "$bundle/$image"
+  --partition-table partitions.csv "$elf" "$bundle/$image" 2>&1 | tee "$([ "$dry" = 0 ] && echo "$bundle/.save-image.log" || echo /dev/null)"
 
 # 3. The image can take the next update (two app slots, the app fits them and CrossPoint's).
 # For the test image this is a REPORT, not a gate: the owner flashes it over USB into the
@@ -116,6 +116,13 @@ if [ "$dry" = 0 ]; then
     echo "espflash:  $(espflash --version | head -1)"
     echo "image:     $image  ($(stat -c %s "$bundle/$image") bytes)"
     echo "check-image: $check"
+    # The app's size against Beta 3's (decision 136: at most +60,000 B for the whole 1.0 work).
+    app="$(sed -n 's|.*App/part. size: *\([0-9,]*\)/.*|\1|p' "$bundle/.save-image.log" | tr -d ',' | head -1)"
+    beta3="${BETA3_APP_BYTES:-5632368}"
+    if [ -n "$app" ]; then
+      echo "app size:  $app bytes; Beta 3: $beta3 bytes (BETA3_APP_BYTES); difference: $((app - beta3)) bytes (decision 136 limit: +60000)"
+      echo "           CrossPoint's slot is 6553600 bytes: an app above it is flashed over USB only"
+    fi
     echo "app slot:  0x7f0000 bytes (ota_0 at 0x10000, ota_1 at 0x800000; shells/xteink/partitions.csv)"
     echo "cargo:     cargo build --release --locked --target riscv32imc-unknown-none-elf --no-default-features --features $features  (in shells/xteink)"
     echo "built:     $(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -126,6 +133,7 @@ if [ "$dry" = 0 ]; then
     if command -v "$sz" >/dev/null; then "$sz" -A "$elf" > "$bundle/size-A.txt" 2>&1 || rm -f "$bundle/size-A.txt"; break; fi
   done
   [ -f "$bundle/size-A.txt" ] && echo "sections:  size-A.txt" >> "$bundle/BUILD-INFO.txt"
+  rm -f "$bundle/.save-image.log"
   (cd "$bundle" && sha256sum "$image" BUILD-INFO.txt OWNER-STEPS.md OWNER-SCHRITTE.md partitions.csv $(ls size-A.txt 2>/dev/null) > SHA256SUMS && cat SHA256SUMS)
 else
   printf '\n$ (copy OWNER-STEPS.md, OWNER-SCHRITTE.md; write BUILD-INFO.txt; sha256sum > SHA256SUMS)\n'
