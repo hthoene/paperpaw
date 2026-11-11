@@ -259,25 +259,27 @@ fn a_book_that_is_not_the_cover_job_is_stepped_at_once_again() {
 }
 
 #[test]
-fn at_a_saving_power_level_the_jobs_steps_are_a_second_apart() {
-    world(|w| {
-        let log = Rc::new(Log::default());
-        let (mut kernel, opener) = kernel(w, &log);
-        let document = open(w, &kernel, opener, "books/a.epub");
-        assert!(w.state.table.start_cover_job(opener, document));
-        kernel.now = Instant(10_000);
-        *log.reply.borrow_mut() = fmt_state(PREPARING, 100_000);
-        for level in [
-            paperpaw_sdk::power::PowerLevel::Saving,
-            paperpaw_sdk::power::PowerLevel::Offline,
-        ] {
+fn the_cover_job_waits_ten_times_longer_where_the_device_saves_power() {
+    use paperpaw_sdk::power::PowerLevel;
+    for (level, gap) in [
+        (PowerLevel::Normal, 100),
+        (PowerLevel::Saving, 1_000),
+        (PowerLevel::Offline, 1_000),
+    ] {
+        world(|w| {
+            let log = Rc::new(Log::default());
+            let (mut kernel, opener) = kernel(w, &log);
+            let document = open(w, &kernel, opener, "books/a.epub");
+            assert!(w.state.table.start_cover_job(opener, document));
             kernel.shared.power.level = level;
+            kernel.now = Instant(10_000);
+            *log.reply.borrow_mut() = fmt_state(PREPARING, 100_000);
             assert!(!kernel.native_doc_pump());
-            let at = kernel.shared.native_instances.doc_retry().unwrap();
-            assert_eq!(at, kernel.now.millis() + 1_000);
-            assert!(!kernel.shared.native_instances.service_more());
-            kernel.now = Instant(at);
-        }
-        assert_eq!(log.calls.borrow().len(), 2);
-    });
+            assert_eq!(
+                kernel.shared.native_instances.doc_retry(),
+                Some(10_000 + gap),
+                "{level:?}"
+            );
+        });
+    }
 }

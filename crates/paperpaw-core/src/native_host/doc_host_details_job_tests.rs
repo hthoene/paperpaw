@@ -429,25 +429,28 @@ fn a_ready_cover_is_asked_beside_the_details_job_never_busy() {
 }
 
 #[test]
-fn a_book_whose_jobs_keep_the_device_awake_ten_minutes_in_a_start_fails() {
+fn the_details_job_has_the_cover_jobs_awake_cap_its_time_before_giving_way_counting() {
     world(|w| {
         w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
         w.state.now.set(1_000);
         begin(w, "books/a.epub", PREPARING);
-        // Six minutes of steps, then the device sleeps (the job ends).
+        // 200 s, then the book's cover needs the slot: the details job gives
+        // way, and the cover job of the same book counts on.
+        w.state.now.set(201_000);
         *w.reply.borrow_mut() = Ok(fmt_state(PREPARING, 0));
-        w.state.now.set(1_000 + 360_000);
-        w.state.prepare_step(&w.hosts, &FrameRoute(w));
-        assert_eq!(look(w).0, JobStep::Wait);
+        let made = cover::make(w, &opener(w), "books/a.epub", 0);
+        assert!(matches!(made, Ok(cover::Made::Queued)));
+        // 100 s of the cover job, then the device sleeps.
+        w.state.now.set(301_000);
         w.state.cover_job_end(&w.hosts, &FrameRoute(w));
-        // After the wake the same book's job counts on from there.
+        // After the wake the details job again: 300 s are left.
         w.state.now.set(5_000_000);
         start(w, "books/a.epub", PREPARING).unwrap();
         *w.reply.borrow_mut() = Ok(fmt_state(PREPARING, 0));
-        w.state.now.set(5_000_000 + 239_999);
+        w.state.now.set(5_000_000 + 299_999);
         w.state.prepare_step(&w.hosts, &FrameRoute(w));
         assert_eq!(look(w).0, JobStep::Wait, "not quite ten minutes");
-        w.state.now.set(5_000_000 + 240_000);
+        w.state.now.set(5_000_000 + 300_000);
         w.state.prepare_step(&w.hosts, &FrameRoute(w));
         let job = w.state.table.cover_job().unwrap();
         assert_eq!((job.state, job.status), (FAILED, ERR_TIMEOUT));
@@ -458,12 +461,6 @@ fn a_book_whose_jobs_keep_the_device_awake_ten_minutes_in_a_start_fails() {
                 key: path_key("books/a.epub")
             }
         );
-        // Another book starts at nought.
-        w.state.now.set(6_000_000);
-        start(w, "books/b.epub", PREPARING).unwrap();
-        *w.reply.borrow_mut() = Ok(fmt_state(PREPARING, 0));
-        w.state.now.set(6_000_000 + 500_000);
-        w.state.prepare_step(&w.hosts, &FrameRoute(w));
-        assert_eq!(look(w).0, JobStep::Wait);
+        assert_eq!(marker(w), None);
     });
 }

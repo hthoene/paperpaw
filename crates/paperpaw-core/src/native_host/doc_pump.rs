@@ -13,21 +13,22 @@
 //! while a document still prepares (the format itself works for at most 50 ms
 //! of its own clock per call, and the pump runs between inputs). The
 //! background job (the library's cover, the host's details job) is the
-//! exception: after its step the pump waits [`JOB_GAP_MS`] ([`JOB_GAP_SAVING_MS`]
-//! at a saving power level), a timed wake, so it goes on while the device is
-//! idle; the details job's next book waits as long (`details_job_pump`).
+//! exception: after its step the pump waits [`JOB_GAP_MS`] (a timed wake), so
+//! it goes on while the device is idle; the details job's next book waits the
+//! same gap (`details_job_pump`).
 use super::{doc_service::PrepareStep, native_host_call::HostRoute};
 
 /// The wait before a step that could not be made is tried again; it doubles
 /// for each failure in a row (as the library move job's does) ...
 const RETRY_MS: u64 = 500;
 /// The wait between two steps of the background job (`doc_cover_job`, a
-/// cover or a book's details), the only document that prepares: a timed wake, not the "more" signal, so
-/// the job goes on while the device is idle (nothing else wakes the pump) and
-/// still never holds the idle or the sleep timer off (it is no input, and no
-/// wake counts as one).
+/// cover or a book's details), the only document that prepares: a timed wake,
+/// not the "more" signal, so the job goes on while the device is idle (nothing
+/// else wakes the pump) and still never holds the idle or the sleep timer off
+/// (it is no input, and no wake counts as one).
 const JOB_GAP_MS: u64 = 100;
-/// The gap at the power levels Saving and Offline: the job goes on, slower.
+/// The same where the device saves power (the power modes Saving and Offline):
+/// the job goes on ten times slower, so it costs little battery.
 const JOB_GAP_SAVING_MS: u64 = 1_000;
 /// ... up to this (500 ms shifted at most seven times).
 const RETRY_MAX_MS: u64 = RETRY_MS << 7;
@@ -41,15 +42,14 @@ pub(super) const fn wait(failures: u8) -> u64 {
 }
 
 impl crate::Kernel {
-    /// When the background job's next step is made (see the module): a gap
-    /// from now, longer at a saving power level.
-    pub(crate) fn native_job_next(&self) -> u64 {
-        let gap = if self.shared.power.level == paperpaw_sdk::power::PowerLevel::Normal {
+    /// The gap between two steps of the background job (see the module), at
+    /// the device's power level.
+    pub(crate) fn native_job_gap(&self) -> u64 {
+        if self.shared.power.level == paperpaw_sdk::power::PowerLevel::Normal {
             JOB_GAP_MS
         } else {
             JOB_GAP_SAVING_MS
-        };
-        self.now.millis().saturating_add(gap)
+        }
     }
 
     /// One step of the preparing loop; `true` while more are to be made
@@ -118,7 +118,8 @@ impl crate::Kernel {
                 // comes after a short gap, as a timed wake and not as "more",
                 // so it goes on on an idle device and never holds the idle or
                 // the sleep timer off.
-                instances.set_doc_retry(job_only.then(|| self.native_job_next()));
+                let gap = self.native_job_gap();
+                instances.set_doc_retry(job_only.then(|| self.now.millis() + gap));
                 !job_only
             }
             PrepareStep::Later => {

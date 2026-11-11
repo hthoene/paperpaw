@@ -286,13 +286,14 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   displacement; it then **starts again from the beginning**: a cache is whole or not used
   (`document.md` 2.1), nothing of a partial conversion is kept. A job displaced 3 times in a row
   for the same book is not started again for that book until the next start (no cover, as for a
-  failed book). A job never holds the device awake: its steps follow each other by timed wakes
-  (100 ms apart, 1 s at the power levels Saving and Offline), never as "more work", and it does
-  not restart after a sleep until a new `cover` asks. If a job's memory for the format's
+  failed book). A job never holds the device awake
+  and does not restart after a sleep until a new `cover` asks. Between two of its steps the pump waits 100 ms (1 s in the power modes Saving and Offline), a
+  timed wake, so the job goes on on an idle device. A book's job may run 10 minutes in all per
+  start of the device (displaced and begun again counts together); then the book counts as failed
+  (as above). If a job's memory for the format's
   `close` cannot be had (4 KiB, once, when the job ends) the format is not told and keeps its state
   for that document until it stops. A book whose job failed (the
-  format could not prepare it, 8 steps in a row that could not be made, or its jobs kept the device
-  awake 10 minutes in all in one start, counted for the last book only) is `ERR_NOT_FOUND`, never
+  format could not prepare it, 8 steps in a row that could not be made) is `ERR_NOT_FOUND`, never
   `ERR_BUSY` again, until the next start: the host remembers 8 such books in memory only, and after
   8 failed jobs in a row raises no more bits (a ready job or the next start resets the run). A card
   error is not the book's. **Crash guard:** when a job begins the host writes the book's key to
@@ -308,8 +309,9 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   own background document (root 1, the defaults of a plain open) in the **same one slot** as the cover
   job, with the same marker (written before the open), start gate (also the 2 s after a
   displacement), sleep end (not restarted after a wake until the next walk), "any other open takes
-  its place" rule (3 displacements in a row for one book give it up, as a failed book), pace and
-  failures (8 steps, 10 minutes awake). Once it
+  its place" rule (3 displacements in a row for one book give it up, as a failed book), gap between
+  steps, failures and awake-time cap (one book's time counts across both kinds, a give-way to a
+  cover included). Once it
   is ready (after the preparing loop where the format prepares) the host reads `meta` (op 5), the
   whole title and series by offsets where `meta` cut them, the first author and at most 16 subjects
   (op 6, each cut at the details' caps), keeps them as the book's details marked as read (never where

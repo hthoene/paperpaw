@@ -33,11 +33,10 @@
 //! nothing arms a pass that finds nothing and wants nothing: no loop.
 //!
 //! **Power.** Nothing here asks for another pass or holds the idle or sleep
-//! timer off: the job's book prepares at the cover job's pace (`doc_pump`: a
-//! timed wake after each step, 100 ms, 1 s at a saving power level, and at
-//! most ten minutes awake for one book in a start), and the next look waits
-//! as long, a timed wake too ([`DetailsRun::wake_at`]), or the end of the
-//! quiet moment, so that the job goes on on an idle device.
+//! timer off: the job's book prepares at the cover job's pace and under its
+//! awake-time cap per book (`doc_pump`'s gap, `doc_cover_job`'s cap), and the
+//! next look waits the same gap, a timed wake too ([`DetailsRun::wake_at`]),
+//! or the end of the quiet moment, so that the job goes on on an idle device.
 use super::{
     admitted_features::AdmittedFeatures, doc_service::HOST_JOB, doc_service::details::DetailsJob,
     host_services::Caller, lib_cover::path_key, native_declarations::NativeDeclarations,
@@ -219,7 +218,7 @@ impl crate::Kernel {
                 // came before it), or the next book.
                 self.native_outbox_run();
                 self.native_cover_job_pump();
-                Some(self.native_job_next())
+                Some(self.now.millis().saturating_add(self.native_job_gap()))
             }
             Pass::Refused {
                 status,
@@ -300,7 +299,7 @@ impl crate::Kernel {
             Ok(Look::Book { path, line, next }) => (path, line, next),
             Ok(Look::More(at)) => {
                 run.set_cursor(at);
-                return Pass::Wait(self.native_job_next());
+                return Pass::Wait(self.now.millis().saturating_add(self.native_job_gap()));
             }
             Ok(Look::End) => {
                 run.disarm();
@@ -351,7 +350,7 @@ impl crate::Kernel {
     /// that could not be made, `doc_pump`), else passed by (and remembered as
     /// failed where the format failed it). When the next look is due.
     fn native_details_refused(&self, status: i32, line: u64, next: u64, key: u64) -> u64 {
-        let soon = self.native_job_next();
+        let soon = self.now.millis().saturating_add(self.native_job_gap());
         let Some(run) = self.native_details_job().map(DetailsJob::run) else {
             return soon;
         };

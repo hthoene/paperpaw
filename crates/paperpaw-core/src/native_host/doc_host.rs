@@ -157,16 +157,16 @@ pub(crate) struct DocState {
     /// The book the job was displaced for last, and how many times in a row;
     /// at [`DISPLACED_MAX`] the book is given up until the next start.
     job_displaced: Cell<(u64, u8)>,
+    /// When the job that runs began (the kernel's clock, ms), and the time
+    /// the books' jobs have run in all (key, ms): the cap per book and start
+    /// ([`JOB_AWAKE_MAX_MS`]).
+    job_started: Cell<u64>,
+    job_used: Cell<(u64, u64)>,
     /// The book given up (0: none), for the library's failure ring.
     job_given_up: Cell<u64>,
     /// The job is to end at the next pump pass (a suspend that came inside a
     /// callback).
     job_suspend: Cell<bool>,
-    /// The book of the last job and its awake time this start, ms
-    /// (`doc_cover_job`).
-    job_awake: Cell<(u64, u64)>,
-    /// The kernel's clock when the job's awake time was counted last.
-    job_seen: Cell<u64>,
     /// The card, for the first bytes a file is told by (`with_storage`).
     storage: Option<Rc<dyn Storage>>,
     /// The most bytes one document's cache may hold.
@@ -202,6 +202,10 @@ const RESUME_AFTER_MS: u64 = 2_000;
 /// A job displaced this many times in a row for the same book is not started
 /// again until the next start.
 const DISPLACED_MAX: u8 = 3;
+/// The most one book's job (its cover or its details) may run in all (awake
+/// time, ms) between two starts of the device, wherever it was displaced and
+/// began again; then the book counts as failed (no cover until the next start).
+const JOB_AWAKE_MAX_MS: u64 = 10 * 60 * 1_000;
 
 /// Nothing is drawn from a format's picture yet: it is left out.
 struct NoImages;
@@ -288,9 +292,9 @@ impl DocState {
             job_key: Cell::new(0),
             job_displaced: Cell::new((0, 0)),
             job_given_up: Cell::new(0),
+            job_started: Cell::new(0),
+            job_used: Cell::new((0, 0)),
             job_suspend: Cell::new(false),
-            job_awake: Cell::new((0, 0)),
-            job_seen: Cell::new(0),
             storage: None,
             cache_cap: limits.cache_bytes(),
             last_prepared: Cell::new(0),

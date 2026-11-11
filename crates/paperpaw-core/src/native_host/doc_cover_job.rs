@@ -18,8 +18,9 @@
 //! * The slot is the device's one background job, of either kind
 //!   (`JobKind`): the library's cover, or the host's details job
 //!   (`doc_details_job`), whose book is read here before it is closed. The
-//!   marker, the start gate, the end at sleep, the place any other open takes
-//!   and the failure after [`LATER_MAX`] steps are the same for both.
+//!   marker, the start gate, the end at sleep, the place any other open
+//!   takes, the failure after [`LATER_MAX`] steps and the awake-time cap per
+//!   book are the same for both.
 use super::{DocState, NoImages};
 use crate::native_host::{
     doc_service::{Document, FAILED, JobKind, JobStep, PREPARING, PrepareStep, READY, details},
@@ -33,11 +34,6 @@ use paperpaw_native::host_glue::{ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_TIMEO
 /// memory for the buffer) after which the job's book counts as failed: only
 /// that book, nothing else, whatever the cause (`ERR_NO_MEMORY`).
 const LATER_MAX: u8 = 8;
-
-/// The most a job may keep the device awake for one book this start
-/// (`ERR_TIMEOUT`): the kernel's clock while the job's book prepares, summed
-/// over its jobs (only the last book's sum is kept).
-const AWAKE_MAX_MS: u64 = 10 * 60 * 1000;
 
 /// The reply buffer of the format's close (as a step's).
 const SCRATCH: usize = 4096;
@@ -85,11 +81,33 @@ impl DocState {
         })
     }
 
+    /// What the job that runs has run since it began (or since this was last
+    /// asked) is added to its book's total.
+    pub(super) fn add_used(&self) {
+        let (key, used) = self.job_used.get();
+        let now = self.now.get();
+        if key == self.job_key.get() {
+            let ran = now.saturating_sub(self.job_started.get());
+            self.job_used.set((key, used.saturating_add(ran)));
+        }
+        self.job_started.set(now);
+    }
+
+    /// Whether the book of the job that runs has used its awake time.
+    fn over_awake_budget(&self) -> bool {
+        let (key, used) = self.job_used.get();
+        self.job_guarded.get()
+            && key == self.job_key.get()
+            && used.saturating_add(self.now.get().saturating_sub(self.job_started.get()))
+                >= super::JOB_AWAKE_MAX_MS
+    }
+
     /// The job, of `kind`, was displaced (`DocHost::cover_job_displaced`).
     /// A details job is not held back: nothing waits for it (`cover_jobs_
     /// released` raises bit 6 for a held-back cover), it waits the quiet
     /// moment only (`DetailsJob::start`).
     pub(super) fn displaced(&self, kind: JobKind) {
+        self.add_used();
         let key = self.job_key.get();
         let (last, times) = self.job_displaced.get();
         let times = if last == key {
@@ -118,12 +136,11 @@ impl DocState {
         let key = crate::native_host::lib_cover::path_key(path);
         crate::native_host::cover_job_marker::write(storage, key)?;
         self.job_key.set(key);
-        self.job_guarded.set(true);
-        // The awake time is counted per book: another book starts at 0.
-        if self.job_awake.get().0 != key {
-            self.job_awake.set((key, 0));
+        if self.job_used.get().0 != key {
+            self.job_used.set((key, 0));
         }
-        self.job_seen.set(self.now.get());
+        self.job_started.set(self.now.get());
+        self.job_guarded.set(true);
         Ok(())
     }
 
@@ -188,14 +205,12 @@ impl DocState {
         }
     }
 
-    /// Notes what a preparing step did for the job: a book whose job has
-    /// been awake for [`AWAKE_MAX_MS`] this start fails (a conversion that
-    /// outlasts every awake session would start over after each wake, for
-    /// ever); steps that cannot be made, [`LATER_MAX`] in a row while only the
-    /// job prepares, fail it too (its book alone counts as failed, the format
-    /// plugin is left as it is).
+    /// Notes what a preparing step did for the job: steps that cannot be
+    /// made, [`LATER_MAX`] in a row while only the job prepares, fail it (its
+    /// book alone counts as failed, the format plugin is left as it is).
     pub(super) fn cover_job_stepped(&self, step: PrepareStep) {
-        if self.awake_over() {
+        // A job that has run its book's awake time fails that book alone.
+        if self.over_awake_budget() {
             self.job_later.set(0);
             self.fail_job(ERR_TIMEOUT);
             return;
@@ -213,31 +228,8 @@ impl DocState {
         self.fail_job(ERR_NO_MEMORY);
     }
 
-    /// Counts the job's awake time to now (the kernel's clock, from its start
-    /// or its last count): `true` once its book's reached [`AWAKE_MAX_MS`].
-    /// The device sleeps only after the job ended, so it is awake all along.
-    fn awake_over(&self) -> bool {
-        if self
-            .table
-            .cover_job()
-            .is_none_or(|job| job.state != PREPARING)
-        {
-            return false;
-        }
-        let now = self.now.get();
-        let (key, spent) = self.job_awake.get();
-        // A job that no guard began (0: never seen) counts from now.
-        let seen = self.job_seen.replace(now);
-        let spent = match seen {
-            0 => spent,
-            seen => spent.saturating_add(now.saturating_sub(seen)),
-        };
-        self.job_awake.set((key, spent));
-        spent >= AWAKE_MAX_MS
-    }
-
-    /// The job's preparation fails with `status` (the pump's next look ends
-    /// it, and its book counts as failed).
+    /// The job that prepares fails with `status` (its book alone counts as
+    /// failed; the host ends it at the pump's next look).
     fn fail_job(&self, status: i32) {
         if let Some(job) = self.table.cover_job()
             && job.state == PREPARING
@@ -254,6 +246,9 @@ impl DocState {
     /// goes and the format gets its `close`. Nothing is restarted.
     pub(super) fn cover_job_end(&self, hosts: &HostServices, route: &dyn Route) {
         self.job_later.set(0);
+        if self.table.cover_job().is_some() {
+            self.add_used();
+        }
         if let Some(job) = self.table.take_cover_job() {
             self.end_job(hosts, route, &job);
         }

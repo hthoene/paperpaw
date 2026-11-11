@@ -141,6 +141,62 @@ fn the_job_is_the_hosts_own_no_openers() {
 }
 
 #[test]
+fn a_job_that_has_run_ten_minutes_for_one_book_fails_that_book_alone() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.state.now.set(1_000);
+        job(w, "books/a.epub");
+        w.state.cover_job_guard("books/a.epub").unwrap();
+        answer(w, PREPARING, 0);
+        w.state.now.set(1_000 + 599_999);
+        prepare(w);
+        assert_eq!(look(w), JobStep::Wait, "within its time");
+        w.state.now.set(1_000 + 600_000);
+        prepare(w);
+        assert_eq!(
+            look(w),
+            JobStep::Ended {
+                ready: false,
+                key: path_key("books/a.epub")
+            },
+            "its book alone is failed"
+        );
+        assert_eq!(marker(w), None);
+    });
+}
+
+#[test]
+fn the_time_of_a_displaced_job_counts_for_its_book_and_another_book_starts_afresh() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.state.now.set(0);
+        job(w, "books/a.epub");
+        w.state.cover_job_guard("books/a.epub").unwrap();
+        // Ran 400 s, then an open took its place.
+        w.state.now.set(400_000);
+        w.state.cover_job_end(&w.hosts, &FrameRoute(w));
+        // Begins again 100 s later and runs 200 s: 600 s in all.
+        w.state.now.set(500_000);
+        job(w, "books/a.epub");
+        w.state.cover_job_guard("books/a.epub").unwrap();
+        answer(w, PREPARING, 0);
+        w.state.now.set(699_999);
+        prepare(w);
+        assert_eq!(look(w), JobStep::Wait);
+        w.state.now.set(700_000);
+        prepare(w);
+        assert!(matches!(look(w), JobStep::Ended { ready: false, .. }));
+        // Another book has its own ten minutes.
+        job(w, "books/b.epub");
+        w.state.cover_job_guard("books/b.epub").unwrap();
+        answer(w, PREPARING, 0);
+        w.state.now.set(700_000 + 599_999);
+        prepare(w);
+        assert_eq!(look(w), JobStep::Wait);
+    });
+}
+
+#[test]
 fn a_sleep_inside_a_callback_ends_the_job_at_the_next_look() {
     world(|w| {
         w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);

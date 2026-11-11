@@ -74,6 +74,8 @@ impl DetailsJob for DocState {
 
     fn gave_way(&self) {
         self.job_later.set(0);
+        // Its time counts for its book, as a displaced job's does.
+        self.add_used();
         self.unguard();
         self.details.gone();
     }
