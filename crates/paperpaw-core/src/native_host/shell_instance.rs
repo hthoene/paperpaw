@@ -16,7 +16,7 @@ use core::pin::Pin;
 use paperpaw_native::host_glue::{self, Services};
 
 use super::{
-    Batch, DeclaredServices, Error, Hosted, Invocation, Make, Report, dispatch_registration,
+    DeclaredServices, Error, Hosted, Invocation, Make, Published, Report, dispatch_registration,
     try_box,
 };
 use crate::native_host::Declarations;
@@ -88,7 +88,7 @@ pub struct Instance<S: Services + 'static, M: 'static> {
     id: Box<str>,
     /// Staged by `make`, kept and never applied here (never dropped silently).
     declarations: Declarations,
-    batch: Option<Batch<'static, S, M, Registration>>,
+    batch: Option<Published<'static, S, M, Registration>>,
     hosted: ManuallyDrop<Box<Hosted<S, M>>>,
     hooks: Hooks,
 }
