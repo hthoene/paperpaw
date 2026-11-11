@@ -11,7 +11,7 @@ use paperpaw_ui_kit::{
     mem::{buffer, push},
 };
 
-use super::NativeOpds;
+use super::Opds;
 use crate::native_catalogs as catalogs;
 use crate::native_files::DataFiles;
 use crate::native_sync::{Job, Report, Setup, Update};
@@ -25,7 +25,7 @@ const WITHIN_MS: u32 = 3_600_000;
 /// Books a catalog gets at most in one sync, where the setting says nothing.
 const DEFAULT_LIMIT: i64 = 50;
 
-impl NativeOpds {
+impl Opds {
     /// Whether a sync is going on.
     pub(super) fn sync_running(&self) -> bool {
         self.sync.running()

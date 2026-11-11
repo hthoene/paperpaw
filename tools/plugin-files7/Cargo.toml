@@ -53,6 +53,36 @@ test = false
 bench = false
 
 [[bin]]
+name = "format-epub"
+path = "src/bin/format-epub.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "format-html"
+path = "src/bin/format-html.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "format-fb2"
+path = "src/bin/format-fb2.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "format-markdown"
+path = "src/bin/format-markdown.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "format-cbz"
+path = "src/bin/format-cbz.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "format-mobi"
 path = "src/bin/format-mobi.rs"
 test = false
@@ -342,6 +372,11 @@ paperpaw-plugin-calibre = { path = "../../plugins/calibre", features = ["native-
 paperpaw-plugin-diagnostics = { path = "../../plugins/diagnostics", features = ["native-entry"] }
 paperpaw-plugin-end-of-book = { path = "../../plugins/end-of-book", features = ["native-entry"] }
 paperpaw-plugin-files = { path = "../../plugins/files", features = ["native-entry"] }
+paperpaw-plugin-format-epub = { path = "../../plugins/format-epub", features = ["native-entry"] }
+paperpaw-plugin-format-html = { path = "../../plugins/format-html", features = ["native-entry"] }
+paperpaw-plugin-format-fb2 = { path = "../../plugins/format-fb2", features = ["native-entry"] }
+paperpaw-plugin-format-markdown = { path = "../../plugins/format-markdown", features = ["native-entry"] }
+paperpaw-plugin-format-cbz = { path = "../../plugins/format-cbz", features = ["native-entry"] }
 paperpaw-plugin-format-mobi = { path = "../../plugins/format-mobi", features = ["native-entry"] }
 paperpaw-plugin-format-txt = { path = "../../plugins/format-txt", features = ["native-entry"] }
 paperpaw-plugin-format-images = { path = "../../plugins/format-images", features = ["native-entry"] }

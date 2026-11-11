@@ -320,6 +320,83 @@ in place; its removal comes with the PR that finishes the port).
   (Port A regenerates it); the lazy `ItemList` (ui-kit has none: rows of a page of the
   index are built eagerly, as Wi-Fi's).
 
+## Wiring of the screens and the install (`src/native_plugin.rs`, `native_jobs.rs`, `native_wire.rs`, `native_installs.rs`, `native_glue.rs`; ticket #244, assignment #2310)
+
+- `native_plugin.rs` routes the screen tokens (20 to 27) to `StoreView`: `open`, `shown`,
+  `closed`, `resume`/`hidden` (when another screen comes on top), `draw`, `input`,
+  `event`, `started`, `answered` (the reader's answer to `Ui::ask`) and `returned`.
+  Every `Next` a screen returns is carried out in `native_jobs.rs` (fetch of the list
+  and of a page, download then install, remove, *Update all*, the queue, the notices,
+  the progress screen, the restart).
+- `Ctx` is made fresh for each call: `LoaderView` (the loader, its generation, small
+  memory), `HostInstalls` (what the device has, read once and let go when no screen is
+  open, and the activity: step, queue, waiting) and the data folder.
+- The author's key travels with the page: the install keeps the page's `author_key`,
+  `recovery_key` and rotations (`lean`) and `Proof::of` hands them to the host in the
+  evidence of `install_plugin` (interface 6 wrote `author.txt` with `trust::expect`;
+  nothing is written now). Test: `native_jobs::tests`.
+- A picture the host prepared for a pictures' screen that is gone (`image_ready` with
+  nobody to take it) is given back with `image_release`; the page held for the screens
+  is let go (`Loader::forget_page`) when the last page screen is left.
+- Metadata: `canvas.draw_image` (the pictures), the service `core.ui` (`Ui::open`,
+  `Ui::ask`, the opening of screens and of the reader). `image_prepare` and
+  `image_release` are commands through `commands.submit`, already listed. The `.bin`
+  and inspected files are regenerated.
+- **Plugins other plugins ask for** (`src/native_asks.rs`; #1132 has the host side:
+  event 77, `command.answer_plugin`, event 78): the store subscribes to event 77
+  (token 8) and declares `uses.install` (optional, like the other installers). The ask
+  is decided by `native_ask::asked`; ids the host named and the store does not take
+  are answered at once (on the device: installed, no plugin's name: failed), those the
+  library lacks *not found*, a repeated or busy ask *declined*. The reader is asked
+  once (`Ui::ask`, a confirmation); *Download* queues the plugins (`Mark::Requested`),
+  opens the fetch screen and starts the queue; *Not now* answers *declined*; a dialog
+  left without an answer tells nothing (the next ask closes it). When the queue
+  ends each id is answered installed or failed (`finished_answers`), when the
+  download cannot start (no network) failed. What is held between ask and answers is
+  the host's request numbers with their ids, in memory: a restart drops them and the
+  host fails the open ids. The network is not asked before the dialog (no call for it
+  on the plugin side): a download the connection refuses ends as *failed*.
+- **Review of #1141 (Port Reviewer 2, seven must-fixes), what changed:**
+  - A step is synced from every end (`install_done`, `download_failed`, a stop): a
+    finished install no longer leaves the *Stop* row, a failed download is no longer
+    *Downloading*. The release of the page is kept for the install that outlives the page
+    screen (`installing_version`).
+  - The queue never waits for a page that is not coming: a page request the host
+    refuses, or a page screen that took the slot for another plugin (asked again once)
+    ends as *not installed* and the queue goes on (`want_failed`).
+  - `finish` abandons what it staged (the folder, the busy mark, what was kept) on
+    every early error (`abandon`).
+  - A removal says *removed* and lets go of the record only when the host says it
+    was done (reason 0); declined or dismissed nothing changes; a refusal says its reason.
+  - Memory (#248): the start reads only the rows of the plugins the offer names
+    (`Snapshot::read_some`), and an ask for plugins only the rows of the plugins it names;
+    nothing is held. The queue the screens read is read while they are open and dropped
+    with the snapshot when the last screen closes and no install goes on
+    (`release_idle`); a page held for the queue or the offer is let go when the install
+    ends and no page screen is open; what an install keeps of its page is the entry's
+    name, version and build flags and the library's word of its author, none of the files.
+  - The plugin's facts (`can_install`, `takes_betas`, the stock flash layout, the
+    actions, the plugins that wait for a restart) are read with the snapshot
+    (`Activity::read_facts`).
+- **Untested on a host, named gates (review of #1141, remarks):**
+  - The job paths are covered by one unit test (`native_jobs::tests::lean`) and by the
+    pure decisions of `native_ask`/`native_install`/`native_download`; the scripted host
+    has no storage, so these have no test that runs them: the retry of `want_page`, `abandon`
+    after an early error in `finish`, `removed` saying and forgetting only on reason 0,
+    the answers of event 77 (`native_asks`). They run with the emulator once the store is
+    linked natively (#243).
+  - **Start-up time (X4 gate):** `setup_state` reads the facts (`core.device`,
+    `core.registry`, the settings, the code room: about four host opens) and the rows of the
+    four plugins the offer names (up to eight registry pages) at every start, and keeps
+    none of it. Its time on the device is not measured.
+  - **Unsupported device:** a device the libraries do not know has no state of its own in
+    the `Loader`/`Trouble` yet: the start would show *Loading*. The store stays out of
+    `NATIVE_PLUGINS` until it has one.
+  - The reader's frame size (`header::pager`) and the store start heap against
+    Beta 3's 99.9 KiB stay open gates.
+- **Not run on a host**, and the store start heap (Beta 3: 99.9 KiB) is measured only
+  when native plugins are activated (#243).
+
 ### Review of #1136: what was fixed, and what the wiring must do
 
 - The ask dialog of requested plugins names every plugin it lets through (no cut

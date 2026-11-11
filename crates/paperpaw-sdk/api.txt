@@ -3200,7 +3200,23 @@ pub paperpaw_sdk::native::callbacks::FrameRect::y: i32
 impl paperpaw_sdk::native::callbacks::FrameRect
 pub const fn paperpaw_sdk::native::callbacks::FrameRect::new(i32, i32, u32, u32) -> Self
 pub mod paperpaw_sdk::native::canvas
+#[non_exhaustive] pub enum paperpaw_sdk::native::canvas::PartRole
+pub paperpaw_sdk::native::canvas::PartRole::Button = 3
+pub paperpaw_sdk::native::canvas::PartRole::Check = 7
+pub paperpaw_sdk::native::canvas::PartRole::Dialog = 12
+pub paperpaw_sdk::native::canvas::PartRole::Field = 9
+pub paperpaw_sdk::native::canvas::PartRole::Heading = 1
+pub paperpaw_sdk::native::canvas::PartRole::Image = 10
+pub paperpaw_sdk::native::canvas::PartRole::Link = 11
+pub paperpaw_sdk::native::canvas::PartRole::Progress = 13
+pub paperpaw_sdk::native::canvas::PartRole::Radio = 8
+pub paperpaw_sdk::native::canvas::PartRole::Row = 2
+pub paperpaw_sdk::native::canvas::PartRole::Slider = 5
+pub paperpaw_sdk::native::canvas::PartRole::Switch = 4
+pub paperpaw_sdk::native::canvas::PartRole::Text = 6
 pub struct paperpaw_sdk::native::canvas::Canvas<'cb>
+impl paperpaw_sdk::native::canvas::Canvas<'_>
+pub fn paperpaw_sdk::native::canvas::Canvas<'_>::describe_part(&self, paperpaw_sdk::native::canvas::PartRole, &str, paperpaw_sdk::native::callbacks::FrameRect, paperpaw_sdk::native::canvas::PartFlags) -> core::result::Result<bool, paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::canvas::Canvas<'_>
 pub fn paperpaw_sdk::native::canvas::Canvas<'_>::draw_image(&self, paperpaw_sdk::native::image::ImageId, paperpaw_sdk::native::callbacks::FrameRect, paperpaw_sdk::native::image::ImageStyle) -> core::result::Result<(), paperpaw_sdk::native::Error>
 impl<'cb> paperpaw_sdk::native::canvas::Canvas<'cb>
@@ -3221,6 +3237,17 @@ pub fn paperpaw_sdk::native::canvas::ClipGuard<'_, '_>::drop(&mut self)
 impl<'cb> core::ops::deref::Deref for paperpaw_sdk::native::canvas::ClipGuard<'_, 'cb>
 pub type paperpaw_sdk::native::canvas::ClipGuard<'_, 'cb>::Target = paperpaw_sdk::native::canvas::Canvas<'cb>
 pub fn paperpaw_sdk::native::canvas::ClipGuard<'_, 'cb>::deref(&self) -> &Self::Target
+pub struct paperpaw_sdk::native::canvas::PartFlags(_)
+impl paperpaw_sdk::native::canvas::PartFlags
+pub const paperpaw_sdk::native::canvas::PartFlags::DISABLED: Self
+pub const paperpaw_sdk::native::canvas::PartFlags::FOCUSED: Self
+pub const paperpaw_sdk::native::canvas::PartFlags::NONE: Self
+pub const paperpaw_sdk::native::canvas::PartFlags::OFF: Self
+pub const paperpaw_sdk::native::canvas::PartFlags::ON: Self
+pub const fn paperpaw_sdk::native::canvas::PartFlags::bits(self) -> u32
+impl core::ops::bit::BitOr for paperpaw_sdk::native::canvas::PartFlags
+pub type paperpaw_sdk::native::canvas::PartFlags::Output = paperpaw_sdk::native::canvas::PartFlags
+pub fn paperpaw_sdk::native::canvas::PartFlags::bitor(self, Self) -> Self
 pub mod paperpaw_sdk::native::clock
 pub fn paperpaw_sdk::native::clock::micros(&paperpaw_sdk::native::Host<'_>) -> core::result::Result<u64, paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::commands

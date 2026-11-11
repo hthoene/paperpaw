@@ -37,8 +37,16 @@ pub fn reopen_last(host: &Host<'_>, ui: &Ui) -> Result<(), Error> {
     let Some(path) = last_book(host)? else {
         return Ok(());
     };
-    if !on_the_card(host, &path)? {
-        return Ok(());
+    match on_the_card(host, &path)? {
+        Card::There => {}
+        // The book is gone (moved or removed): it is forgotten, and the start stays
+        // at home, without an error screen. A card that merely failed to answer
+        // forgets nothing.
+        Card::Gone => {
+            paperpaw_sdk::native::storage::remove(host, Root::Data, native_state::STATE).ok();
+            return Ok(());
+        }
+        Card::Unknown => return Ok(()),
     }
     // A path of at most 512 bytes (`MAX_PATH`) and its key in; the host asks for room
     // for the largest answer of the operation (`max_reply` 4,096), though the handle is 8.
@@ -64,14 +72,24 @@ fn last_book(host: &Host<'_>) -> Result<Option<alloc::string::String>, Error> {
     }
 }
 
+/// Whether a book is on the card.
+enum Card {
+    There,
+    /// The card says there is no such file.
+    Gone,
+    /// The card could not say.
+    Unknown,
+}
+
 /// Whether the file at `path` is on the card (a book moved or removed is not).
-fn on_the_card(host: &Host<'_>, path: &str) -> Result<bool, Error> {
+fn on_the_card(host: &Host<'_>, path: &str) -> Result<Card, Error> {
     let files = Files::open(host)?;
     // The stat answers up to `max_reply` (4,096 bytes) and the host asks for room for it.
     let (mut input, mut out) = (buffer(1024)?, buffer(4096)?);
     let found = match files.stat(host, Root::Files, path, &mut input, &mut out) {
-        Ok(_) => Ok(true),
-        Err(Error::NotFound | Error::Invalid | Error::NoSpace) => Ok(false),
+        Ok(_) => Ok(Card::There),
+        Err(Error::NotFound) => Ok(Card::Gone),
+        Err(Error::Invalid | Error::NoSpace) => Ok(Card::Unknown),
         Err(error) => Err(error),
     };
     files.release(host).ok();
@@ -93,4 +111,32 @@ pub fn remember(host: &Host<'_>, path: &str) {
         return;
     }
     paperpaw_sdk::Storage::write(&storage, native_state::STATE, text.as_bytes()).ok();
+}
+
+/// A book moved (`event.book_moved`): the last book read follows it, as Beta 3's
+/// `book_moved` did. Best effort, like [`remember`].
+pub fn follow(host: &Host<'_>, from: &str, to: &str) {
+    if last_book(host).ok().flatten().as_deref() == Some(from) {
+        remember(host, to);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The state a move leaves: the new path, read back as the last book.
+    #[test]
+    fn a_moved_last_book_is_read_back_at_its_new_place() {
+        let kept = native_state::state_text("books/a.epub").unwrap();
+        assert_eq!(
+            native_state::last_in(&kept).unwrap().as_deref(),
+            Some("books/a.epub")
+        );
+        let moved = native_state::state_text("books/new/a.epub").unwrap();
+        assert_eq!(
+            native_state::last_in(&moved).unwrap().as_deref(),
+            Some("books/new/a.epub")
+        );
+    }
 }

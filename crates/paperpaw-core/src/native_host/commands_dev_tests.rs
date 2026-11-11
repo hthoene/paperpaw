@@ -569,8 +569,8 @@ fn the_wifi_plugin_is_the_network_manager_until_the_user_chooses_another() {
     let honoured = |name: &'static str, chosen: Option<&str>| {
         let mut kernel = kernel();
         // The kernel declares the setting itself, `wifi` by default.
-        let default = Some(&SettingValue::Text("wifi".into()));
-        assert_eq!(kernel.shared.settings.global(NETWORK_MANAGER), default);
+        let wifi = SettingValue::Text("wifi".into());
+        assert_eq!(kernel.shared.settings.global(NETWORK_MANAGER), Some(&wifi));
         if let Some(chosen) = chosen {
             let value = SettingValue::Text(alloc::string::String::from(chosen).into());
             kernel.shared.settings.set(NETWORK_MANAGER, value).unwrap();

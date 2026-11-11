@@ -1464,5 +1464,7 @@ mod native_late_config;
 #[path = "native_screen_install_tests.rs"]
 mod native_screen_install;
 
+#[path = "shell_describe_tests.rs"]
+mod describe;
 #[path = "shell_refuse_tests.rs"]
 mod refuse;

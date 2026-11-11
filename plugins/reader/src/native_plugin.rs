@@ -7,8 +7,8 @@
 //! `native_*` models, tested without one.
 use crate::{
     declarations::{
-        ANNOTATIONS, FOOTNOTE, SCREEN, SEARCH, SEARCH_WORK, SETTING_CHANGED, SKIM, SPOKEN,
-        STACK_CHANGED, STARTED, STOPPING, SUSPEND, TOC, WORK_DUE,
+        ANNOTATIONS, BOOK_MOVED, FOOTNOTE, SCREEN, SEARCH, SEARCH_WORK, SETTING_CHANGED, SKIM,
+        SPOKEN, STACK_CHANGED, STARTED, STOPPING, SUSPEND, TOC, WORK_DUE,
     },
     native_annotations_view::{AnnotationsView, Outcome as NotesOutcome},
     native_footnote::{Footnote, Pressed},
@@ -616,6 +616,12 @@ impl NativeReader {
         }
     }
 
+    /// A book moved: the last book read follows it.
+    fn moved(&mut self, host: &Host<'_>, from: &str, to: &str) -> Result<(), Error> {
+        crate::native_start::follow(host, from, to);
+        Ok(())
+    }
+
     /// The reading screen is on top: its view is told, and a note it was asked to
     /// follow is shown.
     fn reading_shown(
@@ -683,6 +689,7 @@ impl Plugin for NativeReader {
             incoming;
             kinds::ActionRun,
             kinds::Started,
+            kinds::BookMoved,
             kinds::ScreenOpened,
             kinds::ScreenShown,
             kinds::ScreenClosed,
@@ -713,6 +720,9 @@ impl Plugin for NativeReader {
                 Ok(())
             }
             Event::Started { .. } if token == STARTED => self.reopen_last(host),
+            Event::BookMoved { from, path, .. } if token == BOOK_MOVED => {
+                self.moved(host, from, path)
+            }
             // The search's work is due (the work's own token, as declared).
             Event::WorkDue(due) if token == WORK_DUE && due.token() == SEARCH_WORK => {
                 self.search_due(host);

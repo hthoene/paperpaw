@@ -47,7 +47,10 @@ before 1.0.
    `cargo` runs, `export RUSTC_WRAPPER=$PWD/tools/sccache-wrap.sh` does the same,
    so that crates.io dependencies are compiled once for every build folder.
    For a change to a few crates, `tools/check-local.sh [crate ...]` is the
-   quick local part (fmt, clippy `-D warnings`, tests, rustdoc `-D warnings`,
+   quick local part (fmt, clippy `-D warnings`, tests, the tests of every
+   package with a `linked` feature run with it (`--all-linked`: all such
+   packages; the hosted tests of the plugins are built nowhere else),
+   rustdoc `-D warnings`,
    changelog, lockfiles, licences, `paperpaw-checks`, and `rustfmt` on changed
    files of `shells/xteink` and `fuzz`, which `cargo fmt` does not reach;
    `--features` adds a
