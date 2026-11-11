@@ -260,6 +260,7 @@ fn a_failing_callback_still_frees_the_event_and_does_not_get_it_again() {
         seen: Rc::clone(&f.seen[0]),
         answer: Cell::new(Err(ERR_UNSUPPORTED)),
         depth: Cell::new(0),
+        closed_too: Rc::new(Cell::new(false)),
     })
     .unwrap();
     // Replace the plugin by one that fails.
