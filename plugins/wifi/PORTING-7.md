@@ -1,9 +1,12 @@
-# Interface-7 port (slices 1 to 6: the radio policy, the declarations, the phone setup, the own network, the kept networks, the screens, the file on the card and the page served)
+# Interface-7 port (slices 1 to 6, linked into the app)
 
-Version 1.0.4. Partial: the decisions of the plugin, what it declares, the screens and the file on the card, up to what the
-host cannot do yet. The native plugin (`native_plugin::NativeWifi`) has a `NATIVE_ENTRY` (feature
-`linked`) and metadata in `native/`; the interface-6 `Wifi` and everything of it stays registered
-until the host activates native plugins (then it goes together, no shim).
+Version 1.0.4. **Status: not complete** (ticket #244): the native plugin (`native_plugin::NativeWifi`,
+`NATIVE_ENTRY`, feature `linked`) is the whole Wi-Fi plugin and is **linked into the app**
+(`paperpaw_app::NATIVE_PLUGINS`, under `native-linked`, where the interface-6 `Wifi` is not registered any more
+as with `menu`); what stays is the interface-6 `Wifi` of the default build (`src/lib.rs`, `networks.rs`,
+`page.rs`, `phone.rs`, `policy.rs`, `phone.html`), which goes together with its tests and app wiring when the
+host activates native plugins (#243): held until then, because the app would lose Wi-Fi before. Then this
+becomes "complete, native only" and the plugin joins `tools/plugin-files7/complete.txt`.
 
 ## Ported
 
@@ -124,9 +127,39 @@ until the host activates native plugins (then it goes together, no shim).
 
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
-- The scripted host does not answer `i18n.copy`/`i18n.format` (`SCRIPTED-i18n`), so the rows' texts,
-  the drawing and the answers to the password question are not run; the status item's value (H1) and
-  the first-run row's badge.
+- The scripted host answers `i18n.copy`/`i18n.format` now: `tests/scripted_networks.rs` draws the networks page
+  from the plugin's own catalogs and the callback ends well (the case `wifi-pages` is gone). The answers to the
+  password question (`SCRIPTED-typed-password`), the status item's value (H1) and the first-run row's badge are
+  still not run on a host. Kernel's audit (#2269) reads the remaining markers H3, H4, H1 and `NET-serve-event` as
+  stale for the host (compose, staged Wi-Fi commands, the status value and `serve` from the radio's event are
+  there); the cases stay ignored until a run on the host shows each one, not on a reading.
+- **Differences to Beta 3 found with the headless run on the flip (#243):** the radio row of the Wi-Fi page has no
+  value text and is told as a switch (`RowItem::on`), so it reads `Wi-Fi, Connected to <network> (<address>)` or
+  `Wi-Fi, Off` as in Beta 3 (the headless test `online_from_the_start_with_wifi_online` pins it; the plugin has no
+  unit test of the row, it is made from the host's texts). The status item answers the host's `core.status` ask
+  (`native_plugin/events.rs`, `status`) with the item's label (*Wi-Fi*) while a network is joined, not the network's
+  name and not the icon Beta 3 drew; a drawn value (`StatusAnswer::drawn`) needs the host's status draw.
+- **Host admission of event subscriptions (found with `tests/hosted_construction.rs`, which runs now that
+  Services' #1111 admits them):** the host refused tags 92 (`wifi_scanned`), 94 (`network_wanted`) and 95 (`network_idle`) at `make`
+  (`Factory(-1)`; 71, 93, 101, 102 and the others are admitted), so the native Wi-Fi is not registered in the
+  emulator under `native-linked` ("not registered: Factory(-1)"). Their admission is Services' (#2282, with
+  the tag 91 one in #1095); the case is switched on (#1112, measured on the flip with #1123). Tag 38 (`screen_shown`) is refused by the contract
+  (`screens-input.md` 2: it goes to the token of the declared screen, never to `registration.event`): the
+  subscription is **gone** from the plugin; `event.stack_changed` (81, a hint the host admits) takes its place:
+  any screen coming on top is matched again, as in interface 6 (back home or in a book, the radio goes off at
+  once). Its cost: one read of the radio per stack change, and the stack (its first row) only while the radio is
+  on; nothing is read while it is off.
+  **Heap:** the interface-6 Wi-Fi flow (open the page, back, home; X4 profile, headless, `--heap-report`) peaks
+  at 100.0 KiB (67.7 KiB at idle, so +32 KiB). Native, on the flip with #1123 and #1130 (X4 profile, headless, the
+  same flow, `uses.wifi` offered by a local scratch patch; no radio, so no scan list and no password entry):
+  142.9 KiB peak with the radio online, 148.8 KiB with it off, from a native idle of 128.4 KiB (all plugins
+  native): the flow adds 14.5 and 20.4 KiB, less than Beta 3's +32 KiB; the gap to 100.0 KiB is the native
+  idle baseline (#248). Top Wi-Fi sites at the peak: the radio read (`with_wifi`), the secrets list (`any`).
+  Their input buffers are cut to the size the op takes (256 B; `max_input`), their reply buffers stay at the
+  op's `max_reply` (the host refuses a smaller buffer: `device` ops 4,096 B, secrets `get`/`keep`/`remove`
+  1,280 B, `list` 4,096 B).
+- **No real radio on the desktop** (`uses.wifi` is not offered by `shells/desktop/src/linked.rs`; the X4's
+  radio is Firmware's wiring, #250): the plugin runs there only on the scripted host.
 - The phone setup screen drawn with its join and page codes (`Footer::Code` of the ui kit) is the
   host's compose (H3); the rows and the answers are run in `tests/scripted_phone.rs`.
 - Wi-Fi commands cannot be staged by the scripted host (it has no `core.device` context): a callback that
@@ -144,13 +177,20 @@ until the host activates native plugins (then it goes together, no shim).
   tried, or the failure is told; a success decides nothing (the radio's change says it). `wifi_changed`
   keeps the password of the network just joined (`Action::KeepSecret`) and the network the user picked
   last (`picked.txt`, joined first next time, as *Join first* says), and may join one when charging keeps
-  the radio on. Also the power mode, the screen shown (home or a book: radio off at once) and the status
+  the radio on. Also the power mode, the stack changing (81: back home or in a book, radio off at once; see below) and the status
   changing (charging).
-- The facts are read per event and only as far as the decision needs them: the radio and its flags
-  (`dev_wifi`, wanted and busy), the networks in reach (scanned, failed), the networks joined before with
-  their passwords (`core.secrets`, wanted, scanned, failed, the retry timer, charging), the screen on top
-  (the stack's first row, home or reader), charging and whether the device may use the network (snapshot,
-  `dev_power`), the settings and `picked.txt`.
+- The facts are read per event and only as far as the decision needs them (`Need` in `events.rs`, each fact a
+  flag; `tests/scripted_radio.rs` counts the host calls): the radio and its flags (`dev_wifi`, wanted and
+  busy; its name and address copied only where the changed event compares them); the networks in reach
+  (scanned, failed); the networks joined before: none, **whether there are any** (the names listed, no
+  password read: wanted, the retry timer, charging, the radio's change while charging) or with their passwords
+  (scanned, failed only); the screen on top (the stack's first row, home or reader; the stack changed, while
+  the radio is on); charging and whether the device may use the network (snapshot, `dev_power`; once per
+  event, and not where the stack says nothing is at rest); the settings (on demand, idle time) and
+  `picked.txt` (scanned, failed, and the radio's change while the user's choice is joined).
+- The views keep Beta 3's memory: the Wi-Fi page counts the networks in reach and asks only whether one is
+  kept; the networks page holds each name once (in its row, with the signal and openness beside it); a view is
+  read again with the old rows freed first; the frame makes no catalog buffers of its own.
 - The timers are work (`core.work`, `WorkSpec::at`, keys `wifi.idle-off` and `wifi.retry`, the work event
   subscribed with token 15), at the event's `now_ms` plus the idle time or 10 s. Each is set with the
   policy's generation; one that comes due after the network was wanted again does nothing. A work is lost
@@ -172,6 +212,22 @@ until the host activates native plugins (then it goes together, no shim).
 - Passwords are wiped by `paperpaw_ui_kit::mem::wipe_text`, the helper the keyboard uses too (one
   volatile wipe, not a copy per plugin). `Step::Join` carries the password in a `Password`, so the
   buffer is wiped when the shell has built the `wifi_join` command from it and drops the step.
+
+## Memory parity, open items (review of #1112)
+
+- **Eager Networks rows.** ui-kit's `ItemList` has no lazy mode, so the Networks
+  rows are built from the scan when the view opens (about 8 KiB at 64 networks,
+  estimated from the code, not measured); Beta 3 built rows lazily. Follow-up: a lazy
+  row source for `ItemList` in ui-kit (owner: Plugin Engineer, who owns ui-kit),
+  then Wi-Fi switches to it. Measure at 64 networks with the emulator
+  `--heap-report` once native delivery of the radio events (Services #1123) is in a
+  train.
+- **A refused rebuild** in `reread` leaves a hidden Page or Networks view empty until
+  the next event (it never panics; the view is rebuilt on the next scan or status
+  event).
+- **Per-event reads.** `event.stack_changed` reads the radio (two 4 KiB buffers) even
+  when the radio is off; status changes read the idle setting at each battery percent.
+  Both are short-lived; to narrow after the heap measurement if they show.
 
 ## The phone setup served (slice 6, `src/native_plugin/phone.rs`)
 

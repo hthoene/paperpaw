@@ -127,7 +127,9 @@ fn a_folder_reads_like_interface_6_page_by_page() {
     let reply = run(&mut p, &io, &call(7, 1, |_| {})).unwrap();
     let r = rows(&reply);
     assert_eq!(r.len(), 4);
-    assert!(matches!(r[3], stage::Record::FmtEnd(e) if e.total == 3 && e.flags == 0));
+    assert!(
+        matches!(r[3], stage::Record::FmtEnd(e) if e.total == 3 && e.flags == 1 && e.generation == 1)
+    );
     for page in 0..3u32 {
         let expected = old
             .block_at(&old_io, Locator::new(page, 0))
@@ -167,7 +169,9 @@ fn a_picture_later_in_the_folder_starts_there() {
     let mut p = ImagesProvider::new();
     assert_eq!(open(&mut p, &io, "2.jpg").0, 0);
     let reply = run(&mut p, &io, &call(7, 1, |_| {})).unwrap();
-    assert!(matches!(rows(&reply)[2], stage::Record::FmtEnd(e) if e.total == 2));
+    assert!(
+        matches!(rows(&reply)[2], stage::Record::FmtEnd(e) if e.total == 2 && e.flags == 1 && e.generation == 1)
+    );
 }
 
 #[test]
@@ -231,7 +235,7 @@ fn refusals() {
     for op in [9, 14, 16] {
         let reply = run(&mut p, &io, &call(op, 1, |_| {})).unwrap();
         assert!(
-            matches!(rows(&reply)[..], [stage::Record::FmtEnd(e)] if e.total == 0),
+            matches!(rows(&reply)[..], [stage::Record::FmtEnd(e)] if e.total == 0 && e.flags == 1 && e.generation == 1),
             "op {op}"
         );
     }

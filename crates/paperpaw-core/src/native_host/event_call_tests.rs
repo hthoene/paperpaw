@@ -74,6 +74,24 @@ impl NativeInstance for Probe {
                     text: "plain",
                     flags: 0,
                 },
+                // The state of a menu item of its own.
+                6 => WireCommand::SetItemState {
+                    item: "open",
+                    flags: crate::native_host::item_state::FAINT,
+                    label: "",
+                    label_args: &[],
+                    badge: "",
+                    badge_args: &[],
+                },
+                // The state of an item it never declared.
+                7 => WireCommand::SetItemState {
+                    item: "nothing",
+                    flags: crate::native_host::item_state::FAINT,
+                    label: "",
+                    label_args: &[],
+                    badge: "",
+                    badge_args: &[],
+                },
                 _ => WireCommand::Open {
                     target: "a.screen",
                     mode: 0,
@@ -606,4 +624,147 @@ fn the_service_pump_does_not_run_a_batch_inside_a_callback() {
     w.kernel.native_service_pump();
     assert!(w.kernel.shared.native_instances.outbox.full());
     assert!(!w.kernel.output.redraw);
+}
+
+fn item_state_of(w: &World) -> Option<u32> {
+    let directory = w.kernel.shared.registry.native_declarations.as_ref()?;
+    let states = directory.items.borrow();
+    states
+        .get("a", "open")
+        .map(crate::native_host::item_state::ItemPush::flags)
+}
+
+/// A world whose plugin declared the item `a.open` (a setting of its own) and
+/// whose kernel has the declarations.
+fn world_with_item() -> World {
+    let mut w = world(true);
+    // The item is one the plugin declared: here a setting of its own.
+    w.kernel
+        .shared
+        .settings
+        .define(paperpaw_sdk::SettingSpec::switch(
+            "a.open",
+            "setting",
+            false,
+            paperpaw_sdk::builtin::groups::OTHER,
+        ))
+        .unwrap();
+    w.kernel.shared.registry.native_declarations = Some(
+        crate::native_host::shared::Shared::try_new(
+            crate::native_host::native_declarations::NativeDeclarations::default(),
+        )
+        .unwrap(),
+    );
+    w
+}
+
+#[test]
+fn an_event_callback_sets_the_state_of_its_item_and_it_is_stored_after_it_returned() {
+    let mut w = world_with_item();
+    w.command.set(6);
+    assert_eq!(w.call(), Ok(OK));
+    assert_eq!(w.last.get(), OK, "admitted at submit");
+    // Kept for the kernel, stored when it runs the batch.
+    assert_eq!(item_state_of(&w), None);
+    assert!(w.kernel.shared.native_instances.outbox.full());
+    w.kernel.native_outbox_run();
+    assert_eq!(
+        item_state_of(&w),
+        Some(crate::native_host::item_state::FAINT)
+    );
+}
+
+#[test]
+fn without_the_declarations_an_item_state_is_still_refused_as_unsupported() {
+    let w = world(true);
+    w.command.set(6);
+    assert_eq!(w.call(), Ok(OK));
+    assert_eq!(w.last.get(), paperpaw_native::host_glue::ERR_UNSUPPORTED);
+}
+
+#[test]
+fn an_item_it_did_not_declare_is_refused_as_not_found_in_the_event_stage() {
+    let w = world_with_item();
+    w.command.set(7);
+    assert_eq!(w.call(), Ok(OK));
+    assert_eq!(w.last.get(), paperpaw_native::host_glue::ERR_NOT_FOUND);
+    // Nothing was kept, and no room is held.
+    assert!(!w.kernel.shared.native_instances.outbox.full());
+    assert_eq!(item_state_of(&w), None);
+    assert_room_given_back(&w);
+}
+
+#[test]
+fn a_failed_event_callback_gives_the_room_of_its_item_state_back() {
+    let mut w = world_with_item();
+    w.command.set(6);
+    w.answer.set(Err(ERR_INVALID));
+    assert_eq!(w.call(), Err(ERR_INVALID));
+    // Admitted at submit, dropped with the failed callback's batch.
+    assert_eq!(w.last.get(), OK, "admitted at submit");
+    assert!(!w.kernel.shared.native_instances.outbox.full());
+    w.kernel.native_outbox_run();
+    assert_eq!(item_state_of(&w), None);
+    assert_room_given_back(&w);
+}
+
+/// The room and the plugin's slot reserved at submit are free again.
+fn assert_room_given_back(w: &World) {
+    let directory = w
+        .kernel
+        .shared
+        .registry
+        .native_declarations
+        .as_ref()
+        .unwrap();
+    assert_eq!(directory.item_room.get(), 0);
+    assert_eq!(directory.items.borrow().slots(), 0);
+}
+
+#[test]
+fn a_failed_event_callback_is_said_once_for_each_plugin_and_event() {
+    let mut w = world(false);
+    let mut started = [0; 64];
+    let n = crate::native_host::events::encode_started(0, &mut started).unwrap();
+    let started = &started[..n];
+    let mut resume = [0; 64];
+    let n = crate::native_host::events::encode_resume(0, &mut resume).unwrap();
+    let resume = &resume[..n];
+    // The reader's bug: a status the plugin gave back (`Started`, no space).
+    let no_space = paperpaw_native::host_glue::ERR_NO_SPACE;
+    w.answer.set(Err(no_space));
+    let called = |w: &World, bytes: &[u8]| w.kernel.native_event_call(w.owner, &w.lease, bytes);
+    assert_eq!(called(&w, started), Err(no_space));
+    let warnings = w.kernel.take_warnings();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    let said = &warnings[0].message;
+    assert!(
+        said.contains("a:")
+            && said.contains("started")
+            && said.contains(&alloc::format!("{no_space}")),
+        "{said}"
+    );
+    // The same plugin and event again: not said again; another event: said.
+    assert_eq!(called(&w, started), Err(no_space));
+    assert!(w.kernel.take_warnings().is_empty());
+    assert_eq!(called(&w, resume), Err(no_space));
+    let warnings = w.kernel.take_warnings();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].message.contains("resume"), "{warnings:?}");
+    // What happens to the plugin does not change: it is called as before, and
+    // a success says nothing.
+    w.answer.set(Ok(OK));
+    assert_eq!(called(&w, started), Ok(OK));
+    assert!(w.kernel.take_warnings().is_empty());
+    assert_eq!(w.calls.get(), 4);
+}
+
+#[test]
+fn what_the_host_refuses_is_not_the_plugins_failure() {
+    let mut w = world(true);
+    let busy = paperpaw_native::host_glue::ERR_BUSY;
+    assert_eq!(w.call(), Ok(OK));
+    // A batch waits: nothing is called, nothing is said.
+    assert_eq!(w.call(), Err(busy));
+    assert!(w.kernel.take_warnings().is_empty());
 }

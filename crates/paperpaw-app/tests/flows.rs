@@ -78,6 +78,8 @@ impl Card {
     }
 }
 
+/// Every method is the memory card's own, the defaults too: the kernel and the
+/// library see what the card does, not a wrapper's "unsupported".
 impl Storage for Card {
     fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
         self.0.read_at(path, offset, buf)
@@ -106,6 +108,66 @@ impl Storage for Card {
     fn create_dir(&self, path: &str) -> Result<(), StorageError> {
         self.0.create_dir(path)
     }
+    fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> Result<(), StorageError> {
+        self.0.write_at(path, offset, data)
+    }
+    fn truncate(&self, path: &str, len: u64) -> Result<(), StorageError> {
+        self.0.truncate(path, len)
+    }
+    fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
+        self.0.remove_dir_all(path)
+    }
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        self.0.entry_identity(path)
+    }
+    fn sync(&self) -> Result<(), StorageError> {
+        self.0.sync()
+    }
+    fn modified(&self, path: &str) -> Option<i64> {
+        self.0.modified(path)
+    }
+    fn ignores_case(&self) -> bool {
+        self.0.ignores_case()
+    }
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        self.0.same_entry(a, b)
+    }
+    fn free_space(&self) -> Option<u64> {
+        self.0.free_space()
+    }
+    fn total_space(&self) -> Option<u64> {
+        self.0.total_space()
+    }
+    fn local_path(&self, path: &str, with: &mut dyn FnMut(&str)) {
+        self.0.local_path(path, with);
+    }
+    fn list_from(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        self.0.list_from(dir, from, visit)
+    }
+    fn list_bounded(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        self.0.list_bounded(dir, from, visit)
+    }
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        self.0.remove_listed(dir, place)
+    }
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+        self.0.remove_tree_step(root, keep_root, place)
+    }
 }
 
 fn fonts() -> paperpaw_app::Fonts {
@@ -123,11 +185,25 @@ struct App {
 impl App {
     /// The standard app started on `device` with `card` in it.
     fn start(device: DeviceInfo, card: &Card) -> Self {
-        let builder = Kernel::builder(device)
-            .storage(card.clone())
-            // Without the tips on gestures over everything on touch screens.
-            .user_config("[core]\nlanguage = en\n");
-        let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
+        Self::start_with(device, card, false)
+    }
+
+    /// [`Self::start`], with the native help's first-time hints where `hints`
+    /// says so. Without them (the flows), as in the headless tests (#2411):
+    /// a hint takes the next button over the first screen. `help.show` is a
+    /// setting of the native help only.
+    fn start_with(device: DeviceInfo, card: &Card, hints: bool) -> Self {
+        let builder = Kernel::builder(device).storage(card.clone()).user_config(
+            if cfg!(feature = "native-linked") && !hints {
+                "[core]\nlanguage = en\n[help]\nshow = false\n"
+            } else {
+                "[core]\nlanguage = en\n"
+            },
+        );
+        let mut kernel = native_activation::build_on(
+            paperpaw_app::install(builder, fonts()),
+            Rc::new(card.clone()),
+        );
         let effects = kernel.start(Instant(0));
         let mut app = Self { kernel, now: 0 };
         app.settle(effects);
@@ -353,6 +429,32 @@ fn settings_changed_in_the_ui_are_saved_and_read_back_after_a_restart() {
     assert!(settings.is_set(size));
 }
 
+/// With the help's first-time hints on, as on a new device: the start shows
+/// home, a hint the first button closes takes nothing with it, and home and
+/// the reader still open without a warning.
+#[test]
+fn the_first_start_with_the_help_hints_on_reaches_home_and_a_book() {
+    let card = Card::new(true);
+    let mut app = App::start_with(BUTTONS, &card, true);
+    let _ = app.parts();
+    // The first button may close a hint instead of acting.
+    app.run(actions::BACK);
+    app.run(actions::HOME);
+    assert_eq!(app.screen(), "home.dashboard");
+    app.now += 100;
+    let open = Params::new().with(paperpaw_sdk::builtin::params::PATH, ALICE);
+    let effects =
+        app.kernel
+            .open_slot(Instant(app.now), paperpaw_sdk::builtin::slots::READER, open);
+    app.settle(effects);
+    let _ = app.parts();
+    app.run(actions::BACK);
+    app.run(actions::HOME);
+    assert_eq!(app.screen(), "home.dashboard");
+    let warnings = app.warnings();
+    assert!(warnings.is_empty(), "{warnings:?}");
+}
+
 /// A bookmark keeps the words its page begins with as the book has them:
 /// a word broken at the end of a line is whole in it, not
 /// "restric- tions" with the hyphen and the line break of the page.
@@ -384,6 +486,59 @@ fn bookmarks_keep_words_broken_across_lines_whole() {
         })
         .collect();
     assert!(broken.is_empty(), "words broken in bookmarks: {broken:#?}");
+}
+
+/// The reader asked to open a book while it shows one (a book opened from
+/// another screen while the reader is still on the stack): the same book
+/// stays open where it was; another book opens, and the first one again
+/// after it. Bookmarks land in the book on show,
+/// nothing says the book could not be opened, nothing warns.
+#[test]
+fn a_book_opened_while_the_reader_shows_one() {
+    fn open(app: &mut App, path: &str) {
+        app.now += 100;
+        let params = Params::new().with(paperpaw_sdk::builtin::params::PATH, path);
+        let effects = app.kernel.open_slot(
+            Instant(app.now),
+            paperpaw_sdk::builtin::slots::READER,
+            params,
+        );
+        app.settle(effects);
+        app.kernel.render(&mut |_, _| {});
+    }
+    fn mark(app: &mut App) {
+        app.kernel.render(&mut |_, _| {});
+        app.run(Id::new_static("reader.toggle-bookmark"));
+    }
+    let marks = |card: &Card, book: &str| paperpaw_sdk::annotations::load(card, book).len();
+    let card = Card::new(true);
+    let mut app = App::start(BUTTONS, &card);
+    let cannot = "could not be opened";
+
+    // The same book again: it stays open.
+    open(&mut app, ALICE);
+    app.run(actions::NEXT_PAGE);
+    open(&mut app, ALICE);
+    assert_eq!(app.screen(), "reader.screen");
+    assert!(!app.shows(cannot));
+    mark(&mut app);
+    assert_eq!(marks(&card, ALICE), 1);
+
+    // Another book, and the first one again.
+    open(&mut app, GREGOR);
+    assert_eq!(app.screen(), "reader.screen");
+    assert!(!app.shows(cannot));
+    mark(&mut app);
+    assert_eq!(marks(&card, GREGOR), 1);
+    open(&mut app, ALICE);
+    assert_eq!(app.screen(), "reader.screen");
+    assert!(!app.shows(cannot));
+    app.run(actions::NEXT_PAGE);
+    mark(&mut app);
+    assert_eq!(marks(&card, ALICE), 2);
+    assert_eq!(marks(&card, GREGOR), 1);
+    let warnings = app.warnings();
+    assert!(warnings.is_empty(), "{warnings:?}");
 }
 
 /// Opens each row of the menu that `open` shows, one after the other,

@@ -32,7 +32,8 @@ batch lies in the image, owned otherwise; refused at activation until the SDK vi
 - [D] `token` names the plugin callback state the host passes to `draw`, `input` and
   `dispatch_event` for this screen or action. Tokens are the plugin's own numbers; one token may
   serve several screens.
-- [D] `screen.spec.flags`: bit 0 `full_refresh_on_open`; other bits must be 0 (`ERR_UNSUPPORTED`).
+- [D] `screen.spec.flags`: bit 0 `full_refresh_on_open`, the policy bits of `ui.md` section 1.2
+  (bits 1-8, among them 8 `hints_hidden`); other bits must be 0 (`ERR_UNSUPPORTED`).
   `action.spec.flags`: bit 0 `needs_screen` (the action only runs while one of this plugin's
   screens is on top); other bits 0.
 - [D] Names follow the declaration name rules (`records.md`); full id = `<plugin>.<name>`. A
@@ -495,6 +496,45 @@ draw(state: pointer, token: u32, input: bytes) -> i32
 - [D] `id` and `payload` are defined by the owner of the purpose, for example the reader's insert
   id. A screen gets `id = 0` and an empty payload.
 - [D] Drawing outside the clip is clipped by the canvas slots, not refused.
+
+### 6.1 Telling what is drawn (slot 42, #243)
+
+```
+canvas.describe(ctx, role: u32, flags: u32, label: bytes, x: i32, y: i32, width: u32, height: u32)
+    -> count   // slot 42
+```
+
+The host asks what a screen shows (automation such as `tap-on:`, reading aloud, tests) by drawing
+it aside with a describing canvas, as it asks a legacy screen (`Canvas::describe`). A native
+draw callback tells its parts with this slot.
+
+- [D] Only inside a draw callback (`ERR_STATE` elsewhere). Result 1: the part was told. Result 0:
+  nobody asks in this draw; the plugin may leave out the rest of this draw's parts. The host keeps,
+  copies and allocates nothing for a call that returns 0; while somebody asks, the describing
+  sink copies the label.
+- [D] One describe pass keeps at most 128 parts and 4 KiB of labels, counting the text parts the
+  host tells for the screen's own text draws (below). Past either bound, or where the host has no
+  memory for the part, the call returns 0 as where nobody asks; nothing is cut or aborted.
+- [D] `role`: 1 heading, 2 row, 3 button, 4 switch, 5 slider, 6 text, 7 check, 8 radio, 9 field,
+  10 image, 11 link, 12 dialog, 13 progress. 0 is `ERR_INVALID`; a number this host does not know
+  (a later one) is told as text.
+- [D] `flags`: bit 0 focused, bit 1 the part is on or off and bit 2 says which (on where set), bit
+  3 it does nothing now. Any other bit is `ERR_INVALID`. A part drawn while the host draws the
+  screen faint is told as doing nothing whatever bit 3 says.
+- [D] `label`: at most 256 bytes of UTF-8 (`ERR_INVALID` longer, `ERR_UTF8` not text); empty
+  where the part's text is drawn inside it. The area is in screen pixels like the other canvas
+  slots; what lies left of or above the screen is cut off. A row, button, switch, field, check,
+  radio or link needs an area that is not empty (`ERR_INVALID`): it is found and touched there.
+- [D] **Text.** Every `text.draw` is told as text where somebody asks, with its drawn width and
+  the font's line height, without a call of this slot. A part that contains text (a row, a
+  heading, a button) is told before the text inside it is drawn: a row with an empty label takes
+  the texts drawn inside it as its label, in reading order; a part with a label of its own keeps
+  it. A switch told inside a row makes the row on or off.
+- [D] Not told as text yet: text drawn with `text.draw_inked` (slot 41) and icons (glyphs of
+  `role:icons`, which the merge rules drop as saying nothing). A part whose words are drawn that
+  way gives them in its own `label`.
+- [D] No reply, no event, no state across draws. The slot announces itself in the X4 frame gate
+  like the other canvas slots; it needs no buffer of its own.
 
 ## 7. Lifetime and cancellation (all handles and async operations)
 

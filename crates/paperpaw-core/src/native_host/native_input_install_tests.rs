@@ -34,12 +34,29 @@ std::thread_local! {
     pub(super) static STAGED: RefCell<Option<Vec<u8>>> = const { RefCell::new(None) };
     pub(super) static STAGED_ON_SHOWN: Cell<bool> = const { Cell::new(false) };
     pub(super) static STAGED_ANSWER: Cell<i32> = const { Cell::new(1) };
+    /// The features the next installed plugin is admitted with.
+    pub(super) static FEATURES: Cell<crate::native_host::admitted_features::AdmittedFeatures> =
+        const { Cell::new(crate::native_host::admitted_features::AdmittedFeatures::NONE) };
+    /// With a store, the callback makes a hand-over in it first (`page = 3`) and
+    /// submits an `open` of `factory.screen` naming it, as the staged batch
+    /// (the second: the id it names instead of the made one, 0 for the made one).
+    pub(super) static STAGED_HANDOVER: RefCell<
+        Option<(crate::native_host::shared::Shared<crate::native_host::ui_store::UiStore>, u32)>,
+    > = const { RefCell::new(None) };
 }
 
 /// Submits the staged batch from the callback `state` is the screen's of.
 pub(super) fn submit_staged(state: *mut c_void) {
     let Some(batch) = STAGED.with(|batch| batch.borrow().clone()) else {
         return;
+    };
+    let batch = match STAGED_HANDOVER.with(|made| {
+        made.borrow()
+            .as_ref()
+            .map(|(store, wrong)| (store.try_clone().unwrap(), *wrong))
+    }) {
+        Some((store, wrong)) => handover_batch(state, &store, wrong),
+        None => batch,
     };
     // SAFETY: the owner retains the initialized fixture; its host table and
     // pinned context are live for the callback.
@@ -49,6 +66,50 @@ pub(super) fn submit_staged(state: *mut c_void) {
     };
     // SAFETY: the batch is readable for its length.
     let _ = unsafe { (host.commands_submit)(context, borrowed(&batch)) };
+}
+
+/// The batch of an `open` naming a hand-over the callback of `state` makes now
+/// (or `wrong`, an id nobody made, when it is not 0).
+fn handover_batch(
+    state: *mut c_void,
+    store: &crate::native_host::ui_store::UiStore,
+    wrong: u32,
+) -> Vec<u8> {
+    use crate::native_host::commands::{WireCommand, commands_encode};
+    use crate::native_host::ui_store::{Param, Stamp};
+    // SAFETY: the owner retains the initialized fixture and its pinned context.
+    let context = unsafe {
+        &*(*state.cast::<ScreenState>())
+            .context
+            .cast::<Context<Heap>>()
+    };
+    let epoch = context
+        .environment
+        .with_frame(|frame| frame.callback_epoch())
+        .unwrap()
+        .unwrap();
+    let stamp = Stamp::new(context.owner_key(), epoch).unwrap();
+    let made = store
+        .handover_make(
+            stamp,
+            &[Param {
+                key: "page",
+                value: "3",
+            }],
+        )
+        .unwrap();
+    let mut bytes = [0; 256];
+    let len = commands_encode(
+        &[WireCommand::Open {
+            target: "factory.screen",
+            mode: 0,
+            slot: "",
+            handover: if wrong == 0 { made } else { wrong },
+        }],
+        &mut bytes,
+    )
+    .unwrap();
+    bytes[..len].to_vec()
 }
 
 /// The screen-shown event of the screen: submits the staged batch if asked to.
@@ -284,5 +345,7 @@ fn nothing_reaches_a_screen_below_a_guard() {
     assert_eq!(owners().len(), 1, "{:?}", owners());
 }
 
+#[path = "native_dev_screen_tests.rs"]
+mod dev_commands;
 #[path = "native_screen_command_tests.rs"]
 mod screen_commands;

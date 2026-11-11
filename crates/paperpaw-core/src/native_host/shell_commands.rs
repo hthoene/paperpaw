@@ -86,6 +86,9 @@ impl Kernel {
                     admit.room = admit.room.saturating_sub(inputs.images_held);
                     admit
                 });
+                if let Some(dev) = context.dev_context() {
+                    stage.admit_dev(dev);
+                }
                 // SAFETY: the admitted owner structurally pins the command scope.
                 let scope = unsafe { context.map_unchecked(|value| &value.commands) };
                 // A failed callback applies nothing: the stage's room guard

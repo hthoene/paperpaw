@@ -22,6 +22,7 @@ use crate::{
     native_typeset::{Faces, HostFonts},
     native_wordbox,
 };
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::ops::Range;
@@ -65,6 +66,10 @@ enum Body {
     Message(&'static str),
     /// The book, open.
     Open(Open),
+    /// The book opened for the first time, its document still prepared by the
+    /// format (`preparing.rs`): kept open until it is ready or failed, or the
+    /// screen closes.
+    Preparing(Preparing),
 }
 
 /// Why the place is written.
@@ -126,8 +131,8 @@ struct Open {
     report_due: bool,
     /// The book's title as a report carries it.
     title: String,
-    /// The book's language (a BCP 47 tag), empty where the format names none:
-    /// the voice reading aloud speaks it.
+    /// The book's language (a BCP 47 tag), the UI language where the format
+    /// names none (`book_language`): the voice reading aloud speaks it.
     language: String,
     /// The words of the page on show the sentence read aloud underlines.
     mark: Option<Range<usize>>,
@@ -152,6 +157,9 @@ pub struct View {
     body: Body,
     /// Reading aloud, where the book is read aloud (`native_view/aloud.rs`).
     speaker: Speaker,
+    /// *Read aloud* was asked while the book was prepared: it starts once the
+    /// book is open and the reading screen is on top (`take_aloud_kept`).
+    aloud_kept: bool,
 }
 
 /// The hand-over's values, as far as the screen reads them.
@@ -166,12 +174,27 @@ pub(crate) struct Handover {
 
 impl Handover {
     /// The root the book is opened on (the library's unless the hand-over says).
+    ///
+    /// A plugin that hands a file of its own over names its folder: `0` (data)
+    /// or `2` (install), with the `path` (`document.md` 1, root 5). The reader
+    /// reads it as the handed file (`doc_open` root 5), never from its own
+    /// data folder. `5` is the reader's own code for a book it opened that
+    /// way (`root_code`, for its table-of-contents screen).
     pub(crate) fn root(&self) -> Root {
         match self.root.as_deref() {
-            Some("0") => Root::Data,
-            Some("5") => Root::Handed,
+            Some("0" | "2" | "5") => Root::Handed,
             _ => Root::Library,
         }
+    }
+
+    /// The hand-over of a book this screen showed (its path and root code):
+    /// opened again, at its saved place.
+    pub(crate) fn of_book(path: String, root: &str) -> Result<Self, Error> {
+        Ok(Self {
+            path,
+            root: Some(text::copy(root)?),
+            ..Self::default()
+        })
     }
 
     fn get(&self, key: &str) -> Option<&str> {
@@ -207,56 +230,89 @@ pub(crate) fn read_handover(
 }
 
 impl View {
-    /// The screen of the book `handover` names, opened.
+    /// The screen of the book the hand-over `found` names, opened.
     ///
     /// # Errors
     /// `NoMemory` and the host's refusals other than the book's own (a book that
     /// does not open is a screen that says so).
-    pub fn open(
+    pub(crate) fn open(
         host: &Host<'_>,
-        ui: &Ui,
         (docs, library): (&Documents, Option<&Library>),
-        handover: Option<HandoverId>,
+        found: Handover,
     ) -> Result<Self, Error> {
-        let found = match handover {
-            Some(handover) => read_handover(host, ui, handover).unwrap_or_default(),
-            None => Handover::default(),
-        };
         if found.path.is_empty() {
             return Ok(Self::message("reader.no-book"));
         }
-        let (mut input, mut out) = (buffer(256)?, buffer(4096)?);
         let root = found.root();
-        let book = OpenBook::new(&found.path).root(root).publisher_styles();
-        let state = match docs.open_book(host, &book, &mut input, &mut out) {
-            Ok(state) => (
-                state.id(),
-                state.preparation(),
-                state.whole_pages(),
-                state.conversion(),
-            ),
-            Err(Error::NoMemory) => return Err(Error::NoMemory),
-            Err(Error::Busy) => return Ok(Self::message("reader.not-ready")),
-            Err(_) => return Ok(Self::message("reader.error")),
+        let state = {
+            let (mut input, mut out) = (buffer(256)?, buffer(4096)?);
+            let book = OpenBook::new(&found.path).root(root).publisher_styles();
+            match docs.open_book(host, &book, &mut input, &mut out) {
+                Ok(state) => (
+                    state.id(),
+                    state.preparation(),
+                    state.whole_pages(),
+                    state.conversion(),
+                ),
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(Error::Busy) => return Ok(Self::message("reader.not-ready")),
+                Err(_) => return Ok(Self::message("reader.error")),
+            }
         };
         let (id, preparation, whole_pages, conversion) = state;
+        let book = Preparing {
+            id,
+            found,
+            whole_pages,
+            conversion,
+        };
         match preparation {
-            Preparation::Ready => {}
-            Preparation::Preparing => {
-                Self::forget(host, docs, id);
-                return Ok(Self::message("reader.preparing"));
-            }
+            Preparation::Ready => Self::opened(host, (docs, library), book),
+            // Opened for the first time: the format prepares the book (Beta 3's
+            // "Opening the book for the first time"); the document stays open
+            // and the book opens when the host says it is ready.
+            Preparation::Preparing => Ok(Self {
+                body: Body::Preparing(book),
+                speaker: Speaker::new(0),
+                aloud_kept: false,
+            }),
             _ => {
                 Self::forget(host, docs, id);
-                return Ok(Self::message("reader.error"));
+                Ok(Self::message("reader.error"))
             }
         }
+    }
+
+    /// The screen of a book whose document is ready: its title, sections and the
+    /// place it opens at. A refusal on the way gives the document back.
+    ///
+    /// # Errors
+    /// `NoMemory` and the host's refusals other than the book's own.
+    fn opened(
+        host: &Host<'_>,
+        (docs, library): (&Documents, Option<&Library>),
+        book: Preparing,
+    ) -> Result<Self, Error> {
+        let Preparing {
+            id,
+            found,
+            whole_pages,
+            conversion,
+        } = book;
+        let root = found.root();
+        let (mut input, mut out) = match (buffer(256), buffer(4096)) {
+            (Ok(input), Ok(out)) => (input, out),
+            _ => {
+                Self::forget(host, docs, id);
+                return Err(Error::NoMemory);
+            }
+        };
         let sections = match docs.metadata(host, id, &mut input, &mut out) {
             Ok(meta) => (
                 meta.sections().max(1),
                 // The path stands for a title the format does not give.
                 text::copy(native_place::title_of(meta.title(), &found.path)),
-                text::copy(meta.language()),
+                book_language(host, meta.language()),
             ),
             Err(Error::NoMemory) => {
                 Self::forget(host, docs, id);
@@ -283,7 +339,13 @@ impl View {
             }
         };
         let (at, stored_ppm) =
-            Self::starting_place(host, library, &found, (sections, conversion), &mut out)?;
+            match Self::starting_place(host, library, &found, (sections, conversion), &mut out) {
+                Ok(start) => start,
+                Err(error) => {
+                    Self::forget(host, docs, id);
+                    return Err(error);
+                }
+            };
         let mut open = Open {
             id,
             sections,
@@ -314,15 +376,14 @@ impl View {
             chapter: None,
             status: native_status::State::default(),
         };
-        if let Ok(setup) = Setup::read(host) {
-            open.ensure_counter(host, &setup);
-        }
+        open.begin(host, root == Root::Library);
         // The host's book events start here (`document.md` 2.4); a book whose
         // first page cannot be laid out is told with its first draw.
         open.announce(host, docs);
         Ok(Self {
             body: Body::Open(open),
             speaker: Speaker::new(0),
+            aloud_kept: false,
         })
     }
 
@@ -361,10 +422,24 @@ impl View {
         )
     }
 
+    /// A screen that had no room to open its book says so in a few words, as
+    /// Beta 3 did (the callback then ends well and the screen is kept, so the
+    /// run goes on); other errors stay.
+    ///
+    /// # Errors
+    /// `error` itself, unless it is `NoMemory`.
+    pub fn when_full(error: Error) -> Result<Self, Error> {
+        match error {
+            Error::NoMemory => Ok(Self::message("reader.no-memory")),
+            other => Err(other),
+        }
+    }
+
     const fn message(key: &'static str) -> Self {
         Self {
             body: Body::Message(key),
             speaker: Speaker::new(0),
+            aloud_kept: false,
         }
     }
 
@@ -406,7 +481,7 @@ impl View {
     pub fn repaint(&self, host: &Host<'_>) -> Result<(), Error> {
         match &self.body {
             Body::Open(_) => redraw(host, RedrawMode::Full),
-            Body::Message(_) => Ok(()),
+            Body::Message(_) | Body::Preparing(_) => Ok(()),
         }
     }
 
@@ -415,7 +490,7 @@ impl View {
     pub fn take_turned(&mut self) -> bool {
         match &mut self.body {
             Body::Open(open) => core::mem::take(&mut open.turned),
-            Body::Message(_) => false,
+            Body::Message(_) | Body::Preparing(_) => false,
         }
     }
 
@@ -502,13 +577,44 @@ impl View {
         }
     }
 
+    /// The book on show, as a hand-over names it: its path and root code.
+    #[must_use]
+    pub fn book(&self) -> Option<(&str, &'static str)> {
+        match &self.body {
+            Body::Open(open) => Some((open.path.as_str(), open.root)),
+            // Its document is open while it is prepared: the same book stays,
+            // and it is given back for another one.
+            Body::Preparing(book) => Some((book.found.path.as_str(), root_code(book.found.root()))),
+            Body::Message(_) => None,
+        }
+    }
+
+    /// The screen is opened again with `found`: whether it shows that book
+    /// already. It then stays as it is (no second open of the document), at
+    /// the place `found` names, if it names one.
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    pub(crate) fn keeps(&mut self, found: &Handover) -> Result<bool, Error> {
+        let same = self
+            .book()
+            .is_some_and(|(path, root)| path == found.path && root == root_code(found.root()));
+        if !same {
+            return Ok(false);
+        }
+        if let native_open::Start::At(place) = native_open::start(|key| found.get(key)) {
+            self.go_to((place.section, place.offset))?;
+        }
+        Ok(true)
+    }
+
     /// The id of the book's document, for a screen of this plugin that reads
     /// it too.
     #[must_use]
     pub const fn doc_id(&self) -> Option<DocId> {
         match &self.body {
             Body::Open(open) => Some(open.id),
-            Body::Message(_) => None,
+            Body::Message(_) | Body::Preparing(_) => None,
         }
     }
 
@@ -532,11 +638,15 @@ impl View {
     pub fn close(&mut self, host: &Host<'_>, (docs, library): (&Documents, Option<&Library>)) {
         // Nothing is read aloud from a book that is closed.
         self.stop_aloud(host, (docs, library));
-        if let Body::Open(open) = &mut self.body {
-            open.save(host, library, When::Closing);
-            Self::forget(host, docs, open.id);
+        // The document is given back once: the body that holds it goes with it.
+        match core::mem::replace(&mut self.body, Body::Message("reader.no-book")) {
+            Body::Open(mut open) => {
+                open.save(host, library, When::Closing);
+                Self::forget(host, docs, open.id);
+            }
+            Body::Preparing(book) => Self::forget(host, docs, book.id),
+            Body::Message(_) => {}
         }
-        self.body = Body::Message("reader.no-book");
     }
 
     /// *Go to the note* of `path`'s book: follows `href`, and draws again
@@ -610,11 +720,23 @@ impl View {
                 open.jump((section, offset));
                 true
             }
-            Outcome::Turn { forward: true } => open.next()?,
+            Outcome::Turn { forward: true } => open.forward(host, docs)?,
             Outcome::Turn { forward: false } => open.previous(host, docs)?,
             _ => match native_pages::turn(input) {
+                // Select or Menu with nothing chosen: the reader's menu bar.
+                Turn::Ignored
+                    if matches!(
+                        input,
+                        Input::Action {
+                            action: "core.menu" | "core.confirm",
+                            ..
+                        }
+                    ) =>
+                {
+                    return open.menu_bar(host, ui);
+                }
                 Turn::Ignored => return Ok(Handled::No),
-                Turn::Next => open.next()?,
+                Turn::Next => open.forward(host, docs)?,
                 Turn::Previous => open.previous(host, docs)?,
             },
         };
@@ -643,6 +765,7 @@ impl View {
         }
         let key = match &mut self.body {
             Body::Message(key) => *key,
+            Body::Preparing(_) => "reader.preparing",
             Body::Open(open) => match open.draw(host, (docs, ui), frame) {
                 Ok(()) => return Ok(()),
                 Err(Error::NoMemory) => "reader.no-memory",
@@ -799,7 +922,9 @@ impl Open {
             .progress
             .as_ref()
             .map_or(self.stored_ppm, |p| p.ppm(self.at.0, self.at.1));
-        let (Ok(mut input), Ok(mut out)) = (buffer(2048), buffer(256)) else {
+        // The host asks for room for the op's largest answer (`set_position`:
+        // `max_reply` 4,096), else it refuses before the op runs.
+        let (Ok(mut input), Ok(mut out)) = (buffer(2048), buffer(SERVICE_BUFFER)) else {
             return;
         };
         let kept = native_place::save(
@@ -979,6 +1104,32 @@ impl Open {
         self.trail.clear();
         self.marking.reset();
         self.marking.landed(Locator::new(to.0, to.1));
+    }
+
+    /// A forward turn by hand: the page after the one on show is laid out
+    /// first, so on the last page the turn stays (the page after it would be
+    /// empty). The laid page is kept for the draw. Whether it moved.
+    fn forward(&mut self, host: &Host<'_>, docs: &Documents) -> Result<bool, Error> {
+        let Some(page) = &self.page else {
+            return Ok(false);
+        };
+        let end = (page.end.section, page.end.offset);
+        let Ok(setup) = Setup::read(host) else {
+            return self.next();
+        };
+        match onto(self.lay(host, docs, &setup, end)) {
+            Onto::Stay => Ok(false),
+            Onto::Unlaid => self.next(),
+            Onto::Page(laid) => {
+                let moved = self.next()?;
+                if moved {
+                    self.page = Some(*laid);
+                    self.laid = Some(setup.key());
+                    self.words = Vec::new();
+                }
+                Ok(moved)
+            }
+        }
     }
 
     /// The page after the one on show; whether there is one.
@@ -1187,8 +1338,46 @@ fn say_with(
 
 mod aloud;
 mod count;
+mod menu_bar;
+mod preparing;
+use preparing::Preparing;
+
+/// The language a book is read in: its own, or the UI language where the
+/// format names none (a text file), as in Beta 3, so the voice reading aloud
+/// is the reader's. Empty only where the UI language cannot be read either
+/// (the host's voice then).
+///
+/// # Errors
+/// `NoMemory`.
+fn book_language(host: &Host<'_>, declared: &str) -> Result<String, Error> {
+    if !declared.is_empty() {
+        return text::copy(declared);
+    }
+    let mut scratch = [0; 64];
+    text::copy(paperpaw_sdk::native::i18n::language(host, &mut scratch).unwrap_or(""))
+}
 mod r3;
 mod status;
+
+/// What a forward turn finds after the page on show.
+#[derive(Debug)]
+enum Onto {
+    /// Nothing: the page on show is the book's last.
+    Stay,
+    /// The page to turn to, laid out.
+    Page(Box<Page>),
+    /// Not laid out: the turn goes on, and the draw lays it again and says
+    /// what went wrong.
+    Unlaid,
+}
+
+fn onto(laid: Result<Page, Error>) -> Onto {
+    match laid {
+        Ok(page) if page.is_past_end() => Onto::Stay,
+        Ok(page) => Onto::Page(Box::new(page)),
+        Err(_) => Onto::Unlaid,
+    }
+}
 
 #[cfg(test)]
 mod tests;

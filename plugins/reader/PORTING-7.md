@@ -34,7 +34,7 @@ the kernel's settings (`core.*`); the reader declares none of them and adds no d
   declaration; `LIB-position`), the screens, input and dialogs (H1–H4), reading aloud (a speech
   facade) and the timers.
 - **No native declaration exists yet for** (the status lines are declared since R2b-2, see the end): the sample widget above the
-  reading settings (`previews(groups::READING)`), the reading app (`readers::ReaderSpec`), the screen
+  reading settings (`previews(groups::READING)`), the screen
   hints (*on press*) and the first-run help. The setup step *text size* is pending the host (op 22,
   Host todo 99); at P6 time its title reuses an existing reader title string, with no new text. Each
   is a gap in the declaration set; the declaration test counts the status settings so they cannot be
@@ -118,7 +118,7 @@ relative to the data folder).
   screens it offers would be empty. The views come next: the annotations screen (model in
   `native_annotations.rs`), then TOC, skim, search, footnote and the reading screen with the
   document host.
-- Still undeclared: the slice-1 list (status places, the sample widget, the reading app, screen hints,
+- Still undeclared: the slice-1 list (status places, the sample widget, screen hints,
   first-run help, the setup step). `tests/hosted_construction.rs` runs `make` in the registered scope
   of the kernel's native host.
 - Metadata asks `core.ui` and no features yet; it grows with the views (storage for the last book,
@@ -787,3 +787,19 @@ relative to the data folder).
     measure it with `--heap-report`; `ItemList` still lays out every row (a row source would build per page).
   - Each step builds a `HostDocument` (a 4 KiB reply buffer and a 256 B one) and acquires the UI font; the text size and
     the row room are read from the display once per screen.
+
+## The start of the device (`native_start.rs`)
+
+- `Event::Started` (token `STARTED`, already declared): where `reader.open-last` is on and `state.ini` names a
+  book that `core.files` `stat` finds on the card (root 1), the book opens through a hand-over with its
+  path in the reader bound to `core.reader` (as the home screen opens a book). A missing file, an
+  unreadable `state.ini` or a refused stat leaves the start screen. Beta 3's `reopen_last_book`.
+- The last book is written (`state.ini`, Beta 3's form) when a library book opens; best effort.
+- `event.book_moved` (token `BOOK_MOVED`): the last book read follows a moved book (`native_start::follow`; Beta 3's
+  `book_moved`; the book's data folder is moved by the host).
+- The host asks for a reply buffer of the operation's `max_reply` (4,096 bytes for `core.files` stat and
+  `ui.handover`) and answers `NoSpace` below it: both buffers are 4,096 (transient, freed at once).
+- **Blocked on Core (todo 474):** the host's command stage has no hand-over store yet (`commands.rs`
+  `handovers: None`; `with_handovers` is only used by tests), so the open with the book's hand-over is
+  refused `ERR_INVALID` until it is wired, in event callbacks as in input callbacks.
+- Not covered by a test: the host path (no scripted host); `state.ini`'s reading is the tested `native_state`.

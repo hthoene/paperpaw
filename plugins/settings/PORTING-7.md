@@ -218,3 +218,13 @@ same screen waits (`settings-covered-by-foreign-screen`).
   set (168.0 KiB at the first page, 136.2 KiB live), not Settings. The gate of #248 (108.5 KiB) is not met
   by the Settings change alone: what native plugins keep resident at start is Core's.
 - Set aside again at activation (todo 380): `shells/web/tests/commands.rs` (opens `core.settings`, expects `settings.list`) and `shells/web/tests/emulator.rs` `the_settings_open_from_the_menu_and_the_quick_panel`.
+
+## Peak of the main page (#248)
+
+On the X4 the peak of Settings opened from a reading screen was set by buffers alive together while the
+main page was built: the registry reader's pair (4.5 KiB), the list of all groups (6.5 KiB) and the
+secrets check's own pair (1,280 + 4,096 bytes), and, host-side, the secrets service's card-file buffers.
+The check now runs first and through the reader's buffers (`Reader::buffers`, `native_secrets::any_in`),
+so it neither holds a pair of its own nor overlaps the group list; `list` asks for its 256-byte input.
+The host-side buffers that remain at the peak are the host's (`secrets_service.rs:495` card-file buffers,
+`call_services.rs:291` call scope).

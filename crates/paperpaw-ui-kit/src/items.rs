@@ -5,6 +5,7 @@ use crate::{
     paint, text,
 };
 use alloc::{string::String, vec::Vec};
+use paperpaw_sdk::native::canvas::PartRole;
 use paperpaw_sdk::{
     Handled, Point, Rect,
     native::{
@@ -34,6 +35,9 @@ pub struct RowItem {
     pub stepper: bool,
     /// Shown faint, passed by the focus and not chosen by a tap.
     pub disabled: bool,
+    /// A switch: on or off (the row is told as a switch to whoever asks what
+    /// is shown); `None` for a row that is no switch.
+    pub on: Option<bool>,
 }
 
 /// An entry of an [`ItemList`].
@@ -74,6 +78,7 @@ impl Item {
             zone: None,
             stepper: false,
             disabled: false,
+            on: None,
         }))
     }
 
@@ -179,6 +184,19 @@ impl ItemList {
             self.focus = self.nearest(self.focus);
         }
         Ok(())
+    }
+
+    /// Replaces the value (the text at the right) of the row at `index`, in
+    /// place: for a number that moves (a download's progress) where the rest
+    /// of the list stays as it is. `false` where `index` is no row.
+    pub fn set_value(&mut self, index: usize, value: String) -> bool {
+        match self.items.get_mut(index) {
+            Some(Item::Row(row)) => {
+                row.value = value;
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Zeroes the text of every item and empties the list: for a list that
@@ -417,7 +435,8 @@ impl ItemList {
         }
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
-        let style = Style::read(host, &display, &font)?;
+        let mut style = Style::read(host, &display, &font)?;
+        style.describing = paint::asking(frame);
         let (width, height) = (display.display_width(), display.display_height());
         let top = style.header.saturating_add(style.gap);
         let mut area = Rect::new(0, top, width, height.saturating_sub(top));
@@ -907,6 +926,14 @@ pub(crate) fn heading(
     rect: Rect,
     title: &str,
 ) -> Result<(), Error> {
+    paint::describe(
+        paint,
+        style.describing,
+        PartRole::Heading,
+        rect,
+        false,
+        false,
+    )?;
     let line = crate::geometry::line_px(font, style.small)?;
     let area = Rect::new(
         rect.x,
@@ -940,6 +967,17 @@ pub(crate) fn draw_row(
     focused: bool,
 ) -> Result<Option<(Rect, Rect)>, Error> {
     backdrop(paint, style, rect, focused)?;
+    paint::describe(
+        paint,
+        style.describing,
+        PartRole::Row,
+        rect,
+        focused,
+        row.disabled,
+    )?;
+    if let Some(on) = row.on {
+        paint::describe_switch(paint, style.describing, rect, on, row.disabled)?;
+    }
     let ink = if row.disabled {
         style.disabled
     } else {
@@ -987,6 +1025,14 @@ pub(crate) fn draw_row(
         cols = style.flip(room, free);
         let (minus, plus) = (style.flip(room, minus), style.flip(room, plus));
         for (rect, glyph) in [(minus, "\u{2212}"), (plus, "+")] {
+            paint::describe(
+                paint,
+                style.describing,
+                PartRole::Button,
+                rect,
+                false,
+                row.disabled,
+            )?;
             let size = style.text;
             let x =
                 f32::from(rect.x) + (f32::from(rect.width) - font.measure_text(size, glyph)?) / 2.0;
@@ -1083,6 +1129,20 @@ mod tests {
 
     fn action(action: &str) -> Input<'_> {
         Input::Action { now_ms: 0, action }
+    }
+
+    #[test]
+    fn a_value_is_replaced_in_place_and_a_heading_has_none() {
+        let mut list = ItemList::new(items("hrr"));
+        list.set_focus(2);
+        assert!(list.set_value(1, "42 %".into()));
+        assert!(!list.set_value(0, "x".into()), "a heading has no value");
+        assert!(!list.set_value(9, "x".into()));
+        assert_eq!(list.focus(), 2);
+        let Item::Row(row) = &list.items()[1] else {
+            panic!("a row")
+        };
+        assert_eq!((row.title.as_str(), row.value.as_str()), ("r", "42 %"));
     }
 
     #[test]

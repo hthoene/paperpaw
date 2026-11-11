@@ -99,7 +99,7 @@ fn every_settings_description_fits_its_row() {
     for profile in ["xteink-x4", "xteink-x4-pro"] {
         for language in ["en", "de"] {
             let profile = profiles::find(profile).unwrap();
-            let config = format!("[core]\nlanguage = {language}\n");
+            let config = format!("[core]\nlanguage = {language}\n[help]\nshow = false\n");
             let files = Rc::new(MemoryStorage::new());
             let mut device =
                 Device::in_memory(profile, Some(config), files, true, Some(add)).unwrap();

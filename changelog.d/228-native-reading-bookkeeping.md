@@ -1,0 +1,3 @@
+### Fixed
+
+- **A book read with the native reader is listed under "Continue reading" again, and its progress and end are kept** (#228, #243). The kernel kept the books opened last, how far each is read and whether it was read to the end only when the interface-6 reader's events came; the native reader's reports raised their events for native plugins alone. Each event of the reading session is now raised on the kernel's side too, as the interface-6 event of the same name (not told to the native plugins a second time), with the progress rounded as before: the library writes as often as in Beta 3 (a changed percentage, the book opened, closed or finished). A book closed for sleep and opened again after it writes nothing, as in Beta 3.

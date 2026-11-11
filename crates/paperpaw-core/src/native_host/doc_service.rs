@@ -30,15 +30,21 @@ use paperpaw_native::host_glue::{
 
 mod args;
 mod check;
+pub(crate) mod cover;
 mod report;
+mod steps;
 mod table;
 #[allow(unused_imports, reason = "the shell builds the table with its limits")]
 pub(crate) use args::ROOT_HANDED;
-pub(crate) use table::{Document, DocumentTable, FormatRef, Limits, PREPARING, READY};
+pub(crate) use steps::{JobStep, PrepareStep};
+pub(crate) use table::{
+    Document, DocumentTable, FAILED, FormatRef, HOST_JOB, Limits, PREPARING, READY,
+};
 
 /// Operations of `core.format` the host calls (`document.md` 3).
 pub(crate) mod fmt {
     pub(crate) const OPEN: u32 = 2;
+    pub(crate) const PREPARE: u32 = 3;
     pub(crate) const META: u32 = 5;
     pub(crate) const META_TEXT: u32 = 6;
     pub(crate) const SECTIONS: u32 = 7;
@@ -102,7 +108,7 @@ pub(crate) struct FormatCall<'a> {
     pub(crate) css_path: &'a str,
 }
 impl FormatCall<'_> {
-    fn new(format: FormatRef, op: u32, document: u32) -> Self {
+    pub(crate) fn new(format: FormatRef, op: u32, document: u32) -> Self {
         Self {
             format,
             op,
@@ -228,6 +234,109 @@ pub(crate) trait DocHost {
     /// The kernel's clock, milliseconds, as the pump last read it: the time
     /// the events it delivers are stamped with.
     fn set_now(&self, _now_ms: u64) {}
+    /// One step of the preparing loop (`document.md` 2.1): the format of the
+    /// next preparing document gets op 3 `prepare`, between inputs, from the
+    /// kernel's pump (no opener callback runs), and its answer is recorded.
+    /// A host without a preparing loop has nothing to do.
+    /// Whether a document is preparing (the pump asks before it makes a route).
+    fn preparing(&self) -> bool {
+        false
+    }
+    fn prepare_step(
+        &self,
+        _hosts: &super::host_services::HostServices,
+        _route: &dyn super::fmt_call::Route,
+    ) -> PrepareStep {
+        PrepareStep::Idle
+    }
+    /// One look at the library's cover job (`doc_cover_job`): ended when its
+    /// preparation is over. Run by the kernel's pump, never inside a callback.
+    fn cover_job_step(
+        &self,
+        _hosts: &super::host_services::HostServices,
+        _route: &dyn super::fmt_call::Route,
+    ) -> JobStep {
+        JobStep::None
+    }
+    /// Where the cover of the book at `path` stands (`doc_cover_make`): a
+    /// host without the cover job answers every cover inline.
+    fn cover_at(&self, _path: &str) -> super::doc_host::CoverAt {
+        super::doc_host::CoverAt::Made
+    }
+    /// Whether the only document that prepares is the cover job: the pump's
+    /// "more" then does not hold the device awake.
+    fn only_cover_job_preparing(&self) -> bool {
+        false
+    }
+    /// The cover job ends now (a book opens elsewhere, the device sleeps): its
+    /// document leaves the table and the format gets its `close`. Nothing is
+    /// restarted; the next `cover` of the book starts it again.
+    fn cover_job_abort(
+        &self,
+        _hosts: &super::host_services::HostServices,
+        _route: &dyn super::fmt_call::Route,
+    ) {
+    }
+    /// The device sleeps inside a callback, where the job cannot be ended: it
+    /// ends at the pump's next look (`cover_job_pump`).
+    fn cover_job_suspend_later(&self) {}
+    /// Whether a cover job exists (the pump asks before it makes a route).
+    fn cover_job_active(&self) -> bool {
+        false
+    }
+    /// Whether a cover job may begin: not before the kernel's start has
+    /// returned (a crash of the format there would count as a failed start).
+    fn cover_jobs_allowed(&self) -> bool {
+        true
+    }
+    /// A `cover` asked for a job where none may begin (before
+    /// [`DocHost::cover_jobs_allowed`], or while a book is open for reading):
+    /// it is remembered, and [`DocHost::cover_jobs_released`] says when to ask
+    /// again.
+    fn cover_job_held_back(&self) {}
+    /// The cover job was displaced by an open (its place was needed): held
+    /// back as above, and for a quiet moment longer, so that what displaced it
+    /// is done before it starts again from the beginning (a cache is whole or
+    /// not used: nothing of the job's work is kept).
+    fn cover_job_displaced(&self) {}
+    /// A library list screen is up (`up`) or is not: the cover job takes no
+    /// *preparing* step (a conversion) while one is up and for a quiet moment
+    /// after it closes, so that no conversion peaks beside the list's
+    /// buffers. A job whose book is ready is not held (its cover is made). The time held does not
+    /// count toward the job's awake time. Said by the pump before it steps.
+    /// Answers when the quiet moment of a waiting job ends (kernel clock, ms),
+    /// if that is what holds it: the pump wakes then.
+    fn cover_job_list(&self, _up: bool) -> Option<u64> {
+        None
+    }
+    /// The key of a book whose job was displaced too often in a row (0: none):
+    /// the library counts it as failed (no cover until the next start).
+    fn cover_job_given_up(&self) -> u64 {
+        0
+    }
+    /// Whether a held-back job may begin again now: allowed, no book open for
+    /// reading, no job, and the quiet moment over. Said once; the library then
+    /// raises bit 6 (the screens ask again).
+    fn cover_jobs_released(&self) -> bool {
+        false
+    }
+    /// The kernel's start has returned: jobs may begin. The key of the book a
+    /// marker left from before names (`cover_job_marker`), 0 for none.
+    fn allow_cover_jobs(&self) -> u64 {
+        0
+    }
+    /// A job for the book at `path` is about to begin: its marker is written
+    /// (`cover_job_marker`). An error: the job does not begin.
+    fn cover_job_guard(&self, _path: &str) -> Result<(), i32> {
+        Ok(())
+    }
+    /// The job has left the table, however: its marker goes.
+    fn cover_job_unguard(&self) {}
+    /// The call is the library's own `cover`: it does not displace the cover
+    /// job.
+    fn library_call(&self) -> bool {
+        false
+    }
     /// An `open` is about to read the card path `path` of root `root`
     /// (document `document`): the host counts it so the file is not freed under
     /// the reader. `Err` refuses the open: nothing is opened and the error is
@@ -276,6 +385,11 @@ pub(crate) trait DocHost {
         image: &wire::ServiceDocImage,
         in_block: bool,
     ) -> Result<Option<u32>, i32>;
+    /// A picture of `document` was left out of a block stream (it failed the
+    /// image check, or the format sent none): the block keeps its alt text.
+    /// The host says so once per run of left-out pictures of the same
+    /// document (it keeps the last document it named), never per picture.
+    fn picture_left_out(&self, _document: u32) {}
     /// The format answered that the document is ready (the open, or the
     /// last preparing call): what the host keeps for it is complete now.
     fn document_ready(&self, _document: u32) {}
@@ -309,6 +423,33 @@ pub(crate) trait DocHost {
         sniff: bool,
         visit: &mut dyn FnMut(Record<'_>),
     ) -> Result<(), i32>;
+}
+
+/// The format's answer to a `prepare` of `document`, checked and recorded:
+/// the document's state, progress, status and flags are the format's, and
+/// the opener hears of a change (`event.document_changed`). Returns the new
+/// state, its status and whether the state or the progress moved. A
+/// preparation that answers "more" 32 times in a row without rising above its
+/// best progress fails with `ERR_TIMEOUT` (the returned state is then 2). A
+/// malformed answer is `ERR_INVALID` and records nothing.
+///
+/// # Errors
+/// `ERR_INVALID`, `ERR_BUSY` (the table is borrowed), `ERR_NOT_FOUND`.
+pub(crate) fn prepared(
+    table: &DocumentTable,
+    document: &Document,
+    answer: &[u8],
+) -> Result<(u32, i32, bool), i32> {
+    let state: wire::ServiceDocState<'_> = check::only(answer)?;
+    check::state(&state)?;
+    let (moved, now, status) = table.set_prepared(
+        document.id,
+        state.state,
+        state.progress_ppm,
+        state.status,
+        state.flags,
+    )?;
+    Ok((now, status, moved))
 }
 
 /// The opener stopped: its documents end, and each format gets op 4 `close`
@@ -373,6 +514,9 @@ pub(crate) fn end_by_host(host: &dyn DocHost, id: u32, reason: u32) -> Result<()
 /// `close` (image ids end, the format gets op 4, the reader is released) and
 /// its opener hears reason 4 `needed`.
 fn taken(host: &dyn DocHost, document: &Document) {
+    if document.cover_job {
+        host.cover_job_displaced();
+    }
     host.end_images(document);
     if !document.format_gone {
         host.close_format(document);
@@ -416,6 +560,9 @@ pub(crate) struct DocServices(pub(crate) alloc::rc::Rc<dyn DocHost>);
 struct Cx<'a> {
     host: &'a dyn DocHost,
     owner: u64,
+    /// The call is the library's `cover` (`cover`): the book is the library's
+    /// own, so root 1 needs no `uses.storage` of the caller.
+    library: bool,
 }
 impl DocHost for Cx<'_> {
     fn as_dyn(&self) -> &dyn DocHost {
@@ -431,6 +578,9 @@ impl DocHost for Cx<'_> {
         self.host.screen_long_side()
     }
     fn root_access(&self, root: u32) -> Result<(), i32> {
+        if self.library && root == 1 {
+            return Ok(());
+        }
         self.host.root_access(root)
     }
     fn handed_open(&self, path: &str) -> Result<HandedBook, i32> {
@@ -471,8 +621,32 @@ impl DocHost for Cx<'_> {
     fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
         self.host.reader_opened(document, root, path)
     }
+    fn cover_at(&self, path: &str) -> super::doc_host::CoverAt {
+        self.host.cover_at(path)
+    }
+    fn cover_jobs_allowed(&self) -> bool {
+        self.host.cover_jobs_allowed()
+    }
+    fn cover_job_held_back(&self) {
+        self.host.cover_job_held_back();
+    }
+    fn cover_job_displaced(&self) {
+        self.host.cover_job_displaced();
+    }
+    fn cover_job_guard(&self, path: &str) -> Result<(), i32> {
+        self.host.cover_job_guard(path)
+    }
+    fn cover_job_unguard(&self) {
+        self.host.cover_job_unguard();
+    }
+    fn library_call(&self) -> bool {
+        self.library
+    }
     fn document_ready(&self, document: u32) {
         self.host.document_ready(document);
+    }
+    fn picture_left_out(&self, document: u32) {
+        self.host.picture_left_out(document);
     }
     fn reader_closed(&self, document: u32) {
         self.host.reader_closed(document);
@@ -571,6 +745,7 @@ pub(crate) fn backend(
         let host = &Cx {
             host: bound,
             owner: who.owner,
+            library: false,
         };
         let host: &dyn DocHost = host;
         result = match op.id {
@@ -670,6 +845,13 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
     let conversion = host.conversion_key(&request, format, options)?;
 
     let table = host.table();
+    // Any open that is not the library's own cover takes the cover job's
+    // place at once, before its own work (`doc_cover_job`).
+    if !host.library_call()
+        && let Some(job) = table.take_cover_job()
+    {
+        taken(host, &job);
+    }
     let caller_shows = host.shows_screen(host.owner());
     let (id, took) = table.open(
         host.owner(),
@@ -1132,6 +1314,9 @@ fn block_verify(
         at.resume,
         |_, _| Ok(()),
     )?;
+    if end.flags & 2 == 0 && fragment.picture_missing() {
+        host.picture_left_out(document.id);
+    }
     let kept = images(host, document, out, length, true)?;
     let pending = (end.flags & 2 != 0).then_some(table::Pending {
         section: at.section,
@@ -1178,6 +1363,9 @@ fn images(
                 at += used;
             }
             None => {
+                if in_block {
+                    host.picture_left_out(document.id);
+                }
                 out.copy_within(at + used..length, at);
                 length -= used;
             }

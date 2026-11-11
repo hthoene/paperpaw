@@ -9,6 +9,7 @@
 //! transactions, fields, provide, receipts). Every op needs the feature
 //! `uses.library`, which the generic dispatcher checks against the opening
 //! instance's admitted features before this code runs.
+use super::lib_cover::CoverCx;
 use super::{
     host_services::Caller as HostCaller,
     registrations::{self as wire, Record},
@@ -78,7 +79,7 @@ pub(crate) fn owner_stopped(host: &dyn LibHost, owner: u64) -> Result<(), i32> {
 
 /// The `core.library` backend.
 pub(crate) fn backend(
-    _frame: &dyn Frame,
+    frame: &dyn Frame,
     caller: &HostCaller<'_>,
     op: &ServiceOp,
     input: &[u8],
@@ -92,7 +93,10 @@ pub(crate) fn backend(
     };
     let host: &dyn LibHost = &*services.0;
     match op.id {
-        1..=7 | 13 | 15 | 16 | 22 | 25 => query::run(host, &who, op, input, out),
+        1..=7 | 13 | 15 | 16 | 22 | 25 => {
+            let cx = CoverCx { frame, caller };
+            query::run(frame, host, &who, &cx, op, input, out)
+        }
         8..=12 | 14 | 17..=21 | 23 | 24 | 26 => write::run(host, &who, op, input, out),
         _ => Err(ERR_UNSUPPORTED),
     }

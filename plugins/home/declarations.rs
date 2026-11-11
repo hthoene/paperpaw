@@ -19,6 +19,11 @@ pub const ALL_TOOLS: u32 = 1;
 pub const EDIT_PAGES: u32 = 2;
 pub const SETTING_CHANGED: u32 = 3;
 pub const TICK: u32 = 4;
+/// A widget of the plugin says it shows something new (`event.widget_changed`).
+pub const WIDGET_CHANGED: u32 = 5;
+/// The screen stack changed (`event.stack_changed`): a dashboard under another
+/// screen lets its page go.
+pub const STACK_CHANGED: u32 = 6;
 /// Widget tokens: the widget's own callbacks (made, dropped, measured, drawn).
 pub const DATE: u32 = 20;
 pub const CLOCK: u32 = 21;
@@ -216,14 +221,18 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The grid's columns or rows changed (the pages are fitted to it), and the
+/// The grid's columns or rows changed (the pages are fitted to it), the
 /// minute tick (the status line, the clock and what else shows the time are
-/// drawn anew).
+/// drawn anew) and a widget that says it shows something new (the page is laid
+/// out and drawn anew where it is on top) and the screen stack (the home screen
+/// under another screen holds no page).
 pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::SettingChanged, SETTING_CHANGED)?;
     d.subscribe_event(EventKind::Tick, TICK)?;
+    d.subscribe_event(EventKind::WidgetChanged, WIDGET_CHANGED)?;
+    d.subscribe_event(EventKind::StackChanged, STACK_CHANGED)?;
     d.submit()
 }
 

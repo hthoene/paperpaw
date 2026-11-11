@@ -11,7 +11,7 @@ use paperpaw_sdk::Env;
 pub(crate) struct NativeDispatch<S: Services + 'static, M: 'static> {
     instance: Retained<S, M>,
     depth: FlatDepth,
-    host: FlatHost,
+    host: super::shared::Shared<FlatHost>,
     report: fn(&S, u32, i32),
     identity: super::native_instances::NativeIdentity,
 }
@@ -30,7 +30,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         Self::with_events(
             instance,
             depth,
-            host,
+            super::shared::Shared::try_new(host).ok().unwrap(),
             report,
             identity,
             super::event_tags::EventTags::default(),
@@ -44,7 +44,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
     pub(crate) fn with_events(
         instance: Retained<S, M>,
         depth: FlatDepth,
-        host: FlatHost,
+        host: super::shared::Shared<FlatHost>,
         report: fn(&S, u32, i32),
         identity: super::native_instances::NativeIdentity,
         _events: super::event_tags::EventTags,
@@ -95,6 +95,12 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
     ) -> Result<i32, i32> {
         let directory = self.host.upgrade_directory()?;
         let epoch = self.identity.callback()?;
+        // The hand-overs the callback makes are stamped with its epoch: an open
+        // it stages may name them.
+        let mut stage = stage;
+        if let Some(stage) = stage.as_mut() {
+            stage.set_handover_stamp(self.identity.owner(), epoch.epoch());
+        }
         let batch = self.instance.batch().map_err(|e| status(e.into()))?;
         // A screen's callback is on the stack until this returns (`core.net`
         // asks whether the screen is showing).
@@ -377,6 +383,21 @@ impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
         stage: &mut super::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.service_call(bytes, env, Some(stage))
+    }
+    fn event_staged(
+        &self,
+        token: u32,
+        bytes: &[u8],
+        env: &Env<'_>,
+        stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.invoke(
+            token,
+            env,
+            None,
+            shell::TokenInvocation::Event(bytes),
+            Some(stage),
+        )
     }
     fn input_staged(
         &self,

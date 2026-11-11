@@ -34,7 +34,8 @@ mod image {
 }
 
 use crate::declarations::{
-    ADD, ALL_TOOLS, DASHBOARD, DRAWER, EDIT_PAGES, SETTING_CHANGED, STATUS_ITEMS, TICK,
+    ADD, ALL_TOOLS, DASHBOARD, DRAWER, EDIT_PAGES, SETTING_CHANGED, STACK_CHANGED, STATUS_ITEMS,
+    TICK, WIDGET_CHANGED,
 };
 use crate::native_add_screen::{self as add_screen, AddScreen};
 use crate::native_dashboard::{Dashboard, redraw};
@@ -104,7 +105,7 @@ impl Plugin for NativeHome {
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         self.ensure_ui(host)?;
-        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged, kinds::Tick, kinds::WidgetChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall)
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged, kinds::Tick, kinds::WidgetChanged, kinds::StackChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall)
         else {
             return Ok(());
         };
@@ -155,8 +156,7 @@ impl Plugin for NativeHome {
                 Ok(())
             }
             // The minute tick, and a widget that says it shows something new
-            // (`event.widget_changed`, which the host does not deliver yet:
-            // `PORTING-7.md`): what shows is laid out and drawn anew.
+            // (`event.widget_changed`): what shows is laid out and drawn anew.
             Event::WidgetMade {
                 widget, instance, ..
             } => self.widgets.made(widget, instance),
@@ -174,7 +174,8 @@ impl Plugin for NativeHome {
                     .tick(host, self.ui.as_ref().ok_or(Error::State)?);
                 self.refresh(host)
             }
-            Event::WidgetChanged { .. } => self.refresh(host),
+            Event::WidgetChanged { .. } if token == WIDGET_CHANGED => self.refresh(host),
+            Event::StackChanged { .. } if token == STACK_CHANGED => self.covered(host),
             // The grid's columns or rows changed: the pages are fitted to it.
             Event::SettingChanged { key, .. } if token == SETTING_CHANGED => {
                 if is_grid_setting(key) {
@@ -229,6 +230,9 @@ impl Plugin for NativeHome {
     }
 }
 
+/// The room the stack query's request needs (a cursor).
+const STACK_REQUEST: usize = 256;
+
 impl NativeHome {
     /// Opens `core.ui` in the first live callback; the handle serves later ones.
     fn ensure_ui(&mut self, host: &Host<'_>) -> Result<(), Error> {
@@ -258,9 +262,32 @@ impl NativeHome {
         redraw(host)
     }
 
+    /// The stack changed: a dashboard under another screen lets its page go (a
+    /// book is read, the page is not held; it is laid out again when shown).
+    fn covered(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let holding = self
+            .screens
+            .all()
+            .any(|slot| matches!(slot, Slot::Dashboard(d) if d.holds_page()));
+        if !holding {
+            return Ok(());
+        }
+        let top = self.stack_top(host)?;
+        let ui = self.ui.as_ref().ok_or(Error::State)?;
+        for (instance, slot) in self.screens.all_with_instance() {
+            if let Slot::Dashboard(dashboard) = slot
+                && Some(instance) != top
+            {
+                dashboard.cover(host, ui);
+            }
+        }
+        Ok(())
+    }
+
     /// The instance on top of the screen stack, if there is one.
     fn stack_top(&self, host: &Host<'_>) -> Result<Option<Instance>, Error> {
-        let mut input = buffer(SERVICE_BUFFER)?;
+        // The request is a cursor and no more; the reply is a page of rows.
+        let mut input = buffer(STACK_REQUEST)?;
         let mut output = buffer(SERVICE_BUFFER)?;
         let page = self
             .ui()?

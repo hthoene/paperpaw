@@ -817,6 +817,7 @@ fn draw(case: &Case) -> (u32, u32, Vec<u8>, usize) {
         command.args(["--script", case.script]);
     }
     // The hint on gestures would cover every first home screen.
+    command.args(["--set", "help.show=false"]);
     // A card of the same free space on every computer.
     command.args(["--free-space", "7400000000"]);
     for set in case.sets {
@@ -929,6 +930,7 @@ fn screens_say_what_they_show() {
         .args(["--profile", case.profile, "--headless", "--library"])
         .arg(&library)
         .args(["--set", "reader.open-last=false"])
+        .args(["--set", "help.show=false"])
         .args(["--set", case.sets[0]])
         .args([
             "--script",
@@ -987,6 +989,7 @@ fn headers_are_centred_by_their_capitals() {
                 .args(["--screenshot"])
                 .arg(&shot)
                 .args(["--set", "reader.open-last=false"])
+                .args(["--set", "help.show=false"])
                 .args(["--script", &format!("{script},describe")])
                 .output()
                 .unwrap();

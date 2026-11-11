@@ -6,7 +6,7 @@ use crate::{
     io::WifiEvent,
     native_host::commands::CommandStage,
 };
-use paperpaw_native::host_glue::{ERR_CANCELLED, ERR_FULL, OK};
+use paperpaw_native::host_glue::{ERR_CANCELLED, ERR_FULL, ERR_INVALID, OK};
 use paperpaw_native::metadata::Feature;
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{SettingSpec, wifi::WifiState};
@@ -44,6 +44,18 @@ fn kernel() -> Kernel {
         .build()
         .unwrap();
     kernel.radio_requests.borrow_mut().hold_back(u64::MAX);
+    kernel
+}
+
+/// [`kernel`] where the user chose no network manager (the default names
+/// `wifi`, which then needs no recent input).
+fn kernel_without_manager() -> Kernel {
+    let mut kernel = kernel();
+    kernel
+        .shared
+        .settings
+        .set(NETWORK_MANAGER, SettingValue::Text("".into()))
+        .unwrap();
     kernel
 }
 
@@ -454,7 +466,7 @@ fn unsupported_and_needs_user_end_at_once_without_touching_the_radio() {
     assert_eq!((request, done.status, done.reason), (1, ERR_UNSUPPORTED, 5));
     assert!(wifi_calls(&mut elsewhere).is_empty());
 
-    let mut kernel = kernel();
+    let mut kernel = kernel_without_manager();
     let stale = Clock(10_000, Some(7_000));
     assert_eq!(run(&mut kernel, &owner, &[join(1, "net")], &stale), OK);
     let (_, done) = outcome(&kernel, "wifi").unwrap();
@@ -474,7 +486,7 @@ fn unsupported_and_needs_user_end_at_once_without_touching_the_radio() {
 #[test]
 fn the_input_window_for_join_ends_after_2000_ms_inclusive() {
     for (since, honoured) in [(1_999, true), (2_000, true), (2_001, false)] {
-        let mut kernel = kernel();
+        let mut kernel = kernel_without_manager();
         let owner = Id::new_static("wifi");
         let clock = Clock(50_000, Some(50_000 - since));
         assert_eq!(run(&mut kernel, &owner, &[join(1, "net")], &clock), OK);
@@ -486,7 +498,7 @@ fn the_input_window_for_join_ends_after_2000_ms_inclusive() {
         assert_eq!(outcome(&kernel, "wifi").is_some(), !honoured, "{since} ms");
     }
     // No input yet, and the clock before the input, are handled.
-    let mut kernel = kernel();
+    let mut kernel = kernel_without_manager();
     let owner = Id::new_static("wifi");
     assert_eq!(
         run(&mut kernel, &owner, &[join(1, "net")], &Clock(5, None)),
@@ -499,7 +511,7 @@ fn the_input_window_for_join_ends_after_2000_ms_inclusive() {
 fn a_stored_password_or_the_network_manager_needs_no_input_but_a_host_does() {
     let stale = Clock(100_000, Some(0));
     let owner = Id::new_static("wifi");
-    let mut kernel = kernel();
+    let mut kernel = kernel_without_manager();
     assert_eq!(run(&mut kernel, &owner, &[join(1, "home")], &stale), OK);
     assert_eq!(wifi_calls(&mut kernel).len(), 1, "stored password");
     assert_eq!(
@@ -516,16 +528,9 @@ fn a_stored_password_or_the_network_manager_needs_no_input_but_a_host_does() {
 
 #[test]
 fn the_network_manager_may_join_and_host_without_input() {
-    let spec = SettingSpec::text(
-        NETWORK_MANAGER,
-        "manager",
-        "wifi",
-        paperpaw_sdk::builtin::groups::OTHER,
-    );
     let stale = Clock(100_000, Some(0));
     for (name, honoured) in [("wifi", true), ("other", false)] {
         let mut kernel = kernel();
-        kernel.shared.settings.define(spec.clone()).unwrap();
         let owner = Id::new_static(name);
         assert_eq!(run(&mut kernel, &owner, &[join(1, "net")], &stale), OK);
         assert_eq!(
@@ -554,6 +559,51 @@ fn go_online_is_honoured_only_within_the_window_else_ok_and_logged() {
         );
         assert!(warnings.iter().all(|w| !w.message.contains("probe-ssid")));
     }
+}
+
+#[test]
+fn the_wifi_plugin_is_the_network_manager_until_the_user_chooses_another() {
+    let stale = Clock(100_000, Some(0));
+    // A join of `name` with no recent input, the user's choice `chosen`
+    // (`None`: the default): whether the host let it through.
+    let honoured = |name: &'static str, chosen: Option<&str>| {
+        let mut kernel = kernel();
+        // The kernel declares the setting itself, `wifi` by default.
+        let wifi = SettingValue::Text("wifi".into());
+        assert_eq!(kernel.shared.settings.global(NETWORK_MANAGER), Some(&wifi));
+        if let Some(chosen) = chosen {
+            let value = SettingValue::Text(alloc::string::String::from(chosen).into());
+            kernel.shared.settings.set(NETWORK_MANAGER, value).unwrap();
+        }
+        let owner = Id::new_static(name);
+        assert_eq!(run(&mut kernel, &owner, &[join(1, "net")], &stale), OK);
+        !wifi_calls(&mut kernel).is_empty()
+    };
+    assert!(honoured("wifi", None));
+    assert!(!honoured("other", None));
+    // The user's choice replaces it; empty means nobody.
+    assert!(honoured("other", Some("other")));
+    assert!(!honoured("wifi", Some("other")));
+    assert!(!honoured("wifi", Some("")));
+    assert!(!honoured("other", Some("")));
+}
+
+#[test]
+fn only_the_settings_editor_may_name_the_network_manager() {
+    let kernel = kernel();
+    let env = kernel.shared.env(Instant(0));
+    let admitted = |owner: &'static str, exempt: bool| {
+        let owner = Id::new_static(owner);
+        let authority = super::super::CommandAuthority::new(exempt);
+        CommandStage::new(&owner, env.settings(), Some(authority), 16, 4096)
+            .admitted(NETWORK_MANAGER)
+            .map(|_| ())
+    };
+    // Any other plugin, the Wi-Fi plugin itself included, is refused.
+    assert_eq!(admitted("other", false), Err(ERR_INVALID));
+    assert_eq!(admitted("wifi", false), Err(ERR_INVALID));
+    // The settings editor (the user's hand) may.
+    assert_eq!(admitted("settings", true), Ok(()));
 }
 
 #[test]
@@ -959,4 +1009,100 @@ fn an_undefined_flag_bit_refuses_its_batch_and_leaves_earlier_commands_and_reser
         );
         assert_eq!(dev_len(&stage), 3);
     }
+}
+
+#[test]
+fn the_first_dev_command_makes_the_box_and_a_batch_answered_ok_needs_no_more_memory() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    let kernel = kernel();
+    let owner = Id::new_static("probe");
+    let env = kernel.shared.env(Instant(0));
+    let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
+    // Each allocation of the submit in turn fails: the command answers
+    // `ERR_NO_MEMORY` and nothing is kept, until one goes through.
+    let mut nth = 1;
+    loop {
+        FAIL_NTH.with(|n| n.set(nth));
+        let status = submit(&mut stage, &[WireCommand::Sleep {}]);
+        FAIL_NTH.with(|n| n.set(0));
+        if status == OK {
+            break;
+        }
+        assert_eq!(status, ERR_NO_MEMORY, "allocation {nth}");
+        assert_eq!(dev_len(&stage), 0);
+        nth += 1;
+        assert!(nth < 16, "the submit allocates a bounded number of times");
+    }
+    assert!(nth > 1, "the box is an allocation of the submit");
+    // The batch answered `OK` is kept whole with no allocation left to make.
+    FAIL_NTH.with(|n| n.set(1));
+    let batch = stage.take_dev_boxed();
+    let spared = FAIL_NTH.with(|n| n.replace(0));
+    assert_eq!(spared, 1, "nothing was allocated");
+    assert_eq!(batch.map(|batch| batch.items.len()), Some(1));
+    // A stage with no DEV command makes no box.
+    let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
+    assert!(stage.take_dev_boxed().is_none());
+}
+
+/// A plugin whose screen `lock.screen` guards the device.
+struct LockPlugin;
+
+struct Lock;
+
+impl paperpaw_sdk::Screen for Lock {
+    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+    fn guards(&self) -> bool {
+        true
+    }
+    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+        paperpaw_sdk::Handled::No
+    }
+}
+
+impl paperpaw_sdk::Plugin for LockPlugin {
+    fn manifest(&self) -> paperpaw_sdk::Manifest {
+        paperpaw_sdk::Manifest::new(
+            Id::new_static("lock"),
+            "Lock",
+            paperpaw_sdk::Version::new(1, 0, 0),
+        )
+        .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+        r.add_screen(paperpaw_sdk::ScreenSpec::new(
+            Id::new_static("lock.screen"),
+            "lock",
+            alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Lock)),
+        ))
+    }
+}
+
+#[test]
+fn a_guard_that_came_up_after_the_submit_drops_power_off_and_restart_of_another_plugin() {
+    let mut kernel = Kernel::builder(crate::tests::DEVICE)
+        .power_off(true)
+        .plugin(LockPlugin)
+        .build()
+        .unwrap();
+    let (power, lock) = (Id::new_static("power"), Id::new_static("lock"));
+    let clock = Clock(0, None);
+    // Both were accepted while nothing guarded.
+    let off = stage_only(&kernel, &power, &[WireCommand::PowerOff {}]);
+    let restart = stage_only(&kernel, &power, &[WireCommand::Restart {}]);
+    assert_eq!((off.0, restart.0), (OK, OK));
+    kernel.open_screen(
+        Instant(1),
+        Id::new_static("lock.screen"),
+        paperpaw_sdk::Params::new(),
+    );
+    assert!(kernel.guard().is_some());
+    drain(&mut kernel, &power, off.1, &clock);
+    drain(&mut kernel, &power, restart.1, &clock);
+    assert!(!kernel.power_off && !kernel.restart);
+    // The guard's own plugin may.
+    let own = stage_only(&kernel, &lock, &[WireCommand::Restart {}]);
+    assert_eq!(own.0, OK);
+    drain(&mut kernel, &lock, own.1, &clock);
+    assert!(kernel.restart);
 }

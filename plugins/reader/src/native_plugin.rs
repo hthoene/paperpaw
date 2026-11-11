@@ -7,8 +7,8 @@
 //! `native_*` models, tested without one.
 use crate::{
     declarations::{
-        ANNOTATIONS, FOOTNOTE, SCREEN, SEARCH, SEARCH_WORK, SETTING_CHANGED, SKIM, SPOKEN,
-        STACK_CHANGED, STOPPING, SUSPEND, TOC, WORK_DUE,
+        ANNOTATIONS, BOOK_MOVED, DOCUMENT_CHANGED, FOOTNOTE, SCREEN, SEARCH, SEARCH_WORK,
+        SETTING_CHANGED, SKIM, SPOKEN, STACK_CHANGED, STARTED, STOPPING, SUSPEND, TOC, WORK_DUE,
     },
     native_annotations_view::{AnnotationsView, Outcome as NotesOutcome},
     native_footnote::{Footnote, Pressed},
@@ -19,7 +19,7 @@ use crate::{
     native_skim_view,
     native_skim_view::SkimView,
     native_toc_view::{Outcome, TocView},
-    native_view::View,
+    native_view::{Handover, View, read_handover},
 };
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
@@ -34,14 +34,14 @@ use paperpaw_sdk::{
         library::Library,
         registrations,
         reply::Reply,
-        ui::{Question, RequestId as AskId, Ui, UiCursor},
+        ui::{Instance, Question, RequestId as AskId, Ui, UiCursor},
         work::{Work, WorkSpec},
     },
 };
 use paperpaw_ui_kit::{
     Messages, Screens,
-    mem::{SERVICE_BUFFER, buffer},
-    read_event,
+    mem::{self, SERVICE_BUFFER, buffer},
+    read_event, text,
 };
 
 mod image {
@@ -96,10 +96,25 @@ pub struct NativeReader {
     notes: Screens<Footnote>,
     /// The skim screens over the pages.
     skims: Screens<SkimView>,
+    /// Reading screens that gave their document back for another book's (the
+    /// host lets a plugin keep few documents open, one on the X4), with the
+    /// book they showed (path, root code): each opens it again, at its saved
+    /// place, when it is on top again (`wake`).
+    resting: Vec<(Instance, String, &'static str)>,
     /// *Go to the note* pressed: the book and the link, followed when its
     /// reading screen is shown again.
     follow: Option<(String, String)>,
+    /// The book read last was asked to open at the start (its key,
+    /// `native_start::book_key`) and no reading screen was shown since.
+    reopening: Option<u64>,
+    /// When *Read aloud* came while that book was opening: it is read aloud once
+    /// its screen is shown (Beta 3 opened the book before any input). Dropped by
+    /// any other move (`native_start::reads_aloud`).
+    aloud_asked: Option<u64>,
 }
+
+/// The callback token of the action `reader.read-aloud`.
+const READ_ALOUD_TOKEN: u32 = native_handsfree::token_of(b"read-aloud");
 
 impl NativeReader {
     /// The reading screen opened: its book is opened with it.
@@ -122,7 +137,56 @@ impl NativeReader {
         let (Some(ui), Some(docs)) = (&self.ui, &self.docs) else {
             return Err(Error::State);
         };
-        let mut view = View::open(host, ui, (docs, self.library.as_ref()), handover)?;
+        let found = match handover {
+            Some(handover) => read_handover(host, ui, handover).unwrap_or_default(),
+            None => Handover::default(),
+        };
+        let library = self.library.as_ref();
+        // The screen opened again (the reader asked to open while it shows a
+        // book): the book it shows stays open; another book's document is
+        // given back first, so the host has room for the new one.
+        if let Some(view) = self.screens.get(instance) {
+            if view.keeps(&found)? {
+                self.start_count(host);
+                return Ok(());
+            }
+            view.close(host, (docs, library));
+        }
+        rest(
+            host,
+            (docs, library),
+            (&mut self.screens, &mut self.resting),
+            instance,
+        )?;
+        let mut view = View::open(host, (docs, library), found).or_else(View::when_full)?;
+        view.bind(instance.get());
+        self.resting.retain(|(at, ..)| *at != instance);
+        self.screens.open(instance, view)?;
+        self.start_count(host);
+        Ok(())
+    }
+
+    /// A reading screen that gave its document back is on top again: it opens
+    /// its book again, at its saved place (the others' documents are given
+    /// back first).
+    fn wake(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        let Some(at) = self.resting.iter().position(|(i, ..)| *i == instance) else {
+            return Ok(());
+        };
+        let (_, path, root) = self.resting.swap_remove(at);
+        let Some(docs) = &self.docs else {
+            return Err(Error::State);
+        };
+        let library = self.library.as_ref();
+        rest(
+            host,
+            (docs, library),
+            (&mut self.screens, &mut self.resting),
+            instance,
+        )?;
+        let mut view = Handover::of_book(path, root)
+            .and_then(|found| View::open(host, (docs, library), found))
+            .or_else(View::when_full)?;
         view.bind(instance.get());
         self.screens.open(instance, view)?;
         self.start_count(host);
@@ -170,6 +234,10 @@ impl NativeReader {
         handover: Option<paperpaw_sdk::native::ui::HandoverId>,
     ) -> Result<(), Error> {
         self.auto_turn_leave(host);
+        // Another screen of the reader: the user went elsewhere first.
+        if token != SCREEN {
+            self.aloud_asked = None;
+        }
         match token {
             SCREEN => self.open(host, instance, handover),
             TOC => self.open_toc(host, instance, handover),
@@ -177,6 +245,25 @@ impl NativeReader {
             SEARCH => self.open_search(host, instance, handover),
             FOOTNOTE => self.open_note(host, instance, handover),
             SKIM => self.open_skim(host, instance, handover),
+            _ => Ok(()),
+        }
+    }
+
+    /// A screen of the reader came to the top.
+    fn screen_shown(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        instance: paperpaw_sdk::native::ui::Instance,
+        now_ms: u64,
+    ) -> Result<(), Error> {
+        match token {
+            SCREEN => self.reading_shown(host, instance, now_ms),
+            TOC => self.tocs.shown(TOC, instance),
+            SEARCH => self.searches.shown(SEARCH, instance),
+            ANNOTATIONS => self.annotations.shown(ANNOTATIONS, instance),
+            FOOTNOTE => self.notes.shown(FOOTNOTE, instance),
+            SKIM => self.skims.shown(SKIM, instance),
             _ => Ok(()),
         }
     }
@@ -478,23 +565,61 @@ impl NativeReader {
         }
     }
 
+    /// *Read aloud* kept while a book was prepared starts on its reading screen
+    /// now open, only where that screen is on top of the stack; a screen covered
+    /// keeps it until it is shown again (`reading_shown`).
+    fn aloud_when_on_top(&mut self, host: &Host<'_>) {
+        // The stack is asked only for a screen that kept it (its buffers would
+        // add to the peak of opening a book).
+        if !self.screens.all().any(|view| view.aloud_kept()) {
+            return;
+        }
+        let Some(docs) = &self.docs else {
+            return;
+        };
+        let Ok(Some(top)) = self.stack_top(host) else {
+            return;
+        };
+        let library = self.library.as_ref();
+        if let Some(view) = self.screens.get(top)
+            && view.take_aloud_kept()
+        {
+            view.start_aloud(host, (docs, library));
+        }
+    }
+
+    /// The instance on top of the whole screen stack (any plugin's).
+    fn stack_top(
+        &self,
+        host: &Host<'_>,
+    ) -> Result<Option<paperpaw_sdk::native::ui::Instance>, Error> {
+        let Some(ui) = &self.ui else {
+            return Ok(None);
+        };
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let rows = ui.stack(host, UiCursor::start(), &mut input, &mut out)?;
+        match rows.into_iter().next() {
+            Some(row) => Ok(Some(row?.instance())),
+            None => Ok(None),
+        }
+    }
+
     /// The screen stack changed: where the reading screen is no longer on top,
     /// nothing is read aloud (the table of contents, a menu, another plugin's
     /// screen, the library). Asked only while something is read aloud.
     fn stacked(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        if !self.screens.all().any(|view| view.reading_aloud()) {
+        // *Read aloud* kept for the book opening at the start goes with any other
+        // screen on top of its reading screen.
+        let kept = self.aloud_asked.is_some() && self.screens.top_instance(SCREEN).is_some();
+        if !kept && !self.screens.all().any(|view| view.reading_aloud()) {
             return Ok(());
         }
-        let Some(ui) = &self.ui else {
+        if self.ui.is_none() {
             return Ok(());
-        };
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-        let rows = ui.stack(host, UiCursor::start(), &mut input, &mut out)?;
-        let top = match rows.into_iter().next() {
-            Some(row) => Some(row?.instance()),
-            None => None,
-        };
+        }
+        let top = self.stack_top(host)?;
         if top.is_none() || top != self.screens.top_instance(SCREEN) {
+            self.aloud_asked = None;
             self.stop_speech(host);
         }
         Ok(())
@@ -616,13 +741,155 @@ impl NativeReader {
         }
     }
 
+    /// A book moved: the last book read follows it.
+    fn moved(&mut self, host: &Host<'_>, from: &str, to: &str) -> Result<(), Error> {
+        crate::native_start::follow(host, from, to);
+        Ok(())
+    }
+
+    /// The reading screen is on top: its view is told, and a note it was asked to
+    /// follow is shown.
+    fn reading_shown(
+        &mut self,
+        host: &Host<'_>,
+        instance: paperpaw_sdk::native::ui::Instance,
+        now_ms: u64,
+    ) -> Result<(), Error> {
+        self.screens.shown(SCREEN, instance)?;
+        self.wake(host, instance)?;
+        let (asked, reopened) = (self.aloud_asked.take(), self.reopening.take());
+        if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
+            view.shown(host, docs);
+            // Read aloud kept at the start for the book reopened, or kept while
+            // the book was prepared and covered since it opened.
+            if crate::native_start::reads_aloud(asked, reopened, now_ms, view.book_key())
+                || view.take_aloud_kept()
+            {
+                view.start_aloud(host, (docs, self.library.as_ref()));
+            }
+        }
+        // A book still prepared asks its state again: a hint the host lost
+        // (`event.document_changed`) never leaves the screen waiting.
+        if self
+            .screens
+            .get(instance)
+            .is_some_and(|view| view.preparing())
+        {
+            self.document_changed(host);
+        }
+        self.follow_note(host, instance)
+    }
+
+    /// An action of the reader that reached the plugin, not a screen:
+    /// `reader.auto-turn` starts or stops the timer and any other stops it; *Read
+    /// aloud* before the book read last is on show is kept for it, and any other
+    /// action drops that. The action may come before the start is told (and the
+    /// book read last asked to open): it is kept while no screen shows a book,
+    /// and read only for the book reopened, soon (`native_start::reads_aloud`).
+    fn action_run(&mut self, host: &Host<'_>, token: u32, now_ms: u64) {
+        if token == native_handsfree::action_token() {
+            return self.auto_turn_toggle(host);
+        }
+        let no_book = !self.screens.all().any(|view| view.book().is_some());
+        if token == READ_ALOUD_TOKEN && (self.reopening.is_some() || no_book) {
+            self.aloud_asked = Some(now_ms);
+            return;
+        }
+        self.aloud_asked = None;
+        self.auto_turn_leave(host);
+    }
+
+    /// The start of the device (`Event::Started`): the book read last opens again where the setting
+    /// asks for it.
+    fn reopen_last(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        // A book is on show already (opened before the start was told): it
+        // stays, and nothing opens over it.
+        if self.screens.all().any(|view| view.book().is_some()) {
+            return Ok(());
+        }
+        // A convenience at the start never ends the callback with an error (that
+        // would drop what other plugins staged in it); only a refused allocation does.
+        let opened = self.open_ui(host).and_then(|()| {
+            let ui = self.ui.as_ref().ok_or(Error::State)?;
+            crate::native_start::reopen_last(host, ui)
+        });
+        match opened {
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            Ok(book) => {
+                self.reopening = book;
+                Ok(())
+            }
+            Err(_) => Ok(()),
+        }
+    }
+
+    /// A document's state moved (`event.document_changed`, a hint): the reading
+    /// screens that wait for their book to be prepared ask its state; one that
+    /// opened or failed is drawn again. A refusal on the way (no memory) is
+    /// said on the screen: the callback ends well, so the redraw staged here
+    /// is kept.
+    fn document_changed(&mut self, host: &Host<'_>) {
+        let Some(docs) = &self.docs else {
+            return;
+        };
+        let library = self.library.as_ref();
+        let mut redraw = false;
+        for view in self.screens.all().filter(|view| view.preparing()) {
+            // An error has set the screen's message already.
+            redraw |= view.prepared(host, (docs, library)).unwrap_or(true);
+        }
+        if redraw {
+            self.aloud_when_on_top(host);
+            let mut scratch = [0; 64];
+            CommandSender::new(host, &mut scratch)
+                .queue_redraw(RedrawMode::Partial)
+                .ok();
+            self.start_count(host);
+        }
+    }
+
+    /// The UI service, opened at the first need.
+    fn open_ui(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        Ok(())
+    }
+
     /// The screen closed: its document is given back.
     fn close(&mut self, host: &Host<'_>, instance: paperpaw_sdk::native::ui::Instance) {
         if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
             view.close(host, (docs, self.library.as_ref()));
         }
         self.screens.close(instance);
+        self.resting.retain(|(at, ..)| *at != instance);
     }
+}
+
+/// Gives back the documents of the reading screens other than `instance`: the
+/// host lets a plugin keep few open (one on the X4). Each keeps its book in
+/// `resting` and opens it again when it is on top again.
+fn rest(
+    host: &Host<'_>,
+    (docs, library): (&Documents, Option<&Library>),
+    (screens, resting): (
+        &mut Screens<View>,
+        &mut Vec<(Instance, String, &'static str)>,
+    ),
+    instance: Instance,
+) -> Result<(), Error> {
+    for (other, view) in screens.all_with_instance() {
+        if other == instance {
+            continue;
+        }
+        let Some((path, root)) = view.book() else {
+            continue;
+        };
+        let path = text::copy(path)?;
+        mem::push(resting, (other, path, root))?;
+        view.close(host, (docs, library));
+    }
+    Ok(())
 }
 
 impl Plugin for NativeReader {
@@ -645,6 +912,8 @@ impl Plugin for NativeReader {
         let Some(event) = read_event!(
             incoming;
             kinds::ActionRun,
+            kinds::Started,
+            kinds::BookMoved,
             kinds::ScreenOpened,
             kinds::ScreenShown,
             kinds::ScreenClosed,
@@ -654,7 +923,8 @@ impl Plugin for NativeReader {
             kinds::Answered,
             kinds::SettingChanged,
             kinds::Spoken,
-            kinds::StackChanged
+            kinds::StackChanged,
+            kinds::DocumentChanged
         ) else {
             return Ok(());
         };
@@ -665,14 +935,17 @@ impl Plugin for NativeReader {
                 self.auto_turn_due(host, due.now_ms());
                 Ok(())
             }
-            // The action `reader.auto-turn`; any other action of the reader stops it.
-            Event::ActionRun { .. } if token == native_handsfree::action_token() => {
-                self.auto_turn_toggle(host);
+            Event::ActionRun { now_ms, .. } if native_handsfree::is_reader_action(token) => {
+                self.action_run(host, token, now_ms);
                 Ok(())
             }
-            Event::ActionRun { .. } if native_handsfree::is_reader_action(token) => {
-                self.auto_turn_leave(host);
+            Event::Started { .. } if token == STARTED => self.reopen_last(host),
+            Event::DocumentChanged { .. } if token == DOCUMENT_CHANGED => {
+                self.document_changed(host);
                 Ok(())
+            }
+            Event::BookMoved { from, path, .. } if token == BOOK_MOVED => {
+                self.moved(host, from, path)
             }
             // The search's work is due (the work's own token, as declared).
             Event::WorkDue(due) if token == WORK_DUE && due.token() == SEARCH_WORK => {
@@ -716,22 +989,9 @@ impl Plugin for NativeReader {
             } => self.screen_opened(host, token, instance, handover),
             Event::ScreenShown {
                 instance: Some(instance),
+                now_ms,
                 ..
-            } => match token {
-                SCREEN => {
-                    self.screens.shown(SCREEN, instance)?;
-                    if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
-                        view.shown(host, docs);
-                    }
-                    self.follow_note(host, instance)
-                }
-                TOC => self.tocs.shown(TOC, instance),
-                SEARCH => self.searches.shown(SEARCH, instance),
-                ANNOTATIONS => self.annotations.shown(ANNOTATIONS, instance),
-                FOOTNOTE => self.notes.shown(FOOTNOTE, instance),
-                SKIM => self.skims.shown(SKIM, instance),
-                _ => Ok(()),
-            },
+            } => self.screen_shown(host, token, instance, now_ms),
             Event::ScreenClosed { instance, .. } => {
                 match token {
                     SCREEN => {

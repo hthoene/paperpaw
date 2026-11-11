@@ -68,10 +68,16 @@ pub const fn interval_ms(seconds: i64) -> u32 {
 /// place in `ACTIONS`); `u32::MAX` if the list lacks it (a test holds it).
 #[must_use]
 pub const fn action_token() -> u32 {
+    token_of(b"auto-turn")
+}
+
+/// The callback token of the reader's action `name` (`FIRST_ACTION` + its place
+/// in `ACTIONS`); `u32::MAX` if the list lacks it.
+#[must_use]
+pub const fn token_of(want: &[u8]) -> u32 {
     let mut at = 0;
     while at < ACTIONS.len() {
         let name = ACTIONS[at].0.as_bytes();
-        let want = b"auto-turn";
         let mut same = name.len() == want.len();
         let mut i = 0;
         while same && i < want.len() {
@@ -238,13 +244,14 @@ fn seconds(host: &Host<'_>) -> i64 {
 /// Declares the work again: due in `seconds`.
 fn arm(host: &Host<'_>, work: &Work, seconds: i64) -> Result<(), Error> {
     let spec = WorkSpec::new(KEY, WORK_DUE)?.after_ms(interval_ms(seconds));
-    work.declare(host, &spec, &mut [0; 256], &mut [])
+    // The host asks for room for the op's answer (`max_reply` 64).
+    work.declare(host, &spec, &mut [0; 256], &mut [0; 64])
 }
 
 /// Takes the work back; a refusal leaves a due call the model ignores.
 fn disarm(host: &Host<'_>, work: Option<&Work>) {
     if let Some(work) = work {
-        work.cancel(host, KEY, &mut [0; 256], &mut []).ok();
+        work.cancel(host, KEY, &mut [0; 256], &mut [0; 64]).ok();
     }
 }
 

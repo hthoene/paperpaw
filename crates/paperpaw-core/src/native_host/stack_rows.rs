@@ -146,6 +146,19 @@ impl StackRows {
         self.uncovered(owner, at)
     }
 
+    /// Whether `owner` has a screen of its own on the stack, shown or covered
+    /// (its dialogs count). `None` for a stale or overflowed snapshot. No
+    /// allocation.
+    pub(crate) fn has_screen(&self, owner: u64) -> Option<bool> {
+        if owner == 0 || !self.valid(self.generation.get()) {
+            return None;
+        }
+        Some((0..self.len()).any(|index| {
+            self.row(index)
+                .is_some_and(|row| !row.host && row.owner == owner)
+        }))
+    }
+
     /// The instance of the row at `at` when it is `owner`'s own non-host row
     /// and nothing above it covers it (see [`Self::showing_screen`]).
     fn uncovered(&self, owner: u64, at: usize) -> Option<u64> {

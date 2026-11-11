@@ -73,9 +73,9 @@ pub(crate) enum Asked {
     Options { index: usize, title: String },
 }
 
-/// The widget pack.
+/// What the pack keeps once it has something to keep.
 #[derive(Debug, Default)]
-pub struct NativeWidgets {
+pub(crate) struct State {
     pub(crate) items: Vec<Item>,
     /// The question open, and what it is for.
     pub(crate) asked: Option<(RequestId, Asked)>,
@@ -106,7 +106,7 @@ pub struct NativeWidgets {
     pub(crate) picture_showings: crate::native_quote::Showings,
 }
 
-impl NativeWidgets {
+impl State {
     fn find(&self, instance: u32) -> Option<&Item> {
         self.items
             .iter()
@@ -307,7 +307,7 @@ fn open_current(
     Ok(Handled::Yes)
 }
 
-impl NativeWidgets {
+impl State {
     /// Whether a logo widget is placed.
     fn has_logo(&self) -> bool {
         self.items
@@ -467,27 +467,15 @@ fn retry(wanted: &mut bool, queue: impl FnOnce() -> Result<(), Error>) {
     }
 }
 
-impl Plugin for NativeWidgets {
-    fn make(host: &Host<'_>) -> Result<Self, Error> {
-        for batch in image::WIDGETS
-            .iter()
-            .chain(image::SCREENS)
-            .chain(image::NAVIGATION)
-            .chain(image::EVENTS)
-        {
-            registrations::submit(host, batch)?;
-        }
-        Ok(Self::default())
-    }
-
-    fn event(
+impl State {
+    pub(crate) fn event(
         &mut self,
         host: &Host<'_>,
         token: u32,
         incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall, kinds::Tick, kinds::Answered, kinds::ImageReady, kinds::SettingChanged, kinds::PageTurned, kinds::BookOpened, kinds::BookClosed, kinds::Suspend, kinds::Stopping)
+        let Some(event) = read_event!(incoming; kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall, kinds::Tick, kinds::Answered, kinds::ImageReady, kinds::SettingChanged, kinds::PageTurned, kinds::BookOpened, kinds::BookClosed, kinds::Suspend, kinds::Stopping, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed)
         else {
             return Ok(());
         };
@@ -560,7 +548,7 @@ impl Plugin for NativeWidgets {
         }
     }
 
-    fn draw(
+    pub(crate) fn draw(
         &mut self,
         host: &Host<'_>,
         _token: u32,
@@ -661,7 +649,12 @@ impl Plugin for NativeWidgets {
         Ok(())
     }
 
-    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+    pub(crate) fn input(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        input: Input<'_>,
+    ) -> Result<Handled, Error> {
         if token == native_todo_screen::SCREEN {
             return self.todo_input(host, input);
         }
@@ -769,6 +762,83 @@ impl Plugin for NativeWidgets {
     }
 }
 
+/// The widget pack. Its state is made when something first needs it, so a
+/// device that shows no widget and reads no book holds a pointer and no more.
+#[derive(Debug, Default)]
+pub struct NativeWidgets {
+    /// Empty, or the one `State` (a vector so that making it can fail).
+    state: Vec<State>,
+}
+
+impl NativeWidgets {
+    /// The state, made if it is not yet.
+    #[inline(never)]
+    fn state(&mut self) -> Result<&mut State, Error> {
+        if self.state.is_empty() {
+            self.state
+                .try_reserve_exact(1)
+                .map_err(|_| Error::NoMemory)?;
+            self.state.push(State::default());
+        }
+        self.state.first_mut().ok_or(Error::NoMemory)
+    }
+}
+
+impl Plugin for NativeWidgets {
+    fn make(host: &Host<'_>) -> Result<Self, Error> {
+        for batch in image::WIDGETS
+            .iter()
+            .chain(image::SCREENS)
+            .chain(image::NAVIGATION)
+            .chain(image::EVENTS)
+        {
+            registrations::submit(host, batch)?;
+        }
+        Ok(Self::default())
+    }
+
+    fn event(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        incoming: Incoming<'_>,
+        reply: &mut Reply<'_>,
+    ) -> Result<(), Error> {
+        // Nothing is kept until a widget, a screen, a question or a book is
+        // there: what would only look at an empty state is let go.
+        if self.state.is_empty() && !needs_state(&incoming) {
+            return Ok(());
+        }
+        self.state()?.event(host, token, incoming, reply)
+    }
+
+    fn draw(&mut self, host: &Host<'_>, token: u32, frame: DrawFrame<'_>) -> Result<(), Error> {
+        // Nothing is drawn before it is made, and making it makes the state.
+        match self.state.first_mut() {
+            Some(state) => state.draw(host, token, frame),
+            None => Err(Error::NotFound),
+        }
+    }
+
+    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        match self.state.first_mut() {
+            Some(state) => state.input(host, token, input),
+            None => Err(Error::NotFound),
+        }
+    }
+}
+
+/// Whether an event is for something the pack has to hold: a tick, a widget
+/// dropped, a changed setting and the end of a session find nothing to do
+/// while no state is made.
+fn needs_state(incoming: &Incoming<'_>) -> bool {
+    !(incoming.is::<kinds::Tick>()
+        || incoming.is::<kinds::WidgetDropped>()
+        || incoming.is::<kinds::SettingChanged>()
+        || incoming.is::<kinds::Suspend>()
+        || incoming.is::<kinds::Stopping>())
+}
+
 /// Says `key` (a translation key) in a notice.
 fn notify(host: &Host<'_>, key: &str) -> Result<(), Error> {
     let text = paperpaw_ui_kit::Messages::new()?.copy(host, key)?;
@@ -836,6 +906,21 @@ fn open_settings(host: &Host<'_>, widget: &str) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_idle_pack_holds_a_pointer_and_makes_its_state_at_first_use() {
+        let mut pack = NativeWidgets::default();
+        assert!(pack.state.is_empty());
+        assert_eq!(
+            core::mem::size_of::<NativeWidgets>(),
+            3 * core::mem::size_of::<usize>()
+        );
+        assert!(pack.state().is_ok());
+        assert_eq!(pack.state.len(), 1);
+        assert_eq!(pack.state.capacity(), 1);
+        assert!(pack.state().is_ok());
+        assert_eq!(pack.state.len(), 1, "made once");
+    }
 
     #[test]
     fn the_first_look_remembers_and_tells_nobody() {

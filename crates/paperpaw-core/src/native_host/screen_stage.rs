@@ -35,6 +35,12 @@ pub(crate) struct StageInputs {
     pub(crate) images_held: usize,
     /// The plugin's texts the kernel's speech holds.
     pub(crate) speech_held: usize,
+    /// Plugin requests open device-wide.
+    pub(crate) requests_open: usize,
+    /// How many of them the plugin itself made.
+    pub(crate) own_requests: usize,
+    /// What the table of requests held, and whether the plugin may answer.
+    pub(crate) answers: super::plugin_requests::AnswerView,
 }
 
 /// The device-wide hand-off between the kernel and the screens' dispatch.
@@ -171,9 +177,12 @@ pub(crate) fn build_stage<'a>(parts: StageParts<'a>) -> CommandStage<'a> {
     .with_ui(env, screen, hop, inputs.keys_remaining)
     .with_stack(stack_rows, owner_key)
     .with_hint_labels(stack_rows.labels(), inputs.hint_buttons)
-    .with_widgets(ui, owner_key);
+    .with_widgets(ui, owner_key)
+    .with_handover_store(ui.map(|ui| &ui.store));
     stage.set_images_held(inputs.images_held);
     stage.set_speech_held(inputs.speech_held);
+    stage.set_requests_open(inputs.requests_open, inputs.own_requests);
+    stage.set_answer_view(inputs.answers);
     if let Some(directory) = directory {
         stage = stage.with_item_states(super::commands::ItemAdmit { directory });
     }
@@ -186,15 +195,20 @@ pub(crate) fn staged_of(mut stage: CommandStage<'_>, owner_key: u64) -> Staged {
     let policies = stage.take_policies();
     let item_states = stage.take_item_states();
     let presets = stage.take_presets();
+    let answers = stage.take_answers();
     let images = stage.take_image_commands();
     let hints = stage.take_hint_sets();
     let widgets = stage.take_widget_changes();
-    let (commands, redraw, _hop) = stage.into_ui_output();
+    let dev = stage.take_dev_boxed();
+    let (commands, redraw, _hop, opens) = stage.into_ui_output_with_opens();
     let mut staged = Staged::new(owner_key, commands, redraw, images);
+    staged.opens = opens;
+    staged.dev = dev;
     staged.screen = ScreenEffects {
         policies,
         item_states,
         presets,
+        answers,
         hints,
         widgets,
     };
@@ -270,6 +284,9 @@ mod tests {
             hint_buttons: false,
             images_held: 0,
             speech_held: 0,
+            requests_open: 0,
+            own_requests: 0,
+            answers: crate::native_host::plugin_requests::AnswerView::default(),
         };
         assert!(queue.inputs().is_none());
         let outer = queue.arm(inputs(1));

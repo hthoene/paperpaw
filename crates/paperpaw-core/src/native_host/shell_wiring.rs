@@ -406,6 +406,13 @@ impl WiredHosts {
         self.secrets.as_ref()
     }
 
+    /// Takes what the shell calls outside a plugin's call, if `core.secrets`
+    /// was wired, for a shell that keeps it past the wiring (the X4 seals
+    /// interface 6's values once its random numbers are strong).
+    pub fn take_secrets(&mut self) -> Option<SecretsLifecycle> {
+        self.secrets.take()
+    }
+
     /// Whether `core.ui` was asked for and not wired because its store could
     /// not be allocated (the other families are wired): the shell says so.
     #[must_use]
@@ -480,44 +487,19 @@ impl HostResources {
             hosts.wire_device(host)?;
         }
         if let Some(inputs) = wiring.net {
-            let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
-            let (bytes, sessions) = inputs.pool_shape();
-            let pool = hosts.net_pool(bytes, sessions)?.clone();
-            let device = Rc::new(inputs.device(
-                pool,
-                hosts.in_use().clone(),
-                owners,
-                hosts.policy().clone(),
-            ));
-            hosts.wire_net(device.clone())?;
-            wired.net = Some(NetReports(device));
+            wired.net = Some(wire_net(hosts, inputs)?);
         }
         if let Some(inputs) = wiring.sockets {
-            let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
-            let (bytes, sessions) = inputs.pool_shape();
-            let pool = hosts.net_pool(bytes, sessions)?.clone();
-            let device = Rc::new(inputs.device(
-                pool,
-                hosts.in_use().clone(),
-                owners,
-                hosts.policy().clone(),
-            ));
-            hosts.wire_sockets(device.clone())?;
-            wired.sockets = Some(SockReports(device));
+            wired.sockets = Some(wire_sockets(hosts, inputs)?);
         }
         if let Some((memory, long_side)) = wiring.documents {
-            let limits = if super::ui_store::is_x4(memory) {
-                super::doc_service::Limits::X4
-            } else {
-                super::doc_service::Limits::LARGE
-            };
-            let state =
-                super::doc_host::DocState::try_new(limits, long_side, hosts.in_use().clone())?
-                    .with_storage(wiring.files.clone())
-                    .with_colour(wiring.document_colour);
-            // The reader's open book is a source of `core.files` from now on.
-            hosts.register_reader_book_reporting()?;
-            hosts.wire_documents(Rc::new(state))?;
+            wire_documents(
+                hosts,
+                memory,
+                long_side,
+                wiring.files.clone(),
+                wiring.document_colour,
+            )?;
         }
         let mut library_moves = None;
         if wiring.lookup {
@@ -527,21 +509,7 @@ impl HostResources {
             )?;
         }
         if let Some(storage) = wiring.files {
-            // The library's move job, a busy source `core.files` needs and
-            // the way a move of the user's files goes.
-            // The same card holds the font files of the plugins' data folders
-            // (`font.acquire` `data:<path>`).
-            hosts.wire_font_card(storage.clone())?;
-            let moves = hosts.wire_library_moves(storage.clone())?;
-            library_moves = Some(moves.clone());
-            hosts.wire_files(Rc::new(
-                StorageFiles::new(
-                    storage,
-                    hosts.busy_sources().clone(),
-                    hosts.linked().clone(),
-                )
-                .with_moves(moves),
-            ))?;
+            library_moves = Some(wire_files(hosts, storage)?);
         }
         // The library's transactions read the device's memory class and clock
         // from what any wiring told, whichever call it was in (the X4 shell
@@ -558,40 +526,139 @@ impl HostResources {
         if let Some(inputs) = &wiring.work {
             policy.set_clock(inputs.device());
         }
+        if let Some((_, long_side)) = wiring.documents {
+            policy.set_long_side(long_side);
+        }
         if let Some((storage, env)) = wiring.library {
-            // After `core.files`, whose library move job it shares: a book the
-            // job carries is in use for `provide`.
-            // (Also the job an earlier wiring's `files` made.)
-            let moves = library_moves.or_else(|| hosts.library_moves().cloned());
-            hosts.wire_library(Rc::new(
-                LibraryHost::new(storage, env, moves)
-                    .with_policy(policy.clone())
-                    .with_busy_sources(hosts.busy_sources().clone()),
-            ))?;
+            wire_library(hosts, policy, storage, env, library_moves)?;
         }
         if let Some(x4) = wiring.ui {
-            let limits = if x4 { Limits::X4 } else { Limits::ELSEWHERE };
-            // A store that cannot be allocated degrades: no `core.ui` (a plugin
-            // asks and is told the service is not there), the other families
-            // wired; the shell is told ([`WiredHosts::ui_skipped`]).
-            match Shared::try_new(UiStore::new(limits)) {
-                Ok(store) => hosts.wire_ui(UiServices::new(store, x4))?,
-                Err(_) => wired.ui_skipped = true,
-            }
+            wired.ui_skipped = wire_ui(hosts, x4)?;
         }
         if let Some(inputs) = wiring.secrets {
-            let host = inputs.host();
-            hosts.wire_secrets(SecretsServices::new(host.clone()))?;
-            wired.secrets = Some(SecretsLifecycle::new(host));
+            wired.secrets = Some(wire_secrets_host(hosts, inputs)?);
         }
         if let Some(inputs) = wiring.work {
-            let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
-            let sched = work::scheduler(&inputs);
-            let env = Rc::new(inputs.env(owners, hosts.policy().clone()));
-            hosts.wire_work(WorkServices { sched, env })?;
+            wire_work(hosts, inputs)?;
         }
         Ok(wired)
     }
+}
+
+/// One family's wiring step each, not inlined: the large inputs each takes by
+/// value live in the frame of its own step, not in `wire`'s (the X4's frame
+/// limit).
+type Hosts = super::host_services::HostServices;
+
+#[inline(never)]
+fn wire_net(hosts: &Hosts, inputs: NetInputs) -> Result<NetReports, i32> {
+    let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
+    let (bytes, sessions) = inputs.pool_shape();
+    let pool = hosts.net_pool(bytes, sessions)?.clone();
+    let device =
+        Rc::new(inputs.device(pool, hosts.in_use().clone(), owners, hosts.policy().clone()));
+    hosts.wire_net(device.clone())?;
+    Ok(NetReports(device))
+}
+
+#[inline(never)]
+fn wire_sockets(hosts: &Hosts, inputs: SockInputs) -> Result<SockReports, i32> {
+    let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
+    let (bytes, sessions) = inputs.pool_shape();
+    let pool = hosts.net_pool(bytes, sessions)?.clone();
+    let device =
+        Rc::new(inputs.device(pool, hosts.in_use().clone(), owners, hosts.policy().clone()));
+    hosts.wire_sockets(device.clone())?;
+    Ok(SockReports(device))
+}
+
+#[inline(never)]
+fn wire_documents(
+    hosts: &Hosts,
+    memory: paperpaw_platform::MemoryClass,
+    long_side: u32,
+    files: Option<Rc<dyn Storage>>,
+    colour: bool,
+) -> Result<(), i32> {
+    let limits = if super::ui_store::is_x4(memory) {
+        super::doc_service::Limits::X4
+    } else {
+        super::doc_service::Limits::LARGE
+    };
+    let state = super::doc_host::DocState::try_new(limits, long_side, hosts.in_use().clone())?
+        .with_storage(files)
+        .with_colour(colour);
+    // The reader's open book is a source of `core.files` from now on.
+    hosts.register_reader_book_reporting()?;
+    hosts.wire_documents(Rc::new(state))
+}
+
+/// The library's move job, a busy source `core.files` needs and the way a move
+/// of the user's files goes; the same card holds the font files of the
+/// plugins' data folders (`font.acquire` `data:<path>`). Gives the job.
+#[inline(never)]
+fn wire_files(
+    hosts: &Hosts,
+    storage: Rc<dyn Storage>,
+) -> Result<Rc<super::lib_moves_service::LibraryMoves>, i32> {
+    hosts.wire_font_card(storage.clone())?;
+    let moves = hosts.wire_library_moves(storage.clone())?;
+    hosts.wire_files(Rc::new(
+        StorageFiles::new(
+            storage,
+            hosts.busy_sources().clone(),
+            hosts.linked().clone(),
+        )
+        .with_moves(moves.clone())
+        .with_data_plugins(hosts.data_plugins().clone()),
+    ))?;
+    Ok(moves)
+}
+
+/// After `core.files`, whose library move job it shares: a book the job
+/// carries is in use for `provide` (also the job an earlier wiring's `files`
+/// made).
+#[inline(never)]
+fn wire_library(
+    hosts: &Hosts,
+    policy: &Rc<super::lib_edits::EditPolicy>,
+    storage: Rc<dyn Storage>,
+    env: Rc<dyn CatalogEnv>,
+    moves: Option<Rc<super::lib_moves_service::LibraryMoves>>,
+) -> Result<(), i32> {
+    let moves = moves.or_else(|| hosts.library_moves().cloned());
+    hosts.wire_library(Rc::new(
+        LibraryHost::new(storage, env, moves)
+            .with_policy(policy.clone())
+            .with_busy_sources(hosts.busy_sources().clone()),
+    ))
+}
+
+/// A store that cannot be allocated degrades: no `core.ui` (a plugin asks and
+/// is told the service is not there), the other families wired. True when it
+/// degraded.
+#[inline(never)]
+fn wire_ui(hosts: &Hosts, x4: bool) -> Result<bool, i32> {
+    let limits = if x4 { Limits::X4 } else { Limits::ELSEWHERE };
+    match Shared::try_new(UiStore::new(limits)) {
+        Ok(store) => hosts.wire_ui(UiServices::new(store, x4)).map(|()| false),
+        Err(_) => Ok(true),
+    }
+}
+
+#[inline(never)]
+fn wire_secrets_host(hosts: &Hosts, inputs: SecretsInputs) -> Result<SecretsLifecycle, i32> {
+    let host = inputs.host();
+    hosts.wire_secrets(SecretsServices::new(host.clone()))?;
+    Ok(SecretsLifecycle::new(host))
+}
+
+#[inline(never)]
+fn wire_work(hosts: &Hosts, inputs: WorkInputs) -> Result<(), i32> {
+    let owners = hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?;
+    let sched = work::scheduler(&inputs);
+    let env = Rc::new(inputs.env(owners, hosts.policy().clone()));
+    hosts.wire_work(WorkServices { sched, env })
 }
 
 #[cfg(test)]

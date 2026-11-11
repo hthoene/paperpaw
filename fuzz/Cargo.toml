@@ -22,7 +22,7 @@ paperpaw-sqlite = { path = "../crates/paperpaw-sqlite" }
 paperpaw-stardict = { path = "../crates/paperpaw-stardict" }
 paperpaw-text = { path = "../crates/paperpaw-text", features = ["outline"] }
 paperpaw-zip = { path = "../crates/paperpaw-zip" }
-paperpaw-plugin-format-epub = { path = "../plugins/format-epub" }
+paperpaw-epub-family = { path = "../crates/paperpaw-epub-family" }
 paperpaw-plugin-format-txt = { path = "../plugins/format-txt" }
 paperpaw-plugin-format-xtc = { path = "../plugins/format-xtc" }
 paperpaw-plugin-koreader = { path = "../plugins/koreader" }

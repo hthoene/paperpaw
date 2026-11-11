@@ -18,7 +18,7 @@ use paperpaw_ui_kit::{
     text::{concat, copy},
 };
 
-use super::{Ask, NativeOpds, Pending, View};
+use super::{Ask, Opds, Pending, View};
 use crate::native_catalogs::{self as catalogs, Catalog};
 use crate::native_files::DataFiles;
 
@@ -50,7 +50,7 @@ impl ListView {
     }
 }
 
-impl NativeOpds {
+impl Opds {
     /// The list screen opened.
     pub(super) fn opened_list(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
         self.reload(host)?;
