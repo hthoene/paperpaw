@@ -35,7 +35,9 @@ fn joined(parts: &[&str]) -> Result<String, i32> {
     Ok(text)
 }
 
-/// Plugins' folders looked into for one book at most (more than are installed).
+/// Plugins' folders looked into for one book at most, in the card's order:
+/// more than a device keeps installed. Folders past it (left by removed
+/// plugins) are not looked into; their files stay under the old key.
 const PLUGINS_MAX: usize = 64;
 
 /// `<Data of plugin>/books/<key>`: the folder of one book's scope.
@@ -114,6 +116,18 @@ fn plugins(storage: &dyn Storage) -> Result<Vec<String>, i32> {
     }
 }
 
+/// Whether the file at `path` is there. A transient card error is its status
+/// (repeat the call), never "none", which would leave the file behind for
+/// good; one for good counts as none (the file stays where it is).
+fn there(storage: &dyn Storage, path: &str) -> Result<bool, i32> {
+    match storage.size(path) {
+        Ok(_) => Ok(true),
+        Err(StorageError::NotFound) => Ok(false),
+        Err(error) if permanent(error) => Ok(false),
+        Err(error) => Err(status(error)),
+    }
+}
+
 /// The book's folder of `plugin` goes when nothing is left in it (Beta 3 kept
 /// more there: then it stays). Best effort: a folder left is harmless.
 fn drop_if_empty(storage: &dyn Storage, plugin: &str, key: &str) {
@@ -136,16 +150,32 @@ fn drop_if_empty(storage: &dyn Storage, plugin: &str, key: &str) {
 pub(crate) fn move_scopes(storage: &dyn Storage, old: &str, new: &str) -> Result<(), i32> {
     for plugin in plugins(storage)? {
         let from = file_at(&plugin, old)?;
-        if !storage.exists(&from) {
+        if !there(storage, &from)? {
             continue;
         }
+        let folder = book_folder(&plugin, new)?;
         let to = file_at(&plugin, new)?;
-        // Never a replacement: the book under the new key has its own.
-        if storage.exists(&to) {
+        // Never a replacement: the book under the new key has its own. A
+        // folder in the file's place, or a file in its folder's, is taken too.
+        if there(storage, &to)?
+            || paperpaw_sdk::files::is_dir(storage, &to)
+            || there(storage, &folder)?
+        {
             continue;
         }
+        // The new key's folder may not be there yet, and a card renames into
+        // none (FAT): made first, as `book_data_steps` does; a failure shows
+        // in the rename.
+        let _ = storage.create_dir(&folder);
         match storage.rename(&from, &to) {
-            Ok(()) | Err(StorageError::NotFound) => drop_if_empty(storage, &plugin, old),
+            Ok(()) => drop_if_empty(storage, &plugin, old),
+            // Moved by an earlier, cut call, or refused: only a file gone
+            // from the old key is moved.
+            Err(StorageError::NotFound) => {
+                if !there(storage, &from)? {
+                    drop_if_empty(storage, &plugin, old);
+                }
+            }
             Err(error) if permanent(error) => {}
             Err(error) => return Err(status(error)),
         }
@@ -166,7 +196,7 @@ pub(crate) fn remove_scopes(
 ) -> Result<Progress, i32> {
     for plugin in plugins(storage)? {
         let path = file_at(&plugin, key)?;
-        if !storage.exists(&path) {
+        if !there(storage, &path)? {
             continue;
         }
         if *budget == 0 {

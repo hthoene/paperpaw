@@ -10,7 +10,7 @@ use crate::native_host::commands::{
 use crate::{Command, Id};
 use alloc::{vec, vec::Vec};
 use paperpaw_native::host_glue::{ERR_STATE, OK};
-use paperpaw_platform::{Instant, Storage};
+use paperpaw_platform::{DirEntry, Instant, Storage, StorageError};
 use paperpaw_sdk::{MemoryStorage, Params, SettingValue};
 
 const BOOK: &str = "books/a.epub";
@@ -297,4 +297,106 @@ fn a_move_never_replaces_and_beta_3s_other_data_keeps_its_folder() {
         Ok(Progress::More)
     );
     assert!(read(&new).is_ok());
+}
+
+/// A card as FAT is: a rename into a folder that is not there is refused
+/// (`NotFound`), and `size` of a path holding `flaky` fails for now (`Io`).
+struct Fat<'a> {
+    card: &'a MemoryStorage,
+    flaky: &'static str,
+}
+
+impl Storage for Fat<'_> {
+    fn read_at(&self, p: &str, at: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        self.card.read_at(p, at, buf)
+    }
+    fn size(&self, p: &str) -> Result<u64, StorageError> {
+        if !self.flaky.is_empty() && p.contains(self.flaky) {
+            return Err(StorageError::Io);
+        }
+        self.card.size(p)
+    }
+    fn write(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.card.write(p, d)
+    }
+    fn append(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.card.append(p, d)
+    }
+    fn list(&self, d: &str, v: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.card.list(d, v)
+    }
+    fn remove(&self, p: &str) -> Result<(), StorageError> {
+        self.card.remove(p)
+    }
+    fn rename(&self, f: &str, t: &str) -> Result<(), StorageError> {
+        let parent = t.rsplit_once('/').map_or("", |(dir, _)| dir);
+        if !paperpaw_sdk::files::is_dir(self.card, parent) {
+            return Err(StorageError::NotFound);
+        }
+        self.card.rename(f, t)
+    }
+    fn create_dir(&self, p: &str) -> Result<(), StorageError> {
+        self.card.create_dir(p)
+    }
+    fn remove_dir_all(&self, p: &str) -> Result<(), StorageError> {
+        self.card.remove_dir_all(p)
+    }
+}
+
+#[test]
+fn a_move_makes_the_new_keys_folder_first_and_a_card_error_is_no_none() {
+    use crate::native_host::book_data_steps::{move_data, remove_data_within};
+    let card = MemoryStorage::new();
+    let (old, new) = (
+        file("reader", BOOK).unwrap(),
+        file("reader", "books/b.epub").unwrap(),
+    );
+    card.write(&old, KEPT).unwrap();
+    // A card error asking whether the file is there: a status, the file
+    // where it was, and a repeat moves it.
+    let flaky = Fat {
+        card: &card,
+        flaky: "settings.ini",
+    };
+    assert_eq!(
+        move_data(&flaky, &[], BOOK, "books/b.epub"),
+        Err(super::status(StorageError::Io))
+    );
+    let mut budget = 4;
+    assert!(remove_data_within(&flaky, &[], BOOK, &mut budget).is_err());
+    assert_eq!(budget, 4);
+    let read = |path: &str| paperpaw_sdk::read_file(&card, path, 64);
+    assert_eq!(read(&old).unwrap(), KEPT);
+    // A card that renames into no folder: the new key's is made first.
+    let fat = Fat {
+        card: &card,
+        flaky: "",
+    };
+    move_data(&fat, &[], BOOK, "books/b.epub").unwrap();
+    assert!(read(&old).is_err(), "gone from the old key");
+    assert_eq!(read(&new).unwrap(), KEPT);
+}
+
+#[test]
+fn a_move_never_goes_into_a_folders_or_a_files_place() {
+    use crate::native_host::book_data_steps::move_data;
+    let card = MemoryStorage::new();
+    let fat = Fat {
+        card: &card,
+        flaky: "",
+    };
+    let old = file("reader", BOOK).unwrap();
+    card.write(&old, KEPT).unwrap();
+    let read = |path: &str| paperpaw_sdk::read_file(&card, path, 64);
+    // A folder where the new file goes: the file stays.
+    let new = file("reader", "books/b.epub").unwrap();
+    card.create_dir(&new).unwrap();
+    move_data(&fat, &[], BOOK, "books/b.epub").unwrap();
+    assert_eq!(read(&old).unwrap(), KEPT);
+    // A file where the new key's folder goes: the file stays.
+    let new = file("reader", "books/c.epub").unwrap();
+    card.write(&new[..new.len() - 13], b"x").unwrap();
+    move_data(&fat, &[], BOOK, "books/c.epub").unwrap();
+    assert_eq!(read(&old).unwrap(), KEPT);
+    assert_eq!(read(&new[..new.len() - 13]).unwrap(), b"x");
 }
