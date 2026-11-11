@@ -796,4 +796,9 @@ relative to the data folder).
   unreadable `state.ini` or a refused stat leaves the start screen. Beta 3's `reopen_last_book`.
 - The last book is written (`state.ini`, Beta 3's form) when a library book opens; best effort.
 - Not yet: `event.book_moved` (the last book following a moved book).
+- The host asks for a reply buffer of the operation's `max_reply` (4,096 bytes for `core.files` stat and
+  `ui.handover`) and answers `NoSpace` below it: both buffers are 4,096 (transient, freed at once).
+- **Blocked on Core (todo 474):** the host's command stage has no hand-over store yet (`commands.rs`
+  `handovers: None`; `with_handovers` is only used by tests), so the open with the book's hand-over is
+  refused `ERR_INVALID` until it is wired, in event callbacks as in input callbacks.
 - Not covered by a test: the host path (no scripted host); `state.ini`'s reading is the tested `native_state`.
