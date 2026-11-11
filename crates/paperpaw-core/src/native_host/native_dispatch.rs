@@ -12,7 +12,7 @@ pub(crate) struct NativeDispatch<S: Services + 'static, M: 'static> {
     instance: Retained<S, M>,
     depth: FlatDepth,
     host: super::shared::Shared<FlatHost>,
-    report: fn(&S, u32, i32),
+    report: fn(&S, &str, u32, i32),
     identity: super::native_instances::NativeIdentity,
 }
 
@@ -24,7 +24,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         instance: Retained<S, M>,
         depth: FlatDepth,
         host: FlatHost,
-        report: fn(&S, u32, i32),
+        report: fn(&S, &str, u32, i32),
         identity: super::native_instances::NativeIdentity,
     ) -> Self {
         Self::with_events(
@@ -45,7 +45,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         instance: Retained<S, M>,
         depth: FlatDepth,
         host: super::shared::Shared<FlatHost>,
-        report: fn(&S, u32, i32),
+        report: fn(&S, &str, u32, i32),
         identity: super::native_instances::NativeIdentity,
         _events: super::event_tags::EventTags,
     ) -> Self {
@@ -349,11 +349,8 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
         .map_err(status)
     }
     fn dropped(&self, token: u32, status: i32) {
-        (self.report)(
-            &self.instance.host().owner().context().services,
-            token,
-            status,
-        );
+        let context = self.instance.host().owner().context();
+        (self.report)(&context.services, context.plugin_id(), token, status);
     }
 }
 

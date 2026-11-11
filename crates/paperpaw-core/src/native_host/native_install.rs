@@ -174,7 +174,7 @@ impl crate::Kernel {
         &mut self,
         host: shell::Hosted<S, M>,
         depth: &FlatDepth,
-        report: fn(&S, u32, i32),
+        report: fn(&S, &str, u32, i32),
     ) -> Result<(), shell::Error> {
         self.register_native_in(host, depth, None, report)
     }
@@ -187,7 +187,7 @@ impl crate::Kernel {
         &mut self,
         host: shell::Hosted<S, M>,
         depth: &FlatDepth,
-        report: fn(&S, u32, i32),
+        report: fn(&S, &str, u32, i32),
         fixed: super::FixedTables,
     ) -> Result<(), shell::Error> {
         self.register_native_with(host, depth, None, report, fixed)
@@ -214,7 +214,7 @@ impl crate::Kernel {
         host: shell::Hosted<S, M>,
         depth: &FlatDepth,
         folder: Option<&str>,
-        report: fn(&S, u32, i32),
+        report: fn(&S, &str, u32, i32),
     ) -> Result<(), shell::Error> {
         self.register_native_with(host, depth, folder, report, super::FixedTables::NONE)
     }
@@ -224,7 +224,7 @@ impl crate::Kernel {
         host: shell::Hosted<S, M>,
         depth: &FlatDepth,
         folder: Option<&str>,
-        report: fn(&S, u32, i32),
+        report: fn(&S, &str, u32, i32),
         fixed: super::FixedTables,
     ) -> Result<(), shell::Error> {
         let fonts_before = self.shared.fonts.ids().count();
@@ -263,7 +263,7 @@ impl crate::Kernel {
         host: shell::Hosted<S, M>,
         depth: &FlatDepth,
         folder: Option<&str>,
-        report: fn(&S, u32, i32),
+        report: fn(&S, &str, u32, i32),
     ) -> Result<(), shell::Error> {
         self.admit_native_with(host, depth, folder, report, super::FixedTables::NONE)
     }
@@ -275,7 +275,7 @@ impl crate::Kernel {
         host: shell::Hosted<S, M>,
         depth: &FlatDepth,
         folder: Option<&str>,
-        report: fn(&S, u32, i32),
+        report: fn(&S, &str, u32, i32),
         fixed: super::FixedTables,
     ) -> Result<(), shell::Error> {
         let (networked, installer) = declared_uses(&host);
@@ -670,7 +670,7 @@ impl crate::Kernel {
             &str,
         ),
         owner: &Id,
-        report: fn(&S, u32, i32),
+        report: fn(&S, &str, u32, i32),
     ) -> Result<(), shell::Error> {
         let (owned, raw, events, folder) = mapped;
         // Two frames of their own, each under the X4's 2 KiB stack band
@@ -689,7 +689,7 @@ impl crate::Kernel {
         retained: Retained<S, M>,
         depth: FlatDepth,
         events: super::event_tags::EventTags,
-        report: fn(&S, u32, i32),
+        report: fn(&S, &str, u32, i32),
     ) -> Result<NativeLease, shell::Error> {
         let flat_host = self.shared_flat_host()?;
         NativeLease::try_new(NativeDispatch::with_events(
