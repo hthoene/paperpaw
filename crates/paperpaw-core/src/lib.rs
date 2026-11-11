@@ -1137,6 +1137,8 @@ impl Kernel {
 
     /// Returns and clears the collected warnings.
     pub fn take_warnings(&mut self) -> Vec<Warning> {
+        // The failed callbacks of native plugins noted since (`event_failures`).
+        self.report_event_failures();
         mem::take(&mut self.warnings)
     }
 

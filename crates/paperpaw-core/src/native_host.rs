@@ -239,6 +239,7 @@ pub(crate) mod doc_reading;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
 pub(crate) mod event_call;
+pub(crate) mod event_failures;
 #[allow(dead_code, reason = "wired into the shell frame by the files adapter")]
 pub(crate) mod files_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]

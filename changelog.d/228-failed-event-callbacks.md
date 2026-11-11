@@ -1,0 +1,3 @@
+### Fixed
+
+- **A native plugin's failed event callback is no longer silent** (#228, #243). When a plugin's own event callback (`Started` included) returned a negative status, the host showed it nowhere, which is why an undersized reply buffer in the reader's `Started` went unseen. The kernel now keeps a note in a table of a fixed size, one for each plugin and event, and says it as one warning (plugin, event, status) when the shell takes its warnings; six pairs are kept and any more are counted. Nothing is allocated where the callback fails, and what happens to the plugin is unchanged.

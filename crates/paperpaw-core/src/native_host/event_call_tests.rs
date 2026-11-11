@@ -607,3 +607,51 @@ fn the_service_pump_does_not_run_a_batch_inside_a_callback() {
     assert!(w.kernel.shared.native_instances.outbox.full());
     assert!(!w.kernel.output.redraw);
 }
+
+#[test]
+fn a_failed_event_callback_is_said_once_for_each_plugin_and_event() {
+    let mut w = world(false);
+    let mut started = [0; 64];
+    let n = crate::native_host::events::encode_started(0, &mut started).unwrap();
+    let started = &started[..n];
+    let mut resume = [0; 64];
+    let n = crate::native_host::events::encode_resume(0, &mut resume).unwrap();
+    let resume = &resume[..n];
+    // The reader's bug: a status the plugin gave back (`Started`, no space).
+    let no_space = paperpaw_native::host_glue::ERR_NO_SPACE;
+    w.answer.set(Err(no_space));
+    let called = |w: &World, bytes: &[u8]| w.kernel.native_event_call(w.owner, &w.lease, bytes);
+    assert_eq!(called(&w, started), Err(no_space));
+    let warnings = w.kernel.take_warnings();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    let said = &warnings[0].message;
+    assert!(
+        said.contains("a:")
+            && said.contains("started")
+            && said.contains(&alloc::format!("{no_space}")),
+        "{said}"
+    );
+    // The same plugin and event again: not said again; another event: said.
+    assert_eq!(called(&w, started), Err(no_space));
+    assert!(w.kernel.take_warnings().is_empty());
+    assert_eq!(called(&w, resume), Err(no_space));
+    let warnings = w.kernel.take_warnings();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].message.contains("resume"), "{warnings:?}");
+    // What happens to the plugin does not change: it is called as before, and
+    // a success says nothing.
+    w.answer.set(Ok(OK));
+    assert_eq!(called(&w, started), Ok(OK));
+    assert!(w.kernel.take_warnings().is_empty());
+    assert_eq!(w.calls.get(), 4);
+}
+
+#[test]
+fn what_the_host_refuses_is_not_the_plugins_failure() {
+    let mut w = world(true);
+    let busy = paperpaw_native::host_glue::ERR_BUSY;
+    assert_eq!(w.call(), Ok(OK));
+    // A batch waits: nothing is called, nothing is said.
+    assert_eq!(w.call(), Err(busy));
+    assert!(w.kernel.take_warnings().is_empty());
+}
