@@ -550,10 +550,11 @@ impl UiStore {
     /// for the host's dialogs.
     ///
     /// # Errors
-    /// `ERR_NO_SPACE` when the params beyond `text` exceed op 16's caps or the
-    /// text is longer than a hand-over's; as [`Self::text_write`] for the
-    /// text; `ERR_FULL` when the plugins' table or params are full;
-    /// `ERR_NO_MEMORY`. Nothing is kept then.
+    /// `ERR_NO_SPACE` when the params beyond `text` exceed op 16's caps;
+    /// `ERR_FULL` when the plugins' table or params are full; `ERR_NO_MEMORY`.
+    /// Nothing is kept then. A text the device cannot keep (longer than a
+    /// hand-over's, or past the texts' memory: on the X4 about 2 KiB) is left
+    /// out, the params kept.
     pub(crate) fn handover_params(&self, params: &[Param<'_>]) -> Result<u32, i32> {
         // Interface 6 names the long text so; it is also the hand-over's text.
         const TEXT: &str = "text";
@@ -582,9 +583,6 @@ impl UiStore {
             .iter()
             .find(|param| param.key == TEXT)
             .map_or("", |param| param.value);
-        if text.len() > TEXT_MAX {
-            return Err(ERR_NO_SPACE);
-        }
         let as_param = !text.is_empty()
             && count < PARAMS_MAX
             && content + TEXT.len() + text.len() <= PARAM_BYTES_MAX;
@@ -602,44 +600,46 @@ impl UiStore {
             // host's dialogs' alone, so that they never fail (#1137 R1).
             (0, 0),
         )?;
-        if let Err(error) = self.host_text(id, text.as_bytes()) {
-            let mut inner = self.inner()?;
-            if let Some(at) = Self::position(&inner, id) {
-                Self::free(&mut inner, at);
-            }
-            return Err(error);
+        // A text the device has no room for (the X4 keeps 2 KiB of texts) is
+        // left out; the params are kept.
+        if !text.is_empty() && text.len() <= TEXT_MAX {
+            self.host_text(id, text.as_bytes());
         }
         Ok(id)
     }
 
     /// The host's own text of its hand-over `id`, in parts as op 9 writes
-    /// them, committed (nothing for none).
-    fn host_text(&self, id: u32, text: &[u8]) -> Result<(), i32> {
+    /// them, committed, in one borrow; where a part is refused the text is
+    /// left out whole (its memory given back) and `false` comes back.
+    fn host_text(&self, id: u32, text: &[u8]) -> bool {
+        let Ok(mut inner) = self.inner() else {
+            return false;
+        };
+        let Some(at) = Self::position(&inner, id) else {
+            return false;
+        };
+        let rules = WriteRules {
+            slots_free: Self::text_slots(&inner) < self.limits.texts,
+            memory_cap: self.limits.text_memory,
+            text_cap: TEXT_MAX,
+        };
+        let Inner {
+            entries,
+            text_memory,
+            ..
+        } = &mut *inner;
+        let kept = &mut entries[at].text;
         let mut offset = 0;
         for part in text.chunks(PART_MAX) {
-            let mut inner = self.inner()?;
-            let at = Self::position(&inner, id).ok_or(ERR_NOT_FOUND)?;
-            let slots_free = Self::text_slots(&inner) < self.limits.texts;
-            let Inner {
-                entries,
-                text_memory,
-                ..
-            } = &mut *inner;
-            write_part(
-                &mut entries[at].text,
-                text_memory,
-                &WriteRules {
-                    slots_free,
-                    memory_cap: self.limits.text_memory,
-                    text_cap: TEXT_MAX,
-                },
-                offset,
-                part,
-                offset + part.len() == text.len(),
-            )?;
+            let last = offset + part.len() == text.len();
+            if write_part(kept, text_memory, &rules, offset, part, last).is_err() {
+                *text_memory -= kept.charged.min(*text_memory);
+                *kept = Text::default();
+                return false;
+            }
             offset += part.len();
         }
-        Ok(())
+        true
     }
 
     /// Keeps a hand-over of `params` (checked) in `state`, `room` (hand-overs,
