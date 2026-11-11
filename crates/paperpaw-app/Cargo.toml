@@ -74,7 +74,6 @@ native-linked = [
     "paperpaw-plugin-setup/linked",
     "paperpaw-plugin-update/linked",
 ]
-
 # The plugins the store offers as files too (`STORE_PLUGINS`) whose interface-6
 # form is gone under `native-linked`, linked as well. Not for the X4 and the X4
 # Pro, which get them as plugin files (their size is the store's, not the
