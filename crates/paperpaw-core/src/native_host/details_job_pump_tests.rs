@@ -1,0 +1,384 @@
+//! The host's details job through the kernel's pump (`details_job_pump`): a
+//! kernel with a native format plugin in its instance registry and in its
+//! declarations, the production document and library hosts wired on one card.
+//! The format answers each op as its own call (the pump's route); the details
+//! it names are kept, the catalog is wanted again once, and the rules of the
+//! one background slot (start, reading, sleep, failed books) hold.
+#![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
+extern crate std;
+use super::*;
+use crate::native_host::{
+    declaration_store::{Allocations, ImageOwner, PendingDeclarations},
+    doc_host::DocState,
+    doc_service::{DocHost, FormatRef, Limits, PREPARING, READY},
+    lib_host::LibraryHost,
+    lib_reads::CatalogEnv,
+    lib_service::LibQuery,
+    native_instances::{NativeInstance, NativeLease},
+    native_screen::Dispatch,
+    registrations::{self as wire, REGISTRATION_MAX_BYTES, Record, records_encode},
+    shared::Shared,
+    stages_wire::core_format_v1 as local,
+};
+use alloc::{rc::Rc, string::ToString, vec, vec::Vec};
+use core::cell::{Cell, RefCell};
+use paperpaw_native::host_glue::ERR_INVALID;
+use paperpaw_platform::{DirEntry, Instant};
+use paperpaw_sdk::{Command, Id, Manifest, MemoryStorage, PluginState, Version};
+
+/// The card, shared by the kernel and the hosts.
+struct Card(Rc<MemoryStorage>);
+impl Storage for Card {
+    fn read_at(&self, p: &str, o: u64, b: &mut [u8]) -> Result<usize, StorageError> {
+        self.0.read_at(p, o, b)
+    }
+    fn size(&self, p: &str) -> Result<u64, StorageError> {
+        self.0.size(p)
+    }
+    fn write(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.0.write(p, d)
+    }
+    fn append(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+        self.0.append(p, d)
+    }
+    fn write_at(&self, p: &str, o: u64, d: &[u8]) -> Result<(), StorageError> {
+        self.0.write_at(p, o, d)
+    }
+    fn truncate(&self, p: &str, len: u64) -> Result<(), StorageError> {
+        self.0.truncate(p, len)
+    }
+    fn list(&self, d: &str, v: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        self.0.list(d, v)
+    }
+    fn remove(&self, p: &str) -> Result<(), StorageError> {
+        self.0.remove(p)
+    }
+    fn exists(&self, p: &str) -> bool {
+        self.0.exists(p)
+    }
+    fn rename(&self, f: &str, t: &str) -> Result<(), StorageError> {
+        self.0.rename(f, t)
+    }
+    fn create_dir(&self, p: &str) -> Result<(), StorageError> {
+        self.0.create_dir(p)
+    }
+    fn remove_dir_all(&self, p: &str) -> Result<(), StorageError> {
+        self.0.remove_dir_all(p)
+    }
+    fn entry_identity(&self, p: &str) -> Result<Option<u64>, StorageError> {
+        self.0.entry_identity(p)
+    }
+}
+
+/// The format plugin's declaration, under the key the registry gave it.
+struct Declarer(u64);
+impl ImageOwner for Declarer {
+    fn plugin_id(&self) -> &str {
+        "format-books"
+    }
+    fn generation(&self) -> u32 {
+        1
+    }
+    fn owner_id(&self) -> Result<u64, i32> {
+        Ok(self.0)
+    }
+    fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
+        visit(Some(&[]));
+    }
+    fn invalid_declaration(&self, _: i32) {}
+}
+
+/// What the format answers, and the ops it was called with.
+#[derive(Default)]
+struct Format {
+    ops: RefCell<Vec<u32>>,
+    /// The state its open answers (and its status).
+    open: Cell<u32>,
+    status: Cell<i32>,
+    /// The title its `meta` answers.
+    title: RefCell<std::string::String>,
+}
+
+impl Format {
+    fn opens(&self) -> usize {
+        self.ops.borrow().iter().filter(|op| **op == 2).count()
+    }
+}
+
+struct Probe(Rc<Format>);
+
+impl NativeInstance for Probe {
+    fn running(&self) -> bool {
+        true
+    }
+    fn stop(&self) {}
+}
+
+fn encoded(record: local::Record<'_>, out: &mut [u8]) -> usize {
+    local::reply_encode(&[record], out).unwrap()
+}
+
+impl Dispatch for Probe {
+    fn event(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+        Err(ERR_INVALID)
+    }
+    fn input(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+        Err(ERR_INVALID)
+    }
+    fn draw(
+        &self,
+        _: u32,
+        _: &wire::DrawFrame<'_>,
+        _: &paperpaw_sdk::Env<'_>,
+        _: &mut paperpaw_graphics::Canvas<'_>,
+    ) -> Result<i32, i32> {
+        Err(ERR_INVALID)
+    }
+    fn dropped(&self, _: u32, _: i32) {}
+    fn stage(
+        &self,
+        token: u32,
+        bytes: &[u8],
+        out: &mut [u8],
+        _: &paperpaw_sdk::Env<'_>,
+    ) -> Result<i32, i32> {
+        assert_eq!(token, 5, "the token of the format's declaration");
+        let Record::StageCall(call) = wire::records_decode_single(bytes).unwrap() else {
+            panic!("not a stage.call")
+        };
+        let Some(Ok(local::Record::FmtCall(call))) =
+            local::input_decode(call.payload).unwrap().next()
+        else {
+            panic!("not a fmt.call")
+        };
+        self.0.ops.borrow_mut().push(call.op);
+        let state = |state, status| {
+            local::Record::FmtState(local::FmtState::new(
+                call.document,
+                state,
+                0,
+                status,
+                0,
+                call.conversion,
+                "format-books.books",
+            ))
+        };
+        let title = self.0.title.borrow();
+        // A format that names no title names nothing else either.
+        let authors = u32::from(!title.is_empty());
+        let n = match call.op {
+            2 => encoded(state(self.0.open.get(), self.0.status.get()), out),
+            3 => encoded(state(READY, 0), out),
+            5 => encoded(
+                local::Record::FmtMeta(local::FmtMeta::new(
+                    &title, "en", "", "", 0, 0, 3, authors, 0, 0, 0,
+                )),
+                out,
+            ),
+            6 => encoded(
+                local::Record::FmtText(local::FmtText::new(1, 0, 6, "Author")),
+                out,
+            ),
+            _ => local::reply_encode(&[], out).unwrap(),
+        };
+        Ok(i32::try_from(n).unwrap())
+    }
+}
+
+/// No walk runs, no clock.
+struct Calm;
+impl CatalogEnv for Calm {
+    fn walking(&self) -> Option<u32> {
+        None
+    }
+    fn today(&self) -> Option<u32> {
+        None
+    }
+}
+
+struct World {
+    kernel: crate::Kernel,
+    card: Rc<MemoryStorage>,
+    format: Rc<Format>,
+    docs: Rc<DocState>,
+    library: Rc<LibraryHost>,
+}
+
+/// A kernel with the native format `format-books.books` (EPUB, DOCX) on a card
+/// holding `books`; not started.
+fn world(books: &[&str]) -> World {
+    let mut card = MemoryStorage::new();
+    for book in books {
+        card = card.with(book, b"a book".to_vec());
+    }
+    let card = Rc::new(card);
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .storage(Card(card.clone()))
+        .build()
+        .unwrap();
+    let format = Rc::new(Format::default());
+    *format.title.borrow_mut() = "Dune".to_string();
+    let key = kernel
+        .shared
+        .native_instances
+        .test_insert(
+            Id::new_static("format-books"),
+            Some(NativeLease::try_new(Probe(format.clone())).unwrap()),
+            true,
+        )
+        .unwrap();
+    let hosts = kernel.shared.native_instances.hosts().unwrap();
+    let docs = Rc::new(
+        DocState::try_new(Limits::X4, 800, hosts.in_use().clone())
+            .unwrap()
+            .with_storage(Some(Rc::new(Card(card.clone())))),
+    );
+    hosts.wire_documents(docs.clone()).unwrap();
+    let library = Rc::new(LibraryHost::new(
+        Rc::new(Card(card.clone())),
+        Rc::new(Calm),
+        None,
+    ));
+    hosts.wire_library(library.clone()).unwrap();
+    let directory = Shared::try_new(NativeDeclarations::default()).unwrap();
+    declare(&mut directory.store.borrow_mut(), key);
+    kernel.shared.registry.native_declarations = Some(directory);
+    kernel.add_plugin_info(
+        Manifest::new(
+            Id::new_static("format-books"),
+            "Books",
+            Version::new(1, 0, 0),
+        ),
+        PluginState::Running,
+        true,
+    );
+    World {
+        kernel,
+        card,
+        format,
+        docs,
+        library,
+    }
+}
+
+fn declare(store: &mut crate::native_host::declaration_store::DeclarationStore, key: u64) {
+    let record = Record::FormatSpec(wire::FormatSpec {
+        name: "books",
+        title: "format.title",
+        extensions: "epub\ndocx",
+        flags: 0,
+        priority: 0,
+        token: 5,
+    });
+    let mut bytes = vec![0; REGISTRATION_MAX_BYTES];
+    let len = records_encode(&[record], &mut bytes).unwrap();
+    let mut allocations = Allocations::default();
+    let source: Rc<dyn ImageOwner> = Rc::new(Declarer(key));
+    let mut pending = PendingDeclarations::new(Id::new_static("format-books"), source);
+    pending
+        .stage_batch(&bytes[..len], &mut allocations)
+        .unwrap();
+    store.prepare(pending, &mut allocations).unwrap().commit();
+}
+
+/// The catalog as a walk leaves it: each book with its size where its details
+/// were read (`true`), else none.
+fn catalog(w: &World, books: &[(&str, bool)]) {
+    let records: Vec<catalog::Record> = books
+        .iter()
+        .map(|(path, read)| {
+            let mut book = paperpaw_sdk::library::Book::default();
+            book.size = if *read { 6 } else { 0 };
+            catalog::Record::of(path, &book)
+        })
+        .collect();
+    catalog::write(&*w.card, &records).unwrap();
+}
+
+/// The kernel's start has returned (a marker left from before is read).
+fn started(w: &mut World) {
+    let _ = w.kernel.finish_started();
+    w.kernel.output.commands.clear();
+}
+
+fn pump(w: &mut World, now: u64) {
+    w.kernel.now = Instant(now);
+    w.kernel.native_service_pump();
+}
+
+/// How many `core.catalog-wanted` (made anew) the kernel has to run.
+fn wanted(w: &World) -> usize {
+    w.kernel
+        .output
+        .commands
+        .iter()
+        .filter(|c| {
+            matches!(c, Command::Emit(e, p) if *e == events::CATALOG_WANTED
+                && p.get("anew") == Some("true"))
+        })
+        .count()
+}
+
+fn kept_title(w: &World, path: &str) -> Option<std::string::String> {
+    library::try_book(&*w.card, path)
+        .ok()
+        .flatten()
+        .and_then(|book| book.title)
+}
+
+#[test]
+fn native_books_are_read_one_at_a_time_and_the_catalog_is_wanted_once_at_its_end() {
+    let mut w = world(&["books/a.epub", "books/b.docx", "books/c.epub"]);
+    catalog(
+        &w,
+        &[("books/a.epub", false), ("books/b.docx", false), ("books/c.epub", true)],
+    );
+    started(&mut w);
+    w.kernel.native_details_arm();
+    pump(&mut w, 1_000);
+    // One book a pass, read at once (its format is ready at the open).
+    assert_eq!(*w.format.ops.borrow(), [2, 5, 6, 4]);
+    assert_eq!(kept_title(&w, "books/a.epub").as_deref(), Some("Dune"));
+    assert!(!w.docs.cover_job_active(), "closed again");
+    assert_eq!(wanted(&w), 0, "never once per book");
+    pump(&mut w, 2_000);
+    assert_eq!(w.format.opens(), 2);
+    assert_eq!(kept_title(&w, "books/b.docx").as_deref(), Some("Dune"));
+    // The third book's details were read: the catalog has no book left.
+    pump(&mut w, 3_000);
+    assert_eq!(w.format.opens(), 2);
+    assert_eq!(wanted(&w), 1);
+    pump(&mut w, 4_000);
+    assert_eq!(wanted(&w), 1, "disarmed");
+    assert!(!w.docs.details_job().unwrap().run().armed());
+}
+
+#[test]
+fn while_it_runs_the_catalog_is_wanted_at_most_once_in_two_minutes_and_none_when_nothing_was_kept()
+{
+    let books = ["books/a.epub", "books/b.epub", "books/c.epub", "books/d.epub"];
+    let mut w = world(&books);
+    catalog(&w, &books.map(|book| (book, false)));
+    started(&mut w);
+    w.kernel.now = Instant(0);
+    w.kernel.native_details_arm();
+    pump(&mut w, 10_000);
+    assert_eq!(wanted(&w), 0);
+    pump(&mut w, 125_000);
+    assert_eq!(wanted(&w), 1, "two minutes since the arm, a book kept");
+    pump(&mut w, 130_000);
+    assert_eq!(wanted(&w), 1, "not again within two minutes");
+    pump(&mut w, 131_000);
+    pump(&mut w, 132_000);
+    assert_eq!(wanted(&w), 2, "the end, books kept since the last");
+    // The walk it wants arms the job again; a pass that keeps nothing wants
+    // nothing (the lines here still have no size: the format names nothing).
+    w.format.title.borrow_mut().clear();
+    w.kernel.output.commands.clear();
+    w.kernel.native_details_arm();
+    for at in 0..6 {
+        pump(&mut w, 140_000 + at * 1_000);
+    }
+    assert_eq!(wanted(&w), 0);
+    assert!(!w.docs.details_job().unwrap().run().armed());
+}
