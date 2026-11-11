@@ -20,10 +20,22 @@ const KIND_MENU_SECTION: u8 = 26;
 const KIND_FORMAT: u8 = 31;
 /// Index category of `reader.spec`.
 const KIND_READER: u8 = 32;
+/// Index category of `book_field.spec`.
+const KIND_BOOK_FIELD: u8 = 34;
+/// Index category of `book_badge.spec`.
+const KIND_BOOK_BADGE: u8 = 35;
+/// Index category of `lookup.spec`.
+const KIND_LOOKUP: u8 = 33;
+const _: () = assert!(KIND_LOOKUP == super::declaration_index::KIND_TABLE[33].1);
+/// Lookup providers one plugin declares at most (a ninth is `ERR_INVALID`),
+/// and the device holds (`ERR_FULL`), `document.md` section 7.
+pub(crate) const LOOKUPS_PER_PLUGIN: usize = 8;
+pub(crate) const LOOKUPS_DEVICE: usize = 32;
 
 /// The declaration cap a refused plugin ran into, as `reg_plugin` row says it
-/// (`docs/abi/registry.md`): `problem` 14 too many formats or 15 too many
-/// readers, `arg` the cap (formats 8 or 32, readers 4 or 16).
+/// (`docs/abi/registry.md`): `problem` 14 too many formats, 15 too many
+/// readers or 18 too many lookup providers, `arg` the cap (formats 8 or 32,
+/// readers 4 or 16, providers 8 or 32).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Cap {
     pub(crate) problem: u32,
@@ -34,6 +46,13 @@ impl Cap {
     pub(crate) const FORMATS: u32 = 14;
     /// `reg_plugin.problem`: too many readers.
     pub(crate) const READERS: u32 = 15;
+    /// `reg_plugin.problem`: too many book fields (8 per plugin, 64 device-wide).
+    pub(crate) const BOOK_FIELDS: u32 = 16;
+    /// `reg_plugin.problem`: too many book badges (4 per plugin, 16 device-wide).
+    pub(crate) const BOOK_BADGES: u32 = 17;
+    /// `reg_plugin.problem`: too many lookup providers (16 and 17 are the
+    /// book fields and badges).
+    pub(crate) const LOOKUPS: u32 = 18;
 
     /// The cap of `problem`; 0 where it does not fit a `u32` (no cap does
     /// today: the row's 0 for "the host cannot say" has no producer yet).
@@ -215,6 +234,33 @@ impl<'a> View<'a> {
                 super::format_index::READERS_PER_PLUGIN,
             )));
             return Err(ERR_INVALID);
+        }
+        // At most 8 book fields, 4 book badges and 8 lookup providers per
+        // plugin (`library.md` section 1, `document.md` section 7): the one over
+        // refuses the batch (`ERR_INVALID`); the device's caps are the store's.
+        for (kind, cap, problem) in [
+            (
+                KIND_BOOK_FIELD,
+                super::declaration_store::FIELDS_PER_PLUGIN,
+                Cap::BOOK_FIELDS,
+            ),
+            (
+                KIND_BOOK_BADGE,
+                super::declaration_store::BADGES_PER_PLUGIN,
+                Cap::BOOK_BADGES,
+            ),
+            (KIND_LOOKUP, LOOKUPS_PER_PLUGIN, Cap::LOOKUPS),
+        ] {
+            let count = self
+                .raw
+                .index
+                .iter()
+                .filter(|entry| entry.kind() == kind)
+                .count();
+            if count > cap {
+                self.refused.set(Some(Cap::of(problem, cap)));
+                return Err(ERR_INVALID);
+            }
         }
         let mut result = Ok(());
         self.visit(&mut |record| {

@@ -57,6 +57,7 @@ event_fn!(page_turned, wire::EventPageTurned<'_>, |r| {
             chapter: r.chapter,
             page: r.page,
             pages: r.pages,
+            chapter_left: r.chapter_left,
         }
         .validate()?,
     )

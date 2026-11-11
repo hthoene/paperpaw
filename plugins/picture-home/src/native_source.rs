@@ -19,6 +19,9 @@ use paperpaw_ui_kit::{
     text::copy,
 };
 
+use paperpaw_ui_kit::status_line::Lists;
+
+use crate::native_bar::{Look, Placing};
 use crate::native_grid::Sizes;
 use crate::native_pages::{self, MAX_PAGES, Source};
 use crate::native_picture::Visible;
@@ -39,6 +42,13 @@ const FOCUS_AT_ONCE: &str = "picture-home.focus-at-once";
 const PLATE: &str = "picture-home.plate";
 const BAR: &str = "picture-home.bar";
 const BAR_AT: &str = "picture-home.bar.at";
+const BAR_SHAPE: &str = "picture-home.bar.shape";
+const BAR_ALIGN: &str = "picture-home.bar.align";
+const BAR_LOOK: &str = "picture-home.bar.look";
+const BAR_LEFT: &str = "picture-home.bar.left-items";
+const BAR_CENTER: &str = "picture-home.bar.center-items";
+const BAR_RIGHT: &str = "picture-home.bar.right-items";
+const HINTS: &str = "picture-home.hints";
 /// The reader's choice that the arrow keys stay on the page.
 const ARROWS_STAY: &str = "core.arrows-stay-on-page";
 /// Most widgets and tools kept.
@@ -80,6 +90,13 @@ pub struct HostSource {
     pub bar: Visible,
     /// The bar is at the bottom.
     pub bar_bottom: bool,
+    /// What the bar is on, and where its plate sits in the strip.
+    pub bar_look: Look,
+    pub bar_placing: Placing,
+    /// The status items on the bar's left, centre and right.
+    pub bar_items: Lists,
+    /// When the row of hints below shows.
+    pub hints: Visible,
     widgets: Vec<WidgetRow>,
     /// The tools' actions and their names.
     tools: Vec<(String, String)>,
@@ -95,7 +112,7 @@ impl HostSource {
     /// [`Error::NoMemory`] and the host's refusals; nothing is kept in part.
     pub fn read(host: &Host<'_>) -> Result<Self, Error> {
         let mut texts = Vec::new();
-        let mut scratch = buffer(TEXT_MAX + 64)?;
+        let mut scratch = buffer(TEXT_MAX)?;
         for slot in 0..MAX_PAGES {
             let key = native_pages::setting(slot)?;
             let text = match settings::read_setting(host, &key, &mut scratch)? {
@@ -131,6 +148,15 @@ impl HostSource {
         let plate = text(PLATE)?;
         let bar = Visible::of(&text(BAR)?);
         let bar_bottom = text(BAR_AT)? == crate::settings::BAR_ATS[1];
+        let bar_look = Look::of(&text(BAR_LOOK)?);
+        let bar_placing = Placing::of(&text(BAR_SHAPE)?, &text(BAR_ALIGN)?);
+        let bar_items = Lists {
+            left: text(BAR_LEFT)?,
+            center: text(BAR_CENTER)?,
+            right: text(BAR_RIGHT)?,
+            line: String::new(),
+        };
+        let hints = Visible::of(&text(HINTS)?);
         let registry = Registry::open(host)?;
         let found = Self::registry(host, &registry);
         let released = registry.release(host);
@@ -147,6 +173,10 @@ impl HostSource {
             plate,
             bar,
             bar_bottom,
+            bar_look,
+            bar_placing,
+            bar_items,
+            hints,
             widgets,
             tools,
             measured: Vec::new(),

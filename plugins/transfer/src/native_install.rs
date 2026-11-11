@@ -171,6 +171,17 @@ impl Installs {
         matches!(self.state(id), Some(State::Asking(_)))
     }
 
+    /// Whether files of plugin `id` are staged, or the host asks about it: the
+    /// cable's offers leave such a plugin alone.
+    #[must_use]
+    pub fn holds(&self, id: &str) -> bool {
+        self.position(id)
+            .and_then(|at| self.entries.get(at))
+            .is_some_and(|entry| {
+                !entry.files.is_empty() || matches!(entry.state, Some(State::Asking(_)))
+            })
+    }
+
     fn asking_any(&self) -> bool {
         self.entries
             .iter()

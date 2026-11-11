@@ -72,7 +72,23 @@ native-linked = [
     "paperpaw-plugin-opds/linked",
     "paperpaw-plugin-settings/linked",
     "paperpaw-plugin-setup/linked",
+    "paperpaw-plugin-transfer/linked",
     "paperpaw-plugin-update/linked",
+]
+# The plugins the store offers as files too (`STORE_PLUGINS`) whose interface-6
+# form is gone under `native-linked`, linked as well. Not for the X4 and the X4
+# Pro, which get them as plugin files (their size is the store's, not the
+# image's); the shells that link every plugin (the emulator) name both.
+native-linked-store = [
+    "native-linked",
+    "dep:paperpaw-plugin-aids",
+    "dep:paperpaw-plugin-mail",
+    "dep:paperpaw-plugin-notes-vault",
+    "dep:paperpaw-plugin-widgets",
+    "paperpaw-plugin-aids/linked",
+    "paperpaw-plugin-mail/linked",
+    "paperpaw-plugin-notes-vault/linked",
+    "paperpaw-plugin-widgets/linked",
 ]
 
 [build-dependencies]

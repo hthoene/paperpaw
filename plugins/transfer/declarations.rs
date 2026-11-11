@@ -2,9 +2,8 @@
 //! the declaration tests: its three screens, the action that opens the
 //! transfer, its place in the tools and icon, and the two slots its screens
 //! are offered for (typing on a phone, the cable). The native plugin submits
-//! the transfer screen, the phone's screen with its slot, the navigation and
-//! the events; the cable's screen and slot have no native view yet
-//! (`PORTING-7.md`) and are built but not submitted.
+//! the transfer screen, the phone's screen with its slot, the cable's screen
+//! with its slot, the navigation and the events.
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EventKind, Instances, MenuEntryDecl, ScreenDecl,
     SlotOfferDecl,
@@ -40,10 +39,10 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     Ok(())
 }
 
-/// The cable's screen (one at a time) and the slot it is offered for: not
-/// native yet, so not submitted (the host would open a screen the plugin
-/// cannot show).
-pub fn cable_later<F: FnMut(&[u8]) -> Result<(), i32>>(
+/// The cable's screen (one at a time) and the slot it is offered for: the host
+/// opens it when a computer talks over the USB cable and no server runs
+/// (`docs/abi/ui.md`, slot `core.cable`).
+pub fn cable<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.screen(ScreenDecl::new("cable", "transfer.cable.title", CABLE).instances(Instances::Single))?;

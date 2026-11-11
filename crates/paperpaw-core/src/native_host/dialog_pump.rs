@@ -15,6 +15,7 @@
 //! events; the request is freed when that callback returned, whatever its
 //! status (`ui.md` 3.2, cleanup).
 use super::registrations::{self as wire};
+use crate::native_host::codec;
 use paperpaw_native::host_glue::ERR_BUSY;
 use paperpaw_sdk::{
     Command, Id, Params,
@@ -81,6 +82,12 @@ impl crate::Kernel {
         for _ in 0..store.take_refused() {
             self.warn_runtime("a host dialog's answer was not taken; the question was cancelled");
         }
+        // The kernel's clipboard is the store's (once); a text op 18 committed
+        // goes out to the system (`Io::Copy`); a text left begun by a callback
+        // that returned is dropped.
+        store.bind_clipboard(&self.shared.clipboard);
+        self.clipboard_copy_out();
+        store.clipboard_callbacks_over();
         if store.callbacks_over().is_err() {
             return true;
         }
@@ -121,7 +128,7 @@ impl crate::Kernel {
                 };
                 let mut bytes = [0u8; 64];
                 let Ok(len) =
-                    wire::records_encode(&[wire::Record::EventAnswered(record)], &mut bytes)
+                    codec::encode_batch(&[wire::Record::EventAnswered(record)], &mut bytes)
                 else {
                     // Never: the record is fixed size. Freed all the same.
                     let _ = store.delivered(delivery.request);
@@ -142,6 +149,18 @@ impl crate::Kernel {
             more |= store.has_delivery(owner);
         }
         more
+    }
+
+    /// A text op 18 committed goes out to the system (`Io::Copy`); with no
+    /// memory for the copy it is skipped and the log says so.
+    fn clipboard_copy_out(&mut self) {
+        if !self.shared.clipboard.take_copy() {
+            return;
+        }
+        match self.shared.clipboard.text_for_copy() {
+            Some(text) => self.io.clipboard.copy(text),
+            None => self.warn_runtime("the clipboard could not be copied out: no memory"),
+        }
     }
 
     /// Opens the dialog of one starting request and tells the store how it

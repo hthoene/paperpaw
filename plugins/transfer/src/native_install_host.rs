@@ -14,7 +14,7 @@ use paperpaw_sdk::native::{
 use paperpaw_ui_kit::{
     files::replace,
     mem::{SERVICE_BUFFER, buffer},
-    text::{concat, copy},
+    text::{concat, copy, decimal_u64},
 };
 
 use crate::native_install::{Installs, Known, LISTING_FILE, Plugins, STAGING, Staged};
@@ -31,6 +31,8 @@ pub struct HostPlugins<'a, 'h> {
     host: &'a Host<'h>,
     files: &'a Files,
     registry: &'a mut Option<Registry>,
+    /// The folder of the data folder the files of plugins are staged in.
+    root: &'static str,
 }
 
 impl<'a, 'h> HostPlugins<'a, 'h> {
@@ -39,7 +41,16 @@ impl<'a, 'h> HostPlugins<'a, 'h> {
             host,
             files,
             registry,
+            root: STAGING,
         }
+    }
+
+    /// The same, staging in the folder `root` of the data folder: the cable
+    /// keeps its own, apart from the Wi-Fi's.
+    #[must_use]
+    pub fn staging_in(mut self, root: &'static str) -> Self {
+        self.root = root;
+        self
     }
 
     /// Hands every plugin to `take` until it says `false`; a list that changes
@@ -84,7 +95,7 @@ impl<'a, 'h> HostPlugins<'a, 'h> {
     }
 
     /// The SHA-256 of the data file `path`, read a part at a time.
-    fn sha256_of(&self, path: &str) -> Result<[u8; 32], Error> {
+    pub(crate) fn sha256_of(&self, path: &str) -> Result<[u8; 32], Error> {
         let size = storage::size(self.host, Root::Data, path)?;
         let mut digest = Sha256::new();
         let mut part = buffer(HASH_PART)?;
@@ -100,8 +111,8 @@ impl<'a, 'h> HostPlugins<'a, 'h> {
         Ok(digest.finish())
     }
 
-    fn folder(id: &str) -> Result<String, Error> {
-        concat(&[STAGING, "/", id])
+    fn folder(&self, id: &str) -> Result<String, Error> {
+        concat(&[self.root, "/", id])
     }
 }
 
@@ -129,31 +140,7 @@ impl Plugins for HostPlugins<'_, '_> {
         json.push_str("{\"plugins\":[");
         let mut first = true;
         self.each(&mut |plugin| {
-            let version = if plugin.update().is_empty() {
-                plugin.version()
-            } else {
-                plugin.update()
-            };
-            let origin = if plugin.kind() == RegistryPluginKind::BuiltIn {
-                "built-in"
-            } else {
-                "installed"
-            };
-            let enabled = if plugin.flags() & 1 != 0 {
-                "true"
-            } else {
-                "false"
-            };
-            let mut row = String::new();
-            for part in [if first { "" } else { "," }, "{\"id\":"] {
-                push(&mut row, part)?;
-            }
-            crate::native_web::push_json(&mut row, plugin.id())?;
-            push(&mut row, ",\"version\":")?;
-            crate::native_web::push_json(&mut row, version)?;
-            for part in [",\"on\":", enabled, ",\"origin\":\"", origin, "\"}"] {
-                push(&mut row, part)?;
-            }
+            let row = plugin_row(plugin, first)?;
             // The list is cut where it would grow past what a device has.
             if json.len() + row.len() + 2 > MOST_LISTING {
                 return Ok(false);
@@ -179,7 +166,7 @@ impl Plugins for HostPlugins<'_, '_> {
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(_) => return Ok(Staged::Storage),
         }
-        let target = concat(&[&Self::folder(id)?, "/", path])?;
+        let target = concat(&[&self.folder(id)?, "/", path])?;
         let (mut input, mut out) = (buffer(files::INPUT_BYTES)?, buffer(files::OUTPUT_BYTES)?);
         if let Some((dir, _)) = target.rsplit_once('/') {
             match self
@@ -215,7 +202,7 @@ impl Plugins for HostPlugins<'_, '_> {
     }
 
     fn clear(&mut self, id: &str) {
-        let Ok(folder) = Self::folder(id) else {
+        let Ok(folder) = self.folder(id) else {
             return;
         };
         let (Ok(mut input), Ok(mut out)) =
@@ -230,7 +217,7 @@ impl Plugins for HostPlugins<'_, '_> {
     }
 
     fn install(&mut self, request: u32, id: &str, update: bool) -> Result<(), Error> {
-        let folder = Self::folder(id)?;
+        let folder = self.folder(id)?;
         let mut scratch = [0; 640];
         // An older build is allowed: the reader is told it is older (decision
         // 132's question), as a computer's own build may be.
@@ -241,6 +228,77 @@ impl Plugins for HostPlugins<'_, '_> {
             update,
             true,
         )
+    }
+}
+
+/// The row of one plugin in the list: `{"id":…,"version":…,"on":…,"origin":…}`,
+/// with a comma before it unless it is `first`.
+fn plugin_row(plugin: &RegistryPlugin<'_>, first: bool) -> Result<String, Error> {
+    let version = if plugin.update().is_empty() {
+        plugin.version()
+    } else {
+        plugin.update()
+    };
+    let origin = if plugin.kind() == RegistryPluginKind::BuiltIn {
+        "built-in"
+    } else {
+        "installed"
+    };
+    let enabled = if plugin.flags() & 1 != 0 {
+        "true"
+    } else {
+        "false"
+    };
+    let mut row = String::new();
+    for part in [if first { "" } else { "," }, "{\"id\":"] {
+        push(&mut row, part)?;
+    }
+    crate::native_web::push_json(&mut row, plugin.id())?;
+    push(&mut row, ",\"version\":")?;
+    crate::native_web::push_json(&mut row, version)?;
+    for part in [",\"on\":", enabled, ",\"origin\":\"", origin, "\"}"] {
+        push(&mut row, part)?;
+    }
+    Ok(row)
+}
+
+impl HostPlugins<'_, '_> {
+    /// The list of the installed plugins from the `skip`th on, as an inline
+    /// body of at most `limit` bytes: where it is cut, `"next"` is the number to
+    /// ask from for the rest (the cable sends no files, so no list is longer than
+    /// an inline body).
+    ///
+    /// # Errors
+    /// The host's refusal; `NoMemory`.
+    pub fn inline_listing(&mut self, skip: usize, limit: usize) -> Result<String, Error> {
+        /// `],"next":4294967295}`, with room to spare.
+        const TAIL: usize = 24;
+        let mut json = String::new();
+        json.try_reserve_exact(limit).map_err(|_| Error::NoMemory)?;
+        json.push_str("{\"plugins\":[");
+        let (mut index, mut first, mut cut) = (0usize, true, None);
+        self.each(&mut |plugin| {
+            if index < skip {
+                index += 1;
+                return Ok(true);
+            }
+            let row = plugin_row(plugin, first)?;
+            if json.len() + row.len() + TAIL > limit {
+                cut = Some(index);
+                return Ok(false);
+            }
+            push(&mut json, &row)?;
+            (first, index) = (false, index + 1);
+            Ok(true)
+        })?;
+        push(&mut json, "]")?;
+        if let Some(next) = cut {
+            let mut digits = [0; 20];
+            push(&mut json, ",\"next\":")?;
+            push(&mut json, decimal_u64(next as u64, &mut digits))?;
+        }
+        push(&mut json, "}")?;
+        Ok(json)
     }
 }
 

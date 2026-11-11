@@ -9,12 +9,14 @@
 //! Which families a shell can name grows with the adapters: `text.hyphenate`
 //! (the card's tables), `core.device` (a host that already is public),
 //! `core.ui` (the store; the stack's view comes from each call's frame) and
-//! `core.net` (the card and the shell's network) today; the other families'
+//! `core.net` (the card and the shell's network), `core.document` and
+//! `core.library` (its reads) today; the other families'
 //! hosts are core's adapters over kernel objects and join as their adapters
 //! land, one method each.
 use super::{
     device_service::DeviceHost,
     hyphen_card::CardTables,
+    lib_host::LibraryHost,
     resources::HostResources,
     secrets_service::SecretsServices,
     shared::Shared,
@@ -32,6 +34,8 @@ mod secrets;
 mod sockets;
 #[path = "shell_wiring/work.rs"]
 mod work;
+pub use super::lib_reads::CatalogEnv;
+pub use super::plugin_heap::{PLUGIN_HEAP_LARGE, PLUGIN_HEAP_SMALL, default_plugin_heap};
 pub use super::sock_service::{Connect, PeerInfo, SockTls, SockTransport, TlsOpen, TlsPin};
 use alloc::{rc::Rc, vec::Vec};
 pub use net::{
@@ -58,8 +62,15 @@ pub struct HostWiring {
     ui: Option<bool>,
     /// `core.document`: the memory class and the screen's long side.
     documents: Option<(paperpaw_platform::MemoryClass, u32)>,
+    document_colour: bool,
+    /// `core.library`: the catalog's card and the shell's facts.
+    library: Option<(Rc<dyn Storage>, Rc<dyn CatalogEnv>)>,
+    /// `core.lookup`.
+    lookup: bool,
     secrets: Option<SecretsInputs>,
     work: Option<WorkInputs>,
+    /// The per-plugin heap budget the shell named.
+    plugin_heap: Option<usize>,
 }
 
 impl core::fmt::Debug for HostWiring {
@@ -72,13 +83,31 @@ impl core::fmt::Debug for HostWiring {
             .field("sockets", &self.sockets.is_some())
             .field("ui", &self.ui.is_some())
             .field("documents", &self.documents.is_some())
+            .field("library", &self.library.is_some())
+            .field("lookup", &self.lookup)
             .field("secrets", &self.secrets.is_some())
             .field("work", &self.work.is_some())
+            .field("plugin_heap", &self.plugin_heap)
             .finish()
     }
 }
 
 impl HostWiring {
+    /// The default budget of the classes this wiring names (the smaller of
+    /// two; Small where it names none).
+    pub(crate) fn class_plugin_heap(&self) -> usize {
+        let small = self.ui == Some(true)
+            || self
+                .documents
+                .is_some_and(|(memory, _)| super::ui_store::is_x4(memory));
+        let named = self.ui.is_some() || self.documents.is_some();
+        if named && !small {
+            super::plugin_heap::PLUGIN_HEAP_LARGE
+        } else {
+            super::plugin_heap::PLUGIN_HEAP_SMALL
+        }
+    }
+
     /// Nothing named yet.
     #[must_use]
     pub fn new() -> Self {
@@ -176,6 +205,62 @@ impl HostWiring {
         screen_long_side: u32,
     ) -> Self {
         self.documents = Some((memory, screen_long_side));
+        self
+    }
+
+    /// The most heap one plugin may use, in bytes (`abi/heap-word.md`
+    /// section 4): a ceiling, not a reservation (a full real heap still gives
+    /// null), and the headers and the padding an alignment needs count toward
+    /// it. 0 makes every allocation null.
+    ///
+    /// Without it the budget is the default of the memory class the wiring
+    /// names ([`default_plugin_heap`]): [`PLUGIN_HEAP_SMALL`] on the X4,
+    /// [`PLUGIN_HEAP_LARGE`] elsewhere; where `ui` and `documents` name
+    /// different classes the smaller applies, and where neither names one,
+    /// the small one. The X4's value can change after the device measurement.
+    ///
+    /// The limit is read at each allocation: one set below what a plugin uses
+    /// reclaims nothing, and that plugin's later allocations are null until
+    /// its use drops below the limit.
+    #[must_use]
+    pub fn plugin_heap(mut self, bytes: usize) -> Self {
+        self.plugin_heap = Some(bytes);
+        self
+    }
+
+    /// The screen keeps colour: a book's pictures that are in colour say so
+    /// (`doc_image.flags` bit 0). Without it, never. It must match the
+    /// shell's real panel: a shell whose screen is grey says `false`.
+    #[must_use]
+    pub fn document_colour(mut self, colour: bool) -> Self {
+        self.document_colour = colour;
+        self
+    }
+
+    /// `core.library`: the reads of the library's catalog on this storage (the
+    /// card), with what the card cannot tell: whether the walk is making the
+    /// catalog, today's date, the format of a file ([`CatalogEnv`]). Only the
+    /// reads are served: every write op answers `ERR_UNSUPPORTED` (the
+    /// production write half is todo 307), and a name below the card's top
+    /// is one of the host's folders by spelling or, for an 8.3 alias (a name
+    /// with a `~` where one of those names also exists), as `core.files`
+    /// decides it. Where `core.files` is wired too (in the same wiring or an
+    /// earlier one: name `files` first, or together), a book its library move
+    /// job carries is in use: `provide` answers `ERR_BUSY` for it. Wired
+    /// before `files`, the library has no such check.
+    #[must_use]
+    pub fn library(mut self, storage: Rc<dyn Storage>, env: Rc<dyn CatalogEnv>) -> Self {
+        self.library = Some((storage, env));
+        self
+    }
+
+    /// `core.lookup`: the dictionary, wikipedia and translate providers the
+    /// plugins declared (`docs/abi/document.md` 7). The host reads them from
+    /// the declarations, calls them in load order and keeps nothing; the shell
+    /// names nothing.
+    #[must_use]
+    pub fn lookup(mut self) -> Self {
+        self.lookup = true;
         self
     }
 
@@ -355,6 +440,8 @@ impl HostResources {
                 && (hosts.files().is_some()
                     || !(hosts.busy_sources().complete() || wiring.documents.is_some())))
             || (wiring.documents.is_some() && hosts.documents().is_some())
+            || (wiring.library.is_some() && hosts.library().is_some())
+            || (wiring.lookup && hosts.lookup().is_some())
             || (wiring.device.is_some() && hosts.device().is_some())
             || (wiring.net.is_some() && hosts.net().is_some())
             || (wiring.sockets.is_some() && hosts.sockets().is_some())
@@ -378,6 +465,12 @@ impl HostResources {
             return Err(ERR_INVALID);
         }
         let mut wired = WiredHosts::default();
+        self.set_plugin_heap(
+            wiring
+                .plugin_heap
+                .unwrap_or_else(|| wiring.class_plugin_heap()),
+            wiring.plugin_heap.is_some(),
+        );
         if let Some(storage) = wiring.hyphenation {
             let tables = Rc::new(CardTables::new(storage));
             hosts.wire_hyphen(tables.clone())?;
@@ -420,15 +513,27 @@ impl HostResources {
             };
             let state =
                 super::doc_host::DocState::try_new(limits, long_side, hosts.in_use().clone())?
-                    .with_storage(wiring.files.clone());
+                    .with_storage(wiring.files.clone())
+                    .with_colour(wiring.document_colour);
             // The reader's open book is a source of `core.files` from now on.
             hosts.register_reader_book_reporting()?;
             hosts.wire_documents(Rc::new(state))?;
         }
+        let mut library_moves = None;
+        if wiring.lookup {
+            hosts.wire_lookup(
+                Rc::new(super::lookup_service::Providers),
+                super::device_log::DeviceLog::default(),
+            )?;
+        }
         if let Some(storage) = wiring.files {
             // The library's move job, a busy source `core.files` needs and
             // the way a move of the user's files goes.
+            // The same card holds the font files of the plugins' data folders
+            // (`font.acquire` `data:<path>`).
+            hosts.wire_font_card(storage.clone())?;
             let moves = hosts.wire_library_moves(storage.clone())?;
+            library_moves = Some(moves.clone());
             hosts.wire_files(Rc::new(
                 StorageFiles::new(
                     storage,
@@ -436,6 +541,32 @@ impl HostResources {
                     hosts.linked().clone(),
                 )
                 .with_moves(moves),
+            ))?;
+        }
+        // The library's transactions read the device's memory class and clock
+        // from what any wiring told, whichever call it was in (the X4 shell
+        // wires `ui`, `documents`, `work` and `library` in calls of their own).
+        let policy = hosts.edit_policy();
+        if wiring.ui == Some(true)
+            || wiring
+                .documents
+                .is_some_and(|(memory, _)| super::ui_store::is_x4(memory))
+            || wiring.work.as_ref().is_some_and(WorkInputs::small)
+        {
+            policy.set_small();
+        }
+        if let Some(inputs) = &wiring.work {
+            policy.set_clock(inputs.device());
+        }
+        if let Some((storage, env)) = wiring.library {
+            // After `core.files`, whose library move job it shares: a book the
+            // job carries is in use for `provide`.
+            // (Also the job an earlier wiring's `files` made.)
+            let moves = library_moves.or_else(|| hosts.library_moves().cloned());
+            hosts.wire_library(Rc::new(
+                LibraryHost::new(storage, env, moves)
+                    .with_policy(policy.clone())
+                    .with_busy_sources(hosts.busy_sources().clone()),
             ))?;
         }
         if let Some(x4) = wiring.ui {

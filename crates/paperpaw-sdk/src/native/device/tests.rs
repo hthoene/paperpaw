@@ -724,3 +724,36 @@ fn leaves_out_pages_under_the_checks_request_and_the_hosts_refusals_are_the_stat
             .is_err()
     );
 }
+
+#[test]
+fn file_check_leaves_out_reads_flag_bit_5_alone() {
+    let table = table();
+    let mut state = State::default();
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::from_mut(&mut state).cast(),
+    };
+    let device = Device::open(&host).unwrap();
+    let mut input = [0; 256];
+    let mut out = [0; 4096];
+    for (flags, leaves_out) in [(0, false), (1 << 5, true), (0b01_1111, false), (!0, true)] {
+        reply(
+            &state,
+            &[Record::ServiceDevCheck(wire::ServiceDevCheck {
+                reason: 0,
+                needs_draft: 0,
+                bytes: 1,
+                signer: "",
+                key: &[],
+                id: "firmware",
+                version: "1",
+                flags,
+                sha256: &[],
+            })],
+        );
+        let row = device
+            .check(&host, DeviceRequest::new(1).unwrap(), &mut input, &mut out)
+            .unwrap();
+        assert_eq!(row.leaves_out(), leaves_out, "flags {flags:#x}");
+    }
+}

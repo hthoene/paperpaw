@@ -726,11 +726,12 @@ impl BuilderParts {
                     .then(|| paperpaw_sdk::bluetooth::Bluetooth::new(links)),
                 firmware: self.firmware.take(),
                 native: None,
+                native_safe_mode: self.safe_mode.clone(),
                 after_trial: self.after_trial.take(),
                 power: paperpaw_sdk::power::Power::default(),
                 work_states: paperpaw_sdk::work::WorkStates::default(),
                 reader: false,
-                clipboard: String::new(),
+                clipboard: alloc::rc::Rc::default(),
                 system_clipboard: false,
                 last_input: paperpaw_sdk::keys::InputMode::at_start(&self.device.input),
                 inputs: Vec::new(),
@@ -839,7 +840,7 @@ impl BuilderParts {
             from_guard: false,
             from_guard_own: false,
             own_trusted: Vec::new(),
-            held_notice: None,
+            waiting_notices: crate::notices::Waiting::new(self.device.memory),
             last_activity: Instant(0),
             native_tick_at: None,
             last_user_input: None,
@@ -873,6 +874,7 @@ impl BuilderParts {
             secrets_unreadable: false,
             pairing_nonce: None,
             plugin_defaults: Vec::new(),
+            late_device_defaults: Vec::new(),
             plugin_choices: Vec::new(),
             now: Instant::default(),
         }
@@ -1082,8 +1084,12 @@ impl Kernel {
             }
         }
         for (id, value) in device {
-            if let Err(error) = self.shared.settings.set_default_from_text(id, value) {
-                self.warn_runtime(format!("device default `{id}`: {error}"));
+            match self.shared.settings.set_default_from_text(id, value) {
+                Ok(()) => {}
+                // A native plugin declares its settings only once it is
+                // hosted, after this: kept for then (`apply_late_defaults`).
+                Err(paperpaw_sdk::SettingError::Unknown) => self.keep_device_default(id, value),
+                Err(error) => self.warn_runtime(format!("device default `{id}`: {error}")),
             }
         }
         for (plugin, id, value) in mem::take(&mut self.plugin_defaults) {
@@ -1114,6 +1120,49 @@ impl Kernel {
                 );
             }
         }
+    }
+
+    /// Keeps the device default of a setting nobody has declared yet.
+    fn keep_device_default(&mut self, id: &str, value: &str) {
+        let (mut own_id, mut own_value) = (String::new(), String::new());
+        if own_id.try_reserve_exact(id.len()).is_err()
+            || own_value.try_reserve_exact(value.len()).is_err()
+            || self.late_device_defaults.try_reserve(1).is_err()
+        {
+            self.warn_runtime(format!("device default `{id}`: no memory to keep it"));
+            return;
+        }
+        own_id.push_str(id);
+        own_value.push_str(value);
+        self.late_device_defaults.push((own_id, own_value));
+    }
+
+    /// The device defaults kept for settings a plugin declares since
+    /// (`keep_device_default`), set now that it has: a plugin published after
+    /// the kernel was built (a native one) gets the device's value as the
+    /// default, as a plugin of the first pass does. A value the user set
+    /// still wins, as for any default. A default is used up once its setting
+    /// exists (applied, or warned about when the value does not fit); one for
+    /// an id that no plugin ever declares stays unused.
+    pub(crate) fn apply_late_defaults(&mut self) {
+        let waiting = mem::take(&mut self.late_device_defaults);
+        let mut left = Vec::new();
+        // At most as many as were kept: no new place is needed.
+        if left.try_reserve_exact(waiting.len()).is_err() {
+            self.late_device_defaults = waiting;
+            return;
+        }
+        for (id, value) in waiting {
+            if self.shared.settings.spec(id.as_str()).is_none() {
+                left.push((id, value));
+                continue;
+            }
+            // Applied once, or warned about once: not kept.
+            if let Err(error) = self.shared.settings.set_default_from_text(&id, &value) {
+                self.warn_runtime(format!("device default `{id}`: {error}"));
+            }
+        }
+        self.late_device_defaults = left;
     }
 
     /// The language, night mode and colours the settings say.

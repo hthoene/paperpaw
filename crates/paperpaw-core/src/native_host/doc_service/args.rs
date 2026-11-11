@@ -1,7 +1,7 @@
 //! Input rules of `core.document` (`docs/abi/document.md` 2): record order,
 //! values and bit sets, checked before the host does anything.
 use super::super::registrations::{self as wire, Record};
-use paperpaw_native::host_glue::ERR_INVALID;
+use paperpaw_native::host_glue::{ERR_DENIED, ERR_INVALID};
 
 /// `doc_open.flags`: publisher styles, colour, background.
 pub(super) const OPEN_FLAGS: u32 = 0b111;
@@ -82,14 +82,36 @@ pub(super) fn path_valid(path: &str) -> bool {
     path.len() <= 512 && paperpaw_platform::storage::is_valid_path(path)
 }
 
+/// `doc_open.root` of the file a hand-over names (`document.md` 1, draft 25).
+pub(crate) const ROOT_HANDED: u32 = 5;
+
+/// Whether a path of `root` may be named: root 1 never reaches the kernel's
+/// and the plugins' folders and `paperpaw.ini` (the first path segment, as the
+/// FAT driver compares names, `owner_paths::protected_first`); a book or a CSS
+/// file there is `ERR_INVALID`, as for the file service (`files.md` 3). The
+/// refusal comes before the access check, so a plugin without `uses.storage`
+/// gets `ERR_INVALID` here too. A `~` short-name alias is not checked: the
+/// card's driver (`paperpaw-fat`) names an entry by its long name only, so no
+/// path reaches a protected folder by another name.
+pub(super) fn reachable(root: u32, path: &str) -> bool {
+    root != 1 || !super::super::owner_paths::protected_first(path.split('/').next().unwrap_or(""))
+}
+
 /// Values of `open` that need no host state. `long_side` is the screen's
 /// long side in pixels.
 pub(super) fn check_open(open: &wire::ServiceDocOpen<'_>, long_side: u32) -> Result<(), i32> {
-    if open.root > 1
+    // The handed file (root 5) is for the book alone; a CSS file there is
+    // denied (`document.md` 1).
+    if open.css_root == ROOT_HANDED {
+        return Err(ERR_DENIED);
+    }
+    if (open.root > 1 && open.root != ROOT_HANDED)
         || open.css_root > 1
         || open.flags & !OPEN_FLAGS != 0
         || !path_valid(open.path)
-        || !(open.css_path.is_empty() || path_valid(open.css_path))
+        || !reachable(open.root, open.path)
+        || !(open.css_path.is_empty()
+            || (path_valid(open.css_path) && reachable(open.css_root, open.css_path)))
         || !(open.format.is_empty() || id_valid(open.format))
         || open.image_side > IMAGE_SIDE_MAX
         || open.cover_side > long_side

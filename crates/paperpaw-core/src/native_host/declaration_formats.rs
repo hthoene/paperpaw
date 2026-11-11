@@ -8,8 +8,8 @@
     dead_code,
     reason = "the document service's production host reads these when it is wired"
 )]
-use super::{DeclarationStore, Kind};
-use crate::native_host::registrations::{FormatSpec, ReaderSpec, Record};
+use super::{DeclarationStore, Kind, Slot};
+use crate::native_host::registrations::{FormatSpec, LookupSpec, ReaderSpec, Record};
 
 /// One declared format of a live plugin.
 pub(crate) struct FormatDecl<'a, 'b> {
@@ -27,12 +27,36 @@ pub(crate) struct ReaderDecl<'a, 'b> {
     pub(crate) spec: &'b ReaderSpec<'b>,
 }
 
+/// One declared lookup provider of a live plugin (`document.md` section 7).
+pub(crate) struct LookupDecl<'a, 'b> {
+    /// The declaring plugin's host owner id.
+    pub(crate) owner: u64,
+    /// The declaring plugin's id.
+    pub(crate) plugin: &'a str,
+    pub(crate) spec: &'b LookupSpec<'b>,
+}
+
 impl DeclarationStore {
+    /// Every lookup provider of every live plugin, in load order (the
+    /// providers are called in it, `document.md` section 7). The visitor must
+    /// not invoke plugins or reenter the store.
+    pub(crate) fn each_lookup(&self, visit: &mut dyn FnMut(&LookupDecl<'_, '_>)) {
+        self.each_in_load_order(Kind::Lookup, true, &mut |owner, plugin, record| {
+            if let Record::LookupSpec(spec) = record {
+                visit(&LookupDecl {
+                    owner,
+                    plugin,
+                    spec: &spec,
+                });
+            }
+        });
+    }
+
     /// Every format of every live plugin, the plugin loaded first first (its
     /// declarations' incarnation), a plugin's own in its index order. The
     /// visitor must not invoke plugins or reenter the store.
     pub(crate) fn each_format(&self, visit: &mut dyn FnMut(&FormatDecl<'_, '_>)) {
-        self.each_in_load_order(Kind::Format, &mut |owner, plugin, record| {
+        self.each_in_load_order(Kind::Format, false, &mut |owner, plugin, record| {
             if let Record::FormatSpec(spec) = record {
                 visit(&FormatDecl {
                     owner,
@@ -45,7 +69,7 @@ impl DeclarationStore {
 
     /// Every reading app of every live plugin, in the same order.
     pub(crate) fn each_reader(&self, visit: &mut dyn FnMut(&ReaderDecl<'_, '_>)) {
-        self.each_in_load_order(Kind::Reader, &mut |_, plugin, record| {
+        self.each_in_load_order(Kind::Reader, false, &mut |_, plugin, record| {
             if let Record::ReaderSpec(spec) = record {
                 visit(&ReaderDecl {
                     plugin,
@@ -57,7 +81,14 @@ impl DeclarationStore {
 
     /// The records of `kind` of live plugins, by ascending incarnation: no
     /// allocation, a scan for the next larger incarnation per plugin.
-    fn each_in_load_order(&self, kind: Kind, visit: &mut dyn for<'r> FnMut(u64, &str, Record<'r>)) {
+    /// With `declared`, a plugin's own in the order it declared them (the
+    /// providers are called in it); otherwise in its index order.
+    fn each_in_load_order(
+        &self,
+        kind: Kind,
+        declared: bool,
+        visit: &mut dyn for<'r> FnMut(u64, &str, Record<'r>),
+    ) {
         let mut last = 0;
         loop {
             let mut next: Option<(u32, usize)> = None;
@@ -83,7 +114,15 @@ impl DeclarationStore {
             let Ok(host) = owner.source.owner_id() else {
                 continue;
             };
-            for slot in owner.of_kind(kind) {
+            let slots = owner.of_kind(kind);
+            for n in 0..slots.len() {
+                let Some(slot) = (if declared {
+                    nth_declared(slots, n)
+                } else {
+                    slots.get(n).copied()
+                }) else {
+                    continue;
+                };
                 let key = super::DeclKey {
                     owner: u16::try_from(index).unwrap_or(u16::MAX),
                     batch: slot.batch,
@@ -95,6 +134,16 @@ impl DeclarationStore {
             }
         }
     }
+}
+
+/// The `n`th of `slots` by declaration (batch, then place in it): the index
+/// is in hash order. At most a few dozen slots, so no sort and no copy.
+fn nth_declared(slots: &[Slot], n: usize) -> Option<Slot> {
+    let at = |slot: &Slot| (slot.batch, slot.record);
+    slots
+        .iter()
+        .find(|slot| slots.iter().filter(|other| at(other) < at(slot)).count() == n)
+        .copied()
 }
 
 #[cfg(test)]

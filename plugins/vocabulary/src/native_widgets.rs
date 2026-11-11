@@ -190,7 +190,7 @@ impl Widgets {
         let area = area_of(frame.rect);
         let mut out = Vec::new();
         (behaviour.draw)(&mut cx, &mut out, area, item.seed)?;
-        paint::replay_with(&mut frame, &cx.font, None, &out)
+        paint::replay(&mut frame, &cx.font, &out)
     }
 
     /// What `input` opens, if it is a tap on one of the widgets.

@@ -1,7 +1,7 @@
 //! Turns the declarations into read-only batches built into the plugin image.
 #[allow(
     dead_code,
-    reason = "the screens and slots that are not native yet are built for the declaration test"
+    reason = "the build script uses the builders, not the tokens"
 )]
 mod declarations;
 
@@ -41,6 +41,7 @@ fn main() -> Result<(), String> {
     println!("cargo:rerun-if-changed=declarations.rs");
     let mut source = String::new();
     emit!(source, "SCREENS", declarations::screens);
+    emit!(source, "CABLE", declarations::cable);
     emit!(source, "NAVIGATION", declarations::navigation);
     emit!(source, "EVENTS", declarations::events);
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
