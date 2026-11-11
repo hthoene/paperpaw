@@ -1276,7 +1276,7 @@ unsafe extern "C" fn text_draw<S: 'static>(
 }
 
 #[allow(clippy::too_many_arguments, reason = "matches the ABI scalar slot")]
-unsafe extern "C" fn text_draw_inked<S>(
+unsafe extern "C" fn text_draw_inked<S: 'static>(
     ctx: *mut c_void,
     handle: u32,
     size: f32,
