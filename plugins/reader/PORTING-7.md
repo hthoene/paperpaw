@@ -489,6 +489,42 @@ relative to the data folder).
   without speech says *cannot read aloud* only. `event.spoken` (89) goes only to plugins that subscribed (Services, `ui.md` 7), so the reader subscribes
   (`SPOKEN`, token 16 in `declarations::events`; the declaration test now counts 8 events). Device gate: a notice must not count as a stack row (op 1), or it ends the reading at once.
 
+## Hands-free and auto-turn (view slice R8c, Port E)
+
+- **Ported:** the action `reader.auto-turn` (menu *More*, the key; Beta 3's name and texts
+  `reader.auto-turn.started` with `{seconds}` and `.stopped`, en and de) starts and stops pages that turn by themselves,
+  every `reader.auto-turn-seconds` seconds (5 to 600, default 30, whole seconds, no float). `src/native_handsfree.rs`:
+  the model `AutoTurn` (running for one screen instance; toggle, an input's `Reaction`, close), `classify` (what an input is
+  to the timer), the interval, and the glue `Hands` (`core.work`, the setting, the messages). The timer is one work with the
+  key `auto-turn`, declared with `after_ms` and declared again after each turn (a key declared again replaces the work, so
+  at most one waits and nothing is left behind; `every_ms` cannot be used, its floor is a minute). The work is the host's
+  (`event.work_due`, the subscription of the quiet-time save); the tick asks the reading screen for the next page by the
+  action `core.next-page` through `View::input`, so a tick is a turn by hand: the place is written (5-second rule), reported
+  and redrawn, and the quiet-time save starts again. A page turned by hand sets the count anew (Beta 3); the menu and the
+  confirm button (a tap in the middle) stop it and are taken (Beta 3); the end of the book stops it.
+- **Memory:** Beta 3 had no per-tick buffers beyond the page's layout, and neither has this: the work call, the setting read
+  and the messages use stack arrays (256 + 256 B at most; messages 128 + 256 + 512 B, only on start and stop, never in a tick),
+  no `String` or `Vec` is made, no float is touched (`interval_ms` is integer arithmetic on the clamped value). A refused
+  or missing work service is "cannot turn pages by itself" (`reader.auto-turn.unavailable`, new, en and de) and starts nothing.
+- **Differences from interface 6:** (1) *any* other action, gesture or widget input also stops it (Beta 3 let them run on;
+  the plugin cannot see an overlay such as the menu or the font panel open over it, so every input that could is a stop);
+  raw key and contact records do not (the host resolves them to actions and gestures). (2) It also stops when another screen
+  opens over the reading screen, when the reading screen closes, at `event.suspend`/`event.stopping` and when another of the
+  reader's actions runs (`event.action_run`); Beta 3's screen simply was not ticked then. (3) The tick is a quiet run
+  (`work.md` 2.3): no message is possible in it, so a stop at the end of the book says nothing (Beta 3 did not either). (4)
+  The status line's clock icon is not shown (status lines are not declared yet); Beta 3's refusal to let go of the book for a
+  screen above while it ran is not ported (no squeeze event). (5) The timer is counted by the host's work clock, which runs
+  only while the device is awake (`work.md` 0).
+- **Not yet:** read-aloud (another slice; Beta 3's hands-free icon for it too); the overlays that the host opens without a
+  word to the plugin (the quick-settings tap) are seen only through the input or the action that opened them, so a due call
+  can turn a page under an overlay the plugin was not told of (named gap, see the gates); status icon.
+- **Unmeasured X4 gates:** the extra `work.declare` (one host call, stack buffers) at each tick and at each page turn by hand
+  while it runs, on top of the quiet-time declare of every turn; the time of a tick (a page's layout in the event callback:
+  as the back-layout, with the page turn); heap during a tick (as a turn by hand); the accuracy of the host's work timer
+  against Beta 3's `wake_at` (the host's naps wake for it, `work.md` 2.1, to the millisecond on the X4 only for exact
+  timers: this one is `after_ms`, so it may be late by a main-loop nap); at most 8 works per plugin on the X4 (this is the
+  second, the quiet-time save the first).
+
 ## Book info, the font panel and the bookmark (view slice R3b, Port D, `native_bookmark.rs`, `native_view/r3.rs`)
 
 - `reader.book-info` opens the slot `core.book-info` with the book's path as a hand-over parameter (the files
