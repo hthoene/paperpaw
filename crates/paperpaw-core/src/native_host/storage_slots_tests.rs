@@ -192,7 +192,7 @@ fn all_slots_use_the_scoped_storage_and_only_the_owner_folder() {
                 read_at(scope, OWNER, None, 0, bytes(b"state"), 2, output(&mut out)),
                 4
             );
-            assert_eq!(&out, b"cdef\xa5\xa5\xa5\xa5");
+            assert_eq!(&out, b"cdef\0\0\0\0");
             assert_eq!(
                 read_at(
                     scope,
@@ -579,7 +579,7 @@ fn bad_pairs_and_bounds_are_rejected_before_storage_or_output() {
 }
 
 #[test]
-fn reserve_and_read_errors_preserve_files_and_output() {
+fn reserve_and_read_errors_preserve_files_and_zero_the_output() {
     let backend = Backend::default();
     // Stay above the 4096-byte recall limit so an invalid backend count
     // reaches the raw adapter instead of being consumed by the file cache.
@@ -656,7 +656,8 @@ fn reserve_and_read_errors_preserve_files_and_output() {
             );
         }
         assert_eq!(len, 91);
-        assert_eq!(out, [0xa5; 4]);
+        // A failed read leaves zeros, never what the card wrote before it failed.
+        assert_eq!(out, [0; 4]);
     });
     assert_eq!(backend.files.get(FILE).unwrap(), data);
 }
@@ -733,10 +734,19 @@ fn a_read_holds_no_copy_of_the_callers_buffer() {
     let backend = Backend::default();
     backend
         .files
-        .write(FILE, &alloc::vec![0x5a; MAX_DATA])
+        .write(FILE, &alloc::vec![0x5a; MAX_DATA + 1])
         .unwrap();
     scoped(&backend, |scope, _| {
         let mut out = alloc::vec![0_u8; MAX_DATA];
+        // The kernel remembers a file's size for the rest of a call, and small
+        // files (up to 4 KiB) whole (`recall.rs`): the file is larger, and its
+        // size is asked first, so what is measured is the slot's own heap.
+        let mut len = 0;
+        // SAFETY: live input and an exclusive output.
+        assert_eq!(
+            unsafe { size(scope, OWNER, None, 0, bytes(b"state"), &mut len) },
+            OK
+        );
         let before = crate::native_host::shell::tests::HEAP_LIVE.with(Cell::get);
         crate::native_host::shell::tests::HEAP_PEAK.with(|peak| peak.set(before));
         // SAFETY: valid disjoint input and exclusive initialized output.
@@ -849,6 +859,24 @@ fn an_empty_read_needs_no_allocation_and_reads_nothing() {
     let backend = Backend::default();
     backend.files.write(FILE, b"keep").unwrap();
     scoped(&backend, |scope, _| {
+        // The kernel keeps a small file whole for the rest of a call
+        // (`recall.rs`); one read first, so only the slot's own heap is measured.
+        let mut first = [0_u8; 1];
+        // SAFETY: live input and an exclusive output.
+        assert_eq!(
+            unsafe {
+                read_at(
+                    scope,
+                    OWNER,
+                    None,
+                    0,
+                    bytes(b"state"),
+                    0,
+                    output(&mut first),
+                )
+            },
+            1
+        );
         let before = crate::native_host::shell::tests::HEAP_LIVE.with(Cell::get);
         crate::native_host::shell::tests::HEAP_PEAK.with(|peak| peak.set(before));
         // SAFETY: live input and a non-null, exclusive empty output buffer.
