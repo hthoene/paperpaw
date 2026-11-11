@@ -127,6 +127,12 @@ fn grow(buffer: &mut alloc::vec::Vec<u8>, size: usize) -> bool {
     true
 }
 
+/// Whether `owner` subscribed to the tag of the one-record event `event`.
+fn subscribed(instances: &NativeInstances, owner: u64, event: &[u8]) -> bool {
+    super::registrations::RawRecord::single(event)
+        .is_ok_and(|raw| instances.subscribed(owner, raw.tag()))
+}
+
 /// Up to [`PER_OWNER`] events of `service` for `owner`; `true` when more may
 /// wait (the cap was reached, or the table was busy).
 fn drain(
@@ -152,8 +158,14 @@ fn drain(
                     .zip(run.and_then(|run| u32::try_from(run).ok()))
                     .map(|(sched, run)| sched.enter_run_callback(owner, run));
                 // A failing callback does not get the event again: the
-                // service frees what was readable either way.
-                call(owner, lease, &buffer[..len]);
+                // service frees what was readable either way. Where the
+                // service tells subscribers only, a plugin that did not
+                // subscribe to the event's tag is not called (its dispatch
+                // would refuse it unread): the event is dropped, as the
+                // picture pump does.
+                if !service.subscribers_only() || subscribed(instances, owner, &buffer[..len]) {
+                    call(owner, lease, &buffer[..len]);
+                }
                 drop(_guard);
                 if service.event_delivered(owner) == Err(ERR_BUSY) {
                     return true;
@@ -224,6 +236,8 @@ impl crate::Kernel {
         // The reading session's events are queued for the subscribers (the
         // reader's report raised them), before the pump that tells them.
         let reading_more = self.native_reading_pump();
+        // The native formats' files are books of the walk (`native_book_formats`).
+        self.native_book_formats_sync();
         // What the library says changed is queued for the subscribers
         // (`library_events`), before the pump that tells them.
         let library_more = self.native_library_pump();
@@ -235,8 +249,12 @@ impl crate::Kernel {
         let widget_more = self.native_widget_pump();
         // A changed screen stack reaches the plugins that subscribed (`stack_events`).
         let stack_more = self.native_stack_pump();
+        // The folders of the running data plugins follow the plugin set.
+        self.native_data_plugins_sync();
         // The library's move job goes on, a bounded step a pass (`moves_pump`).
         let moves_more = self.native_moves_pump();
+        // A document a format is preparing takes a step (`doc_pump`).
+        let doc_more = self.native_doc_pump();
         // Questions open their dialogs and their answers come back.
         let dialog_more = self.native_dialog_pump();
         // The outcomes of Wi-Fi requests reach their senders (`wifi_events`).
@@ -254,10 +272,13 @@ impl crate::Kernel {
                 || library_more
                 || speech_more
                 || moves_more
+                || doc_more
                 || dialog_more
                 || wifi_more
                 || firmware_more,
         );
+        // Saved passwords that did not open here: said once per start.
+        self.secrets_notice();
     }
 
     /// When the pump wants to run again: now while events remain, else at
@@ -267,7 +288,9 @@ impl crate::Kernel {
     /// through its tick at once, so an idle socket costs no wake-up.
     pub(crate) fn service_due(&self) -> Option<Instant> {
         let instances = &self.shared.native_instances;
-        if instances.service_more() {
+        // An event queued after this call's pump ran (the commands that ran
+        // after it raised it) is told at once too.
+        if instances.service_more() || instances.setting_events.any_waiting() {
             return Some(self.now);
         }
         instances
@@ -278,6 +301,7 @@ impl crate::Kernel {
             .chain(instances.service_retry())
             .chain(instances.image_pump.retry_at())
             .chain(instances.moves_retry())
+            .chain(instances.doc_retry())
             .chain(self.native_demand_due().map(|at| at.millis()))
             .chain(self.native_wifi_due())
             .chain(self.firmware_due())

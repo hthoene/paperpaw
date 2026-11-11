@@ -81,13 +81,31 @@ fn committed_raw_construction_refuses_duplicates_and_store_refuses_invalid_flags
         name: "panel",
         title: "Panel",
         token: 1,
-        flags: 1 << 8,
+        flags: 1 << 9,
     })]);
     let mut allocations = Allocations::default();
     assert!(matches!(
         pending(&source, false, &mut allocations),
         Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     ));
+}
+
+#[test]
+fn a_screen_may_be_declared_with_its_hints_hidden() {
+    // Bit 8 `hints_hidden`, beside the other policy bits.
+    for flags in [1 << 8, (1 << 8) | (1 << 2) | (1 << 5)] {
+        let source = source(&[Record::ScreenSpec(ScreenSpec {
+            name: "panel",
+            title: "Panel",
+            token: 1,
+            flags,
+        })]);
+        let mut allocations = Allocations::default();
+        assert!(
+            pending(&source, false, &mut allocations).is_ok(),
+            "{flags:#x}"
+        );
+    }
 }
 
 #[test]

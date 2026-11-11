@@ -830,6 +830,17 @@ impl DeclarationStore {
         })
     }
 
+    /// Whether the owner `key` is in the store and runs: `None` where it is
+    /// not (removed, turned off, replaced), `Some(false)` where it stays
+    /// without running (stopped after a fault, until it is taken out).
+    pub(crate) fn owner_runs(&self, key: u64) -> Option<bool> {
+        self.owners
+            .iter()
+            .flatten()
+            .find(|owner| owner.source.owner_id() == Ok(key))
+            .map(|owner| owner.source.generation() == owner.generation)
+    }
+
     /// Remove indexes before releasing the retained owner/module guard.
     pub(crate) fn remove_owner(&mut self, id: &Id, generation: u32) {
         for owner in &mut self.owners {

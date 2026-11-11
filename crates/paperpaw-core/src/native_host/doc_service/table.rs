@@ -9,13 +9,16 @@ use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_CANCELLED, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE,
-    ERR_NOT_FOUND, ERR_STATE,
+    ERR_NOT_FOUND, ERR_STATE, ERR_TIMEOUT,
 };
 
 /// `doc_state.state`.
 pub(crate) const READY: u32 = 0;
 pub(crate) const PREPARING: u32 = 1;
 pub(crate) const FAILED: u32 = 2;
+/// A preparation that answers "more" this many times in a row without
+/// rising above its best progress has failed (`ERR_TIMEOUT`).
+pub(crate) const STALL_CAP: u8 = 32;
 
 /// How many taken documents are remembered as `ERR_CANCELLED` (48 bytes).
 const EVICTED: usize = 4;
@@ -62,6 +65,12 @@ impl Limits {
         } else {
             4 << 30
         }
+    }
+
+    /// The device prepares one book at a time, in open order (`document.md`
+    /// 2.1: the X4's rule); elsewhere the preparing documents take turns.
+    pub(crate) const fn one_preparation(&self) -> bool {
+        self.device <= self.per_owner
     }
 
     /// At most 2 per opener and 2 device-wide: the shown book and an index build.
@@ -120,6 +129,14 @@ pub(crate) struct Document {
     pub(crate) format_gone: bool,
     /// The block whose fragments are being read: what the earlier ones said.
     pub(crate) block: Option<Pending>,
+    /// The state or the progress moved since the opener last heard of it:
+    /// `event.document_changed` (88) waits for it, one per document (the
+    /// latest values are read when it is delivered).
+    changed: bool,
+    /// The highest progress a preparation answered, and how many answers in a
+    /// row did not rise above it (`STALL_CAP`).
+    best_ppm: u32,
+    stalls: u8,
     strikes: u8,
 }
 
@@ -274,6 +291,9 @@ impl DocumentTable {
             reader_held: false,
             format_gone: false,
             block: None,
+            changed: false,
+            best_ppm: 0,
+            stalls: 0,
             sections: None,
             strikes: 0,
         });
@@ -347,6 +367,9 @@ impl DocumentTable {
         document.status = status;
         document.flags = flags;
         document.conversion = conversion;
+        // A preparation starts here.
+        document.best_ppm = progress_ppm;
+        document.stalls = 0;
         Ok(())
     }
 
@@ -356,6 +379,102 @@ impl DocumentTable {
         document.image_side = image_side;
         document.cover_side = cover_side;
         Ok(())
+    }
+
+    /// The document whose preparation takes the next step: the oldest
+    /// preparing one where the device prepares one at a time, else the first
+    /// after `after` (the id of the last one served), round the table.
+    pub(crate) fn next_preparing(&self, after: u32) -> Option<Document> {
+        let rows = self.documents.try_borrow().ok()?;
+        let preparing = |d: &&Document| d.state == PREPARING && d.closed_by_host == 0;
+        let oldest = rows.iter().find(preparing);
+        if self.limits.one_preparation() {
+            return oldest.copied();
+        }
+        rows.iter()
+            .find(|d| preparing(d) && d.id > after)
+            .or(oldest)
+            .copied()
+    }
+
+    /// Whether any document is preparing (a held table counts as one: the
+    /// step will find out).
+    pub(crate) fn any_preparing(&self) -> bool {
+        self.documents.try_borrow().map_or(true, |rows| {
+            rows.iter()
+                .any(|d| d.state == PREPARING && d.closed_by_host == 0)
+        })
+    }
+
+    /// The format's answer to a `prepare`: the document's state, progress,
+    /// status and flags. A preparation that answers "more" [`STALL_CAP`] times
+    /// in a row without rising above its best progress has failed with
+    /// `ERR_TIMEOUT` (`document.md` 2.1), as if the format had said so.
+    /// Returns whether the state or the progress moved (the opener hears of it
+    /// with `event.document_changed`), and the state and status now held.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` (the table is borrowed), `ERR_NOT_FOUND`.
+    pub(crate) fn set_prepared(
+        &self,
+        id: u32,
+        state: u32,
+        progress_ppm: u32,
+        status: i32,
+        flags: u32,
+    ) -> Result<(bool, u32, i32), i32> {
+        let mut rows = self.rows()?;
+        let document = rows.iter_mut().find(|d| d.id == id).ok_or(ERR_NOT_FOUND)?;
+        let (mut state, mut status) = (state, status);
+        if state == PREPARING {
+            if progress_ppm > document.best_ppm {
+                document.best_ppm = progress_ppm;
+                document.stalls = 0;
+            } else {
+                document.stalls = document.stalls.saturating_add(1);
+                if document.stalls >= STALL_CAP {
+                    state = FAILED;
+                    status = ERR_TIMEOUT;
+                }
+            }
+        }
+        let moved = document.state != state || document.progress_ppm != progress_ppm;
+        document.state = state;
+        document.progress_ppm = progress_ppm;
+        document.status = status;
+        document.flags = flags;
+        document.changed |= moved;
+        Ok((moved, state, status))
+    }
+
+    /// The state or the progress of `owner`'s oldest changed document, given
+    /// to `encode`; the document counts as told when `encode` answers `Ok`
+    /// (later changes raise it again), and as still waiting when it fails.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the table is borrowed; what `encode` answers.
+    pub(crate) fn take_changed(
+        &self,
+        owner: u64,
+        encode: impl FnOnce(&Document) -> Result<usize, i32>,
+    ) -> Result<Option<usize>, i32> {
+        let mut rows = self.rows()?;
+        let Some(document) = rows
+            .iter_mut()
+            .find(|d| d.owner == owner && d.changed && d.closed_by_host == 0)
+        else {
+            return Ok(None);
+        };
+        let written = encode(document)?;
+        document.changed = false;
+        Ok(Some(written))
+    }
+
+    /// Whether an `event.document_changed` waits for any opener.
+    pub(crate) fn changed_waiting(&self) -> bool {
+        self.documents
+            .try_borrow()
+            .map_or(true, |rows| rows.iter().any(|d| d.changed))
     }
 
     /// `close`: free the id. A host-closed document may be closed too.

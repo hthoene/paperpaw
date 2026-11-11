@@ -945,3 +945,75 @@ fn a_root_of_five_is_passed_on_only_for_the_file_the_instance_holds() {
         assert!(v.make(12, &[("root", "0"), ("path", "a.txt")]).is_ok());
     });
 }
+
+#[test]
+fn an_event_without_an_instance_passes_on_the_file_of_the_plugins_topmost_screen_that_holds_it() {
+    const MAKER: u64 = 9;
+    const OTHER: u64 = 10;
+    const READER: u64 = 12;
+    view(|v| {
+        // Two makers hand a file of one name to two screens of the reader (4,
+        // 5) and one to a screen of another plugin (6); a screen of the
+        // reader holds none (7).
+        for (maker, instance) in [(MAKER, 4), (OTHER, 5), (OTHER, 6)] {
+            let made = v
+                .make(maker, &[("root", "0"), ("path", "text.txt")])
+                .unwrap();
+            v.open_with(maker, made, instance);
+        }
+        *v.stack.rows.borrow_mut() =
+            std::vec![row(4, READER), row(5, READER), row(6, 77), row(7, READER)];
+        // The answer to a question the reader asked: no instance runs.
+        v.stack.instance.set(None);
+        let search = v
+            .make(READER, &[("root", "5"), ("path", "text.txt")])
+            .unwrap();
+        v.open_with(READER, search, 8);
+        // The topmost screen of the reader that holds it (5, not 4 nor the
+        // other plugin's 6): its maker and root.
+        assert_eq!(handed_of(v, 8), Ok((OTHER, 0, String::from("text.txt"))));
+        // Another path, or no screen of the plugin holding one: refused.
+        assert_eq!(
+            v.make(READER, &[("root", "5"), ("path", "other.txt")])
+                .err(),
+            Some(ERR_DENIED)
+        );
+        assert_eq!(
+            v.make(31, &[("root", "5"), ("path", "text.txt")]).err(),
+            Some(ERR_DENIED),
+            "a plugin with no screen holding it"
+        );
+        // No callback at all (no stack to look at).
+        v.stack.epoch.set(0);
+        assert!(
+            v.make(READER, &[("root", "5"), ("path", "text.txt")])
+                .is_err()
+        );
+    });
+}
+
+#[test]
+fn a_hand_over_the_host_made_is_nobodys_to_pass_on() {
+    const READER: u64 = 12;
+    view(|v| {
+        // A file whose hand-over the host's key made (the host owns it): the
+        // key is also the store's "no maker" mark, so passing it on would
+        // resolve against the reader's own folder. Refused, in a screen's
+        // callback and in an event's.
+        let made = v
+            .make(u64::MAX, &[("root", "0"), ("path", "text.txt")])
+            .unwrap();
+        v.open_with(u64::MAX, made, 4);
+        v.stack.instance.set(Some(4));
+        assert_eq!(
+            v.make(READER, &[("root", "5"), ("path", "text.txt")]).err(),
+            Some(ERR_DENIED)
+        );
+        v.stack.instance.set(None);
+        *v.stack.rows.borrow_mut() = std::vec![row(4, READER)];
+        assert_eq!(
+            v.make(READER, &[("root", "5"), ("path", "text.txt")]).err(),
+            Some(ERR_DENIED)
+        );
+    });
+}

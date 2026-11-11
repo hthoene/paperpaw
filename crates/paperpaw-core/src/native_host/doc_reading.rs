@@ -38,7 +38,7 @@ pub(crate) const FINISHED: u32 = 1;
 /// `book_closed.reason`: the book was closed.
 const CLOSED: u32 = 0;
 /// `book_closed.reason` and `book_opened.reason`: the device slept or woke.
-const SLEPT: u32 = 1;
+pub(super) const SLEPT: u32 = 1;
 
 /// One event for the kernel's pump: the event's wire tag and its record as a
 /// one-record batch.

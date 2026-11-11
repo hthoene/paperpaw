@@ -226,6 +226,7 @@ pub(crate) mod book_data_steps;
 pub(crate) mod busy_adapters;
 #[path = "native_host/call_services.rs"]
 mod call_services;
+pub(crate) mod data_plugin_folders;
 #[path = "native_host/data_services.rs"]
 mod data_services;
 mod declared_services;
@@ -235,6 +236,7 @@ pub(crate) mod dialog_pump;
 pub(crate) mod dialogs;
 pub(crate) mod doc_cache;
 pub(crate) mod doc_host;
+mod doc_pump;
 pub(crate) mod doc_reading;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
@@ -270,6 +272,7 @@ pub(crate) mod image_pump;
 )]
 pub(crate) mod image_service;
 pub(crate) mod lib_changed;
+pub(crate) mod lib_cover;
 #[allow(
     dead_code,
     reason = "wired by HostWiring::library; the write half is todo 307"
@@ -294,6 +297,8 @@ pub(crate) mod linked_plugins;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
 mod moves_pump;
+pub(crate) mod native_book_formats;
+pub(crate) mod native_host_call;
 #[allow(
     dead_code,
     reason = "the shell builds the pool with the NET host and the SOCK host charges it"

@@ -32,7 +32,8 @@ batch lies in the image, owned otherwise; refused at activation until the SDK vi
 - [D] `token` names the plugin callback state the host passes to `draw`, `input` and
   `dispatch_event` for this screen or action. Tokens are the plugin's own numbers; one token may
   serve several screens.
-- [D] `screen.spec.flags`: bit 0 `full_refresh_on_open`; other bits must be 0 (`ERR_UNSUPPORTED`).
+- [D] `screen.spec.flags`: bit 0 `full_refresh_on_open`, the policy bits of `ui.md` section 1.2
+  (bits 1-8, among them 8 `hints_hidden`); other bits must be 0 (`ERR_UNSUPPORTED`).
   `action.spec.flags`: bit 0 `needs_screen` (the action only runs while one of this plugin's
   screens is on top); other bits 0.
 - [D] Names follow the declaration name rules (`records.md`); full id = `<plugin>.<name>`. A
