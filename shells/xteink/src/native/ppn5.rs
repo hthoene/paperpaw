@@ -500,8 +500,8 @@ mod x4 {
         kernel: &mut paperpaw_core::Kernel,
         table: &crate::native::DeviceTable,
     ) {
-        fn linked_report(_: &X4Services, tag: u32, status: i32) {
-            warn!("native: linked: call {tag} ended with {status}");
+        fn linked_report(_: &X4Services, plugin: &str, tag: u32, status: i32) {
+            warn!("native: linked: {plugin}: call {tag} ended with {status}");
         }
         use paperpaw_x4::native_offer::{features, leak, services};
         let wired = crate::device_host::wired_families(kernel.wifi_model().is_some());

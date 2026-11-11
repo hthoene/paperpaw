@@ -449,7 +449,7 @@ fn install_resources(
     folder: Option<&str>,
 ) -> Result<(), Error> {
     RES.with(|value| value.set(res));
-    let result = kernel.register_native_in(host(0), &device_depth(kernel), folder, |_, _, _| {});
+    let result = kernel.register_native_in(host(0), &device_depth(kernel), folder, |_, _, _, _| {});
     RES.with(|value| value.set(0));
     result
 }
@@ -459,7 +459,7 @@ fn install_resources(
 /// the admission.
 fn admit_resources(kernel: &mut crate::Kernel, res: u8, folder: Option<&str>) -> Result<(), Error> {
     RES.with(|value| value.set(res));
-    let result = kernel.admit_native(host(0), &device_depth(kernel), folder, |_, _, _| {});
+    let result = kernel.admit_native(host(0), &device_depth(kernel), folder, |_, _, _, _| {});
     RES.with(|value| value.set(0));
     result
 }
@@ -472,17 +472,17 @@ fn a_plugin_with_a_depth_counter_of_its_own_is_refused() {
     for name in ["one", "two"] {
         let hosted = host_named(name, 0);
         kernel
-            .register_native(hosted, &depth, |_, _, _| {})
+            .register_native(hosted, &depth, |_, _, _, _| {})
             .unwrap();
     }
     let other = FlatDepth::try_new().unwrap();
-    let result = kernel.register_native(host_named("three", 0), &other, |_, _, _| {});
+    let result = kernel.register_native(host_named("three", 0), &other, |_, _, _, _| {});
     assert!(matches!(result, Err(Error::Status(host_glue::ERR_STATE))));
     assert!(kernel.shared.native_instances.find("three").is_none());
 }
 
 pub(super) fn install(kernel: &mut crate::Kernel, flags: u32) -> Result<(), Error> {
-    kernel.register_native(host(flags), &device_depth(kernel), |_, _, _| {
+    kernel.register_native(host(flags), &device_depth(kernel), |_, _, _, _| {
         REPORTS.with(|value| value.set(value.get() + 1));
     })
 }
@@ -847,7 +847,11 @@ fn native_screen_below_guard_is_opened_and_closed_without_being_shown() {
     let mut kernel = kernel(1 << 1);
     for owner in ["base", "other"] {
         kernel
-            .register_native(host_named(owner, 0), &device_depth(&kernel), |_, _, _| {})
+            .register_native(
+                host_named(owner, 0),
+                &device_depth(&kernel),
+                |_, _, _, _| {},
+            )
             .unwrap();
     }
     kernel.open_screen(
@@ -1238,7 +1242,7 @@ fn first_failed_admission_retains_pool_for_orphan_cleanup_before_any_row_exists(
     {
         let _busy = documents.table().hold().unwrap();
         UNSUPPORTED.with(|value| value.set(true));
-        let result = kernel.register_native(hosted, &depth, |_, _, _| {});
+        let result = kernel.register_native(hosted, &depth, |_, _, _, _| {});
         UNSUPPORTED.with(|value| value.set(false));
         assert!(matches!(
             result,
@@ -1282,7 +1286,7 @@ fn expired_directory_refuses_a_native_callback_before_entering_plugin_code() {
         retained,
         FlatDepth::try_new().unwrap(),
         flat_host,
-        |_, _, _| {},
+        |_, _, _, _| {},
         crate::native_host::native_instances::test_identity("factory"),
     );
     drop(directory);
