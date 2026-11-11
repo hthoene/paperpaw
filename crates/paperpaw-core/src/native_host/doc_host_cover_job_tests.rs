@@ -779,3 +779,51 @@ fn a_cover_call_that_cannot_be_made_now_is_retried_not_failed() {
         assert_eq!(w.state.cover_at("books/a.epub"), CoverAt::Made);
     });
 }
+
+/// The format's calls for the job (its preparing steps, its cover, its close)
+/// are background job steps for the shell (`job_step`); the open that asked
+/// for the cover and a reader's own book are not.
+#[test]
+fn the_jobs_calls_are_background_steps_and_a_readers_are_not() {
+    let steps = crate::native_host::job_step::tests::count();
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        // The library's open, inside its call: not a job step yet.
+        job(w, "books/a.epub");
+        assert_eq!(steps(), (0, 0));
+        // A preparing step of the job, from the pump.
+        prepare(w);
+        assert_eq!(steps(), (1, 1));
+        // Ready: the cover (op 17) and the close (op 4), each a step.
+        answer(w, READY, 0);
+        prepare(w);
+        cover(w);
+        let before = steps();
+        assert!(matches!(look(w), JobStep::Ended { ready: true, .. }));
+        let after = steps();
+        assert_eq!(after.0, after.1, "every step ended");
+        assert_eq!(after.0 - before.0, 2, "the cover and the close");
+        // A reader's book, opened and prepared: its calls are its own.
+        *w.reply.borrow_mut() = Ok(fmt_state(PREPARING, 0, 0));
+        w.open(1, "books/b.epub").unwrap();
+        answer(w, READY, 0);
+        prepare(w);
+        assert_eq!(steps(), after, "{:?}", ops(w));
+    });
+}
+
+/// A job step whose call fails (the format answers with an error, or is
+/// refused) still ends: the shell's flag clears on every return; only a call
+/// that never returns (a reset) leaves it set.
+#[test]
+fn a_failed_job_step_ends_too() {
+    use paperpaw_native::host_glue::ERR_BUSY;
+    let steps = crate::native_host::job_step::tests::count();
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        job(w, "books/a.epub");
+        *w.reply.borrow_mut() = Err(ERR_BUSY);
+        prepare(w);
+        assert_eq!(steps(), (1, 1));
+    });
+}

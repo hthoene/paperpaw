@@ -128,6 +128,9 @@ pub(crate) mod secrets_service;
 #[path = "native_host/host_slot.rs"]
 pub mod host_slot;
 
+#[path = "native_host/job_step.rs"]
+pub mod job_step;
+
 #[path = "native_host/frame_owner.rs"]
 pub(crate) mod frame_owner;
 

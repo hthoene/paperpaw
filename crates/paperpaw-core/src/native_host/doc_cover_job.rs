@@ -255,6 +255,8 @@ impl DocState {
             let mut scratch = Vec::new();
             if scratch.try_reserve_exact(SCRATCH).is_ok() {
                 scratch.extend(core::iter::repeat_n(0_u8, SCRATCH));
+                // The job's own close: a step of the background job (`job_step`).
+                let _job = crate::native_host::job_step::enter();
                 Stage {
                     route,
                     images: &NoImages,

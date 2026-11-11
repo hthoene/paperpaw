@@ -211,6 +211,10 @@ impl<'a> Stage<'a> {
         } else {
             &super::doc_service::Options::NONE
         };
+        // A call for the host's own background job (a format preparing or
+        // making a cover on its own time) is told to the shell as such.
+        let _job = (who.owner == crate::native_host::doc_service::HOST_JOB)
+            .then(crate::native_host::job_step::enter);
         let length = self.run(target, &record, options, out)?;
         self.translate(who, call, out, length)
     }
