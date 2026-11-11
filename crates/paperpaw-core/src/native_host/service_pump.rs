@@ -127,6 +127,12 @@ fn grow(buffer: &mut alloc::vec::Vec<u8>, size: usize) -> bool {
     true
 }
 
+/// Whether `owner` subscribed to the tag of the one-record event `event`.
+fn subscribed(instances: &NativeInstances, owner: u64, event: &[u8]) -> bool {
+    super::registrations::RawRecord::single(event)
+        .is_ok_and(|raw| instances.subscribed(owner, raw.tag()))
+}
+
 /// Up to [`PER_OWNER`] events of `service` for `owner`; `true` when more may
 /// wait (the cap was reached, or the table was busy).
 fn drain(
@@ -152,8 +158,14 @@ fn drain(
                     .zip(run.and_then(|run| u32::try_from(run).ok()))
                     .map(|(sched, run)| sched.enter_run_callback(owner, run));
                 // A failing callback does not get the event again: the
-                // service frees what was readable either way.
-                call(owner, lease, &buffer[..len]);
+                // service frees what was readable either way. Where the
+                // service tells subscribers only, a plugin that did not
+                // subscribe to the event's tag is not called (its dispatch
+                // would refuse it unread): the event is dropped, as the
+                // picture pump does.
+                if !service.subscribers_only() || subscribed(instances, owner, &buffer[..len]) {
+                    call(owner, lease, &buffer[..len]);
+                }
                 drop(_guard);
                 if service.event_delivered(owner) == Err(ERR_BUSY) {
                     return true;

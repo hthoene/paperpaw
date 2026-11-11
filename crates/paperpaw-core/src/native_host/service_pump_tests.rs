@@ -30,6 +30,10 @@ impl NativeInstance for Plugin {
     fn callback_depth(&self) -> u8 {
         self.depth.get()
     }
+    /// Every plugin here subscribed to `document_changed` alone.
+    fn subscribed(&self, tag: u32) -> bool {
+        tag == crate::native_host::registrations::EVENT_DOCUMENT_CHANGED_TAG
+    }
     fn service_event(&self, bytes: &[u8], _: &Env<'_>) -> Result<i32, i32> {
         self.seen.borrow_mut().push(bytes.to_vec());
         self.answer.get()
@@ -64,8 +68,13 @@ struct Service {
     ticks: Cell<u32>,
     deadline: Cell<Option<u64>>,
     started: RefCell<Vec<u64>>,
+    /// Its events go to subscribers only (as the document service's).
+    subscribers_only: Cell<bool>,
 }
 impl ServiceEvents for Service {
+    fn subscribers_only(&self) -> bool {
+        self.subscribers_only.get()
+    }
     fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<(usize, Option<u64>)>, i32> {
         if self.busy_next.replace(false) {
             return Err(ERR_BUSY);
@@ -359,4 +368,44 @@ fn a_refused_larger_buffer_leaves_the_event_waiting_for_the_retry_time() {
     assert_eq!(service.queue.borrow().len(), 1, "the event is not lost");
     assert!(!run_at(&f, &service, 5_000 + RETRY_MS));
     assert_eq!(f.seen[0].borrow().last().unwrap().len(), 1_000);
+}
+
+/// The document service tells subscribers only: an event of a tag the plugin
+/// did not subscribe to is dropped uncalled (no failing callback, no warning)
+/// and still counts as delivered; one it subscribed to reaches it.
+#[test]
+fn an_event_for_subscribers_only_skips_a_plugin_that_did_not_subscribe() {
+    use crate::native_host::codec;
+    use crate::native_host::registrations::{EventDocumentChanged, EventDocumentClosed, Record};
+    let f = fixture(1);
+    let service = Service::default();
+    service.subscribers_only.set(true);
+    let mut buffer = [0_u8; 64];
+    for record in [
+        Record::EventDocumentClosed(EventDocumentClosed {
+            now_ms: 1,
+            document: 7,
+            reason: 1,
+        }),
+        Record::EventDocumentChanged(EventDocumentChanged {
+            now_ms: 1,
+            document: 7,
+            state: 1,
+            progress_ppm: 500_000,
+        }),
+    ] {
+        let len = codec::encode_event(&record, &mut buffer).unwrap();
+        service
+            .queue
+            .borrow_mut()
+            .push((f.keys[0], buffer[..len].to_vec()));
+    }
+    assert!(!run(&f, &service));
+    let seen = f.seen[0].borrow();
+    assert_eq!(seen.len(), 1, "only the event it subscribed to");
+    assert!(matches!(
+        codec::decode_any_single(&seen[0]).unwrap(),
+        Record::EventDocumentChanged(_)
+    ));
+    assert_eq!(service.delivered.borrow().len(), 2, "both freed");
 }
