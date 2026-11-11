@@ -25,6 +25,9 @@ const RETRY_MS: u64 = 500;
 /// still never holds the idle or the sleep timer off (it is no input, and no
 /// wake counts as one).
 const JOB_GAP_MS: u64 = 100;
+/// The same where the device saves power (the power modes Saving and Offline):
+/// the job goes on ten times slower, so it costs little battery.
+const JOB_GAP_SAVING_MS: u64 = 1_000;
 /// ... up to this (500 ms shifted at most seven times).
 const RETRY_MAX_MS: u64 = RETRY_MS << 7;
 
@@ -103,7 +106,12 @@ impl crate::Kernel {
                 // comes after a short gap, as a timed wake and not as "more",
                 // so it goes on on an idle device and never holds the idle or
                 // the sleep timer off.
-                instances.set_doc_retry(job_only.then(|| self.now.millis() + JOB_GAP_MS));
+                let gap = if self.shared.power.level == paperpaw_sdk::power::PowerLevel::Normal {
+                    JOB_GAP_MS
+                } else {
+                    JOB_GAP_SAVING_MS
+                };
+                instances.set_doc_retry(job_only.then(|| self.now.millis() + gap));
                 !job_only
             }
             PrepareStep::Later => {
