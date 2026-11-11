@@ -383,3 +383,57 @@ fn every_allocation_of_a_query_refuses_cleanly() {
     );
     assert!(counts.iter().all(|&n| n >= 1), "{counts:?}");
 }
+
+/// The heap of one `query` pass over a shelf of 300 books with the names of
+/// a real one (home's recent list, the files list): the page's 32 slots are
+/// what it holds, besides the line being read.
+#[test]
+fn the_heap_one_query_holds_at_its_most_is_the_window_and_one_line() {
+    use paperpaw_sdk::MemoryStorage;
+    reset(NORMAL);
+    let mut text = std::string::String::from("\tcatalog\t2\t1\n");
+    for n in 0..300_u32 {
+        text.push_str(&std::format!(
+            "books/library/Some Folder/{n:03}-a-reasonably-long-file-name.epub\tFirstname Lastname {n}\t\
+             A Reasonably Long Book Title, Number {n}\tA Series Name\t{}\t\t{}\t\t19990\t\t123456\n",
+            n % 12,
+            if n % 3 == 0 { "40" } else { "" },
+        ));
+    }
+    let card = Card {
+        storage: std::rc::Rc::new(
+            MemoryStorage::new().with(".paperpaw/library/catalog.txt", text.into_bytes()),
+        ),
+        env: card().env,
+        a: 0,
+        b: 0,
+        c: 0,
+        d: 0,
+        e: 0,
+    };
+    let ask = |sort, cursor| wire::ServiceLibQuery {
+        show: 0,
+        sort,
+        flags: 0,
+        words: "",
+        author: "",
+        series: "",
+        tag: "",
+        folder: "",
+        added_since: 0,
+        cursor,
+        generation: 0,
+        facet: 0,
+    };
+    let run = |sort, cursor| {
+        peak(
+            |r| {
+                r.query(&ask(sort, cursor), &mut |_| core::ops::ControlFlow::Continue(()))
+                    .unwrap();
+            },
+            &card,
+        )
+    };
+    let peaks = [run(0, 0), run(4, 0), run(0, 100)];
+    std::eprintln!("QUERY HEAP PEAKS (title, recent, title from 100): {peaks:?}");
+}
