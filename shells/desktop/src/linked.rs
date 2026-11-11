@@ -148,10 +148,38 @@ fn features_list(wired: Wired) -> &'static [Feature<'static>] {
     Box::leak(features.into_boxed_slice())
 }
 
+/// The diagnostics said since [`take_reports`] last looked (a plugin the host
+/// refused, a callback it dropped, a teardown step that failed), as text; the
+/// last few only. They are said on stderr as well: this is for a test that
+/// looks at what a run of the linked plugins reported.
+static REPORTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Most lines [`REPORTS`] keeps.
+const REPORTS_KEPT: usize = 256;
+
+fn say(line: String) {
+    eprintln!("{line}");
+    if let Ok(mut lines) = REPORTS.lock() {
+        if lines.len() == REPORTS_KEPT {
+            lines.remove(0);
+        }
+        lines.push(line);
+    }
+}
+
+/// What the linked plugins' host reported since the last call (see
+/// [`REPORTS`]), oldest first.
+pub fn take_reports() -> Vec<String> {
+    REPORTS
+        .lock()
+        .map(|mut lines| std::mem::take(&mut *lines))
+        .unwrap_or_default()
+}
+
 /// A linked plugin's diagnostics from the kernel (a refused declaration, a
 /// failed callback) go to stderr.
 fn linked_report(_: &DesktopServices, tag: u32, status: i32) {
-    eprintln!("native plugin: call {tag} ended with {status}");
+    say(format!("native plugin: call {tag} ended with {status}"));
 }
 
 /// What the device tells `core.work` (`WorkDevice`): the kernel's clock as the
@@ -282,7 +310,14 @@ fn teardown_report(
     step: TeardownStep,
     why: paperpaw_core::native_host::Error,
 ) {
-    eprintln!("native plugin {id}: teardown step {step:?} failed: {why:?}");
+    say(format!(
+        "native plugin {id}: teardown step {step:?} failed: {why:?}"
+    ));
+}
+
+/// Says that the linked plugin `id` was not registered, and why.
+fn not_registered(id: &dyn core::fmt::Display, why: &dyn core::fmt::Debug) {
+    say(format!("native plugin {id}: not registered: {why:?}"));
 }
 
 /// Why the linked plugins could not be registered at all (a plugin the host
@@ -478,7 +513,7 @@ pub fn register(
     for (id, status) in outcome {
         match status {
             Ok(()) => registered += 1,
-            Err(why) => eprintln!("native plugin {id}: not registered: {why:?}"),
+            Err(why) => not_registered(&id, &why),
         }
     }
     Ok(registered)
