@@ -83,10 +83,12 @@ pub fn remember(host: &Host<'_>, path: &str) {
     let Ok(text) = native_state::state_text(path) else {
         return;
     };
-    paperpaw_sdk::Storage::write(
-        &DataStorage::new(host),
-        native_state::STATE,
-        text.as_bytes(),
-    )
-    .ok();
+    let storage = DataStorage::new(host);
+    // The same book as last time: the file is left as it is (no wear on the card).
+    if paperpaw_sdk::read_file(&storage, native_state::STATE, native_state::MAX_STATE)
+        .is_ok_and(|kept| kept == text.as_bytes())
+    {
+        return;
+    }
+    paperpaw_sdk::Storage::write(&storage, native_state::STATE, text.as_bytes()).ok();
 }
