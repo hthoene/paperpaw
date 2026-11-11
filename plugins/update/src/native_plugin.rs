@@ -193,10 +193,10 @@ struct Running {
 pub struct NativeUpdate {
     device: Option<Device>,
     screens: Screens<Page>,
-    job: Option<Job>,
-    scan: Option<Scan>,
+    job: Option<alloc::boxed::Box<Job>>,
+    scan: Option<alloc::boxed::Box<Scan>>,
     /// What an offer at start found, for the page it opens.
-    settled: Option<Found>,
+    settled: Option<alloc::boxed::Box<Found>>,
     /// The version running, as the page says it.
     current: String,
     /// The version running, as the device says it.
@@ -433,7 +433,7 @@ impl NativeUpdate {
     /// checks of the files there are now.
     fn card(&mut self, host: &Host<'_>) -> Result<View, Error> {
         if let Some(found) = self.settled.take() {
-            return self.view_for(host, Some(found));
+            return self.view_for(host, Some(*found));
         }
         if self.scan.is_some() {
             return Ok(View::Checking);
@@ -451,13 +451,13 @@ impl NativeUpdate {
         if names.is_empty() {
             return Ok(Step::Done(None, offer));
         }
-        self.scan = Some(Scan {
+        self.scan = Some(paperpaw_ui_kit::mem::boxed(Scan {
             names,
             found: Vec::new(),
             next: 0,
             offer,
             recheck: Recheck::default(),
-        });
+        })?);
         self.advance(host)
     }
 
@@ -652,7 +652,10 @@ impl NativeUpdate {
             return self.show(host, view);
         }
         if offered {
-            self.settled = found;
+            self.settled = match found {
+                Some(found) => Some(paperpaw_ui_kit::mem::boxed(found)?),
+                None => None,
+            };
             let mut scratch = [0; 128];
             CommandSender::new(host, &mut scratch).open(Open::screen("update.page")?)?;
         }
@@ -756,7 +759,7 @@ impl NativeUpdate {
         );
         match sent {
             Ok(()) => {
-                self.job = Some(Job { found });
+                self.job = Some(paperpaw_ui_kit::mem::boxed(Job { found })?);
                 self.show(host, View::Installing(None))
             }
             Err(Error::NoMemory) => Err(Error::NoMemory),
