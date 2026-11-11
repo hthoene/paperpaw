@@ -177,7 +177,9 @@ impl DeviceSealer {
 
     /// The device key; with `make`, a new one where there is none.
     fn key(&self, make: bool) -> Result<Key, i32> {
-        match self.read()? {
+        // No `nvs` partition to hold the key: nothing can be sealed
+        // (`ERR_STATE`); opening says "absent".
+        match self.read().map_err(|e| state_if(make, e))? {
             Sector::Key(key) => return Ok(Key(key)),
             // Not ours: never erased, never written over (a page of the
             // factory's or the stock firmware's NVS); nothing is sealed.
@@ -192,7 +194,7 @@ impl DeviceSealer {
         }
         // Read again before a key is replaced: one bad read must not destroy
         // a key that is there.
-        match self.read()? {
+        match self.read().map_err(|e| state_if(make, e))? {
             Sector::Key(there) => return Ok(Key(there)),
             Sector::Foreign => return Err(ERR_STATE),
             _ => {}
@@ -215,6 +217,16 @@ impl DeviceSealer {
                 Err(ERR_IO)
             }
         }
+    }
+}
+
+/// A missing or too small `nvs` partition is `ERR_STATE` where a key is to be
+/// made (a seal), and "absent" where one is only read.
+fn state_if(make: bool, error: i32) -> i32 {
+    if make && error == ERR_NOT_FOUND {
+        ERR_STATE
+    } else {
+        error
     }
 }
 
