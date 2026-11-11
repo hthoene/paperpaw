@@ -57,7 +57,6 @@ pub trait Wire {
     ) -> Result<RequestId, Error>;
     /// Ends the requests of `token`; one that cannot be ended ends by itself and
     /// is ignored.
-    #[inline(never)]
     fn cancel(&mut self, token: u32);
 }
 
