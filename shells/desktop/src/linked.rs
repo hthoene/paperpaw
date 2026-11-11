@@ -459,6 +459,12 @@ pub fn register(
     {
         eprintln!("native plugins: the secrets file could not be upgraded ({status})");
     }
+    // Interface 6's passwords are opened and written through the sealer from
+    // here on, whether or not a native plugin is ever admitted (decision 140);
+    // before `Kernel::start`, as `Kernel::wire_secrets` asks.
+    if let Some(secrets) = wired.secrets() {
+        kernel.wire_secrets(secrets);
+    }
     let on = wired_services(&wired, on_card);
     *inputs.net.borrow_mut() =
         transport
