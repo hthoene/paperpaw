@@ -73,6 +73,7 @@ native-linked = [
     "paperpaw-plugin-settings/linked",
     "paperpaw-plugin-setup/linked",
     "paperpaw-plugin-update/linked",
+    "paperpaw-plugin-wifi/linked",
 ]
 
 [build-dependencies]

@@ -1,9 +1,12 @@
-# Interface-7 port (slices 1 to 6: the radio policy, the declarations, the phone setup, the own network, the kept networks, the screens, the file on the card and the page served)
+# Interface-7 port (slices 1 to 6, linked into the app)
 
-Version 1.0.4. Partial: the decisions of the plugin, what it declares, the screens and the file on the card, up to what the
-host cannot do yet. The native plugin (`native_plugin::NativeWifi`) has a `NATIVE_ENTRY` (feature
-`linked`) and metadata in `native/`; the interface-6 `Wifi` and everything of it stays registered
-until the host activates native plugins (then it goes together, no shim).
+Version 1.0.4. **Status: not complete** (ticket #244): the native plugin (`native_plugin::NativeWifi`,
+`NATIVE_ENTRY`, feature `linked`) is the whole Wi-Fi plugin and is **linked into the app**
+(`paperpaw_app::NATIVE_PLUGINS`, under `native-linked`, where the interface-6 `Wifi` is not registered any more
+as with `menu`); what stays is the interface-6 `Wifi` of the default build (`src/lib.rs`, `networks.rs`,
+`page.rs`, `phone.rs`, `policy.rs`, `phone.html`), which goes together with its tests and app wiring when the
+host activates native plugins (#243): held until then, because the app would lose Wi-Fi before. Then this
+becomes "complete, native only" and the plugin joins `tools/plugin-files7/complete.txt`.
 
 ## Ported
 
@@ -124,9 +127,21 @@ until the host activates native plugins (then it goes together, no shim).
 
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
-- The scripted host does not answer `i18n.copy`/`i18n.format` (`SCRIPTED-i18n`), so the rows' texts,
-  the drawing and the answers to the password question are not run; the status item's value (H1) and
-  the first-run row's badge.
+- The scripted host answers `i18n.copy`/`i18n.format` now: `tests/scripted_networks.rs` draws the networks page
+  from the plugin's own catalogs and the callback ends well (the case `wifi-pages` is gone). The answers to the
+  password question (`SCRIPTED-typed-password`), the status item's value (H1) and the first-run row's badge are
+  still not run on a host. Kernel's audit (#2269) reads the remaining markers H3, H4, H1 and `NET-serve-event` as
+  stale for the host (compose, staged Wi-Fi commands, the status value and `serve` from the radio's event are
+  there); the cases stay ignored until a run on the host shows each one, not on a reading.
+- **The host refuses four of the plugin's event subscriptions (found with `tests/hosted_construction.rs`, ignored
+  until the host admits them):** tags 38 (`screen_shown`), 92 (`wifi_scanned`), 94 (`network_wanted`) and 95
+  (`network_idle`); 71, 93, 101, 102 and the others are admitted. `make` ends with `Factory(-1)` in the kernel's
+  real scope, so the native Wi-Fi is not registered in the emulator under `native-linked` ("not registered:
+  Factory(-1)"). The fix is the host's subscribable-tag list (Services, with the tag 91 one in #1095); the case
+  is switched on again then. **Heap:** the interface-6 Wi-Fi flow (open the page, back, home; X4 profile,
+  headless, `--heap-report`) peaks at 100.0 KiB; the native peak is measured when the plugin registers.
+- **No real radio on the desktop** (`uses.wifi` is not offered by `shells/desktop/src/linked.rs`; the X4's
+  radio is Firmware's wiring, #250): the plugin runs there only on the scripted host.
 - The phone setup screen drawn with its join and page codes (`Footer::Code` of the ui kit) is the
   host's compose (H3); the rows and the answers are run in `tests/scripted_phone.rs`.
 - Wi-Fi commands cannot be staged by the scripted host (it has no `core.device` context): a callback that

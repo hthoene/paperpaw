@@ -9,7 +9,6 @@ use paperpaw_core::native_host::registrations::{
     EventScreenOpened, Record, ServiceDevNetwork, ServiceDevWifi, ServiceEnd, ServiceSecEntry,
     record_encode_one,
 };
-use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_plugin_wifi::NATIVE_ENTRY;
 use paperpaw_scripted_host::{ScriptedHost, Slot, event_batch, sweep};
 use std::cell::RefCell;
@@ -49,6 +48,9 @@ fn last_page(rows: usize, generation: u32) -> Record<'static> {
 type Log = Rc<RefCell<Vec<String>>>;
 
 fn script(host: &ScriptedHost, log: &Log) {
+    // The plugin's own texts, as the kernel reads them: the rows are drawn.
+    host.add_catalogs_in(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n"))
+        .unwrap();
     host.service("core.ui", 1, 0, |_, _| Ok(Vec::new()));
     let seen = log.clone();
     host.service("core.device", 1, 0, move |op, _| {
@@ -110,11 +112,10 @@ fn opened() -> Vec<u8> {
     .unwrap()
 }
 
-/// The scripted host does not answer `i18n.copy` and `i18n.format` yet
-/// (`ERR_UNSUPPORTED`) or has no text for the key (`ERR_NOT_FOUND`), so the rows end there, after the device and the
-/// secrets have been read; the rows' texts are not checked here.
+/// The rows are drawn from the plugin's catalogs (the scripted host answers
+/// `i18n.copy` and `i18n.format`): the callback ends well.
 fn finished(status: i32) -> bool {
-    status == 0 || status == ERR_UNSUPPORTED || status == ERR_NOT_FOUND
+    status == 0
 }
 
 fn run(host: &ScriptedHost) -> i32 {
