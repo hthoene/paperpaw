@@ -97,3 +97,27 @@ pub const COMPOSE_CHANNEL: Channel = Channel {
 pub const PIN_ANSWER: Event<Confirmed> = Event::new("mail.pin-answer");
 /// Text typed for a part of a mail being written.
 pub const TYPED: Event<Typed> = Event::new("mail.typed");
+
+/// The settings the plugin declares, made by its build script from the same
+/// declarations as tables.
+#[cfg(feature = "linked")]
+mod native_settings {
+    use paperpaw_sdk::{Id, SettingSpec};
+    include!(concat!(env!("OUT_DIR"), "/mail_settings.rs"));
+}
+
+/// The settings the plugin declares as a table kept in the program (as Beta 3
+/// kept them), for a linked build to use in place of a copy on the heap of
+/// each (`Kernel::register_linked`). Only a linked plugin has it.
+#[cfg(feature = "linked")]
+pub static NATIVE_SETTINGS: &[paperpaw_sdk::SettingSpec] = &native_settings::SETTINGS;
+
+/// The setting groups the plugin declares, as a table kept in the program
+/// like [`NATIVE_SETTINGS`].
+#[cfg(feature = "linked")]
+pub static NATIVE_GROUPS: &[paperpaw_sdk::SettingGroupSpec] = &native_settings::GROUPS;
+
+/// The ids the plugin's declarations name, as a table kept in the program
+/// like [`NATIVE_SETTINGS`].
+#[cfg(feature = "linked")]
+pub static NATIVE_IDS: &[paperpaw_sdk::Id] = &native_settings::IDS;

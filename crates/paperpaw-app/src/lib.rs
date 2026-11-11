@@ -164,6 +164,17 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
         };
     }
     match id {
+        "about" => tables!(paperpaw_plugin_about),
+        "files" => tables!(paperpaw_plugin_files),
+        "plugin-manager" => tables!(paperpaw_plugin_plugin_manager),
+        "setup" => tables!(paperpaw_plugin_setup),
+        "transfer" => tables!(paperpaw_plugin_transfer),
+        "update" => tables!(paperpaw_plugin_update),
+        "wifi" => tables!(paperpaw_plugin_wifi),
+        #[cfg(feature = "native-linked-store")]
+        "mail" => tables!(paperpaw_plugin_mail),
+        #[cfg(feature = "native-linked-store")]
+        "notes-vault" => tables!(paperpaw_plugin_notes_vault),
         "bluetooth" => tables!(paperpaw_plugin_bluetooth),
         "file-manager" => tables!(paperpaw_plugin_file_manager),
         "help" => tables!(paperpaw_plugin_help),
