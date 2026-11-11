@@ -14,7 +14,7 @@ use crate::{
     native_links::DocRef,
     native_look::Look,
     native_marking::{Ctx, Marking, Outcome},
-    native_marks::{self, CanvasPen, Marks, Painted},
+    native_marks::{self, CanvasPen, Gauge, Marks, Painted},
     native_open::{self, Place, Start},
     native_pages::{self, Reading, Trail, Turn},
     native_place::{self, Progress},
@@ -352,10 +352,8 @@ impl View {
         // The highlights of the book; a book the library does not know has none.
         let marks = match library.map(|l| native_marks::load(host, l, &found.path, conversion)) {
             Some(Ok(spans)) => Marks::new(spans),
-            Some(Err(Error::NoMemory)) => {
-                Self::forget(host, docs, id);
-                return Err(Error::NoMemory);
-            }
+            // A book the library does not know, or no room to read them in: the
+            // page is drawn without highlights, the book still opens.
             _ => Marks::default(),
         };
         let mut open = Open {
@@ -1315,16 +1313,17 @@ impl Open {
         // The highlights and the search hit: backgrounds behind the words,
         // lines and frames over them.
         let hit = self.marks.hit_on(self.at);
-        let painted = Painted::new(
-            host,
-            &self.marks,
-            &self.words,
-            hit,
+        // A mark never fails the page: no room for it or a refusal of the host
+        // leaves the text drawn without marks (or with the part drawn so far).
+        let gauge = Gauge::of(
             setup.display.display_dpi(),
-        )?;
-        painted.behind(&mut CanvasPen(&canvas))?;
+            setup.display.display_gray_levels(),
+            setup.display.display_is_colour(),
+        );
+        let painted = Painted::new(host, &self.marks, &self.words, hit, gauge).unwrap_or_default();
+        painted.behind(&mut CanvasPen(&canvas)).ok();
         draw_lines_marked(&mut ink, &faces, page, origin, self.mark.clone())?;
-        painted.over(&mut CanvasPen(&canvas))?;
+        painted.over(&mut CanvasPen(&canvas)).ok();
         self.paint_status(host, ui, frame, (setup, &area))?;
         let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),

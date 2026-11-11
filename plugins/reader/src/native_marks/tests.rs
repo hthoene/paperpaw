@@ -31,7 +31,14 @@ impl Pen for Log {
     }
 }
 
-const GAUGE: Gauge = Gauge { dpi: 254 };
+const GAUGE: Gauge = Gauge {
+    dpi: 254,
+    few_grays: false,
+};
+const FEW: Gauge = Gauge {
+    dpi: 254,
+    few_grays: true,
+};
 
 #[test]
 fn a_span_covers_the_words_it_touches() {
@@ -161,4 +168,53 @@ fn the_names_of_a_roles_settings() {
     );
     let mut small = [0u8; 8];
     assert_eq!(join(&mut small, HIGHLIGHT, "line"), Err(Error::NoSpace));
+}
+
+#[test]
+fn the_gauge_of_a_display_is_few_grays_on_black_and_white_and_four_not_on_colour() {
+    assert!(Gauge::of(300, Some(2), false).few_grays);
+    assert!(Gauge::of(300, Some(4), false).few_grays);
+    assert!(!Gauge::of(300, Some(16), false).few_grays);
+    assert!(!Gauge::of(300, None, false).few_grays);
+    assert!(!Gauge::of(300, Some(2), true).few_grays);
+}
+
+#[test]
+fn on_few_grays_a_background_is_rows_by_the_tones_darkness() {
+    let boxes = [Rect::new(5, 10, 40, 12)];
+    // A light gray: one row in four, counted from the top of the screen.
+    let mut pen = Log::default();
+    draw_behind(
+        &mut pen,
+        FEW,
+        &boxes,
+        &Decoration::NONE.background(Tone::LightGray),
+    )
+    .unwrap();
+    let rows: Vec<i32> = pen.0.iter().map(|op| op.2).collect();
+    assert_eq!(rows, [12, 16, 20]);
+    assert!(
+        pen.0
+            .iter()
+            .all(|op| op.0 == "fill" && op.4 == 1 && op.3 == 50)
+    );
+    // A dark gray: three rows in four; white: none.
+    let mut dark = Log::default();
+    draw_behind(
+        &mut dark,
+        FEW,
+        &boxes,
+        &Decoration::NONE.background(Tone::DarkGray),
+    )
+    .unwrap();
+    assert_eq!(dark.0.len(), 9);
+    let mut white = Log::default();
+    draw_behind(
+        &mut white,
+        FEW,
+        &boxes,
+        &Decoration::NONE.background(Tone::White),
+    )
+    .unwrap();
+    assert!(white.0.is_empty());
 }
