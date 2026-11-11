@@ -217,7 +217,11 @@ impl DocState {
     /// or its last count): `true` once its book's reached [`AWAKE_MAX_MS`].
     /// The device sleeps only after the job ended, so it is awake all along.
     fn awake_over(&self) -> bool {
-        if self.table.cover_job().is_none_or(|job| job.state != PREPARING) {
+        if self
+            .table
+            .cover_job()
+            .is_none_or(|job| job.state != PREPARING)
+        {
             return false;
         }
         let now = self.now.get();

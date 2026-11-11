@@ -39,8 +39,8 @@
 //! as long, a timed wake too ([`DetailsRun::wake_at`]), or the end of the
 //! quiet moment, so that the job goes on on an idle device.
 use super::{
-    admitted_features::AdmittedFeatures, doc_service::details::DetailsJob, host_services::Caller,
-    doc_service::HOST_JOB, lib_cover::path_key, native_declarations::NativeDeclarations,
+    admitted_features::AdmittedFeatures, doc_service::HOST_JOB, doc_service::details::DetailsJob,
+    host_services::Caller, lib_cover::path_key, native_declarations::NativeDeclarations,
     native_host_call::HostRoute, registry_service::Sources,
 };
 use crate::abi7::context::{Frame, registry_views::RegistryView};
@@ -359,7 +359,10 @@ impl crate::Kernel {
             // The format not started yet, no place, no memory: again later.
             ERR_BUSY | ERR_FULL | ERR_NO_MEMORY => {
                 let tries = run.later(line, next);
-                return self.now.millis().saturating_add(super::doc_pump::wait(tries));
+                return self
+                    .now
+                    .millis()
+                    .saturating_add(super::doc_pump::wait(tries));
             }
             // No fault of the book (its file, the card, a format that left).
             ERR_NOT_FOUND | ERR_IO | ERR_CANCELLED | ERR_STATE | ERR_DENIED | ERR_UNSUPPORTED => {
@@ -368,7 +371,12 @@ impl crate::Kernel {
             // The format failed the book.
             _ => {
                 run.set_cursor(next);
-                if let Some(library) = self.shared.native_instances.hosts().and_then(|h| h.library()) {
+                if let Some(library) = self
+                    .shared
+                    .native_instances
+                    .hosts()
+                    .and_then(|h| h.library())
+                {
                     library.0.cover_job_left(key);
                 }
             }

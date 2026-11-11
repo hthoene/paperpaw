@@ -68,7 +68,10 @@ pub(crate) fn give_way(host: &dyn DocHost) {
         return;
     };
     let table = host.table();
-    let Some(job) = table.cover_job().filter(|job| job.job_kind == JobKind::Details) else {
+    let Some(job) = table
+        .cover_job()
+        .filter(|job| job.job_kind == JobKind::Details)
+    else {
         return;
     };
     if job.closed_by_host != 0 {

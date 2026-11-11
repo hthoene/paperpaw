@@ -598,7 +598,11 @@ fn the_job_goes_on_by_timed_wakes_holds_no_timer_off_and_is_slower_when_saving()
     // At the wake: the next book, read at once (ready).
     pump(&mut w, 1_100);
     assert_eq!(*w.format.ops.borrow(), [2, 3, 5, 6, 4, 2, 5, 6, 4]);
-    assert_eq!(w.kernel.service_due(), Some(Instant(1_200)), "the next book");
+    assert_eq!(
+        w.kernel.service_due(),
+        Some(Instant(1_200)),
+        "the next book"
+    );
     // Saving: the gap is a second.
     w.kernel.shared.power.level = paperpaw_sdk::power::PowerLevel::Saving;
     pump(&mut w, 1_200);

@@ -66,7 +66,9 @@ impl DetailsJob for DocState {
     }
 
     fn preparing(&self, path: &str) -> bool {
-        self.table.cover_job().is_some_and(|job| job.state == PREPARING)
+        self.table
+            .cover_job()
+            .is_some_and(|job| job.state == PREPARING)
             && self.job_book_is(path, JobKind::Details)
     }
 
