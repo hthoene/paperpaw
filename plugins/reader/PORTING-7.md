@@ -151,10 +151,10 @@ Not declared or fired yet: the reader side follows once the schema is approved.
   marks, other bits 0. A tone code a reader does not know draws gray, a line code solid.
 - **Taps.** A tap on a mark whose look has bit 2 (or choosing it with the buttons) fires the
   stage again with one record `decorate.tapped` (`role`, the mark's `text` str 256, cut at a
-  character boundary, `path` str 512, start and end place in anchor units). Only the subscriber whose id is the role's plugin
-  acts; it replies one `decorate.taken` (`taken` 1) and opens what it shows itself. The reader
-  reads `decorate.taken` only from that subscriber; no answer or `taken` 0 and the tap goes on
-  as a tap on the page.
+  character boundary, `path` str 512, start and end place in anchor units). Only the
+  subscriber whose id is the role's plugin acts; it replies one `decorate.taken` (`taken` 1)
+  and opens what it shows itself. The reader reads `decorate.taken` only from that
+  subscriber; no answer or `taken` 0 and the tap goes on as a tap on the page.
 - **Bounds.** At most 4 subscribers; input and reply at most 3,840 bytes each; the reader holds
   one reply buffer of that size while it fires and nothing between fires (#248). A subscriber's
   bad reply (framing, a tag it should not send) drops that subscriber's marks for the page only.
