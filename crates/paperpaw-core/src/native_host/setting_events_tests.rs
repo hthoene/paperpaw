@@ -659,7 +659,7 @@ fn manager(w: &mut World, manager: &'static str) {
         .shared
         .settings
         .define(paperpaw_sdk::SettingSpec::text(
-            crate::native_host::commands_dev::NETWORK_MANAGER,
+            crate::native_host::commands::dev::NETWORK_MANAGER,
             "manager",
             manager,
             paperpaw_sdk::builtin::groups::OTHER,
