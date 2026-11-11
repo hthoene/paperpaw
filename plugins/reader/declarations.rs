@@ -29,6 +29,9 @@ pub const WORK_DUE: u32 = 7;
 /// A setting changed: a page laid out with the reading settings is laid out again
 /// (`native_pages::affects_layout`), one drawn with the text look drawn again.
 pub const SETTING_CHANGED: u32 = 8;
+/// A screen opened, closed or came to the top: reading aloud ends when the
+/// reading screen is no longer the one on top (`native_view/aloud.rs`).
+pub const STACK_CHANGED: u32 = 9;
 pub const FIRST_ACTION: u32 = 100;
 
 const BEHAVIOUR: &str = "core.group.reading-behaviour";
@@ -343,6 +346,7 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.subscribe_event(EventKind::Stopping, STOPPING)?;
     d.subscribe_event(EventKind::WorkDue, WORK_DUE)?;
     d.subscribe_event(EventKind::SettingChanged, SETTING_CHANGED)?;
+    d.subscribe_event(EventKind::StackChanged, STACK_CHANGED)?;
     d.submit()
 }
 

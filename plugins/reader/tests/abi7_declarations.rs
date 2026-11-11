@@ -125,11 +125,11 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert_eq!(native.keys.len(), 6);
     // Nothing else is declared in these batches, and the native side hears
     // the start, a moved book, sleep, stop and the quiet time that save the
-    // place, and a changed setting that lays the page out again (the last four
-    // are new in interface 7).
+    // place, a changed setting that lays the page out again and a changed screen
+    // stack that ends reading aloud (the last five are new in interface 7).
     assert!(native.groups.is_empty() && native.widget_places.is_empty());
     assert!(native.status_places.is_empty() && native.others.is_empty());
-    assert_eq!(native.events.len(), 6);
+    assert_eq!(native.events.len(), 7);
 }
 
 /// The key bindings that hold while a switch is on: the registration's
