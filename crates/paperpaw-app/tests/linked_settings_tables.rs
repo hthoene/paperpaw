@@ -79,7 +79,8 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
     #[cfg(feature = "native-linked-store")]
     with_groups.push("widgets");
     #[cfg(feature = "native-linked-reading")]
-    with_groups.extend(["home", "reader"]);
+    // (Reader declares no group of its own: its settings sit in core groups.)
+    with_groups.push("home");
     #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
     with_groups.extend(["news", "vocabulary"]);
     for id in with_groups {
