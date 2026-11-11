@@ -415,16 +415,16 @@ fn a_ready_cover_is_asked_beside_the_details_job_never_busy() {
         w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
         begin(w, "books/b.epub", PREPARING);
         w.state.details.started(10, 20);
-        // A is ready: its format is asked for the cover (it has none) and
-        // the details job keeps the slot.
+        // A is ready: it becomes the host's cover to make beside the details
+        // job (`doc_cover_make`), which keeps the slot.
         script(w, vec![fmt_state(READY, 0)]);
-        *w.reply.borrow_mut() = Err(ERR_NOT_FOUND);
         let made = cover::make(w, &opener(w), "books/a.epub", 0);
-        assert!(matches!(made, Err(ERR_NOT_FOUND)));
+        assert!(matches!(made, Ok(cover::Made::Queued)));
+        assert!(w.state.table.cover_make().is_some());
         let job = w.state.table.cover_job().unwrap();
         assert_eq!(job.job_kind, JobKind::Details);
         assert!(w.state.details.running());
-        assert_eq!(ops(w), [2, 2, 17, 4]);
+        assert_eq!(ops(w), [2, 2]);
     });
 }
 
