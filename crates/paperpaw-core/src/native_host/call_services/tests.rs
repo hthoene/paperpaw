@@ -241,14 +241,14 @@ fn call_checks_schema_and_owner_before_publishing_a_reply() {
                     (input.len() - 1) as i32
                 );
                 assert_eq!(&out[..input.len() - 1], &input[1..]);
-                assert!(out[input.len() - 1..].iter().all(|byte| *byte == 0xa5));
+                assert!(out[input.len() - 1..].iter().all(|byte| *byte == 0));
             }
         })
         .unwrap();
 }
 
 #[test]
-fn service_failure_never_copies_partial_scratch_and_does_not_stick_busy() {
+fn service_failure_leaves_no_reply_and_does_not_stick_busy() {
     let pool = HostResources::with_test_service(failing).unwrap();
     let owner = pool.try_owner().unwrap();
     let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
@@ -289,7 +289,7 @@ fn service_failure_never_copies_partial_scratch_and_does_not_stick_busy() {
                         ),
                         ERR_BUSY
                     );
-                    assert_eq!(out, [0xa5; 512]);
+                    assert_eq!(out, [0; 512]);
                 }
             }
         })
@@ -406,7 +406,7 @@ fn broken_backend_replies_preserve_output_and_clear_busy_before_recovery() {
                         ),
                         status
                     );
-                    assert_eq!(out, [0xa5; 512]);
+                    assert_eq!(out, [0; 512]);
                     BROKEN_REPLY.with(|value| value.set(0));
                     assert_eq!(
                         call(
@@ -421,7 +421,7 @@ fn broken_backend_replies_preserve_output_and_clear_busy_before_recovery() {
                         (input.len() - 1) as i32
                     );
                     assert_eq!(&out[..input.len() - 1], &input[1..]);
-                    assert!(out[input.len() - 1..].iter().all(|byte| *byte == 0xa5));
+                    assert!(out[input.len() - 1..].iter().all(|byte| *byte == 0));
                 }
             }
         })
@@ -432,21 +432,24 @@ fn broken_backend_replies_preserve_output_and_clear_busy_before_recovery() {
 mod row_tests;
 
 #[test]
-fn reply_scratch_is_wiped_after_copy_and_error() {
+fn the_reply_room_keeps_a_checked_reply_and_wipes_everything_else() {
     let secret = b"private reply";
     let mut bytes = [0xa5; 64];
-    let mut plugin = [0; 13];
     {
-        let scratch = ReplyScratch(&mut bytes);
-        scratch.0[..secret.len()].copy_from_slice(secret);
-        plugin.copy_from_slice(&scratch.0[..secret.len()]);
+        let room = ReplyOnFailure(&mut bytes);
+        room.0.fill(0x73);
+        room.0[..secret.len()].copy_from_slice(secret);
+        room.keep(secret.len());
     }
-    assert_eq!(&plugin, secret);
-    assert_eq!(bytes, [0; 64], "the unused tail must also be wiped");
+    assert_eq!(&bytes[..secret.len()], secret);
+    assert!(
+        bytes[secret.len()..].iter().all(|byte| *byte == 0),
+        "what the service left past the reply is wiped"
+    );
 
     let fail = |bytes: &mut [u8]| -> Result<(), i32> {
-        let scratch = ReplyScratch(bytes);
-        scratch.0[..secret.len()].copy_from_slice(secret);
+        let room = ReplyOnFailure(bytes);
+        room.0[..secret.len()].copy_from_slice(secret);
         Err(ERR_BUSY)
     };
     assert_eq!(fail(&mut bytes), Err(ERR_BUSY));
@@ -455,11 +458,11 @@ fn reply_scratch_is_wiped_after_copy_and_error() {
 
 #[cfg(panic = "unwind")]
 #[test]
-fn reply_scratch_is_wiped_when_backend_unwinds() {
+fn the_reply_room_is_wiped_when_backend_unwinds() {
     let mut bytes = [0xa5; 64];
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let scratch = ReplyScratch(&mut bytes);
-        scratch.0.fill(0x73);
+        let room = ReplyOnFailure(&mut bytes);
+        room.0.fill(0x73);
         panic!("fixture backend unwound");
     }));
     assert!(result.is_err());
@@ -478,7 +481,6 @@ fn observed_reply(
     out: &mut [u8],
 ) -> Result<usize, i32> {
     out.fill(0x73);
-    crate::native_host::shell::tests::watch_zeroed_scratch(out);
     match SCRATCH_MODE.with(core::cell::Cell::get) {
         1 => Err(ERR_BUSY),
         2 => {
@@ -490,7 +492,7 @@ fn observed_reply(
 }
 
 #[test]
-fn dispatcher_wipes_scratch_before_free_without_changing_output_contract() {
+fn a_failed_reply_is_wiped_and_a_kept_one_has_no_tail_left() {
     let pool = HostResources::with_test_service(observed_reply).unwrap();
     let owner = pool.try_owner().unwrap();
     let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
@@ -529,20 +531,41 @@ fn dispatcher_wipes_scratch_before_free_without_changing_output_contract() {
                         pair(&input),
                         output(&mut out),
                     );
-                    assert_eq!(
-                        crate::native_host::shell::tests::scratch_zeroed_before_free(),
-                        Some(true)
-                    );
                     if mode == 0 {
                         assert_eq!(status, (input.len() - 1) as i32);
                         assert_eq!(&out[..input.len() - 1], &input[1..]);
-                        assert!(out[input.len() - 1..].iter().all(|byte| *byte == 0xa5));
+                        assert!(out[input.len() - 1..].iter().all(|byte| *byte == 0));
                     } else {
                         assert_eq!(status, if mode == 1 { ERR_BUSY } else { ERR_INVALID });
-                        assert_eq!(out, [0xa5; 512]);
+                        assert_eq!(out, [0; 512]);
                     }
                 }
             }
         })
         .unwrap();
+}
+
+#[test]
+fn input_and_output_sharing_a_byte_are_apart_only_when_they_do_not() {
+    let mut bytes = [0_u8; 32];
+    let base = bytes.as_mut_ptr();
+    let input = |at: usize, len: usize| PpBytes {
+        // SAFETY: inside `bytes` (at most its end).
+        ptr: unsafe { base.add(at) }.cast_const(),
+        len,
+    };
+    let out = |at: usize, cap: usize| PpBuffer {
+        // SAFETY: inside `bytes` (at most its end).
+        ptr: unsafe { base.add(at) },
+        cap,
+    };
+    assert!(apart(input(0, 8), out(8, 8)));
+    assert!(apart(input(16, 8), out(8, 8)));
+    assert!(!apart(input(0, 9), out(8, 8)));
+    assert!(!apart(input(15, 4), out(8, 8)));
+    assert!(!apart(input(10, 2), out(8, 8)));
+    assert!(!apart(input(0, 32), out(8, 8)));
+    // An empty side shares nothing.
+    assert!(apart(input(8, 0), out(8, 8)));
+    assert!(apart(input(8, 8), out(8, 0)));
 }
