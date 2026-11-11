@@ -463,6 +463,41 @@ fn no_step_is_made_while_a_library_list_is_up_and_for_a_quiet_moment_after() {
 }
 
 #[test]
+fn a_ready_job_is_ended_beside_a_list_for_only_conversion_is_held() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.state.now.set(1_000);
+        let document = job(w, "books/a.epub");
+        w.state.cover_job_guard("books/a.epub").unwrap();
+        w.state.cover_job_list(true);
+        assert_eq!(look(w), JobStep::Wait, "converting: held, still open");
+        let job_row = w.state.table.cover_job().unwrap();
+        w.state
+            .table
+            .set_prepared(document, READY, 0, 0, job_row.flags)
+            .unwrap();
+        assert!(
+            matches!(look(w), JobStep::Ended { ready: true, .. }),
+            "ready: its cover is made, the list being up"
+        );
+    });
+}
+
+#[test]
+fn a_held_back_start_is_released_beside_a_list_for_the_list_asks_again() {
+    world(|w| {
+        w.state.now.set(10_000);
+        w.state.allow_cover_jobs();
+        w.state.cover_job_held_back();
+        w.state.cover_job_list(true);
+        assert!(
+            w.state.cover_jobs_released(),
+            "a list is no reason not to ask"
+        );
+    });
+}
+
+#[test]
 fn steps_that_cannot_be_made_fail_the_job_and_only_its_book() {
     use crate::native_host::doc_service::PrepareStep;
     use paperpaw_native::host_glue::ERR_BUSY;

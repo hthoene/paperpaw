@@ -717,7 +717,6 @@ impl super::doc_service::DocHost for DocState {
             || !self.jobs_allowed.get()
             || self.now.get() < self.job_resume_at.get()
             || self.table.cover_job().is_some()
-            || self.table.list_held()
             || self.table.reading_besides(0)
         {
             return false;
