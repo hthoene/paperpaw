@@ -51,6 +51,7 @@ fn submit(state: *mut c_void) {
         side: 0,
         cookie: 1,
         flags: 0,
+        tone: &[],
     }];
     let len = if IMAGE_ROOT.with(Cell::get) == 0 {
         commands_encode(&commands[..count], &mut bytes)

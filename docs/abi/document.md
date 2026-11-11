@@ -523,9 +523,9 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
 | --- | --- | --- |
 | 1088 | `service.doc_image` | `image: u32`, `index: u32`, `width: u32`, `height: u32`, `flags: u32` |
 | 1089 | `service.doc_image_ask` | `document: u32`, `index: u32`, `side: u32` |
-| 1559 | `command.image_prepare` | `root: u32`, `path: str 512`, `side: u32`, `cookie: u32`, `flags: u32` |
+| 1559 | `command.image_prepare` | `root: u32`, `path: str 512`, `side: u32`, `cookie: u32`, `flags: u32`, `tone: bytes 256` |
 | 1560 | `command.image_release` | `image: u32` |
-| 90 | `event.image_ready` | `now_ms: u64`, `cookie: u32`, `status: u32`, `image: u32`, `width: u32`, `height: u32` |
+| 90 | `event.image_ready` | `now_ms: u64`, `cookie: u32`, `status: u32`, `image: u32`, `width: u32`, `height: u32`; optional `luma: bytes 64` (ordinal 0) |
 | 108 | `event.document_closed` | `now_ms: u64`, `document: u32`, `reason: u32` |
 | 88 | `event.document_changed` | `now_ms: u64`, `document: u32`, `state: u32`, `progress_ppm: u32` |
 
@@ -588,15 +588,43 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   that root, every root alike; an older SDK reads it as 2). Unknown values read as 2. There is no
   prepare from bytes: a plugin writes them to a file in root 0 first. At
   most 4 waiting per plugin (`ERR_FULL`), 8 prepared images per plugin. `flags` bit 0 colour
-  (where the screen has it).
+  (where the screen has it), bit 1 `turn`; other bits are `ERR_UNSUPPORTED`.
+- [D] **The picture recipe** (picture-home): `image_prepare` carries what a plugin needs to make
+  its picture the way it shows it, so it never reads one into memory.
+  - **`turn`** (`flags` bit 1): the host applies a JPEG's EXIF orientation (tag 0x0112, 2 to 8, read
+    from the first APP1 block; no block, a bad one or 1 leave the picture as it is) while it makes
+    the picture: the decoder writes the cache file, then the host writes it again turned (a mirror
+    or half turn row by row, a quarter turn in tiles of whole columns, at most **32 KiB** of tile on
+    the X4 and 1 MiB elsewhere, after the decoder has freed its state), and removes the first file;
+    a file left by a power cut is not named like a prepared image and the boot sweep removes it. A
+    quarter turn reads the source `height × ceil(width / columns)` times in short pieces and runs in
+    one main-loop turn, so on the X4 one that needs more than **16,384** reads (a 4:3 picture of about
+    1,000 pixels the long side; the screen's 800 pixels need about 9,000) is status 3 (too large)
+    and nothing is turned; ask for the screen's side (`side` 0) with `turn` on the X4. Its time
+    below the budget is a measured gate (#250). `event.image_ready` reports the size **after** the turn, `side`
+    limits the longest side before and after alike. PNG and GIF are never turned.
+  - **`tone: bytes 256`**, empty for none, else exactly 256 bytes (`ERR_INVALID` otherwise): a luma
+    table the host applies while it decodes: every gray value `v` becomes `tone[v]`, and for
+    a colour picture every channel. The host defines no brightness or contrast: the plugin's table
+    is the whole curve. A waiting request keeps its table (256 bytes, up to 4 a plugin).
+  - **`luma`** of `event.image_ready` (optional, 64 bytes, only with `status` 0): the mean
+    brightness, 0 to 255, of an 8 by 8 grid over the prepared picture, row by row (cells of equal
+    size, a picture under 8 pixels a side takes the pixel at each cell; colour as luma), after the
+    tone and the turn. The host reads the file once more, a row at a time, so the plugin finds the
+    brightness behind any rectangle without reading the picture. It is made for every picture that
+    is made, asked for or not: a second read of the file (one row at a time) a little over the
+    decode's own write, in the same main-loop turn.
 - [D] `image.info` writes one `doc_image` record (`width`, `height`, `flags` bit 0 colour, bit 1
   not decoded yet) into
   `out`. `canvas.draw_image` draws the image scaled into the rectangle (keeping its shape,
   centred), clipped by the canvas, only inside a `draw` callback (`ERR_STATE`). `flags`: bit 0
   `fill` (fill the rectangle and crop), bit 1 `small` (a small picture: it does not count towards
   the e-paper ghosting full refresh, interface 6 `small_pictures`), bits 8-15 transparency (255
-  minus the opacity: 0 opaque, the default; 255 draws nothing), blended over what is below. Other
-  bits are `ERR_UNSUPPORTED` (nothing drawn); a scaled picture over 65,535 pixels on a side is
+  minus the opacity: 0 opaque, the default; 255 draws nothing), blended over what is below, bit 2
+  `stretch` (scale to the rectangle and drop the picture's shape; with `fill` `ERR_INVALID`), bit
+  3 `dots` (black and white dots by force, also on a panel with grays) and bit 4 `grays` (the
+  panel's own grays; neither bit is the panel's rule, both `ERR_INVALID`; `dots` and `grays` have
+  no effect on a see-through draw). Other bits are `ERR_UNSUPPORTED` (nothing drawn); a scaled picture over 65,535 pixels on a side is
   `ERR_INVALID`, the only size refusal (a large rectangle is clipped, not refused). An unknown or
   ended id is `ERR_NOT_FOUND`; a card read failure or a cache file shorter than its header says is
   `ERR_IO`, a header that does not match the file `ERR_INVALID` (hostile-input rule below), with
@@ -771,7 +799,7 @@ reply 4,096 bytes, stage payload 3,840.
 | `fmt.call` (+ 12 `fmt.option` for op 2) | 1,592 (section 3); op 2: 1,592 − 1,536 + 12 × 202 = 2,480 | 3,840 |
 | `fmt.call` for ops 13, 15 | the XPointer or href in `text` (1,024 bytes, as `doc_xpointer`, `doc_href`), `arg` empty: 1,592 − 514 = 1,078 | 3,840 |
 | `lookup_entry` page | 1 + 4 + 66 + 258 + 2,050 + 5 = 2,384, one per page | 4,096 |
-| `command.image_prepare` | 1 + 4 + 514 + 12 + 5 = 536 | 4,096 |
+| `command.image_prepare` | 1 + 4 + 514 + 12 + 258 + 5 = 794 | 4,096 |
 
 - [D] Senior's must-fix 1 (round 1: `arg` 1,024 carried the options and the XPointer) is settled
   by the round-2 layout: options travel as their own `fmt.option` records, XPointers and hrefs in
@@ -800,6 +828,20 @@ reply 4,096 bytes, stage payload 3,840.
   frequencies the output size needs); interlaced GIF the rows of the part on the screen; baseline
   JPEG and BMP a few rows. **This transient peak (PNG the largest) is an X4 gate item**, measured
   with the reader port at a 1,600-pixel PNG.
+- The picture recipe (`image_prepare` `tone`, `turn`, `luma`): the tone table is held from the
+  request's queueing to the end of its decode, 256 bytes a waiting request (at most 4 a plugin), and
+  a colour row mapped through it needs one scratch row of at most 3 × 1,600 = 4,800 bytes, taken
+  once. A mirror or a half turn holds two rows (at most 4,800 bytes each) and the 8 KiB append
+  chunk. A **quarter turn never holds the whole picture**: it writes the cache transposed in tiles
+  of whole source columns (a tile is at most **32 KiB** on the X4, the draw's own ceiling, and at
+  least one column of `height × channels` bytes, at most 4,800), after the decoder has freed its
+  state, so the peak is the tile + one output row (at most 4,800) + the append chunk (8 KiB): **at
+  most about 45 KiB** at 1,600 pixels, below the PNG decode's 48 KiB peak, and never at the same
+  time as a decode or a draw. The brightness grid is 8 sums of 8 bytes and the grid's 64 bytes on
+  the stack (about 130 bytes) and one source row (at most 4,800 bytes) on the heap. The turn's
+  time is an X4 gate item: it reads `height × ceil(width / columns)` short pieces (a 1,600 × 1,200
+  picture in 27-column tiles: about 72,000, over the X4's budget of 16,384 reads, so refused with
+  status 3; the screen's 800 × 600: about 9,000), to be measured on the device (#250).
 - Drawing a picture (slot 37): at most 32 KiB transient per call on the X4 (section 5),
   fallible, freed before the call returns; never at the same time as a decode (both run on the
   main loop).
