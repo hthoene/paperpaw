@@ -100,8 +100,8 @@ impl OwnerRef {
     }
     /// A native plugin's image is the program's own (a linked plugin) or the
     /// module the host mapped (a card plugin): read-only to the host. A plugin
-    /// that writes into it anyway only hides its own records
-    /// (`declaration_scan.rs`).
+    /// that writes into it anyway can hide its own records or exceed the
+    /// device-wide caps counted at admission (`declaration_scan.rs`).
     fn read_only(&self) -> bool {
         match self {
             #[cfg(test)]

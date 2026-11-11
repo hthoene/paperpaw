@@ -14,15 +14,22 @@ struct Image {
     bytes: RefCell<Vec<u8>>,
     read_only: bool,
     errors: Cell<usize>,
+    generation: Cell<u32>,
+    /// The module is being unloaded: its image cannot be read.
+    gone: Cell<bool>,
 }
 impl ImageOwner for Image {
     fn plugin_id(&self) -> &str {
         "fixture"
     }
     fn generation(&self) -> u32 {
-        1
+        self.generation.get()
     }
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
+        if self.gone.get() {
+            visit(None);
+            return;
+        }
         let bytes = self.bytes.borrow();
         visit(Some(bytes.as_slice()));
     }
@@ -76,6 +83,8 @@ fn image(read_only: bool) -> (Rc<Image>, [core::ops::Range<usize>; 2]) {
         bytes: RefCell::new(bytes),
         read_only,
         errors: Cell::new(0),
+        generation: Cell::new(1),
+        gone: Cell::new(false),
     });
     (image, ranges)
 }
@@ -83,10 +92,15 @@ fn image(read_only: bool) -> (Rc<Image>, [core::ops::Range<usize>; 2]) {
 /// A store with the fixture owner, its batches staged from the image (or
 /// copied).
 fn store(read_only: bool, copied: bool) -> (DeclarationStore, Rc<Image>) {
+    store_with(read_only, [copied; 2])
+}
+
+/// [`store`], each batch copied or not on its own (a mixed owner).
+fn store_with(read_only: bool, copied: [bool; 2]) -> (DeclarationStore, Rc<Image>) {
     let (source, ranges) = image(read_only);
     let mut allocations = Allocations::default();
     let mut pending = PendingDeclarations::new(Id::new_static("fixture"), source.clone());
-    for range in ranges {
+    for (range, copied) in ranges.into_iter().zip(copied) {
         let bytes = source.bytes.borrow();
         if copied {
             // A copy outside the image: staged as a runtime batch, not as
@@ -268,4 +282,74 @@ fn a_broken_frame_skips_its_batch_and_is_said_without_a_panic() {
     assert!(source.errors.get() > 0);
     assert_eq!(order_of(&store, Kind::Group, "gamma"), Some(3));
     assert_eq!(order_of(&store, Kind::Group, "alpha"), None);
+}
+
+/// The names the fixture declares, of both kinds, and some it does not.
+const NAMES: [(Kind, &str); 8] = [
+    (Kind::Group, "alpha"),
+    (Kind::Group, "beta"),
+    (Kind::Group, "gamma"),
+    (Kind::Action, "alpha"),
+    (Kind::Action, "zed"),
+    (Kind::Action, "mid"),
+    (Kind::Group, "zed"),
+    (Kind::Screen, "alpha"),
+];
+
+#[test]
+fn a_mixed_owner_keeps_its_index_and_answers_as_an_indexed_one() {
+    // The first batch read from the image, the second a copy of its own.
+    let (mixed, _) = store_with(true, [false, true]);
+    let (indexed, _) = store(false, false);
+    let owner = mixed.owners[0].as_ref().unwrap();
+    assert!(!owner.image_only(), "one batch of its own keeps the index");
+    assert_eq!(owner.slots.len(), 6);
+    assert!(matches!(&owner.batches, Batches::Refs(refs) if refs.len() == 2));
+    for kind in Kind::ALL {
+        assert_eq!(places(&mixed, kind), places(&indexed, kind), "{kind:?}");
+    }
+    for (kind, name) in NAMES {
+        assert_eq!(
+            order_of(&mixed, kind, name),
+            order_of(&indexed, kind, name),
+            "{kind:?} {name}"
+        );
+    }
+}
+
+#[test]
+fn an_image_only_owner_answers_nothing_once_stale_unloading_or_removed() {
+    let (mut store, source) = store(true, false);
+    assert!(store.owners[0].as_ref().unwrap().image_only());
+    let mut first = None;
+    store.keys(Kind::Group, &mut |key| {
+        first.get_or_insert(key);
+    });
+    let key = first.unwrap();
+    let silent = |store: &DeclarationStore| {
+        for kind in Kind::ALL {
+            assert!(places(store, kind).is_empty(), "{kind:?}");
+        }
+        for (kind, name) in NAMES {
+            assert_eq!(order_of(store, kind, name), None, "{kind:?} {name}");
+        }
+        assert!(!store.with_record(key, &mut |_| panic!("an absent owner")));
+    };
+    // A later generation of the plugin: the owner is stale.
+    source.generation.set(2);
+    silent(&store);
+    source.generation.set(1);
+    // Unloading: the module's image cannot be read any more.
+    source.gone.set(true);
+    silent(&store);
+    source.gone.set(false);
+    assert_eq!(order_of(&store, Kind::Group, "gamma"), Some(3));
+    // Removed: nothing is left of it.
+    store.remove_owner(&Id::new_static("fixture"), 1);
+    silent(&store);
+    assert_eq!(
+        source.errors.get(),
+        0,
+        "nothing of this is the plugin's fault"
+    );
 }

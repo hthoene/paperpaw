@@ -8,8 +8,12 @@
 //! duplicates at every visit: there is no index left to keep consistent,
 //! admission refused duplicates, and the record id and namespace are still
 //! checked on every visit (`declarations::validate_record`). A plugin that
-//! rewrites its own image into two records of one name only hides its own
-//! records: a name lookup finds the first in declaration order.
+//! rewrites its own image after admission (a card plugin's mapped module)
+//! can hide its own records behind a duplicate name (a name lookup finds the
+//! first in declaration order) and can also declare more formats or readers
+//! than the device-wide caps counted at admission allow: whatever reads those
+//! records pushes them fallibly, and plugins are trusted code (decision 44),
+//! so this is robustness only, never another plugin's names or memory.
 use super::super::raw_declarations::varint;
 use super::super::registrations::{
     ACTION_SPEC_TAG, BOOK_BADGE_SPEC_TAG, BOOK_FIELD_SPEC_TAG, FORMAT_SPEC_TAG, HELP_HINT_TAG,
