@@ -738,7 +738,7 @@ fn reports_unknown_references_in_config() {
 }
 
 /// A plugin contributing two tiny bitmap fonts.
-struct FontPlugin;
+pub(crate) struct FontPlugin;
 
 impl Plugin for FontPlugin {
     fn manifest(&self) -> Manifest {

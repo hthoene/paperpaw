@@ -122,6 +122,7 @@ mod tests {
     /// all its texts in one.
     fn shown(safe_mode: Option<SafeMode>) -> String {
         let builder = crate::Kernel::builder(crate::tests::DEVICE)
+            .plugin(crate::tests::FontPlugin)
             .code_plugins(Native::new("code.ppn"), Box::new(NoCode));
         let mut kernel = match safe_mode {
             Some(safe_mode) => builder.safe_mode(safe_mode),
