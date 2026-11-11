@@ -458,9 +458,11 @@ fn each_step_of_the_store_stays_within_the_x4_budget() {
         "run:core.down,run:core.down,run:core.confirm,wait:3000",
         "run:core.confirm,wait:5000",
         "run:core.down,run:core.confirm,wait:3000",
-        // Home, the store again (now with a row for what is installed),
-        // the group *New* and its first plugin's page (`long-notes`).
-        "run:core.back,wait:500,run:store.open,wait:3000,\
+        // Home (not one `back`: the store's page stays on the stack under
+        // the native store, `back` goes to it, as the old store went home),
+        // the store again (now with a row for what is installed), the group
+        // *New* and its first plugin's page (`long-notes`).
+        "run:core.home,wait:500,run:store.open,wait:3000,\
          run:core.down,run:core.down,run:core.confirm,wait:2000,\
          run:core.confirm,wait:3000",
         "run:core.confirm,wait:5000",
