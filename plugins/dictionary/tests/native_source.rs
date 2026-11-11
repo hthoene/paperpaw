@@ -3,7 +3,7 @@
 //! from the user's files.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the tests")]
 use paperpaw_plugin_dictionary::{
-    native_disk::{CACHE, Routed, cache_of},
+    native_disk::{CACHE, Routed, cache_of, failed_file},
     native_model::{self, Item, Listing, Source},
     native_source::Dictionaries,
 };
@@ -64,16 +64,16 @@ fn an_unindexed_dictionary_is_not_ready_until_its_builders_have_run() {
     let mut tree = Tree;
     let mut source = Dictionaries::new(&mut tree, &storage, "/dicts/").unwrap();
     assert_eq!(source.ready().unwrap(), 0);
-    let mut builders = source.builders().unwrap();
+    let mut builders = source.pending().unwrap();
     assert!(!builders.is_empty());
-    for builder in &mut builders {
-        while !builder.step(&storage, 64).unwrap() {}
+    for pending in &mut builders {
+        while !pending.builder.step(&storage, 64).unwrap() {}
     }
     // A fresh source finds the indexes made.
     let mut tree = Tree;
     let mut source = Dictionaries::new(&mut tree, &storage, "dicts").unwrap();
     assert_eq!(source.ready().unwrap(), 1);
-    assert!(source.builders().unwrap().is_empty());
+    assert!(source.pending().unwrap().is_empty());
     let page = native_model::page_at(&mut source, "Dog", 0)
         .unwrap()
         .unwrap();
@@ -96,8 +96,8 @@ fn the_indexes_are_made_in_the_data_folder_and_never_among_the_users_files() {
     };
     let mut tree = Tree;
     let mut source = Dictionaries::new(&mut tree, &storage, "dicts").unwrap();
-    for builder in &mut source.builders().unwrap() {
-        while !builder.step(&storage, 64 * 1024).unwrap() {}
+    for pending in &mut source.pending().unwrap() {
+        while !pending.builder.step(&storage, 64 * 1024).unwrap() {}
     }
     let cache = cache_of("dicts/en/small.ifo").unwrap();
     let name = cache.strip_prefix(CACHE).unwrap();
@@ -135,8 +135,8 @@ fn a_cut_index_is_not_ready_and_is_made_again_from_the_start() {
     let make = || {
         let mut tree = Tree;
         let mut source = Dictionaries::new(&mut tree, &storage, "dicts").unwrap();
-        for builder in &mut source.builders().unwrap() {
-            while !builder.step(&storage, 64 * 1024).unwrap() {}
+        for pending in &mut source.pending().unwrap() {
+            while !pending.builder.step(&storage, 64 * 1024).unwrap() {}
         }
     };
     make();
@@ -149,7 +149,7 @@ fn a_cut_index_is_not_ready_and_is_made_again_from_the_start() {
     let mut tree = Tree;
     let mut source = Dictionaries::new(&mut tree, &storage, "dicts").unwrap();
     assert_eq!(source.ready().unwrap(), 0, "a cut index is read as one");
-    assert!(!source.builders().unwrap().is_empty());
+    assert!(!source.pending().unwrap().is_empty());
     make();
     let mut tree = Tree;
     let mut source = Dictionaries::new(&mut tree, &storage, "dicts").unwrap();
@@ -158,4 +158,38 @@ fn a_cut_index_is_not_ready_and_is_made_again_from_the_start() {
         .unwrap()
         .unwrap();
     assert_eq!(page.found.text, "a small animal");
+}
+
+#[test]
+fn a_dictionary_that_failed_before_from_the_same_files_is_not_indexed_again() {
+    let (files, data) = (card(), MemoryStorage::new());
+    let storage = Routed {
+        files: &files,
+        data: &data,
+    };
+    let pending = || {
+        let mut tree = Tree;
+        let mut source = Dictionaries::new(&mut tree, &storage, "dicts").unwrap();
+        source.pending().unwrap()
+    };
+    let first = pending();
+    assert!(!first.is_empty());
+    // What the work keeps when the index is damaged: the files' sizes.
+    let (cache, stamp) = (first[0].cache.clone(), first[0].stamp.clone());
+    assert_eq!(cache, cache_of("dicts/en/small.ifo").unwrap());
+    assert!(stamp.chars().all(|c| c.is_ascii_digit() || c == ' '), "{stamp}");
+    storage
+        .write(&failed_file(&cache).unwrap(), stamp.as_bytes())
+        .unwrap();
+    assert!(pending().is_empty(), "not tried again from the same files");
+    // Files that changed are tried again.
+    storage
+        .write(&failed_file(&cache).unwrap(), b"1 2 3")
+        .unwrap();
+    assert!(!pending().is_empty());
+    // The dictionary still counts as found, and its cache as in use.
+    let mut tree = Tree;
+    let mut source = Dictionaries::new(&mut tree, &storage, "dicts").unwrap();
+    assert_eq!(source.found().unwrap(), 1);
+    assert_eq!(source.caches().unwrap(), [cache]);
 }

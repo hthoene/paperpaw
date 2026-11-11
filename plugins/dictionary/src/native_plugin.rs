@@ -6,11 +6,11 @@
 //! The panel is a later slice (`PORTING-7.md`).
 use crate::{
     declarations::{POPUP_TOKEN, PROVIDER_TOKEN, WORK_KEY, WORK_TOKEN},
-    native_disk::{HostRoot, Routed},
+    native_disk::{HostRoot, Routed, failed_file},
     native_folders::{self, Folders},
     native_model::{self, Source},
     native_popup::View,
-    native_source::Dictionaries,
+    native_source::{Dictionaries, Pending},
 };
 use alloc::vec::Vec;
 use paperpaw_sdk::{
@@ -26,11 +26,49 @@ use paperpaw_sdk::{
         work::{Work, WorkSpec},
     },
 };
-use paperpaw_stardict::Builder;
 use paperpaw_ui_kit::Screens;
 
 /// Bytes of an index read per step of the background work.
 const STEP_BYTES: usize = 64 * 1024;
+
+/// The block indexes being made, and how far they are.
+#[derive(Debug, Default)]
+struct Index {
+    pending: Vec<Pending>,
+    /// Bytes read, and in all, since the first of them started.
+    done: u64,
+    total: u64,
+}
+
+impl Index {
+    /// Takes the indexes of dictionaries that are not being made yet; whether
+    /// any was new.
+    fn adopt(&mut self, more: Vec<Pending>) -> Result<bool, Error> {
+        if self.pending.is_empty() {
+            (self.done, self.total) = (0, 0);
+        }
+        let mut added = false;
+        for next in more {
+            if self.pending.iter().any(|have| have.cache == next.cache) {
+                continue;
+            }
+            self.pending.try_reserve(1).map_err(|_| Error::NoMemory)?;
+            self.total = self.total.saturating_add(next.builder.progress().1);
+            self.pending.push(next);
+            added = true;
+        }
+        Ok(added)
+    }
+
+    /// How far the indexes are, in percent.
+    fn percent(&self) -> u32 {
+        u32::try_from(self.done.saturating_mul(100) / self.total.max(1)).unwrap_or(100)
+    }
+
+    fn clear(&mut self) {
+        self.pending = Vec::new();
+    }
+}
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/dictionary_declarations.rs"));
@@ -40,8 +78,10 @@ mod image {
 #[derive(Debug, Default)]
 pub struct NativeDictionary {
     /// The indexes the background work is making.
-    pending: Vec<Builder>,
-    /// An index could not be made: not tried again until the next start.
+    index: Index,
+    /// An index could not be made for a reason that may pass: not tried again
+    /// until the next start. (A damaged dictionary is kept in a file by its
+    /// cache, [`crate::native_disk::failed_file`].)
     gave_up: bool,
     ui: Option<Ui>,
     screens: Screens<View>,
@@ -85,17 +125,26 @@ impl NativeDictionary {
     ) -> Result<(), Error> {
         let mut source = Dictionaries::new(folders, storage, folder)?;
         let answered = Self::answer(&mut source, ask, reply);
-        if self.pending.is_empty() && !self.gave_up {
-            self.pending = source.builders()?;
-            if !self.pending.is_empty() {
-                // Not scheduled: not kept either, or the next ask would not try again.
-                if let Err(error) = Self::schedule(host) {
-                    self.pending = Vec::new();
-                    return Err(error);
-                }
-            }
+        if !self.gave_up && self.index.pending.is_empty() {
+            let pending = source.pending()?;
+            self.start(host, pending)?;
         }
         answered
+    }
+
+    /// Takes the indexes still to be made and declares the work that makes
+    /// them, if none runs. Not scheduled: not kept either, or the next ask
+    /// would not try again.
+    fn start(&mut self, host: &Host<'_>, pending: Vec<Pending>) -> Result<(), Error> {
+        let running = !self.index.pending.is_empty();
+        if !self.index.adopt(pending)? || running {
+            return Ok(());
+        }
+        if let Err(error) = Self::schedule(host) {
+            self.index.clear();
+            return Err(error);
+        }
+        Ok(())
     }
 
     /// Declares the work that does the next step of the indexing.
@@ -108,31 +157,76 @@ impl NativeDictionary {
         declared.and(released)
     }
 
-    /// One step of the indexing: the first index a while, then the rest.
+    /// One step of the indexing: the first index a while, then the rest. A
+    /// damaged dictionary is skipped now and until its files change; any other
+    /// failure, a refused allocation too, ends the indexing for this session
+    /// (tried again at the next start, not at every ask).
     fn index(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let (files, data) = (HostRoot::files(host), HostRoot::data(host));
         let storage = Routed {
             files: &files,
             data: &data,
         };
-        if let Some(builder) = self.pending.first_mut() {
-            match builder.step(&storage, STEP_BYTES) {
+        if let Some(first) = self.index.pending.first_mut() {
+            let before = first.builder.progress().0;
+            let stepped = first.builder.step(&storage, STEP_BYTES);
+            let after = first.builder.progress().0;
+            self.index.done = self.index.done.saturating_add(after.saturating_sub(before));
+            match stepped {
                 Ok(false) => {}
                 Ok(true) => {
-                    self.pending.remove(0);
+                    self.index.pending.remove(0);
                 }
+                Err(paperpaw_stardict::Error::Malformed(_)) => self.skip_damaged(&storage),
                 Err(_) => {
-                    // Any failure, a refused allocation too, ends the indexing for this
-                    // session: tried again at the next start, not at every ask.
-                    self.pending = Vec::new();
+                    self.index.clear();
                     self.gave_up = true;
                 }
             }
         }
-        if self.pending.is_empty() {
+        self.tell_panels(host);
+        if self.index.pending.is_empty() {
             Ok(())
         } else {
             Self::schedule(host)
+        }
+    }
+
+    /// The dictionary of the first index is left out, and a file in its cache
+    /// says it could not be indexed from these files.
+    fn skip_damaged(&mut self, storage: &Routed<'_>) {
+        let Some(first) = self.index.pending.first() else {
+            return;
+        };
+        // Best effort: without the file it is tried again at the next start.
+        if let Ok(path) = failed_file(&first.cache) {
+            storage.write(&path, first.stamp.as_bytes()).ok();
+        }
+        let cache = first.cache.clone();
+        let rest: u64 = self
+            .index
+            .pending
+            .iter()
+            .filter(|p| p.cache == cache)
+            .map(|p| p.builder.progress().1.saturating_sub(p.builder.progress().0))
+            .sum();
+        self.index.total = self.index.total.saturating_sub(rest);
+        self.index.pending.retain(|p| p.cache != cache);
+    }
+
+    /// Tells the open panels how far the indexes are, or that they are made.
+    fn tell_panels(&mut self, host: &Host<'_>) {
+        let percent = if self.index.pending.is_empty() {
+            None
+        } else {
+            Some(self.index.percent())
+        };
+        for view in self.screens.all() {
+            if view.preparing() && view.indexed(host, percent).is_err() {
+                // What could not be read is not worth failing the work for:
+                // the panel stops waiting and says nothing was found.
+                view.give_up();
+            }
         }
     }
 }
@@ -172,7 +266,13 @@ impl Plugin for NativeDictionary {
                     self.ui = Some(Ui::open(host)?);
                 }
                 let ui = self.ui.as_ref().ok_or(Error::State)?;
-                self.screens.open(instance, View::open(host, ui, handover)?)
+                // Where indexing was given up, what is ready is what there is.
+                let (mut view, pending) = View::open(host, ui, handover, !self.gave_up)?;
+                if !pending.is_empty() {
+                    self.start(host, pending)?;
+                    view.prepare(self.index.percent());
+                }
+                self.screens.open(instance, view)
             }
             Event::ScreenShown {
                 instance: Some(instance),

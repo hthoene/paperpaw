@@ -3,7 +3,7 @@
 //! are not made yet is not ready; its [`Builder`]s are what the background
 //! work runs.
 use crate::{
-    native_disk::{cache_of, model_error},
+    native_disk::{cache_of, failed_before, model_error, stamp},
     native_model::{self, Found, Listing, Source},
 };
 use alloc::{string::String, vec::Vec};
@@ -15,7 +15,21 @@ use paperpaw_ui_kit::{mem::push, text::copy};
 #[derive(Debug)]
 struct Opened {
     dictionary: Dictionary,
+    /// Where its block indexes are (a path of [`crate::native_disk::Routed`]).
+    cache: String,
     ready: bool,
+}
+
+/// One block index still to be made, with what a failure of it is kept by.
+#[derive(Debug)]
+pub struct Pending {
+    pub builder: Builder,
+    /// The folder of the dictionary's indexes.
+    pub cache: String,
+    /// What the files still to be indexed are, by their sizes
+    /// ([`crate::native_disk::stamp`]): a failed dictionary is tried again
+    /// only when they change.
+    pub stamp: String,
 }
 
 /// The dictionaries below a folder.
@@ -63,7 +77,14 @@ impl<'a, L: Listing> Dictionaries<'a, L> {
                     Err(_) => continue,
                 };
                 let ready = dictionary.builders(self.storage).is_empty();
-                push(&mut opened, Opened { dictionary, ready })?;
+                push(
+                    &mut opened,
+                    Opened {
+                        dictionary,
+                        cache,
+                        ready,
+                    },
+                )?;
             }
             self.opened = Some(opened);
         }
@@ -78,17 +99,43 @@ impl<'a, L: Listing> Dictionaries<'a, L> {
         Ok(self.open()?.len())
     }
 
-    /// The block indexes still to be made, over all the dictionaries.
+    /// The block indexes still to be made, over all the dictionaries, except
+    /// those of a dictionary that could not be indexed before from the same
+    /// files (its `failed` marker names them).
     ///
     /// # Errors
     /// The folder's, or `NoMemory`.
-    pub fn builders(&mut self) -> Result<Vec<Builder>, Error> {
+    pub fn pending(&mut self) -> Result<Vec<Pending>, Error> {
         let storage = self.storage;
         let mut all = Vec::new();
         for opened in self.open()?.iter().filter(|o| !o.ready) {
-            for builder in opened.dictionary.builders(storage) {
-                push(&mut all, builder)?;
+            let missing = opened.dictionary.builders(storage);
+            let stamp = stamp(&missing)?;
+            if failed_before(storage, &opened.cache, &stamp) {
+                continue;
             }
+            for builder in missing {
+                push(
+                    &mut all,
+                    Pending {
+                        builder,
+                        cache: copy(&opened.cache)?,
+                        stamp: copy(&stamp)?,
+                    },
+                )?;
+            }
+        }
+        Ok(all)
+    }
+
+    /// The folders of the indexes of all the dictionaries found.
+    ///
+    /// # Errors
+    /// The folder's, or `NoMemory`.
+    pub fn caches(&mut self) -> Result<Vec<String>, Error> {
+        let mut all = Vec::new();
+        for opened in self.open()? {
+            push(&mut all, copy(&opened.cache)?)?;
         }
         Ok(all)
     }
