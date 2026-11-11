@@ -102,7 +102,7 @@ impl NativeBookFormats {
             return;
         }
         let ids = &self.ids;
-        formats.retain_formats(|spec| !ids.iter().any(|id| *id == spec.id));
+        formats.retain_formats(|spec| !ids.contains(&spec.id));
         self.ids.clear();
         let mut wanted = 0;
         store.each_format(&mut |_| wanted += 1);
