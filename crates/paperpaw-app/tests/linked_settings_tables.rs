@@ -50,6 +50,13 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
     }
     // A plugin with settings has its table (one that is not listed costs
     // memory): the ones that declare settings today.
+    #[cfg_attr(
+        not(feature = "native-linked-store"),
+        allow(
+            unused_mut,
+            reason = "the store's plugins are added only with the feature"
+        )
+    )]
     let mut with_settings = vec![
         "keyboard",
         "lock",
@@ -75,6 +82,13 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
     }
     // The plugins that declare setting groups have their table of them (an
     // empty or stale one only costs memory, silently).
+    #[cfg_attr(
+        not(feature = "native-linked-store"),
+        allow(
+            unused_mut,
+            reason = "the store's plugins are added only with the feature"
+        )
+    )]
     let mut with_groups = vec!["bluetooth", "keyboard", "lock", "power"];
     #[cfg(feature = "native-linked-store")]
     with_groups.push("widgets");
