@@ -115,6 +115,15 @@ pub(crate) struct Opener<'a> {
     pub(crate) sibling: &'a str,
 }
 
+/// `bytes` in a buffer of their own length.
+fn exact(bytes: &[u8]) -> Result<Vec<u8>, i32> {
+    let mut copy = Vec::new();
+    copy.try_reserve_exact(bytes.len())
+        .map_err(|_| ERR_NO_MEMORY)?;
+    copy.extend_from_slice(bytes);
+    Ok(copy)
+}
+
 fn buffer(capacity: usize) -> Result<Vec<u8>, i32> {
     let mut bytes = Vec::new();
     bytes
@@ -290,7 +299,9 @@ impl<'a> Stage<'a> {
         // HOOK (#385 `input_rows`): the batch encoder, see the module doc.
         let used = local::records_encode(&rows, &mut payload)?;
         drop(rows);
-        payload.truncate(used);
+        // Only the encoded bytes stay while the format runs (the room for the
+        // longest call goes first: the call's peak is the format's, #248).
+        let payload = exact(payload.get(..used).ok_or(ERR_INVALID)?)?;
         self.route.call(target, &payload, out)
     }
 
