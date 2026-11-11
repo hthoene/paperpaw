@@ -1050,6 +1050,23 @@ mod tests {
         assert_eq!(block.text_index(7), index);
     }
 
+    /// The text is reserved at the size it takes, not at the worst case (three
+    /// bytes a byte): for Windows-1252, UTF-8, line ends and byte order marks.
+    #[test]
+    fn decoding_reserves_exactly_what_the_text_takes() {
+        for bytes in [
+            &b"Gr\xf6\xdfe \x84Zitat\x93 \x80 5\n"[..],
+            "Größe „Zitat“ € 5\r\nx\ry\u{feff}z\tw".as_bytes(),
+            b"plain ascii only",
+            b"",
+        ] {
+            let (_, document) = open(bytes.to_vec());
+            let (text, _) = document.decode(bytes, 0).unwrap();
+            assert_eq!(document.decoded_len(bytes), text.len());
+            assert_eq!(text.capacity(), text.len());
+        }
+    }
+
     #[test]
     fn splits_long_paragraphs_deterministically() {
         let words: Vec<String> = (0..4000).map(|i| format!("word{i}")).collect();
