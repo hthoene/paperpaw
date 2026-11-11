@@ -154,7 +154,7 @@ fn opened_with(
     let mut builder = Kernel::builder(BUTTONS)
         .storage(storage.clone())
         .plugin(fonts)
-        .plugin(paperpaw_plugin_format_epub::EpubFormat)
+        .plugin(paperpaw_epub_family::EpubFormat)
         .plugin(Reader)
         .plugin(StoreAndNotices(log.clone(), Rc::new(RefCell::new(answer))));
     for id in present {

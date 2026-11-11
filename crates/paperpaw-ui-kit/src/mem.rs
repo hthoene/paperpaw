@@ -18,6 +18,30 @@ pub fn buffer(len: usize) -> Result<Vec<u8>, Error> {
     Ok(bytes)
 }
 
+/// `value` on the heap: a refused allocation is [`Error::NoMemory`], never an
+/// abort (`Box::new` aborts). For state a plugin keeps beside a small struct
+/// of its own, made when it is first needed.
+///
+/// # Errors
+/// [`Error::NoMemory`] when it cannot be allocated.
+pub fn boxed<T>(value: T) -> Result<alloc::boxed::Box<T>, Error> {
+    let layout = core::alloc::Layout::new::<T>();
+    if layout.size() == 0 {
+        return Ok(alloc::boxed::Box::new(value));
+    }
+    // SAFETY: the layout is not zero-sized; a null result is refused; the
+    // block is then written with a `T` and handed to a `Box`, which frees it
+    // with the same layout (the global allocator's).
+    unsafe {
+        let block = alloc::alloc::alloc(layout).cast::<T>();
+        if block.is_null() {
+            return Err(Error::NoMemory);
+        }
+        block.write(value);
+        Ok(alloc::boxed::Box::from_raw(block))
+    }
+}
+
 /// Fills `bytes` with zeros in a way the compiler cannot drop as a dead store
 /// before the memory is freed: for a password, a key or a typed secret.
 pub fn wipe(bytes: &mut [u8]) {
@@ -206,6 +230,37 @@ pub fn copy_strs<'a>(items: &[&'a str]) -> Result<Vec<&'a str>, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_boxed_value_is_kept_whole_and_dropped_once() {
+        use core::sync::atomic::{AtomicUsize, Ordering};
+        static DROPS: AtomicUsize = AtomicUsize::new(0);
+        struct Big([u8; 600], u32);
+        impl Drop for Big {
+            fn drop(&mut self) {
+                DROPS.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let mut bytes = [0u8; 600];
+        for (i, b) in bytes.iter_mut().enumerate() {
+            *b = (i % 251) as u8;
+        }
+        let boxed = boxed(Big(bytes, 7)).unwrap();
+        assert_eq!(
+            (boxed.1, boxed.0[0], boxed.0[599]),
+            (7, 0, (599 % 251) as u8)
+        );
+        assert_eq!(DROPS.load(Ordering::SeqCst), 0);
+        drop(boxed);
+        assert_eq!(DROPS.load(Ordering::SeqCst), 1);
+        // A value with no size needs no block.
+        assert_eq!(*super::boxed(()).unwrap(), ());
+        // A value aligned wider than a word keeps its alignment.
+        #[repr(align(64))]
+        struct Wide(u8);
+        let wide = super::boxed(Wide(9)).unwrap();
+        assert_eq!((wide.0, core::ptr::from_ref(&*wide) as usize % 64), (9, 0));
+    }
 
     #[test]
     fn a_full_vector_grows_by_its_length_up_to_a_few_and_never_doubles() {

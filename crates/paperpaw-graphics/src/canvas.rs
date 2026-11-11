@@ -7,6 +7,9 @@ use crate::blit::{Bitmap, Blit, Dither};
 use crate::framebuffer::Framebuffer;
 use crate::round::{self, corner_inset};
 
+#[path = "canvas/bounded.rs"]
+mod bounded;
+
 /// A drawing surface clipped to a region of a [`Framebuffer`].
 ///
 /// Coordinates are screen coordinates, or relative to an origin set with

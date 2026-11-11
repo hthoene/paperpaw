@@ -1,0 +1,25 @@
+[package]
+name = "paperpaw-epub-family"
+description = "The shared conversion of the EPUB, HTML, FictionBook, Markdown and comic book format plugins (no plugin of its own)"
+version = "1.0.5"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+categories = ["no-std", "text-processing"]
+
+[dependencies]
+paperpaw-sdk = { workspace = true, features = ["unstable"] }
+# WOFF fonts: their tables are zlib-compressed.
+miniz_oxide = { version = "0.9", default-features = false, features = ["with-alloc"] }
+
+[dev-dependencies]
+paperpaw-i18n.workspace = true
+paperpaw-layout.workspace = true
+paperpaw-zip = { workspace = true, features = ["testing"] }
+proptest.workspace = true
+
+[lints]
+workspace = true

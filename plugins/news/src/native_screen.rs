@@ -26,7 +26,7 @@ use crate::declarations::SCREEN;
 use crate::native_books::{BOOKS_CAP, BOOKS_FILE, find};
 use crate::native_fetch::{load, save};
 use crate::native_news::{Feed, Mark};
-use crate::native_plugin::{DataVolume, NativeNews, notice};
+use crate::native_plugin::{DataVolume, News, notice};
 use crate::native_shelf::FOLDER;
 
 /// The longest address typed.
@@ -111,7 +111,7 @@ fn redraw(host: &Host<'_>) -> Result<(), Error> {
     CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)
 }
 
-impl NativeNews {
+impl News {
     /// The texts of the rows.
     fn words(host: &Host<'_>) -> Result<Words, Error> {
         let mut say = Messages::new()?;

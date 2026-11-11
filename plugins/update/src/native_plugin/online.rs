@@ -77,8 +77,9 @@ pub struct Online {
     registry: Option<Registry>,
     /// The update server's question in flight.
     asking: Option<(RequestId, bool)>,
-    pub loading: Option<Loading>,
-    pub fetch: Option<Fetch>,
+    /// Boxed: a download is rare, and what it holds is not kept idle.
+    pub loading: Option<alloc::boxed::Box<Loading>>,
+    pub fetch: Option<alloc::boxed::Box<Fetch>>,
 }
 
 impl Online {
@@ -420,7 +421,7 @@ impl NativeUpdate {
             builds: wanted,
             percent: None,
         };
-        self.online.loading = Some(loading);
+        self.online.loading = Some(paperpaw_ui_kit::mem::boxed(loading)?);
         self.show_downloading(host)
     }
 

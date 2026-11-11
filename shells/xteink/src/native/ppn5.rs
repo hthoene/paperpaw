@@ -488,6 +488,9 @@ mod x4 {
         let (Some(depth), Some(resources)) = (table.depth(), table.share()) else {
             return;
         };
+        // The texts the linked plugins bring built in (`screens-input.md` [D]):
+        // none of them is found otherwise.
+        paperpaw_app::add_native_catalogs(kernel);
         for (id, linked) in paperpaw_app::NATIVE_PLUGINS.iter() {
             let Some(share) = resources.try_clone() else {
                 return;
@@ -509,7 +512,7 @@ mod x4 {
                     // The firmware's read-only data in flash: the declarations
                     // of a linked plugin are borrowed from it, not copied.
                     flash_rodata(),
-                    paperpaw_app::fixed_settings(id),
+                    paperpaw_app::fixed_tables(id),
                 )
             };
             warn!("native: linked {id}: {status:?}");

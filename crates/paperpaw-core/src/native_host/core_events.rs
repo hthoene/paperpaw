@@ -48,7 +48,7 @@ const QUEUE_MAX: usize = 28;
 
 /// The lifecycle events that are edges, held encoded (and `library_changed`,
 /// held the same way: its queue must not be pruned for want of a listener).
-const EDGE_TAGS: [u32; 9] = [
+const EDGE_TAGS: [u32; 12] = [
     wire::EVENT_SCREEN_READY_TAG,
     wire::EVENT_STARTED_TAG,
     wire::EVENT_BATTERY_MEASURED_TAG,
@@ -56,8 +56,11 @@ const EDGE_TAGS: [u32; 9] = [
     wire::EVENT_BOOK_OPENED_TAG,
     wire::EVENT_BOOK_CLOSED_TAG,
     wire::EVENT_BOOK_FINISHED_TAG,
+    wire::EVENT_BOOK_MOVED_TAG,
     wire::EVENT_LIBRARY_CHANGED_TAG,
     wire::EVENT_SPOKEN_TAG,
+    wire::EVENT_PLUGINS_REQUESTED_TAG,
+    wire::EVENT_PLUGIN_ANSWERED_TAG,
 ];
 
 /// The wire tag of the kernel event `event`, `None` for any other event.
@@ -80,6 +83,8 @@ fn tag_of(event: &Id) -> Option<u32> {
         wire::EVENT_BOOK_CLOSED_TAG
     } else if *event == builtin::BOOK_FINISHED {
         wire::EVENT_BOOK_FINISHED_TAG
+    } else if *event == builtin::BOOK_MOVED {
+        wire::EVENT_BOOK_MOVED_TAG
     } else if *event == super::native_tick::TICK {
         wire::EVENT_TICK_TAG
     } else {
@@ -122,11 +127,18 @@ fn drop_note(tag: u32) -> &'static str {
         wire::EVENT_BOOK_OPENED_TAG => "a native plugin lost event.book_opened; not retried",
         wire::EVENT_BOOK_CLOSED_TAG => "a native plugin lost event.book_closed; not retried",
         wire::EVENT_BOOK_FINISHED_TAG => "a native plugin lost event.book_finished; not retried",
+        wire::EVENT_BOOK_MOVED_TAG => "a native plugin lost event.book_moved; not retried",
         wire::EVENT_SCREEN_READY_TAG => "a native plugin lost event.screen_ready; not retried",
         wire::EVENT_LIBRARY_CHANGED_TAG => {
             "a native plugin lost event.library_changed; not retried"
         }
         wire::EVENT_SPOKEN_TAG => "a native plugin lost event.spoken; not retried",
+        wire::EVENT_PLUGINS_REQUESTED_TAG => {
+            "a native plugin lost event.plugins_requested; not retried"
+        }
+        wire::EVENT_PLUGIN_ANSWERED_TAG => {
+            "a native plugin lost event.plugin_answered; not retried"
+        }
         _ => "a native plugin lost event.page_turned; not retried",
     }
 }
@@ -163,6 +175,21 @@ fn hold_edge(queue: &mut Pending, tag: u32, now_ms: u64, params: &Params) -> Res
         }
         wire::EVENT_BATTERY_MEASURED_TAG => {
             let record = wire::Record::EventBatteryMeasured(wire::EventBatteryMeasured { now_ms });
+            queue.push_record(tag, &record)
+        }
+        wire::EVENT_BOOK_MOVED_TAG => {
+            // The old and the new path as they are: a path over the record's
+            // cap is not told cut (a cut path names a book that does not
+            // exist) but dropped, and logged once like any lost event. A move
+            // without both paths says nothing true to tell either.
+            let from = params.get("from").ok_or(ERR_INVALID)?;
+            let path = params.get("path").ok_or(ERR_INVALID)?;
+            if from.len() > wire::EVENT_BOOK_MOVED_FROM_MAX_BYTES
+                || path.len() > wire::EVENT_BOOK_MOVED_PATH_MAX_BYTES
+            {
+                return Err(ERR_INVALID);
+            }
+            let record = wire::Record::EventBookMoved(wire::EventBookMoved { now_ms, from, path });
             queue.push_record(tag, &record)
         }
         _ => {
@@ -237,9 +264,21 @@ impl Kernel {
         hears: &dyn Fn(&str) -> bool,
         hold: &dyn Fn(&mut Pending) -> Result<(), i32>,
     ) {
+        let _ = self.native_queue_event_if(tag, &|_, _, id| hears(id), hold);
+    }
+
+    /// As [`Self::native_queue_event`], where `hears` also sees the instances
+    /// and the plugin's owner key (e.g. whether it may answer plugin requests).
+    pub(super) fn native_queue_event_if(
+        &mut self,
+        tag: u32,
+        hears: &dyn Fn(&NativeInstances, u64, &str) -> bool,
+        hold: &dyn Fn(&mut Pending) -> Result<(), i32>,
+    ) -> usize {
         // Whether an event was lost that was not logged yet (once for a
         // plugin until its queue is empty again).
         let mut report = false;
+        let mut held_by = 0;
         let mut n = 0;
         let instances = &self.shared.native_instances;
         while let Some((owner, _)) = instances.running_nth(n) {
@@ -247,7 +286,7 @@ impl Kernel {
             let Some(id) = instances.id(owner) else {
                 continue;
             };
-            if !instances.subscribed(owner, tag) || !hears(id.as_str()) {
+            if !instances.subscribed(owner, tag) || !hears(instances, owner, id.as_str()) {
                 continue;
             }
             let held = instances
@@ -256,10 +295,12 @@ impl Kernel {
             // A queue that cannot even be made is reported every time (it
             // cannot remember that it was).
             report |= matches!(held, Err(_) | Ok(Err(true)));
+            held_by += usize::from(matches!(held, Ok(Ok(()))));
         }
         if report {
             self.try_warn_runtime(&[drop_note(tag)]);
         }
+        held_by
     }
 
     /// `event.screen_ready` (87) for the instance `instance` of `screen`, to

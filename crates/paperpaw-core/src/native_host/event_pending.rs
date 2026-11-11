@@ -10,13 +10,21 @@ const EDGES: usize = 16;
 const PLUGIN_BYTES: usize = 4096;
 const DEVICE_BYTES: usize = 8192;
 /// Pending bits: five hints, the reread bit, the registry bit, the coalesced
-/// lifecycle events (tick, resume, suspend, stopping; see [`CORE_TAGS`]), then
-/// the preview hint.
-const BITS: u8 = 12;
+/// lifecycle events (tick, resume, suspend, stopping; see [`CORE_TAGS`]), the
+/// preview hint, then the radio hints (see [`RADIO_TAGS`]).
+const BITS: u8 = 15;
 const REREAD: u8 = 5;
 const REGISTRY: u8 = 6;
 const CORE_FIRST: u8 = 7;
 const PREVIEW: u8 = 11;
+const RADIO_FIRST: u8 = 12;
+/// The radio hints, in bit order from `RADIO_FIRST`: `wifi_scanned`,
+/// `network_wanted` and `network_idle` (`device.md` section 4).
+pub(crate) const RADIO_TAGS: [u32; 3] = [
+    wire::EVENT_WIFI_SCANNED_TAG,
+    wire::EVENT_NETWORK_WANTED_TAG,
+    wire::EVENT_NETWORK_IDLE_TAG,
+];
 /// The events that keep a pending bit, in bit order from `CORE_FIRST`: a
 /// second one before the first was told is one (tick, resume) or, for suspend
 /// and stopping, never lost to a full store (`events::bypasses_queue`).
@@ -62,7 +70,7 @@ impl EventBudget {
 pub(crate) struct Pending {
     budget: Shared<PluginBudget>,
     edges: Vec<HeldEdge>,
-    // IDs 0..10 are hint, overflow, registry and lifecycle bits; IDs 11..26 name dense held-edge slots.
+    // IDs 0..14 are hint, overflow, registry, lifecycle and radio bits; IDs 15..30 name dense held-edge slots.
     // Coalescing moves its ID to the back. There is no sequence counter to wrap.
     order: [u8; ORDER],
     len: u8,
@@ -224,6 +232,13 @@ impl Pending {
         !core::mem::replace(&mut self.drop_logged, true)
     }
 
+    /// Whether the queue holds nothing and remembers nothing: no event waits
+    /// and no drop was logged since it was last empty, so it can be freed and
+    /// made again with the same behaviour.
+    pub(crate) fn is_idle(&self) -> bool {
+        self.len == 0 && !self.drop_logged
+    }
+
     /// Whether a held edge waits: a later edge goes behind it.
     pub(crate) fn has_edges(&self) -> bool {
         !self.edges.is_empty()
@@ -251,6 +266,10 @@ impl Pending {
             self.touch(PREVIEW);
             return Ok(());
         }
+        if let Some(at) = RADIO_TAGS.iter().position(|&known| known == tag) {
+            self.touch(RADIO_FIRST + at as u8);
+            return Ok(());
+        }
         let id = tag
             .checked_sub(wire::EVENT_PLUGINS_CHANGED_TAG)
             .filter(|id| *id < 5)
@@ -274,7 +293,7 @@ impl Pending {
             self.order.copy_within(at + 1..len, at);
             self.len -= 1;
         }
-        // At most 16 edge IDs and ten distinct bits can be present.
+        // At most 16 edge IDs and fifteen distinct bits can be present.
         self.order[usize::from(self.len)] = id;
         self.len += 1;
     }
@@ -300,6 +319,9 @@ impl Pending {
         }
         if id < REREAD {
             return Some(Ready::Hint(wire::EVENT_PLUGINS_CHANGED_TAG + u32::from(id)));
+        }
+        if (RADIO_FIRST..BITS).contains(&id) {
+            return Some(Ready::Hint(RADIO_TAGS[usize::from(id - RADIO_FIRST)]));
         }
         if id < BITS {
             return Some(Ready::Core(CORE_TAGS[usize::from(id - CORE_FIRST)]));
