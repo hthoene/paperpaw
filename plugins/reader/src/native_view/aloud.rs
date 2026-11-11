@@ -224,21 +224,45 @@ impl View {
         Some(Ok(Handled::Yes))
     }
 
-    /// The key of the open book (`native_start::book_key`); none without one.
+    /// The key of the book on show, open or still prepared
+    /// (`native_start::book_key`); none without one.
     #[must_use]
     pub fn book_key(&self) -> Option<u64> {
         match &self.body {
             Body::Open(open) => Some(crate::native_start::book_key(&open.path)),
-            _ => None,
+            Body::Preparing(book) => Some(crate::native_start::book_key(&book.found.path)),
+            Body::Message(_) => None,
         }
     }
 
-    /// Starts reading aloud on the page on show (nothing without a book).
+    /// Starts reading aloud on the page on show; for a book still prepared it
+    /// is kept until the book is open (`take_aloud_kept`); nothing without a
+    /// book.
     pub fn start_aloud(&mut self, host: &Host<'_>, shared: (&Documents, Option<&Library>)) {
+        if self.preparing() {
+            self.aloud_kept = true;
+            return;
+        }
         self.staged(host, shared, |speaker, stage| {
             stage.align();
             speaker.start(stage);
         });
+    }
+
+    /// Whether *Read aloud* was kept while the book was prepared.
+    #[must_use]
+    pub const fn aloud_kept(&self) -> bool {
+        self.aloud_kept
+    }
+
+    /// Whether *Read aloud* kept while the book was prepared is due now: the
+    /// book is open (asked once; a book that failed forgets it). A book still
+    /// prepared keeps it.
+    pub fn take_aloud_kept(&mut self) -> bool {
+        if self.preparing() {
+            return false;
+        }
+        core::mem::take(&mut self.aloud_kept) && matches!(self.body, Body::Open(_))
     }
 
     /// Pauses reading aloud (with the notice if `notice`): the layout changed.
