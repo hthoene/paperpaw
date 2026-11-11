@@ -156,13 +156,14 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
     ("files", &paperpaw_plugin_files::NATIVE_ENTRY),
     ("help", &paperpaw_plugin_help::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-reading")]
     ("home", &paperpaw_plugin_home::NATIVE_ENTRY),
     ("keyboard", &paperpaw_plugin_keyboard::NATIVE_ENTRY),
     ("lock", &paperpaw_plugin_lock::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
     ("mail", &paperpaw_plugin_mail::NATIVE_ENTRY),
     ("menu", &paperpaw_plugin_menu::NATIVE_ENTRY),
-    #[cfg(feature = "native-linked-store")]
+    #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
     ("news", &paperpaw_plugin_news::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
     ("notes-vault", &paperpaw_plugin_notes_vault::NATIVE_ENTRY),
@@ -172,12 +173,13 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
         &paperpaw_plugin_plugin_manager::NATIVE_ENTRY,
     ),
     ("power", &paperpaw_plugin_power::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-reading")]
     ("reader", &paperpaw_plugin_reader::NATIVE_ENTRY),
     ("settings", &paperpaw_plugin_settings::NATIVE_ENTRY),
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
     ("transfer", &paperpaw_plugin_transfer::NATIVE_ENTRY),
     ("update", &paperpaw_plugin_update::NATIVE_ENTRY),
-    #[cfg(feature = "native-linked-store")]
+    #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
     ("vocabulary", &paperpaw_plugin_vocabulary::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
     ("widgets", &paperpaw_plugin_widgets::NATIVE_ENTRY),
@@ -452,13 +454,17 @@ pub fn install_with(
         .plugin(paperpaw_plugin_format_epub::CbzFormat)
         .plugin(paperpaw_plugin_dictionary::DictionaryPlugin);
     // Reader, Home and Menu keep their order; they are native plugins,
-    // linked (`NATIVE_PLUGINS`), where the feature says.
-    #[cfg(not(feature = "native-linked"))]
+    // linked (`NATIVE_PLUGINS`), where the features say (Home and Reader:
+    // `native-linked-reading`, Menu: `native-linked`).
+    #[cfg(not(feature = "native-linked-reading"))]
     {
         b = b
             .plugin(paperpaw_plugin_reader::Reader)
-            .plugin(paperpaw_plugin_home::Home)
-            .plugin(paperpaw_plugin_menu::Menu);
+            .plugin(paperpaw_plugin_home::Home);
+    }
+    #[cfg(not(feature = "native-linked"))]
+    {
+        b = b.plugin(paperpaw_plugin_menu::Menu);
     }
     #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
     {
@@ -489,12 +495,18 @@ pub fn install_with(
     {
         b = offered(b, store, paperpaw_plugin_aids::Aids);
     }
-    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
+    #[cfg(all(
+        feature = "store-plugins",
+        not(all(feature = "native-linked-store", feature = "native-linked-reading"))
+    ))]
     {
         b = offered(b, store, paperpaw_plugin_vocabulary::Vocabulary);
     }
     b = b.plugin(paperpaw_plugin_sleep::Sleep);
-    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
+    #[cfg(all(
+        feature = "store-plugins",
+        not(all(feature = "native-linked-store", feature = "native-linked-reading"))
+    ))]
     {
         b = offered(b, store, paperpaw_plugin_news::News);
     }

@@ -100,7 +100,7 @@ native-linked = ["dep:aes-gcm", "dep:zeroize"]
 # dependency, so that the Windows and macOS builds (CI, release) keep the
 # interface-6 app: nothing registers a linked plugin there.
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
-paperpaw-app = { workspace = true, features = ["native-linked", "native-linked-store"] }
+paperpaw-app = { workspace = true, features = ["native-linked", "native-linked-store", "native-linked-reading"] }
 
 [lints]
 workspace = true
