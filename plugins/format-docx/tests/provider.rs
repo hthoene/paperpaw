@@ -800,6 +800,8 @@ fn a_details_open_answers_the_properties_and_converts_nothing() {
     )
     .unwrap();
     assert!(matches!(rows(&reply)[0], stage::Record::FmtText(t) if t.text == "Ann Author"));
+    // No cover, as for any Word document (not a refusal).
+    assert_eq!(run(&mut p, &io, &call(17, 1, |_| {})), Err(Error::NotFound));
     // Content is not there: no block, section, contents or link.
     for op in [3, 7, 8, 9, 10, 14, 15, 18] {
         assert_eq!(
@@ -812,6 +814,12 @@ fn a_details_open_answers_the_properties_and_converts_nothing() {
     for file in ["blocks.bin", "index.bin", "info.txt", "done"] {
         assert!(io.size(file).is_err(), "{file}");
     }
+    // Bit 3 together with bit 2 is a details open as well.
+    run(&mut p, &io, &call(4, 1, |_| {})).unwrap();
+    let reply = run(&mut p, &io, &call(2, 1, |c| c.flags = (1 << 3) | (1 << 2))).unwrap();
+    assert_eq!(state(&reply), (0, 0, 0, 0));
+    assert_eq!(run(&mut p, &io, &call(8, 1, |_| {})), Err(Error::State));
+    assert!(io.size("blocks.bin").is_err());
     // The same document id, closed and opened as a book to show: prepared.
     run(&mut p, &io, &call(4, 1, |_| {})).unwrap();
     let (s, status, flags) = open_ready(&mut p, &io);

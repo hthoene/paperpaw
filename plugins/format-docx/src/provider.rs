@@ -390,10 +390,13 @@ impl DocxProvider {
     }
 
     /// The document of `id` for `op`: a details open answers only the
-    /// properties' ops, the others are `State`.
+    /// properties' ops and the cover (a Word document has none), the others
+    /// are `State`.
     fn readable(&self, id: u32, op: u32) -> Result<&DocxDocument, Error> {
         match &self.slot(id)?.body {
-            Body::Details(document) if matches!(op, op::META | op::META_TEXT) => Ok(document),
+            Body::Details(document) if matches!(op, op::META | op::META_TEXT | op::COVER) => {
+                Ok(document)
+            }
             _ => self.ready(id),
         }
     }
