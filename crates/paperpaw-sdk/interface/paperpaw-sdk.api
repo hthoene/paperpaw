@@ -3556,6 +3556,8 @@ pub fn paperpaw_sdk::native::declare::Declarations<F>::slot_offer(&mut self, pap
 impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::lookup_provider(&mut self, paperpaw_sdk::native::declare::LookupProviderDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
+pub fn paperpaw_sdk::native::declare::Declarations<F>::reader(&mut self, paperpaw_sdk::native::declare::ReaderDecl<'_>) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
+impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::register_draw(&mut self, u32) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 pub fn paperpaw_sdk::native::declare::Declarations<F>::subscribe_event(&mut self, paperpaw_sdk::native::declare::EventKind, u32) -> core::result::Result<&mut Self, paperpaw_sdk::native::declare::DeclareError>
 impl<F: core::ops::function::FnMut(&[u8]) -> core::result::Result<(), i32>> paperpaw_sdk::native::declare::Declarations<F>
@@ -3669,6 +3671,13 @@ pub paperpaw_sdk::native::declare::PresetValueDecl::preset: &'a str
 pub paperpaw_sdk::native::declare::PresetValueDecl::value: paperpaw_sdk::native::settings::SettingValue<'a>
 impl<'a> paperpaw_sdk::native::declare::PresetValueDecl<'a>
 pub const fn paperpaw_sdk::native::declare::PresetValueDecl<'a>::new(&'a str, &'a str, paperpaw_sdk::native::settings::SettingValue<'a>) -> Self
+#[non_exhaustive] pub struct paperpaw_sdk::native::declare::ReaderDecl<'a>
+pub paperpaw_sdk::native::declare::ReaderDecl::formats: &'a str
+pub paperpaw_sdk::native::declare::ReaderDecl::name: &'a str
+pub paperpaw_sdk::native::declare::ReaderDecl::screen: &'a str
+impl<'a> paperpaw_sdk::native::declare::ReaderDecl<'a>
+pub const fn paperpaw_sdk::native::declare::ReaderDecl<'a>::formats(self, &'a str) -> Self
+pub const fn paperpaw_sdk::native::declare::ReaderDecl<'a>::new(&'a str, &'a str) -> Self
 #[non_exhaustive] pub struct paperpaw_sdk::native::declare::ScreenDecl<'a>
 pub paperpaw_sdk::native::declare::ScreenDecl::full_refresh_on_open: bool
 pub paperpaw_sdk::native::declare::ScreenDecl::name: &'a str

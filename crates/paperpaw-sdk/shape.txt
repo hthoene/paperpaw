@@ -2814,6 +2814,7 @@ struct paperpaw_sdk::native::declare::library::BookFieldDecl<'a>(0: paperpaw_sdk
 struct paperpaw_sdk::native::declare::lookup::LookupProviderDecl<'a> { name: &'a str, title: &'a str, languages: &'a str, network: bool, token: u32 }
 struct paperpaw_sdk::native::declare::menus::MenuEntryDecl<'a> { menu: &'a str, item: &'a str, order: i16, place: paperpaw_sdk::native::declare::menus::EntryPlacement<'a> }
 struct paperpaw_sdk::native::declare::menus::MenuSectionDecl<'a> { name: &'a str, title: &'a str, menu: &'a str, order: i16 }
+struct paperpaw_sdk::native::declare::reader::ReaderDecl<'a> { name: &'a str, screen: &'a str, formats: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ActionSpec<'a> { name: &'a str, title: &'a str, token: u32, flags: u32 }
 struct paperpaw_sdk::native::declare::records_wire::BookBadgeSpec<'a> { name: &'a str, token: u32, flags: u32 }
 struct paperpaw_sdk::native::declare::records_wire::BookDataSpec<'a> { name: &'a str, kind: u32 }
