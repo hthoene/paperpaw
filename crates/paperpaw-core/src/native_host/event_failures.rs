@@ -10,8 +10,9 @@
 //! starts again, and room for six: a seventh is only counted. What happens to
 //! the plugin is not changed.
 //!
-//! Limits, on purpose: the table is not cleared, so a pair already noted (or a
-//! seventh) that fails again is not said again, nor counted; and the host's own
+//! Limits, on purpose: a pair already noted (or a seventh) that fails again
+//! is not said again, nor counted, until its plugin starts again (the notes
+//! of a plugin that were said are then forgotten, [`EventFailures::forget`]); and the host's own
 //! refusals `ERR_BUSY` and `ERR_STATE` are left out, so a plugin that itself ends
 //! with one of them (a refused service call it passes up) is not said either.
 //! The events that go through the screen queue (a screen's callbacks) do not
@@ -80,6 +81,20 @@ impl EventFailures {
                 });
             }
             None => table.more = table.more.saturating_add(1),
+        }
+    }
+
+    /// Forgets the notes of `owner` that were said, as it starts again: its
+    /// next failure is said once more, and the room is free. Notes not said
+    /// yet stay.
+    pub(crate) fn forget(&self, owner: u64) {
+        let Ok(mut table) = self.0.try_borrow_mut() else {
+            return;
+        };
+        for slot in &mut table.list {
+            if slot.is_some_and(|failure| failure.key == owner && failure.reported) {
+                *slot = None;
+            }
         }
     }
 
@@ -210,6 +225,23 @@ mod tests {
         assert_eq!(said, SLOTS);
         assert_eq!(failures.take_more(), 3);
         assert_eq!(failures.take_more(), 0);
+    }
+
+    #[test]
+    fn a_started_again_plugin_is_said_again_and_unsaid_notes_stay() {
+        let failures = EventFailures::default();
+        failures.note(1, 1, -3);
+        failures.note(2, 1, -3);
+        assert!(failures.take().is_some()); // key 1 said
+        failures.forget(1);
+        failures.forget(2); // not said yet: stays
+        failures.note(1, 1, -3);
+        let mut keys = [0; 2];
+        for key in &mut keys {
+            *key = failures.take().map_or(0, |said| said.key);
+        }
+        assert_eq!(keys, [1, 2]);
+        assert!(failures.take().is_none());
     }
 
     #[test]

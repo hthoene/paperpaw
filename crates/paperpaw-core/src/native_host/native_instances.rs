@@ -545,6 +545,8 @@ impl NativeInstances {
             return Err(ERR_STATE);
         }
         entry.instance = Some(instance);
+        // A plugin that starts again may fail anew, and be said.
+        self.event_failures.forget(key);
         if let Some(directory) = self.directory() {
             directory.subscribe(key, subscribed);
         }
