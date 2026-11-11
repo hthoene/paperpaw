@@ -139,6 +139,8 @@ pub struct CommandStage<'a> {
     images_held: usize,
     /// Texts of the plugin the kernel's speech holds (being spoken or waiting).
     speech_held: usize,
+    /// Plugin requests open device-wide (`plugin_requests.rs`).
+    requests_open: usize,
     /// The callback belongs to a work run (`work.md` section 2, "background
     /// work is quiet"): commands that show something are refused.
     quiet: bool,
@@ -193,6 +195,7 @@ impl<'a> CommandStage<'a> {
             quiet: false,
             images_held: 0,
             speech_held: 0,
+            requests_open: 0,
             staged_images: Vec::new(),
             items: None,
             staged_items: Vec::new(),
@@ -227,6 +230,11 @@ impl<'a> CommandStage<'a> {
     /// The picture requests of the plugin that wait outside the table.
     pub(crate) fn set_images_held(&mut self, held: usize) {
         self.images_held = held;
+    }
+
+    /// The plugin requests open device-wide.
+    pub(crate) fn set_requests_open(&mut self, open: usize) {
+        self.requests_open = open;
     }
 
     /// The texts of the plugin that the kernel's speech holds.
@@ -426,7 +434,8 @@ impl<'a> CommandStage<'a> {
             };
             self.validate_setting(key, value, bytes)?;
         }
-        self.validate_speech_room(batch)
+        self.validate_speech_room(batch)?;
+        self.validate_plugin_requests(batch)
     }
 
     /// A batch refused whole, whatever else it holds, the stage as it was.

@@ -1,7 +1,7 @@
 //! Host-only UI authority and deferred redraw effects for one callback.
 use super::*;
 use crate::native_host::stack_rows::StackRows;
-use paperpaw_native::host_glue::ERR_NOT_FOUND;
+use paperpaw_native::host_glue::{ERR_FULL, ERR_NOT_FOUND};
 use paperpaw_platform::RefreshMode;
 use paperpaw_sdk::{Env, IdError, Params, ScreenKey};
 
@@ -312,6 +312,14 @@ impl<'a> CommandStage<'a> {
                 Ok(text.len() + language.len())
             }
             WireCommand::StopSpeaking {} => Ok(0),
+            // Plugin requests (`plugin_requests.rs`): every id valid here, the
+            // room for the request in `validate_plugin_requests`.
+            WireCommand::RequestPlugins { plugins } => {
+                for id in plugins.split('\n').filter(|id| !id.is_empty()) {
+                    copy_id(id)?;
+                }
+                Ok(plugins.len())
+            }
             _ => Err(ERR_UNSUPPORTED),
         }
     }
@@ -336,6 +344,27 @@ impl<'a> CommandStage<'a> {
                 WireCommand::Speak { flags, .. } => count(&mut texts, Some(flags & QUEUE != 0))?,
                 WireCommand::StopSpeaking {} => count(&mut texts, None)?,
                 _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// At most `plugin_requests::MAX_OPEN` requests are open device-wide:
+    /// another is `ERR_FULL` at submit, the batch refused whole (what is staged
+    /// already and what the batch holds count with the kernel's own).
+    pub(super) fn validate_plugin_requests(&self, batch: &CommandBatch<'_>) -> Result<(), i32> {
+        let mut open = self.requests_open
+            + self
+                .staged
+                .iter()
+                .filter(|command| matches!(command, Command::RequestPlugins { .. }))
+                .count();
+        for command in batch.iter() {
+            if matches!(command, WireCommand::RequestPlugins { .. }) {
+                if open >= crate::native_host::plugin_requests::MAX_OPEN {
+                    return Err(ERR_FULL);
+                }
+                open += 1;
             }
         }
         Ok(())
@@ -379,6 +408,16 @@ impl<'a> CommandStage<'a> {
                 (rate, flags),
             ),
             WireCommand::StopSpeaking {} => crate::native_host::speech::stop(self.owner),
+            WireCommand::RequestPlugins { plugins } => {
+                let mut ids = alloc::vec::Vec::new();
+                ids.try_reserve_exact(plugins.split('\n').count())
+                    .map_err(|_| ERR_NO_MEMORY)?;
+                for id in plugins.split('\n').filter(|id| !id.is_empty()) {
+                    ids.push(copy_id(id)?);
+                }
+                let by = self.owner.try_clone().ok_or(ERR_NO_MEMORY)?;
+                Ok(Command::RequestPlugins { by, plugins: ids })
+            }
             _ => Err(ERR_UNSUPPORTED),
         }
     }

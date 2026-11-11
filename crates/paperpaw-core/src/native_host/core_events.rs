@@ -48,7 +48,7 @@ const QUEUE_MAX: usize = 28;
 
 /// The lifecycle events that are edges, held encoded (and `library_changed`,
 /// held the same way: its queue must not be pruned for want of a listener).
-const EDGE_TAGS: [u32; 9] = [
+const EDGE_TAGS: [u32; 11] = [
     wire::EVENT_SCREEN_READY_TAG,
     wire::EVENT_STARTED_TAG,
     wire::EVENT_BATTERY_MEASURED_TAG,
@@ -58,6 +58,8 @@ const EDGE_TAGS: [u32; 9] = [
     wire::EVENT_BOOK_FINISHED_TAG,
     wire::EVENT_LIBRARY_CHANGED_TAG,
     wire::EVENT_SPOKEN_TAG,
+    wire::EVENT_PLUGINS_REQUESTED_TAG,
+    wire::EVENT_PLUGIN_ANSWERED_TAG,
 ];
 
 /// The wire tag of the kernel event `event`, `None` for any other event.
@@ -127,6 +129,12 @@ fn drop_note(tag: u32) -> &'static str {
             "a native plugin lost event.library_changed; not retried"
         }
         wire::EVENT_SPOKEN_TAG => "a native plugin lost event.spoken; not retried",
+        wire::EVENT_PLUGINS_REQUESTED_TAG => {
+            "a native plugin lost event.plugins_requested; not retried"
+        }
+        wire::EVENT_PLUGIN_ANSWERED_TAG => {
+            "a native plugin lost event.plugin_answered; not retried"
+        }
         _ => "a native plugin lost event.page_turned; not retried",
     }
 }
@@ -237,6 +245,17 @@ impl Kernel {
         hears: &dyn Fn(&str) -> bool,
         hold: &dyn Fn(&mut Pending) -> Result<(), i32>,
     ) {
+        self.native_queue_event_if(tag, &|_, _, id| hears(id), hold);
+    }
+
+    /// As [`Self::native_queue_event`], where `hears` also sees the instances
+    /// and the plugin's owner key (e.g. whether it may answer plugin requests).
+    pub(super) fn native_queue_event_if(
+        &mut self,
+        tag: u32,
+        hears: &dyn Fn(&NativeInstances, u64, &str) -> bool,
+        hold: &dyn Fn(&mut Pending) -> Result<(), i32>,
+    ) {
         // Whether an event was lost that was not logged yet (once for a
         // plugin until its queue is empty again).
         let mut report = false;
@@ -247,7 +266,7 @@ impl Kernel {
             let Some(id) = instances.id(owner) else {
                 continue;
             };
-            if !instances.subscribed(owner, tag) || !hears(id.as_str()) {
+            if !instances.subscribed(owner, tag) || !hears(instances, owner, id.as_str()) {
                 continue;
             }
             let held = instances
