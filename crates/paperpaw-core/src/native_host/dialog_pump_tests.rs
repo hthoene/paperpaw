@@ -248,6 +248,9 @@ fn the_dialog_opens_in_its_slot_after_the_asking_callback_returned() {
     });
     let top = w.kernel.stack.last().unwrap().serial;
     assert_eq!(w.store.dialog_of(top).map(|d| d.0), Some(id));
+    // A dialog that is not native (this one) keeps the params: the host's
+    // hand-over no screen took is freed.
+    assert_eq!(w.store.len(), 0);
 }
 
 #[test]

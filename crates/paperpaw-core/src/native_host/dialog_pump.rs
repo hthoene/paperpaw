@@ -280,8 +280,8 @@ impl crate::Kernel {
             (None, None)
         };
         let params = Params::new()
-            .with("core.request", request)
-            .with("core.kind", kind);
+            .with("core.request", request.as_str())
+            .with("core.kind", kind.as_str());
         let own = self.guard().is_some_and(|guard| {
             self.shared
                 .native_instances
@@ -294,10 +294,7 @@ impl crate::Kernel {
         // host's (`ui.md` 3.2), named by the open as a plugin's `open` names
         // its own; a dialog that is not native keeps the params. Without
         // memory for it the dialog opens without (the keyboard refuses it).
-        let handover = params
-            .get("core.request")
-            .zip(params.get("core.kind"))
-            .and_then(|(request, kind)| store.handover_dialog(request, kind).ok());
+        let handover = store.handover_dialog(&request, &kind).ok();
         self.shared
             .native_instances
             .set_pending_handover(handover.map(Some));

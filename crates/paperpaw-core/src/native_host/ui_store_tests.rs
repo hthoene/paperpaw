@@ -580,3 +580,17 @@ fn the_host_makes_the_hand_over_of_a_dialog_with_the_params_a_plugin_cannot() {
     s.release(loose).unwrap();
     assert_eq!(s.attach(Some(loose), 6), Err(ERR_STATE));
 }
+
+#[test]
+fn a_full_table_of_plugins_hand_overs_leaves_room_for_the_hosts_dialogs() {
+    let mut limits = Limits::ELSEWHERE;
+    limits.handovers = 1;
+    let s = UiStore::new(limits);
+    s.handover_make(who(1, 1), &[p("k", "v")]).unwrap();
+    // The plugins' table is full: another of theirs is refused.
+    assert_eq!(s.handover_make(who(1, 1), &[p("k", "w")]), Err(ERR_FULL));
+    // The host's dialogs still open, up to the room it has.
+    s.handover_dialog("1", "0").unwrap();
+    s.handover_dialog("2", "0").unwrap();
+    assert_eq!(s.handover_dialog("3", "0"), Err(ERR_FULL));
+}

@@ -226,6 +226,10 @@ impl Wiped {
 
 /// The owner of what the host made itself (no plugin has this key).
 const HOST_OWNER: u64 = u64::MAX;
+/// Hand-overs beyond the limit the host may make for its dialogs, so that a
+/// plugin that fills the table (`Limits::handovers`) cannot make every text
+/// question fail.
+const HOST_ROOM: usize = 2;
 
 enum State {
     Made {
@@ -491,6 +495,7 @@ impl UiStore {
                 owner: who.owner,
                 epoch: who.epoch,
             },
+            0,
         )
     }
 
@@ -515,15 +520,19 @@ impl UiStore {
                     value: kind,
                 },
             ],
+            // `batch` is a number no `claim` makes (they count up from 0), so
+            // that no plugin's rollback frees it.
             State::Claimed {
                 owner: HOST_OWNER,
                 batch: u64::MAX,
             },
+            HOST_ROOM,
         )
     }
 
-    /// Keeps a hand-over of `params` (checked) in `state`.
-    fn insert(&self, params: &[Param<'_>], state: State) -> Result<u32, i32> {
+    /// Keeps a hand-over of `params` (checked) in `state`, `room` beyond the
+    /// limit of hand-overs allowed.
+    fn insert(&self, params: &[Param<'_>], state: State, room: usize) -> Result<u32, i32> {
         // Encode once into a block of exactly the size.
         let mut framed = 0_usize;
         for param in params {
@@ -534,7 +543,7 @@ impl UiStore {
         }
         let mut inner = self.inner()?;
         if inner.params_bytes + framed > self.limits.params_bytes
-            || inner.entries.len() >= self.limits.handovers
+            || inner.entries.len() >= self.limits.handovers + room
         {
             return Err(ERR_FULL);
         }
