@@ -186,6 +186,21 @@ fn the_events_of_subscription_checked_services_can_be_registered() {
 }
 
 #[test]
+fn the_wifi_hints_and_the_registry_requests_can_be_registered_and_38_and_39_cannot() {
+    // 92 `wifi_scanned`, 94 `network_wanted`, 95 `network_idle` (the native
+    // wifi plugin was refused at `make` without them), 77 `plugins_requested`
+    // and 78 `plugin_answered`: `device.md` 4, `registry.md` 5.
+    for tag in [77, 78, 92, 94, 95] {
+        assert!(super::super::events::is_event_tag(tag), "{tag}");
+    }
+    // 38 and 39 go to the token of the declaration they name, never to a
+    // registration (`screens-input.md` section 2); 98 waits for its delivery.
+    for tag in [38, 39, 98] {
+        assert!(!super::super::events::is_event_tag(tag), "{tag}");
+    }
+}
+
+#[test]
 fn pending_unsupported_events_do_not_enable_admission() {
     // 64 and the hints 70-74 have their delivery (`setting_events`), 86 its own
     // (`widget_events`), and 75 and 76 are the registry's hints (`registry_changed` keeps
