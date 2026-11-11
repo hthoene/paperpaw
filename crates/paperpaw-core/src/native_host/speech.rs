@@ -49,7 +49,7 @@ pub(crate) fn with_status(params: Params, status: u32) -> Params {
 
 /// What a `command.speak` asks, checked: a rate out of range or a flag that
 /// is not defined is `ERR_INVALID`.
-pub(super) fn check(rate: u32, flags: u32) -> Result<(), i32> {
+pub(crate) fn check(rate: u32, flags: u32) -> Result<(), i32> {
     if !RATE.contains(&rate) || flags & !QUEUE != 0 {
         return Err(ERR_INVALID);
     }
@@ -58,7 +58,7 @@ pub(super) fn check(rate: u32, flags: u32) -> Result<(), i32> {
 
 /// The kernel command for a native `command.speak` of `owner`, its texts
 /// copied with the allocation checked.
-pub(super) fn speak(
+pub(crate) fn speak(
     owner: &Id,
     (cookie, text, language): (u32, &str, &str),
     (rate, flags): (u32, u32),
@@ -88,7 +88,7 @@ pub(super) fn speak(
 }
 
 /// The kernel command for a native `command.stop_speaking` of `owner`.
-pub(super) fn stop(owner: &Id) -> Result<Command, i32> {
+pub(crate) fn stop(owner: &Id) -> Result<Command, i32> {
     let mut params = Params::new();
     params
         .try_set(OWNER, owner.as_str())

@@ -308,7 +308,7 @@ impl<'a> CommandStage<'a> {
                 flags,
                 ..
             } => {
-                super::speech::check(rate, flags)?;
+                crate::native_host::speech::check(rate, flags)?;
                 Ok(text.len() + language.len())
             }
             WireCommand::StopSpeaking {} => Ok(0),
@@ -348,8 +348,8 @@ impl<'a> CommandStage<'a> {
                 language,
                 rate,
                 flags,
-            } => super::speech::speak(self.owner, (cookie, text, language), (rate, flags)),
-            WireCommand::StopSpeaking {} => super::speech::stop(self.owner),
+            } => crate::native_host::speech::speak(self.owner, (cookie, text, language), (rate, flags)),
+            WireCommand::StopSpeaking {} => crate::native_host::speech::stop(self.owner),
             _ => Err(ERR_UNSUPPORTED),
         }
     }

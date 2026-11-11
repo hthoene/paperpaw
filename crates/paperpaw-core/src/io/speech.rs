@@ -125,7 +125,8 @@ impl Speech {
     /// the text spoken now is the owner's, it stops, and what waited behind it
     /// stops with it.
     pub fn stop_owned(&mut self, owner: &str, out: &mut Vec<Command>) {
-        let mine = |s: &Speaking| native::is_reply(&s.reply) && s.params.get(native::OWNER) == Some(owner);
+        let mine =
+            |s: &Speaking| native::is_reply(&s.reply) && s.params.get(native::OWNER) == Some(owner);
         if self.speaking.first().is_some_and(mine) {
             self.stop(out);
             return;
@@ -154,7 +155,11 @@ impl Speech {
     pub fn done(&mut self, id: u32, spoken: bool, out: &mut Vec<Command>) {
         if let Some(at) = self.speaking.iter().position(|s| s.id == id) {
             let speaking = self.speaking.remove(at);
-            let ended = if spoken { Ended::Spoken } else { Ended::NoVoice };
+            let ended = if spoken {
+                Ended::Spoken
+            } else {
+                Ended::NoVoice
+            };
             reply(speaking.reply, speaking.params, ended, out);
         }
     }
