@@ -79,6 +79,13 @@ impl<V> Screens<V> {
         self.open.iter_mut().map(|(_, view)| view)
     }
 
+    /// Every open instance with its state.
+    pub fn all_with_instance(&mut self) -> impl Iterator<Item = (Instance, &mut V)> {
+        self.open
+            .iter_mut()
+            .map(|(instance, view)| (*instance, view))
+    }
+
     /// Whether no instance is open.
     #[must_use]
     pub fn is_empty(&self) -> bool {

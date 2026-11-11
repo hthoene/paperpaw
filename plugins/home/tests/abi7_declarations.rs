@@ -276,12 +276,14 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert_eq!(native.actions, old.actions);
     assert_eq!(native.actions.len(), 2);
     // The setting changes (the grid), the minute tick (the time shown) and a
-    // widget that changed (`event.widget_changed`), in any order.
-    assert_eq!(native.events.len(), 3, "{:?}", native.events);
+    // widget that changed (`event.widget_changed`) and the screen stack (a
+    // dashboard under another screen lets its page go), in any order.
+    assert_eq!(native.events.len(), 4, "{:?}", native.events);
     for token in [
         declarations::SETTING_CHANGED,
         declarations::TICK,
         declarations::WIDGET_CHANGED,
+        declarations::STACK_CHANGED,
     ] {
         assert!(
             native
