@@ -59,6 +59,7 @@ pub mod native_look;
 pub mod native_place;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
+pub mod native_finding;
 pub mod native_footnote;
 pub mod native_headings;
 pub mod native_links;
@@ -68,6 +69,8 @@ pub mod native_open;
 pub mod native_pages;
 pub mod native_plugin;
 pub mod native_selection;
+pub mod native_skim;
+pub mod native_skim_view;
 pub mod native_state;
 #[cfg(test)]
 mod native_tests;
