@@ -14,7 +14,10 @@
 //! `doc_open` (the path and a few bytes). Nothing is kept between calls. The
 //! format call is the document service's own, through the caller's frame
 //! (a nested callback like the reader's own `doc_open`).
-use super::{Caller, Cx, DocHost, Frame, READY, Record, close, codec, op, open, read, wire};
+use super::{
+    Caller, Cx, DocHost, Frame, READY, Record, close, codec, op, open, read, table::BACKGROUND,
+    wire,
+};
 use crate::abi7::services_wire;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE};
@@ -99,7 +102,10 @@ fn covered(
             root: 1,
             path,
             format: "",
-            flags: 0,
+            // Not for showing: a format skips what only a shown book needs
+            // (contents, positions, page labels), and the open takes no
+            // place another opener's document needs (`document.md` 2.1).
+            flags: BACKGROUND,
             image_side: 0,
             cover_side: side,
             css_root: 0,
