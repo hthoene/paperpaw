@@ -91,7 +91,9 @@ pub fn draw_lines<M: Measure>(
 /// at the next layout) or a host that draws no pictures leaves its place empty.
 fn draw_images(ink: &mut impl Ink, page: &Page, (left, top): (f32, f32)) -> Result<(), Error> {
     for image in &page.images {
-        let Ok(handle) = image.image.path.parse::<u32>() else {
+        // Handle 0: the host had no id left to give (eight are out and none
+        // drawn yet); the place stays empty, the page still draws.
+        let Ok(handle @ 1..) = image.image.path.parse::<u32>() else {
             continue;
         };
         let (x, y) = ((left + image.x + 0.5) as i32, (top + image.y + 0.5) as i32);

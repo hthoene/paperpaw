@@ -424,6 +424,9 @@ relative to the data folder).
   release pictures (they end with the document). Unmeasured on the X4: the drawing time of a full-page picture
   and the heap of a 16-cell row (a `Vec` of cells and one of weights per row being assembled).
 - The metadata asks for the host call `canvas.draw_image` (slot 37) for the pictures.
+- A picture with host handle 0 (the host had no id left: eight are out and none drawn yet) is left empty, the page
+  still draws. Differences: pictures are drawn with the default style, so Beta 3's `core.pictures-in-grays` setting
+  is not applied yet.
 
 - **Not yet:** pictures (`Page::images` through `canvas.draw_image`) and table rows: the block assembler turns
   both into paragraphs (`native_block::start`), so a table's rules never occur yet; carrying them over needs the

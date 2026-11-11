@@ -276,6 +276,11 @@ fn a_picture_the_host_does_not_know_leaves_its_place_empty() {
         };
         draw_lines(&mut ink, &faces, &page, (0.0, 0.0)).unwrap();
     }
+    // Handle 0 (the host had no id to give) is no picture either, and does not fail the page.
+    let (page, faces) = picture_page("0");
+    let mut ink = Recorder::default();
+    draw_lines(&mut ink, &faces, &page, (0.0, 0.0)).unwrap();
+    assert!(ink.images.is_empty());
     // A handle that is no number is no picture; another refusal ends the drawing.
     let (page, faces) = picture_page("x7");
     let mut ink = Recorder::default();
