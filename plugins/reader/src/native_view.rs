@@ -149,6 +149,8 @@ struct Open {
     class_asked: bool,
     /// The chapter of the page on show (its start, the next start, its title).
     chapter: Option<Chapter>,
+    /// The starts of the book's bookmarks, for the ribbon (`ribbon.rs`).
+    bookmarks: Vec<(u32, u32)>,
     /// The status lines chosen at the top and the bottom.
     status: native_status::State,
 }
@@ -377,9 +379,11 @@ impl View {
             class: None,
             class_asked: false,
             chapter: None,
+            bookmarks: Vec::new(),
             status: native_status::State::default(),
         };
         open.begin(host, root == Root::Library);
+        open.load_bookmarks(host, library);
         // The host's book events start here (`document.md` 2.4); a book whose
         // first page cannot be laid out is told with its first draw.
         open.announce(host, docs);
@@ -724,6 +728,9 @@ impl View {
         if let Input::Action { action, .. } = input
             && let Some(handled) = self.other_action(host, (docs, library), action)?
         {
+            return Ok(handled);
+        }
+        if let Some(handled) = self.corner_tap(host, library, input)? {
             return Ok(handled);
         }
         let Body::Open(open) = &mut self.body else {
@@ -1311,6 +1318,7 @@ impl Open {
             origin,
             (self.mark.clone(), pictures),
         )?;
+        self.draw_ribbon(&canvas, rect, (&area, setup.display.display_dpi()))?;
         self.paint_status(host, ui, frame, (setup, &area))?;
         let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),
@@ -1369,6 +1377,7 @@ mod count;
 mod menu_bar;
 mod pictures;
 mod preparing;
+mod ribbon;
 use preparing::Preparing;
 
 /// The language a book is read in: its own, or the UI language where the

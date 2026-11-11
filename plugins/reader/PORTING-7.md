@@ -556,9 +556,10 @@ relative to the data folder).
   `native_bookmark::text_of`), on one line and cut at 512 bytes at a character (Beta 3 ended a cut text in "…": the
   library cuts at its own limit), the progress in whole percent (rounded, as Beta 3), the book's clock and
   the conversion. At most 24 bookmarks of one page are removed in one go.
-- **Not yet (named):** the ribbon on a bookmarked page and the tap on the top right corner
-  (`reader.corner-bookmark`): both belong to the draw and the gesture code (`native_view.rs`, R2b's files) and
-  follow when that lands; until then a toggle shows no mark on the page (the annotations screen, R5, lists it).
+- The ribbon on a bookmarked page and the tap on the top right corner (`reader.corner-bookmark`) are
+  `native_view/ribbon.rs` (#257): Beta 3's ribbon (3 mm wide, a notch, four fifths of the room above the text)
+  and corner (12 mm, at most a quarter of the width). The book's bookmark starts are read once at the opening
+  (at most 256, 8 bytes each) and follow the toggles made here; a toggle redraws the page.
   Go to a page / percentage (a number dialog; its answer is an event of the reader's own) and the status-line actions
   (`reader.next-status-line`, R2b) are not here. The annotations screen itself is R5.
 - An empty page (nothing laid out) is a silent no-op: no bookmark, no notice. Beta 3 sent `annotations::changed`
