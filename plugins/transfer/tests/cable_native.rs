@@ -1,7 +1,7 @@
 //! The cable on interface 7 through the kernel's native host: the computer's lines
 //! (`Kernel::cable_line`) reach the plugin's screen `transfer.cable` (slot
 //! `core.cable`), which serves port 0 and answers with `respond`. These are the
-//! behaviours `tests/cable.rs` pins for the interface-6 plugin: a computer that
+//! behaviours the transfer has over the cable: a computer that
 //! speaks opens the screen and learns what the device is; nothing is written
 //! before the reader allowed what it offered, and only that; *Back* ends the
 //! permission. They need the host's cable (Kernel #900), so they are ignored

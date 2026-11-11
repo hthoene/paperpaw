@@ -303,11 +303,7 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_format_images::ImagesFormat);
     }
     b = b.plugin(paperpaw_plugin_wifi::Wifi);
-    // Transfer is a native plugin, linked (`NATIVE_PLUGINS`), where the feature says.
-    #[cfg(not(feature = "native-linked"))]
-    {
-        b = b.plugin(paperpaw_plugin_transfer::Transfer);
-    }
+    // Transfer is a native plugin, linked (`NATIVE_PLUGINS`).
     #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);

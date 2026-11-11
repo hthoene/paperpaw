@@ -2,7 +2,7 @@
 //! plugin's data folder for `core.net` `respond` to send (an answer made of
 //! memory holds 2,048 bytes; the page is some 12 KiB). The texts, the device's
 //! name and the library folder go where the page names them
-//! (`/*STRINGS*/{}`), as in interface 6, with the extensions the formats read
+//! (`/*STRINGS*/{}`), with the extensions the formats read
 //! (`core.document`, for the hint where a book is sent outside the library
 //! folder). The page shows *Move* and *Rename* (it hides them for a `noMove`,
 //! which nothing sets since the library follows moves: `PORTING-7.md`).
@@ -165,7 +165,7 @@ mod tests {
         assert_eq!(page.len(), PAGE.len() - PLACEHOLDER.len() + 5);
     }
 
-    /// Every text the page reads is one the interface-6 page names, and the page
+    /// Every text the page reads is one the page names, and the page
     /// does not read a text that is not given (`T.name`, `T.library` and `T.books`
     /// are the three the plugin adds; `T.noMove` is never set, so the page
     /// shows *Move* and *Rename*).

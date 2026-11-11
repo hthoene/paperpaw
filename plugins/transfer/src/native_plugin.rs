@@ -119,7 +119,7 @@ pub struct NativeTransfer {
     own_open: bool,
     /// The plugins sent from the computer: what is staged and how each stands.
     installs: Installs,
-    /// The cable's screen, while it is open (`cable.rs`).
+    /// The cable's screen, while it is open (`native_plugin/cable.rs`).
     cable: Option<cable::CableScreen>,
 }
 
@@ -750,7 +750,7 @@ fn failed(host: &Host<'_>, key: &str, reason: &str) -> Result<String, Error> {
     Messages::new()?.format(host, key, &arguments)
 }
 
-/// The reason a server did not run, as interface 6 named it.
+/// The reason a server did not run, in the words the reader is shown.
 const fn reason_word(reason: Reason) -> &'static str {
     match reason {
         Reason::NoNetwork => "no network",

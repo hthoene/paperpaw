@@ -5,15 +5,14 @@ native entry (`NativeTransfer`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-
 and shows its address, installs plugins sent from the computer, types for the phone's keyboard, offers to go online,
 opens the reader's own network, moves, renames and deletes files through the library and answers a computer at the USB
 cable. It is in `NATIVE_PLUGINS` (linked under `native-linked`) and in `tools/plugin-files7/complete.txt`. The interface-6
-`Transfer`, `web.rs`, `plugins.rs`, `cable.rs`, `phone.rs`, `link.rs` and everything of
-them stay until the host activates native plugins (then they go together, no shim; see the removal step).
+code is gone (see the removal step): the app no longer registers `Transfer`, so this lands with native activation.
 
 ## Ported (slice 1)
 
 - `src/native_transfer.rs`: the address shown and the one the QR code carries (`urls`, given the
   `WifiState::reach` text instead of the state), the names a book may be put under (`is_book_name`), the read-only
   settings file (`read_only`) and the cable offer (`Offer::parse`, limits, plugin-name and safe-path checks, books
-  kept by 16 bytes of the name's SHA-256). `src/native_parity_tests.rs` compares each with the interface-6 code.
+  kept by 16 bytes of the name's SHA-256). `src/native_transfer_tests.rs` pins each (the comparisons with the interface-6 code went with it).
 - `declarations.rs`: the three screens (the transfer and the cable open one at a time, the phone's by parameters),
   the action `open`, its place in the tools (order 46), its icon and the offers for `core.remote-keyboard` (phone)
   and `core.cable` (cable). `tests/abi7_declarations.rs` decodes the batches by the host's rules and compares each
@@ -256,8 +255,7 @@ setting moves into it at load (`docs/abi/secrets.md` 4). A card that comes over 
 secrets in the file until its first load moves them out, so the plugin refuses the file anyway (this is a change
 from interface 6, which let the page fetch it): `GET /api/file` answers 403 for it, in any case, and `read_only`
 still refuses uploading over it, deleting, moving and renaming it (403). Pinned by
-`the_settings_are_not_served` and `the_settings_cannot_be_put_made_or_deleted_over`; the interface-6 parity test
-compares `read_only` with the interface-6 rule.
+`the_settings_are_not_served` and `the_settings_cannot_be_put_made_or_deleted_over`.
 
 ## What is not there, and the rest (all named, none blocks the port)
 
@@ -274,15 +272,17 @@ compares `read_only` with the interface-6 rule.
    (as update's page does).
 8. Ignored acceptance cases for these are in `tests/acceptance_pending.rs` (they name what they wait for).
 
-## Removal step (one sweep, with the reader port and Core #944)
+## Removal step (done: held until native activation)
 
-1. `Transfer`, `TransferScreen`, `web.rs`, `plugins.rs`, `link.rs`, `phone.rs`, `cable.rs`, the interface-6 tests
-   (`src/tests.rs`, `tests/serving.rs`, `tests/plugins.rs`, `tests/cable.rs`, `tests/upload_memory.rs`,
-   `native_parity_tests.rs` once nothing is left to compare), the `HOW` table kept for the manifest; `data/page.html`
-   and `data/phone.html` stay (the native page is built from the first).
-2. The app's registration of `Transfer` (`crates/paperpaw-app/src/lib.rs`).
-3. `NativeTransfer` is in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt` (done with the port: every user-visible
-   function works natively); the sweep removes the interface-6 form from `install_with` with the rest.
+Removed: `Transfer`, `TransferScreen`, `web.rs`, `plugins.rs`, `link.rs`, `phone.rs`, `cable.rs`, the interface-6 tests
+(`src/tests.rs`, `tests/serving.rs`, `tests/plugins.rs`, `tests/cable.rs`, `tests/upload_memory.rs`), the `HOW` table
+(`how/` stays: the native metadata is built from it), the `kernel` feature of `paperpaw-sdk` and the app's registration of
+`Transfer`. `native_parity_tests.rs` became `native_transfer_tests.rs` (the decisions pinned by values, and the
+allocation-refusal sweeps). `data/page.html` and `data/phone.html` stay. What the interface-6 `tests/*.rs` pinned
+through a kernel is in the native unit tests (`native_web`, `native_install`, `native_cable`, `native_key`) and, through
+the production loader, in `tests/cable_native.rs` and `tests/acceptance_pending.rs` (ignored until native activation).
+The app has no transfer until `native-linked` is on, so the PR is HELD until activation.
+
 ## `uses.install` is optional (#243)
 
 The native declaration lists `uses.install` as an optional feature (`native/metadata.json`). The desktop
