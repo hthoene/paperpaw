@@ -20,7 +20,7 @@ paperpaw-sdk = { workspace = true, features = ["unstable"] }
 paperpaw-ui-kit.workspace = true
 
 [build-dependencies]
-paperpaw-sdk = { workspace = true, features = ["unstable"] }
+paperpaw-sdk = { workspace = true, features = ["unstable", "kernel"] }
 
 [dev-dependencies]
 paperpaw-i18n.workspace = true
