@@ -333,7 +333,8 @@ class RecordsTests(unittest.TestCase):
                           ('command.set_hint', 1594),
                           ('event.document_changed', 88),
                           ('command.firmware_dual_boot', 1595),
-                          ('service.doc_report', 1183)])
+                          ('service.doc_report', 1183),
+                          ('command.redraw_area', 1596)])
         changed = copy.deepcopy(self.schema)
         for record in changed['records']:
             if record['id'] <= 3:

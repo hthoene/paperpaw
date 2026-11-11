@@ -8,6 +8,8 @@
 
 use paperpaw_platform::Storage;
 
+use crate::document::DocumentError;
+
 use super::{Book, DETAILS, book_for_update, load_details, today};
 use crate::Env;
 use crate::config;
@@ -17,8 +19,15 @@ use crate::config;
 const METADATA: &str = "metadata";
 
 /// [`index`](super::index()) without the cover: reads title, author,
-/// series and tags from the book and keeps them, marked as read.
-pub(crate) fn index_details(env: &Env<'_>, path: &str) -> Book {
+/// series and tags from the book and keeps them, marked as read; `true`
+/// with it where the book was opened (which takes a moment).
+///
+/// A book of a native format plugin is not opened here: its format answers
+/// [`DocumentError::NotReady`] (the kernel's stand-in) and the host's details
+/// job reads it later ([`keep_native_details`]). Until then nothing is
+/// marked as read and the book is of no known size, so each walk makes its
+/// line again from its details file (the same line while nothing changed).
+pub(crate) fn index_details(env: &Env<'_>, path: &str) -> (Book, bool) {
     let storage = env.storage();
     // Details that could not be read are not written over.
     let (mut book, known) = match book_for_update(storage, path) {
@@ -26,27 +35,79 @@ pub(crate) fn index_details(env: &Env<'_>, path: &str) -> Book {
         Err(_) => (Book::default(), false),
     };
     book.size = storage.size(path).unwrap_or_default();
-    if book.added.is_none() {
+    let first_seen = book.added.is_none();
+    if first_seen {
         book.added = today(env);
     }
-    if let Ok(document) = env.formats().open(storage, path) {
-        // Copied fallibly; with no memory the book is not written down (it
-        // is read from the book again at the next walk).
-        if super::fallible::try_merge_metadata(&mut book, document.metadata()).is_err() {
-            // Not indexed (nor marked as read), and of no known size: the
-            // catalog line made of it names the file, and a line of a book
-            // of another size is made again at the next walk (a walk that
-            // finds the size it names takes the line as it is).
+    match env.formats().open(storage, path) {
+        Ok(document) => {
+            // Copied fallibly; with no memory the book is not written down
+            // (it is read from the book again at the next walk).
+            if super::fallible::try_merge_metadata(&mut book, document.metadata()).is_err() {
+                // Not indexed (nor marked as read), and of no known size: the
+                // catalog line made of it names the file, and a line of a
+                // book of another size is made again at the next walk (a walk
+                // that finds the size it names takes the line as it is).
+                book.indexed = false;
+                book.size = 0;
+                return (book, true);
+            }
+        }
+        // A native format's book: read later by the host (see above).
+        Err(DocumentError::NotReady) => {
             book.indexed = false;
             book.size = 0;
-            return book;
+            // The day it came is kept once (not marked as read), so its line
+            // is the same at every walk until its details are read.
+            if known && first_seen && book.added.is_some() {
+                let _kept = super::write_book(storage, path, &book);
+            }
+            return (book, false);
         }
+        // Also where it cannot be opened: not tried again at every walk.
+        Err(_) => {}
     }
-    // Also where it cannot be opened: not tried again at every walk.
     if known {
         write_read(storage, path, &book);
     }
-    book
+    (book, true)
+}
+
+/// Keeps what the host read of the book at `path` through its native
+/// format plugin (`core.document` ops 5 and 6): title, first author,
+/// series and its number, subjects as tags, as `index_details` keeps an
+/// interface 6 format's, marked as read. The next walk makes the book's
+/// line from them.
+///
+/// # Errors
+/// [`crate::data::Error::OutOfMemory`] where the details could not be
+/// copied or written out; the storage's where the book is gone or its
+/// details could not be read or written.
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+pub fn keep_native_details(
+    env: &Env<'_>,
+    path: &str,
+    metadata: &crate::document::Metadata,
+) -> Result<(), crate::data::Error> {
+    let storage = env.storage();
+    let mut book = book_for_update(storage, path)?;
+    book.size = storage.size(path)?;
+    if book.added.is_none() {
+        book.added = today(env);
+    }
+    super::fallible::try_merge_metadata(&mut book, metadata)
+        .map_err(|_| crate::data::Error::OutOfMemory)?;
+    let before = load_details(storage, path)?.unwrap_or_default();
+    let before = if metadata_read(&before) {
+        before
+    } else {
+        super::fallible::join(&[&before, "\n[book]\n", METADATA, " = on\n"])
+            .map_err(|_| crate::data::Error::OutOfMemory)?
+    };
+    let ini = super::details::try_details_text(&book, &before)?;
+    let file = super::fallible::try_book_file(path).map_err(|_| crate::data::Error::OutOfMemory)?;
+    Ok(storage.write(&file, ini.as_bytes())?)
 }
 
 /// What the library knows of the book at `path` (of size `size`) where
