@@ -362,8 +362,7 @@ pub struct Kernel {
     /// Values plugins offer among other plugins' choices, added once all
     /// are registered: `(plugin, setting, value)`.
     plugin_choices: Vec<(Id, Id, Cow<'static, str>)>,
-    /// The built-in catalogs of the linked plugins are added (once; see
-    /// [`Kernel::claim_native_catalogs`]).
+    /// The linked plugins' built-in catalogs are added ([`Kernel::claim_native_catalogs`]).
     native_catalogs_added: bool,
     now: Instant,
     input: gestures::InputState,
@@ -1140,7 +1139,6 @@ impl Kernel {
 
     /// Returns and clears the collected warnings.
     pub fn take_warnings(&mut self) -> Vec<Warning> {
-        // The failed callbacks of native plugins noted since (`event_failures`).
         self.report_event_failures();
         mem::take(&mut self.warnings)
     }
