@@ -6,6 +6,7 @@ use paperpaw_sdk::document::Locator;
 use paperpaw_sdk::native::storage::DataStorage;
 
 use super::{Body, Documents, Host, Open, Setup, View};
+use crate::native_chapter::{self, Chapter};
 use crate::native_index::{self, Counter, Laid, Step};
 
 impl Open {
@@ -68,6 +69,26 @@ impl Open {
     pub(super) fn page_numbers(&self, host: &Host<'_>) -> Option<(u32, u32)> {
         let counter = self.counter.as_ref()?;
         counter.page_at(&DataStorage::new(host), self.at)
+    }
+
+    /// The pages after page `page` (of `pages`, from 1) in `chapter`, once the
+    /// count is complete; `None` for a chapter without a title (the host takes
+    /// no count without a chapter).
+    pub(super) fn chapter_left(
+        &self,
+        host: &Host<'_>,
+        chapter: &Chapter,
+        (page, pages): (u32, u32),
+    ) -> Option<u32> {
+        let counter = self.counter.as_ref()?;
+        if chapter.title().is_empty() {
+            return None;
+        }
+        let next = match chapter.next() {
+            Some(at) => Some(counter.locate(&DataStorage::new(host), at)?),
+            None => None,
+        };
+        native_chapter::pages_left(page, pages, next)
     }
 
     /// Whether pages remain to be counted.

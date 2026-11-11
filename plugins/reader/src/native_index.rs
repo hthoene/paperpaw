@@ -237,6 +237,16 @@ impl Counter {
         exact.then(|| (page + 1, self.index.pages()))
     }
 
+    /// The page (from 0) `at` is on and whether it starts that page, once the
+    /// count is complete.
+    #[must_use]
+    pub fn locate(&self, storage: &dyn Storage, at: (u32, u32)) -> Option<(u32, bool)> {
+        if !self.index.is_complete() {
+            return None;
+        }
+        self.index.locate(storage, Locator::new(at.0, at.1))
+    }
+
     /// The pages of the book, once counted.
     #[must_use]
     pub fn pages(&self) -> Option<u32> {

@@ -7,6 +7,7 @@
 //! links, annotations) is in `PORTING-7.md`.
 use crate::{
     native_actions,
+    native_chapter::{self, Chapter},
     native_document::HostDocument,
     native_draw::{HostInk, draw_lines},
     native_index::Counter,
@@ -128,6 +129,8 @@ struct Open {
     said: bool,
     /// The count of the book's pages in this layout.
     counter: Option<Counter>,
+    /// The chapter of the page on show (its start, the next start, its title).
+    chapter: Option<Chapter>,
 }
 
 /// One open reading screen.
@@ -288,6 +291,7 @@ impl View {
             title,
             finished: false,
             counter: None,
+            chapter: None,
         };
         if let Ok(setup) = Setup::read(host) {
             open.ensure_counter(host, &setup);
@@ -781,9 +785,9 @@ impl Open {
     /// 2.4): the page on show, laid out here if it is not yet, its place and
     /// progress, and that the book is read to the end when this page ends it.
     /// The host raises the book events from it. A page that cannot be laid out,
-    /// or a refusal, is no report (the draw says what is wrong). No chapter, page
-    /// number or page count is told: the table of contents and the page index
-    /// come with their slices (`PORTING-7.md`).
+    /// or a refusal, is no report (the draw says what is wrong). The chapter and the
+    /// pages left in it come from `native_chapter`, the page numbers from the
+    /// count, once it is complete (`PORTING-7.md`).
     fn announce(&mut self, host: &Host<'_>, docs: &Documents) {
         let Ok(setup) = Setup::read(host) else {
             return;
@@ -816,8 +820,25 @@ impl Open {
         if at_end && !self.finished {
             report = report.finished();
         }
-        if let Some((page, pages)) = self.page_numbers(host) {
+        let numbers = self.page_numbers(host);
+        if let Some((page, pages)) = numbers {
             report = report.pages(page, pages);
+        }
+        // The chapter of the page: asked of the table when the page leaves
+        // the one kept (`native_chapter`); no chapter where it cannot be had.
+        let at = self.at;
+        if !self.chapter.as_ref().is_some_and(|c| c.covers(at)) {
+            self.chapter = native_chapter::find(host, docs, self.id, at).ok();
+        }
+        let left = match (&self.chapter, numbers) {
+            (Some(chapter), Some(numbers)) => self.chapter_left(host, chapter, numbers),
+            _ => None,
+        };
+        if let Some(chapter) = &self.chapter {
+            report = report.chapter(chapter.title());
+        }
+        if let Some(left) = left {
+            report = report.chapter_left(left);
         }
         let (Ok(mut input), Ok(mut out)) = (buffer(1024), buffer(64)) else {
             return;

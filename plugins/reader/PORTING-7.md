@@ -496,3 +496,26 @@ relative to the data folder).
   the library's preview (512 bytes), not whole (`annotation_text` would read it whole: the export uses the preview, as
   Beta 3's snippet was short too). Editing a note, deleting one and the bookmark toggle are not in this screen (Beta 3 had none
   here); `reader.toggle-bookmark` belongs to the reading screen.
+
+## Chapter in the report (R2b-3)
+
+- `native_chapter.rs`: `Chapter` (start, next start, title) is the chapter of the page on show. `Chapter::offer` takes one
+  table entry (exact start, title) for a place: the last start at or before it is the chapter (the later of equal starts,
+  as Beta 3's `update_chapter`), the first start after it ends the chapter; the table need not be in order. A place before
+  the first entry gives the empty chapter. The title is trimmed and cut at 256 bytes on a character boundary.
+  `pages_left(page, pages, next)` is Beta 3's `chapter_left`: the page the next start is on (from the count's
+  `locate`; the page before it when the start begins that page, the page itself when it begins inside it) minus the current
+  page, the last chapter ending with the book, never more than `pages - page`.
+- **Report.** `Open::announce` sets `.chapter(title)` always (empty where the book has no entry at or before the page, or
+  the table cannot be had) and `.chapter_left(n)` only with `.pages(..)` (the count complete, the page starting a counted
+  page) and a non-empty title, so the host's `ERR_INVALID` cases cannot arise. The report is sent on each page turn, jump,
+  count completion and close, as before; only the topmost screen's counts (host rule).
+- **X4 notes.** Only the current chapter is held (`Open::chapter`: two places and one title of at most 256 bytes). Nothing
+  is asked of the table while pages turn inside that chapter (`covers`). On leaving it `find` reads the table through
+  `core.document` toc pages (at most `MAX_ENTRIES` = 500 entries, one 256 B + one `SERVICE_BUFFER` pair of buffers for the
+  rows and a second pair for `toc_target`) and one `toc_target` per approximate entry in the page's section; no title is kept
+  but the chapter's. `chapter_left` costs one `PageIndex::locate` (a read of the index file) per announce, none for the
+  last chapter. A table the host cannot give leaves no chapter (no `chapter_left`) rather than a wrong one.
+- **Missing.** No scripted-host test of the report call itself (the pure model, the allocation sweep and the page-turn
+  and chapter-change sequence are tested; the announce wiring is checked on a device/simulator). The next-start of a
+  table that is out of order costs a full scan (up to 500 entries) per chapter change.
