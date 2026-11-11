@@ -49,19 +49,16 @@ fn the_host_admits_the_screen_its_slot_and_its_subscription() {
     }
 }
 
-/// The provider is declared but not submitted: the host refuses a lookup
-/// provider until the stage `core.lookup` is live. When this fails because
-/// the host admits it, submit `image::PROVIDER` in `make` and make the case
-/// `the-provider-answers-the-dictionary-panel-with-the-summary` real.
+/// The provider is declared but not submitted yet: the host admits a lookup
+/// provider (`lookup.spec` admission). To make the case
+/// `the-provider-answers-the-dictionary-panel-with-the-summary` real, submit
+/// `image::PROVIDER` in `make`.
 #[test]
-fn the_host_does_not_admit_a_lookup_provider_yet() {
+fn the_host_admits_the_lookup_provider() {
     for batch in batches!(declarations::provider) {
         let records = records_decode(&batch).unwrap();
         assert_eq!(records.iter().count(), 1);
-        assert_eq!(
-            validate_batch("wikipedia", &records),
-            Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
-        );
+        validate_batch("wikipedia", &records).unwrap();
     }
 }
 
