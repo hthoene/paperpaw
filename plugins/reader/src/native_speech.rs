@@ -403,8 +403,12 @@ impl Speaker {
             (Some(m), Some(now)) => Some(now.saturating_add(m.saturating_mul(60_000_000))),
             _ => None,
         };
-        scene.say("reader.aloud.started");
         self.begin(scene, from, until);
+        // Said once the first sentence was taken: a device that cannot speak
+        // says so, and not "started" first.
+        if self.aloud.is_some() {
+            scene.say("reader.aloud.started");
+        }
     }
 
     /// Speaks from word `from` of the page on show, handing over the next

@@ -462,7 +462,10 @@ relative to the data folder).
   and the page fonts for each page asked for; the stack read (two 4 KiB buffers) at each stack change while it
   reads; the `command.speak` scratch (the text and 128 bytes) and the words of a page (about 6 KB for 300 words).
   Notices use 256 + 320 bytes on the stack and no heap.
-
+- Review remark (#1103): the notice *started* is said after the first sentence was handed to the host, so a device
+  without speech says *cannot read aloud* only. Open before activation: whether `event.spoken` (89) reaches the
+  plugin without a subscription (`ui.md` 7 does not say; asked of Kernel): if only subscribers get it, reading stops
+  after one sentence. Device gate: a notice must not count as a stack row (op 1), or it ends the reading at once.
 
 ## Book info, the font panel and the bookmark (view slice R3b, Port D, `native_bookmark.rs`, `native_view/r3.rs`)
 

@@ -491,3 +491,12 @@ fn only_actions_and_gestures_pause() {
         state: KeyState::Press
     }));
 }
+
+#[test]
+fn a_device_that_cannot_speak_says_so_and_not_started() {
+    let mut scene = Fake::new(small());
+    scene.refuse_speech = Some(Error::Unsupported);
+    let mut speaker = Speaker::new(7);
+    speaker.start(&mut scene);
+    assert_eq!(scene.says, ["reader.aloud.unavailable"]);
+}
