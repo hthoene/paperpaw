@@ -92,14 +92,22 @@ impl ActionQueue {
 /// kernel does where another action's handler runs. A plugin no longer
 /// installed, memory or a full queue leave the action without effect, as a
 /// stopped or failing plugin does; the pump reports a full queue
-/// ([`ActionQueue::refused`]).
+/// ([`ActionQueue::refused`]). Returns `false` where the plugin is not
+/// installed or not enabled, for the caller to say so.
+///
+/// Not inlined: its event buffer stays off the frame of the action dispatch
+/// (X4 frames, #1177).
+#[inline(never)]
 pub(crate) fn queue_run(
     instances: &super::native_instances::NativeInstances,
     owner: u64,
     token: u32,
     id: &str,
     env: &paperpaw_sdk::Env<'_>,
-) {
+) -> bool {
+    let Some(lease) = instances.lease(owner) else {
+        return false;
+    };
     let mut bytes = [0; EVENT_BYTES];
     let record = Record::EventActionRun(EventActionRun {
         now_ms: env.now().millis(),
@@ -109,10 +117,10 @@ pub(crate) fn queue_run(
         flags: u32::from(!env.reader()),
     });
     let Ok(len) = super::events::encode(&record, &mut bytes) else {
-        return;
+        return true;
     };
-    let (Some(lease), Ok(queue)) = (instances.lease(owner), instances.action_queue()) else {
-        return;
+    let Ok(queue) = instances.action_queue() else {
+        return true;
     };
     let mut held = Vec::new();
     if held.try_reserve_exact(len).is_ok() {
@@ -124,6 +132,7 @@ pub(crate) fn queue_run(
             bytes: held,
         });
     }
+    true
 }
 
 #[cfg(test)]

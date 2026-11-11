@@ -814,9 +814,10 @@ impl Kernel {
 
     /// Runs action `action`'s own handler with `params` into `out`, as
     /// a handler in its place asked ([`Command::RunOriginal`]).
-    fn run_original(&self, action: &Id, params: &Params, out: &mut Vec<Command>) {
+    /// `false` where it is a native action whose plugin is gone or disabled.
+    fn run_original(&self, action: &Id, params: &Params, out: &mut Vec<Command>) -> bool {
         let Some(spec) = self.shared.actions.get(action.as_str()) else {
-            return;
+            return true;
         };
         let env = self.shared.env(self.now);
         if let Some((owner, token)) = spec.native() {
@@ -827,6 +828,7 @@ impl Kernel {
         commands::handing(out, |out| {
             spec.run(&env, params, out);
         });
+        true
     }
 
     /// Runs the handler of `action` with `params`: one put in its place
@@ -878,7 +880,9 @@ impl Kernel {
                 };
                 self.output.commands.remove(at);
                 let mut out = Vec::new();
-                self.run_original(action, &original_params, &mut out);
+                if !self.run_original(action, &original_params, &mut out) {
+                    self.warn_runtime(format!("action `{action}`: its plugin is not running"));
+                }
                 let owner = action.namespace();
                 let top = self.stack.last().map(|s| s.id.namespace());
                 work::quiet(reader, top, now, 0, owner, &mut out, &mut self.works);
@@ -896,7 +900,12 @@ impl Kernel {
                 Some(spec) if spec.native().is_some() => {
                     if let Some((owner, token)) = spec.native() {
                         let instances = &self.shared.native_instances;
-                        native_action::queue_run(instances, owner, token, action.as_str(), &env);
+                        if !native_action::queue_run(instances, owner, token, action.as_str(), &env)
+                        {
+                            self.warn_runtime(format!(
+                                "action `{action}`: its plugin is not running"
+                            ));
+                        }
                     }
                 }
                 Some(spec) if spec.runs_itself() => {
