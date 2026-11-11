@@ -25,10 +25,10 @@ impl Open {
             return;
         }
         let storage = DataStorage::new(host);
-        if let Some(old) = self.counter.take() {
-            old.forget(&storage);
-        }
-        self.counter = Some(Counter::open(&storage, name));
+        // The file of the layout left stays among the few kept.
+        self.counter = None;
+        native_index::keep(&storage, &name);
+        self.counter = Counter::open(&storage, name).ok();
     }
 
     /// One step of the count; the wait before the next one while pages remain.
@@ -42,11 +42,13 @@ impl Open {
         );
         let storage = DataStorage::new(host);
         let step = counter.step(&storage, per_step, &mut |at: Locator| {
-            let page = self.lay(host, docs, &setup, (at.section, at.offset))?;
+            let (page, unreliable) =
+                self.lay_flagged(host, docs, &setup, (at.section, at.offset))?;
             Ok(Laid {
                 start: page.start,
                 end: page.end,
                 past_end: page.is_past_end(),
+                unreliable,
             })
         });
         self.counter = Some(counter);

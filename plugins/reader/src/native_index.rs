@@ -34,7 +34,20 @@ pub struct Laid {
     pub end: Locator,
     /// The place is past the end of the book: there is no page.
     pub past_end: bool,
+    /// The host refused a font read while the page was laid out: letters
+    /// measured 0 wide, so the page is not to be trusted.
+    pub unreliable: bool,
 }
+
+/// Steps that may be repeated for a font that could not be read (a card pulled)
+/// before the count stops; the pages counted so far are used.
+pub const RETRIES: u8 = 3;
+/// Index files kept, this layout's and others' (as Beta 3's `INDEXES_KEPT`).
+pub const KEPT: usize = 4;
+/// The data file that lists the index files kept, oldest first.
+pub const KEPT_FILE: &str = "pages.list";
+/// The most of it that is read.
+const KEPT_MAX: usize = 1024;
 
 /// What one step did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -113,6 +126,62 @@ pub fn file_name(path: &str, conversion: u64, layout: &str) -> Result<String, Er
     Ok(name)
 }
 
+/// The list of kept files with `name` added as the newest, and the files
+/// beyond `keep` (the oldest) in `evicted`.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn kept_with(
+    list: &str,
+    name: &str,
+    keep: usize,
+    evicted: &mut alloc::vec::Vec<String>,
+) -> Result<String, Error> {
+    let mut names: alloc::vec::Vec<&str> = alloc::vec::Vec::new();
+    names.try_reserve(keep + 2).map_err(|_| Error::NoMemory)?;
+    for line in list.lines().filter(|l| !l.is_empty() && *l != name) {
+        names.push(line);
+    }
+    names.push(name);
+    let drop = names.len().saturating_sub(keep);
+    let mut out = String::new();
+    out.try_reserve(names.len() * 28)
+        .map_err(|_| Error::NoMemory)?;
+    for (i, line) in names.iter().enumerate() {
+        if i < drop {
+            let mut gone = String::new();
+            gone.try_reserve_exact(line.len())
+                .map_err(|_| Error::NoMemory)?;
+            gone.push_str(line);
+            evicted.try_reserve(1).map_err(|_| Error::NoMemory)?;
+            evicted.push(gone);
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    Ok(out)
+}
+
+/// Notes `name` as the newest index file and removes the files of the layouts
+/// used longest ago, keeping [`KEPT`]. A list or a file that cannot be
+/// handled leaves the files alone: they take room, not data.
+pub fn keep(storage: &dyn Storage, name: &str) {
+    let mut buffer = [0u8; KEPT_MAX];
+    let read = storage.read_at(KEPT_FILE, 0, &mut buffer).unwrap_or(0);
+    let list = core::str::from_utf8(&buffer[..read]).unwrap_or("");
+    let mut evicted = alloc::vec::Vec::new();
+    let Ok(updated) = kept_with(list, name, KEPT, &mut evicted) else {
+        return;
+    };
+    if storage.write(KEPT_FILE, updated.as_bytes()).is_err() {
+        return;
+    }
+    for old in &evicted {
+        storage.remove(old).ok();
+    }
+}
+
 /// The count of one open book in one layout.
 #[derive(Debug)]
 pub struct Counter {
@@ -121,18 +190,27 @@ pub struct Counter {
     /// Where the next step goes on (none: after the last page counted).
     next: Option<Locator>,
     stopped: bool,
+    /// Steps in a row that met an unreadable font.
+    failures: u8,
 }
 
 impl Counter {
     /// The index in the file `name`, as far as it goes.
-    #[must_use]
-    pub fn open(storage: &dyn Storage, name: String) -> Self {
-        Self {
-            index: PageIndex::open(storage, name.clone()),
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn open(storage: &dyn Storage, name: String) -> Result<Self, Error> {
+        let mut copy = String::new();
+        copy.try_reserve_exact(name.len())
+            .map_err(|_| Error::NoMemory)?;
+        copy.push_str(&name);
+        Ok(Self {
+            index: PageIndex::open(storage, copy),
             name,
             next: None,
             stopped: false,
-        }
+            failures: 0,
+        })
     }
 
     /// Whether pages remain to be counted (a stopped count has none to wait
@@ -196,6 +274,16 @@ impl Counter {
                 self.stopped = true;
                 return Step::Stopped;
             };
+            if page.unreliable {
+                // The pages of this step are not kept; they are laid out again
+                // at the next step, for a few steps; then the card is out.
+                self.failures += 1;
+                if self.failures >= RETRIES {
+                    self.stopped = true;
+                    return Step::Stopped;
+                }
+                return Step::More;
+            }
             if page.past_end {
                 done = true;
                 break;
@@ -209,6 +297,7 @@ impl Counter {
             }
             next = page.end;
         }
+        self.failures = 0;
         if n > 0 && !self.index.append(storage, &starts[..n]) {
             self.stopped = true;
             return Step::Stopped;
@@ -255,6 +344,7 @@ mod tests {
                 start: at,
                 end: Locator::new(at.section, at.offset + 10),
                 past_end: page >= pages,
+                unreliable: false,
             })
         }
     }
@@ -262,7 +352,7 @@ mod tests {
     #[test]
     fn counts_in_steps_and_finds_the_page() {
         let storage = MemoryStorage::new();
-        let mut counter = Counter::open(&storage, String::from("pages-x.bin"));
+        let mut counter = Counter::open(&storage, String::from("pages-x.bin")).unwrap();
         let mut lay = book(20);
         assert!(counter.counting());
         assert_eq!(counter.step(&storage, 8, &mut lay), Step::More);
@@ -279,9 +369,9 @@ mod tests {
     #[test]
     fn goes_on_from_the_file_after_a_new_open() {
         let storage = MemoryStorage::new();
-        let mut first = Counter::open(&storage, String::from("pages-y.bin"));
+        let mut first = Counter::open(&storage, String::from("pages-y.bin")).unwrap();
         assert_eq!(first.step(&storage, 8, &mut book(12)), Step::More);
-        let mut again = Counter::open(&storage, String::from("pages-y.bin"));
+        let mut again = Counter::open(&storage, String::from("pages-y.bin")).unwrap();
         assert_eq!(again.step(&storage, 8, &mut book(12)), Step::Done);
         assert_eq!(again.pages(), Some(12));
     }
@@ -289,7 +379,7 @@ mod tests {
     #[test]
     fn a_page_that_cannot_be_laid_out_stops_the_count_and_keeps_the_pages() {
         let storage = MemoryStorage::new();
-        let mut counter = Counter::open(&storage, String::from("pages-z.bin"));
+        let mut counter = Counter::open(&storage, String::from("pages-z.bin")).unwrap();
         let mut lay = |at: Locator| {
             if at.offset >= 30 {
                 Err(Error::NoMemory)
@@ -303,9 +393,56 @@ mod tests {
     }
 
     #[test]
+    fn an_unreadable_font_repeats_the_step_then_stops() {
+        let storage = MemoryStorage::new();
+        let mut counter = Counter::open(&storage, String::from("pages-u.bin")).unwrap();
+        let mut bad = |at: Locator| {
+            book(100)(at).map(|page| Laid {
+                unreliable: true,
+                ..page
+            })
+        };
+        assert_eq!(counter.step(&storage, 8, &mut bad), Step::More);
+        assert_eq!(counter.step(&storage, 8, &mut bad), Step::More);
+        assert_eq!(counter.step(&storage, 8, &mut bad), Step::Stopped);
+        // A readable step in between starts the count of failures again.
+        let mut again = Counter::open(&storage, String::from("pages-v.bin")).unwrap();
+        assert_eq!(again.step(&storage, 8, &mut bad), Step::More);
+        assert_eq!(again.step(&storage, 8, &mut book(100)), Step::More);
+        assert_eq!(again.step(&storage, 8, &mut bad), Step::More);
+        assert_eq!(again.step(&storage, 8, &mut bad), Step::More);
+        assert_eq!(again.page_at(&storage, (0, 0)), None);
+    }
+
+    #[test]
+    fn the_few_files_of_other_layouts_are_kept() {
+        let mut gone = alloc::vec::Vec::new();
+        let one = kept_with("", "a", 2, &mut gone).unwrap();
+        let two = kept_with(&one, "b", 2, &mut gone).unwrap();
+        assert!(gone.is_empty());
+        // Used again: moves to the newest place.
+        let again = kept_with(&two, "a", 2, &mut gone).unwrap();
+        assert_eq!(again, "b\na\n");
+        let three = kept_with(&again, "c", 2, &mut gone).unwrap();
+        assert_eq!(three, "a\nc\n");
+        assert_eq!(gone, ["b"]);
+    }
+
+    #[test]
+    fn keep_removes_the_oldest_file_beyond_the_few() {
+        let storage = MemoryStorage::new();
+        for name in ["p1", "p2", "p3", "p4", "p5"] {
+            storage.write(name, b"x").unwrap();
+            keep(&storage, name);
+        }
+        assert!(!storage.exists("p1"));
+        assert!(storage.exists("p2") && storage.exists("p5"));
+    }
+
+    #[test]
     fn a_small_device_lays_out_a_page_a_step() {
         let storage = MemoryStorage::new();
-        let mut counter = Counter::open(&storage, String::from("pages-s.bin"));
+        let mut counter = Counter::open(&storage, String::from("pages-s.bin")).unwrap();
         let mut lay = book(3);
         for _ in 0..3 {
             assert_eq!(

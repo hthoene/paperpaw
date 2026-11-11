@@ -418,8 +418,11 @@ relative to the data folder).
   while the reading screen is on top.
 - The file is `pages-<hash>.bin` in the data folder, named by the book's path, the edition (the open
   conversion) and the layout (size, spacing, margins, justify, display), 8 bytes a page and a closing
-  mark, as `PageIndex` keeps it. A changed layout removes the file of the layout left (Beta 3 kept a few:
-  switching back counts again). **Gap:** a file left by a closed book stays (room, not data).
+  mark, as `PageIndex` keeps it. The files of the last 4 layouts are kept (Beta 3's `INDEXES_KEPT`; the
+  data file `pages.list` names them, oldest first), the oldest is removed: switching back finds its count.
+  A font the host could not read mid-step (a card pulled) makes the step's pages untrusted: not kept,
+  laid out again at the next step, 3 times in a row at most, then the count stops (Beta 3's retry).
+  **Gap:** a file of a book closed long ago stays until its place in the list is needed.
 - Once the count is complete the host's report carries `page` and `pages` where the page starts at one
   of the book's pages (a page started elsewhere, by a jump, reports none until a turn). Not yet:
   `chapter` and `chapter_left` (R6 chapter of the page), the status lines (R2b-2).

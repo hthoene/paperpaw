@@ -963,12 +963,26 @@ impl Open {
         setup: &Setup,
         start: (u32, u32),
     ) -> Result<Page, Error> {
+        self.lay_flagged(host, docs, setup, start)
+            .map(|(page, _)| page)
+    }
+
+    /// The page starting at `start`, and whether the host refused a font read
+    /// meanwhile (letters measured 0 wide: the page is not to be trusted).
+    fn lay_flagged(
+        &self,
+        host: &Host<'_>,
+        docs: &Documents,
+        setup: &Setup,
+        start: (u32, u32),
+    ) -> Result<(Page, bool), Error> {
         let area = self.area(setup).ok_or(Error::NoSpace)?;
         let fonts = HostFonts::acquire(host)?;
         let page =
             Faces::new(&fonts, setup.base(), setup.reading.spacing_factor()).and_then(|faces| {
                 let faces = faces.word_spacing(setup.reading.word_factor());
-                self.lay_with(host, docs, &faces, setup, start, area)
+                let page = self.lay_with(host, docs, &faces, setup, start, area)?;
+                Ok((page, faces.take_failed()))
             });
         let released = fonts.release();
         page.and_then(|page| released.map(|()| page))
