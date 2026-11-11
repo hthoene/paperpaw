@@ -389,7 +389,7 @@ relative to the data folder).
   `core.publisher-styles` is applied when the book opens (`open_book`), so a change of it takes effect when the
   book is opened again, not by a reflow. X4 list: every setting change wakes the plugin, and the page is laid
   out in the event callback.
-- **Not yet:** pictures and table rows (see below), hands-free and auto-turn, read-aloud. Unmeasured: the time of a reflow on the X4 and the heap of laying out twice.
+- **Not yet:** hands-free and auto-turn, read-aloud (pictures and table rows: see the section after the decorations). Unmeasured: the time of a reflow on the X4 and the heap of laying out twice.
 
 ## Lines under, over and through text, and table rules (view slice R8b, Port E)
 
@@ -405,6 +405,29 @@ relative to the data folder).
   (the existing gap), so a line follows the run's place in that order.
 - X4 gate: Beta 3 skipped lines outside the clip; every draw band here sends all fills (the host clips).
   Beta 3 drew no `Page::rules`: they occur only once table rows are carried over.
+- Pictures and table rows: see the next section.
+
+## Pictures and table rows (view slice R8e, Port E)
+
+- `native_block.rs`: a block whose head says picture and that brings its `doc_image` record is kept as a picture
+  block: `Block::image` is the picture's host handle (the decimal text of `ImageRef::path`) with its size; the
+  layout scales it into the content box as before. A table row (`doc_columns` weights, up to 16, and its
+  `doc_cell` records, up to 16, with the head's header/first/last flags) is kept as `Block::table`; the cells'
+  ends must not go back and must lie in the text on character boundaries, else the row reads as a paragraph of
+  its text (as does a picture or row block that brings none of its records). More than 16 cells is `NoSpace`.
+- `native_draw.rs`: `Ink::image` draws each `Page::images` entry with `canvas.draw_image` (scaled into the box the
+  layout gave it, centred, default style). A handle the host no longer knows (`NotFound`) or a host that draws
+  no pictures (`Unsupported`) leaves the place empty; any other refusal ends the drawing. With rows carried over,
+  the layout's table rules (`Page::rules`) are now filled by the decorations' rule drawing.
+- **Not yet:** a picture the format has not decoded (`pending`) is not asked for again (op 16 `image`), and a handle
+  that ended is not renewed by its `index`: both leave the place empty until the next layout; the view does not
+  release pictures (they end with the document). Unmeasured on the X4: the drawing time of a full-page picture
+  and the heap of a 16-cell row (a `Vec` of cells and one of weights per row being assembled).
+- The metadata asks for the host call `canvas.draw_image` (slot 37) for the pictures.
+- A picture with host handle 0 (the host had no id left: eight are out and none drawn yet) is left empty, the page
+  still draws. Differences: pictures are drawn with the default style, so Beta 3's `core.pictures-in-grays` setting
+  is not applied yet.
+
 - **Not yet:** pictures (`Page::images` through `canvas.draw_image`) and table rows: the block assembler turns
   both into paragraphs (`native_block::start`), so a table's rules never occur yet; carrying them over needs the
   `doc_image` and `doc_columns` pieces of the document service (docs/abi/document.md section 5).

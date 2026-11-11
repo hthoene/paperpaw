@@ -91,6 +91,10 @@
       "name": "canvas.clip"
     },
     {
+      "kind": "host",
+      "name": "canvas.draw_image"
+    },
+    {
       "kind": "callback",
       "name": "drop"
     },
