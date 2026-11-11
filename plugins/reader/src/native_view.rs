@@ -237,7 +237,7 @@ impl View {
             ),
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(Error::Busy) => return Ok(Self::message("reader.not-ready")),
-            Err(_) => return Ok(Self::message("reader.error")),
+            Err(e) => return Ok(Self::message(dbg_key(&e, 0))),
         };
         let (id, preparation, whole_pages, conversion) = state;
         match preparation {
@@ -248,7 +248,7 @@ impl View {
             }
             _ => {
                 Self::forget(host, docs, id);
-                return Ok(Self::message("reader.error"));
+                return Ok(Self::message("reader.app"));
             }
         }
         let sections = match docs.metadata(host, id, &mut input, &mut out) {
@@ -264,7 +264,7 @@ impl View {
             }
             Err(_) => {
                 Self::forget(host, docs, id);
-                return Ok(Self::message("reader.error"));
+                return Ok(Self::message("reader.note-missing"));
             }
         };
         let (sections, title, language) = sections;
@@ -645,7 +645,7 @@ impl View {
                 Ok(()) => return Ok(()),
                 Err(Error::NoMemory) => "reader.no-memory",
                 Err(Error::NotFound) => "reader.no-font",
-                Err(_) => "reader.error",
+                Err(e) => dbg_key(&e, 1),
             },
         };
         say(host, frame, key)
@@ -1121,16 +1121,16 @@ impl Open {
             self.words = native_wordbox::word_boxes(&faces, page, area)?;
         }
         let rect = frame.rect;
-        let canvas = frame.draw_canvas()?;
-        canvas.fill_rectangle(rect, Color::WHITE)?;
-        let look = Look::read(host, setup.display.display_gray_levels())?;
+        let canvas = frame.draw_canvas().map_err(|_| Error::Denied)?;
+        canvas.fill_rectangle(rect, Color::WHITE).map_err(|_| Error::State)?;
+        let look = Look::read(host, setup.display.display_gray_levels()).map_err(|_| Error::Io)?;
         let mut ink = HostInk::new(fonts, &canvas, Color::BLACK, look);
         let origin = (
             rect.x as f32 + f32::from(area.x),
             rect.y as f32 + f32::from(area.y),
         );
-        draw_lines_marked(&mut ink, &faces, page, origin, self.mark.clone())?;
-        self.paint_status(host, ui, frame, (setup, &area))?;
+        draw_lines_marked(&mut ink, &faces, page, origin, self.mark.clone()).map_err(|_| Error::NoSpace)?;
+        self.paint_status(host, ui, frame, (setup, &area)).map_err(|_| Error::Invalid)?;
         let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),
             &self.words,
@@ -1190,3 +1190,15 @@ mod status;
 
 #[cfg(test)]
 mod tests;
+
+fn dbg_key(e: &Error, _site: u8) -> &'static str {
+    match e {
+        Error::Unsupported => "reader.missing",
+        Error::Invalid => "reader.not-ready",
+        Error::NoSpace => "reader.preparing",
+        Error::Io => "reader.note-missing",
+        Error::State => "reader.title",
+        Error::Denied => "reader.font-larger",
+        _ => "reader.error",
+    }
+}
