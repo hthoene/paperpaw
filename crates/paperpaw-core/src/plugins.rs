@@ -593,8 +593,10 @@ impl Kernel {
 
     /// Adds the translation catalog `source` of a linked native plugin, built
     /// into the program (its `i18n/<language>.ini`): the texts the plugin
-    /// reads through `core.i18n`. One that does not parse is reported and
-    /// left out.
+    /// reads through `core.i18n`. Only text with the program's lifetime
+    /// (`&'static str`, `include_str!`): a catalog on the storage is
+    /// `Registrar::add_translation_file`. One that does not parse is reported
+    /// and left out.
     pub fn add_catalog(&mut self, source: &'static str) {
         match registry::catalog(alloc::borrow::Cow::Borrowed(source)) {
             Ok(catalog) => self.shared.translator.add(catalog),

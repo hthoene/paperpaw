@@ -39,6 +39,9 @@ fn main() {
         .collect();
     // `feature = ["dep:…", …]`, perhaps over several lines.
     let mut on = false;
+    // The plugins a feature links (`"paperpaw-plugin-…/linked"`): the ones whose
+    // catalogs the program carries for them (`native_catalogs`).
+    let mut linked: Vec<String> = Vec::new();
     for line in section("features").lines() {
         if let Some((name, _)) = line.split_once(" = [") {
             let variable = format!(
@@ -48,6 +51,14 @@ fn main() {
             on = std::env::var_os(variable).is_some();
         }
         if on {
+            for part in line.split('"') {
+                if let Some(name) = part.strip_suffix("/linked") {
+                    let name = name.trim_end_matches('?');
+                    if name.starts_with("paperpaw-plugin-") {
+                        linked.push(String::from(name));
+                    }
+                }
+            }
             for part in line.split("\"dep:").skip(1) {
                 if let Some(name) = part.split('"').next()
                     && name.starts_with("paperpaw-plugin-")
@@ -63,7 +74,9 @@ fn main() {
     println!("cargo::metadata=crates={list}");
     println!("cargo::rustc-env=PAPERPAW_APP_CRATES={list}");
     catalog_indexes(&crates);
-    native_catalogs(&crates);
+    linked.sort_unstable();
+    linked.dedup();
+    native_catalogs(&linked);
 }
 
 /// Writes `catalog_indexes.rs`: the index of every catalog in the
@@ -132,7 +145,7 @@ fn ini_files(folder: &Path, files: &mut Vec<PathBuf>) {
     }
 }
 
-/// Writes `native_catalogs.rs`: for each plugin crate built that has catalogs
+/// Writes `native_catalogs.rs`: for each plugin crate a feature links that has catalogs
 /// (`plugins/<id>/i18n/<language>.ini`), its id and its catalogs as texts
 /// built into the program, for a linked native plugin that brings them built
 /// in (`screens-input.md` [D] Translations).
