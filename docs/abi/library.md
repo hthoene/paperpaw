@@ -385,6 +385,11 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   anything else `lib_result.status` `ERR_INVALID`. A book with annotations is `ERR_STATE` unless
   `with_notes` (the view asked the user; read-later and wallabag pass it for their own downloads).
   One `lib_result` per path.
+  **A status that is not `OK` means the book is not gone yet:** a card error that may pass
+  (a fault, a full card, memory) is retried by the host's journalled job until it is done, so
+  the book may still be listed meanwhile and its data is still there; a file the card refuses for
+  good is left as it is and answers `ERR_IO`. `OK` means the file is gone (what is kept for it
+  follows from the job).
 - [D] `move` (`lib_move`: `from`, `to`, root 1 both, `flags` bit 0 replace an existing `to`): the
   file and everything kept for it follow (keys change, section 6), each through the card's
   journalled move (section 6); EVT 68 and `library_changed`.
@@ -422,7 +427,8 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
 - [D] A hint (registrable, coalesced per plugin): `what` bit 0 books added, removed or moved (a new
   generation), 1 status, 2 positions, 3 annotations, 4 fields or badges, 5 the walk progressed or
   ended, 6 a cover is ready; `path` the one book it was about, empty for several (re-read what you
-  show). The changer gets it too, so every view updates the same way.
+  show). The changer gets it too, so every view updates the same way. `generation` is the
+  catalog's; `0` means the host could not tell it just now (re-read, as for an empty `path`).
 
 ## 4. Book data and badges
 

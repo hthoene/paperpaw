@@ -4,12 +4,17 @@
 //! checkpoints, inline languages and annotations after it. What is checked
 //! here is what the layout relies on: runs sorted, inside the text and on
 //! character boundaries, checkpoints in order, a text within [`MAX_TEXT`].
-//! Every allocation is fallible. A picture or a table row is not carried over
-//! yet (`PORTING-7.md`): such a block reads as a paragraph of its text.
+//! Every allocation is fallible. A picture block carries the picture's host
+//! handle (as the decimal text of `ImageRef::path`), a table row its cells and
+//! column weights; a block that says it is a picture or a row but brings none
+//! reads as a paragraph of its text.
 use alloc::vec::Vec;
 use paperpaw_sdk::lang::{Direction, Lang, WritingMode};
 use paperpaw_sdk::{
-    document::{Align, Annotation, AnnotationKind, Block, BlockKind, Run, TextStyle},
+    document::{
+        Align, Annotation, AnnotationKind, Block, BlockKind, ImageRef, Run, TableCell, TableRow,
+        TextStyle, VerticalAlign,
+    },
     native::{
         Error,
         document::{BlockFragment, BlockRecord},
@@ -59,6 +64,8 @@ pub struct Head<'a> {
     pub drop_cap: u32,
     /// The whole length of its text, in bytes.
     pub text_bytes: u32,
+    /// A table row: header, first, last.
+    pub row: (bool, bool, bool),
 }
 
 /// One record of a fragment as plain data.
@@ -77,7 +84,16 @@ pub enum Piece<'a> {
     Lang(&'a str),
     /// An annotation: start, end, kind, size, text.
     Ruby(u32, u32, AnnotationKind, u32, &'a str),
+    /// The picture of an image block: the host's handle, width, height.
+    Image(u32, u32, u32),
+    /// The column weights of a table row (at most [`MAX_COLUMNS`] taken).
+    Columns(Vec<u16>),
+    /// A cell of a table row: end of its text, columns, rows spanned, align, vertical.
+    Cell(u32, u32, u32, Align, VerticalAlign),
 }
+
+/// Most columns and cells of a table row (the document model's own bound).
+pub const MAX_COLUMNS: usize = 16;
 
 /// The pieces of a fragment: the records that matter here, as data.
 pub fn pieces<'a>(fragment: &BlockFragment<'a>) -> impl Iterator<Item = Piece<'a>> + use<'a> {
@@ -100,12 +116,26 @@ pub fn pieces<'a>(fragment: &BlockFragment<'a>) -> impl Iterator<Item = Piece<'a
                 lang: h.lang(),
                 drop_cap: h.drop_cap(),
                 text_bytes: h.text_bytes(),
+                row: (h.header_row(), h.first_row(), h.last_row()),
             }),
             BlockRecord::Text(text) => Piece::Text(text),
             BlockRecord::Run(r) => Piece::Run(r.start(), r.end(), r.style()),
             BlockRecord::Map(m) => Piece::Map(m.text(), m.source()),
             BlockRecord::InlineLang(tag) => Piece::Lang(tag),
             BlockRecord::Ruby(r) => Piece::Ruby(r.start(), r.end(), r.kind(), r.size(), r.text()),
+            BlockRecord::Image(i) => Piece::Image(i.image(), i.width(), i.height()),
+            BlockRecord::Cell(c) => {
+                Piece::Cell(c.end(), c.span(), c.rows(), c.align(), c.vertical())
+            }
+            BlockRecord::Columns(c) => {
+                let mut weights = Vec::new();
+                // A refused reserve drops the weights: the row then has equal columns.
+                if weights.try_reserve_exact(c.len().min(MAX_COLUMNS)).is_err() {
+                    return None;
+                }
+                weights.extend(c.weights().take(MAX_COLUMNS));
+                Piece::Columns(weights)
+            }
             _ => return None,
         })
     })
@@ -120,6 +150,10 @@ pub struct Assembler {
     expect: usize,
     maps: usize,
     last_map: u32,
+    /// The head named a picture or a table row; what arrived for it.
+    wanted: Option<(BlockKind, (bool, bool, bool))>,
+    cells: Vec<TableCell>,
+    columns: Vec<u16>,
 }
 
 impl Assembler {
@@ -132,6 +166,9 @@ impl Assembler {
             expect: 0,
             maps: 0,
             last_map: 0,
+            wanted: None,
+            cells: Vec::new(),
+            columns: Vec::new(),
         }
     }
 
@@ -142,6 +179,9 @@ impl Assembler {
         self.expect = 0;
         self.maps = 0;
         self.last_map = 0;
+        self.wanted = None;
+        self.cells.clear();
+        self.columns.clear();
     }
 
     /// Takes the pieces of one fragment. `last` says the fragment ends the
@@ -166,7 +206,20 @@ impl Assembler {
         let langs = core::mem::take(&mut self.langs);
         let expect = core::mem::take(&mut self.expect);
         self.maps = 0;
-        finish(block, &langs, expect).map(Some)
+        let wanted = self.wanted.take();
+        let cells = core::mem::take(&mut self.cells);
+        let columns = core::mem::take(&mut self.columns);
+        finish(
+            block,
+            &langs,
+            expect,
+            Extras {
+                wanted,
+                cells,
+                columns,
+            },
+        )
+        .map(Some)
     }
 
     fn take(&mut self, piece: Piece<'_>) -> Result<(), Error> {
@@ -184,6 +237,10 @@ impl Assembler {
             self.expect = head.text_bytes as usize;
             self.maps = 0;
             self.last_map = 0;
+            self.wanted = matches!(head.kind, BlockKind::Image | BlockKind::TableRow)
+                .then_some((head.kind, head.row));
+            self.cells.clear();
+            self.columns.clear();
             self.block = Some(start(&head, text));
             return Ok(());
         }
@@ -239,6 +296,33 @@ impl Assembler {
                 note.size = u16::try_from(size).unwrap_or(0);
                 block.annotations.push(note);
             }
+            Piece::Image(handle, width, height) => {
+                // The handle is the picture's name for the host's drawing; it
+                // travels as the decimal text of the path.
+                let mut path = alloc::string::String::new();
+                path.try_reserve_exact(10).map_err(|_| Error::NoMemory)?;
+                push_decimal(&mut path, handle);
+                block.image = Some(ImageRef {
+                    path,
+                    width,
+                    height,
+                });
+            }
+            Piece::Columns(weights) => self.columns = weights,
+            Piece::Cell(end, span, rows, align, vertical) => {
+                if self.cells.len() >= MAX_COLUMNS {
+                    return Err(Error::NoSpace);
+                }
+                self.cells.try_reserve(1).map_err(|_| Error::NoMemory)?;
+                let narrow = |n: u32| u8::try_from(n).unwrap_or(u8::MAX);
+                self.cells.push(
+                    TableCell::new(end)
+                        .span(narrow(span))
+                        .rows(narrow(rows))
+                        .align(align)
+                        .vertical(vertical),
+                );
+            }
             _ => return Err(Error::Invalid),
         }
         Ok(())
@@ -251,6 +335,21 @@ const fn full(len: usize) -> Result<(), Error> {
     } else {
         Ok(())
     }
+}
+
+/// `n` as decimal digits appended to `out`, which has room for them.
+fn push_decimal(out: &mut alloc::string::String, n: u32) {
+    let mut digits = [0u8; 10];
+    let (mut rest, mut len) = (n, 0);
+    loop {
+        digits[len] = b'0' + (rest % 10) as u8;
+        len += 1;
+        rest /= 10;
+        if rest == 0 {
+            break;
+        }
+    }
+    out.extend(digits[..len].iter().rev().map(|&d| char::from(d)));
 }
 
 fn narrow(value: Option<u32>) -> Option<u16> {
@@ -284,9 +383,26 @@ fn start(head: &Head<'_>, text: alloc::string::String) -> Block {
     block
 }
 
+/// What a picture or a table row brought besides its head.
+struct Extras {
+    /// What the head said the block is, and its row flags (header, first, last).
+    wanted: Option<(BlockKind, (bool, bool, bool))>,
+    cells: Vec<TableCell>,
+    columns: Vec<u16>,
+}
+
 /// The joined block, checked: the text is what the head said, runs and
 /// annotations lie inside it on character boundaries and runs are sorted.
-fn finish(mut block: Block, langs: &[Lang], expect: usize) -> Result<Block, Error> {
+fn finish(
+    mut block: Block,
+    langs: &[Lang],
+    expect: usize,
+    Extras {
+        wanted,
+        cells,
+        columns,
+    }: Extras,
+) -> Result<Block, Error> {
     if block.text.len() != expect {
         return Err(Error::Invalid);
     }
@@ -308,6 +424,29 @@ fn finish(mut block: Block, langs: &[Lang], expect: usize) -> Result<Block, Erro
         .any(|a| a.end < a.start || !ok(a.start) || !ok(a.end))
     {
         return Err(Error::Invalid);
+    }
+    match wanted {
+        Some((BlockKind::Image, _)) if block.image.is_some() => block.kind = BlockKind::Image,
+        Some((BlockKind::TableRow, (header, first, last))) if !cells.is_empty() => {
+            // Cell ends never go back and lie in the text on character
+            // boundaries, or the row is read as a paragraph of its text.
+            let mut before = 0u32;
+            let sound = cells.iter().all(|c| {
+                let ok = c.end >= before && ok(c.end);
+                before = c.end;
+                ok
+            });
+            if sound {
+                let mut row = TableRow::new(cells.into_boxed_slice());
+                row.columns = columns.into_boxed_slice();
+                row.header = header;
+                row.first = first;
+                row.last = last;
+                block.kind = BlockKind::TableRow;
+                block.table = Some(alloc::boxed::Box::new(row));
+            }
+        }
+        _ => block.image = None,
     }
     if !langs.is_empty() {
         let mut kept = Vec::new();

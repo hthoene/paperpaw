@@ -29,3 +29,4 @@ browser
 diagnostics
 power
 stats
+transfer

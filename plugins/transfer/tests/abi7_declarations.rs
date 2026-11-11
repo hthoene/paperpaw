@@ -43,7 +43,7 @@ fn batches(
 fn the_decoded_batches_say_what_the_registration_says() {
     let mut all = Vec::new();
     all.extend(batches(|d| declarations::screens(d).unwrap()));
-    all.extend(batches(|d| declarations::cable_later(d).unwrap()));
+    all.extend(batches(|d| declarations::cable(d).unwrap()));
     all.extend(batches(|d| declarations::navigation(d).unwrap()));
     let native = declared::native("transfer", &all);
     let old = declared::legacy("transfer", "", legacy());
@@ -99,7 +99,7 @@ fn the_instances_are_those_of_the_registration() {
     old.sort();
     let mut new = Vec::new();
     let mut screens = batches(|d| declarations::screens(d).unwrap());
-    screens.extend(batches(|d| declarations::cable_later(d).unwrap()));
+    screens.extend(batches(|d| declarations::cable(d).unwrap()));
     for batch in screens {
         for record in records_decode(&batch).unwrap().iter() {
             if let Record::ScreenSpec(s) = record {
@@ -119,17 +119,28 @@ fn the_instances_are_those_of_the_registration() {
     );
 }
 
-/// What `make` submits (the transfer and phone screens, the phone's slot, the
-/// navigation and the events) holds no offer for the cable: its screen has no
-/// native view yet, and the host must not open one the plugin cannot show.
+/// What `make` submits (the transfer, phone and cable screens, the phone's
+/// and the cable's slots, the navigation and the events), decoded as the host
+/// does: the cable's screen is offered for `core.cable` (one at a time), and
+/// the host opens it when a computer talks over the cable.
 #[test]
-fn what_is_submitted_offers_the_phone_not_the_cable_and_hears_the_events() {
+fn what_is_submitted_offers_the_phone_and_the_cable_and_hears_the_events() {
     let mut all = Vec::new();
     all.extend(batches(|d| declarations::screens(d).unwrap()));
+    all.extend(batches(|d| declarations::cable(d).unwrap()));
     all.extend(batches(|d| declarations::navigation(d).unwrap()));
     let native = declared::native("transfer", &all);
-    assert_eq!(native.slots, ["core.remote-keyboard|transfer.phone|0"]);
-    assert_eq!(native.screens.len(), 2);
+    let mut slots = native.slots.clone();
+    slots.sort();
+    assert_eq!(
+        slots,
+        [
+            "core.cable|transfer.cable|0",
+            "core.remote-keyboard|transfer.phone|0"
+        ]
+    );
+    assert_eq!(native.screens.len(), 3);
+    assert!(native.others.is_empty(), "{:?}", native.others);
     let events = batches(|d| declarations::events(d).unwrap());
     assert_eq!(events.len(), 1);
     let native = declared::native("transfer", &events);
@@ -150,4 +161,25 @@ fn what_is_submitted_offers_the_phone_not_the_cable_and_hears_the_events() {
     want.sort_unstable();
     assert_eq!(tokens, want);
     assert!(native.others.is_empty(), "{:?}", native.others);
+}
+
+/// The cable's batch alone (what `make` submits for it) holds the screen, one
+/// at a time, and its offer for `core.cable`: the slot the host opens when a
+/// computer talks over the cable and no server runs.
+#[test]
+fn the_cable_batch_is_the_screen_and_its_offer() {
+    let cable = batches(|d| declarations::cable(d).unwrap());
+    assert_eq!(cable.len(), 1);
+    let native = declared::native("transfer", &cable);
+    assert_eq!(native.screens.len(), 1);
+    assert_eq!(native.slots, ["core.cable|transfer.cable|0"]);
+    assert!(native.actions.is_empty() && native.menu_entries.is_empty());
+    assert!(native.others.is_empty(), "{:?}", native.others);
+    let mut found = Vec::new();
+    for record in records_decode(&cable[0]).unwrap().iter() {
+        if let Record::ScreenSpec(s) = record {
+            found.push((s.name.to_string(), (s.flags >> 6) & 3));
+        }
+    }
+    assert_eq!(found, [("cable".to_string(), 1)]);
 }

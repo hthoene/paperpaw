@@ -182,11 +182,18 @@ pub fn within(groups: &[Group], id: &str, of: &str) -> bool {
 /// nothing of its own: its settings fall into the other group).
 #[must_use]
 pub fn group_is(groups: &[Group], setting: &Setting, of: &str) -> bool {
+    in_group(groups, &setting.group, of)
+}
+
+/// Whether a setting of group `own` is shown in group `of` (as [`group_is`],
+/// for a row that is not copied yet).
+#[must_use]
+pub fn in_group(groups: &[Group], own: &str, of: &str) -> bool {
     let registered = |id: &str| groups.iter().any(|g| g.id == id);
-    if setting.group == of {
+    if own == of {
         of == OTHER_GROUP || registered(of)
     } else {
-        of == OTHER_GROUP && !registered(&setting.group)
+        of == OTHER_GROUP && !registered(own)
     }
 }
 
@@ -368,6 +375,52 @@ pub fn main_groups(
     };
     paperpaw_ui_kit::mem::stable_sort_by(&mut found, |a, b| key(a).cmp(&key(b)));
     Ok(found)
+}
+
+/// The settings a reset of `group` (empty: all) puts back are chosen one at a
+/// time by [`reset_step`], in the order they are sent, and "only this book" is
+/// added last by [`reset_end`]: clearing it first would send the later resets
+/// to the global settings instead of the book's values.
+///
+/// Left alone: what is kept on reset (accounts, folders), secrets, settings
+/// already at their default outside a book scope (nothing to reload), the
+/// language on a reset of all, and on a page what that page does not show.
+///
+/// One setting of the reset plan: its key is added where the reset takes it.
+///
+/// # Errors
+/// [`Error::NoMemory`] when the list cannot grow.
+pub fn reset_step(
+    keys: &mut Vec<String>,
+    groups: &[Group],
+    cx: Context,
+    setting: &Setting,
+    group: &str,
+) -> Result<(), Error> {
+    if setting.has(flag::KEPT_ON_RESET)
+        || setting.has(flag::SECRET)
+        || setting.is_default && !setting.in_scope
+        || setting.key == SCOPE_ONLY
+    {
+        return Ok(());
+    }
+    let chosen = if group.is_empty() {
+        setting.key != LANGUAGE
+    } else {
+        group_is(groups, setting, group) && visible(groups, cx, setting, None)
+    };
+    if chosen {
+        push(keys, copy(&setting.key)?)?;
+    }
+    Ok(())
+}
+
+/// The end of a reset plan: the book scope is always reset.
+///
+/// # Errors
+/// [`Error::NoMemory`] when the list cannot grow.
+pub fn reset_end(keys: &mut Vec<String>) -> Result<(), Error> {
+    push(keys, copy(SCOPE_ONLY)?)
 }
 
 /// The standard order of sections on a page (after those that name none).
