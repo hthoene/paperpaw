@@ -127,6 +127,16 @@ impl Storage for NativeIo<'_, '_> {
         storage::remove(self.host, root, name).map_err(storage_error)
     }
 
+    /// The cache the host gives a conversion starts empty and is the host's to
+    /// clear: what the interface-6 code removes to start a book over is not
+    /// there, and the book's own root is read only.
+    fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
+        match route(&self.prefix, path).0 {
+            Root::Book => Err(StorageError::Unsupported),
+            _ => Ok(()),
+        }
+    }
+
     /// Within the document cache (root 6, which a format may write); the
     /// book's own root is read only, and a move between roots is none.
     fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
