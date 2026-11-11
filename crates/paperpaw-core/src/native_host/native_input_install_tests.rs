@@ -4,6 +4,7 @@
 //! reaches a screen below, and nothing reaches one below a guard.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 use super::*;
+use alloc::string::String;
 use paperpaw_platform::{ButtonState, InputEvent, Instant, Point, PointerEvent, PointerPhase};
 use paperpaw_sdk::Id;
 

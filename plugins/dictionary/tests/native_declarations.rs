@@ -5,7 +5,6 @@ use paperpaw_core::native_host::{
     declarations::{validate_batch, validate_record},
     registrations::records_decode,
 };
-use paperpaw_native::host_glue::ERR_UNSUPPORTED;
 
 #[path = "../declarations.rs"]
 mod declarations;
@@ -51,32 +50,24 @@ fn the_image_is_what_the_builder_makes() {
     }
 }
 
-/// The host takes the setting; it refuses the lookup provider as unsupported
-/// until its lookup broker admits providers (`document.md` section 7): `make`
-/// is refused the same way until then, as for the other ports.
+/// The host takes the setting and the lookup provider (`document.md` section
+/// 7: `lookup.spec` admission); nothing of these is refused.
 #[test]
-fn the_host_admits_the_setting_and_names_what_it_refuses() {
+fn the_host_admits_the_setting_and_the_lookup_provider() {
     for batch in batches!(declarations::settings) {
         let records = records_decode(&batch).unwrap();
         validate_batch("dictionary", &records).unwrap();
     }
     for batch in batches!(declarations::providers) {
         let records = records_decode(&batch).unwrap();
-        let mut refused = 0;
+        let mut providers = 0;
         for record in records.iter() {
-            // The work event is admitted; only the provider is refused.
-            if format!("{record:?}").starts_with("Registration(Event") {
-                validate_record("dictionary", &record).unwrap();
-                continue;
+            validate_record("dictionary", &record).unwrap();
+            if !format!("{record:?}").starts_with("Registration(Event") {
+                providers += 1;
             }
-            assert_eq!(
-                validate_record("dictionary", &record),
-                Err(ERR_UNSUPPORTED),
-                "{record:?}"
-            );
-            refused += 1;
         }
-        assert_eq!(refused, 1, "the provider");
+        assert_eq!(providers, 1, "the provider");
     }
 }
 

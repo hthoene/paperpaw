@@ -131,6 +131,82 @@ fn a_plugin_declares_eight_formats_and_the_ninth_is_full() {
 }
 
 #[test]
+fn a_plugin_declares_eight_book_fields_and_the_ninth_is_invalid() {
+    use crate::native_host::registrations::BookFieldSpec;
+    let names: Vec<String> = (0..9).map(|n| format!("f{n}")).collect();
+    let rows: Vec<Record<'_>> = names
+        .iter()
+        .map(|name| {
+            Record::BookFieldSpec(BookFieldSpec {
+                name,
+                title: "field.title",
+                flags: 0,
+            })
+        })
+        .collect();
+    assert_eq!(finish(&[&rows[..4], &rows[4..8]]), Ok(()));
+    // Refused at the plugin's cap: `ERR_INVALID`, problem 16, arg 8.
+    assert_eq!(
+        refused(&[&rows[..4], &rows[4..8], &rows[8..]]),
+        (Err(ERR_INVALID), Some(Cap::of(Cap::BOOK_FIELDS, 8)))
+    );
+    assert_eq!(refused(&[&rows[..4]]).1, None);
+}
+
+#[test]
+fn a_name_is_declared_once_per_plugin_and_kind() {
+    use crate::native_host::registrations::{BookBadgeSpec, BookFieldSpec};
+    let field = |name| {
+        Record::BookFieldSpec(BookFieldSpec {
+            name,
+            title: "field.title",
+            flags: 0,
+        })
+    };
+    let badge = |name| {
+        Record::BookBadgeSpec(BookBadgeSpec {
+            name,
+            token: 1,
+            flags: 0,
+        })
+    };
+    // The same field or badge twice, in a batch and across batches: invalid.
+    assert_eq!(
+        finish(&[&[field("rating"), field("rating")]]),
+        Err(ERR_INVALID)
+    );
+    assert_eq!(
+        finish(&[&[field("rating")], &[field("rating")]]),
+        Err(ERR_INVALID)
+    );
+    assert_eq!(finish(&[&[badge("new"), badge("new")]]), Err(ERR_INVALID));
+    // A field and a badge of one name are two kinds.
+    assert_eq!(finish(&[&[field("new"), badge("new")]]), Ok(()));
+}
+
+#[test]
+fn a_plugin_declares_four_book_badges_and_the_fifth_is_invalid() {
+    use crate::native_host::registrations::BookBadgeSpec;
+    let names: Vec<String> = (0..5).map(|n| format!("b{n}")).collect();
+    let rows: Vec<Record<'_>> = names
+        .iter()
+        .map(|name| {
+            Record::BookBadgeSpec(BookBadgeSpec {
+                name,
+                token: 1,
+                flags: 0,
+            })
+        })
+        .collect();
+    assert_eq!(finish(&[&rows[..4]]), Ok(()));
+    // Refused at the plugin's cap: `ERR_INVALID`, problem 17, arg 4.
+    assert_eq!(
+        refused(&[&rows[..2], &rows[2..]]),
+        (Err(ERR_INVALID), Some(Cap::of(Cap::BOOK_BADGES, 4)))
+    );
+}
+
+#[test]
 fn a_reader_shows_one_screen_of_its_own_plugin() {
     assert_eq!(
         finish(&[&[screen("main"), reader("app", "epub.main", "")]]),

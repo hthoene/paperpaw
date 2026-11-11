@@ -34,6 +34,14 @@ pub const WORK_DUE: u32 = 7;
 /// A setting changed: a page laid out with the reading settings is laid out again
 /// (`native_pages::affects_layout`), one drawn with the text look drawn again.
 pub const SETTING_CHANGED: u32 = 8;
+/// The token of the search's background scan (`core.work`, key `search`): a step
+/// of the book is read each time. Not a subscription: the work's own token comes
+/// back in `event.work_due`, which the reader hears as `WORK_DUE`.
+#[allow(
+    dead_code,
+    reason = "the plugin's code uses it; the build script that includes this file does not"
+)]
+pub const SEARCH_WORK: u32 = 9;
 pub const FIRST_ACTION: u32 = 100;
 
 const BEHAVIOUR: &str = "core.group.reading-behaviour";

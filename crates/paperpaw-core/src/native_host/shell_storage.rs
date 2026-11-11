@@ -19,7 +19,7 @@ pub(super) unsafe extern "C" fn storage_size<S: 'static>(
     unsafe {
         super::super::storage_slots::size(
             &context.environment,
-            &context.id,
+            context.plugin_id(),
             format_of(context),
             root,
             path,
@@ -45,7 +45,7 @@ pub(super) unsafe extern "C" fn storage_read_at<S: 'static>(
     unsafe {
         super::super::storage_slots::read_at(
             &context.environment,
-            &context.id,
+            context.plugin_id(),
             format_of(context),
             root,
             path,
@@ -81,7 +81,7 @@ pub(super) unsafe extern "C" fn storage_write<S: 'static>(
     unsafe {
         super::super::storage_slots::write(
             &context.environment,
-            &context.id,
+            context.plugin_id(),
             format_of(context),
             held,
             root,
@@ -108,7 +108,7 @@ pub(super) unsafe extern "C" fn storage_append<S: 'static>(
     unsafe {
         super::super::storage_slots::append(
             &context.environment,
-            &context.id,
+            context.plugin_id(),
             format_of(context),
             held,
             root,
@@ -135,7 +135,7 @@ pub(super) unsafe extern "C" fn storage_rename<S: 'static>(
     unsafe {
         super::super::storage_slots::rename(
             &context.environment,
-            &context.id,
+            context.plugin_id(),
             format_of(context),
             held,
             root,
@@ -161,7 +161,7 @@ pub(super) unsafe extern "C" fn storage_remove<S: 'static>(
     unsafe {
         super::super::storage_slots::remove(
             &context.environment,
-            &context.id,
+            context.plugin_id(),
             format_of(context),
             held,
             root,
@@ -177,5 +177,5 @@ pub(super) unsafe extern "C" fn storage_sync<S: 'static>(ctx: *mut c_void) -> i3
     };
     // The plugin waits for the host from here to the return.
     let _slot = super::super::host_slot::enter();
-    super::super::storage_slots::sync(&context.environment, &context.id)
+    super::super::storage_slots::sync(&context.environment, context.plugin_id())
 }
