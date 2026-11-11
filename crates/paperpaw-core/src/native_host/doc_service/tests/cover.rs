@@ -88,6 +88,12 @@ fn a_cover_is_made_for_a_caller_without_uses_storage_and_the_document_is_closed(
         let calls = fake.calls.borrow();
         assert_eq!((calls[0][0], calls[1][0]), (fmt::OPEN, fmt::COVER));
         assert_eq!(calls[1][7], 300);
+        // The open is a background one: the format builds no contents or
+        // positions for a cover.
+        assert_eq!(
+            calls[0][4],
+            crate::native_host::doc_service::table::BACKGROUND
+        );
         assert_eq!(fake.readers.borrow()[0], (1, 1, BOOK.into()));
         assert_eq!(*fake.ended.borrow(), [1]);
         assert_eq!(*fake.released.borrow(), [1]);
@@ -256,6 +262,34 @@ fn no_place_in_the_callers_table_is_full_for_the_library_host_to_call_busy() {
             ERR_FULL
         );
         assert_eq!(fake.calls.borrow().len(), 1, "only the first open");
+    });
+}
+
+/// The cover's open is a background one: with both device-wide places of the
+/// X4 held by other openers' documents it is `ERR_FULL` (the library host
+/// answers busy), and it displaces none of them.
+#[test]
+fn a_cover_open_takes_no_place_from_another_opener() {
+    let fake = Fake::new(Limits::X4);
+    with(&fake, |view| {
+        let first = fake
+            .table()
+            .open(OWNER + 1, false, FormatRef(0), READY, 0, &|_| true)
+            .unwrap()
+            .0;
+        let second = fake
+            .table()
+            .open(OWNER + 2, false, FormatRef(0), READY, 0, &|_| true)
+            .unwrap()
+            .0;
+        fake.queue.borrow_mut().push(Ok(state_answer(0, 0)));
+        assert_eq!(
+            make_cover(view, &caller(view), BOOK, 0).unwrap_err(),
+            ERR_FULL
+        );
+        assert!(fake.table().lease(OWNER + 1, first).is_ok(), "stays open");
+        assert!(fake.table().lease(OWNER + 2, second).is_ok(), "stays open");
+        assert!(fake.calls.borrow().is_empty(), "no format call");
     });
 }
 
