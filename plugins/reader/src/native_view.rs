@@ -9,7 +9,7 @@ use crate::{
     native_actions,
     native_chapter::{self, Chapter},
     native_document::HostDocument,
-    native_draw::{HostInk, draw_page, picture_boxes},
+    native_draw::{HostInk, draw_page},
     native_index::Counter,
     native_links::DocRef,
     native_look::Look,
@@ -450,6 +450,7 @@ impl View {
             open.page = None;
             open.laid = None;
             open.trail.clear();
+            open.pictures = pictures::Pass::Whole;
             if let Ok(setup) = Setup::read(host) {
                 open.ensure_counter(host, &setup);
             }
@@ -558,6 +559,8 @@ impl View {
             && core::mem::take(&mut open.report_due)
         {
             open.announce(host, docs);
+            // The book or a place in it is shown: its pictures follow its text.
+            open.redraw_page(host, RedrawMode::Partial).ok();
         }
     }
 
@@ -653,8 +656,7 @@ impl View {
         open.unsaved = true;
         open.turned = true;
         open.announce(host, docs);
-        let mut scratch = [0; 64];
-        CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)
+        open.redraw_page(host, RedrawMode::Partial)
     }
 
     /// What an input did: turns the page.
@@ -865,9 +867,7 @@ impl Open {
         self.turned = true;
         self.save(host, library, When::Turn);
         self.announce(host, docs);
-        let mut scratch = [0; 64];
-        CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
-        Ok(())
+        self.redraw_page(host, RedrawMode::Partial)
     }
 
     /// Says that the place could not be saved; after the screen closed the
@@ -1026,7 +1026,7 @@ impl Open {
         self.turned = true;
         self.save(host, library, When::Turn);
         self.announce(host, docs);
-        redraw(host, RedrawMode::Partial)
+        self.redraw_page(host, RedrawMode::Partial)
     }
 
     /// What the marking makes of `input` on the page on show (nothing where the
@@ -1249,7 +1249,8 @@ impl Open {
         }
         if self.page.is_none() {
             let page = self.lay_with(host, docs, &faces, setup, self.at, area)?;
-            self.pictures = pictures::Pass::of(&page);
+            // Laid out only here: drawn in one pass.
+            self.pictures = pictures::Pass::Whole;
             self.page = Some(page);
             self.words = Vec::new();
             self.laid = Some(key);
@@ -1267,9 +1268,7 @@ impl Open {
             rect.x as f32 + f32::from(area.x),
             rect.y as f32 + f32::from(area.y),
         );
-        let pictures = self
-            .pictures
-            .drawing(|| pictures::ask_second_pass(host, picture_boxes(page, origin)));
+        let pictures = self.pictures.drawing();
         draw_page(
             &mut ink,
             &faces,
