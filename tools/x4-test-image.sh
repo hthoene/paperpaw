@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the owner's X4 TEST IMAGE (decision 156, #243) and the bundle that goes with it:
 #   dist/x4-test-image-<commit>/
-#     paperpaw-x4-test-<commit>.bin   one image for the whole flash (bootloader, table, app)
+#     paperpaw-x4-TEST-<commit>.bin   one image for the whole flash (bootloader, table, app)
 #     SHA256SUMS                      checksums of every file in the bundle
 #     BUILD-INFO.txt                  commit, features, toolchain, espflash, sizes, date
 #     OWNER-STEPS.md / OWNER-SCHRITTE.md   the steps the owner follows (flash by hand)
@@ -10,13 +10,13 @@
 # Usage:  tools/x4-test-image.sh [--out DIR] [--allow-dirty] [--dry-run]
 #   --dry-run       print the steps, run none
 #   --allow-dirty   build a tree with uncommitted changes (the bundle says so)
-# Env:    FEATURES   cargo features (default: x4,remote,test-image; never `release`)
+# Env:    FEATURES   cargo features (default: x4,test-image, the release recipe plus the test feature; never `release`)
 #         CARGO_TARGET_DIR   where the build goes (default: shells/xteink/target)
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fw="$root/shells/xteink"
-features="${FEATURES:-x4,remote,test-image}"
+features="${FEATURES:-x4,test-image}"
 out_base="$root/dist"
 dry=0
 dirty_ok=0
@@ -57,7 +57,7 @@ if [ -n "$(git -C "$root" status --porcelain --untracked-files=no)" ]; then
   fi
 fi
 bundle="$out_base/x4-test-image-$commit"
-image="paperpaw-x4-test-$commit.bin"
+image="paperpaw-x4-TEST-$commit.bin"
 elf="${CARGO_TARGET_DIR:-$fw/target}/riscv32imc-unknown-none-elf/release/paperpaw-xteink"
 
 run() { printf '\n$ %s\n' "$*"; if [ "$dry" = 0 ]; then "$@"; fi; }
@@ -74,9 +74,13 @@ if ! command -v clang >/dev/null && [ -z "${CLANG_PATH:-}" ]; then
 fi
 export CMAKE_GENERATOR="${CMAKE_GENERATOR:-Ninja}"
 
+# 0. The guard: the test image is in no default list and no release build.
+cd "$root"
+run cargo test -q --locked -p paperpaw-checks --test test_image_guard
+
 # 1. Build: the cargo profile `--release` (an optimised image), never the `release` FEATURE.
 cd "$fw"
-run cargo build --release --locked --no-default-features --features "$features"
+run cargo build --release --locked --target riscv32imc-unknown-none-elf --no-default-features --features "$features"
 
 # 2. One image for the whole flash, as the release makes it.
 run mkdir -p "$bundle"
@@ -86,6 +90,9 @@ run espflash save-image --chip esp32c3 --merge --skip-padding --flash-size 16mb 
 # 3. The image can take the next update (two app slots, the app fits them).
 cd "$root"
 run cargo run -q --release -p paperpaw-sign -- check-image "$bundle/$image"
+
+# 3b. The frames of the interface-7 host stay within the X4's budget (2,048 B each).
+run cargo run -q --release -p paperpaw-sign -- frames "$elf" --budget "$fw/frame-budget-ppn5.txt"
 
 # 4. The notes and the checksums.
 if [ "$dry" = 0 ]; then

@@ -51,8 +51,8 @@ Then press reset (or unplug and plug in). If `espflash` cannot reach the X4, see
 
 - PaperPaw starts and shows the home screen. *(pending #2462: first-boot notes)*
 - Settings › About (or Diagnostics) shows the line **"Secrets: veiled (test build)"**.
-- The boot log (from a PaperPaw checkout, `python tools/x4-remote.py --log 30`)
-  mentions the veiling sealer.
+- The boot log (`espflash monitor`, then reset the X4; the test image has no USB remote control)
+  prints `secrets: veiled (test build)`.
 - Open a book, turn some pages, put the X4 to sleep and wake it again.
 - Wi-Fi: connect once, restart the X4, check it still has the password.
 
@@ -72,8 +72,5 @@ while it connects, as for the first flash of an X4 Pro.
 
 - A screen that never changes, or restarts in a loop: unplug USB, hold power for
   10 s, try again; if it loops again, do step 5 and send the log
-  (`python tools/x4-remote.py --log 60` right after a restart). *(pending #2462:
+  (`espflash monitor` right after a restart). *(pending #2462:
   boot-loop guard / safe mode description)*
-- Do not use `flash-x4.py` on an image of this folder: it builds from source.
-  It is an alternative only with a checkout at the commit named in
-  `BUILD-INFO.txt`: `python tools/flash-x4.py --backup x4-before.bin --features test-image`.

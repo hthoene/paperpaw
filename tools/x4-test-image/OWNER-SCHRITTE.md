@@ -49,8 +49,8 @@ Danach Reset drücken (oder USB abziehen und wieder anstecken).
 
 - PaperPaw startet und zeigt den Startbildschirm. *(offen #2462: erster Start)*
 - Einstellungen › Info (oder Diagnose) zeigt **„Secrets: veiled (test build)“**.
-- Im Start-Log (`python tools/x4-remote.py --log 30`, aus einem PaperPaw-Checkout)
-  steht der Verschleierer.
+- Im Start-Log (`espflash monitor`, dann X4 zurücksetzen; das Testimage hat keine USB-Fernsteuerung)
+  steht `secrets: veiled (test build)`.
 - Ein Buch öffnen, ein paar Seiten blättern, den X4 schlafen legen und wecken.
 - WLAN: einmal verbinden, X4 neu starten, prüfen, dass das Passwort noch da ist.
 
@@ -69,5 +69,5 @@ das Kabel, beim Verbinden die Power-Taste gedrückt halten.
 
 - Bild ändert sich nie oder Neustart-Schleife: USB abziehen, Power 10 s halten,
   nochmal versuchen; wieder Schleife → Schritt 5 und das Log schicken
-  (`python tools/x4-remote.py --log 60` direkt nach dem Neustart).
+  (`espflash monitor` direkt nach dem Neustart).
   *(offen #2462: Schleifenschutz / Safe Mode)*
