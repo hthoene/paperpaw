@@ -98,8 +98,19 @@ pub(super) fn reachable(root: u32, path: &str) -> bool {
 }
 
 /// Values of `open` that need no host state. `long_side` is the screen's
-/// long side in pixels.
-pub(super) fn check_open(open: &wire::ServiceDocOpen<'_>, long_side: u32) -> Result<(), i32> {
+/// long side in pixels; `host_job`: the host's own background job opens
+/// (`library_call`), which alone may set bit 3 `details` (a plugin's open with
+/// it is `ERR_INVALID`, `document.md` 2.1).
+pub(super) fn check_open(
+    open: &wire::ServiceDocOpen<'_>,
+    long_side: u32,
+    host_job: bool,
+) -> Result<(), i32> {
+    let allowed = if host_job {
+        OPEN_FLAGS | super::table::DETAILS
+    } else {
+        OPEN_FLAGS
+    };
     // The handed file (root 5) is for the book alone; a CSS file there is
     // denied (`document.md` 1).
     if open.css_root == ROOT_HANDED {
@@ -107,7 +118,7 @@ pub(super) fn check_open(open: &wire::ServiceDocOpen<'_>, long_side: u32) -> Res
     }
     if (open.root > 1 && open.root != ROOT_HANDED)
         || open.css_root > 1
-        || open.flags & !OPEN_FLAGS != 0
+        || open.flags & !allowed != 0
         || !path_valid(open.path)
         || !reachable(open.root, open.path)
         || !(open.css_path.is_empty()
