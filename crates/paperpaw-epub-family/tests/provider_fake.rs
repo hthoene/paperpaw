@@ -14,6 +14,7 @@ use paperpaw_sdk::document::{
     Annotation, AnnotationKind, Block, BlockKind, Document, DocumentError, ImageRef, Locator,
     Metadata,
 };
+use paperpaw_sdk::image::{GrayWriter, ImageSink};
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::stage_schemas::core_format_v1 as stage;
 use paperpaw_sdk::{Env, MemoryStorage, OpenOptions, Storage};
@@ -34,7 +35,7 @@ impl Document for Fake {
         1
     }
     fn section_len(&self, _: u32) -> u32 {
-        40
+        50
     }
     fn block_at(&self, _: &dyn Storage, at: Locator) -> Result<Option<Block>, DocumentError> {
         Ok(match at.offset {
@@ -90,6 +91,17 @@ impl Document for Fake {
                 });
                 Some(b)
             }
+            // A picture of the cache whose file is not there and cannot be
+            // made (a failed decode): the same, a paragraph.
+            40..=49 => {
+                let mut b = Block::new(BlockKind::Image, 40, 50, "a dog".into());
+                b.image = Some(ImageRef {
+                    path: format!("{}/missing.gray", cache()),
+                    width: 30,
+                    height: 40,
+                });
+                Some(b)
+            }
             _ => None,
         })
     }
@@ -137,8 +149,22 @@ fn rows(reply: &[u8]) -> Vec<stage::Record<'_>> {
         .collect()
 }
 
+/// A 30 x 40 decoded gray picture at `path`, as the host probes one.
+fn picture_file(io: &MemoryStorage, path: &str) {
+    let mut writer = GrayWriter::new(io, path);
+    writer.start(30, 40).unwrap();
+    for _ in 0..40 {
+        writer.row(&[255; 30]).unwrap();
+    }
+    writer.finish().unwrap();
+}
+
 fn opened() -> (FormatProvider, MemoryStorage) {
     let io = MemoryStorage::new();
+    // The files the fake's pictures name (`lazy.gray` becomes `decoded.gray`).
+    for name in ["pic", "decoded"] {
+        picture_file(&io, &format!("{}/{name}.gray", cache()));
+    }
     let mut p = provider();
     let reply = run(&mut p, &io, &call(2, |c| c.text = "b.fake")).unwrap();
     let stage::Record::FmtState(s) = rows(&reply)[0] else {
@@ -204,7 +230,7 @@ fn hostile_calls_are_refused_and_the_provider_reads_on() {
         Err(Error::State)
     ));
     // Offsets past everything.
-    for offset in [40, u32::MAX] {
+    for offset in [50, u32::MAX] {
         assert!(matches!(
             run(&mut p, &io, &call(8, |c| c.offset = offset)),
             Err(Error::NotFound)
@@ -262,7 +288,7 @@ fn a_blocks_records_come_in_the_order_the_host_checks() {
         }
     }
     let (mut p, io) = opened();
-    for offset in [0, 10, 20, 40] {
+    for offset in [0, 10, 20, 30, 40] {
         let Ok(reply) = run(&mut p, &io, &call(8, |c| c.offset = offset)) else {
             continue;
         };
@@ -325,16 +351,28 @@ fn a_picture_that_cannot_be_served_costs_the_picture_only_never_the_book() {
     let (mut p, io) = opened();
     let reply = block_at(&mut p, &io, 30);
     pictures_match_kind(&reply);
-    let rows = rows(&reply);
+    let cat = rows(&reply);
     // A paragraph with the block's own text, no picture record.
-    let stage::Record::FmtBlock(block) = rows[0] else {
+    let stage::Record::FmtBlock(block) = cat[0] else {
         panic!("block")
     };
     assert_eq!(block.kind, 0);
     assert_eq!(block.text_bytes, "a cat on a mat".len() as u32);
-    assert!(rows.iter().any(|r| matches!(
+    assert!(cat.iter().any(|r| matches!(
         r,
         stage::Record::FmtTextPart(t) if t.text == "a cat on a mat"
+    )));
+    // A picture of the cache with no file, and none to be made, goes the same way.
+    let reply = block_at(&mut p, &io, 40);
+    pictures_match_kind(&reply);
+    let dog = rows(&reply);
+    let stage::Record::FmtBlock(block) = dog[0] else {
+        panic!("block")
+    };
+    assert_eq!(block.kind, 0);
+    assert!(dog.iter().any(|r| matches!(
+        r,
+        stage::Record::FmtTextPart(t) if t.text == "a dog"
     )));
     // The ones with their pictures in the cache are unchanged.
     pictures_match_kind(&block_at(&mut p, &io, 10));

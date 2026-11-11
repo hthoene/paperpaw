@@ -14,6 +14,7 @@ use paperpaw_sdk::document::{
     AnnotationKind, Block, BlockKind, Document, DocumentError, ImageRef, LinkKind, Locator,
     PageProgression, VerticalAlign, is_external,
 };
+use paperpaw_sdk::image::ImageFile;
 use paperpaw_sdk::lang::{Direction, WritingMode};
 use paperpaw_sdk::native::{
     Error,
@@ -745,11 +746,15 @@ impl FormatProvider {
 
 /// `image` with its cache file made: the document decodes a picture when a page
 /// shows it, so a block that comes first has only the name of a file that is
-/// not there yet, which the host would not take for a picture. A picture that
-/// cannot be decoded (a broken file) stays as it is: the caller leaves it out.
+/// not there yet, which the host would not take for a picture. A picture whose
+/// file is still not there (a broken file, a failed decode, no room) is none:
+/// the caller leaves it out, as a picture block without its file is refused by
+/// the host, and with it the book.
 fn decoded(document: &dyn Document, io: &dyn Storage, image: Option<ImageRef>) -> Option<ImageRef> {
     let image = image?;
-    Some(document.prepare_image(io, &image).unwrap_or(image))
+    let image = document.prepare_image(io, &image).unwrap_or(image);
+    let served = ImageFile::try_open(io, &image.path).ok().flatten();
+    served.is_some().then_some(image)
 }
 
 /// `path` as a path in the document cache (root 6), if it lies in `cache`.
