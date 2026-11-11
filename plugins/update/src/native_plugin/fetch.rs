@@ -246,7 +246,7 @@ impl NativeUpdate {
         loop {
             match fetch.step(host, net) {
                 Ok(Step::Waiting) => {
-                    self.online.fetch = Some(fetch);
+                    self.online.fetch = Some(paperpaw_ui_kit::mem::boxed(fetch)?);
                     return Ok(());
                 }
                 Ok(Step::Ended) => return self.fetch_end(host, &fetch),
@@ -284,7 +284,7 @@ impl NativeUpdate {
         } else {
             fetch.fail(host);
         }
-        self.fetch_drive(host, fetch)
+        self.fetch_drive(host, *fetch)
     }
 
     /// The end of an install this flow asked for: on to the next build.
@@ -312,7 +312,7 @@ impl NativeUpdate {
         } else {
             fetch.fail(host);
         }
-        self.fetch_drive(host, fetch)
+        self.fetch_drive(host, *fetch)
     }
 
     /// Every build is fetched or failed: the update is ready, and what did not

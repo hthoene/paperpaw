@@ -31,6 +31,18 @@ impl CatalogEnv for Env {
             visit("epub");
         }
     }
+    /// `stars.rating` is kept with the book only, `stars.tag` in the catalog.
+    fn book_field(&self, id: &str) -> Option<bool> {
+        match id {
+            "stars.rating" => Some(false),
+            "stars.tag" => Some(true),
+            _ => None,
+        }
+    }
+    /// Plugins keep data for book E only.
+    fn book_data_kept(&self, path: &str) -> Result<bool, i32> {
+        Ok(path == "books/e.epub")
+    }
 }
 
 /// Five books: A (a favourite, 40 % by the log), B (long title, tags and
@@ -428,6 +440,9 @@ fn the_catalog_file_is_where_the_sdk_writes_it() {
 /// A whole `LibHost` for the service tests: the catalog reads, no writes.
 pub(crate) struct Host(pub(crate) CatalogReads);
 impl LibQuery for Host {
+    fn query(&self, query: &wire::ServiceLibQuery<'_>, visit: Rows<'_>) -> Result<RowsEnd, i32> {
+        self.0.query(query, visit)
+    }
     fn state(&self, visit: One<'_>) -> Result<(), i32> {
         self.0.state(visit)
     }

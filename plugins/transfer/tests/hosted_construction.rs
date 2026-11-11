@@ -10,30 +10,44 @@
 #[path = "../../test-support/hosted.rs"]
 mod hosted;
 
+const SERVICES: &[&str] = &[
+    "core.device",
+    "core.document",
+    "core.files",
+    "core.library",
+    "core.net",
+    "core.registry",
+    "core.secrets",
+    "core.ui",
+    "core.work",
+];
+
 fn construct() -> Result<(), String> {
     hosted::try_construct(
         paperpaw_plugin_transfer::NATIVE_ENTRY.entry(),
         "transfer",
-        &[
-            "core.device",
-            "core.document",
-            "core.files",
-            "core.net",
-            "core.registry",
-            "core.secrets",
-            "core.ui",
-            "core.work",
-        ],
+        SERVICES,
     )
 }
 
+/// The host admits every family `make` submits (the screens with the phone's
+/// and the cable's slot offers, the navigation and the events install_done,
+/// wifi_done and work_due), and `core.library` for the cable's books.
 #[test]
-#[ignore = "BLOCKED: the host does not admit the event registrations event.install_done (97), event.wifi_done (93) and event.work_due"]
 fn make_runs_in_a_real_registered_scope() {
     construct().expect("construction");
 }
 
+/// A shell that backs no `uses.install` (the desktop, the emulator) still
+/// registers the plugin: installing plugins sent from the computer is then
+/// refused by the host, and everything else works.
 #[test]
-fn until_the_host_admits_every_family_make_is_refused_as_unsupported() {
-    assert_eq!(construct().unwrap_err(), "Factory(-1)");
+fn make_registers_where_the_host_offers_no_install_feature() {
+    hosted::try_construct_lacking(
+        paperpaw_plugin_transfer::NATIVE_ENTRY.entry(),
+        "transfer",
+        SERVICES,
+        &["uses.install"],
+    )
+    .expect("construction without uses.install");
 }

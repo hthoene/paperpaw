@@ -182,13 +182,16 @@ Field meanings:
   not load (`state` 2 failed): 14 too many formats, 15 too many readers, `problem_arg` the cap it
   ran into, only ever 8 or 32 with 14 (formats per plugin, `ERR_FULL`, or device-wide, `ERR_FULL`;
   `document.md` 1) and 4 or 16 with 15 (readers per plugin, `ERR_INVALID`, or device-wide,
-  `ERR_FULL`; `document.md` 1), 0 where the host cannot say which. The cap decides the value, not
-  the status. A plugin showing these rows treats a value it does not know as "could not be
-  loaded"; `update`: the version waiting, empty if none. The first row of op 5 is always the host
-  itself: `id` `core`, its version (interface 6 `env.plugins().kernel()`).
+  `ERR_FULL`; `document.md` 1); 16 too many book fields (`problem_arg` 8 per plugin or 64
+  device-wide), 17 too many book badges (4 per plugin or 16 device-wide; both `library.md` 1), 18
+  too many lookup providers (8 per plugin or 32 device-wide; `document.md` 7); 0 where the host
+  cannot say which. The cap decides the value, not the status. A duplicate name in one batch has no
+  problem number of its own. A plugin showing these rows treats a value it does not know as "could
+  not be loaded"; `update`: the version waiting, empty if none. The first row of op 5 is always the
+  host itself: `id` `core`, its version (interface 6 `env.plugins().kernel()`).
 - `reg_need.kind`: 0 feature (`key` = `uses.*`, `flags` bit 0 required), 1 service (`key`,
   `version` = major.revision), 2 required plugin (`key` = id, `version` = at least).
-- [D] **Where op 20's rows come from** (draft 30): kinds 0 and 1 from the native metadata the host
+- [D] **Where op 20's rows come from**: kinds 0 and 1 from the native metadata the host
   admitted this run, which it keeps with the plugin's registry row: the validated view where its
   bytes stay for the run (a linked plugin's are static), else one fallible copy of at most 2,048
   bytes (`metadata::MAX_BYTES`) made at admission; features from
@@ -221,8 +224,8 @@ Field meanings:
   (its base id, also a placement) in one of its `list_keys` (interface 6 `Widgets::shown`, not
   "has instances"; `ui.md` section 5.2), bit 1 private, bit 2 square; `cells` the widget's
   `widget.spec.cells` as declared (size and least size, draft 29); `previews` its
-  `widget.spec.previews` (the settings group it previews, `ui.md` section 5.2), empty for none
-  (draft 32): a settings page lists the widgets whose `previews` is its group. With
+  `widget.spec.previews` (the settings group it previews, `ui.md` section 5.2), empty for none:
+  a settings page lists the widgets whose `previews` is its group. With
   `reg_query.flags` bit 0 op 19 lists those that preview `scope` in its order (the host's own,
   then declarations by plugin slot, a plugin's own by name), and a page shows the last. Interface
   6 took the last added; where two plugins preview one group the shown one may differ (accepted
@@ -393,24 +396,30 @@ These change the user's configuration of the whole device, so they need the D1 f
   family's `core.install` with the host's confirmation (decision 132; firmware always confirmed,
   decision 134). `command.request_plugins` (ids, one per line, at most 16, the interface-6
   `MAX_REQUESTED_PLUGINS`) is refused with `ERR_INVALID` for a bad id, and with `ERR_FULL` while 4
-  requests are open device-wide. The host drops ids already on the device (any version, on or off);
-  if none is left, nothing is sent. Otherwise it numbers the request and raises `plugins_requested`,
-  with the host-known submitter as `by`, to the plugins subscribed to it, as interface 6 does (the
-  store subscribes; there is no installer role). With no subscriber that may answer, every id is
-  answered `failed` at once. A subscriber asks the user and answers each id with
-  `command.answer_plugin` (`outcome` 0 installed, 1 declined, 2 failed, 3 not found; the host
-  refuses other values with `ERR_INVALID`, and a consumer of event 78 treats an outcome it does not
-  know as `failed`, never as installed). Only a plugin that declares the install feature
-  (`uses.install`, DEV) may answer; any other gets `ERR_DENIED`, so a plugin that merely subscribes
-  can neither fake an install nor block the store. **Until DEV defines `uses.install` in the
-  catalog, a host refuses `answer_plugin` from every plugin with `ERR_DENIED`** (the whole batch,
-  wherever the command sits in it); it never falls back to "any subscriber". With no plugin able to
-  answer, every request is answered `failed` at once (the no-subscriber rule above). The host checks
-  that the request and the id are open (else `ERR_STATE`; the first answer for an id wins), and
-  checks `installed` itself: the id must be on the device now, else the answer is stored as
-  `failed`. It raises `plugin_answered` to the requester only. A request stays open until every id
-  is answered, every subscriber stopped, or the device restarts; then the open ids are answered
-  `failed` by the host.
+  requests are open device-wide or 2 of the submitter's own are (so one plugin cannot take every
+  place). The host drops ids already on the device (any version, on or off); if none is left,
+  nothing is sent. Otherwise it numbers the request and raises `plugins_requested`, with the
+  host-known submitter as `by`, to the plugins that subscribed to it and declare the install feature
+  (`uses.install`, below: the plugins that may answer, the store among them); a plugin that
+  subscribed without it does not hear it. With no such subscriber, every id is answered `failed` at
+  once, under a real (nonzero) request number that the host keeps nowhere. Request number 0 marks
+  only the `failed` answers to a request the host could not take in, its table being full or busy. A
+  subscriber asks the user and answers each id with `command.answer_plugin` (`outcome` 0 installed,
+  1 declined, 2 failed, 3 not found; the host refuses other values with `ERR_INVALID`, and a
+  consumer of event 78 treats an outcome it does not know as `failed`, never as installed). Only a
+  plugin that declares the install feature (`uses.install`, DEV) may answer; any other gets
+  `ERR_DENIED`, so a plugin that merely subscribes can neither fake an install nor block the store.
+  The refusal is for the whole batch, wherever the command sits in it, and the host never falls back
+  to "any subscriber" (DEV defines `uses.install`, `device.md` 1). With no subscriber that declares
+  it, every request is answered `failed` at once (the no-subscriber rule above). The host checks
+  that the request and the id are open (else `ERR_STATE`; the first answer for an id wins), against
+  the ids open when the callback began; with more than 16 ids open device-wide that check may pass
+  an answer for an id that is no longer open, and the host then drops it when it applies the batch,
+  without a status. It checks `installed` itself: the id must be on the device now, else the answer
+  is stored as `failed`. It raises `plugin_answered` to the requester only. A request stays open
+  until every id is answered, no subscriber that may answer is left, or the device restarts; then
+  the open ids are answered `failed` by the host. A request whose requester stopped is dropped
+  (nobody is left to hear its answers).
 - [D] All four follow the EVT pending limits and drop rules (`core-events.md` section 3.3).
   `plugins_requested` and `plugin_answered` are edges and never coalesced; the two hints are.
 
@@ -523,9 +532,8 @@ declaring plugin, as in `setting.spec`; names, titles and help have `setting.spe
   lock, tests of the pinned lists; this document final.
 - **Core:** the `core.registry` service over the host tables (paging, generation, translation,
   authority), the command arms, the four events, `setup.step` and the other declarations' admission.
-  `answer_plugin` stays refused with `ERR_DENIED` for every plugin (already in
-  `native_host::commands`, pinned by `abi7_scoped_commands` and `abi7_registry_wire`) until DEV adds
-  `uses.install`; then only its declarers pass, and the requests answer `failed` until then.
+  `answer_plugin`: only declarers of `uses.install` pass, every other plugin gets `ERR_DENIED`
+  (`native_host::commands_answers`).
 - **Services:** the SDK facade (typed rows, paging iterator, command builders).
 - **Plugin:** the ports.
 - **UIX:** the declaration of plugin inputs and gestures (section 10).

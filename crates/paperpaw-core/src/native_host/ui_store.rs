@@ -171,7 +171,7 @@ pub(crate) struct Info {
 fn params_in(block: &[u8], mut ok: impl FnMut(&str, &str) -> bool) -> bool {
     let mut rest = block;
     while !rest.is_empty() {
-        let Ok((Record::ServiceUiParam(param), used)) = wire::record_decode_prefix(rest) else {
+        let Ok((param, used)) = codec::prefix::<wire::ServiceUiParam<'_>>(rest) else {
             return false;
         };
         if !ok(param.key, param.value) {
@@ -186,9 +186,7 @@ fn params_in(block: &[u8], mut ok: impl FnMut(&str, &str) -> bool) -> bool {
 fn value_of<'a>(block: &'a [u8], key: &str) -> Option<&'a str> {
     let mut rest = block;
     while !rest.is_empty() {
-        let (Record::ServiceUiParam(param), used) = wire::record_decode_prefix(rest).ok()? else {
-            return None;
-        };
+        let (param, used) = codec::prefix::<wire::ServiceUiParam<'_>>(rest).ok()?;
         if param.key == key {
             return Some(param.value);
         }
@@ -225,6 +223,18 @@ impl Wiped {
         Ok(Self(data))
     }
 }
+
+/// The owner of what the host made itself (no plugin has this key).
+const HOST_OWNER: u64 = u64::MAX;
+/// Hand-overs beyond the limit the host may make for its dialogs, so that a
+/// plugin that fills the table (`Limits::handovers`) cannot make every text
+/// question fail.
+const HOST_ROOM: usize = 2;
+/// The bytes of params the host may make for them beyond the limit of the
+/// plugins' ([`HOST_ROOM`] of the two params `core.request` and `core.kind`,
+/// framed, are under 100 each), so that a plugin that fills the pool
+/// (`Limits::params_bytes`) cannot make every text question fail either.
+const HOST_BYTES: usize = HOST_ROOM * 128;
 
 enum State {
     Made {
@@ -280,6 +290,8 @@ pub(super) struct Inner {
     pub(super) question_memory: usize,
     /// Answers of a host dialog the store did not take, not yet logged.
     pub(super) refused: u32,
+    /// The clipboard (`core.ui` ops 18 and 19).
+    pub(super) clipboard: super::ui_clipboard::ClipboardState,
 }
 
 /// The store.
@@ -436,6 +448,7 @@ impl UiStore {
                 secret_memory: 0,
                 question_memory: 0,
                 refused: 0,
+                clipboard: super::ui_clipboard::ClipboardState::default(),
             }),
         }
     }
@@ -481,6 +494,50 @@ impl UiStore {
         if content > PARAM_BYTES_MAX {
             return Err(ERR_NO_SPACE);
         }
+        self.insert(
+            params,
+            State::Made {
+                owner: who.owner,
+                epoch: who.epoch,
+            },
+            (0, 0),
+        )
+    }
+
+    /// The hand-over of the host's own for the dialog of `request` of `kind`
+    /// (both ASCII decimal): the params `core.request` and `core.kind`
+    /// (`docs/abi/ui.md` 3.2), which op 16 refuses a plugin. No plugin made
+    /// it: it is made **claimed**, so that the stack's `attach` gives it to
+    /// the dialog's instance as it gives one a plugin's `open` names, and
+    /// [`Self::release`] frees it where the screen opens without it.
+    ///
+    /// # Errors
+    /// As [`Self::handover_make`].
+    pub(crate) fn handover_dialog(&self, request: &str, kind: &str) -> Result<u32, i32> {
+        self.insert(
+            &[
+                Param {
+                    key: "core.request",
+                    value: request,
+                },
+                Param {
+                    key: "core.kind",
+                    value: kind,
+                },
+            ],
+            // `batch` is a number no `claim` makes (they count up from 0), so
+            // that no plugin's rollback frees it.
+            State::Claimed {
+                owner: HOST_OWNER,
+                batch: u64::MAX,
+            },
+            (HOST_ROOM, HOST_BYTES),
+        )
+    }
+
+    /// Keeps a hand-over of `params` (checked) in `state`, `room` (hand-overs,
+    /// bytes) beyond the limits allowed.
+    fn insert(&self, params: &[Param<'_>], state: State, room: (usize, usize)) -> Result<u32, i32> {
         // Encode once into a block of exactly the size.
         let mut framed = 0_usize;
         for param in params {
@@ -490,8 +547,8 @@ impl UiStore {
             }))?;
         }
         let mut inner = self.inner()?;
-        if inner.params_bytes + framed > self.limits.params_bytes
-            || inner.entries.len() >= self.limits.handovers
+        if inner.params_bytes + framed > self.limits.params_bytes + room.1
+            || inner.entries.len() >= self.limits.handovers + room.0
         {
             return Err(ERR_FULL);
         }
@@ -512,10 +569,7 @@ impl UiStore {
         inner.params_bytes += framed;
         inner.entries.push(Entry {
             id,
-            state: State::Made {
-                owner: who.owner,
-                epoch: who.epoch,
-            },
+            state,
             params: block,
             count: u32::try_from(params.len()).map_err(|_| ERR_INVALID)?,
             text: Text::default(),
@@ -853,7 +907,7 @@ impl UiStore {
         let (mut root, mut path) = (None, None);
         let mut rest = &entry.params.0[..];
         while !rest.is_empty() {
-            let Ok((Record::ServiceUiParam(param), used)) = wire::record_decode_prefix(rest) else {
+            let Ok((param, used)) = codec::prefix::<wire::ServiceUiParam<'_>>(rest) else {
                 return Err(ERR_DENIED);
             };
             let slot = match param.key {

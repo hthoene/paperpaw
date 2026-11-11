@@ -10,6 +10,8 @@ use paperpaw_ui_kit::widget::options::{FACES, declare_all, shared_look};
 
 /// The callback token of the minute tick.
 pub const TICK: u32 = 1;
+/// The callback token of the reading events, which the reading widget records.
+pub const READING: u32 = 2;
 /// The callback token of the to-do list's screen.
 pub const TODO_SCREEN: u32 = 10;
 /// The callback token of the action that opens it.
@@ -295,6 +297,122 @@ const HIGHLIGHT_OPTIONS: &[Opt] = &[
     Opt::Part("note", "widgets.books.part.note", false),
 ];
 
+const FAVOURITES_OPTIONS: &[Opt] = &[
+    Opt::Size("core.size.medium", false),
+    Opt::Choice(
+        "layout",
+        "widgets.books.setting.layout",
+        &["widgets.books.layout.row", "widgets.books.layout.grid"],
+        "widgets.books.layout.row",
+        "widgets.favourites.layout.help",
+    ),
+    Opt::Number(
+        "count",
+        "widgets.books.setting.count",
+        1,
+        24,
+        8,
+        "widgets.setting.count.help",
+    ),
+    Opt::Part("caption", "widgets.books.part.caption", true),
+    Opt::Part("titles", "widgets.books.part.titles", false),
+    Opt::Part("read", "widgets.books.part.read", false),
+    Opt::Part("current", "widgets.books.part.current", false),
+];
+
+const SERIES_OPTIONS: &[Opt] = &[
+    Opt::Size("core.size.medium", false),
+    Opt::Text(
+        "name",
+        "widgets.books.setting.series-name",
+        "",
+        "widgets.books.setting.series-name.help",
+    ),
+    Opt::Number(
+        "count",
+        "widgets.books.setting.count",
+        2,
+        12,
+        6,
+        "widgets.setting.count.help",
+    ),
+    Opt::Choice(
+        "start",
+        "widgets.books.setting.series-start",
+        &["widgets.series.around", "widgets.series.first"],
+        "widgets.series.around",
+        "widgets.books.setting.series-start.help",
+    ),
+    Opt::Part("caption", "widgets.books.part.caption", true),
+    Opt::Part("numbers", "widgets.books.part.numbers", true),
+    Opt::Part("titles", "widgets.books.part.titles", false),
+    Opt::Part("read", "widgets.books.part.read", true),
+    Opt::Part("current", "widgets.books.part.current", true),
+];
+
+const NEXT_OPTIONS: &[Opt] = &[
+    Opt::Size("core.size.medium", false),
+    Opt::Choice(
+        "pick",
+        "widgets.books.setting.pick",
+        &[
+            "widgets.next.series",
+            "widgets.next.newest",
+            "widgets.next.random",
+        ],
+        "widgets.next.series",
+        "widgets.books.setting.pick.help",
+    ),
+    Opt::Part("caption", "widgets.books.part.caption", true),
+    Opt::Part("cover", "widgets.books.part.cover", true),
+    Opt::Part("author", "widgets.books.part.author", true),
+    Opt::Part("series", "widgets.books.part.series", true),
+];
+
+const PROGRESS_OPTIONS: &[Opt] = &[
+    Opt::Size("core.size.medium", false),
+    Opt::Choice(
+        "style",
+        "widgets.books.setting.style",
+        &[
+            "widgets.progress.beside",
+            "widgets.progress.round",
+            "widgets.progress.ring",
+            "widgets.progress.bar",
+        ],
+        "widgets.progress.beside",
+        "widgets.progress.style.help",
+    ),
+    Opt::Choice(
+        "thickness",
+        "widgets.books.setting.thickness",
+        &[
+            "widgets.books.thin",
+            "widgets.books.medium",
+            "widgets.books.thick",
+        ],
+        "widgets.books.medium",
+        "widgets.progress.thickness.help",
+    ),
+    Opt::Part("cover", "widgets.books.part.cover", true),
+    Opt::Part("title", "widgets.books.part.title", true),
+    Opt::Part("author", "widgets.books.part.author", true),
+    Opt::Part("caption", "widgets.books.part.caption", false),
+];
+
+const READING_OPTIONS: &[Opt] = &[
+    Opt::Size("core.size.medium", false),
+    Opt::Part("caption", "widgets.books.part.caption", true),
+    Opt::Part("cover", "widgets.books.part.cover", true),
+    Opt::Part("author", "widgets.books.part.author", true),
+    Opt::Part("pages", "widgets.books.part.pages", true),
+    Opt::Part("bar", "widgets.books.part.bar", true),
+    Opt::Part("left", "widgets.books.part.left", true),
+    Opt::Part("chapter", "widgets.books.part.chapter", true),
+    // Shown again when the reading position carries the chapter's end (Kernel).
+    Opt::Part("chapter-left", "widgets.books.part.chapter-left", true),
+];
+
 const MOON_OPTIONS: &[Opt] = &[
     Opt::Part("name", "widgets.setting.phase-name", true),
     Opt::Part("full", "widgets.setting.next-full-moon", true),
@@ -463,6 +581,30 @@ const LOGO_OPTIONS: &[Opt] = &[
         "widgets.setting.face-font.help",
     ),
     Opt::Size("core.size.medium", true),
+];
+
+const PICTURE_OPTIONS: &[Opt] = &[
+    Opt::Folder(
+        "folder",
+        "widgets.picture.setting.folder",
+        "Pictures",
+        "widgets.picture.setting.folder.help",
+    ),
+    Opt::Choice(
+        "change",
+        "widgets.setting.change",
+        &["widgets.change.daily", "widgets.change.shown"],
+        "widgets.change.daily",
+        "widgets.setting.change.help",
+    ),
+    Opt::Choice(
+        "fit",
+        "widgets.picture.setting.fit",
+        &["widgets.picture.fit.fill", "widgets.picture.fit.whole"],
+        "widgets.picture.fit.fill",
+        "widgets.picture.fit.help",
+    ),
+    Opt::Part("caption", "widgets.picture.setting.caption", false),
 ];
 
 const NOTE_OPTIONS: &[Opt] = &[
@@ -699,6 +841,51 @@ pub const WIDGETS: &[Def] = &[
         options: HIGHLIGHT_OPTIONS,
     },
     Def {
+        name: "favourites",
+        token: 116,
+        category: category::BOOKS,
+        live: false,
+        align: "core.align.center",
+        look_last: false,
+        options: FAVOURITES_OPTIONS,
+    },
+    Def {
+        name: "series",
+        token: 117,
+        category: category::BOOKS,
+        live: false,
+        align: "core.align.center",
+        look_last: false,
+        options: SERIES_OPTIONS,
+    },
+    Def {
+        name: "next",
+        token: 118,
+        category: category::BOOKS,
+        live: false,
+        align: "core.align.left",
+        look_last: false,
+        options: NEXT_OPTIONS,
+    },
+    Def {
+        name: "progress",
+        token: 119,
+        category: category::BOOKS,
+        live: false,
+        align: "core.align.center",
+        look_last: false,
+        options: PROGRESS_OPTIONS,
+    },
+    Def {
+        name: "reading",
+        token: 120,
+        category: category::BOOKS,
+        live: false,
+        align: "core.align.left",
+        look_last: false,
+        options: READING_OPTIONS,
+    },
+    Def {
         name: "logo",
         token: 121,
         category: category::OTHER,
@@ -706,6 +893,15 @@ pub const WIDGETS: &[Def] = &[
         align: "core.align.center",
         look_last: true,
         options: LOGO_OPTIONS,
+    },
+    Def {
+        name: "picture",
+        token: 122,
+        category: category::PERSONAL,
+        live: false,
+        align: "core.align.center",
+        look_last: true,
+        options: PICTURE_OPTIONS,
     },
 ];
 
@@ -722,10 +918,9 @@ pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
         if widget.live {
             spec = spec.live();
         }
-        d.widget(
-            spec.previews(&group)
-                .map_err(|_| DeclareError::TooLong("widget preview"))?,
-        )?;
+        // No `previews`: the pack's widgets are offered in the Add picker; a
+        // widget made only to preview a settings group is never listed there.
+        d.widget(spec)?;
         declare_all(d, widget.name, &group, widget.all())?;
         d.submit()?;
     }
@@ -756,6 +951,15 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::Tick, TICK)?;
+    for kind in [
+        EventKind::BookOpened,
+        EventKind::PageTurned,
+        EventKind::BookClosed,
+        EventKind::Suspend,
+        EventKind::Stopping,
+    ] {
+        d.subscribe_event(kind, READING)?;
+    }
     // The answer to the logo picture asked for, and a change of the picture set.
     d.subscribe_event(EventKind::ImageReady, TICK)?;
     d.subscribe_event(EventKind::SettingChanged, TICK)?;

@@ -1977,9 +1977,8 @@ show which plugins wait for a build. Interface 4 came with 0.5.0-beta.8
 (right-to-left text, shared functions, plugin files of format 4, TLS
 sockets, screens that fit another size; interface 5 was never released): a plugin
 built for an earlier interface is to be built again for it. Interface 7, the
-plugin boundary of 1.0 (ADR 0034), is a draft until it is frozen: a plugin
-built for one draft is refused by a build of the next one (`native::DRAFT`
-is part of the fingerprint) and is built again for it.
+plugin boundary of 1.0 (ADR 0034), may still change until it is frozen at
+1.0: a plugin built from an earlier tree is built again.
 
 ### The file in the emulator
 
@@ -2794,8 +2793,13 @@ most 4 requests wait and 8 pictures are kept per plugin; give each back with
 (`image.info`; `not_decoded()` says the format has not decoded it yet), and
 `Canvas::draw_image(id, rect, ImageStyle)` draws it scaled into the rectangle, centred,
 clipped by the canvas, only inside a draw callback (`State` elsewhere).
-`ImageStyle::new().fill()` crops to fill, `.small()` keeps a small picture out of the
-ghosting refresh, `.transparency(0..=255)` blends (255 draws nothing). `NotFound` is an
+`ImageStyle::new().fill()` crops to fill, `.stretch()` scales to the rectangle and drops the
+shape, `.dots()` draws black and white dots also on a panel with grays and `.grays()` in the
+panel's grays, `.small()` keeps a small picture out of the ghosting refresh,
+`.transparency(0..=255)` blends (255 draws nothing). `PrepareImage::turn()` applies a JPEG's EXIF
+orientation (the size in `ImageReady` is the size after the turn), `.tone(&[u8; 256])` maps every
+gray through the plugin's own table while the picture is decoded, and `ImageReady::luma()` is the
+mean brightness of an 8 by 8 grid over the picture. `NotFound` is an
 ended id: prepare it again. The host reads the file in bands, so a card failure can leave
 the bands drawn so far.
 

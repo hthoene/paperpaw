@@ -121,6 +121,9 @@ pub(crate) struct Document {
     /// has not been called yet: the one record of whether the book is still
     /// held, whichever path ends the document.
     pub(crate) reader_held: bool,
+    /// The section count the format's `meta` answered, once it was asked
+    /// (the reader's report is checked against it).
+    pub(crate) sections: Option<u32>,
     /// The format plugin is gone (it stopped): it is never called for this
     /// document again, not even by its opener's `close`.
     pub(crate) format_gone: bool,
@@ -178,22 +181,33 @@ impl DocumentTable {
     /// # Errors
     /// `ERR_NO_MEMORY` when the table cannot be allocated.
     pub(crate) fn try_new(limits: Limits) -> Result<Self, i32> {
-        let mut documents = Vec::new();
-        documents
-            .try_reserve_exact(limits.device)
-            .map_err(|_| ERR_NO_MEMORY)?;
-        let mut closed = Vec::new();
-        closed
-            .try_reserve_exact(limits.device * EVENTS_PER_PLACE)
-            .map_err(|_| ERR_NO_MEMORY)?;
+        // The room is reserved at the first `open` (`reserve`): a device that
+        // never opens a document keeps none.
         Ok(Self {
             limits,
-            closed: RefCell::new(closed),
+            closed: RefCell::new(Vec::new()),
             next_id: Cell::new(1),
-            documents: RefCell::new(documents),
+            documents: RefCell::new(Vec::new()),
             evicted: Cell::new([(0, 0); EVICTED]),
             evicted_next: Cell::new(0),
         })
+    }
+
+    /// Reserves the room of the table and of its event queue, once, at the
+    /// first open: every later call finds it, and never allocates.
+    fn reserve(&self, rows: &mut Vec<Document>) -> Result<(), i32> {
+        if rows.capacity() == 0 {
+            let mut closed = self.closed.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+            closed
+                .try_reserve_exact(self.limits.device * EVENTS_PER_PLACE)
+                .map_err(|_| ERR_NO_MEMORY)?;
+            if rows.try_reserve_exact(self.limits.device).is_err() {
+                // Both or none, so the next open starts from the same state.
+                *closed = Vec::new();
+                return Err(ERR_NO_MEMORY);
+            }
+        }
+        Ok(())
     }
 
     /// Hold the table as a running call does (tests of a busy table).
@@ -230,6 +244,7 @@ impl DocumentTable {
         shows: &dyn Fn(u64) -> bool,
     ) -> Result<(u32, Option<Document>), i32> {
         let mut rows = self.rows()?;
+        self.reserve(&mut rows)?;
         if rows.iter().filter(|d| d.owner == owner).count() >= self.limits.per_owner() {
             return Err(ERR_FULL);
         }
@@ -279,6 +294,7 @@ impl DocumentTable {
             changed: false,
             best_ppm: 0,
             stalls: 0,
+            sections: None,
             strikes: 0,
         });
         self.next_id.set(next);
@@ -684,6 +700,15 @@ impl DocumentTable {
             && let Some(document) = rows.iter_mut().find(|d| d.id == id)
         {
             document.block = block;
+        }
+    }
+
+    /// The format said the document has `sections` sections.
+    pub(crate) fn set_sections(&self, id: u32, sections: u32) {
+        if let Ok(mut rows) = self.documents.try_borrow_mut()
+            && let Some(document) = rows.iter_mut().find(|d| d.id == id)
+        {
+            document.sections = Some(sections);
         }
     }
 

@@ -6,6 +6,7 @@
 //!
 //! Nothing is kept: the empty entry is built in the caller's scratch, and the
 //! providers' own answers pass untouched (the service checks them).
+use crate::native_host::codec;
 use crate::native_host::registrations::{self as wire, Record};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND};
 
@@ -32,7 +33,7 @@ const NAME_MAX: usize = 64;
     not(test),
     expect(
         dead_code,
-        reason = "the production LookupHost over the stage broker calls it (todo 109)"
+        reason = "the list form of the page; the production host uses `finish` (todo 109)"
     )
 )]
 pub(super) fn page(
@@ -47,7 +48,23 @@ pub(super) fn page(
         return Err(ERR_INVALID);
     }
     let more = at + 1 < providers.len();
-    match call(name, out) {
+    finish(name, more, call(name, out), out)
+}
+
+/// What a provider's call `result` is as the page of provider `name`: its
+/// own entry (`out` holds it) with `more` as the broker says, or the empty
+/// entry for its `ERR_NOT_FOUND`; any other status as it is. For a host that
+/// finds its provider without a list of names ([`page`] is the list's form).
+pub(super) fn finish(
+    name: &str,
+    more: bool,
+    result: Result<usize, i32>,
+    out: &mut [u8],
+) -> Result<usize, i32> {
+    if name.is_empty() || name.len() > NAME_MAX {
+        return Err(ERR_INVALID);
+    }
+    match result {
         Err(ERR_NOT_FOUND) => empty(name, more, out),
         Ok(length) => set_more(out, length, more),
         Err(status) => Err(status),
@@ -61,11 +78,8 @@ pub(super) fn page(
 /// of the texts is made.
 fn set_more(out: &mut [u8], length: usize, more: bool) -> Result<usize, i32> {
     let reply = out.get(..length).ok_or(ERR_INVALID)?;
-    let (Record::ServiceLookupEntry(entry), used) =
-        wire::record_decode_prefix(reply).map_err(|_| ERR_INVALID)?
-    else {
-        return Err(ERR_INVALID);
-    };
+    let (entry, used) =
+        codec::prefix::<wire::ServiceLookupEntry<'_>>(reply).map_err(|_| ERR_INVALID)?;
     if used != length || length < 4 {
         return Err(ERR_INVALID);
     }
@@ -84,7 +98,7 @@ fn set_more(out: &mut [u8], length: usize, more: bool) -> Result<usize, i32> {
 
 /// The entry of a provider that has none for the text.
 pub(super) fn empty(provider: &str, more: bool, out: &mut [u8]) -> Result<usize, i32> {
-    wire::record_encode_one(
+    codec::encode_one(
         &Record::ServiceLookupEntry(wire::ServiceLookupEntry {
             provider,
             title: "",

@@ -4,8 +4,8 @@
 //! name and the library folder go where the page names them
 //! (`/*STRINGS*/{}`), as in interface 6, with the extensions the formats read
 //! (`core.document`, for the hint where a book is sent outside the library
-//! folder); moving and renaming are left out of the page (`noMove`) until the
-//! library follows a move (`PORTING-7.md`).
+//! folder). The page shows *Move* and *Rename* (it hides them for a `noMove`,
+//! which nothing sets since the library follows moves: `PORTING-7.md`).
 use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_sdk::native::{
@@ -26,7 +26,7 @@ use crate::native_web::{PAGE_FILE, push_json};
 const PAGE: &str = include_str!("../data/page.html");
 const PLACEHOLDER: &str = "/*STRINGS*/{}";
 const DEVICE_NAME: &str = "core.device-name";
-const LIBRARY: &str = "core.library-folder";
+pub(crate) const LIBRARY: &str = "core.library-folder";
 /// The name of a device that has none set.
 const FALLBACK: &str = "PaperPaw";
 /// Pages of formats read at most, and extensions kept at most.
@@ -64,14 +64,14 @@ pub fn build(host: &Host<'_>) -> Result<Vec<u8>, Error> {
         push_json(&mut json, extension)?;
     }
     json.try_reserve(16).map_err(|_| Error::NoMemory)?;
-    json.push_str("],noMove:true}");
+    json.push_str("]}");
     assemble(&json)
 }
 
 /// The extensions the formats of the device read, each once. Where the
 /// formats cannot be asked for the list is empty and the page does not show
 /// its hint.
-fn book_extensions(host: &Host<'_>) -> Result<Vec<String>, Error> {
+pub(crate) fn book_extensions(host: &Host<'_>) -> Result<Vec<String>, Error> {
     let documents = match Documents::open(host) {
         Ok(documents) => documents,
         Err(Error::NoMemory) => return Err(Error::NoMemory),
@@ -166,8 +166,9 @@ mod tests {
     }
 
     /// Every text the page reads is one the interface-6 page names, and the page
-    /// does not read a text that is not given (`T.noMove` is the one the native
-    /// plugin adds, `T.name`, `T.library` and `T.books` the other three).
+    /// does not read a text that is not given (`T.name`, `T.library` and `T.books`
+    /// are the three the plugin adds; `T.noMove` is never set, so the page
+    /// shows *Move* and *Rename*).
     #[test]
     fn every_text_the_page_reads_is_given() {
         let mut read: Vec<&str> = Vec::new();

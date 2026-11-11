@@ -6,7 +6,11 @@ use paperpaw_native::host_glue::{ERR_INVALID, PpBytes};
 /// # Safety
 /// The context is the pinned shell `Context` supplied to `make`; the text
 /// pair is live and readable for this call.
-pub(super) unsafe extern "C" fn covers<S>(ctx: *mut c_void, handle: u32, text: PpBytes) -> i32 {
+pub(super) unsafe extern "C" fn covers<S: 'static>(
+    ctx: *mut c_void,
+    handle: u32,
+    text: PpBytes,
+) -> i32 {
     // SAFETY: a nonnull context is the pinned shell Context supplied to make.
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return ERR_INVALID;

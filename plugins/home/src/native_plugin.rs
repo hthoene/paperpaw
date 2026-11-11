@@ -35,6 +35,7 @@ mod image {
 
 use crate::declarations::{
     ADD, ALL_TOOLS, DASHBOARD, DRAWER, EDIT_PAGES, SETTING_CHANGED, STATUS_ITEMS, TICK,
+    WIDGET_CHANGED,
 };
 use crate::native_add_screen::{self as add_screen, AddScreen};
 use crate::native_dashboard::{Dashboard, redraw};
@@ -88,6 +89,7 @@ impl Plugin for NativeHome {
             .chain(image::SCREENS)
             .chain(image::NAVIGATION)
             .chain(image::EVENTS)
+            .chain(image::HELP)
         {
             registrations::submit(host, batch)?;
         }
@@ -154,8 +156,7 @@ impl Plugin for NativeHome {
                 Ok(())
             }
             // The minute tick, and a widget that says it shows something new
-            // (`event.widget_changed`, which the host does not deliver yet:
-            // `PORTING-7.md`): what shows is laid out and drawn anew.
+            // (`event.widget_changed`): what shows is laid out and drawn anew.
             Event::WidgetMade {
                 widget, instance, ..
             } => self.widgets.made(widget, instance),
@@ -173,7 +174,7 @@ impl Plugin for NativeHome {
                     .tick(host, self.ui.as_ref().ok_or(Error::State)?);
                 self.refresh(host)
             }
-            Event::WidgetChanged { .. } => self.refresh(host),
+            Event::WidgetChanged { .. } if token == WIDGET_CHANGED => self.refresh(host),
             // The grid's columns or rows changed: the pages are fitted to it.
             Event::SettingChanged { key, .. } if token == SETTING_CHANGED => {
                 if is_grid_setting(key) {

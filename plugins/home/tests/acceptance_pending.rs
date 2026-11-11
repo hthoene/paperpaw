@@ -27,7 +27,7 @@ const CASES: [Case; 13] = [
     Case {
         name: "home-builtin-widgets",
         golden: None,
-        blocked_by: &["WIDGETS-declarations"],
+        blocked_by: &["H1", "H3"],
     },
     // The items' editor is a screen of the plugin's own, built on the kit's
     // status items view (opened with the setting's id, drawn, taking input).
@@ -50,11 +50,12 @@ const CASES: [Case; 13] = [
         golden: None,
         blocked_by: &["H1", "H4"],
     },
-    // The first-time hints on the dashboard.
+    // The first-time hints on the dashboard: declared (nine, as interface 6; a
+    // declaration test pins them), shown by the help plugin on a real host.
     Case {
         name: "home-help-hints",
         golden: None,
-        blocked_by: &["#818", "H1"],
+        blocked_by: &["H1"],
     },
     // The grip of a shown item dragged with a finger (down, move, up), as on
     // interface 6: the kit's view takes a hold and a tap instead.
@@ -64,11 +65,12 @@ const CASES: [Case; 13] = [
         blocked_by: &["H1", "H4"],
     },
     // The status line above the grid (its items, drawn by their owners and
-    // composed), tapped for the item's action.
+    // composed), tapped for the item's action: native; seen only on a host with
+    // a screen stack and composition.
     Case {
         name: "home-status-line",
         golden: None,
-        blocked_by: &["HOME-status-line-slice", "H1"],
+        blocked_by: &["H1"],
     },
     // The icons of tools (above their names, on or faint as their plugins show
     // them) and of the footer's buttons (the pencil, the actions): laid out and
@@ -78,22 +80,23 @@ const CASES: [Case; 13] = [
         golden: None,
         blocked_by: &["H1"],
     },
-    // The widgets show new content: the minute tick (subscribed to, `refresh`)
-    // and `widget_changed` (not delivered by the host yet) lay the page out
-    // anew and draw it, and the screen turned.
+    // The widgets show new content: the minute tick and `widget_changed` (both
+    // subscribed to, `refresh`) lay the page out anew and draw it, and the screen
+    // turned.
     Case {
         name: "home-widget-updates",
         golden: None,
-        blocked_by: &["event.widget_changed", "H3"],
+        blocked_by: &["H1", "H3"],
     },
-    // Adding a widget or tool to a page: the ready-made layouts and the icons of
-    // the rows. The list steps, the page actions, the writes and the gallery's
-    // layout, page keys and fallbacks are done (unit-tested; the gallery's
-    // drawing needs a host with a screen stack and composition).
+    // Adding a widget or tool to a page: the list steps, the rows' icons, the page
+    // actions, the writes and the gallery's layout, page keys and fallbacks are
+    // done (unit-tested; the gallery's drawing needs a host with a screen stack
+    // and composition). Interface 6 had no ready-made layouts (only a stale doc
+    // line said so), so none is owed.
     Case {
         name: "home-add",
         golden: None,
-        blocked_by: &["HOME-add-layouts", "H1", "H4"],
+        blocked_by: &["H1", "H4"],
     },
     // Arranging while editing: moving and sizing an item with a finger (drag by
     // the item, by its corner). The cells a drag makes, where they are free and
@@ -130,7 +133,7 @@ fn home_edit() {
 }
 
 #[test]
-#[ignore = "BLOCKED WIDGETS-declarations: the date, the clock, the continue card and the recent shelf are native (declared and drawn by the plugin); the status line is still the interface-6 `blocks.rs`, its native port is plugin work (composition into the screen is #827)"]
+#[ignore = "BLOCKED H1/H3: the date, the clock, the continue card, the recent shelf and the status line are native (declared and drawn by the plugin); they are seen only on a host with a screen stack and composition (#827 wires it; the X4 refuses the compose family until its stack gate passes)"]
 fn home_builtin_widgets() {
     CASES[2].refuse().unwrap();
 }
@@ -154,7 +157,7 @@ fn home_drawer() {
 }
 
 #[test]
-#[ignore = "BLOCKED #818: the native screens declare no help hints yet; the host admits `help.hint` with #818 (draft, todo 328), after which home declares the interface-6 hints (home.tips.*); H1: showing them needs the stack (H1a)"]
+#[ignore = "BLOCKED H1: the nine help hints (home.tips.*) are declared natively (a declaration test pins them, the host admits `help.hint`); showing them needs a host with a screen stack"]
 fn home_help_hints() {
     CASES[6].refuse().unwrap();
 }
@@ -166,7 +169,7 @@ fn home_footer_items_editor_grip_drag() {
 }
 
 #[test]
-#[ignore = "BLOCKED HOME-status-line-slice: the status line above the grid is not composed yet (plugin work: the status line is composed through slot 35, which #827 wires, draft); H1: showing it needs the stack"]
+#[ignore = "BLOCKED H1: the status line above the grid is native (drawn in its strip, tapped for the item's action) but is seen only on a host with a screen stack and composition"]
 fn home_status_line() {
     CASES[8].refuse().unwrap();
 }
@@ -178,13 +181,13 @@ fn home_tool_icons() {
 }
 
 #[test]
-#[ignore = "BLOCKED event.widget_changed: the minute tick is subscribed to and redraws the dashboard (done, `refresh`), but the host does not deliver `event.widget_changed` (86) yet (only its codec exists in core); H3: composing the widgets is #827 (draft)"]
+#[ignore = "BLOCKED H1/H3: home subscribes to `event.widget_changed` (86) and lays out and draws the page anew (`refresh`); that is seen only on a host with a screen stack and composition (#827)"]
 fn home_widget_updates() {
     CASES[10].refuse().unwrap();
 }
 
 #[test]
-#[ignore = "BLOCKED HOME-add-layouts: the ready-made layouts and the icons of the rows are not ported (plugin work; the icon admission #517 and the glyph call #624 are merged); the gallery is native but its drawing is seen only on a host with a screen stack and composition; H1/H4: H1a #820/#829 and the code activation (todo 90) are open, pointer input has no PR yet"]
+#[ignore = "BLOCKED H1/H4: the gallery, the rows' icons and the page actions are native; interface 6 had no ready-made layouts. Seen only on a host with a screen stack, composition and pointer input to a native screen"]
 fn home_add() {
     CASES[11].refuse().unwrap();
 }

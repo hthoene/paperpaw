@@ -30,10 +30,9 @@ mod write;
 pub(crate) use args::BookRef;
 #[allow(unused_imports, reason = "the catalog reads implement it")]
 pub(crate) use query::{LibQuery, One, Rows};
+pub(crate) use write::{BookId, CommitRequest, Committed, StageItem, Transactions};
 #[allow(unused_imports, reason = "the catalog's write half implements it")]
-pub(crate) use write::LibWrite;
-#[cfg(test)]
-pub(crate) use write::Transactions;
+pub(crate) use write::{FieldKind, ImportRequest, LibWrite, StoredPosition};
 
 /// The calling plugin: its host owner id and its plugin id.
 #[derive(Clone, Copy, Debug)]
@@ -70,8 +69,11 @@ pub(crate) struct LibServices(pub(crate) Rc<dyn LibHost>);
 /// # Errors
 /// `ERR_BUSY` when the table is borrowed; a retry ends them.
 pub(crate) fn owner_stopped(host: &dyn LibHost, owner: u64) -> Result<(), i32> {
-    host.transactions()
-        .map_or(Ok(()), |t| t.close_owner(owner, |id| host.abort_staged(id)))
+    let closed = host
+        .transactions()
+        .map_or(Ok(()), |t| t.close_owner(owner, |id| host.abort_staged(id)));
+    host.receipts_ended(owner);
+    closed
 }
 
 /// The `core.library` backend.

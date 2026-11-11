@@ -46,6 +46,19 @@ fn the_families_named_are_wired_and_the_hyphen_tables_can_be_declared() {
 }
 
 #[test]
+fn core_lookup_is_wired_once_over_the_declarations() {
+    let resources = HostResources::try_new().unwrap();
+    assert!(resources.hosts().lookup().is_none());
+    resources.wire(HostWiring::new().lookup()).unwrap();
+    assert!(resources.hosts().lookup().is_some());
+    // Wired once: a second wiring is refused.
+    assert_eq!(
+        resources.wire(HostWiring::new().lookup()).err(),
+        Some(paperpaw_native::host_glue::ERR_STATE)
+    );
+}
+
+#[test]
 fn a_family_wired_twice_is_refused_and_nothing_else_is_wired_by_that_call() {
     let resources = HostResources::try_new().unwrap();
     resources
@@ -230,4 +243,127 @@ fn core_secrets_is_wired_once_and_the_shell_keeps_its_lifecycle_calls() {
     );
     assert_eq!(again.err(), Some(ERR_STATE));
     assert!(resources.hosts().device().is_none());
+}
+
+#[test]
+fn the_plugin_heap_budget_is_named_or_follows_the_classes_named() {
+    use super::super::plugin_heap::{PLUGIN_HEAP_LARGE, PLUGIN_HEAP_SMALL};
+    let class = |wiring: HostWiring| wiring.class_plugin_heap();
+    // None named: small. One named: its class. Two that differ: the smaller.
+    assert_eq!(class(HostWiring::new()), PLUGIN_HEAP_SMALL);
+    assert_eq!(
+        class(HostWiring::new().ui(MemoryClass::Small)),
+        PLUGIN_HEAP_SMALL
+    );
+    assert_eq!(
+        class(HostWiring::new().ui(MemoryClass::Large)),
+        PLUGIN_HEAP_LARGE
+    );
+    assert_eq!(
+        class(HostWiring::new().documents(MemoryClass::Large, 800)),
+        PLUGIN_HEAP_LARGE
+    );
+    assert_eq!(
+        class(
+            HostWiring::new()
+                .ui(MemoryClass::Large)
+                .documents(MemoryClass::Small, 800)
+        ),
+        PLUGIN_HEAP_SMALL
+    );
+    assert_eq!(
+        class(
+            HostWiring::new()
+                .ui(MemoryClass::Small)
+                .documents(MemoryClass::Large, 800)
+        ),
+        PLUGIN_HEAP_SMALL
+    );
+    // Wired: the class default, then the shell's own number, which wins.
+    let resources = HostResources::try_new().unwrap();
+    resources
+        .wire(HostWiring::new().ui(MemoryClass::Large))
+        .unwrap();
+    assert_eq!(resources.plugin_heap_limit(), PLUGIN_HEAP_LARGE);
+    let resources = HostResources::try_new().unwrap();
+    resources
+        .wire(HostWiring::new().ui(MemoryClass::Large).plugin_heap(12_345))
+        .unwrap();
+    assert_eq!(resources.plugin_heap_limit(), 12_345);
+    let resources = HostResources::try_new().unwrap();
+    resources.wire(HostWiring::new().plugin_heap(0)).unwrap();
+    assert_eq!(resources.plugin_heap_limit(), 0);
+}
+
+#[test]
+fn the_library_is_wired_over_the_catalog_reads_and_once() {
+    let card = crate::native_host::lib_reads::tests::card();
+    let storage: Rc<dyn Storage> = card.storage.clone();
+    let resources = HostResources::try_new().unwrap();
+    assert!(resources.hosts().library().is_none());
+    resources
+        .wire(HostWiring::new().library(storage.clone(), card.env.clone()))
+        .unwrap();
+    assert!(resources.hosts().library().is_some());
+    // Wired once: a second naming is refused whole.
+    let again = resources.wire(HostWiring::new().library(storage, card.env.clone()));
+    assert_eq!(again.err(), Some(ERR_STATE));
+}
+
+#[test]
+fn a_library_wired_after_files_sees_the_move_job_of_files() {
+    use crate::native_host::lib_service::BookRef;
+    use crate::native_host::registrations as wire;
+    use paperpaw_native::host_glue::ERR_BUSY;
+    let card = crate::native_host::lib_reads::tests::card();
+    let storage: Rc<dyn Storage> = card.storage.clone();
+    let resources = HostResources::try_new().unwrap();
+    resources
+        .wire(
+            HostWiring::new()
+                .documents(MemoryClass::Large, 800)
+                .files(storage.clone()),
+        )
+        .unwrap();
+    // A later wiring names the library alone: it shares the job all the same.
+    resources
+        .wire(HostWiring::new().library(storage, card.env.clone()))
+        .unwrap();
+    let moves = resources.hosts().library_moves().unwrap().clone();
+    moves.begin("books/c.epub", "moved/c.epub", false).unwrap();
+    let provided = wire::ServiceLibProvided {
+        title: "Provided",
+        author: "",
+        series: "",
+        number: "",
+        tags: "",
+        flags: 0b1,
+    };
+    let library = resources.hosts().library().unwrap();
+    assert_eq!(
+        library.0.provide(BookRef::Path("books/c.epub"), &provided),
+        Err(ERR_BUSY)
+    );
+}
+
+#[test]
+fn the_library_transactions_learn_the_memory_class_and_clock_from_wirings_of_their_own() {
+    // The X4 shell wires `work`, `library` and `ui` in calls of their own, in
+    // an order the library does not decide.
+    let card = crate::native_host::lib_reads::tests::card();
+    let resources = HostResources::try_new().unwrap();
+    let policy = resources.hosts().edit_policy().clone();
+    assert!(!policy.is_small() && policy.clock_ms().is_none());
+    resources
+        .wire(HostWiring::new().work(WorkInputs::new(Rc::new(Clock), MemoryClass::Large)))
+        .unwrap();
+    resources
+        .wire(HostWiring::new().library(card.storage.clone(), card.env.clone()))
+        .unwrap();
+    // The device's clock is there, the memory class is not yet said.
+    assert_eq!((policy.is_small(), policy.clock_ms()), (false, Some(5)));
+    resources
+        .wire(HostWiring::new().ui(MemoryClass::Small))
+        .unwrap();
+    assert!(policy.is_small());
 }

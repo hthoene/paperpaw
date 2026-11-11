@@ -11,7 +11,7 @@ std::thread_local! {
     static INSTALL_FAIL_NTH: Cell<u32> = const { Cell::new(0) };
     /// 1: the batch also declares a group, a setting, its extra and an action;
     /// 2: and a secret setting the host does not map (the batch is refused).
-    static ARMS: Cell<u8> = const { Cell::new(0) };
+    pub(super) static ARMS: Cell<u8> = const { Cell::new(0) };
     /// Another drawable the batch declares: 1 a status item of token 93; 2 a
     /// status line of token 94; 3 a status item of the screen's token 91.
     static DRAWABLE: Cell<u8> = const { Cell::new(0) };
@@ -378,6 +378,7 @@ unsafe extern "C" fn screen_event(
 
     // SAFETY: the callback borrows the host's initialized event for this call.
     let bytes = unsafe { core::slice::from_raw_parts(bytes.ptr, bytes.len) };
+    input_records::events_submit(state, bytes);
     let record = match wire::records_decode_single(bytes) {
         Ok(record) => record,
         Err(error) => return error,
@@ -480,7 +481,7 @@ fn a_plugin_with_a_depth_counter_of_its_own_is_refused() {
     assert!(kernel.shared.native_instances.find("three").is_none());
 }
 
-fn install(kernel: &mut crate::Kernel, flags: u32) -> Result<(), Error> {
+pub(super) fn install(kernel: &mut crate::Kernel, flags: u32) -> Result<(), Error> {
     kernel.register_native(host(flags), &device_depth(kernel), |_, _, _| {
         REPORTS.with(|value| value.set(value.get() + 1));
     })

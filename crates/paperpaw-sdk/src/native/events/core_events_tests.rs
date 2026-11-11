@@ -20,6 +20,7 @@ macro_rules! position {
             page: $page,
             pages: $pages,
             reason: $reason,
+            chapter_left: None,
         }
     };
 }
@@ -706,4 +707,41 @@ fn a_library_hint_is_typed_keeps_future_bits_and_borrows_its_path() {
     assert!(what.books() && what.status() && what.cover());
     assert!(!(what.positions() || what.annotations() || what.fields() || what.walk()));
     assert_borrowed_text(&bytes, path);
+}
+
+#[test]
+fn the_book_events_carry_chapter_left_with_the_same_bounds_as_a_page_turn() {
+    let mut bytes = vec![0; 4096];
+    for (left, ok) in [
+        (None, true),
+        (Some(0), true),
+        (Some(1), true),
+        (Some(2), false),
+    ] {
+        // Page 1 of 2: one page follows.
+        let opened = wire::EventBookOpened {
+            chapter_left: left,
+            ..position!(EventBookOpened, 500_000, Some(1), Some(2), 0)
+        };
+        let closed = wire::EventBookClosed {
+            chapter_left: left,
+            ..position!(EventBookClosed, 500_000, Some(1), Some(2), 0)
+        };
+        let finished = wire::EventBookFinished {
+            chapter_left: left,
+            ..position!(EventBookFinished, 500_000, Some(1), Some(2), 0)
+        };
+        for record in [
+            Record::EventBookOpened(opened),
+            Record::EventBookClosed(closed),
+            Record::EventBookFinished(finished),
+        ] {
+            let n = wire::records_encode(&[record], &mut bytes).unwrap();
+            match (decode(&bytes[..n]), ok) {
+                (Ok(Event::Book { reading, .. }), true) => assert_eq!(reading.chapter_left(), left),
+                (Err(Error::Invalid), false) => {}
+                (other, _) => panic!("{left:?}: {other:?}"),
+            }
+        }
+    }
 }

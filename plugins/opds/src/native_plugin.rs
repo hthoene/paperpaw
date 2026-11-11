@@ -92,9 +92,9 @@ enum View {
     Browse(browse::BrowseView),
 }
 
-/// The interface-7 catalogs.
+/// The state of the catalogs: made at the first need ([`NativeOpds`]).
 #[derive(Debug, Default)]
-pub struct NativeOpds {
+pub(crate) struct Opds {
     ui: Option<Ui>,
     secrets: Option<Secrets>,
     library: Option<Library>,
@@ -122,6 +122,29 @@ pub struct NativeOpds {
     list_note: Option<String>,
 }
 
+/// The interface-7 catalogs. Idle, only the pointer to the state is held; the
+/// state (the services' handles, the screens, the web and the sync engines) is
+/// made by the first screen or sync and kept.
+#[derive(Debug, Default)]
+pub struct NativeOpds {
+    /// None before the first need; at most one.
+    state: Vec<Opds>,
+}
+
+impl NativeOpds {
+    fn state(&mut self) -> Result<&mut Opds, Error> {
+        if self.state.is_empty() {
+            self.state
+                .try_reserve_exact(1)
+                .map_err(|_| Error::NoMemory)?;
+            // Made in place: built as a value first, it would be on the stack
+            // as large as it is, deep in a callback.
+            self.state.resize_with(1, Opds::default);
+        }
+        self.state.first_mut().ok_or(Error::State)
+    }
+}
+
 impl Plugin for NativeOpds {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
         for batch in image::SETTINGS
@@ -141,6 +164,49 @@ impl Plugin for NativeOpds {
         host: &Host<'_>,
         token: u32,
         incoming: Incoming<'_>,
+        reply: &mut Reply<'_>,
+    ) -> Result<(), Error> {
+        if self.state.is_empty() {
+            // Before the first screen or sync there is nothing to answer but
+            // the action that opens the list.
+            return match token {
+                OPEN_TOKEN => open_list(host),
+                SYNC_TOKEN | CATALOGS_SCREEN | EDIT_SCREEN | BROWSE_SCREEN => {
+                    self.state()?.event(host, token, incoming, reply)
+                }
+                _ => Ok(()),
+            };
+        }
+        self.state()?.event(host, token, incoming, reply)
+    }
+
+    fn draw(&mut self, host: &Host<'_>, token: u32, frame: DrawFrame<'_>) -> Result<(), Error> {
+        self.state
+            .first_mut()
+            .ok_or(Error::State)?
+            .draw(host, token, frame)
+    }
+
+    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        match self.state.first_mut() {
+            Some(state) => state.input(host, token, input),
+            None => Ok(Handled::No),
+        }
+    }
+}
+
+/// Asks for the list of catalogs.
+fn open_list(host: &Host<'_>) -> Result<(), Error> {
+    let mut scratch = [0; 128];
+    CommandSender::new(host, &mut scratch).open(Open::screen("opds.catalogs")?)
+}
+
+impl Opds {
+    fn event(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
         let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::Answered, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::HttpDone, kinds::HttpProgress, kinds::WorkDue, kinds::ImageReady, kinds::Stopping)
@@ -148,10 +214,7 @@ impl Plugin for NativeOpds {
             return Ok(());
         };
         match event {
-            Event::ActionRun { .. } if token == OPEN_TOKEN => {
-                let mut scratch = [0; 128];
-                CommandSender::new(host, &mut scratch).open(Open::screen("opds.catalogs")?)
-            }
+            Event::ActionRun { .. } if token == OPEN_TOKEN => open_list(host),
             Event::ActionRun { background, .. } if token == SYNC_TOKEN => {
                 self.sync_action(host, background)
             }
@@ -256,7 +319,7 @@ impl Vault for HostVault<'_, '_> {
     }
 }
 
-impl NativeOpds {
+impl Opds {
     /// Opens the services once (the first callback has a live frame) and
     /// learns what the device is. A service that is not there is `None`: what
     /// needs it says so.

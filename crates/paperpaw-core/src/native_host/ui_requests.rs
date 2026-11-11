@@ -22,7 +22,7 @@ const FOLDER_MAX: usize = 512;
 /// Kinds and flags of `ui_ask` (ui.md 3.1).
 const KINDS: u32 = 4;
 const LIVE: u32 = 1;
-const SECRET: u32 = 1 << 2;
+pub(super) const SECRET: u32 = 1 << 2;
 const ONLY_YES: u32 = 1 << 8;
 const TEXT_FLAGS: u32 = 0xFF;
 const CONFIRM_FLAGS: u32 = 0x300;
@@ -451,8 +451,11 @@ impl UiStore {
             })
     }
 
-    /// The stack opened the dialog of a starting request.
-    pub(crate) fn dialog_opened(&self, request: u32, instance: u32) -> Result<(), i32> {
+    /// The stack is about to open the dialog of a starting request as the
+    /// instance `instance` (the next serial): the request is open for it from
+    /// here, so that the dialog reads its question (op 2) and its text in its
+    /// own `screen_opened`, which runs inside the open.
+    pub(crate) fn dialog_opening(&self, request: u32, instance: u32) -> Result<(), i32> {
         let mut inner = self.inner()?;
         let at = Self::request_at(&inner, request).ok_or(ERR_NOT_FOUND)?;
         if inner.requests[at].phase != Phase::Starting {
@@ -463,12 +466,33 @@ impl UiStore {
         Ok(())
     }
 
+    /// The stack opened the dialog of a starting request (or of one
+    /// [`Self::dialog_opening`] named: it keeps the instance that was open
+    /// first, or is bound to the one that opened).
+    pub(crate) fn dialog_opened(&self, request: u32, instance: u32) -> Result<(), i32> {
+        let mut inner = self.inner()?;
+        let at = Self::request_at(&inner, request).ok_or(ERR_NOT_FOUND)?;
+        if !matches!(
+            inner.requests[at].phase,
+            Phase::Starting | Phase::Open { .. }
+        ) {
+            return Err(ERR_STATE);
+        }
+        inner.requests[at].phase = Phase::Open { dialog: instance };
+        inner.requests[at].dialog = Some(instance);
+        Ok(())
+    }
+
     /// The dialog of a starting request could not open (the stack is full, a
-    /// guard refused): cancelled with `not_started`.
+    /// guard refused): cancelled with `not_started`, also where it was named
+    /// open for the instance that did not come.
     pub(crate) fn dialog_failed(&self, request: u32) -> Result<(), i32> {
         let mut inner = self.inner_busy()?;
         if let Some(at) = Self::request_at(&inner, request)
-            && inner.requests[at].phase == Phase::Starting
+            && matches!(
+                inner.requests[at].phase,
+                Phase::Starting | Phase::Open { .. }
+            )
         {
             Self::cancel_at(&mut inner, at, NOT_STARTED);
         }

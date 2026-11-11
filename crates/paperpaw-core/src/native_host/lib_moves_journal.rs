@@ -22,9 +22,12 @@
 //! A card read that fails is another matter: that stays an error and the
 //! journal is left alone. Phase cursors are not kept: a replay starts from the
 //! first phase, and every phase is idempotent. `kind` is 0 for a move; 1
-//! (delete) and 2 (import) are reserved for the library's other journalled
-//! steps, which reuse the format; an older firmware that finds one reads it as
-//! an unreadable record and sets it aside.
+//! (delete) and 2 (import) are the library's other journalled steps
+//! (`lib_jobs_journal`): the same frame (the 7 bytes up to `flags`, then a
+//! kind's own payload, then `check` over everything before it), so one
+//! journal holds **one entry of one kind** at a time. A move never writes
+//! over another kind's entry (`ERR_BUSY`), and the move machine leaves such an
+//! entry alone ([`Opened::Other`]) for the job machine to finish.
 //!
 //! Interrupted replacing move (`replace` set). The journal is written, then
 //! the card renames `from` over the existing `to` (FAT makes that one step
@@ -40,7 +43,7 @@
 //! stays.
 use super::{lib_service::moves::Entry, storage::status};
 use alloc::vec::Vec;
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND};
 use paperpaw_platform::{Storage, StorageError};
 
 /// The journal.
@@ -49,28 +52,36 @@ pub(crate) const JOURNAL: &str = ".paperpaw/library/journal";
 const TEMP: &str = ".paperpaw/library/journal.tmp";
 /// Where a record that cannot be read is set aside.
 pub(crate) const SET_ASIDE: &str = ".paperpaw/library/journal.bad";
-const MAGIC: &[u8; 4] = b"PPLJ";
-const VERSION: u8 = 1;
+pub(super) const MAGIC: &[u8; 4] = b"PPLJ";
+pub(super) const VERSION: u8 = 1;
+/// The bytes of the frame before a kind's payload: magic, version, kind, flags.
+pub(super) const PREFIX: usize = 7;
 const HEAD: usize = 4 + 1 + 1 + 1 + 8 + 2 + 2;
 /// The flag bits.
 const REPLACE: u8 = 1;
 const DISCARDED: u8 = 2;
 const RENAMED: u8 = 4;
-/// The kind of a move (the only one written today).
-const KIND_MOVE: u8 = 0;
+/// The kind of a move.
+pub(super) const KIND_MOVE: u8 = 0;
+/// The kind of a delete (`lib_jobs_journal`).
+pub(super) const KIND_DELETE: u8 = 1;
+/// The kind of an import (`lib_jobs_journal`).
+pub(super) const KIND_IMPORT: u8 = 2;
 /// A path of the library, as `core.files` takes it (`MAX_JOINED`).
 const MAX_PATH: usize = 640;
-/// The most a record holds: the head, two paths and the check.
-const MAX_RECORD: usize = HEAD + 2 * MAX_PATH + 8;
+/// The most a record holds: a delete of 7 paths, which is more than a move's
+/// head, two paths and the check (read into a buffer of the record's own size,
+/// fallible, so the usual record costs what its paths do).
+pub(super) const MAX_RECORD: usize = PREFIX + 2 + 7 * (2 + MAX_PATH + 16) + 8;
 
 /// FNV-1a 64 of `bytes`.
-fn check(bytes: &[u8]) -> u64 {
+pub(super) fn check(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &b| {
         (hash ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
     })
 }
 
-fn room(bytes: usize) -> Result<Vec<u8>, i32> {
+pub(super) fn room(bytes: usize) -> Result<Vec<u8>, i32> {
     let mut buffer = Vec::new();
     buffer.try_reserve_exact(bytes).map_err(|_| ERR_NO_MEMORY)?;
     Ok(buffer)
@@ -100,6 +111,23 @@ fn encode(entry: &Entry<'_>, discarded: bool) -> Result<Vec<u8>, i32> {
     let sum = check(&out);
     out.extend_from_slice(&sum.to_le_bytes());
     Ok(out)
+}
+
+/// The kind and flags of a record whose frame is whole (magic, version, a
+/// kind this firmware knows, `check`); `ERR_IO` for any other.
+pub(super) fn frame(record: &[u8]) -> Result<(u8, u8), i32> {
+    if record.len() < PREFIX + 8 || record.get(..4) != Some(&MAGIC[..]) || record[4] != VERSION {
+        return Err(ERR_IO);
+    }
+    let kind = record[5];
+    if kind > KIND_IMPORT {
+        return Err(ERR_IO);
+    }
+    let (body, sum) = record.split_at(record.len() - 8);
+    if check(body).to_le_bytes() != *sum {
+        return Err(ERR_IO);
+    }
+    Ok((kind, record[6]))
 }
 
 /// The entry a record holds; `ERR_IO` for one that is not whole.
@@ -149,7 +177,7 @@ fn decode(record: &[u8]) -> Result<(Entry<'_>, bool), i32> {
 pub(crate) struct Journal<'a>(pub(crate) &'a dyn Storage);
 
 /// Why a record was not read.
-enum Fault {
+pub(super) enum Fault {
     /// The record is not whole.
     Bad,
     /// The card failed (or memory ran out): the journal says nothing.
@@ -172,6 +200,9 @@ pub(crate) enum Opened {
     Nothing,
     /// An entry, visited.
     Entry,
+    /// An entry of another kind (a delete or an import): not the moves', not
+    /// visited and not set aside; the job machine finishes it.
+    Other,
     /// A record that is not whole, now set aside; there is no entry.
     SetAside,
 }
@@ -204,6 +235,9 @@ impl Journal<'_> {
         match self.read() {
             Ok(None) => Ok(Opened::Nothing),
             Ok(Some(record)) => {
+                if frame(&record)?.0 != KIND_MOVE {
+                    return Ok(Opened::Other);
+                }
                 visit(&decode(&record)?.0);
                 Ok(Opened::Entry)
             }
@@ -217,7 +251,7 @@ impl Journal<'_> {
     }
 
     /// The record, read whole and checked; `None` where there is none.
-    fn read(&self) -> Result<Option<Vec<u8>>, Fault> {
+    pub(super) fn read(&self) -> Result<Option<Vec<u8>>, Fault> {
         let size = match self.0.size(JOURNAL) {
             Ok(size) => size,
             Err(StorageError::NotFound) => return Ok(None),
@@ -242,7 +276,12 @@ impl Journal<'_> {
                 n => at += n,
             }
         }
-        decode(&record).map_err(|_| Fault::Bad)?;
+        let (kind, _) = frame(&record).map_err(|_| Fault::Bad)?;
+        if kind == KIND_MOVE {
+            decode(&record).map_err(|_| Fault::Bad)?;
+        } else {
+            super::lib_jobs_journal::decode(&record).map_err(|_| Fault::Bad)?;
+        }
         Ok(Some(record))
     }
 
@@ -294,11 +333,27 @@ impl Journal<'_> {
     /// The card's status, `ERR_NO_MEMORY`, `ERR_INVALID` for a path past
     /// the limit. The old journal is as it was.
     pub(crate) fn write_entry(&self, entry: &Entry<'_>) -> Result<(), i32> {
+        // Another kind's entry is never written over (`ERR_BUSY`); a move's
+        // own is replaced by its own marks, which use `put` directly.
+        if matches!(self.kind()?, Some(kind) if kind != KIND_MOVE) {
+            return Err(ERR_BUSY);
+        }
         self.put(&encode(entry, false)?)
     }
 
+    /// The kind of the open record: `None` where there is none.
+    ///
+    /// # Errors
+    /// `ERR_IO` for a record that is not whole; the card's status.
+    pub(crate) fn kind(&self) -> Result<Option<u8>, i32> {
+        match self.read().map_err(i32::from)? {
+            Some(record) => Ok(Some(frame(&record)?.0)),
+            None => Ok(None),
+        }
+    }
+
     /// The temp, sync, rename, sync of one record.
-    fn put(&self, record: &[u8]) -> Result<(), i32> {
+    pub(super) fn put(&self, record: &[u8]) -> Result<(), i32> {
         self.0.write(TEMP, record).map_err(status)?;
         self.0.sync().map_err(status)?;
         self.0.rename(TEMP, JOURNAL).map_err(status)?;

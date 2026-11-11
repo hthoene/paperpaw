@@ -138,6 +138,30 @@ proptest! {
     }
 
     #[test]
+    fn page_addresses_are_made_as_before(
+        list in "https://[a-z]{1,8}\\.org/(api/(v[0-9]/)?)?plugins\\.json(\\?k=[a-z]{1,4})?(#[a-z]{0,3})?",
+        device in "[a-z0-9 -]{1,10}",
+        language in "[a-z]{2}(-[A-Z]{2})?",
+        id in "[a-z][a-z0-9-]{0,20}",
+        community in any::<bool>(),
+    ) {
+        let new = native::plugin_url(&list, &device, &language, &id, community, None).unwrap();
+        let old = crate::catalog::plugin_url(&list, &device, &language, &id, community, None);
+        prop_assert_eq!(new, old);
+    }
+
+    #[test]
+    fn links_are_joined_as_before(
+        base in "https://[a-z]{1,6}\\.org(/[a-z.]{0,4}){0,3}(\\?[a-z]{1,3})?(#[a-z]{0,3})?",
+        href in "(https://[a-z]{1,5}\\.com)?(//[a-z]{1,5}|/|\\.\\./|\\./|\\?|#)?([a-z]{0,4}/?){0,3}(\\?[a-z]{0,3})?(#[a-z]{0,3})?",
+    ) {
+        prop_assert_eq!(
+            native::join_url(&base, &href).unwrap(),
+            paperpaw_sdk::web::join_url(&base, &href)
+        );
+    }
+
+    #[test]
     fn hex_is_read_as_before(text in "[0-9a-fA-F]{0,70}|\\PC{0,70}") {
         let old32: Option<[u8; 32]> = paperpaw_sdk::digest::hex::decode(&text).and_then(|v| v.try_into().ok());
         let old64: Option<[u8; 64]> = paperpaw_sdk::digest::hex::decode(&text).and_then(|v| v.try_into().ok());
@@ -229,7 +253,7 @@ fn revocations_that_could_hold_are_kept_and_the_rest_left() {
     ];
     for (plugin, key, sig) in cases {
         revoke(&mut list, plugin, key, sig);
-        list.entry_done(&here, &author, &stopped).unwrap();
+        list.entry_done(&here, (&author, &stopped, false)).unwrap();
     }
     let kept: Vec<&str> = list.pending().iter().map(|r| r.plugin.as_str()).collect();
     assert_eq!(kept, ["a", "b"]);
@@ -239,10 +263,11 @@ fn revocations_that_could_hold_are_kept_and_the_rest_left() {
     // A key the plugin's author did not have is passed over.
     let mut list = native::Revocations::default();
     revoke(&mut list, "a", KEY, SIG);
-    list.entry_done(&here, &|_| Some([9u8; 32]), &stopped)
+    list.entry_done(&here, (&|_| Some([9u8; 32]), &stopped, false))
         .unwrap();
     revoke(&mut list, "a", KEY, SIG);
-    list.entry_done(&here, &|_| None, &stopped).unwrap();
+    list.entry_done(&here, (&|_| None, &stopped, false))
+        .unwrap();
     assert!(list.pending().is_empty());
 }
 
@@ -256,14 +281,14 @@ fn a_long_list_of_revocations_is_bounded() {
     for n in 0..native::MAX_READ + 100 {
         let plugin = alloc::format!("p{n}");
         revoke(&mut list, &plugin, KEY, SIG);
-        list.entry_done(&here, &author, &stopped).unwrap();
+        list.entry_done(&here, (&author, &stopped, false)).unwrap();
     }
     assert!(list.pending().len() <= paperpaw_sdk::native::keys::MAX_REVOKED);
     // A huge field is cut at what a valid one holds, plus one.
     let mut list = native::Revocations::default();
     list.field("plugin", &"x".repeat(100_000)).unwrap();
     list.field("key", &"é".repeat(100_000)).unwrap();
-    list.entry_done(&here, &author, &stopped).unwrap();
+    list.entry_done(&here, (&author, &stopped, false)).unwrap();
     assert!(list.pending().is_empty());
 }
 
@@ -395,4 +420,24 @@ fn an_index_kept_by_interface_6_is_read_natively() {
         })
         .unwrap();
     assert_eq!(seen.len(), 3);
+}
+
+proptest! {
+    /// Whether a version is an update, and what a pre-release is, are the old
+    /// code's for any two texts.
+    #[test]
+    fn offers_is_the_old_one(
+        offered in "[0-9]{1,2}\\.[0-9]{1,2}\\.[0-9]{1,2}(-(beta|rc)\\.[0-9]{1,2})?",
+        here in "[0-9]{1,2}\\.[0-9]{1,2}\\.[0-9]{1,2}(-(beta|rc)\\.[0-9]{1,2})?",
+        betas in any::<bool>(),
+    ) {
+        prop_assert_eq!(
+            crate::native_page::offers(&offered, &here, betas),
+            crate::origin::offers(&offered, &here, betas)
+        );
+        prop_assert_eq!(
+            crate::native_page::is_pre_release(&offered),
+            crate::origin::is_pre_release(&offered)
+        );
+    }
 }

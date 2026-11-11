@@ -38,6 +38,12 @@ pub(crate) fn single<'a, R: WireRecord<'a>>(bytes: &'a [u8]) -> Result<R, i32> {
     decode(RawRecord::single(bytes)?)
 }
 
+/// The bare record of type `R` at the front of `bytes`, and the frame length.
+pub(crate) fn prefix<'a, R: WireRecord<'a>>(bytes: &'a [u8]) -> Result<(R, usize), i32> {
+    let (raw, used) = RawRecord::prefix(bytes)?;
+    Ok((decode(raw)?, used))
+}
+
 // ---- `Record` values of the host's subset (`registrations::subset`) ----
 
 /// A batch of exactly one record, as the `Record` its tag names (the few the

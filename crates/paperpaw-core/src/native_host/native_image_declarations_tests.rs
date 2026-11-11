@@ -2,7 +2,7 @@
 //! range, through the production mapping entry (`Retained::make_native_stored`).
 //! Its declarations (hundreds of settings, widgets and events) are borrowed
 //! from the image and counted against `IMAGE_DECLARATIONS_MAX` (512) and
-//! `IMAGE_INDEX_MAX_BYTES` (8 KiB); loaded without an image they would be
+//! `IMAGE_INDEX_MAX_BYTES` (12 KiB); loaded without an image they would be
 //! owned copies, bounded by `SPECS_MAX` (128) and `DECLARATIONS_MAX_BYTES`
 //! (32 KiB), which is only for loads without an image (tests, `(null, 0)`).
 //!
@@ -53,7 +53,7 @@ static ANCHOR: [u8; 16] = [0x5a; 16];
 
 /// The read-only mapping that holds `ANCHOR`: what a shell gives as the image
 /// of a plugin (the X4's flash mapping, `.rodata` on the desktop).
-fn image() -> &'static [u8] {
+pub(super) fn image() -> &'static [u8] {
     let at = ANCHOR.as_ptr() as usize;
     let maps = std::fs::read_to_string("/proc/self/maps").unwrap();
     for line in maps.lines() {
@@ -78,7 +78,7 @@ fn image() -> &'static [u8] {
 
 fn declared_services() -> shell::DeclaredServices {
     use paperpaw_native::metadata::{self, Host as AdmissionHost, Profile, Service};
-    let services = ["core.registry", "core.ui", "core.library"].map(|key| Service {
+    let services = ["core.registry", "core.ui", "core.library", "core.files"].map(|key| Service {
         key,
         major: 1,
         semantic_revision: 0,
@@ -278,4 +278,161 @@ fn an_image_that_is_not_the_one_the_batches_were_kept_in_is_refused() {
         // Another mapping at another address is no image of this batch.
         assert_eq!(batch.view(Some(&live[1..])), Err(ERR_INVALID));
     }
+}
+
+/// The (kept, copied) settings of the pack for `table`.
+fn settings_paths(table: &'static [paperpaw_sdk::SettingSpec]) -> (usize, usize) {
+    // SAFETY: as in `construct`.
+    let hosted = unsafe {
+        shell::Hosted::new(
+            Heap,
+            (),
+            NATIVE_ENTRY.entry().make.unwrap(),
+            "widgets",
+            (image().as_ptr(), image().len()),
+            report,
+            HostResources::try_new().unwrap(),
+            declared_services(),
+        )
+    }
+    .unwrap();
+    let (_retained, paths, _raw) = Retained::make_native_stored(
+        hosted,
+        |view| super::native_install::settings_paths(view, table),
+        |_, _| {},
+    )
+    .unwrap();
+    paths
+}
+
+/// The (kept, copied) groups of the pack for `table`.
+fn group_paths(table: &'static [paperpaw_sdk::SettingGroupSpec]) -> (usize, usize) {
+    // SAFETY: as in `construct`.
+    let hosted = unsafe {
+        shell::Hosted::new(
+            Heap,
+            (),
+            NATIVE_ENTRY.entry().make.unwrap(),
+            "widgets",
+            (image().as_ptr(), image().len()),
+            report,
+            HostResources::try_new().unwrap(),
+            declared_services(),
+        )
+    }
+    .unwrap();
+    let (_retained, paths, _raw) = Retained::make_native_stored(
+        hosted,
+        |view| super::native_install::group_paths(view, table),
+        |_, _| {},
+    )
+    .unwrap();
+    paths
+}
+
+#[test]
+fn every_setting_of_the_widget_pack_takes_its_table_entry() {
+    // The table the build script makes of the declarations: a spec that
+    // silently fell back to a copy would lose the saving unseen, so none may.
+    let table = paperpaw_plugin_widgets::NATIVE_SETTINGS;
+    let (kept, copied) = settings_paths(table);
+    assert!(kept > SPECS_MAX, "{kept} settings kept, {copied} copied");
+    assert_eq!(copied, 0, "{copied} settings of the pack are copies");
+    assert_eq!(kept, table.len(), "every entry of the table is taken once");
+    // Without a table every one is a copy, as before.
+    assert_eq!(settings_paths(&[]), (0, kept));
+}
+
+#[test]
+fn a_table_entry_that_differs_from_the_declaration_is_not_taken() {
+    // The first entry's default changed: that setting is copied, the rest are
+    // kept, and nothing is taken without the comparison.
+    let table = paperpaw_plugin_widgets::NATIVE_SETTINGS;
+    let mut changed = table.to_vec();
+    let first = changed
+        .iter()
+        .position(|spec| matches!(spec.default, paperpaw_sdk::SettingValue::Bool(_)))
+        .expect("the pack has a switch");
+    let paperpaw_sdk::SettingValue::Bool(was) = changed[first].default else {
+        unreachable!("found as a switch");
+    };
+    changed[first].default = paperpaw_sdk::SettingValue::Bool(!was);
+    let changed: &'static [paperpaw_sdk::SettingSpec] = std::boxed::Box::leak(changed.into());
+    let (kept, copied) = settings_paths(changed);
+    assert_eq!((kept + copied, copied), (table.len(), 1));
+}
+
+#[test]
+fn the_table_defines_the_same_settings_as_the_copies_do() {
+    use paperpaw_sdk::Settings;
+    let table = paperpaw_plugin_widgets::NATIVE_SETTINGS;
+    let mut kept = Settings::new();
+    let mut copied = Settings::new();
+    kept.try_reserve_with_fixed(0, table.len(), 0).unwrap();
+    copied.try_reserve(table.len(), 0).unwrap();
+    for at in 0..table.len() {
+        kept.define_fixed(table, at).unwrap();
+        copied.define(table[at].clone()).unwrap();
+    }
+    let ids = |settings: &Settings| {
+        settings
+            .specs()
+            .map(|spec| std::string::String::from(spec.id.as_str()))
+            .collect::<std::vec::Vec<_>>()
+    };
+    // The same settings in the same order, with the same values.
+    assert_eq!(ids(&kept), ids(&copied));
+    for spec in copied.specs() {
+        let other = kept.spec(spec.id.as_str()).unwrap();
+        assert!(super::fixed_settings::same_setting(spec, other));
+        assert_eq!(kept.get(spec.id.as_str()), copied.get(spec.id.as_str()));
+        assert_eq!(kept.shows(other), copied.shows(spec));
+    }
+    // Forgetting the plugin leaves nothing of either.
+    kept.remove_plugin("widgets");
+    copied.remove_plugin("widgets");
+    assert_eq!(kept.specs().count(), 0);
+    assert_eq!(copied.specs().count(), 0);
+}
+
+#[test]
+fn a_whole_table_is_staged_as_one_entry() {
+    use crate::registry::{Staged, Staging};
+    use paperpaw_sdk::Settings;
+    let table = paperpaw_plugin_widgets::NATIVE_SETTINGS;
+    let all: std::vec::Vec<u16> = (0..table.len())
+        .map(|at| u16::try_from(at).unwrap())
+        .collect();
+    let mut staging = Staging::default();
+    staging.native_fixed_entries(table, all).unwrap();
+    // One entry for all of them, none of them a copy.
+    assert_eq!(staging.settings.len(), 1);
+    assert_eq!(staging.native_fixed_count(), table.len());
+    assert_eq!(staging.native_counts().1, 0);
+    let staged: std::vec::Vec<_> = staging.settings.iter().flat_map(Staged::specs).collect();
+    assert_eq!(staged.len(), table.len());
+    assert!(staged.iter().zip(table).all(|(a, b)| a.id == b.id));
+    // An entry past the table is refused, whatever the plugin declared.
+    let past = std::vec![u16::try_from(table.len()).unwrap()];
+    assert!(staging.native_fixed_entries(table, past).is_err());
+    assert_eq!(staging.settings.len(), 1);
+    // And defined, they are the table's settings in the table's order.
+    let mut settings = Settings::new();
+    settings.try_reserve_with_fixed(0, table.len(), 0).unwrap();
+    for entry in staging.settings.drain(..) {
+        entry.define_in(&mut settings).unwrap();
+    }
+    assert_eq!(settings.specs().count(), table.len());
+    assert!(settings.specs().zip(table).all(|(a, b)| a.id == b.id));
+}
+
+#[test]
+fn every_group_of_the_widget_pack_takes_its_table_entry() {
+    let table = paperpaw_plugin_widgets::NATIVE_GROUPS;
+    let (kept, copied) = group_paths(table);
+    assert!(kept > 0, "{kept} groups kept, {copied} copied");
+    assert_eq!(copied, 0, "{copied} groups of the pack are copies");
+    assert_eq!(kept, table.len(), "every entry of the table is taken once");
+    // Without a table every one is a copy, as before.
+    assert_eq!(group_paths(&[]), (0, kept));
 }

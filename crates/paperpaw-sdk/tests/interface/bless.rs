@@ -69,27 +69,25 @@ fn kept_draft(n: u16, draft: u16, fingerprint: u64) -> String {
     kept.replacen('\n', &format!("\ndraft = {draft}\n"), 1)
 }
 
-/// A draft changes what plugins rely on only with the next draft (or by
-/// being frozen, draft 0), never at the draft kept, never back; a frozen
-/// interface never becomes a draft again. A raise may start at a draft.
+/// A draft changes what plugins rely on at the draft kept (one interface 7
+/// until 1.0), never moves back; a frozen interface never becomes a draft
+/// again and changes only with a raise. A raise may start at a draft.
 #[test]
-fn a_draft_changes_only_with_the_next_draft_and_a_frozen_one_never() {
+fn a_draft_changes_in_place_and_a_frozen_one_never() {
     let one = 0x0007_0000_0000_0001;
     let now = Fingerprint(0x0007_0000_0000_0002);
     let at_one = kept_draft(7, 1, one);
     assert!(at_one.contains("interface = 7\ndraft = 1\n"), "{at_one}");
     assert_eq!(bless_refused(&at_one, true, now, 2, "x86_64"), None);
     assert_eq!(bless_refused(&at_one, true, now, 0, "x86_64"), None);
-    assert!(bless_refused(&at_one, true, Fingerprint(one), 1, "x86_64").is_some());
-    assert!(bless_refused(&at_one, false, now, 1, "x86_64").is_some());
-    assert!(bless_refused(&kept_draft(7, 3, one), true, now, 2, "x86_64").is_some());
-    // The message at a draft names the next draft, at a frozen interface the raise.
-    let at_draft = bless_refused(&at_one, false, now, 1, "x86_64").unwrap();
-    assert!(
-        at_draft.contains("next draft first (native::DRAFT 2)"),
-        "{at_draft}"
+    // A change plugins rely on, or a layout, at the draft kept.
+    assert_eq!(
+        bless_refused(&at_one, true, Fingerprint(one), 1, "x86_64"),
+        None
     );
-    assert!(!at_draft.contains("raise native::INTERFACE"), "{at_draft}");
+    assert_eq!(bless_refused(&at_one, false, now, 1, "x86_64"), None);
+    assert!(bless_refused(&kept_draft(7, 3, one), true, now, 2, "x86_64").is_some());
+    // At a frozen interface the message names the raise.
     let frozen = bless_refused(&kept_draft(7, 0, one), true, now, 0, "x86_64").unwrap();
     assert!(
         frozen.contains("raise native::INTERFACE (now 7)"),

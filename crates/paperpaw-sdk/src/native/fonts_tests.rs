@@ -108,19 +108,51 @@ fn role_keys_are_resolved_by_the_host_and_drop_releases() {
     };
     for (role, key) in [
         (FontRole::Ui, "role:ui"),
-        (FontRole::UiBold, "role:ui-bold"),
         (FontRole::Reading, "role:reading"),
         (FontRole::ReadingBold, "role:reading-bold"),
         (FontRole::ReadingItalic, "role:reading-italic"),
         (FontRole::ReadingBoldItalic, "role:reading-bold-italic"),
         (FontRole::Status, "role:status"),
-        (FontRole::Mono, "role:mono"),
     ] {
         let font = Font::acquire_role(&host, role).unwrap();
         assert_eq!(ctx.key.borrow().as_str(), key);
         drop(font);
     }
-    assert_eq!(ctx.released.borrow().len(), 8);
+    assert_eq!(ctx.released.borrow().len(), 6);
+}
+
+#[test]
+fn a_data_font_is_acquired_by_the_key_data_and_its_path() {
+    let table = table();
+    let mut ctx = Context::default();
+    ctx.handle.set(3);
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let font = Font::acquire_data(&host, "fonts/Serif.ppfp").unwrap();
+    assert_eq!(ctx.key.borrow().as_str(), "data:fonts/Serif.ppfp");
+    drop(font);
+    assert_eq!(ctx.released.borrow().as_slice(), &[3]);
+    // The longest path the key takes: 128 - 5.
+    let longest = "a".repeat(123);
+    Font::acquire_data(&host, &longest).unwrap();
+    assert_eq!(ctx.key.borrow().len(), 128);
+    // One more is refused before the host is asked.
+    let asked = ctx.acquired.get();
+    assert_eq!(
+        Font::acquire_data(&host, "a".repeat(124)).unwrap_err(),
+        Error::Invalid
+    );
+    assert_eq!(ctx.acquired.get(), asked);
+    // The host's refusals pass: a missing file, a bad one, the cap.
+    for code in [abi::ERR_NOT_FOUND, abi::ERR_INVALID, abi::ERR_FULL] {
+        ctx.acquire_status.set(code);
+        assert_eq!(
+            Font::acquire_data(&host, "x.ttf").unwrap_err(),
+            Error::from_status(code)
+        );
+    }
 }
 
 #[test]

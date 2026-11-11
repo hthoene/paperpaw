@@ -18,6 +18,16 @@
 
 extern crate alloc;
 
+#[cfg(test)]
+extern crate std;
+/// Test-only: refuses chosen allocations to prove the fallible paths.
+#[cfg(test)]
+#[path = "../../test-support/fail_alloc.rs"]
+mod fail_alloc;
+#[cfg(test)]
+#[global_allocator]
+static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
+
 #[path = "../declarations.rs"]
 #[allow(
     dead_code,
@@ -28,6 +38,7 @@ mod declarations;
 mod native_card;
 mod native_check;
 mod native_entry;
+mod native_leaves;
 mod native_online;
 /// The interface-7 plugin.
 pub mod native_plugin;
@@ -71,6 +82,7 @@ mod tests {
             include_str!("native_plugin/online.rs"),
             include_str!("native_plugin/fetch.rs"),
             include_str!("native_plugin/waiting.rs"),
+            include_str!("native_plugin/leaves.rs"),
             include_str!("native_card.rs"),
             include_str!("native_online.rs"),
         ] {
@@ -98,3 +110,27 @@ mod tests {
         assert!(seen > 20, "{seen}");
     }
 }
+
+/// The settings the plugin declares, made by its build script from the same
+/// declarations as tables.
+#[cfg(feature = "linked")]
+mod native_settings {
+    use paperpaw_sdk::{Id, SettingSpec};
+    include!(concat!(env!("OUT_DIR"), "/update_settings.rs"));
+}
+
+/// The settings the plugin declares as a table kept in the program (as Beta 3
+/// kept them), for a linked build to use in place of a copy on the heap of
+/// each (`Kernel::register_linked`). Only a linked plugin has it.
+#[cfg(feature = "linked")]
+pub static NATIVE_SETTINGS: &[paperpaw_sdk::SettingSpec] = &native_settings::SETTINGS;
+
+/// The setting groups the plugin declares, as a table kept in the program
+/// like [`NATIVE_SETTINGS`].
+#[cfg(feature = "linked")]
+pub static NATIVE_GROUPS: &[paperpaw_sdk::SettingGroupSpec] = &native_settings::GROUPS;
+
+/// The ids the plugin's declarations name, as a table kept in the program
+/// like [`NATIVE_SETTINGS`].
+#[cfg(feature = "linked")]
+pub static NATIVE_IDS: &[paperpaw_sdk::Id] = &native_settings::IDS;

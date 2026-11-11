@@ -25,6 +25,7 @@ use super::{
     registrations::{self as wire, Record},
     work_sched::{Event, Moment},
 };
+use crate::native_host::codec;
 use alloc::rc::Rc;
 use paperpaw_platform::Instant;
 
@@ -51,6 +52,9 @@ impl crate::Kernel {
 
     /// One pass of the work scheduler (see the module). `true` when plugin
     /// calls remain for another pass.
+    // Its own frame: the pump keeps the services' passes apart, so that no
+    // frame adds their locals (the firmware's frame limit for host code).
+    #[inline(never)]
     pub(crate) fn native_work_pump(&mut self) -> bool {
         // A batch left waiting runs first, so no entry is taken for a callback
         // that is then refused.
@@ -128,7 +132,7 @@ impl crate::Kernel {
     fn work_tell_allowed(&mut self, now_ms: u64) {
         let mut record = [0u8; RECORD_BYTES];
         let allowed = Record::EventWorkAllowed(wire::EventWorkAllowed { now_ms });
-        let Ok(len) = wire::records_encode(&[allowed], &mut record) else {
+        let Ok(len) = codec::encode_batch(&[allowed], &mut record) else {
             debug_assert!(
                 false,
                 "an event.work_allowed record fits {RECORD_BYTES} bytes"
@@ -166,7 +170,7 @@ impl crate::Kernel {
         };
         let mut record = [0u8; RECORD_BYTES];
         let encoded = match event {
-            Event::Due(due) => wire::records_encode(
+            Event::Due(due) => codec::encode_batch(
                 &[Record::EventWorkDue(wire::EventWorkDue {
                     now_ms,
                     token,
@@ -175,7 +179,7 @@ impl crate::Kernel {
                 })],
                 &mut record,
             ),
-            Event::Refused(refused) => wire::records_encode(
+            Event::Refused(refused) => codec::encode_batch(
                 &[Record::EventWorkRefused(wire::EventWorkRefused {
                     now_ms,
                     token,

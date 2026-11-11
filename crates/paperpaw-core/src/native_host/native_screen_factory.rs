@@ -5,13 +5,13 @@ use super::{
     native_values::Callback,
     shell,
 };
-use alloc::{boxed::Box, string::String};
+use alloc::{borrow::Cow, boxed::Box};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED};
 use paperpaw_sdk::{Id, Instances, Screen};
 
 pub(crate) struct NativeScreenSpec {
     pub(crate) id: Id,
-    pub(crate) title: String,
+    pub(crate) title: Cow<'static, str>,
     pub(crate) made: NativeMade,
 }
 

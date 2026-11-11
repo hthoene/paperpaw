@@ -65,6 +65,33 @@ impl NativeInstance for Probe {
                     key: self.setting,
                     value: crate::abi7::settings_wire::SettingValueRef::Bool(true),
                 },
+                // A notify with the announce bit, and a plain one.
+                4 => WireCommand::Notify {
+                    text: "from the run",
+                    flags: 1,
+                },
+                5 => WireCommand::Notify {
+                    text: "plain",
+                    flags: 0,
+                },
+                // The state of a menu item of its own.
+                6 => WireCommand::SetItemState {
+                    item: "open",
+                    flags: crate::native_host::item_state::FAINT,
+                    label: "",
+                    label_args: &[],
+                    badge: "",
+                    badge_args: &[],
+                },
+                // The state of an item it never declared.
+                7 => WireCommand::SetItemState {
+                    item: "nothing",
+                    flags: crate::native_host::item_state::FAINT,
+                    label: "",
+                    label_args: &[],
+                    badge: "",
+                    badge_args: &[],
+                },
                 _ => WireCommand::Open {
                     target: "a.screen",
                     mode: 0,
@@ -99,6 +126,44 @@ impl Dispatch for Probe {
     fn dropped(&self, _: u32, _: i32) {}
 }
 
+/// A plugin that binds the notice slot to a plain overlay, so that a notice
+/// can show.
+struct NoticeSlot;
+
+struct Overlay;
+
+impl paperpaw_sdk::Screen for Overlay {
+    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+
+    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+        paperpaw_sdk::Handled::No
+    }
+}
+
+impl paperpaw_sdk::Plugin for NoticeSlot {
+    fn manifest(&self) -> paperpaw_sdk::Manifest {
+        paperpaw_sdk::Manifest::new(
+            Id::new_static("nt"),
+            "Notice",
+            paperpaw_sdk::Version::new(1, 0, 0),
+        )
+        .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
+    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+        r.add_screen(paperpaw_sdk::ScreenSpec::new(
+            Id::new_static("nt.notice"),
+            "notice",
+            alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Overlay)),
+        ))?;
+        r.bind_slot(
+            paperpaw_sdk::builtin::slots::NOTICE,
+            Id::new_static("nt.notice"),
+            paperpaw_sdk::Priority::DEFAULT,
+        )
+    }
+}
+
 struct World {
     kernel: crate::Kernel,
     owner: u64,
@@ -115,6 +180,7 @@ fn world(submits: bool) -> World {
 
 fn world_with(submits: bool, order: Option<Rc<RefCell<Vec<char>>>>) -> World {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .plugin(NoticeSlot)
         .build()
         .unwrap();
     // The plugin's screen is on the stack: a redraw is for it.
@@ -512,6 +578,29 @@ fn a_runs_network_events_are_quiet_too() {
 }
 
 #[test]
+fn a_run_may_announce_and_the_notice_shows_after_its_callback_but_may_not_notify_plainly() {
+    use paperpaw_native::host_glue::ERR_STATE;
+    // A plain notify from a run is refused at submit: nothing shows.
+    let mut w = world(true);
+    w.kernel.end_notice();
+    w.command.set(5);
+    run_work(&mut w);
+    assert_eq!(w.calls.get(), 1);
+    assert_eq!(w.last.get(), ERR_STATE);
+    assert!(w.kernel.notice.is_none());
+    assert!(!w.kernel.shared.native_instances.outbox.full());
+    // With the announce bit it is staged (`OK`), and the outbox's run, which
+    // the pump does between callbacks, shows it: the plugin shows no screen,
+    // and an announce does not need one.
+    let mut w = world(true);
+    w.kernel.shared.stack.clear();
+    w.command.set(4);
+    run_work(&mut w);
+    assert_eq!(w.last.get(), OK);
+    assert!(w.kernel.notice.is_some());
+}
+
+#[test]
 fn a_run_may_only_stage_what_is_listed() {
     use paperpaw_native::host_glue::ERR_STATE;
     // A command not named for runs (here `close_screen`) is refused there by
@@ -535,4 +624,147 @@ fn the_service_pump_does_not_run_a_batch_inside_a_callback() {
     w.kernel.native_service_pump();
     assert!(w.kernel.shared.native_instances.outbox.full());
     assert!(!w.kernel.output.redraw);
+}
+
+fn item_state_of(w: &World) -> Option<u32> {
+    let directory = w.kernel.shared.registry.native_declarations.as_ref()?;
+    let states = directory.items.borrow();
+    states
+        .get("a", "open")
+        .map(crate::native_host::item_state::ItemPush::flags)
+}
+
+/// A world whose plugin declared the item `a.open` (a setting of its own) and
+/// whose kernel has the declarations.
+fn world_with_item() -> World {
+    let mut w = world(true);
+    // The item is one the plugin declared: here a setting of its own.
+    w.kernel
+        .shared
+        .settings
+        .define(paperpaw_sdk::SettingSpec::switch(
+            "a.open",
+            "setting",
+            false,
+            paperpaw_sdk::builtin::groups::OTHER,
+        ))
+        .unwrap();
+    w.kernel.shared.registry.native_declarations = Some(
+        crate::native_host::shared::Shared::try_new(
+            crate::native_host::native_declarations::NativeDeclarations::default(),
+        )
+        .unwrap(),
+    );
+    w
+}
+
+#[test]
+fn an_event_callback_sets_the_state_of_its_item_and_it_is_stored_after_it_returned() {
+    let mut w = world_with_item();
+    w.command.set(6);
+    assert_eq!(w.call(), Ok(OK));
+    assert_eq!(w.last.get(), OK, "admitted at submit");
+    // Kept for the kernel, stored when it runs the batch.
+    assert_eq!(item_state_of(&w), None);
+    assert!(w.kernel.shared.native_instances.outbox.full());
+    w.kernel.native_outbox_run();
+    assert_eq!(
+        item_state_of(&w),
+        Some(crate::native_host::item_state::FAINT)
+    );
+}
+
+#[test]
+fn without_the_declarations_an_item_state_is_still_refused_as_unsupported() {
+    let w = world(true);
+    w.command.set(6);
+    assert_eq!(w.call(), Ok(OK));
+    assert_eq!(w.last.get(), paperpaw_native::host_glue::ERR_UNSUPPORTED);
+}
+
+#[test]
+fn an_item_it_did_not_declare_is_refused_as_not_found_in_the_event_stage() {
+    let w = world_with_item();
+    w.command.set(7);
+    assert_eq!(w.call(), Ok(OK));
+    assert_eq!(w.last.get(), paperpaw_native::host_glue::ERR_NOT_FOUND);
+    // Nothing was kept, and no room is held.
+    assert!(!w.kernel.shared.native_instances.outbox.full());
+    assert_eq!(item_state_of(&w), None);
+    assert_room_given_back(&w);
+}
+
+#[test]
+fn a_failed_event_callback_gives_the_room_of_its_item_state_back() {
+    let mut w = world_with_item();
+    w.command.set(6);
+    w.answer.set(Err(ERR_INVALID));
+    assert_eq!(w.call(), Err(ERR_INVALID));
+    // Admitted at submit, dropped with the failed callback's batch.
+    assert_eq!(w.last.get(), OK, "admitted at submit");
+    assert!(!w.kernel.shared.native_instances.outbox.full());
+    w.kernel.native_outbox_run();
+    assert_eq!(item_state_of(&w), None);
+    assert_room_given_back(&w);
+}
+
+/// The room and the plugin's slot reserved at submit are free again.
+fn assert_room_given_back(w: &World) {
+    let directory = w
+        .kernel
+        .shared
+        .registry
+        .native_declarations
+        .as_ref()
+        .unwrap();
+    assert_eq!(directory.item_room.get(), 0);
+    assert_eq!(directory.items.borrow().slots(), 0);
+}
+
+#[test]
+fn a_failed_event_callback_is_said_once_for_each_plugin_and_event() {
+    let mut w = world(false);
+    let mut started = [0; 64];
+    let n = crate::native_host::events::encode_started(0, &mut started).unwrap();
+    let started = &started[..n];
+    let mut resume = [0; 64];
+    let n = crate::native_host::events::encode_resume(0, &mut resume).unwrap();
+    let resume = &resume[..n];
+    // The reader's bug: a status the plugin gave back (`Started`, no space).
+    let no_space = paperpaw_native::host_glue::ERR_NO_SPACE;
+    w.answer.set(Err(no_space));
+    let called = |w: &World, bytes: &[u8]| w.kernel.native_event_call(w.owner, &w.lease, bytes);
+    assert_eq!(called(&w, started), Err(no_space));
+    let warnings = w.kernel.take_warnings();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    let said = &warnings[0].message;
+    assert!(
+        said.contains("a:")
+            && said.contains("started")
+            && said.contains(&alloc::format!("{no_space}")),
+        "{said}"
+    );
+    // The same plugin and event again: not said again; another event: said.
+    assert_eq!(called(&w, started), Err(no_space));
+    assert!(w.kernel.take_warnings().is_empty());
+    assert_eq!(called(&w, resume), Err(no_space));
+    let warnings = w.kernel.take_warnings();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].message.contains("resume"), "{warnings:?}");
+    // What happens to the plugin does not change: it is called as before, and
+    // a success says nothing.
+    w.answer.set(Ok(OK));
+    assert_eq!(called(&w, started), Ok(OK));
+    assert!(w.kernel.take_warnings().is_empty());
+    assert_eq!(w.calls.get(), 4);
+}
+
+#[test]
+fn what_the_host_refuses_is_not_the_plugins_failure() {
+    let mut w = world(true);
+    let busy = paperpaw_native::host_glue::ERR_BUSY;
+    assert_eq!(w.call(), Ok(OK));
+    // A batch waits: nothing is called, nothing is said.
+    assert_eq!(w.call(), Err(busy));
+    assert!(w.kernel.take_warnings().is_empty());
 }
