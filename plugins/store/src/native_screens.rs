@@ -67,6 +67,13 @@ pub trait Installs {
     fn step(&self, id: &str) -> Step;
     /// Whether the queue holds plugins to fetch and install (*Update all*).
     fn queued(&self) -> bool;
+    /// Whether plugin `id` was installed and works only after a restart (a
+    /// pack of letters is a data plugin and works at once). Added with the
+    /// fetch screen; where the installs cannot tell, it is `false`.
+    fn restart_needed(&self, id: &str) -> bool {
+        let _ = id;
+        false
+    }
 }
 
 /// What a screen may read.
@@ -79,6 +86,12 @@ pub struct Ctx<'a> {
     pub loader: &'a dyn Loader,
     /// The installs.
     pub installs: &'a dyn Installs,
+}
+
+impl core::fmt::Debug for Ctx<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Ctx").finish_non_exhaustive()
+    }
 }
 
 /// The declared screens of the store (`declarations::screens`): the id of each
@@ -129,6 +142,15 @@ pub enum Next {
     UpdateAll,
     /// Say text `key` of the catalog, once.
     Notify(&'static str),
+    /// Close this screen, then say text `key` of the catalog, once.
+    CloseNotify(&'static str),
+    /// Fetch again the plugins `ids` that plugin `by` asked for, after a
+    /// download that did not end well: the request is kept anew
+    /// (`native_request::Request::again`) and its plugins are queued as
+    /// asked for (`native_queue::Mark::Requested`), then the queue goes on.
+    Again { by: String, ids: Vec<String> },
+    /// Restart PaperPaw.
+    Restart,
     /// Redraw this screen.
     Redraw,
 }
@@ -149,6 +171,22 @@ pub trait Screen: Sized {
         let _ = ctx;
         Ok(())
     }
+
+    /// The screen is on top again, and what to do about it: where what it
+    /// shows ended while it was covered, it closes. The default is
+    /// [`shown`](Self::shown) and nothing to do; the plugin calls this where
+    /// it called `shown`.
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    fn resume(&mut self, ctx: &Ctx<'_>) -> Result<Next, Error> {
+        self.shown(ctx)?;
+        Ok(Next::None)
+    }
+
+    /// Another screen covers this one: events that end its job wait for
+    /// [`resume`](Self::resume). The default does nothing.
+    fn hidden(&mut self) {}
 
     /// Draws the screen.
     ///
@@ -225,6 +263,35 @@ impl StoreView {
             Self::Plugin(v) => v.shown(ctx),
             Self::Shots(v) => v.shown(ctx),
             Self::Fetch(v) => v.shown(ctx),
+        }
+    }
+
+    /// The screen is on top again, and what to do about it.
+    ///
+    /// # Errors
+    /// What the screen says.
+    pub fn resume(&mut self, ctx: &Ctx<'_>) -> Result<Next, Error> {
+        match self {
+            Self::List(v) => v.resume(ctx),
+            Self::View(v) => v.resume(ctx),
+            Self::Letters(v) => v.resume(ctx),
+            Self::Source(v) => v.resume(ctx),
+            Self::Plugin(v) => v.resume(ctx),
+            Self::Shots(v) => v.resume(ctx),
+            Self::Fetch(v) => v.resume(ctx),
+        }
+    }
+
+    /// Another screen covers this one.
+    pub fn hidden(&mut self) {
+        match self {
+            Self::List(v) => v.hidden(),
+            Self::View(v) => v.hidden(),
+            Self::Letters(v) => v.hidden(),
+            Self::Source(v) => v.hidden(),
+            Self::Plugin(v) => v.hidden(),
+            Self::Shots(v) => v.hidden(),
+            Self::Fetch(v) => v.hidden(),
         }
     }
 
