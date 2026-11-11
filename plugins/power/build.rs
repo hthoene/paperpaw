@@ -77,6 +77,9 @@ fn main() -> Result<(), String> {
         batches.push(batch);
         rest = tail;
     }
+    if !rest.is_empty() {
+        return Err("bytes left after the last batch of the golden".into());
+    }
     let table =
         paperpaw_sdk::native::declare::fixed_settings_source("power", "SETTINGS", &batches)?
             + &paperpaw_sdk::native::declare::fixed_groups_source("power", "GROUPS", &batches)?;
