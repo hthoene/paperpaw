@@ -18,6 +18,7 @@ mod firmware;
 use crate::native_host::{admitted_features::AdmittedFeatures, radio_requests::*};
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::{cell::RefCell, fmt, time::Duration};
+pub use firmware::FEATURE_INSTALL;
 pub(crate) use firmware::{FirmwareContext, FirmwareOp, FwRelease};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED,

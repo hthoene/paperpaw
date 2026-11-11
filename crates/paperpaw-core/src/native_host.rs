@@ -360,6 +360,13 @@ pub mod canvas;
 #[path = "native_host/commands.rs"]
 pub mod commands;
 
+#[cfg(test)]
+#[path = "native_host/plugin_answers_tests.rs"]
+mod plugin_answers_tests;
+pub(crate) mod plugin_requests;
+#[cfg(test)]
+#[path = "native_host/plugin_requests_tests.rs"]
+mod plugin_requests_tests;
 /// The device-wide table of Wi-Fi join and host requests (DEV).
 #[path = "native_host/radio_requests.rs"]
 pub mod radio_requests;
