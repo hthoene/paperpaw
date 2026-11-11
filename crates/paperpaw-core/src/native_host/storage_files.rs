@@ -19,6 +19,7 @@
 //! - `rename`: the storage's rename; a move of the user's files (root 1) is
 //!   the library's move job when it is wired (`with_moves`).
 use super::{
+    data_plugin_folders::DataPluginFolders,
     files_service::{Access, FilesHost},
     lib_moves_service::LibraryMoves,
     linked_plugins::LinkedPlugins,
@@ -180,6 +181,9 @@ pub(crate) struct StorageFiles {
     /// The library's move job: a move of the user's files goes through it.
     /// `None` where no job is wired (tests): the storage's own rename.
     moves: Option<Rc<LibraryMoves>>,
+    /// The running data plugins' folders, which root 1 shows read only.
+    /// `None` where none is wired (tests): `plugins/` stays hidden.
+    data_plugins: Option<Rc<DataPluginFolders>>,
 }
 
 impl StorageFiles {
@@ -193,7 +197,15 @@ impl StorageFiles {
             sources,
             linked,
             moves: None,
+            data_plugins: None,
         }
+    }
+
+    /// The same, with the folders of the running data plugins shown on root 1
+    /// (`files.md` 1.1).
+    pub(crate) fn with_data_plugins(mut self, folders: Rc<DataPluginFolders>) -> Self {
+        self.data_plugins = Some(folders);
+        self
     }
 
     /// The same, a move of the user's files started as the library's move
@@ -226,6 +238,12 @@ impl FilesHost for StorageFiles {
     /// `.ppn` plugin never is, and a card plugin never takes a linked id.
     fn built_in(&self, plugin: &str) -> bool {
         self.linked.contains(plugin)
+    }
+
+    fn data_folder(&self, name: &str) -> bool {
+        self.data_plugins
+            .as_ref()
+            .is_some_and(|folders| folders.contains(name))
     }
 
     fn excluded(&self, root: u32, parent: &str, first_segment: &str) -> bool {

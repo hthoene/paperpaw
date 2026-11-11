@@ -19,7 +19,7 @@ use super::{
     ui_guard::{self, Ask, OpenRequests},
     ui_hints,
     ui_requests::Question,
-    ui_store::{PARAMS_MAX, PART_MAX, Param, Stamp, UiStore},
+    ui_store::{self, PARAMS_MAX, PART_MAX, Param, Stamp, UiStore},
     ui_widget_layout, ui_widget_ops,
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
@@ -267,7 +267,7 @@ fn handover(
         });
         Ok(())
     })?;
-    let id = match handed_on(frame, ui, &mut staged)? {
+    let id = match handed_on(frame, ui, who.owner, &mut staged)? {
         Some(maker) => ui.store.handover_passing_on(stamp, &staged, maker),
         None => ui.store.handover_make(stamp, &staged),
     }?;
@@ -277,16 +277,20 @@ fn handover(
     )
 }
 
-/// A hand-over whose `root` is `5` passes on the handed file of the calling
-/// instance (a reader opening its table-of-contents screen of a book a
-/// plugin handed over, `document.md` 1 root 5): the instance must hold one
-/// and `path` must be its path (`ERR_DENIED` otherwise, as for a root of 5
-/// before). Gives the plugin that handed the file first, and puts the file's
-/// own root (`0`, `2`) in the params, so the screen reads the same hand-over
-/// as the one the maker made.
+/// A hand-over whose `root` is `5` passes on a handed file the calling plugin
+/// holds (a reader opening its table-of-contents or search screen of a book a
+/// plugin handed over, `document.md` 1 root 5): `path` must be that file's
+/// path (`ERR_DENIED` otherwise, as for a root of 5 before). In a screen's
+/// callback the file is the calling instance's; in an event's (an answer to a
+/// question the screen asked) there is no instance, and it is the topmost
+/// screen of the calling plugin that holds a file of that path. Gives the
+/// plugin that handed the file first, and puts the file's own root (`0`,
+/// `2`) in the params, so the screen reads the same hand-over as the one the
+/// maker made.
 fn handed_on(
     frame: &dyn Frame,
     ui: &UiServices,
+    owner: u64,
     staged: &mut [Param<'_>],
 ) -> Result<Option<u64>, i32> {
     let Some(at) = staged
@@ -295,20 +299,58 @@ fn handed_on(
     else {
         return Ok(None);
     };
-    let instance = frame.calling_instance().map_err(|_| ERR_DENIED)?;
     let path = staged
         .iter()
         .find(|param| param.key == "path")
         .map(|param| param.value);
-    let mut found = Err(ERR_DENIED);
-    ui.store.handed_file(instance, &mut |file| {
-        if Some(file.path) == path {
-            found = Ok((file.maker, if file.root == 2 { "2" } else { "0" }));
+    let found = match frame.calling_instance() {
+        Ok(instance) => holds(ui, instance, path)?,
+        Err(_) => {
+            let (mut found, mut failure) = (None, None);
+            frame
+                .with_stack(&mut |stack| {
+                    for index in (0..stack.len()).rev() {
+                        let Some(row) = stack.row(index).filter(|row| row.owner == owner) else {
+                            continue;
+                        };
+                        match holds(ui, row.instance, path) {
+                            Ok(None) => {}
+                            Ok(held) => found = held,
+                            Err(error) => failure = Some(error),
+                        }
+                        if found.is_some() || failure.is_some() {
+                            break;
+                        }
+                    }
+                })
+                .map_err(|_| ERR_DENIED)?;
+            if let Some(error) = failure {
+                return Err(error);
+            }
+            found
         }
-    })?;
-    let (maker, root) = found?;
+    };
+    let (maker, root) = found.ok_or(ERR_DENIED)?;
     staged[at].value = root;
     Ok(Some(maker))
+}
+
+/// The maker and root of the file `instance` holds, if its path is `path`.
+fn holds(
+    ui: &UiServices,
+    instance: u32,
+    path: Option<&str>,
+) -> Result<Option<(u64, &'static str)>, i32> {
+    let mut found = None;
+    match ui.store.handed_file(instance, &mut |file| {
+        // A hand-over the host made has no plugin maker to pass on.
+        if Some(file.path) == path && !ui_store::is_host_owner(file.maker) {
+            found = Some((file.maker, if file.root == 2 { "2" } else { "0" }));
+        }
+    }) {
+        Ok(()) | Err(ERR_DENIED) => Ok(found),
+        Err(error) => Err(error),
+    }
 }
 
 /// Op 17: the params of the calling instance's hand-over, then `end`.

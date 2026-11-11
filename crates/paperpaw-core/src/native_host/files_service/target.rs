@@ -2,6 +2,7 @@
 //! feature, the path rules and the root-1 exclusions, in the order the contract
 //! lists them, then the path joined for the storage in a stack buffer.
 use super::View;
+use crate::native_host::data_plugin_folders::plugin_folder_of;
 use crate::native_host::storage::{MAX_FOLDER, MAX_JOINED, PREFIX, relative_path};
 use paperpaw_native::host_glue::{ERR_DENIED, ERR_INVALID, ERR_NOT_FOUND, ERR_UNSUPPORTED};
 
@@ -141,8 +142,16 @@ pub(super) fn resolve(
         relative_path(path.as_bytes())?;
     }
     let first = path.split('/').next().unwrap_or_default();
-    if root == CARD && !first.is_empty() && reaches_protected(view, first) {
-        return Err(ERR_INVALID);
+    if root == CARD && !first.is_empty() {
+        // A running data plugin's folder is shown, read only (`files.md` 1.1);
+        // the folder of any other plugin stays hidden.
+        if plugin_folder_of(path).is_some_and(|name| view.host.data_folder(name)) {
+            if intent == Intent::Change {
+                return Err(ERR_DENIED);
+            }
+        } else if reaches_protected(view, first) {
+            return Err(ERR_INVALID);
+        }
     }
     // Filled in the caller's place: a path is 640 bytes, and a copy of it per
     // return would put several of them in the frame of an op with two.

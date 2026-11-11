@@ -312,6 +312,19 @@ fn only_native_overlays_show_the_screens_below_them() {
     assert_eq!(screen.shows_through(), paperpaw_sdk::ShowsThrough::All);
 }
 
+#[test]
+fn a_screen_declared_hints_hidden_says_so_and_another_leaves_it_to_its_plugin() {
+    let (screen, _) = screen();
+    assert_eq!(screen.hints(), None);
+    let screen = screen.with_flags(1 << 8);
+    assert_eq!(screen.hints(), Some(paperpaw_sdk::HintVisibility::Hidden));
+    // Beside the other policy bits.
+    let (screen, _) = self::screen();
+    let screen = screen.with_flags((1 << 8) | (1 << 5));
+    assert_eq!(screen.hints(), Some(paperpaw_sdk::HintVisibility::Hidden));
+    assert!(screen.holds_edges());
+}
+
 fn fresh() -> (NativeScreen<Rc<Recorder>>, Rc<Recorder>) {
     screen()
 }

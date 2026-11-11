@@ -9,6 +9,7 @@
 use super::{BookRef, Caller, ServiceOp, args};
 use crate::abi7::context::Frame;
 use crate::abi7::context::RowsEnd;
+use crate::native_host::lib_cover::CoverCx;
 use crate::native_host::registrations::{self as wire, Record};
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED};
@@ -85,12 +86,14 @@ pub(crate) trait LibQuery {
     }
     /// Op 7: the `doc_image` of the book's cover for `who`, `side` 0 for the
     /// list's size, else at most the screen's long side. `ERR_NOT_FOUND` for
-    /// none, `ERR_BUSY` while it is made.
+    /// none, `ERR_BUSY` while it is made. `cx` is the call's frame and
+    /// services: the format that makes it is called through them.
     fn cover(
         &self,
         _who: &Caller<'_>,
         _book: BookRef<'_>,
         _side: u32,
+        _cx: &CoverCx<'_>,
         _visit: One<'_>,
     ) -> Result<(), i32> {
         Err(ERR_UNSUPPORTED)
@@ -162,6 +165,7 @@ pub(super) fn run(
     frame: &dyn Frame,
     host: &dyn super::LibHost,
     who: &Caller<'_>,
+    cx: &CoverCx<'_>,
     op: &ServiceOp,
     input: &[u8],
     out: &mut [u8],
@@ -174,7 +178,7 @@ pub(super) fn run(
             book_alone(host, op.id, input, out)
         }
         op::TEXT => text(host, input, out),
-        op::COVER => cover(host, who, input, out),
+        op::COVER => cover(host, who, cx, input, out),
         op::ANNOTATIONS | op::ANCHORS => annotated(host, op.id, rows, input, out),
         op::FIELDS => fields(host, rows, input, out),
         _ => Err(ERR_UNSUPPORTED),
@@ -327,6 +331,7 @@ fn text(host: &dyn super::LibHost, input: &[u8], out: &mut [u8]) -> Result<usize
 fn cover(
     host: &dyn super::LibHost,
     who: &Caller<'_>,
+    cx: &CoverCx<'_>,
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
@@ -336,7 +341,7 @@ fn cover(
     require(cover.side <= host.screen_long_side()?)?;
     page::one(
         out,
-        |visit| host.cover(who, book, cover.side, visit),
+        |visit| host.cover(who, book, cover.side, cx, visit),
         |record| match record {
             Record::ServiceDocImage(image) => check::cover(image),
             _ => Err(ERR_INVALID),

@@ -460,6 +460,12 @@ impl ScreenDecl<'_> {
         self.policy_flags |= 32;
         self
     }
+    /// Show no row of button hints with this screen (the sleep screen).
+    #[must_use]
+    pub const fn hints_hidden(mut self) -> Self {
+        self.policy_flags |= 256;
+        self
+    }
 }
 
 /// An `action.spec` declaration with a plugin-owned callback token.

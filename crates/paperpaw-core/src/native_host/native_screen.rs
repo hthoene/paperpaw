@@ -380,6 +380,11 @@ impl<D: Dispatch> Screen for NativeScreen<D> {
     fn holds_edges(&self) -> bool {
         self.flags & (1 << 5) != 0
     }
+    fn hints(&self) -> Option<paperpaw_sdk::HintVisibility> {
+        // Declared hidden (`screen.spec.flags` bit 8); else as its plugin said.
+        (self.flags & super::declarations::SCREEN_HINTS_HIDDEN != 0)
+            .then_some(paperpaw_sdk::HintVisibility::Hidden)
+    }
     fn region(&self, env: &Env<'_>) -> Option<Rect> {
         (self.flags & (1 << 2) != 0)
             .then(|| Rect::new(0, 0, env.content().width, env.content().height))

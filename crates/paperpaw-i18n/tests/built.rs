@@ -126,3 +126,69 @@ fn an_owned_source_is_never_taken() {
     assert_eq!(t.get("clock.title"), Some("Clock"));
     assert_eq!(t.catalogs().len(), 2);
 }
+
+const NOTES_DE: &str = "[meta]\nlanguage = de\nname = Deutsch\nplural = one-other\n\n\
+    [messages]\nnotes.title = Notizen\nnotes.lines = \"eins\\nzwei\"\n";
+const RTL: &str = "[meta]\nlanguage = de\nname = Deutsch\ndirection = rtl\n[messages]\nrtl.a = a\n";
+const OTHER_NAME: &str = "[meta]\nlanguage = de\nname = German\n[messages]\nname.a = a\n";
+
+fn german() -> &'static paperpaw_i18n::BuiltLanguage {
+    let mut table = paperpaw_i18n::BuiltLanguageTable::new("de");
+    assert!(table.add(GERMAN).unwrap());
+    assert!(table.add(NOTES_DE).unwrap());
+    // English, a direction of its own and another name: left out.
+    assert!(!table.add(NOTES).unwrap());
+    assert!(!table.add(RTL).unwrap());
+    assert!(!table.add(OTHER_NAME).unwrap());
+    assert!(
+        table
+            .to_rust()
+            .starts_with("paperpaw_i18n::BuiltLanguage::new(\"de\", \"Deutsch\", paperpaw_i18n::BuiltCatalogs::new(&[")
+    );
+    table.leak()
+}
+
+#[test]
+fn a_table_for_german_answers_as_its_catalogs_would_and_keeps_decoded_texts() {
+    let mut t = Translator::new();
+    t.built_catalogs(table());
+    t.built_language(german());
+    each(&mut t);
+    for source in [GERMAN, NOTES_DE] {
+        t.add(Catalog::parse(source).unwrap());
+    }
+    // One catalog for each language, and German is listed while English
+    // is chosen.
+    assert_eq!(t.catalogs().len(), 2);
+    assert_eq!(t.languages(), [("en", "English"), ("de", "Deutsch")]);
+    assert_eq!(t.get("notes.title"), Some("Notes"));
+    t.set_language("de");
+    assert_eq!(t.get("clock.title"), Some("Uhr"));
+    assert_eq!(t.get("notes.title"), Some("Notizen"));
+    assert_eq!(t.get("notes.lines"), Some("eins\nzwei"));
+    // What German lacks comes from English.
+    assert_eq!(t.get("clock.quoted"), Some("  spaced  "));
+    t.set_language("en");
+    assert_eq!(t.get("notes.title"), Some("Notes"));
+    assert_eq!(t.get("notes.lines"), None);
+}
+
+#[test]
+fn an_english_language_table_is_called_english_and_holds_what_a_built_table_holds() {
+    let mut table = paperpaw_i18n::BuiltLanguageTable::new("en");
+    assert!(table.add(CLOCK).unwrap());
+    assert!(!table.add(GERMAN).unwrap());
+    assert_eq!(table.len(), 1);
+    assert!(
+        table
+            .to_rust()
+            .starts_with("paperpaw_i18n::BuiltLanguage::new(\"en\", \"English\", ")
+    );
+    let language = table.leak();
+    assert_eq!((language.language, language.name), ("en", "English"));
+    let mut t = Translator::new();
+    t.built_language(language);
+    t.add(Catalog::parse(CLOCK).unwrap());
+    assert_eq!(t.catalogs().len(), 1);
+    assert_eq!(t.get("clock.quoted"), Some("  spaced  "));
+}

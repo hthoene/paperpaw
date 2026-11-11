@@ -99,7 +99,17 @@ pub struct NativeReader {
     /// *Go to the note* pressed: the book and the link, followed when its
     /// reading screen is shown again.
     follow: Option<(String, String)>,
+    /// The book read last was asked to open at the start (its key,
+    /// `native_start::book_key`) and no reading screen was shown since.
+    reopening: Option<u64>,
+    /// When *Read aloud* came while that book was opening: it is read aloud once
+    /// its screen is shown (Beta 3 opened the book before any input). Dropped by
+    /// any other move (`native_start::reads_aloud`).
+    aloud_asked: Option<u64>,
 }
+
+/// The callback token of the action `reader.read-aloud`.
+const READ_ALOUD_TOKEN: u32 = native_handsfree::token_of(b"read-aloud");
 
 impl NativeReader {
     /// The reading screen opened: its book is opened with it.
@@ -170,6 +180,10 @@ impl NativeReader {
         handover: Option<paperpaw_sdk::native::ui::HandoverId>,
     ) -> Result<(), Error> {
         self.auto_turn_leave(host);
+        // Another screen of the reader: the user went elsewhere first.
+        if token != SCREEN {
+            self.aloud_asked = None;
+        }
         match token {
             SCREEN => self.open(host, instance, handover),
             TOC => self.open_toc(host, instance, handover),
@@ -482,7 +496,10 @@ impl NativeReader {
     /// nothing is read aloud (the table of contents, a menu, another plugin's
     /// screen, the library). Asked only while something is read aloud.
     fn stacked(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        if !self.screens.all().any(|view| view.reading_aloud()) {
+        // *Read aloud* kept for the book opening at the start goes with any other
+        // screen on top of its reading screen.
+        let kept = self.aloud_asked.is_some() && self.screens.top_instance(SCREEN).is_some();
+        if !kept && !self.screens.all().any(|view| view.reading_aloud()) {
             return Ok(());
         }
         let Some(ui) = &self.ui else {
@@ -495,6 +512,7 @@ impl NativeReader {
             None => None,
         };
         if top.is_none() || top != self.screens.top_instance(SCREEN) {
+            self.aloud_asked = None;
             self.stop_speech(host);
         }
         Ok(())
@@ -628,12 +646,33 @@ impl NativeReader {
         &mut self,
         host: &Host<'_>,
         instance: paperpaw_sdk::native::ui::Instance,
+        now_ms: u64,
     ) -> Result<(), Error> {
         self.screens.shown(SCREEN, instance)?;
+        let (asked, reopened) = (self.aloud_asked.take(), self.reopening.take());
         if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
             view.shown(host, docs);
+            if crate::native_start::reads_aloud(asked, reopened, now_ms, view.book_key()) {
+                view.start_aloud(host, (docs, self.library.as_ref()));
+            }
         }
         self.follow_note(host, instance)
+    }
+
+    /// An action of the reader that reached the plugin, not a screen:
+    /// `reader.auto-turn` starts or stops the timer and any other stops it; *Read
+    /// aloud* before the book read last is on show is kept for it, and any other
+    /// action drops that.
+    fn action_run(&mut self, host: &Host<'_>, token: u32, now_ms: u64) {
+        if token == native_handsfree::action_token() {
+            return self.auto_turn_toggle(host);
+        }
+        if token == READ_ALOUD_TOKEN && self.reopening.is_some() {
+            self.aloud_asked = Some(now_ms);
+            return;
+        }
+        self.aloud_asked = None;
+        self.auto_turn_leave(host);
     }
 
     /// The start of the device (`Event::Started`): the book read last opens again where the setting
@@ -647,7 +686,11 @@ impl NativeReader {
         });
         match opened {
             Err(Error::NoMemory) => Err(Error::NoMemory),
-            _ => Ok(()),
+            Ok(book) => {
+                self.reopening = book;
+                Ok(())
+            }
+            Err(_) => Ok(()),
         }
     }
 
@@ -710,13 +753,8 @@ impl Plugin for NativeReader {
                 self.auto_turn_due(host, due.now_ms());
                 Ok(())
             }
-            // The action `reader.auto-turn`; any other action of the reader stops it.
-            Event::ActionRun { .. } if token == native_handsfree::action_token() => {
-                self.auto_turn_toggle(host);
-                Ok(())
-            }
-            Event::ActionRun { .. } if native_handsfree::is_reader_action(token) => {
-                self.auto_turn_leave(host);
+            Event::ActionRun { now_ms, .. } if native_handsfree::is_reader_action(token) => {
+                self.action_run(host, token, now_ms);
                 Ok(())
             }
             Event::Started { .. } if token == STARTED => self.reopen_last(host),
@@ -765,9 +803,10 @@ impl Plugin for NativeReader {
             } => self.screen_opened(host, token, instance, handover),
             Event::ScreenShown {
                 instance: Some(instance),
+                now_ms,
                 ..
             } => match token {
-                SCREEN => self.reading_shown(host, instance),
+                SCREEN => self.reading_shown(host, instance, now_ms),
                 TOC => self.tocs.shown(TOC, instance),
                 SEARCH => self.searches.shown(SEARCH, instance),
                 ANNOTATIONS => self.annotations.shown(ANNOTATIONS, instance),

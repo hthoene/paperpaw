@@ -100,15 +100,25 @@ fn catalog_indexes(crates: &[String]) {
     files.sort();
     let mut out = String::from("&[\n");
     let mut seen = Vec::new();
-    let mut english = paperpaw_i18n::BuiltTable::new();
+    // One table for each language the program has built in.
+    let mut tables = [
+        paperpaw_i18n::BuiltLanguageTable::new("en"),
+        paperpaw_i18n::BuiltLanguageTable::new("de"),
+    ];
     for file in files {
         println!("cargo::rerun-if-changed={}", file.display());
         let source = std::fs::read_to_string(&file).expect("a catalog");
         let print = paperpaw_i18n::fingerprint(&source);
-        // English catalogs together; one that cannot be (a key another
+        // Catalogs of a language together; one that cannot be (a key another
         // has) stays a catalog of its own, with its index here.
-        if file.file_name().is_some_and(|name| name == "en.ini") {
-            let _ = english.add(&source);
+        let mut built = false;
+        for table in &mut tables {
+            built |= table.add(&source).unwrap_or(false);
+        }
+        // A source a table holds is read through the table: it needs no index
+        // of its own.
+        if built {
+            continue;
         }
         let Ok(catalog) = paperpaw_i18n::Catalog::parse(source) else {
             continue;
@@ -126,7 +136,13 @@ fn catalog_indexes(crates: &[String]) {
     let dir = std::env::var("OUT_DIR").expect("OUT_DIR");
     std::fs::write(Path::new(&dir).join("catalog_indexes.rs"), out)
         .expect("catalog_indexes.rs written");
-    std::fs::write(Path::new(&dir).join("built_catalogs.rs"), english.to_rust())
+    let mut built = String::from("&[");
+    for table in &tables {
+        built.push_str(&table.to_rust());
+        built.push(',');
+    }
+    built.push(']');
+    std::fs::write(Path::new(&dir).join("built_catalogs.rs"), built)
         .expect("built_catalogs.rs written");
 }
 

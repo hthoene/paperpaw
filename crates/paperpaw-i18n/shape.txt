@@ -17,6 +17,8 @@ enum paperpaw_i18n::plural::PluralRule { Other, OneOther, ZeroOneOther, EastSlav
 struct paperpaw_i18n::Translator { catalogs: alloc::vec::Vec<paperpaw_i18n::catalog::Catalog>, parked: alloc::vec::Vec<paperpaw_i18n::catalog::Parked>, language: alloc::string::String, order: alloc::vec::Vec<u16>, added: u32, fixed: paperpaw_i18n::catalog::FixedIndexes, direction: u8, digits: core::option::Option<[char; 10]> }
 struct paperpaw_i18n::built::Built { table: &'static paperpaw_i18n::built::BuiltCatalogs, sources: alloc::vec::Vec<core::option::Option<&'static str>> }
 struct paperpaw_i18n::built::BuiltCatalogs { prints: &'static [u64], entries: &'static [u32], decoded: &'static [(&'static str, &'static str)] }
+struct paperpaw_i18n::built::BuiltLanguage { language: &'static str, name: &'static str, catalogs: paperpaw_i18n::built::BuiltCatalogs }
+struct paperpaw_i18n::built::BuiltLanguageTable { language: alloc::string::String, name: core::option::Option<alloc::string::String>, table: paperpaw_i18n::built::BuiltTable }
 struct paperpaw_i18n::built::BuiltTable { prints: alloc::vec::Vec<u64>, entries: alloc::vec::Vec<(alloc::string::String, u32)>, decoded: alloc::vec::Vec<(alloc::string::String, alloc::string::String)> }
 struct paperpaw_i18n::card::Card { file: alloc::rcs::rc::Rc<dyn paperpaw_i18n::card::CatalogFile>, blocks: alloc::boxed::Box<[(u32, u32)]>, messages: u32, read: paperpaw_i18n::card::Read }
 struct paperpaw_i18n::card::Message { hash: u32, key: alloc::boxed::Box<str>, message: core::option::Option<alloc::boxed::Box<str>>, next: core::cell::once::OnceCell<alloc::boxed::Box<paperpaw_i18n::card::Message>> }

@@ -79,6 +79,21 @@ impl Pages for Stage<'_, '_> {
     }
 }
 
+impl Stage<'_, '_> {
+    /// The page on show is known by where its layout starts, as the sentences
+    /// name their pages (`native_speech`): a place the layout moved on from (a
+    /// text the format starts after a header, a section that ended) becomes that
+    /// start. A page that cannot be laid out leaves the place as it is.
+    fn align(&mut self) {
+        let at = self.open.at;
+        if let Ok(start) = self.with_page(at, |page| (page.start.section, page.start.offset))
+            && start != at
+        {
+            self.open.at = start;
+        }
+    }
+}
+
 impl Scene for Stage<'_, '_> {
     fn shown(&self) -> Place {
         self.open.at
@@ -205,8 +220,25 @@ impl View {
         else {
             return None;
         };
-        self.staged(host, shared, |speaker, stage| speaker.start(stage))?;
+        self.start_aloud(host, shared);
         Some(Ok(Handled::Yes))
+    }
+
+    /// The key of the open book (`native_start::book_key`); none without one.
+    #[must_use]
+    pub fn book_key(&self) -> Option<u64> {
+        match &self.body {
+            Body::Open(open) => Some(crate::native_start::book_key(&open.path)),
+            _ => None,
+        }
+    }
+
+    /// Starts reading aloud on the page on show (nothing without a book).
+    pub fn start_aloud(&mut self, host: &Host<'_>, shared: (&Documents, Option<&Library>)) {
+        self.staged(host, shared, |speaker, stage| {
+            stage.align();
+            speaker.start(stage);
+        });
     }
 
     /// Pauses reading aloud (with the notice if `notice`): the layout changed.
@@ -248,6 +280,7 @@ impl View {
         status: SpeechStatus,
     ) {
         self.staged(host, shared, |speaker, stage| {
+            stage.align();
             speaker.spoken(stage, cookie, status);
         });
     }
