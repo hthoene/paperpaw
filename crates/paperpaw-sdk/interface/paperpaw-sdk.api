@@ -3676,6 +3676,7 @@ pub paperpaw_sdk::native::declare::ScreenDecl::title: &'a str
 pub paperpaw_sdk::native::declare::ScreenDecl::token: u32
 impl paperpaw_sdk::native::declare::ScreenDecl<'_>
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::guards(self) -> Self
+pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::hints_hidden(self) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::holds_edges(self) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::instances(self, paperpaw_sdk::native::declare::Instances) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::overlay(self) -> Self
