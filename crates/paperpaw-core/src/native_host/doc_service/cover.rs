@@ -111,7 +111,9 @@ fn covered(
             // Not for showing: a format skips what only a shown book needs
             // (contents, positions, page labels), and the open takes no
             // place another opener's document needs (`document.md` 2.1).
-            flags: BACKGROUND,
+            // `details` for a `prepared` format's book (DOCX, MOBI): its cover
+            // without a conversion (`document.md` 2.1).
+            flags: BACKGROUND | super::DETAILS,
             image_side: 0,
             cover_side: side,
             css_root: 0,
@@ -163,6 +165,14 @@ fn covered(
             return Ok(Made::Queued);
         }
         Ok(Made::Queued)
+    } else if host
+        .table()
+        .lease(host.owner(), document)
+        .is_ok_and(|d| d.details)
+    {
+        // A `details` open the format answered preparing is never prepared
+        // (`document.md` 2.1): no cover until the next start, no conversion.
+        Ok(Made::Failed)
     } else {
         // Preparing: the document stays open as the cover job, which the
         // preparing loop converts and the host ends (`doc_cover_job`); where

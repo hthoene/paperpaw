@@ -99,6 +99,8 @@ struct World<'a> {
     instance: Cell<Option<u32>>,
     /// (owner, token, the call's fmt op) of each call made to a format.
     calls: RefCell<Vec<(u64, u32, u32)>>,
+    /// The `flags` of each op 2 `open` the format got.
+    open_flags: RefCell<Vec<u32>>,
     hosts: HostServices,
     state: Rc<DocState>,
     /// The owner of the screen on top of the stack.
@@ -200,6 +202,9 @@ impl Frame for World<'_> {
             local::Record::FmtCall(c) => {
                 if c.op == 6 {
                     self.texts.borrow_mut().push((c.flags, c.index, c.offset));
+                }
+                if c.op == 2 {
+                    self.open_flags.borrow_mut().push(c.flags);
                 }
                 (c.op, c.arg.len())
             }
@@ -552,6 +557,7 @@ fn world<R>(body: impl FnOnce(&World<'_>) -> R) -> R {
         script: RefCell::new(alloc::collections::VecDeque::new()),
         texts: RefCell::new(Vec::new()),
         calls: RefCell::new(Vec::new()),
+        open_flags: RefCell::new(Vec::new()),
         hosts,
         state,
         top: Cell::new(OPENER),
@@ -1221,6 +1227,8 @@ mod root5_tests;
 
 #[path = "doc_host_cover_job_tests.rs"]
 mod cover_job_tests;
+#[path = "doc_host_details_flag_tests.rs"]
+mod details_flag_tests;
 #[path = "doc_host_details_job_tests.rs"]
 mod details_job_tests;
 #[path = "doc_host_prepare_tests.rs"]

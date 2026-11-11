@@ -57,6 +57,9 @@ const SIBLINGS: u32 = 1 << 4;
 
 /// `format.spec.flags` bit 2: the book is a folder.
 const FOLDER: u32 = 1 << 2;
+/// `format.spec.flags` bit 0 `prepared`: its books are converted before they
+/// are read (DOCX, MOBI); only these are opened with `details`.
+const PREPARED: u32 = 1;
 
 /// What an open document's reader hold needs to be given back.
 struct Book {
@@ -92,6 +95,9 @@ struct Cache {
     finished: bool,
     /// The bytes the stamp says the cache holds.
     stamped: u64,
+    /// Opened with bit 3 `details`: never stamped by this document, an
+    /// unstamped folder never removed for it (`document.md` 2.1).
+    details: bool,
     /// The card path of the user's CSS file the open named (root 4 of the
     /// format's calls that may read it); `""` for none.
     css: String,
@@ -511,7 +517,16 @@ impl DocState {
         put(&open.root.to_le_bytes());
         put(open.path.as_bytes());
         self.index()?.id(format, &mut |id| put(id.as_bytes()))?;
-        put(&open.flags.to_le_bytes());
+        // Bit 3 `details` reads the book's own conversion, a reader's
+        // (`document.md` 2.1): it and the background bit with it are not part
+        // of the key.
+        let details = super::doc_service::DETAILS;
+        let flags = if open.flags & details == 0 {
+            open.flags
+        } else {
+            open.flags & !(details | super::doc_service::BACKGROUND)
+        };
+        put(&flags.to_le_bytes());
         put(&open.image_side.to_le_bytes());
         put(&open.cover_side.to_le_bytes());
         put(&open.css_root.to_le_bytes());
@@ -557,6 +572,11 @@ impl DocState {
 
 macro_rules! frameless {
     () => {
+        fn format_prepared(&self, format: FormatRef) -> bool {
+            self.state()
+                .index()
+                .is_ok_and(|index| index.has_flag(format, PREPARED))
+        }
         fn table(&self) -> &DocumentTable {
             &self.state().table
         }
@@ -823,6 +843,7 @@ impl Bound<'_> {
         let Some(storage) = self.state.storage.as_deref() else {
             return Ok(());
         };
+        let details = call.flags & super::doc_service::DETAILS != 0;
         let mut plugin = Err(ERR_STATE);
         self.state.index()?.plugin_id(call.format, &mut |id| {
             plugin = copy(id);
@@ -848,11 +869,32 @@ impl Bound<'_> {
                 conversion: call.conversion,
                 content: &content,
             };
-            let made = super::doc_cache::prepare(storage, &id, &|folder| {
-                books
-                    .iter()
-                    .any(|b| b.cache.as_ref().is_some_and(|c| c.folder == folder))
-            })?;
+            let made = if details {
+                // A `details` open reads what is there: no removal, no room
+                // made, no stamp (`document.md` 2.1); not while another
+                // document converts the book (a cover file half written).
+                let folder = id.folder()?;
+                let making = books.iter().any(|b| {
+                    b.document != call.document
+                        && b.cache
+                            .as_ref()
+                            .is_some_and(|c| c.folder == folder && !c.finished && !c.details)
+                });
+                if making {
+                    return Err(ERR_BUSY);
+                }
+                super::doc_cache::Prepared {
+                    bytes: super::doc_cache::current(storage, &id)?,
+                    folder,
+                    fresh: false,
+                }
+            } else {
+                super::doc_cache::prepare(storage, &id, &|folder| {
+                    books
+                        .iter()
+                        .any(|b| b.cache.as_ref().is_some_and(|c| c.folder == folder))
+                })?
+            };
             (made, content)
         };
         // What the cache holds is counted per folder: new, it starts at 0; a
@@ -874,6 +916,7 @@ impl Bound<'_> {
                 content,
                 finished: made.bytes.is_some(),
                 stamped: made.bytes.unwrap_or(0),
+                details,
                 css: copy(css)?,
             });
         }

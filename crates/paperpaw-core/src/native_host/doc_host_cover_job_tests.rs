@@ -685,10 +685,12 @@ fn a_ready_cover_to_make_ends_without_a_cover_while_a_book_is_read_or_at_sleep()
         w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
         w.state.allow_cover_jobs();
         answer(w, READY, 0);
+        // A book open for reading (an open after the cover to make would
+        // close it first: it is the host job's alone).
+        let reader = w.open(1, "books/r.epub").unwrap();
         let document = w.open(1, "books/a.epub").unwrap();
         assert!(w.state.table.start_cover_make(OPENER, document));
-        // A book opened for reading: no picture beside it; nothing is told.
-        let reader = w.open(1, "books/r.epub").unwrap();
+        // No picture beside the reader; nothing is told.
         let before = ops(w).len();
         assert_eq!(look(w), JobStep::None);
         assert_eq!(ops(w).get(before..), Some(&[4][..]), "only its close");
@@ -700,6 +702,12 @@ fn a_ready_cover_to_make_ends_without_a_cover_while_a_book_is_read_or_at_sleep()
         w.state.cover_job_abort(&w.hosts, &FrameRoute(w));
         assert!(w.state.table.cover_make().is_none());
         assert!(!w.state.cover_job_active());
+        // Any other open closes it first, never takes it over.
+        let document = w.open(1, "books/a.epub").unwrap();
+        assert!(w.state.table.start_cover_make(OPENER, document));
+        let other = w.open(1, "books/a.epub").unwrap();
+        assert_ne!(other, document);
+        assert!(w.state.table.cover_make().is_none());
     });
 }
 

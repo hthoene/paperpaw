@@ -24,6 +24,10 @@ pub(crate) const STALL_CAP: u8 = 32;
 const EVICTED: usize = 4;
 /// `doc_open.flags` bit 2: an open for an index build, never for a book to show.
 pub(crate) const BACKGROUND: u32 = 1 << 2;
+/// `doc_open.flags` bit 3 `details`: the host job's own open of a `prepared`
+/// format's book for its details and cover only (`document.md` 2.1): never
+/// prepared, never stamped, an unstamped cache is not removed.
+pub(crate) const DETAILS: u32 = 1 << 3;
 /// The owner of the host's own background job (the library's covers, book
 /// details): no opener, so it takes no opener's cap and hears no
 /// `event.document_closed`. No plugin has this key (`ui_store` checks it
@@ -134,6 +138,9 @@ pub(crate) struct Document {
     /// XPointers and page labels flags). `flags` is the format's state, so this
     /// is kept apart.
     pub(crate) background: bool,
+    /// Opened with bit 3 `details` (the host job's, `document.md` 2.1): never
+    /// prepared, whatever the format answered.
+    pub(crate) details: bool,
     /// The library's cover job (`lib_cover`): a preparing book kept open so
     /// that the preparing loop converts it, ended by the host when it is
     /// ready or failed. One per device; always `background` as well.
@@ -318,6 +325,7 @@ impl DocumentTable {
             cover_side: 0,
             closed_by_host: 0,
             background: flags & BACKGROUND != 0,
+            details: flags & DETAILS != 0,
             cover_job: false,
             job_kind: JobKind::Cover,
             reader_held: false,
@@ -522,8 +530,9 @@ impl DocumentTable {
         let rows = self.documents.try_borrow().ok()?;
         // The cover job waits while a book is open for reading.
         let held = self.list_hold.get() || Self::reading(&rows);
-        let preparing =
-            |d: &&Document| d.state == PREPARING && d.closed_by_host == 0 && !(d.cover_job && held);
+        let preparing = |d: &&Document| {
+            d.state == PREPARING && d.closed_by_host == 0 && !d.details && !(d.cover_job && held)
+        };
         let oldest = rows.iter().find(preparing);
         if self.limits.one_preparation() {
             return oldest.copied();
@@ -539,8 +548,12 @@ impl DocumentTable {
     pub(crate) fn any_preparing(&self) -> bool {
         self.documents.try_borrow().map_or(true, |rows| {
             let held = self.list_hold.get() || Self::reading(&rows);
-            rows.iter()
-                .any(|d| d.state == PREPARING && d.closed_by_host == 0 && !(d.cover_job && held))
+            rows.iter().any(|d| {
+                d.state == PREPARING
+                    && d.closed_by_host == 0
+                    && !d.details
+                    && !(d.cover_job && held)
+            })
         })
     }
 
@@ -587,7 +600,7 @@ impl DocumentTable {
             let mut any = false;
             for d in rows
                 .iter()
-                .filter(|d| d.state == PREPARING && d.closed_by_host == 0)
+                .filter(|d| d.state == PREPARING && d.closed_by_host == 0 && !d.details)
             {
                 if !d.cover_job {
                     return false;

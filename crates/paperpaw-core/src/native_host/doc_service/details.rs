@@ -8,7 +8,10 @@
 //! Here: the open and the checks of the two answers (the same the service
 //! makes of a plugin's call), and the run's few numbers ([`DetailsRun`]),
 //! which the kernel's pump keeps and reads. No list, nothing that grows.
-use super::{Cx, DocHost, HOST_JOB, JobKind, Record, check, close, codec, open, wire};
+use super::{
+    Cx, DETAILS, DocHost, HOST_JOB, JobKind, Record, check, close, codec, open, table::BACKGROUND,
+    wire,
+};
 use crate::abi7::context::Frame;
 use crate::native_host::{fmt_call::Route, host_services::Caller};
 use alloc::vec::Vec;
@@ -113,7 +116,9 @@ pub(crate) fn open_book(host: &dyn DocHost, path: &str) -> Result<u32, i32> {
             root: 1,
             path,
             format: "",
-            flags: 0,
+            // A `prepared` format's book is read for its details alone, never
+            // converted (`document.md` 2.1); the host drops the bit for others.
+            flags: BACKGROUND | DETAILS,
             image_side: 0,
             cover_side: 0,
             css_root: 0,

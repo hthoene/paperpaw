@@ -215,7 +215,9 @@ impl DocState {
             self.unguard();
             return JobStep::None;
         }
-        if job.state == PREPARING {
+        // A `details` document is never prepared (`document.md` 2.1): one the
+        // format answered preparing ends as failed, nothing converted.
+        if job.state == PREPARING && !job.details {
             return JobStep::Wait;
         }
         // It comes to an end by itself: displacements are not in a row.

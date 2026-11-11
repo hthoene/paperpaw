@@ -39,7 +39,8 @@ mod table;
 pub(crate) use args::ROOT_HANDED;
 pub(crate) use steps::{JobStep, PrepareStep};
 pub(crate) use table::{
-    Document, DocumentTable, FAILED, FormatRef, HOST_JOB, JobKind, Limits, PREPARING, READY,
+    BACKGROUND, DETAILS, Document, DocumentTable, FAILED, FormatRef, HOST_JOB, JobKind, Limits,
+    PREPARING, READY,
 };
 
 /// Operations of `core.format` the host calls (`document.md` 3).
@@ -342,6 +343,11 @@ pub(crate) trait DocHost {
     /// The call is the library's own `cover`: it does not displace the cover
     /// job.
     fn library_call(&self) -> bool {
+        false
+    }
+    /// Whether `format`'s `format.spec` has bit 0 `prepared` (a conversion
+    /// before reading): only its books are opened with bit 3 `details`.
+    fn format_prepared(&self, _format: FormatRef) -> bool {
         false
     }
     /// An `open` is about to read the card path `path` of root `root`
@@ -652,6 +658,9 @@ impl DocHost for Cx<'_> {
     fn library_call(&self) -> bool {
         self.library
     }
+    fn format_prepared(&self, format: FormatRef) -> bool {
+        self.host.format_prepared(format)
+    }
     fn document_ready(&self, document: u32) {
         self.host.document_ready(document);
     }
@@ -821,7 +830,7 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
     let parsed = args::parse_open(input)?;
     let mut request = parsed.open;
     let long_side = host.screen_long_side();
-    args::check_open(&request, long_side)?;
+    args::check_open(&request, long_side, host.library_call())?;
     // Root 5 names a file of another plugin: the host resolves it to its card
     // path (the format is chosen by it, the book is held under it).
     let handed = if request.root == args::ROOT_HANDED {
@@ -838,6 +847,11 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
         Some(card) => host.select_format(1, card, request.format)?,
         None => host.select_format(request.root, request.path, request.format)?,
     };
+    // Bit 3 `details` is for a `prepared` format's book only; any other
+    // opens as before (`document.md` 2.1).
+    if !host.format_prepared(format) {
+        request.flags &= !table::DETAILS;
+    }
     let options = Options { batch: input };
     // The host resolves the sides, a format never asks the screen and never
     // sees 0; before the conversion key, so an open with 0 and an explicit
@@ -857,10 +871,15 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
     let table = host.table();
     // Any open that is not the library's own cover takes the cover job's
     // place at once, before its own work (`doc_cover_job`).
-    if !host.library_call()
-        && let Some(job) = table.take_cover_job()
-    {
-        taken(host, &job);
+    if !host.library_call() {
+        if let Some(job) = table.take_cover_job() {
+            taken(host, &job);
+        }
+        // The host's cover to make too (`doc_cover_make`): a `details`
+        // document is the job's alone, never handed to another open.
+        if let Some(row) = table.take_cover_make() {
+            taken(host, &row);
+        }
     }
     let caller_shows = host.shows_screen(host.owner());
     let (id, took) = table.open(

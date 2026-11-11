@@ -324,13 +324,16 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   **Native books' details: the details job (host behaviour, no ABI).** The walk cannot read a book of
   a native format plugin (its line names the file and has no size), so after a walk publishes (or
   `core.catalog-changed`) the host reads such books itself, one at a time: it opens the book as its
-  own background document (root 1, the defaults of a plain open) in the **same one slot** as the cover
+  own background document (root 1, the defaults of a plain open, `background`, and bit 3 `details`
+  for a `prepared` format, `document.md` 2.1) in the **same one slot** as the cover
   job, with the same marker (written before the open), start gate (also the 2 s after a
   displacement), sleep end (not restarted after a wake until the next walk), "any other open takes
   its place" rule (3 displacements in a row for one book give it up, as a failed book), gap between
   steps, failures and awake-time cap (one book's time counts across both kinds, a give-way to a
-  cover included). Once it
-  is ready (after the preparing loop where the format prepares) the host reads `meta` (op 5), the
+  cover included). A `prepared` format's book (DOCX, MOBI) is **never converted** for it: the
+  format answers ready from what it reads at open, or the book gets no details (an answer of
+  preparing closes it at once, as a failed book). Once it
+  is ready the host reads `meta` (op 5), the
   whole title and series by offsets where `meta` cut them, the first author and at most 16 subjects
   (op 6, each cut at the details' caps), keeps them as the book's details marked as read (never where
   nothing was read), and closes it. It begins only when no job of either kind runs and no book is
