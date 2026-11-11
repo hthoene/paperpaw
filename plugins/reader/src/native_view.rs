@@ -563,6 +563,9 @@ impl View {
     pub fn book(&self) -> Option<(&str, &'static str)> {
         match &self.body {
             Body::Open(open) => Some((open.path.as_str(), open.root)),
+            // Its document is open while it is prepared: the same book stays,
+            // and it is given back for another one.
+            Body::Preparing(book) => Some((book.found.path.as_str(), root_code(book.found.root()))),
             Body::Message(_) => None,
         }
     }
