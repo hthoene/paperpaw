@@ -195,7 +195,6 @@ fn call_checks_schema_and_owner_before_publishing_a_reply() {
                     (&foreign, 1, input.as_slice(), 512, ERR_STATE),
                     (&owner, 2, input.as_slice(), 512, ERR_UNSUPPORTED),
                     (&owner, 1, input.as_slice(), 511, ERR_NO_SPACE),
-                    (&owner, 1, &b"\0"[..], 512, ERR_INVALID),
                 ] {
                     assert_eq!(
                         call(
@@ -214,6 +213,23 @@ fn call_checks_schema_and_owner_before_publishing_a_reply() {
                     );
                     assert_eq!(out, [0xa5; 512]);
                 }
+                // An empty batch passes the schema, so the echo service runs
+                // and refuses it: after a service's own failure the reply
+                // room is wiped, not left as it was.
+                assert_eq!(
+                    call(
+                        &scope,
+                        &owner,
+                        "files",
+                        handle,
+                        1,
+                        pair(b"\0"),
+                        output(&mut out)
+                    ),
+                    ERR_INVALID
+                );
+                assert_eq!(out, [0; 512]);
+                out.fill(0xa5);
                 let running = owner.enter_service(owner.service(handle).unwrap()).unwrap();
                 assert_eq!(
                     call(
