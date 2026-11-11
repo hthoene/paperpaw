@@ -3,8 +3,9 @@
 //!
 //! Memory: no list outlives the call and none grows with the catalog. The
 //! catalog is read a line at a time (the SDK's `try_each_at`) and a book that
-//! is found only leaves a *slot* behind: its sort key (cut at 96 bytes of text
-//! and the path) and where its line starts. A pass keeps the [`WINDOW`]
+//! is found only leaves a *slot* behind: its sort key (the text cut at 96
+//! bytes and the path, in one buffer) and where its line starts. A slot is a
+//! 32-byte record and that one buffer. A pass keeps the [`WINDOW`]
 //! first slots after a bound (keyset selection); a cursor of `k` rows is
 //! reached by `k / WINDOW` passes that keep keys only, each starting after the
 //! last key of the pass before, so the page costs `cursor / 32 + 2` scans of the
@@ -55,19 +56,28 @@ pub(super) const ENTRY_BUFFER: usize = TITLE + AUTHOR + SERIES;
 /// `lib_entry.progress` of a book never opened.
 const NEVER_OPENED: u32 = 255;
 
-/// Where a book stands in the order: the first key, the lowercase text and the
-/// path. Compared as they are laid out.
+/// Where a book stands in the order: the first key, then the lowercase text
+/// and the path in one buffer (`text`, NUL, `path`: one allocation a slot).
+/// Compared as they are laid out; the text holds no NUL ([`push_lower`] drops
+/// it), so the buffer orders as the text and then the path would.
 #[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 struct Key {
     first: u32,
     text: String,
-    path: String,
 }
 
-/// A book that was found: its key and where its line starts.
+impl Key {
+    /// The book's path, after the NUL.
+    fn path(&self) -> &str {
+        self.text.split_once('\0').map_or("", |(_, path)| path)
+    }
+}
+
+/// A book that was found: its key and where its line starts (a `lib_entry`
+/// key, so 32 bits).
 struct Slot {
     key: Key,
-    offset: u64,
+    offset: u32,
 }
 
 /// The first `want` slots after a bound, in order.
@@ -96,7 +106,7 @@ impl Selection {
     /// before the worst slot kept (or the window is not full): the key moves
     /// into the slot and the scratch takes the dropped slot's buffers, so a
     /// book that is not kept costs no allocation.
-    fn offer(&mut self, scratch: &mut Key, offset: u64, after: Option<&Key>) {
+    fn offer(&mut self, scratch: &mut Key, offset: u32, after: Option<&Key>) {
         if self.want == 0 || after.is_some_and(|a| self.order(scratch, a) != Ordering::Greater) {
             return;
         }
@@ -124,11 +134,15 @@ impl Selection {
 }
 
 /// `text` appended to `out` in lowercase, reserved as it grows, until `out`
-/// is `cap` bytes (a character may pass it by two).
+/// is `cap` bytes (a character may pass it by two). A NUL is left out: it ends
+/// the text of a [`Key`].
 fn push_lower(out: &mut String, text: &str, cap: usize) -> Result<(), i32> {
     for ch in text.chars() {
         if out.len() >= cap {
             break;
+        }
+        if ch == '\0' {
+            continue;
         }
         for low in ch.to_lowercase() {
             out.try_reserve(4).map_err(|_| ERR_NO_MEMORY)?;
@@ -298,7 +312,6 @@ impl<'a> Engine<'a> {
     /// reused, and the text stops at [`KEY_TEXT`] bytes).
     fn fill(&self, record: &catalog::Record, key: &mut Key) -> Result<(), i32> {
         key.text.clear();
-        key.path.clear();
         key.first = 0;
         let text = &mut key.text;
         match self.order {
@@ -337,7 +350,8 @@ impl<'a> Engine<'a> {
             }
         }
         text.truncate(head(text, KEY_TEXT).len());
-        push(&mut key.path, &record.path)
+        push(text, "\0")?;
+        push(text, &record.path)
     }
 
     /// One scan of the catalog: the books found are offered to `selection`
@@ -353,6 +367,7 @@ impl<'a> Engine<'a> {
             }
             let outcome = self.keeps(&record, &mut words).and_then(|kept| {
                 if kept {
+                    let offset = u32::try_from(offset).map_err(|_| ERR_NO_SPACE)?;
                     self.fill(&record, &mut scratch)?;
                     selection.offer(&mut scratch, offset, after);
                 }
@@ -384,15 +399,19 @@ fn opened_list(reads: &CatalogReads) -> Result<Vec<u64>, i32> {
     let text = data::Format::FIRST
         .try_load(&*reads.storage, &file, OPENED_MAX * 512)
         .map_err(fail)?;
+    let names = || {
+        text.as_deref()
+            .unwrap_or_default()
+            .lines()
+            .take(OPENED_MAX)
+            .filter(|line| !line.is_empty())
+    };
+    // Exactly the books named: none where nothing was opened.
     let mut hashes = Vec::new();
     hashes
-        .try_reserve_exact(OPENED_MAX)
+        .try_reserve_exact(names().count())
         .map_err(|_| ERR_NO_MEMORY)?;
-    for line in text.as_deref().unwrap_or_default().lines().take(OPENED_MAX) {
-        if !line.is_empty() {
-            hashes.push(fnv1a64(line));
-        }
-    }
+    hashes.extend(names().map(fnv1a64));
     Ok(hashes)
 }
 
@@ -468,7 +487,7 @@ fn emit(reads: &CatalogReads, slots: &[Slot], visit: Rows<'_>) -> Result<u32, i3
         if row(
             reads,
             &changes,
-            (slot.offset, &slot.key.path),
+            (u64::from(slot.offset), slot.key.path()),
             &mut buffer,
             visit,
         )?
