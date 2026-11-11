@@ -558,9 +558,11 @@ impl Loader {
         // The loader's table of handles (one for the device, shared with the
         // linked-plugin probe): not borrowed by anything else at this point.
         let Ok(table) = self.resources.0.try_borrow() else {
+            warn!("native: core.net, core.sockets and core.work not wired (table busy)");
             return;
         };
         let Some(resources) = table.as_ref() else {
+            warn!("native: core.net, core.sockets and core.work not wired (no table)");
             return;
         };
         let bridge = &self.host_net;
@@ -582,7 +584,10 @@ impl Loader {
         // network policy is filled.
         let work = WorkInputs::new(bridge.clone(), crate::DEVICE.memory);
         match resources.wire(HostWiring::new().net(net).sockets(sockets).work(work)) {
-            Ok(wired) => bridge.wired(storage.clone(), wired.net(), wired.sockets()),
+            Ok(wired) => {
+                bridge.wired(storage.clone(), wired.net(), wired.sockets());
+                crate::device_host::wired_work();
+            }
             Err(status) => {
                 warn!("native: core.net, core.sockets and core.work not wired ({status})")
             }
@@ -592,15 +597,19 @@ impl Loader {
     /// Wires `core.document`, `core.library` and `core.files` over the card:
     /// the books a plugin reads, the catalog, and the card's files. One wiring,
     /// because `core.files` needs the sources of what the host holds in use
-    /// (the library's moves, the reader's book). Not offered to plugins until
-    /// the activation (`device_host::OFFERED` and the stack gate).
+    /// (the library's moves, the reader's book). Offered to plugins only when
+    /// it succeeded (`device_host::wired_card`, `offered`); a table that is
+    /// borrowed or missing counts as not wired. Not reached by a plugin until
+    /// the activation (the stack gate).
     fn wire_card(&self, storage: &alloc::rc::Rc<dyn Storage>) {
         use alloc::rc::Rc;
         use paperpaw_core::native_host::HostWiring;
         let Ok(table) = self.resources.0.try_borrow() else {
+            warn!("native: core.document, core.library and core.files not wired (table busy)");
             return;
         };
         let Some(resources) = table.as_ref() else {
+            warn!("native: core.document, core.library and core.files not wired (no table)");
             return;
         };
         let display = crate::DEVICE.display;
@@ -611,8 +620,11 @@ impl Loader {
             )
             .library(storage.clone(), Rc::new(CardCatalog))
             .files(storage.clone());
-        if let Err(status) = resources.wire(wiring) {
-            warn!("native: core.document, core.library and core.files not wired ({status})");
+        match resources.wire(wiring) {
+            Ok(_) => crate::device_host::wired_card(),
+            Err(status) => {
+                warn!("native: core.document, core.library and core.files not wired ({status})")
+            }
         }
     }
 }
@@ -664,6 +676,7 @@ impl CodeLoader for Loader {
         // `core.net` and `core.sockets` are wired before the per-plugin network policy is
         // filled (a later wiring would show plugins a false `network_off`).
         // It needs the card too (files read to, the staged file).
+        crate::device_host::reset_wired();
         self.wire_network(storage);
         self.wire_card(storage);
         wired.hyphen().cloned()
