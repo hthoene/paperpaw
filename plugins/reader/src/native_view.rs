@@ -262,6 +262,7 @@ impl View {
             found,
             whole_pages,
             conversion,
+            aloud: false,
         };
         match preparation {
             Preparation::Ready => Self::opened(host, (docs, library), book),
@@ -294,6 +295,7 @@ impl View {
             found,
             whole_pages,
             conversion,
+            ..
         } = book;
         let root = found.root();
         let (mut input, mut out) = match (buffer(256), buffer(4096)) {

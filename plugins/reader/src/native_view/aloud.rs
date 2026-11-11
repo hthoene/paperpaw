@@ -224,17 +224,24 @@ impl View {
         Some(Ok(Handled::Yes))
     }
 
-    /// The key of the open book (`native_start::book_key`); none without one.
+    /// The key of the book on show, open or still prepared
+    /// (`native_start::book_key`); none without one.
     #[must_use]
     pub fn book_key(&self) -> Option<u64> {
         match &self.body {
             Body::Open(open) => Some(crate::native_start::book_key(&open.path)),
-            _ => None,
+            Body::Preparing(book) => Some(crate::native_start::book_key(&book.found.path)),
+            Body::Message(_) => None,
         }
     }
 
-    /// Starts reading aloud on the page on show (nothing without a book).
+    /// Starts reading aloud on the page on show; a book still prepared starts
+    /// when it opens (nothing without a book).
     pub fn start_aloud(&mut self, host: &Host<'_>, shared: (&Documents, Option<&Library>)) {
+        if let Body::Preparing(book) = &mut self.body {
+            book.aloud = true;
+            return;
+        }
         self.staged(host, shared, |speaker, stage| {
             stage.align();
             speaker.start(stage);

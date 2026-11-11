@@ -24,6 +24,9 @@ pub(crate) struct Preparing {
     pub(super) found: Handover,
     pub(super) whole_pages: bool,
     pub(super) conversion: u64,
+    /// *Read aloud* was asked while the book was prepared: it starts when the
+    /// book opens.
+    pub(super) aloud: bool,
 }
 
 /// What a state the host gave means for the screen.
@@ -93,9 +96,15 @@ impl View {
                     book.whole_pages = whole_pages;
                     book.conversion = conversion;
                 }
+                let aloud = book.aloud;
                 // `opened` gives the document back on a refusal on the way.
                 match Self::opened(host, (docs, library), book) {
-                    Ok(opened) => self.body = opened.body,
+                    Ok(opened) => {
+                        self.body = opened.body;
+                        if aloud {
+                            self.start_aloud(host, (docs, library));
+                        }
+                    }
                     Err(Error::NoMemory) => {
                         self.body = Body::Message("reader.no-memory");
                         return Err(Error::NoMemory);

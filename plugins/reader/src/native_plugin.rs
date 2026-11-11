@@ -745,12 +745,15 @@ impl NativeReader {
     /// An action of the reader that reached the plugin, not a screen:
     /// `reader.auto-turn` starts or stops the timer and any other stops it; *Read
     /// aloud* before the book read last is on show is kept for it, and any other
-    /// action drops that.
+    /// action drops that. The action may come before the start is told (and the
+    /// book read last asked to open): it is kept while no screen shows a book,
+    /// and read only for the book reopened, soon (`native_start::reads_aloud`).
     fn action_run(&mut self, host: &Host<'_>, token: u32, now_ms: u64) {
         if token == native_handsfree::action_token() {
             return self.auto_turn_toggle(host);
         }
-        if token == READ_ALOUD_TOKEN && self.reopening.is_some() {
+        let no_book = !self.screens.all().any(|view| view.book().is_some());
+        if token == READ_ALOUD_TOKEN && (self.reopening.is_some() || no_book) {
             self.aloud_asked = Some(now_ms);
             return;
         }
