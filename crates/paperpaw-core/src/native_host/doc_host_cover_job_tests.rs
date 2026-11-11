@@ -496,6 +496,7 @@ fn a_ready_job_is_ended_beside_a_list_for_only_conversion_is_held() {
             .table
             .set_prepared(document, READY, 0, 0, job_row.flags)
             .unwrap();
+        cover(w);
         assert!(
             matches!(look(w), JobStep::Ended { ready: true, .. }),
             "ready: its cover is made, the list being up"
@@ -609,13 +610,15 @@ fn a_ready_book_beside_a_job_the_list_holds_gets_its_cover_made_at_once() {
     world(|w| {
         w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
         w.state.allow_cover_jobs();
+        // A ready book (opened first: the test's opens are not the library's
+        // own, which leave the job alone).
+        answer(w, READY, 0);
+        let document = w.open(1, "books/a.epub").unwrap();
         // A long book prepares as the job, and a library list is up: held.
         job(w, "books/long.epub");
         w.state.list_hold(true);
         assert!(w.state.table.list_held());
-        // A ready book: its document becomes the cover to make beside it.
-        answer(w, READY, 0);
-        let document = w.open(1, "books/a.epub").unwrap();
+        // The ready book's document becomes the cover to make beside it.
         assert!(w.state.table.start_cover_make(OPENER, document));
         assert_eq!(w.state.cover_at("books/a.epub"), CoverAt::Job);
         // Any other book not made waits, and is not opened.
