@@ -60,6 +60,7 @@ pub mod native_place;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
 pub mod native_footnote;
+pub mod native_headings;
 pub mod native_links;
 pub mod native_marking;
 pub mod native_notes;
