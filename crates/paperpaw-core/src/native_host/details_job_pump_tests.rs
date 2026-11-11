@@ -549,3 +549,19 @@ fn the_walk_after_the_job_makes_the_books_line_from_what_the_format_named() {
     assert_eq!(record.size, Some(6), "its details are read");
     assert!(!w.docs.details_job().unwrap().run().armed());
 }
+
+#[test]
+fn a_preparing_book_is_converted_by_the_pumps_preparing_loop_then_read() {
+    let mut w = world(&["books/a.docx"]);
+    catalog(&w, &[("books/a.docx", false)]);
+    started(&mut w);
+    w.format.open.set(PREPARING);
+    w.kernel.native_details_arm();
+    pump(&mut w, 1_000);
+    assert_eq!(*w.format.ops.borrow(), [2], "opened, preparing");
+    assert_eq!(kept_title(&w, "books/a.docx"), None);
+    // The next pass: a preparing step (the format is done), then the read.
+    pump(&mut w, 2_000);
+    assert_eq!(*w.format.ops.borrow(), [2, 3, 5, 6, 4]);
+    assert_eq!(kept_title(&w, "books/a.docx").as_deref(), Some("Dune"));
+}
