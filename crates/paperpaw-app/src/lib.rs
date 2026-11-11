@@ -153,12 +153,22 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 14] = [
 /// that has none; one that is not listed here only costs memory.
 #[cfg(feature = "native-linked")]
 pub fn fixed_settings(id: &str) -> &'static [paperpaw_core::sdk::SettingSpec] {
-    #[cfg(feature = "native-linked-store")]
-    if id == "widgets" {
-        return paperpaw_plugin_widgets::NATIVE_SETTINGS;
+    match id {
+        "bluetooth" => paperpaw_plugin_bluetooth::NATIVE_SETTINGS,
+        "file-manager" => paperpaw_plugin_file_manager::NATIVE_SETTINGS,
+        "help" => paperpaw_plugin_help::NATIVE_SETTINGS,
+        "keyboard" => paperpaw_plugin_keyboard::NATIVE_SETTINGS,
+        "lock" => paperpaw_plugin_lock::NATIVE_SETTINGS,
+        "menu" => paperpaw_plugin_menu::NATIVE_SETTINGS,
+        "opds" => paperpaw_plugin_opds::NATIVE_SETTINGS,
+        "power" => paperpaw_plugin_power::NATIVE_SETTINGS,
+        "settings" => paperpaw_plugin_settings::NATIVE_SETTINGS,
+        #[cfg(feature = "native-linked-store")]
+        "aids" => paperpaw_plugin_aids::NATIVE_SETTINGS,
+        #[cfg(feature = "native-linked-store")]
+        "widgets" => paperpaw_plugin_widgets::NATIVE_SETTINGS,
+        _ => &[],
     }
-    let _ = id;
-    &[]
 }
 
 /// Registers every plugin of [`NATIVE_PLUGINS`] with `kernel` through
