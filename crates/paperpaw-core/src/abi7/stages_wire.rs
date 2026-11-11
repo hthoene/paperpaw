@@ -260,15 +260,18 @@ pub mod core_book_badge_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += blob_len(self.badge.len(), BADGE_ASK_BADGE_MAX_BYTES)?;
-            len += blob_len(self.keys.len(), BADGE_ASK_KEYS_MAX_BYTES)?;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_blob(self.badge.as_bytes(), out, offset);
-            write_blob(self.keys.as_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for BadgeAsk<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.blob(self.badge.as_bytes(), BADGE_ASK_BADGE_MAX_BYTES, 0);
+            sink.blob(self.keys.as_bytes(), BADGE_ASK_KEYS_MAX_BYTES, 0);
         }
     }
 
@@ -310,17 +313,19 @@ pub mod core_book_badge_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += blob_len(self.key.len(), BADGE_VALUE_KEY_MAX_BYTES)?;
-            len += blob_len(self.text.len(), BADGE_VALUE_TEXT_MAX_BYTES)?;
-            len += blob_len(self.icon.len(), BADGE_VALUE_ICON_MAX_BYTES)?;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_blob(self.key.as_bytes(), out, offset);
-            write_blob(self.text.as_bytes(), out, offset);
-            write_blob(self.icon.as_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for BadgeValue<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.blob(self.key.as_bytes(), BADGE_VALUE_KEY_MAX_BYTES, 0);
+            sink.blob(self.text.as_bytes(), BADGE_VALUE_TEXT_MAX_BYTES, 0);
+            sink.blob(self.icon.as_bytes(), BADGE_VALUE_ICON_MAX_BYTES, 0);
         }
     }
 
@@ -352,11 +357,94 @@ pub mod core_book_badge_v1 {
             core::str::from_utf8(self.blob(cap)?).map_err(|_| -2)
         }
     }
-    fn blob_len(len: usize, cap: usize) -> Result<usize, i32> {
-        if len > cap {
+
+    /// A record's fields in wire order, walked for its length, its presence bitmap or its
+    /// bytes: one walk per record type instead of a step function each.
+    trait Fields {
+        fn fields(&self, sink: &mut dyn Sink);
+    }
+
+    /// What a walk does with each field. `mask` is the field's presence bit (0: always on
+    /// the wire); an optional field is only walked when it is present.
+    trait Sink {
+        fn scalar(&mut self, bytes: &[u8], mask: u8);
+        fn blob(&mut self, bytes: &[u8], cap: usize, mask: u8);
+    }
+
+    /// The fields' length and presence bitmap; `over` when a field is over its cap.
+    struct Measure {
+        len: usize,
+        bits: u8,
+        over: bool,
+    }
+
+    impl Sink for Measure {
+        fn scalar(&mut self, bytes: &[u8], mask: u8) {
+            self.len += bytes.len();
+            self.bits |= mask;
+        }
+
+        fn blob(&mut self, bytes: &[u8], cap: usize, mask: u8) {
+            self.over |= bytes.len() > cap;
+            self.len += varint_len(bytes.len() as u32) + bytes.len();
+            self.bits |= mask;
+        }
+    }
+
+    /// Writes the fields at `offset`; the caller checked the room.
+    struct Put<'o> {
+        out: &'o mut [u8],
+        offset: &'o mut usize,
+    }
+
+    impl Sink for Put<'_> {
+        fn scalar(&mut self, bytes: &[u8], _: u8) {
+            write_bytes(bytes, self.out, self.offset);
+        }
+
+        fn blob(&mut self, bytes: &[u8], _: usize, _: u8) {
+            write_blob(bytes, self.out, self.offset);
+        }
+    }
+
+    fn measure(record: &dyn Fields) -> Measure {
+        let mut measure = Measure {
+            len: 0,
+            bits: 0,
+            over: false,
+        };
+        record.fields(&mut measure);
+        measure
+    }
+
+    /// The presence bitmap of the optional fields.
+    fn fields_bits(record: &dyn Fields) -> u8 {
+        measure(record).bits
+    }
+
+    /// The body length: the presence bitmap (one byte more when an optional field is
+    /// present) and the fields; a field over its cap is ERR_NO_SPACE.
+    fn fields_len(record: &dyn Fields) -> Result<usize, i32> {
+        let measure = measure(record);
+        if measure.over {
             return Err(-2);
         }
-        Ok(varint_len(len as u32) + len)
+        Ok(1 + usize::from(measure.bits != 0) + measure.len)
+    }
+
+    /// The fields, without the presence bitmap.
+    fn fields_write(record: &dyn Fields, out: &mut [u8], offset: &mut usize) {
+        record.fields(&mut Put { out, offset });
+    }
+
+    /// The body: the presence bitmap, then the fields.
+    fn fields_write_framed(record: &dyn Fields, out: &mut [u8], offset: &mut usize) {
+        let bits = fields_bits(record);
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
+        fields_write(record, out, offset);
     }
     fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
         write_varint(bytes.len() as u32, out, offset);
@@ -931,37 +1019,29 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 8;
-            len += blob_len(self.text.len(), FMT_CALL_TEXT_MAX_BYTES)?;
-            len += blob_len(self.arg.len(), FMT_CALL_ARG_MAX_BYTES)?;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.op.to_le_bytes(), out, offset);
-            write_bytes(&self.document.to_le_bytes(), out, offset);
-            write_bytes(&self.section.to_le_bytes(), out, offset);
-            write_bytes(&self.offset.to_le_bytes(), out, offset);
-            write_bytes(&self.index.to_le_bytes(), out, offset);
-            write_bytes(&self.cursor.to_le_bytes(), out, offset);
-            write_bytes(&self.generation.to_le_bytes(), out, offset);
-            write_bytes(&self.flags.to_le_bytes(), out, offset);
-            write_bytes(&self.image_side.to_le_bytes(), out, offset);
-            write_bytes(&self.cover_side.to_le_bytes(), out, offset);
-            write_bytes(&self.conversion.to_le_bytes(), out, offset);
-            write_blob(self.text.as_bytes(), out, offset);
-            write_blob(self.arg, out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtCall<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.op.to_le_bytes(), 0);
+            sink.scalar(&self.document.to_le_bytes(), 0);
+            sink.scalar(&self.section.to_le_bytes(), 0);
+            sink.scalar(&self.offset.to_le_bytes(), 0);
+            sink.scalar(&self.index.to_le_bytes(), 0);
+            sink.scalar(&self.cursor.to_le_bytes(), 0);
+            sink.scalar(&self.generation.to_le_bytes(), 0);
+            sink.scalar(&self.flags.to_le_bytes(), 0);
+            sink.scalar(&self.image_side.to_le_bytes(), 0);
+            sink.scalar(&self.cover_side.to_le_bytes(), 0);
+            sink.scalar(&self.conversion.to_le_bytes(), 0);
+            sink.blob(self.text.as_bytes(), FMT_CALL_TEXT_MAX_BYTES, 0);
+            sink.blob(self.arg, FMT_CALL_ARG_MAX_BYTES, 0);
         }
     }
 
@@ -1026,15 +1106,18 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += blob_len(self.key.len(), FMT_OPTION_KEY_MAX_BYTES)?;
-            len += blob_len(self.value.len(), FMT_OPTION_VALUE_MAX_BYTES)?;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_blob(self.key.as_bytes(), out, offset);
-            write_blob(self.value.as_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtOption<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.blob(self.key.as_bytes(), FMT_OPTION_KEY_MAX_BYTES, 0);
+            sink.blob(self.value.as_bytes(), FMT_OPTION_VALUE_MAX_BYTES, 0);
         }
     }
 
@@ -1064,13 +1147,17 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.flags.to_le_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtYes {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.flags.to_le_bytes(), 0);
         }
     }
 
@@ -1114,21 +1201,21 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += blob_len(self.path.len(), FMT_IMAGE_PATH_MAX_BYTES)?;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_blob(self.path.as_bytes(), out, offset);
-            write_bytes(&self.index.to_le_bytes(), out, offset);
-            write_bytes(&self.width.to_le_bytes(), out, offset);
-            write_bytes(&self.height.to_le_bytes(), out, offset);
-            write_bytes(&self.flags.to_le_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtImage<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.blob(self.path.as_bytes(), FMT_IMAGE_PATH_MAX_BYTES, 0);
+            sink.scalar(&self.index.to_le_bytes(), 0);
+            sink.scalar(&self.width.to_le_bytes(), 0);
+            sink.scalar(&self.height.to_le_bytes(), 0);
+            sink.scalar(&self.flags.to_le_bytes(), 0);
         }
     }
 
@@ -1184,25 +1271,23 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 8;
-            len += blob_len(self.format.len(), FMT_STATE_FORMAT_MAX_BYTES)?;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.document.to_le_bytes(), out, offset);
-            write_bytes(&self.state.to_le_bytes(), out, offset);
-            write_bytes(&self.progress_ppm.to_le_bytes(), out, offset);
-            write_bytes(&self.status.to_le_bytes(), out, offset);
-            write_bytes(&self.flags.to_le_bytes(), out, offset);
-            write_bytes(&self.conversion.to_le_bytes(), out, offset);
-            write_blob(self.format.as_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtState<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.document.to_le_bytes(), 0);
+            sink.scalar(&self.state.to_le_bytes(), 0);
+            sink.scalar(&self.progress_ppm.to_le_bytes(), 0);
+            sink.scalar(&self.status.to_le_bytes(), 0);
+            sink.scalar(&self.flags.to_le_bytes(), 0);
+            sink.scalar(&self.conversion.to_le_bytes(), 0);
+            sink.blob(self.format.as_bytes(), FMT_STATE_FORMAT_MAX_BYTES, 0);
         }
     }
 
@@ -1286,33 +1371,31 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += blob_len(self.title.len(), FMT_META_TITLE_MAX_BYTES)?;
-            len += blob_len(self.language.len(), FMT_META_LANGUAGE_MAX_BYTES)?;
-            len += blob_len(self.series.len(), FMT_META_SERIES_MAX_BYTES)?;
-            len += blob_len(self.series_index.len(), FMT_META_SERIES_INDEX_MAX_BYTES)?;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_blob(self.title.as_bytes(), out, offset);
-            write_blob(self.language.as_bytes(), out, offset);
-            write_blob(self.series.as_bytes(), out, offset);
-            write_blob(self.series_index.as_bytes(), out, offset);
-            write_bytes(&self.direction.to_le_bytes(), out, offset);
-            write_bytes(&self.writing_mode.to_le_bytes(), out, offset);
-            write_bytes(&self.sections.to_le_bytes(), out, offset);
-            write_bytes(&self.authors.to_le_bytes(), out, offset);
-            write_bytes(&self.subjects.to_le_bytes(), out, offset);
-            write_bytes(&self.description_bytes.to_le_bytes(), out, offset);
-            write_bytes(&self.flags.to_le_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtMeta<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.blob(self.title.as_bytes(), FMT_META_TITLE_MAX_BYTES, 0);
+            sink.blob(self.language.as_bytes(), FMT_META_LANGUAGE_MAX_BYTES, 0);
+            sink.blob(self.series.as_bytes(), FMT_META_SERIES_MAX_BYTES, 0);
+            sink.blob(
+                self.series_index.as_bytes(),
+                FMT_META_SERIES_INDEX_MAX_BYTES,
+                0,
+            );
+            sink.scalar(&self.direction.to_le_bytes(), 0);
+            sink.scalar(&self.writing_mode.to_le_bytes(), 0);
+            sink.scalar(&self.sections.to_le_bytes(), 0);
+            sink.scalar(&self.authors.to_le_bytes(), 0);
+            sink.scalar(&self.subjects.to_le_bytes(), 0);
+            sink.scalar(&self.description_bytes.to_le_bytes(), 0);
+            sink.scalar(&self.flags.to_le_bytes(), 0);
         }
     }
 
@@ -1377,19 +1460,20 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            len += 4;
-            len += 4;
-            len += blob_len(self.text.len(), FMT_TEXT_TEXT_MAX_BYTES)?;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.kind.to_le_bytes(), out, offset);
-            write_bytes(&self.index.to_le_bytes(), out, offset);
-            write_bytes(&self.total.to_le_bytes(), out, offset);
-            write_blob(self.text.as_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtText<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.kind.to_le_bytes(), 0);
+            sink.scalar(&self.index.to_le_bytes(), 0);
+            sink.scalar(&self.total.to_le_bytes(), 0);
+            sink.blob(self.text.as_bytes(), FMT_TEXT_TEXT_MAX_BYTES, 0);
         }
     }
 
@@ -1430,17 +1514,19 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            len += 4;
-            len += 4;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.index.to_le_bytes(), out, offset);
-            write_bytes(&self.length.to_le_bytes(), out, offset);
-            write_bytes(&self.flags.to_le_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtSection {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.index.to_le_bytes(), 0);
+            sink.scalar(&self.length.to_le_bytes(), 0);
+            sink.scalar(&self.flags.to_le_bytes(), 0);
         }
     }
 
@@ -1486,34 +1572,26 @@ pub mod core_format_v1 {
         }
 
         fn bits(&self) -> u8 {
-            let mut bits = 0;
-            if self.cursor.is_some() {
-                bits |= 0x01;
-            }
-            bits
+            fields_bits(self)
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let bits = self.bits();
-            // The bitmap is one byte when any optional field is present.
-            let mut len = 1 + usize::from(bits != 0);
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            if bits & 0x01 != 0 {
-                len += 8;
-            }
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.flags.to_le_bytes(), out, offset);
-            write_bytes(&self.total.to_le_bytes(), out, offset);
-            write_bytes(&self.generation.to_le_bytes(), out, offset);
-            write_bytes(&self.next.to_le_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtEnd {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.flags.to_le_bytes(), 0);
+            sink.scalar(&self.total.to_le_bytes(), 0);
+            sink.scalar(&self.generation.to_le_bytes(), 0);
+            sink.scalar(&self.next.to_le_bytes(), 0);
             if let Some(value) = self.cursor {
-                write_bytes(&value.to_le_bytes(), out, offset);
+                sink.scalar(&value.to_le_bytes(), 0x01);
             }
         }
     }
@@ -1606,45 +1684,33 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += blob_len(self.lang.len(), FMT_BLOCK_LANG_MAX_BYTES)?;
-            len += 4;
-            len += 4;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.kind.to_le_bytes(), out, offset);
-            write_bytes(&self.level.to_le_bytes(), out, offset);
-            write_bytes(&self.flags.to_le_bytes(), out, offset);
-            write_bytes(&self.start.to_le_bytes(), out, offset);
-            write_bytes(&self.end.to_le_bytes(), out, offset);
-            write_bytes(&self.align.to_le_bytes(), out, offset);
-            write_bytes(&self.indent.to_le_bytes(), out, offset);
-            write_bytes(&self.space.to_le_bytes(), out, offset);
-            write_bytes(&self.size.to_le_bytes(), out, offset);
-            write_bytes(&self.margin_start.to_le_bytes(), out, offset);
-            write_bytes(&self.margin_end.to_le_bytes(), out, offset);
-            write_bytes(&self.line_height.to_le_bytes(), out, offset);
-            write_bytes(&self.dir.to_le_bytes(), out, offset);
-            write_bytes(&self.writing_mode.to_le_bytes(), out, offset);
-            write_blob(self.lang.as_bytes(), out, offset);
-            write_bytes(&self.drop_cap.to_le_bytes(), out, offset);
-            write_bytes(&self.text_bytes.to_le_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtBlock<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.kind.to_le_bytes(), 0);
+            sink.scalar(&self.level.to_le_bytes(), 0);
+            sink.scalar(&self.flags.to_le_bytes(), 0);
+            sink.scalar(&self.start.to_le_bytes(), 0);
+            sink.scalar(&self.end.to_le_bytes(), 0);
+            sink.scalar(&self.align.to_le_bytes(), 0);
+            sink.scalar(&self.indent.to_le_bytes(), 0);
+            sink.scalar(&self.space.to_le_bytes(), 0);
+            sink.scalar(&self.size.to_le_bytes(), 0);
+            sink.scalar(&self.margin_start.to_le_bytes(), 0);
+            sink.scalar(&self.margin_end.to_le_bytes(), 0);
+            sink.scalar(&self.line_height.to_le_bytes(), 0);
+            sink.scalar(&self.dir.to_le_bytes(), 0);
+            sink.scalar(&self.writing_mode.to_le_bytes(), 0);
+            sink.blob(self.lang.as_bytes(), FMT_BLOCK_LANG_MAX_BYTES, 0);
+            sink.scalar(&self.drop_cap.to_le_bytes(), 0);
+            sink.scalar(&self.text_bytes.to_le_bytes(), 0);
         }
     }
 
@@ -1712,13 +1778,17 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += blob_len(self.text.len(), FMT_TEXT_PART_TEXT_MAX_BYTES)?;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_blob(self.text.as_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtTextPart<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.blob(self.text.as_bytes(), FMT_TEXT_PART_TEXT_MAX_BYTES, 0);
         }
     }
 
@@ -1754,17 +1824,19 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            len += 4;
-            len += 4;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.start.to_le_bytes(), out, offset);
-            write_bytes(&self.end.to_le_bytes(), out, offset);
-            write_bytes(&self.style.to_le_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtRun {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.start.to_le_bytes(), 0);
+            sink.scalar(&self.end.to_le_bytes(), 0);
+            sink.scalar(&self.style.to_le_bytes(), 0);
         }
     }
 
@@ -1797,15 +1869,18 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            len += 4;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.text.to_le_bytes(), out, offset);
-            write_bytes(&self.source.to_le_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtMap {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.text.to_le_bytes(), 0);
+            sink.scalar(&self.source.to_le_bytes(), 0);
         }
     }
 
@@ -1837,13 +1912,17 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += blob_len(self.weights.len(), FMT_COLUMNS_WEIGHTS_MAX_BYTES)?;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_blob(self.weights, out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtColumns<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.blob(self.weights, FMT_COLUMNS_WEIGHTS_MAX_BYTES, 0);
         }
     }
 
@@ -1888,23 +1967,22 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.end.to_le_bytes(), out, offset);
-            write_bytes(&self.span.to_le_bytes(), out, offset);
-            write_bytes(&self.rows.to_le_bytes(), out, offset);
-            write_bytes(&self.align.to_le_bytes(), out, offset);
-            write_bytes(&self.vertical.to_le_bytes(), out, offset);
-            write_bytes(&self.width.to_le_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtCell {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.end.to_le_bytes(), 0);
+            sink.scalar(&self.span.to_le_bytes(), 0);
+            sink.scalar(&self.rows.to_le_bytes(), 0);
+            sink.scalar(&self.align.to_le_bytes(), 0);
+            sink.scalar(&self.vertical.to_le_bytes(), 0);
+            sink.scalar(&self.width.to_le_bytes(), 0);
         }
     }
 
@@ -1962,21 +2040,21 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += blob_len(self.text.len(), FMT_RUBY_TEXT_MAX_BYTES)?;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.start.to_le_bytes(), out, offset);
-            write_bytes(&self.end.to_le_bytes(), out, offset);
-            write_bytes(&self.kind.to_le_bytes(), out, offset);
-            write_bytes(&self.size.to_le_bytes(), out, offset);
-            write_blob(self.text.as_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtRuby<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.start.to_le_bytes(), 0);
+            sink.scalar(&self.end.to_le_bytes(), 0);
+            sink.scalar(&self.kind.to_le_bytes(), 0);
+            sink.scalar(&self.size.to_le_bytes(), 0);
+            sink.blob(self.text.as_bytes(), FMT_RUBY_TEXT_MAX_BYTES, 0);
         }
     }
 
@@ -2014,13 +2092,17 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += blob_len(self.lang.len(), FMT_INLINE_LANG_LANG_MAX_BYTES)?;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_blob(self.lang.as_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtInlineLang<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.blob(self.lang.as_bytes(), FMT_INLINE_LANG_LANG_MAX_BYTES, 0);
         }
     }
 
@@ -2067,23 +2149,22 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += blob_len(self.title.len(), FMT_TOC_TITLE_MAX_BYTES)?;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.index.to_le_bytes(), out, offset);
-            write_bytes(&self.level.to_le_bytes(), out, offset);
-            write_bytes(&self.section.to_le_bytes(), out, offset);
-            write_bytes(&self.offset.to_le_bytes(), out, offset);
-            write_bytes(&self.flags.to_le_bytes(), out, offset);
-            write_blob(self.title.as_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtToc<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.index.to_le_bytes(), 0);
+            sink.scalar(&self.level.to_le_bytes(), 0);
+            sink.scalar(&self.section.to_le_bytes(), 0);
+            sink.scalar(&self.offset.to_le_bytes(), 0);
+            sink.scalar(&self.flags.to_le_bytes(), 0);
+            sink.blob(self.title.as_bytes(), FMT_TOC_TITLE_MAX_BYTES, 0);
         }
     }
 
@@ -2142,23 +2223,22 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.document.to_le_bytes(), out, offset);
-            write_bytes(&self.section.to_le_bytes(), out, offset);
-            write_bytes(&self.offset.to_le_bytes(), out, offset);
-            write_bytes(&self.insert.to_le_bytes(), out, offset);
-            write_bytes(&self.cursor.to_le_bytes(), out, offset);
-            write_bytes(&self.generation.to_le_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtAt {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.document.to_le_bytes(), 0);
+            sink.scalar(&self.section.to_le_bytes(), 0);
+            sink.scalar(&self.offset.to_le_bytes(), 0);
+            sink.scalar(&self.insert.to_le_bytes(), 0);
+            sink.scalar(&self.cursor.to_le_bytes(), 0);
+            sink.scalar(&self.generation.to_le_bytes(), 0);
         }
     }
 
@@ -2204,13 +2284,17 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += blob_len(self.text.len(), FMT_LABEL_TEXT_MAX_BYTES)?;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_blob(self.text.as_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtLabel<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.blob(self.text.as_bytes(), FMT_LABEL_TEXT_MAX_BYTES, 0);
         }
     }
 
@@ -2245,15 +2329,18 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            len += blob_len(self.text.len(), FMT_XPOINTER_TEXT_MAX_BYTES)?;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.document.to_le_bytes(), out, offset);
-            write_blob(self.text.as_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtXpointer<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.document.to_le_bytes(), 0);
+            sink.blob(self.text.as_bytes(), FMT_XPOINTER_TEXT_MAX_BYTES, 0);
         }
     }
 
@@ -2294,19 +2381,20 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            len += 4;
-            len += 4;
-            len += blob_len(self.href.len(), FMT_LINK_HREF_MAX_BYTES)?;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.start.to_le_bytes(), out, offset);
-            write_bytes(&self.end.to_le_bytes(), out, offset);
-            write_bytes(&self.kind.to_le_bytes(), out, offset);
-            write_blob(self.href.as_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtLink<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.start.to_le_bytes(), 0);
+            sink.scalar(&self.end.to_le_bytes(), 0);
+            sink.scalar(&self.kind.to_le_bytes(), 0);
+            sink.blob(self.href.as_bytes(), FMT_LINK_HREF_MAX_BYTES, 0);
         }
     }
 
@@ -2350,19 +2438,20 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.index.to_le_bytes(), out, offset);
-            write_bytes(&self.family.to_le_bytes(), out, offset);
-            write_bytes(&self.flags.to_le_bytes(), out, offset);
-            write_bytes(&self.bytes.to_le_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtFont {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.index.to_le_bytes(), 0);
+            sink.scalar(&self.family.to_le_bytes(), 0);
+            sink.scalar(&self.flags.to_le_bytes(), 0);
+            sink.scalar(&self.bytes.to_le_bytes(), 0);
         }
     }
 
@@ -2397,13 +2486,17 @@ pub mod core_format_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.progress_ppm.to_le_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FmtProgress {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.progress_ppm.to_le_bytes(), 0);
         }
     }
 
@@ -2492,11 +2585,94 @@ pub mod core_format_v1 {
             Ok(Some(u64::from_le_bytes(self.scalar()?)))
         }
     }
-    fn blob_len(len: usize, cap: usize) -> Result<usize, i32> {
-        if len > cap {
+
+    /// A record's fields in wire order, walked for its length, its presence bitmap or its
+    /// bytes: one walk per record type instead of a step function each.
+    trait Fields {
+        fn fields(&self, sink: &mut dyn Sink);
+    }
+
+    /// What a walk does with each field. `mask` is the field's presence bit (0: always on
+    /// the wire); an optional field is only walked when it is present.
+    trait Sink {
+        fn scalar(&mut self, bytes: &[u8], mask: u8);
+        fn blob(&mut self, bytes: &[u8], cap: usize, mask: u8);
+    }
+
+    /// The fields' length and presence bitmap; `over` when a field is over its cap.
+    struct Measure {
+        len: usize,
+        bits: u8,
+        over: bool,
+    }
+
+    impl Sink for Measure {
+        fn scalar(&mut self, bytes: &[u8], mask: u8) {
+            self.len += bytes.len();
+            self.bits |= mask;
+        }
+
+        fn blob(&mut self, bytes: &[u8], cap: usize, mask: u8) {
+            self.over |= bytes.len() > cap;
+            self.len += varint_len(bytes.len() as u32) + bytes.len();
+            self.bits |= mask;
+        }
+    }
+
+    /// Writes the fields at `offset`; the caller checked the room.
+    struct Put<'o> {
+        out: &'o mut [u8],
+        offset: &'o mut usize,
+    }
+
+    impl Sink for Put<'_> {
+        fn scalar(&mut self, bytes: &[u8], _: u8) {
+            write_bytes(bytes, self.out, self.offset);
+        }
+
+        fn blob(&mut self, bytes: &[u8], _: usize, _: u8) {
+            write_blob(bytes, self.out, self.offset);
+        }
+    }
+
+    fn measure(record: &dyn Fields) -> Measure {
+        let mut measure = Measure {
+            len: 0,
+            bits: 0,
+            over: false,
+        };
+        record.fields(&mut measure);
+        measure
+    }
+
+    /// The presence bitmap of the optional fields.
+    fn fields_bits(record: &dyn Fields) -> u8 {
+        measure(record).bits
+    }
+
+    /// The body length: the presence bitmap (one byte more when an optional field is
+    /// present) and the fields; a field over its cap is ERR_NO_SPACE.
+    fn fields_len(record: &dyn Fields) -> Result<usize, i32> {
+        let measure = measure(record);
+        if measure.over {
             return Err(-2);
         }
-        Ok(varint_len(len as u32) + len)
+        Ok(1 + usize::from(measure.bits != 0) + measure.len)
+    }
+
+    /// The fields, without the presence bitmap.
+    fn fields_write(record: &dyn Fields, out: &mut [u8], offset: &mut usize) {
+        record.fields(&mut Put { out, offset });
+    }
+
+    /// The body: the presence bitmap, then the fields.
+    fn fields_write_framed(record: &dyn Fields, out: &mut [u8], offset: &mut usize) {
+        let bits = fields_bits(record);
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
+        fields_write(record, out, offset);
     }
     fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
         write_varint(bytes.len() as u32, out, offset);
@@ -3525,15 +3701,18 @@ pub mod core_input_filter_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += blob_len(self.input.len(), FILTER_INPUT_INPUT_MAX_BYTES)?;
-            len += 4;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_blob(self.input, out, offset);
-            write_bytes(&self.flags.to_le_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FilterInput<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.blob(self.input, FILTER_INPUT_INPUT_MAX_BYTES, 0);
+            sink.scalar(&self.flags.to_le_bytes(), 0);
         }
     }
 
@@ -3578,19 +3757,20 @@ pub mod core_input_filter_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            len += blob_len(self.action.len(), FILTER_VERDICT_ACTION_MAX_BYTES)?;
-            len += blob_len(self.input.len(), FILTER_VERDICT_INPUT_MAX_BYTES)?;
-            len += blob_len(self.raise.len(), FILTER_VERDICT_RAISE_MAX_BYTES)?;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.kind.to_le_bytes(), out, offset);
-            write_blob(self.action.as_bytes(), out, offset);
-            write_blob(self.input, out, offset);
-            write_blob(self.raise.as_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for FilterVerdict<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.kind.to_le_bytes(), 0);
+            sink.blob(self.action.as_bytes(), FILTER_VERDICT_ACTION_MAX_BYTES, 0);
+            sink.blob(self.input, FILTER_VERDICT_INPUT_MAX_BYTES, 0);
+            sink.blob(self.raise.as_bytes(), FILTER_VERDICT_RAISE_MAX_BYTES, 0);
         }
     }
 
@@ -3627,11 +3807,94 @@ pub mod core_input_filter_v1 {
             core::str::from_utf8(self.blob(cap)?).map_err(|_| -2)
         }
     }
-    fn blob_len(len: usize, cap: usize) -> Result<usize, i32> {
-        if len > cap {
+
+    /// A record's fields in wire order, walked for its length, its presence bitmap or its
+    /// bytes: one walk per record type instead of a step function each.
+    trait Fields {
+        fn fields(&self, sink: &mut dyn Sink);
+    }
+
+    /// What a walk does with each field. `mask` is the field's presence bit (0: always on
+    /// the wire); an optional field is only walked when it is present.
+    trait Sink {
+        fn scalar(&mut self, bytes: &[u8], mask: u8);
+        fn blob(&mut self, bytes: &[u8], cap: usize, mask: u8);
+    }
+
+    /// The fields' length and presence bitmap; `over` when a field is over its cap.
+    struct Measure {
+        len: usize,
+        bits: u8,
+        over: bool,
+    }
+
+    impl Sink for Measure {
+        fn scalar(&mut self, bytes: &[u8], mask: u8) {
+            self.len += bytes.len();
+            self.bits |= mask;
+        }
+
+        fn blob(&mut self, bytes: &[u8], cap: usize, mask: u8) {
+            self.over |= bytes.len() > cap;
+            self.len += varint_len(bytes.len() as u32) + bytes.len();
+            self.bits |= mask;
+        }
+    }
+
+    /// Writes the fields at `offset`; the caller checked the room.
+    struct Put<'o> {
+        out: &'o mut [u8],
+        offset: &'o mut usize,
+    }
+
+    impl Sink for Put<'_> {
+        fn scalar(&mut self, bytes: &[u8], _: u8) {
+            write_bytes(bytes, self.out, self.offset);
+        }
+
+        fn blob(&mut self, bytes: &[u8], _: usize, _: u8) {
+            write_blob(bytes, self.out, self.offset);
+        }
+    }
+
+    fn measure(record: &dyn Fields) -> Measure {
+        let mut measure = Measure {
+            len: 0,
+            bits: 0,
+            over: false,
+        };
+        record.fields(&mut measure);
+        measure
+    }
+
+    /// The presence bitmap of the optional fields.
+    fn fields_bits(record: &dyn Fields) -> u8 {
+        measure(record).bits
+    }
+
+    /// The body length: the presence bitmap (one byte more when an optional field is
+    /// present) and the fields; a field over its cap is ERR_NO_SPACE.
+    fn fields_len(record: &dyn Fields) -> Result<usize, i32> {
+        let measure = measure(record);
+        if measure.over {
             return Err(-2);
         }
-        Ok(varint_len(len as u32) + len)
+        Ok(1 + usize::from(measure.bits != 0) + measure.len)
+    }
+
+    /// The fields, without the presence bitmap.
+    fn fields_write(record: &dyn Fields, out: &mut [u8], offset: &mut usize) {
+        record.fields(&mut Put { out, offset });
+    }
+
+    /// The body: the presence bitmap, then the fields.
+    fn fields_write_framed(record: &dyn Fields, out: &mut [u8], offset: &mut usize) {
+        let bits = fields_bits(record);
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
+        fields_write(record, out, offset);
     }
     fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
         write_varint(bytes.len() as u32, out, offset);
@@ -4152,19 +4415,20 @@ pub mod core_lookup_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += blob_len(self.text.len(), LOOKUP_ASK_TEXT_MAX_BYTES)?;
-            len += blob_len(self.language.len(), LOOKUP_ASK_LANGUAGE_MAX_BYTES)?;
-            len += blob_len(self.context.len(), LOOKUP_ASK_CONTEXT_MAX_BYTES)?;
-            len += 4;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_blob(self.text.as_bytes(), out, offset);
-            write_blob(self.language.as_bytes(), out, offset);
-            write_blob(self.context.as_bytes(), out, offset);
-            write_bytes(&self.cursor.to_le_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for LookupAsk<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.blob(self.text.as_bytes(), LOOKUP_ASK_TEXT_MAX_BYTES, 0);
+            sink.blob(self.language.as_bytes(), LOOKUP_ASK_LANGUAGE_MAX_BYTES, 0);
+            sink.blob(self.context.as_bytes(), LOOKUP_ASK_CONTEXT_MAX_BYTES, 0);
+            sink.scalar(&self.cursor.to_le_bytes(), 0);
         }
     }
 
@@ -4209,17 +4473,19 @@ pub mod core_lookup_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += blob_len(self.title.len(), LOOKUP_ENTRY_TITLE_MAX_BYTES)?;
-            len += blob_len(self.text.len(), LOOKUP_ENTRY_TEXT_MAX_BYTES)?;
-            len += 4;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_blob(self.title.as_bytes(), out, offset);
-            write_blob(self.text.as_bytes(), out, offset);
-            write_bytes(&self.flags.to_le_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for LookupEntry<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.blob(self.title.as_bytes(), LOOKUP_ENTRY_TITLE_MAX_BYTES, 0);
+            sink.blob(self.text.as_bytes(), LOOKUP_ENTRY_TEXT_MAX_BYTES, 0);
+            sink.scalar(&self.flags.to_le_bytes(), 0);
         }
     }
 
@@ -4251,11 +4517,94 @@ pub mod core_lookup_v1 {
             core::str::from_utf8(self.blob(cap)?).map_err(|_| -2)
         }
     }
-    fn blob_len(len: usize, cap: usize) -> Result<usize, i32> {
-        if len > cap {
+
+    /// A record's fields in wire order, walked for its length, its presence bitmap or its
+    /// bytes: one walk per record type instead of a step function each.
+    trait Fields {
+        fn fields(&self, sink: &mut dyn Sink);
+    }
+
+    /// What a walk does with each field. `mask` is the field's presence bit (0: always on
+    /// the wire); an optional field is only walked when it is present.
+    trait Sink {
+        fn scalar(&mut self, bytes: &[u8], mask: u8);
+        fn blob(&mut self, bytes: &[u8], cap: usize, mask: u8);
+    }
+
+    /// The fields' length and presence bitmap; `over` when a field is over its cap.
+    struct Measure {
+        len: usize,
+        bits: u8,
+        over: bool,
+    }
+
+    impl Sink for Measure {
+        fn scalar(&mut self, bytes: &[u8], mask: u8) {
+            self.len += bytes.len();
+            self.bits |= mask;
+        }
+
+        fn blob(&mut self, bytes: &[u8], cap: usize, mask: u8) {
+            self.over |= bytes.len() > cap;
+            self.len += varint_len(bytes.len() as u32) + bytes.len();
+            self.bits |= mask;
+        }
+    }
+
+    /// Writes the fields at `offset`; the caller checked the room.
+    struct Put<'o> {
+        out: &'o mut [u8],
+        offset: &'o mut usize,
+    }
+
+    impl Sink for Put<'_> {
+        fn scalar(&mut self, bytes: &[u8], _: u8) {
+            write_bytes(bytes, self.out, self.offset);
+        }
+
+        fn blob(&mut self, bytes: &[u8], _: usize, _: u8) {
+            write_blob(bytes, self.out, self.offset);
+        }
+    }
+
+    fn measure(record: &dyn Fields) -> Measure {
+        let mut measure = Measure {
+            len: 0,
+            bits: 0,
+            over: false,
+        };
+        record.fields(&mut measure);
+        measure
+    }
+
+    /// The presence bitmap of the optional fields.
+    fn fields_bits(record: &dyn Fields) -> u8 {
+        measure(record).bits
+    }
+
+    /// The body length: the presence bitmap (one byte more when an optional field is
+    /// present) and the fields; a field over its cap is ERR_NO_SPACE.
+    fn fields_len(record: &dyn Fields) -> Result<usize, i32> {
+        let measure = measure(record);
+        if measure.over {
             return Err(-2);
         }
-        Ok(varint_len(len as u32) + len)
+        Ok(1 + usize::from(measure.bits != 0) + measure.len)
+    }
+
+    /// The fields, without the presence bitmap.
+    fn fields_write(record: &dyn Fields, out: &mut [u8], offset: &mut usize) {
+        record.fields(&mut Put { out, offset });
+    }
+
+    /// The body: the presence bitmap, then the fields.
+    fn fields_write_framed(record: &dyn Fields, out: &mut [u8], offset: &mut usize) {
+        let bits = fields_bits(record);
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
+        fields_write(record, out, offset);
     }
     fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
         write_varint(bytes.len() as u32, out, offset);
@@ -4771,15 +5120,18 @@ pub mod core_status_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += blob_len(self.items.len(), STATUS_ASK_ITEMS_MAX_BYTES)?;
-            len += blob_len(self.context.len(), STATUS_ASK_CONTEXT_MAX_BYTES)?;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_blob(self.items.as_bytes(), out, offset);
-            write_blob(self.context, out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for StatusAsk<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.blob(self.items.as_bytes(), STATUS_ASK_ITEMS_MAX_BYTES, 0);
+            sink.blob(self.context, STATUS_ASK_CONTEXT_MAX_BYTES, 0);
         }
     }
 
@@ -4819,17 +5171,19 @@ pub mod core_status_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += blob_len(self.item.len(), STATUS_VALUE_ITEM_MAX_BYTES)?;
-            len += 4;
-            len += blob_len(self.text.len(), STATUS_VALUE_TEXT_MAX_BYTES)?;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_blob(self.item.as_bytes(), out, offset);
-            write_bytes(&self.flags.to_le_bytes(), out, offset);
-            write_blob(self.text.as_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for StatusValue<'_> {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.blob(self.item.as_bytes(), STATUS_VALUE_ITEM_MAX_BYTES, 0);
+            sink.scalar(&self.flags.to_le_bytes(), 0);
+            sink.blob(self.text.as_bytes(), STATUS_VALUE_TEXT_MAX_BYTES, 0);
         }
     }
 
@@ -4861,11 +5215,94 @@ pub mod core_status_v1 {
             core::str::from_utf8(self.blob(cap)?).map_err(|_| -2)
         }
     }
-    fn blob_len(len: usize, cap: usize) -> Result<usize, i32> {
-        if len > cap {
+
+    /// A record's fields in wire order, walked for its length, its presence bitmap or its
+    /// bytes: one walk per record type instead of a step function each.
+    trait Fields {
+        fn fields(&self, sink: &mut dyn Sink);
+    }
+
+    /// What a walk does with each field. `mask` is the field's presence bit (0: always on
+    /// the wire); an optional field is only walked when it is present.
+    trait Sink {
+        fn scalar(&mut self, bytes: &[u8], mask: u8);
+        fn blob(&mut self, bytes: &[u8], cap: usize, mask: u8);
+    }
+
+    /// The fields' length and presence bitmap; `over` when a field is over its cap.
+    struct Measure {
+        len: usize,
+        bits: u8,
+        over: bool,
+    }
+
+    impl Sink for Measure {
+        fn scalar(&mut self, bytes: &[u8], mask: u8) {
+            self.len += bytes.len();
+            self.bits |= mask;
+        }
+
+        fn blob(&mut self, bytes: &[u8], cap: usize, mask: u8) {
+            self.over |= bytes.len() > cap;
+            self.len += varint_len(bytes.len() as u32) + bytes.len();
+            self.bits |= mask;
+        }
+    }
+
+    /// Writes the fields at `offset`; the caller checked the room.
+    struct Put<'o> {
+        out: &'o mut [u8],
+        offset: &'o mut usize,
+    }
+
+    impl Sink for Put<'_> {
+        fn scalar(&mut self, bytes: &[u8], _: u8) {
+            write_bytes(bytes, self.out, self.offset);
+        }
+
+        fn blob(&mut self, bytes: &[u8], _: usize, _: u8) {
+            write_blob(bytes, self.out, self.offset);
+        }
+    }
+
+    fn measure(record: &dyn Fields) -> Measure {
+        let mut measure = Measure {
+            len: 0,
+            bits: 0,
+            over: false,
+        };
+        record.fields(&mut measure);
+        measure
+    }
+
+    /// The presence bitmap of the optional fields.
+    fn fields_bits(record: &dyn Fields) -> u8 {
+        measure(record).bits
+    }
+
+    /// The body length: the presence bitmap (one byte more when an optional field is
+    /// present) and the fields; a field over its cap is ERR_NO_SPACE.
+    fn fields_len(record: &dyn Fields) -> Result<usize, i32> {
+        let measure = measure(record);
+        if measure.over {
             return Err(-2);
         }
-        Ok(varint_len(len as u32) + len)
+        Ok(1 + usize::from(measure.bits != 0) + measure.len)
+    }
+
+    /// The fields, without the presence bitmap.
+    fn fields_write(record: &dyn Fields, out: &mut [u8], offset: &mut usize) {
+        record.fields(&mut Put { out, offset });
+    }
+
+    /// The body: the presence bitmap, then the fields.
+    fn fields_write_framed(record: &dyn Fields, out: &mut [u8], offset: &mut usize) {
+        let bits = fields_bits(record);
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
+        fields_write(record, out, offset);
     }
     fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
         write_varint(bytes.len() as u32, out, offset);
@@ -5376,15 +5813,18 @@ pub mod core_widget_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            len += 4;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.instance.to_le_bytes(), out, offset);
-            write_bytes(&self.width.to_le_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for WidgetMeasure {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.instance.to_le_bytes(), 0);
+            sink.scalar(&self.width.to_le_bytes(), 0);
         }
     }
 
@@ -5426,21 +5866,21 @@ pub mod core_widget_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.instance.to_le_bytes(), out, offset);
-            write_bytes(&self.x.to_le_bytes(), out, offset);
-            write_bytes(&self.y.to_le_bytes(), out, offset);
-            write_bytes(&self.width.to_le_bytes(), out, offset);
-            write_bytes(&self.height.to_le_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for WidgetPlace {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.instance.to_le_bytes(), 0);
+            sink.scalar(&self.x.to_le_bytes(), 0);
+            sink.scalar(&self.y.to_le_bytes(), 0);
+            sink.scalar(&self.width.to_le_bytes(), 0);
+            sink.scalar(&self.height.to_le_bytes(), 0);
         }
     }
 
@@ -5488,21 +5928,21 @@ pub mod core_widget_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.instance.to_le_bytes(), out, offset);
-            write_bytes(&self.x.to_le_bytes(), out, offset);
-            write_bytes(&self.y.to_le_bytes(), out, offset);
-            write_bytes(&self.width.to_le_bytes(), out, offset);
-            write_bytes(&self.height.to_le_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for WidgetTargets {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.instance.to_le_bytes(), 0);
+            sink.scalar(&self.x.to_le_bytes(), 0);
+            sink.scalar(&self.y.to_le_bytes(), 0);
+            sink.scalar(&self.width.to_le_bytes(), 0);
+            sink.scalar(&self.height.to_le_bytes(), 0);
         }
     }
 
@@ -5541,15 +5981,18 @@ pub mod core_widget_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            len += 4;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.height.to_le_bytes(), out, offset);
-            write_bytes(&self.min_height.to_le_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for WidgetSize {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.height.to_le_bytes(), 0);
+            sink.scalar(&self.min_height.to_le_bytes(), 0);
         }
     }
 
@@ -5591,21 +6034,21 @@ pub mod core_widget_v1 {
         }
 
         fn body_len(&self) -> Result<usize, i32> {
-            let mut len = 1; // The initial bitmap is empty.
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            len += 4;
-            Ok(len)
+            fields_len(self)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
-            write_bytes(&self.target.to_le_bytes(), out, offset);
-            write_bytes(&self.x.to_le_bytes(), out, offset);
-            write_bytes(&self.y.to_le_bytes(), out, offset);
-            write_bytes(&self.width.to_le_bytes(), out, offset);
-            write_bytes(&self.height.to_le_bytes(), out, offset);
+            fields_write(self, out, offset);
+        }
+    }
+
+    impl Fields for WidgetTarget {
+        fn fields(&self, sink: &mut dyn Sink) {
+            sink.scalar(&self.target.to_le_bytes(), 0);
+            sink.scalar(&self.x.to_le_bytes(), 0);
+            sink.scalar(&self.y.to_le_bytes(), 0);
+            sink.scalar(&self.width.to_le_bytes(), 0);
+            sink.scalar(&self.height.to_le_bytes(), 0);
         }
     }
 
@@ -5649,11 +6092,94 @@ pub mod core_widget_v1 {
             core::str::from_utf8(self.blob(cap)?).map_err(|_| -2)
         }
     }
-    fn blob_len(len: usize, cap: usize) -> Result<usize, i32> {
-        if len > cap {
+
+    /// A record's fields in wire order, walked for its length, its presence bitmap or its
+    /// bytes: one walk per record type instead of a step function each.
+    trait Fields {
+        fn fields(&self, sink: &mut dyn Sink);
+    }
+
+    /// What a walk does with each field. `mask` is the field's presence bit (0: always on
+    /// the wire); an optional field is only walked when it is present.
+    trait Sink {
+        fn scalar(&mut self, bytes: &[u8], mask: u8);
+        fn blob(&mut self, bytes: &[u8], cap: usize, mask: u8);
+    }
+
+    /// The fields' length and presence bitmap; `over` when a field is over its cap.
+    struct Measure {
+        len: usize,
+        bits: u8,
+        over: bool,
+    }
+
+    impl Sink for Measure {
+        fn scalar(&mut self, bytes: &[u8], mask: u8) {
+            self.len += bytes.len();
+            self.bits |= mask;
+        }
+
+        fn blob(&mut self, bytes: &[u8], cap: usize, mask: u8) {
+            self.over |= bytes.len() > cap;
+            self.len += varint_len(bytes.len() as u32) + bytes.len();
+            self.bits |= mask;
+        }
+    }
+
+    /// Writes the fields at `offset`; the caller checked the room.
+    struct Put<'o> {
+        out: &'o mut [u8],
+        offset: &'o mut usize,
+    }
+
+    impl Sink for Put<'_> {
+        fn scalar(&mut self, bytes: &[u8], _: u8) {
+            write_bytes(bytes, self.out, self.offset);
+        }
+
+        fn blob(&mut self, bytes: &[u8], _: usize, _: u8) {
+            write_blob(bytes, self.out, self.offset);
+        }
+    }
+
+    fn measure(record: &dyn Fields) -> Measure {
+        let mut measure = Measure {
+            len: 0,
+            bits: 0,
+            over: false,
+        };
+        record.fields(&mut measure);
+        measure
+    }
+
+    /// The presence bitmap of the optional fields.
+    fn fields_bits(record: &dyn Fields) -> u8 {
+        measure(record).bits
+    }
+
+    /// The body length: the presence bitmap (one byte more when an optional field is
+    /// present) and the fields; a field over its cap is ERR_NO_SPACE.
+    fn fields_len(record: &dyn Fields) -> Result<usize, i32> {
+        let measure = measure(record);
+        if measure.over {
             return Err(-2);
         }
-        Ok(varint_len(len as u32) + len)
+        Ok(1 + usize::from(measure.bits != 0) + measure.len)
+    }
+
+    /// The fields, without the presence bitmap.
+    fn fields_write(record: &dyn Fields, out: &mut [u8], offset: &mut usize) {
+        record.fields(&mut Put { out, offset });
+    }
+
+    /// The body: the presence bitmap, then the fields.
+    fn fields_write_framed(record: &dyn Fields, out: &mut [u8], offset: &mut usize) {
+        let bits = fields_bits(record);
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
+        fields_write(record, out, offset);
     }
     fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
         write_varint(bytes.len() as u32, out, offset);

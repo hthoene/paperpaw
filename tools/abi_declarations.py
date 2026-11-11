@@ -337,66 +337,33 @@ def _record_source(record, decode_name="decode", record_type="Record<'a>", exten
         if len(value) > 1:
             out[-1] += ','
     out += ['        })' if typed else '        }))', '    }', '']
+    anonymous = "<'_>" if borrows else ''
+    # The steps go through one walk of the fields (`Fields`, FIELDS_TEMPLATE): one function
+    # per record type instead of a length, a bitmap and a write step each.
     if optional:
-        out += ['    fn bits(&self) -> u8 {', '        let mut bits = 0;']
-        for field in optional:
-            if field['maybe']:
-                test = f'self.{field["name"]}.is_some()'
-            elif field['kind'] in SCALAR_BYTES:
-                test = f'self.{field["name"]} != {field["default"]}'
-            else:
-                test = f'!self.{field["name"]}.is_empty()'
-            out += [f'        if {test} {{', f'            bits |= {_mask(field["ordinal"])};',
-                    '        }']
-        out += ['        bits', '    }', '']
-    out += ['    fn body_len(&self) -> Result<usize, i32> {']
-    if optional:
-        out += ['        let bits = self.bits();',
-                '        // The bitmap is one byte when any optional field is present.',
-                '        let mut len = 1 + usize::from(bits != 0);']
-    else:
-        out.append('        let mut len = 1; // The initial bitmap is empty.')
+        out += ['    fn bits(&self) -> u8 {', '        fields_bits(self)', '    }', '']
+    out += ['    fn body_len(&self) -> Result<usize, i32> {', '        fields_len(self)', '    }', '',
+            '    fn write(&self, out: &mut [u8], offset: &mut usize) {',
+            '        fields_write(self, out, offset);', '    }', '}', '',
+            f'impl Fields for {title}{anonymous} {{',
+            '    fn fields(&self, sink: &mut dyn Sink) {' if fields else
+            '    fn fields(&self, _: &mut dyn Sink) {']
     for field in fields:
-        if field['optional']:
-            continue
-        out += _length_lines(field, prefix, '        ')
-    for field in optional:
-        out.append(f'        if bits & {_mask(field["ordinal"])} != 0 {{')
-        out += _length_lines(field, prefix, '            ')
-        out.append('        }')
-    out += ['        Ok(len)', '    }', '',
-            '    fn write(&self, out: &mut [u8], offset: &mut usize) {']
-    if any(not f['maybe'] for f in optional):
-        out.append('        let bits = self.bits();')
-    for field in fields:
-        if field['maybe']:
-            out.append(f'        if let Some(value) = self.{field["name"]} {{')
-            out.append('            write_bytes(&value.to_le_bytes(), out, offset);')
-            out.append('        }')
-        elif field['optional']:
-            out.append(f'        if bits & {_mask(field["ordinal"])} != 0 {{')
-            out.append(_write_line(field, '            '))
-            out.append('        }')
-        else:
-            out.append(_write_line(field, '        '))
+        out += _field_lines(field, prefix)
     out += ['    }', '}', '']
     if typed:
         life = "<'a>" if borrows else ''
-        bitmap = (['        let bits = self.bits();',
-                   '        write_varint(u32::from(bits != 0), out, offset);',
-                   '        if bits != 0 {', '            write_bytes(&[bits], out, offset);',
-                   '        }'] if optional else ['        write_varint(0, out, offset);'])
         out += [f"impl{life} WireEncode for {title}{life} {{",
                 '    fn wire_tag(&self) -> u32 {', f'        {prefix}_TAG', '    }', '',
-                '    fn wire_body_len(&self) -> Result<usize, i32> {', '        self.body_len()',
+                '    fn wire_body_len(&self) -> Result<usize, i32> {', '        fields_len(self)',
                 '    }', '',
-                '    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {']
-        out += bitmap + ['        self.write(out, offset);', '    }', '}', '',
-                         f"impl<'a> WireRecord<'a> for {title}{life} {{",
-                         f'    const TAG: u32 = {prefix}_TAG;', '',
-                         "    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {",
-                         '        Self::decode_fields(&mut Reader { remaining: body })',
-                         '    }', '}', '']
+                '    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {',
+                '        fields_write_framed(self, out, offset);', '    }', '}', '',
+                f"impl<'a> WireRecord<'a> for {title}{life} {{",
+                f'    const TAG: u32 = {prefix}_TAG;', '',
+                "    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {",
+                '        Self::decode_fields(&mut Reader { remaining: body })',
+                '    }', '}', '']
     if extensible:
         params = ', '.join(f"{f['name']}: " + (f"Option<{RUST_TYPES[f['kind']]}>"
                            if f['maybe'] else RUST_TYPES[f['kind']]) for f in fields)
@@ -408,27 +375,26 @@ def _record_source(record, decode_name="decode", record_type="Record<'a>", exten
     return '\n'.join(out)
 
 
-def _length_lines(field, prefix, indent):
+def _field_lines(field, prefix):
+    """One field of a record's walk (`Fields::fields`): the sink call, under its presence test
+    when the field is optional (absent fields are not walked)."""
     kind, label = field['kind'], field['name']
+    mask = _mask(field['ordinal']) if field['optional'] else '0'
     if kind in SCALAR_BYTES:
-        return [f'{indent}len += {SCALAR_BYTES[kind]};']
-    cap = f'{prefix}_{label.upper()}_MAX_BYTES'
-    args = f'self.{label}.len(), {cap}'
-    # Wrap where rustfmt does (call arguments over 60 columns), so the output
-    # stays rustfmt-stable.
-    if len(args) <= 60:
-        return [f'{indent}len += blob_len({args})?;']
-    return [f'{indent}len += blob_len(', f'{indent}    self.{label}.len(),',
-            f'{indent}    {cap},', f'{indent})?;']
-
-
-def _write_line(field, indent):
-    kind, label = field['kind'], field['name']
-    if kind in SCALAR_BYTES:
-        return f'{indent}write_bytes(&self.{label}.to_le_bytes(), out, offset);'
-    if kind == 'str':
-        return f'{indent}write_blob(self.{label}.as_bytes(), out, offset);'
-    return f'{indent}write_blob(self.{label}, out, offset);'
+        value = 'value' if field['maybe'] else f'self.{label}'
+        call, args = 'sink.scalar', f'&{value}.to_le_bytes(), {mask}'
+    else:
+        value = f'self.{label}.as_bytes()' if kind == 'str' else f'self.{label}'
+        call, args = 'sink.blob', f'{value}, {prefix}_{label.upper()}_MAX_BYTES, {mask}'
+    if not field['optional']:
+        return _call('        ', call, args, ';')
+    if field['maybe']:
+        test = f'if let Some(value) = self.{label} {{'
+    elif kind in SCALAR_BYTES:
+        test = f'if self.{label} != {field["default"]} {{'
+    else:
+        test = f'if !self.{label}.is_empty() {{'
+    return [f'        {test}'] + _call('            ', call, args, ';') + ['        }']
 
 
 def _reader_extra(declared):
@@ -521,7 +487,7 @@ def declaration_source(declared, statuses):
                         .rstrip('\n'))
                .replace('@WRITES@', arms('            Record::@T@(record) => record.write(out, offset),')
                         .rstrip('\n')))
-    source += TYPED_TEMPLATE
+    source += FIELDS_TEMPLATE + TYPED_TEMPLATE
     source += _known_tags_source(declared)
     if any(r['name'].startswith('service.') for r in declared):
         source += (BARE_TEMPLATE
@@ -679,14 +645,6 @@ pub fn records_decode(bytes: &[u8]) -> Result<RecordBatch<'_>, i32> {
     Ok(RecordBatch { records, len })
 }
 
-fn blob_len(len: usize, cap: usize) -> Result<usize, i32> {
-    if len > cap {
-        Err(@NO_SPACE@)
-    } else {
-        Ok(varint_len(len as u32) + len)
-    }
-}
-
 fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
     write_varint(bytes.len() as u32, out, offset);
     write_bytes(bytes, out, offset);
@@ -753,6 +711,100 @@ pub fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i
         record.write(out, &mut offset);
     }
     Ok(offset)
+}
+'''
+
+
+# The one walk of a record's fields every step of its codec goes through (length,
+# presence bitmap, bytes): see `_record_source`.
+FIELDS_TEMPLATE = '''
+/// A record's fields in wire order, walked for its length, its presence bitmap or its
+/// bytes: one walk per record type instead of a step function each.
+trait Fields {
+    fn fields(&self, sink: &mut dyn Sink);
+}
+
+/// What a walk does with each field. `mask` is the field's presence bit (0: always on
+/// the wire); an optional field is only walked when it is present.
+trait Sink {
+    fn scalar(&mut self, bytes: &[u8], mask: u8);
+    fn blob(&mut self, bytes: &[u8], cap: usize, mask: u8);
+}
+
+/// The fields' length and presence bitmap; `over` when a field is over its cap.
+struct Measure {
+    len: usize,
+    bits: u8,
+    over: bool,
+}
+
+impl Sink for Measure {
+    fn scalar(&mut self, bytes: &[u8], mask: u8) {
+        self.len += bytes.len();
+        self.bits |= mask;
+    }
+
+    fn blob(&mut self, bytes: &[u8], cap: usize, mask: u8) {
+        self.over |= bytes.len() > cap;
+        self.len += varint_len(bytes.len() as u32) + bytes.len();
+        self.bits |= mask;
+    }
+}
+
+/// Writes the fields at `offset`; the caller checked the room.
+struct Put<'o> {
+    out: &'o mut [u8],
+    offset: &'o mut usize,
+}
+
+impl Sink for Put<'_> {
+    fn scalar(&mut self, bytes: &[u8], _: u8) {
+        write_bytes(bytes, self.out, self.offset);
+    }
+
+    fn blob(&mut self, bytes: &[u8], _: usize, _: u8) {
+        write_blob(bytes, self.out, self.offset);
+    }
+}
+
+fn measure(record: &dyn Fields) -> Measure {
+    let mut measure = Measure {
+        len: 0,
+        bits: 0,
+        over: false,
+    };
+    record.fields(&mut measure);
+    measure
+}
+
+/// The presence bitmap of the optional fields.
+fn fields_bits(record: &dyn Fields) -> u8 {
+    measure(record).bits
+}
+
+/// The body length: the presence bitmap (one byte more when an optional field is
+/// present) and the fields; a field over its cap is ERR_NO_SPACE.
+fn fields_len(record: &dyn Fields) -> Result<usize, i32> {
+    let measure = measure(record);
+    if measure.over {
+        return Err(@NO_SPACE@);
+    }
+    Ok(1 + usize::from(measure.bits != 0) + measure.len)
+}
+
+/// The fields, without the presence bitmap.
+fn fields_write(record: &dyn Fields, out: &mut [u8], offset: &mut usize) {
+    record.fields(&mut Put { out, offset });
+}
+
+/// The body: the presence bitmap, then the fields.
+fn fields_write_framed(record: &dyn Fields, out: &mut [u8], offset: &mut usize) {
+    let bits = fields_bits(record);
+    write_varint(u32::from(bits != 0), out, offset);
+    if bits != 0 {
+        write_bytes(&[bits], out, offset);
+    }
+    fields_write(record, out, offset);
 }
 '''
 

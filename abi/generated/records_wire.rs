@@ -304,21 +304,21 @@ impl<'a> SettingGroup<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), SETTING_GROUP_NAME_MAX_BYTES)?;
-        len += blob_len(self.title.len(), SETTING_GROUP_TITLE_MAX_BYTES)?;
-        len += 4;
-        len += blob_len(self.page.len(), SETTING_GROUP_PAGE_MAX_BYTES)?;
-        len += blob_len(self.parent.len(), SETTING_GROUP_PARENT_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_bytes(&self.order.to_le_bytes(), out, offset);
-        write_blob(self.page.as_bytes(), out, offset);
-        write_blob(self.parent.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for SettingGroup<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), SETTING_GROUP_NAME_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), SETTING_GROUP_TITLE_MAX_BYTES, 0);
+        sink.scalar(&self.order.to_le_bytes(), 0);
+        sink.blob(self.page.as_bytes(), SETTING_GROUP_PAGE_MAX_BYTES, 0);
+        sink.blob(self.parent.as_bytes(), SETTING_GROUP_PARENT_MAX_BYTES, 0);
     }
 }
 
@@ -328,12 +328,11 @@ impl<'a> WireEncode for SettingGroup<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -412,31 +411,26 @@ impl<'a> SettingSpec<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), SETTING_SPEC_NAME_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += blob_len(self.group.len(), SETTING_SPEC_GROUP_MAX_BYTES)?;
-        len += blob_len(self.title.len(), SETTING_SPEC_TITLE_MAX_BYTES)?;
-        len += blob_len(self.help.len(), SETTING_SPEC_HELP_MAX_BYTES)?;
-        len += blob_len(self.default.len(), SETTING_SPEC_DEFAULT_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += blob_len(self.choices.len(), SETTING_SPEC_CHOICES_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_blob(self.group.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.help.as_bytes(), out, offset);
-        write_blob(self.default, out, offset);
-        write_bytes(&self.min.to_le_bytes(), out, offset);
-        write_bytes(&self.max.to_le_bytes(), out, offset);
-        write_blob(self.choices.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for SettingSpec<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), SETTING_SPEC_NAME_MAX_BYTES, 0);
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.blob(self.group.as_bytes(), SETTING_SPEC_GROUP_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), SETTING_SPEC_TITLE_MAX_BYTES, 0);
+        sink.blob(self.help.as_bytes(), SETTING_SPEC_HELP_MAX_BYTES, 0);
+        sink.blob(self.default, SETTING_SPEC_DEFAULT_MAX_BYTES, 0);
+        sink.scalar(&self.min.to_le_bytes(), 0);
+        sink.scalar(&self.max.to_le_bytes(), 0);
+        sink.blob(self.choices.as_bytes(), SETTING_SPEC_CHOICES_MAX_BYTES, 0);
     }
 }
 
@@ -446,12 +440,11 @@ impl<'a> WireEncode for SettingSpec<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -529,33 +522,35 @@ impl<'a> SettingExtra<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), SETTING_EXTRA_NAME_MAX_BYTES)?;
-        len += blob_len(self.unit.len(), SETTING_EXTRA_UNIT_MAX_BYTES)?;
-        len += blob_len(self.section.len(), SETTING_EXTRA_SECTION_MAX_BYTES)?;
-        len += blob_len(self.follows.len(), SETTING_EXTRA_FOLLOWS_MAX_BYTES)?;
-        len += blob_len(self.shown_id.len(), SETTING_EXTRA_SHOWN_ID_MAX_BYTES)?;
-        len += blob_len(self.shown_value.len(), SETTING_EXTRA_SHOWN_VALUE_MAX_BYTES)?;
-        len += 4;
-        len += blob_len(self.editor.len(), SETTING_EXTRA_EDITOR_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.unit.as_bytes(), out, offset);
-        write_blob(self.section.as_bytes(), out, offset);
-        write_blob(self.follows.as_bytes(), out, offset);
-        write_blob(self.shown_id.as_bytes(), out, offset);
-        write_blob(self.shown_value.as_bytes(), out, offset);
-        write_bytes(&self.editor_kind.to_le_bytes(), out, offset);
-        write_blob(self.editor.as_bytes(), out, offset);
-        write_bytes(&self.step.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.check.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for SettingExtra<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), SETTING_EXTRA_NAME_MAX_BYTES, 0);
+        sink.blob(self.unit.as_bytes(), SETTING_EXTRA_UNIT_MAX_BYTES, 0);
+        sink.blob(self.section.as_bytes(), SETTING_EXTRA_SECTION_MAX_BYTES, 0);
+        sink.blob(self.follows.as_bytes(), SETTING_EXTRA_FOLLOWS_MAX_BYTES, 0);
+        sink.blob(
+            self.shown_id.as_bytes(),
+            SETTING_EXTRA_SHOWN_ID_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.shown_value.as_bytes(),
+            SETTING_EXTRA_SHOWN_VALUE_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.editor_kind.to_le_bytes(), 0);
+        sink.blob(self.editor.as_bytes(), SETTING_EXTRA_EDITOR_MAX_BYTES, 0);
+        sink.scalar(&self.step.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.check.to_le_bytes(), 0);
     }
 }
 
@@ -565,12 +560,11 @@ impl<'a> WireEncode for SettingExtra<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -611,15 +605,22 @@ impl<'a> ResourceHyphenation<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.language.len(), RESOURCE_HYPHENATION_LANGUAGE_MAX_BYTES)?;
-        len += blob_len(self.path.len(), RESOURCE_HYPHENATION_PATH_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.language.as_bytes(), out, offset);
-        write_blob(self.path.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ResourceHyphenation<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(
+            self.language.as_bytes(),
+            RESOURCE_HYPHENATION_LANGUAGE_MAX_BYTES,
+            0,
+        );
+        sink.blob(self.path.as_bytes(), RESOURCE_HYPHENATION_PATH_MAX_BYTES, 0);
     }
 }
 
@@ -629,12 +630,11 @@ impl<'a> WireEncode for ResourceHyphenation<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -694,25 +694,27 @@ impl<'a> ResourceFontFace<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), RESOURCE_FONT_FACE_NAME_MAX_BYTES)?;
-        len += blob_len(self.path.len(), RESOURCE_FONT_FACE_PATH_MAX_BYTES)?;
-        len += blob_len(self.family.len(), RESOURCE_FONT_FACE_FAMILY_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += blob_len(self.role.len(), RESOURCE_FONT_FACE_ROLE_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.path.as_bytes(), out, offset);
-        write_blob(self.family.as_bytes(), out, offset);
-        write_bytes(&self.style.to_le_bytes(), out, offset);
-        write_bytes(&self.weight.to_le_bytes(), out, offset);
-        write_blob(self.role.as_bytes(), out, offset);
-        write_bytes(&self.priority.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ResourceFontFace<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), RESOURCE_FONT_FACE_NAME_MAX_BYTES, 0);
+        sink.blob(self.path.as_bytes(), RESOURCE_FONT_FACE_PATH_MAX_BYTES, 0);
+        sink.blob(
+            self.family.as_bytes(),
+            RESOURCE_FONT_FACE_FAMILY_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.style.to_le_bytes(), 0);
+        sink.scalar(&self.weight.to_le_bytes(), 0);
+        sink.blob(self.role.as_bytes(), RESOURCE_FONT_FACE_ROLE_MAX_BYTES, 0);
+        sink.scalar(&self.priority.to_le_bytes(), 0);
     }
 }
 
@@ -722,12 +724,11 @@ impl<'a> WireEncode for ResourceFontFace<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -773,20 +774,31 @@ impl<'a> ResourceFontExtension<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), RESOURCE_FONT_EXTENSION_NAME_MAX_BYTES)?;
-        len += blob_len(self.path.len(), RESOURCE_FONT_EXTENSION_PATH_MAX_BYTES)?;
-        len += blob_len(
-            self.extends.len(),
-            RESOURCE_FONT_EXTENSION_EXTENDS_MAX_BYTES,
-        )?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.path.as_bytes(), out, offset);
-        write_blob(self.extends.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ResourceFontExtension<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(
+            self.name.as_bytes(),
+            RESOURCE_FONT_EXTENSION_NAME_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.path.as_bytes(),
+            RESOURCE_FONT_EXTENSION_PATH_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.extends.as_bytes(),
+            RESOURCE_FONT_EXTENSION_EXTENDS_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -796,12 +808,11 @@ impl<'a> WireEncode for ResourceFontExtension<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -835,13 +846,17 @@ impl EventStarted {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventStarted {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
     }
 }
 
@@ -851,12 +866,11 @@ impl WireEncode for EventStarted {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -890,13 +904,17 @@ impl EventResume {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventResume {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
     }
 }
 
@@ -906,12 +924,11 @@ impl WireEncode for EventResume {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -945,13 +962,17 @@ impl EventSuspend {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventSuspend {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
     }
 }
 
@@ -961,12 +982,11 @@ impl WireEncode for EventSuspend {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -1000,13 +1020,17 @@ impl EventStopping {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventStopping {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
     }
 }
 
@@ -1016,12 +1040,11 @@ impl WireEncode for EventStopping {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -1055,13 +1078,17 @@ impl EventBatteryMeasured {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventBatteryMeasured {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
     }
 }
 
@@ -1071,12 +1098,11 @@ impl WireEncode for EventBatteryMeasured {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -1146,67 +1172,42 @@ impl<'a> EventPageTurned<'a> {
     }
 
     fn bits(&self) -> u8 {
-        let mut bits = 0;
-        if self.page.is_some() {
-            bits |= 0x01;
-        }
-        if self.pages.is_some() {
-            bits |= 0x02;
-        }
-        if self.insert.is_some() {
-            bits |= 0x04;
-        }
-        if self.chapter_left.is_some() {
-            bits |= 0x08;
-        }
-        bits
+        fields_bits(self)
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let bits = self.bits();
-        // The bitmap is one byte when any optional field is present.
-        let mut len = 1 + usize::from(bits != 0);
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.path.len(), EVENT_PAGE_TURNED_PATH_MAX_BYTES)?;
-        len += blob_len(self.title.len(), EVENT_PAGE_TURNED_TITLE_MAX_BYTES)?;
-        len += blob_len(self.chapter.len(), EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES)?;
-        if bits & 0x01 != 0 {
-            len += 4;
-        }
-        if bits & 0x02 != 0 {
-            len += 4;
-        }
-        if bits & 0x04 != 0 {
-            len += 4;
-        }
-        if bits & 0x08 != 0 {
-            len += 4;
-        }
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.section.to_le_bytes(), out, offset);
-        write_bytes(&self.offset.to_le_bytes(), out, offset);
-        write_bytes(&self.progress_ppm.to_le_bytes(), out, offset);
-        write_blob(self.path.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.chapter.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventPageTurned<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.section.to_le_bytes(), 0);
+        sink.scalar(&self.offset.to_le_bytes(), 0);
+        sink.scalar(&self.progress_ppm.to_le_bytes(), 0);
+        sink.blob(self.path.as_bytes(), EVENT_PAGE_TURNED_PATH_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), EVENT_PAGE_TURNED_TITLE_MAX_BYTES, 0);
+        sink.blob(
+            self.chapter.as_bytes(),
+            EVENT_PAGE_TURNED_CHAPTER_MAX_BYTES,
+            0,
+        );
         if let Some(value) = self.page {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x01);
         }
         if let Some(value) = self.pages {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x02);
         }
         if let Some(value) = self.insert {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x04);
         }
         if let Some(value) = self.chapter_left {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x08);
         }
     }
 }
@@ -1217,16 +1218,11 @@ impl<'a> WireEncode for EventPageTurned<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        let bits = self.bits();
-        write_varint(u32::from(bits != 0), out, offset);
-        if bits != 0 {
-            write_bytes(&[bits], out, offset);
-        }
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -1281,27 +1277,24 @@ impl ServiceUsage {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 8;
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.fast.to_le_bytes(), out, offset);
-        write_bytes(&self.partial.to_le_bytes(), out, offset);
-        write_bytes(&self.full.to_le_bytes(), out, offset);
-        write_bytes(&self.pixels.to_le_bytes(), out, offset);
-        write_bytes(&self.inputs.to_le_bytes(), out, offset);
-        write_bytes(&self.sleeps.to_le_bytes(), out, offset);
-        write_bytes(&self.panel_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.bluetooth_ms.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceUsage {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.fast.to_le_bytes(), 0);
+        sink.scalar(&self.partial.to_le_bytes(), 0);
+        sink.scalar(&self.full.to_le_bytes(), 0);
+        sink.scalar(&self.pixels.to_le_bytes(), 0);
+        sink.scalar(&self.inputs.to_le_bytes(), 0);
+        sink.scalar(&self.sleeps.to_le_bytes(), 0);
+        sink.scalar(&self.panel_ms.to_le_bytes(), 0);
+        sink.scalar(&self.bluetooth_ms.to_le_bytes(), 0);
     }
 }
 
@@ -1311,12 +1304,11 @@ impl WireEncode for ServiceUsage {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -1396,44 +1388,39 @@ impl<'a> ServicePluginUsage<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.plugin.len(), SERVICE_PLUGIN_USAGE_PLUGIN_MAX_BYTES)?;
-        len += 8;
-        len += 4;
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 8;
-        len += 8;
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 8;
-        len += blob_len(
-            self.awake_reason.len(),
-            SERVICE_PLUGIN_USAGE_AWAKE_REASON_MAX_BYTES,
-        )?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.plugin.as_bytes(), out, offset);
-        write_bytes(&self.busy_us.to_le_bytes(), out, offset);
-        write_bytes(&self.calls.to_le_bytes(), out, offset);
-        write_bytes(&self.shown_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.fast.to_le_bytes(), out, offset);
-        write_bytes(&self.partial.to_le_bytes(), out, offset);
-        write_bytes(&self.full.to_le_bytes(), out, offset);
-        write_bytes(&self.pixels.to_le_bytes(), out, offset);
-        write_bytes(&self.read.to_le_bytes(), out, offset);
-        write_bytes(&self.written.to_le_bytes(), out, offset);
-        write_bytes(&self.syncs.to_le_bytes(), out, offset);
-        write_bytes(&self.requests.to_le_bytes(), out, offset);
-        write_bytes(&self.refused.to_le_bytes(), out, offset);
-        write_bytes(&self.awake_ms.to_le_bytes(), out, offset);
-        write_blob(self.awake_reason.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServicePluginUsage<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(
+            self.plugin.as_bytes(),
+            SERVICE_PLUGIN_USAGE_PLUGIN_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.busy_us.to_le_bytes(), 0);
+        sink.scalar(&self.calls.to_le_bytes(), 0);
+        sink.scalar(&self.shown_ms.to_le_bytes(), 0);
+        sink.scalar(&self.fast.to_le_bytes(), 0);
+        sink.scalar(&self.partial.to_le_bytes(), 0);
+        sink.scalar(&self.full.to_le_bytes(), 0);
+        sink.scalar(&self.pixels.to_le_bytes(), 0);
+        sink.scalar(&self.read.to_le_bytes(), 0);
+        sink.scalar(&self.written.to_le_bytes(), 0);
+        sink.scalar(&self.syncs.to_le_bytes(), 0);
+        sink.scalar(&self.requests.to_le_bytes(), 0);
+        sink.scalar(&self.refused.to_le_bytes(), 0);
+        sink.scalar(&self.awake_ms.to_le_bytes(), 0);
+        sink.blob(
+            self.awake_reason.as_bytes(),
+            SERVICE_PLUGIN_USAGE_AWAKE_REASON_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -1443,12 +1430,11 @@ impl<'a> WireEncode for ServicePluginUsage<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -1484,13 +1470,17 @@ impl<'a> ServicePlugin<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), SERVICE_PLUGIN_NAME_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServicePlugin<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), SERVICE_PLUGIN_NAME_MAX_BYTES, 0);
     }
 }
 
@@ -1500,12 +1490,11 @@ impl<'a> WireEncode for ServicePlugin<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -1544,15 +1533,18 @@ impl<'a> ServiceWorkNote<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += blob_len(self.text.len(), SERVICE_WORK_NOTE_TEXT_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.at_ms.to_le_bytes(), out, offset);
-        write_blob(self.text.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceWorkNote<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.at_ms.to_le_bytes(), 0);
+        sink.blob(self.text.as_bytes(), SERVICE_WORK_NOTE_TEXT_MAX_BYTES, 0);
     }
 }
 
@@ -1562,12 +1554,11 @@ impl<'a> WireEncode for ServiceWorkNote<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -1613,34 +1604,26 @@ impl ServiceEnd {
     }
 
     fn bits(&self) -> u8 {
-        let mut bits = 0;
-        if self.cursor.is_some() {
-            bits |= 0x01;
-        }
-        bits
+        fields_bits(self)
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let bits = self.bits();
-        // The bitmap is one byte when any optional field is present.
-        let mut len = 1 + usize::from(bits != 0);
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        if bits & 0x01 != 0 {
-            len += 8;
-        }
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.total.to_le_bytes(), out, offset);
-        write_bytes(&self.generation.to_le_bytes(), out, offset);
-        write_bytes(&self.next.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceEnd {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.total.to_le_bytes(), 0);
+        sink.scalar(&self.generation.to_le_bytes(), 0);
+        sink.scalar(&self.next.to_le_bytes(), 0);
         if let Some(value) = self.cursor {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x01);
         }
     }
 }
@@ -1651,16 +1634,11 @@ impl WireEncode for ServiceEnd {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        let bits = self.bits();
-        write_varint(u32::from(bits != 0), out, offset);
-        if bits != 0 {
-            write_bytes(&[bits], out, offset);
-        }
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -1707,19 +1685,20 @@ impl<'a> ScreenSpec<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), SCREEN_SPEC_NAME_MAX_BYTES)?;
-        len += blob_len(self.title.len(), SCREEN_SPEC_TITLE_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_bytes(&self.token.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ScreenSpec<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), SCREEN_SPEC_NAME_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), SCREEN_SPEC_TITLE_MAX_BYTES, 0);
+        sink.scalar(&self.token.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -1729,12 +1708,11 @@ impl<'a> WireEncode for ScreenSpec<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -1781,19 +1759,20 @@ impl<'a> ActionSpec<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), ACTION_SPEC_NAME_MAX_BYTES)?;
-        len += blob_len(self.title.len(), ACTION_SPEC_TITLE_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_bytes(&self.token.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ActionSpec<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), ACTION_SPEC_NAME_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), ACTION_SPEC_TITLE_MAX_BYTES, 0);
+        sink.scalar(&self.token.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -1803,12 +1782,11 @@ impl<'a> WireEncode for ActionSpec<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -1859,44 +1837,33 @@ impl<'a> EventScreenShown<'a> {
     }
 
     fn bits(&self) -> u8 {
-        let mut bits = 0;
-        if self.instance.is_some() {
-            bits |= 0x01;
-        }
-        if self.last_input != 0 {
-            bits |= 0x02;
-        }
-        bits
+        fields_bits(self)
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let bits = self.bits();
-        // The bitmap is one byte when any optional field is present.
-        let mut len = 1 + usize::from(bits != 0);
-        len += 8;
-        len += blob_len(self.screen.len(), EVENT_SCREEN_SHOWN_SCREEN_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        if bits & 0x01 != 0 {
-            len += 4;
-        }
-        if bits & 0x02 != 0 {
-            len += 4;
-        }
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        let bits = self.bits();
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_blob(self.screen.as_bytes(), out, offset);
-        write_bytes(&self.width.to_le_bytes(), out, offset);
-        write_bytes(&self.height.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventScreenShown<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.blob(
+            self.screen.as_bytes(),
+            EVENT_SCREEN_SHOWN_SCREEN_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.width.to_le_bytes(), 0);
+        sink.scalar(&self.height.to_le_bytes(), 0);
         if let Some(value) = self.instance {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x01);
         }
-        if bits & 0x02 != 0 {
-            write_bytes(&self.last_input.to_le_bytes(), out, offset);
+        if self.last_input != 0 {
+            sink.scalar(&self.last_input.to_le_bytes(), 0x02);
         }
     }
 }
@@ -1907,16 +1874,11 @@ impl<'a> WireEncode for EventScreenShown<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        let bits = self.bits();
-        write_varint(u32::from(bits != 0), out, offset);
-        if bits != 0 {
-            write_bytes(&[bits], out, offset);
-        }
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -1958,31 +1920,24 @@ impl<'a> EventActionRun<'a> {
     }
 
     fn bits(&self) -> u8 {
-        let mut bits = 0;
-        if self.flags != 0 {
-            bits |= 0x01;
-        }
-        bits
+        fields_bits(self)
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let bits = self.bits();
-        // The bitmap is one byte when any optional field is present.
-        let mut len = 1 + usize::from(bits != 0);
-        len += 8;
-        len += blob_len(self.action.len(), EVENT_ACTION_RUN_ACTION_MAX_BYTES)?;
-        if bits & 0x01 != 0 {
-            len += 4;
-        }
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        let bits = self.bits();
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_blob(self.action.as_bytes(), out, offset);
-        if bits & 0x01 != 0 {
-            write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventActionRun<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.blob(self.action.as_bytes(), EVENT_ACTION_RUN_ACTION_MAX_BYTES, 0);
+        if self.flags != 0 {
+            sink.scalar(&self.flags.to_le_bytes(), 0x01);
         }
     }
 }
@@ -1993,16 +1948,11 @@ impl<'a> WireEncode for EventActionRun<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        let bits = self.bits();
-        write_varint(u32::from(bits != 0), out, offset);
-        if bits != 0 {
-            write_bytes(&[bits], out, offset);
-        }
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -2044,17 +1994,19 @@ impl<'a> InputKey<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += blob_len(self.key.len(), INPUT_KEY_KEY_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_blob(self.key.as_bytes(), out, offset);
-        write_bytes(&self.state.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for InputKey<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.blob(self.key.as_bytes(), INPUT_KEY_KEY_MAX_BYTES, 0);
+        sink.scalar(&self.state.to_le_bytes(), 0);
     }
 }
 
@@ -2064,12 +2016,11 @@ impl<'a> WireEncode for InputKey<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -2115,34 +2066,26 @@ impl InputPointer {
     }
 
     fn bits(&self) -> u8 {
-        let mut bits = 0;
-        if self.contact.is_some() {
-            bits |= 0x01;
-        }
-        bits
+        fields_bits(self)
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let bits = self.bits();
-        // The bitmap is one byte when any optional field is present.
-        let mut len = 1 + usize::from(bits != 0);
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 4;
-        if bits & 0x01 != 0 {
-            len += 4;
-        }
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.x.to_le_bytes(), out, offset);
-        write_bytes(&self.y.to_le_bytes(), out, offset);
-        write_bytes(&self.phase.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for InputPointer {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.x.to_le_bytes(), 0);
+        sink.scalar(&self.y.to_le_bytes(), 0);
+        sink.scalar(&self.phase.to_le_bytes(), 0);
         if let Some(value) = self.contact {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x01);
         }
     }
 }
@@ -2153,16 +2096,11 @@ impl WireEncode for InputPointer {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        let bits = self.bits();
-        write_varint(u32::from(bits != 0), out, offset);
-        if bits != 0 {
-            write_bytes(&[bits], out, offset);
-        }
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -2205,19 +2143,20 @@ impl InputGesture {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.x.to_le_bytes(), out, offset);
-        write_bytes(&self.y.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for InputGesture {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.x.to_le_bytes(), 0);
+        sink.scalar(&self.y.to_le_bytes(), 0);
     }
 }
 
@@ -2227,12 +2166,11 @@ impl WireEncode for InputGesture {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -2271,15 +2209,18 @@ impl<'a> InputAction<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += blob_len(self.action.len(), INPUT_ACTION_ACTION_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_blob(self.action.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for InputAction<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.blob(self.action.as_bytes(), INPUT_ACTION_ACTION_MAX_BYTES, 0);
     }
 }
 
@@ -2289,12 +2230,11 @@ impl<'a> WireEncode for InputAction<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -2335,15 +2275,18 @@ impl<'a> I18nArgStr<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), I18N_ARG_STR_NAME_MAX_BYTES)?;
-        len += blob_len(self.value.len(), I18N_ARG_STR_VALUE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.value.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for I18nArgStr<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), I18N_ARG_STR_NAME_MAX_BYTES, 0);
+        sink.blob(self.value.as_bytes(), I18N_ARG_STR_VALUE_MAX_BYTES, 0);
     }
 }
 
@@ -2353,12 +2296,11 @@ impl<'a> WireEncode for I18nArgStr<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -2397,15 +2339,18 @@ impl<'a> I18nArgInt<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), I18N_ARG_INT_NAME_MAX_BYTES)?;
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_bytes(&self.value.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for I18nArgInt<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), I18N_ARG_INT_NAME_MAX_BYTES, 0);
+        sink.scalar(&self.value.to_le_bytes(), 0);
     }
 }
 
@@ -2415,12 +2360,11 @@ impl<'a> WireEncode for I18nArgInt<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -2454,13 +2398,17 @@ impl I18nCount {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.value.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for I18nCount {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.value.to_le_bytes(), 0);
     }
 }
 
@@ -2470,12 +2418,11 @@ impl WireEncode for I18nCount {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -2535,29 +2482,25 @@ impl<'a> DrawFrame<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.payload.len(), DRAW_FRAME_PAYLOAD_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.purpose.to_le_bytes(), out, offset);
-        write_bytes(&self.x.to_le_bytes(), out, offset);
-        write_bytes(&self.y.to_le_bytes(), out, offset);
-        write_bytes(&self.width.to_le_bytes(), out, offset);
-        write_bytes(&self.height.to_le_bytes(), out, offset);
-        write_bytes(&self.clip_top.to_le_bytes(), out, offset);
-        write_bytes(&self.clip_bottom.to_le_bytes(), out, offset);
-        write_bytes(&self.id.to_le_bytes(), out, offset);
-        write_blob(self.payload, out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for DrawFrame<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.purpose.to_le_bytes(), 0);
+        sink.scalar(&self.x.to_le_bytes(), 0);
+        sink.scalar(&self.y.to_le_bytes(), 0);
+        sink.scalar(&self.width.to_le_bytes(), 0);
+        sink.scalar(&self.height.to_le_bytes(), 0);
+        sink.scalar(&self.clip_top.to_le_bytes(), 0);
+        sink.scalar(&self.clip_bottom.to_le_bytes(), 0);
+        sink.scalar(&self.id.to_le_bytes(), 0);
+        sink.blob(self.payload, DRAW_FRAME_PAYLOAD_MAX_BYTES, 0);
     }
 }
 
@@ -2567,12 +2510,11 @@ impl<'a> WireEncode for DrawFrame<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -2624,21 +2566,21 @@ impl<'a> MenuEntry<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.menu.len(), MENU_ENTRY_MENU_MAX_BYTES)?;
-        len += blob_len(self.item.len(), MENU_ENTRY_ITEM_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += blob_len(self.anchor.len(), MENU_ENTRY_ANCHOR_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.menu.as_bytes(), out, offset);
-        write_blob(self.item.as_bytes(), out, offset);
-        write_bytes(&self.order.to_le_bytes(), out, offset);
-        write_bytes(&self.place.to_le_bytes(), out, offset);
-        write_blob(self.anchor.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for MenuEntry<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.menu.as_bytes(), MENU_ENTRY_MENU_MAX_BYTES, 0);
+        sink.blob(self.item.as_bytes(), MENU_ENTRY_ITEM_MAX_BYTES, 0);
+        sink.scalar(&self.order.to_le_bytes(), 0);
+        sink.scalar(&self.place.to_le_bytes(), 0);
+        sink.blob(self.anchor.as_bytes(), MENU_ENTRY_ANCHOR_MAX_BYTES, 0);
     }
 }
 
@@ -2648,12 +2590,11 @@ impl<'a> WireEncode for MenuEntry<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -2694,15 +2635,18 @@ impl<'a> IconSpec<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.item.len(), ICON_SPEC_ITEM_MAX_BYTES)?;
-        len += blob_len(self.icon.len(), ICON_SPEC_ICON_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.item.as_bytes(), out, offset);
-        write_blob(self.icon.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for IconSpec<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.item.as_bytes(), ICON_SPEC_ITEM_MAX_BYTES, 0);
+        sink.blob(self.icon.as_bytes(), ICON_SPEC_ICON_MAX_BYTES, 0);
     }
 }
 
@@ -2712,12 +2656,11 @@ impl<'a> WireEncode for IconSpec<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -2759,17 +2702,19 @@ impl<'a> MenuNeed<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.item.len(), MENU_NEED_ITEM_MAX_BYTES)?;
-        len += 4;
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.item.as_bytes(), out, offset);
-        write_bytes(&self.need.to_le_bytes(), out, offset);
-        write_bytes(&self.capability.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for MenuNeed<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.item.as_bytes(), MENU_NEED_ITEM_MAX_BYTES, 0);
+        sink.scalar(&self.need.to_le_bytes(), 0);
+        sink.scalar(&self.capability.to_le_bytes(), 0);
     }
 }
 
@@ -2779,12 +2724,11 @@ impl<'a> WireEncode for MenuNeed<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -2833,19 +2777,20 @@ impl<'a> MenuSection<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), MENU_SECTION_NAME_MAX_BYTES)?;
-        len += blob_len(self.title.len(), MENU_SECTION_TITLE_MAX_BYTES)?;
-        len += blob_len(self.menu.len(), MENU_SECTION_MENU_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.menu.as_bytes(), out, offset);
-        write_bytes(&self.order.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for MenuSection<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), MENU_SECTION_NAME_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), MENU_SECTION_TITLE_MAX_BYTES, 0);
+        sink.blob(self.menu.as_bytes(), MENU_SECTION_MENU_MAX_BYTES, 0);
+        sink.scalar(&self.order.to_le_bytes(), 0);
     }
 }
 
@@ -2855,12 +2800,11 @@ impl<'a> WireEncode for MenuSection<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -2901,15 +2845,18 @@ impl<'a> MenuHide<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.menu.len(), MENU_HIDE_MENU_MAX_BYTES)?;
-        len += blob_len(self.item.len(), MENU_HIDE_ITEM_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.menu.as_bytes(), out, offset);
-        write_blob(self.item.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for MenuHide<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.menu.as_bytes(), MENU_HIDE_MENU_MAX_BYTES, 0);
+        sink.blob(self.item.as_bytes(), MENU_HIDE_ITEM_MAX_BYTES, 0);
     }
 }
 
@@ -2919,12 +2866,11 @@ impl<'a> WireEncode for MenuHide<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -2965,15 +2911,18 @@ impl<'a> MenuDescribe<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.item.len(), MENU_DESCRIBE_ITEM_MAX_BYTES)?;
-        len += blob_len(self.key.len(), MENU_DESCRIBE_KEY_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.item.as_bytes(), out, offset);
-        write_blob(self.key.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for MenuDescribe<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.item.as_bytes(), MENU_DESCRIBE_ITEM_MAX_BYTES, 0);
+        sink.blob(self.key.as_bytes(), MENU_DESCRIBE_KEY_MAX_BYTES, 0);
     }
 }
 
@@ -2983,12 +2932,11 @@ impl<'a> WireEncode for MenuDescribe<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -3039,23 +2987,22 @@ impl<'a> StageSpec<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), STAGE_SPEC_NAME_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_bytes(&self.schema.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.max_input.to_le_bytes(), out, offset);
-        write_bytes(&self.max_reply.to_le_bytes(), out, offset);
-        write_bytes(&self.max_records.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for StageSpec<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), STAGE_SPEC_NAME_MAX_BYTES, 0);
+        sink.scalar(&self.schema.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.max_input.to_le_bytes(), 0);
+        sink.scalar(&self.max_reply.to_le_bytes(), 0);
+        sink.scalar(&self.max_records.to_le_bytes(), 0);
     }
 }
 
@@ -3065,12 +3012,11 @@ impl<'a> WireEncode for StageSpec<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -3115,19 +3061,20 @@ impl<'a> RegistrationStage<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.stage.len(), REGISTRATION_STAGE_STAGE_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.stage.as_bytes(), out, offset);
-        write_bytes(&self.token.to_le_bytes(), out, offset);
-        write_bytes(&self.order.to_le_bytes(), out, offset);
-        write_bytes(&self.signature.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for RegistrationStage<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.stage.as_bytes(), REGISTRATION_STAGE_STAGE_MAX_BYTES, 0);
+        sink.scalar(&self.token.to_le_bytes(), 0);
+        sink.scalar(&self.order.to_le_bytes(), 0);
+        sink.scalar(&self.signature.to_le_bytes(), 0);
     }
 }
 
@@ -3137,12 +3084,11 @@ impl<'a> WireEncode for RegistrationStage<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -3186,17 +3132,19 @@ impl<'a> StageCall<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.stage.len(), STAGE_CALL_STAGE_MAX_BYTES)?;
-        len += 4;
-        len += blob_len(self.payload.len(), STAGE_CALL_PAYLOAD_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.stage.as_bytes(), out, offset);
-        write_bytes(&self.schema.to_le_bytes(), out, offset);
-        write_blob(self.payload, out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for StageCall<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.stage.as_bytes(), STAGE_CALL_STAGE_MAX_BYTES, 0);
+        sink.scalar(&self.schema.to_le_bytes(), 0);
+        sink.blob(self.payload, STAGE_CALL_PAYLOAD_MAX_BYTES, 0);
     }
 }
 
@@ -3206,12 +3154,11 @@ impl<'a> WireEncode for StageCall<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -3264,23 +3211,26 @@ impl<'a> StageReply<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.subscriber.len(), STAGE_REPLY_SUBSCRIBER_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 8;
-        len += blob_len(self.payload.len(), STAGE_REPLY_PAYLOAD_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.subscriber.as_bytes(), out, offset);
-        write_bytes(&self.index.to_le_bytes(), out, offset);
-        write_bytes(&self.status.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.signature.to_le_bytes(), out, offset);
-        write_blob(self.payload, out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for StageReply<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(
+            self.subscriber.as_bytes(),
+            STAGE_REPLY_SUBSCRIBER_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.index.to_le_bytes(), 0);
+        sink.scalar(&self.status.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.signature.to_le_bytes(), 0);
+        sink.blob(self.payload, STAGE_REPLY_PAYLOAD_MAX_BYTES, 0);
     }
 }
 
@@ -3290,12 +3240,11 @@ impl<'a> WireEncode for StageReply<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -3331,13 +3280,17 @@ impl<'a> ServiceEcho<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.text.len(), SERVICE_ECHO_TEXT_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.text.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceEcho<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.text.as_bytes(), SERVICE_ECHO_TEXT_MAX_BYTES, 0);
     }
 }
 
@@ -3347,12 +3300,11 @@ impl<'a> WireEncode for ServiceEcho<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -3396,17 +3348,19 @@ impl<'a> EventSettingChanged<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += blob_len(self.key.len(), EVENT_SETTING_CHANGED_KEY_MAX_BYTES)?;
-        len += blob_len(self.old.len(), EVENT_SETTING_CHANGED_OLD_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_blob(self.key.as_bytes(), out, offset);
-        write_blob(self.old, out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventSettingChanged<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.blob(self.key.as_bytes(), EVENT_SETTING_CHANGED_KEY_MAX_BYTES, 0);
+        sink.blob(self.old, EVENT_SETTING_CHANGED_OLD_MAX_BYTES, 0);
     }
 }
 
@@ -3416,12 +3370,11 @@ impl<'a> WireEncode for EventSettingChanged<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -3494,69 +3447,43 @@ impl<'a> EventBookOpened<'a> {
     }
 
     fn bits(&self) -> u8 {
-        let mut bits = 0;
-        if self.page.is_some() {
-            bits |= 0x01;
-        }
-        if self.pages.is_some() {
-            bits |= 0x02;
-        }
-        if self.insert.is_some() {
-            bits |= 0x04;
-        }
-        if self.chapter_left.is_some() {
-            bits |= 0x08;
-        }
-        bits
+        fields_bits(self)
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let bits = self.bits();
-        // The bitmap is one byte when any optional field is present.
-        let mut len = 1 + usize::from(bits != 0);
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.path.len(), EVENT_BOOK_OPENED_PATH_MAX_BYTES)?;
-        len += blob_len(self.title.len(), EVENT_BOOK_OPENED_TITLE_MAX_BYTES)?;
-        len += blob_len(self.chapter.len(), EVENT_BOOK_OPENED_CHAPTER_MAX_BYTES)?;
-        len += 4;
-        if bits & 0x01 != 0 {
-            len += 4;
-        }
-        if bits & 0x02 != 0 {
-            len += 4;
-        }
-        if bits & 0x04 != 0 {
-            len += 4;
-        }
-        if bits & 0x08 != 0 {
-            len += 4;
-        }
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.section.to_le_bytes(), out, offset);
-        write_bytes(&self.offset.to_le_bytes(), out, offset);
-        write_bytes(&self.progress_ppm.to_le_bytes(), out, offset);
-        write_blob(self.path.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.chapter.as_bytes(), out, offset);
-        write_bytes(&self.reason.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventBookOpened<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.section.to_le_bytes(), 0);
+        sink.scalar(&self.offset.to_le_bytes(), 0);
+        sink.scalar(&self.progress_ppm.to_le_bytes(), 0);
+        sink.blob(self.path.as_bytes(), EVENT_BOOK_OPENED_PATH_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), EVENT_BOOK_OPENED_TITLE_MAX_BYTES, 0);
+        sink.blob(
+            self.chapter.as_bytes(),
+            EVENT_BOOK_OPENED_CHAPTER_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.reason.to_le_bytes(), 0);
         if let Some(value) = self.page {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x01);
         }
         if let Some(value) = self.pages {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x02);
         }
         if let Some(value) = self.insert {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x04);
         }
         if let Some(value) = self.chapter_left {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x08);
         }
     }
 }
@@ -3567,16 +3494,11 @@ impl<'a> WireEncode for EventBookOpened<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        let bits = self.bits();
-        write_varint(u32::from(bits != 0), out, offset);
-        if bits != 0 {
-            write_bytes(&[bits], out, offset);
-        }
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -3649,69 +3571,43 @@ impl<'a> EventBookClosed<'a> {
     }
 
     fn bits(&self) -> u8 {
-        let mut bits = 0;
-        if self.page.is_some() {
-            bits |= 0x01;
-        }
-        if self.pages.is_some() {
-            bits |= 0x02;
-        }
-        if self.insert.is_some() {
-            bits |= 0x04;
-        }
-        if self.chapter_left.is_some() {
-            bits |= 0x08;
-        }
-        bits
+        fields_bits(self)
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let bits = self.bits();
-        // The bitmap is one byte when any optional field is present.
-        let mut len = 1 + usize::from(bits != 0);
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.path.len(), EVENT_BOOK_CLOSED_PATH_MAX_BYTES)?;
-        len += blob_len(self.title.len(), EVENT_BOOK_CLOSED_TITLE_MAX_BYTES)?;
-        len += blob_len(self.chapter.len(), EVENT_BOOK_CLOSED_CHAPTER_MAX_BYTES)?;
-        len += 4;
-        if bits & 0x01 != 0 {
-            len += 4;
-        }
-        if bits & 0x02 != 0 {
-            len += 4;
-        }
-        if bits & 0x04 != 0 {
-            len += 4;
-        }
-        if bits & 0x08 != 0 {
-            len += 4;
-        }
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.section.to_le_bytes(), out, offset);
-        write_bytes(&self.offset.to_le_bytes(), out, offset);
-        write_bytes(&self.progress_ppm.to_le_bytes(), out, offset);
-        write_blob(self.path.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.chapter.as_bytes(), out, offset);
-        write_bytes(&self.reason.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventBookClosed<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.section.to_le_bytes(), 0);
+        sink.scalar(&self.offset.to_le_bytes(), 0);
+        sink.scalar(&self.progress_ppm.to_le_bytes(), 0);
+        sink.blob(self.path.as_bytes(), EVENT_BOOK_CLOSED_PATH_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), EVENT_BOOK_CLOSED_TITLE_MAX_BYTES, 0);
+        sink.blob(
+            self.chapter.as_bytes(),
+            EVENT_BOOK_CLOSED_CHAPTER_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.reason.to_le_bytes(), 0);
         if let Some(value) = self.page {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x01);
         }
         if let Some(value) = self.pages {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x02);
         }
         if let Some(value) = self.insert {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x04);
         }
         if let Some(value) = self.chapter_left {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x08);
         }
     }
 }
@@ -3722,16 +3618,11 @@ impl<'a> WireEncode for EventBookClosed<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        let bits = self.bits();
-        write_varint(u32::from(bits != 0), out, offset);
-        if bits != 0 {
-            write_bytes(&[bits], out, offset);
-        }
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -3804,69 +3695,47 @@ impl<'a> EventBookFinished<'a> {
     }
 
     fn bits(&self) -> u8 {
-        let mut bits = 0;
-        if self.page.is_some() {
-            bits |= 0x01;
-        }
-        if self.pages.is_some() {
-            bits |= 0x02;
-        }
-        if self.insert.is_some() {
-            bits |= 0x04;
-        }
-        if self.chapter_left.is_some() {
-            bits |= 0x08;
-        }
-        bits
+        fields_bits(self)
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let bits = self.bits();
-        // The bitmap is one byte when any optional field is present.
-        let mut len = 1 + usize::from(bits != 0);
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.path.len(), EVENT_BOOK_FINISHED_PATH_MAX_BYTES)?;
-        len += blob_len(self.title.len(), EVENT_BOOK_FINISHED_TITLE_MAX_BYTES)?;
-        len += blob_len(self.chapter.len(), EVENT_BOOK_FINISHED_CHAPTER_MAX_BYTES)?;
-        len += 4;
-        if bits & 0x01 != 0 {
-            len += 4;
-        }
-        if bits & 0x02 != 0 {
-            len += 4;
-        }
-        if bits & 0x04 != 0 {
-            len += 4;
-        }
-        if bits & 0x08 != 0 {
-            len += 4;
-        }
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.section.to_le_bytes(), out, offset);
-        write_bytes(&self.offset.to_le_bytes(), out, offset);
-        write_bytes(&self.progress_ppm.to_le_bytes(), out, offset);
-        write_blob(self.path.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.chapter.as_bytes(), out, offset);
-        write_bytes(&self.reason.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventBookFinished<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.section.to_le_bytes(), 0);
+        sink.scalar(&self.offset.to_le_bytes(), 0);
+        sink.scalar(&self.progress_ppm.to_le_bytes(), 0);
+        sink.blob(self.path.as_bytes(), EVENT_BOOK_FINISHED_PATH_MAX_BYTES, 0);
+        sink.blob(
+            self.title.as_bytes(),
+            EVENT_BOOK_FINISHED_TITLE_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.chapter.as_bytes(),
+            EVENT_BOOK_FINISHED_CHAPTER_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.reason.to_le_bytes(), 0);
         if let Some(value) = self.page {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x01);
         }
         if let Some(value) = self.pages {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x02);
         }
         if let Some(value) = self.insert {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x04);
         }
         if let Some(value) = self.chapter_left {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x08);
         }
     }
 }
@@ -3877,16 +3746,11 @@ impl<'a> WireEncode for EventBookFinished<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        let bits = self.bits();
-        write_varint(u32::from(bits != 0), out, offset);
-        if bits != 0 {
-            write_bytes(&[bits], out, offset);
-        }
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -3930,17 +3794,19 @@ impl<'a> EventBookMoved<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += blob_len(self.from.len(), EVENT_BOOK_MOVED_FROM_MAX_BYTES)?;
-        len += blob_len(self.path.len(), EVENT_BOOK_MOVED_PATH_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_blob(self.from.as_bytes(), out, offset);
-        write_blob(self.path.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventBookMoved<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.blob(self.from.as_bytes(), EVENT_BOOK_MOVED_FROM_MAX_BYTES, 0);
+        sink.blob(self.path.as_bytes(), EVENT_BOOK_MOVED_PATH_MAX_BYTES, 0);
     }
 }
 
@@ -3950,12 +3816,11 @@ impl<'a> WireEncode for EventBookMoved<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -3994,15 +3859,18 @@ impl<'a> EventBookRemoved<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += blob_len(self.path.len(), EVENT_BOOK_REMOVED_PATH_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_blob(self.path.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventBookRemoved<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.blob(self.path.as_bytes(), EVENT_BOOK_REMOVED_PATH_MAX_BYTES, 0);
     }
 }
 
@@ -4012,12 +3880,11 @@ impl<'a> WireEncode for EventBookRemoved<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -4051,13 +3918,17 @@ impl EventPluginsChanged {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventPluginsChanged {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
     }
 }
 
@@ -4067,12 +3938,11 @@ impl WireEncode for EventPluginsChanged {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -4109,15 +3979,18 @@ impl EventWifiChanged {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.state.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventWifiChanged {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.state.to_le_bytes(), 0);
     }
 }
 
@@ -4127,12 +4000,11 @@ impl WireEncode for EventWifiChanged {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -4180,21 +4052,21 @@ impl<'a> EventPowerChanged<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.mode.len(), EVENT_POWER_CHANGED_MODE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.level.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.stretch.to_le_bytes(), out, offset);
-        write_blob(self.mode.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventPowerChanged<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.level.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.stretch.to_le_bytes(), 0);
+        sink.blob(self.mode.as_bytes(), EVENT_POWER_CHANGED_MODE_MAX_BYTES, 0);
     }
 }
 
@@ -4204,12 +4076,11 @@ impl<'a> WireEncode for EventPowerChanged<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -4243,13 +4114,17 @@ impl EventStatusChanged {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventStatusChanged {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
     }
 }
 
@@ -4259,12 +4134,11 @@ impl WireEncode for EventStatusChanged {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -4301,15 +4175,18 @@ impl EventChargeChanged {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventChargeChanged {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -4319,12 +4196,11 @@ impl WireEncode for EventChargeChanged {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -4400,33 +4276,35 @@ impl<'a> SetupStep<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), SETUP_STEP_NAME_MAX_BYTES)?;
-        len += blob_len(self.title.len(), SETUP_STEP_TITLE_MAX_BYTES)?;
-        len += blob_len(self.help.len(), SETUP_STEP_HELP_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += blob_len(self.page.len(), SETUP_STEP_PAGE_MAX_BYTES)?;
-        len += blob_len(self.applies_key.len(), SETUP_STEP_APPLIES_KEY_MAX_BYTES)?;
-        len += blob_len(self.applies_value.len(), SETUP_STEP_APPLIES_VALUE_MAX_BYTES)?;
-        len += 4;
-        len += 8;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.help.as_bytes(), out, offset);
-        write_bytes(&self.order.to_le_bytes(), out, offset);
-        write_bytes(&self.page_kind.to_le_bytes(), out, offset);
-        write_blob(self.page.as_bytes(), out, offset);
-        write_blob(self.applies_key.as_bytes(), out, offset);
-        write_blob(self.applies_value.as_bytes(), out, offset);
-        write_bytes(&self.need.to_le_bytes(), out, offset);
-        write_bytes(&self.capability.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for SetupStep<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), SETUP_STEP_NAME_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), SETUP_STEP_TITLE_MAX_BYTES, 0);
+        sink.blob(self.help.as_bytes(), SETUP_STEP_HELP_MAX_BYTES, 0);
+        sink.scalar(&self.order.to_le_bytes(), 0);
+        sink.scalar(&self.page_kind.to_le_bytes(), 0);
+        sink.blob(self.page.as_bytes(), SETUP_STEP_PAGE_MAX_BYTES, 0);
+        sink.blob(
+            self.applies_key.as_bytes(),
+            SETUP_STEP_APPLIES_KEY_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.applies_value.as_bytes(),
+            SETUP_STEP_APPLIES_VALUE_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.need.to_le_bytes(), 0);
+        sink.scalar(&self.capability.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -4436,12 +4314,11 @@ impl<'a> WireEncode for SetupStep<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -4482,15 +4359,18 @@ impl<'a> SlotSpec<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), SLOT_SPEC_NAME_MAX_BYTES)?;
-        len += blob_len(self.title.len(), SLOT_SPEC_TITLE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for SlotSpec<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), SLOT_SPEC_NAME_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), SLOT_SPEC_TITLE_MAX_BYTES, 0);
     }
 }
 
@@ -4500,12 +4380,11 @@ impl<'a> WireEncode for SlotSpec<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -4549,17 +4428,19 @@ impl<'a> SlotOffer<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.slot.len(), SLOT_OFFER_SLOT_MAX_BYTES)?;
-        len += blob_len(self.screen.len(), SLOT_OFFER_SCREEN_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.slot.as_bytes(), out, offset);
-        write_blob(self.screen.as_bytes(), out, offset);
-        write_bytes(&self.priority.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for SlotOffer<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.slot.as_bytes(), SLOT_OFFER_SLOT_MAX_BYTES, 0);
+        sink.blob(self.screen.as_bytes(), SLOT_OFFER_SCREEN_MAX_BYTES, 0);
+        sink.scalar(&self.priority.to_le_bytes(), 0);
     }
 }
 
@@ -4569,12 +4450,11 @@ impl<'a> WireEncode for SlotOffer<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -4630,21 +4510,21 @@ impl<'a> KeyBind<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.layer.len(), KEY_BIND_LAYER_MAX_BYTES)?;
-        len += blob_len(self.input.len(), KEY_BIND_INPUT_MAX_BYTES)?;
-        len += blob_len(self.action.len(), KEY_BIND_ACTION_MAX_BYTES)?;
-        len += blob_len(self.when_key.len(), KEY_BIND_WHEN_KEY_MAX_BYTES)?;
-        len += blob_len(self.when_value.len(), KEY_BIND_WHEN_VALUE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.layer.as_bytes(), out, offset);
-        write_blob(self.input.as_bytes(), out, offset);
-        write_blob(self.action.as_bytes(), out, offset);
-        write_blob(self.when_key.as_bytes(), out, offset);
-        write_blob(self.when_value.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for KeyBind<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.layer.as_bytes(), KEY_BIND_LAYER_MAX_BYTES, 0);
+        sink.blob(self.input.as_bytes(), KEY_BIND_INPUT_MAX_BYTES, 0);
+        sink.blob(self.action.as_bytes(), KEY_BIND_ACTION_MAX_BYTES, 0);
+        sink.blob(self.when_key.as_bytes(), KEY_BIND_WHEN_KEY_MAX_BYTES, 0);
+        sink.blob(self.when_value.as_bytes(), KEY_BIND_WHEN_VALUE_MAX_BYTES, 0);
     }
 }
 
@@ -4654,12 +4534,11 @@ impl<'a> WireEncode for KeyBind<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -4700,15 +4579,18 @@ impl<'a> SettingDefault<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.key.len(), SETTING_DEFAULT_KEY_MAX_BYTES)?;
-        len += blob_len(self.value.len(), SETTING_DEFAULT_VALUE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.key.as_bytes(), out, offset);
-        write_blob(self.value, out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for SettingDefault<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.key.as_bytes(), SETTING_DEFAULT_KEY_MAX_BYTES, 0);
+        sink.blob(self.value, SETTING_DEFAULT_VALUE_MAX_BYTES, 0);
     }
 }
 
@@ -4718,12 +4600,11 @@ impl<'a> WireEncode for SettingDefault<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -4769,17 +4650,19 @@ impl<'a> SettingChoice<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.key.len(), SETTING_CHOICE_KEY_MAX_BYTES)?;
-        len += blob_len(self.value.len(), SETTING_CHOICE_VALUE_MAX_BYTES)?;
-        len += blob_len(self.title.len(), SETTING_CHOICE_TITLE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.key.as_bytes(), out, offset);
-        write_blob(self.value.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for SettingChoice<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.key.as_bytes(), SETTING_CHOICE_KEY_MAX_BYTES, 0);
+        sink.blob(self.value.as_bytes(), SETTING_CHOICE_VALUE_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), SETTING_CHOICE_TITLE_MAX_BYTES, 0);
     }
 }
 
@@ -4789,12 +4672,11 @@ impl<'a> WireEncode for SettingChoice<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -4845,19 +4727,20 @@ impl<'a> PresetSpec<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), PRESET_SPEC_NAME_MAX_BYTES)?;
-        len += blob_len(self.kind.len(), PRESET_SPEC_KIND_MAX_BYTES)?;
-        len += blob_len(self.title.len(), PRESET_SPEC_TITLE_MAX_BYTES)?;
-        len += blob_len(self.help.len(), PRESET_SPEC_HELP_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.kind.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.help.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for PresetSpec<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), PRESET_SPEC_NAME_MAX_BYTES, 0);
+        sink.blob(self.kind.as_bytes(), PRESET_SPEC_KIND_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), PRESET_SPEC_TITLE_MAX_BYTES, 0);
+        sink.blob(self.help.as_bytes(), PRESET_SPEC_HELP_MAX_BYTES, 0);
     }
 }
 
@@ -4867,12 +4750,11 @@ impl<'a> WireEncode for PresetSpec<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -4921,19 +4803,20 @@ impl<'a> PresetValue<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.preset.len(), PRESET_VALUE_PRESET_MAX_BYTES)?;
-        len += blob_len(self.key.len(), PRESET_VALUE_KEY_MAX_BYTES)?;
-        len += blob_len(self.value.len(), PRESET_VALUE_VALUE_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.preset.as_bytes(), out, offset);
-        write_blob(self.key.as_bytes(), out, offset);
-        write_blob(self.value, out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for PresetValue<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.preset.as_bytes(), PRESET_VALUE_PRESET_MAX_BYTES, 0);
+        sink.blob(self.key.as_bytes(), PRESET_VALUE_KEY_MAX_BYTES, 0);
+        sink.blob(self.value, PRESET_VALUE_VALUE_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -4943,12 +4826,11 @@ impl<'a> WireEncode for PresetValue<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -4985,15 +4867,18 @@ impl EventRegistryChanged {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.what.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventRegistryChanged {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.what.to_le_bytes(), 0);
     }
 }
 
@@ -5003,12 +4888,11 @@ impl WireEncode for EventRegistryChanged {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -5042,13 +4926,17 @@ impl EventPreviewChanged {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventPreviewChanged {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
     }
 }
 
@@ -5058,12 +4946,11 @@ impl WireEncode for EventPreviewChanged {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -5116,22 +5003,24 @@ impl<'a> EventPluginsRequested<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += blob_len(self.by.len(), EVENT_PLUGINS_REQUESTED_BY_MAX_BYTES)?;
-        len += blob_len(
-            self.plugins.len(),
-            EVENT_PLUGINS_REQUESTED_PLUGINS_MAX_BYTES,
-        )?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.request.to_le_bytes(), out, offset);
-        write_blob(self.by.as_bytes(), out, offset);
-        write_blob(self.plugins.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventPluginsRequested<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.request.to_le_bytes(), 0);
+        sink.blob(self.by.as_bytes(), EVENT_PLUGINS_REQUESTED_BY_MAX_BYTES, 0);
+        sink.blob(
+            self.plugins.as_bytes(),
+            EVENT_PLUGINS_REQUESTED_PLUGINS_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -5141,12 +5030,11 @@ impl<'a> WireEncode for EventPluginsRequested<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -5191,19 +5079,24 @@ impl<'a> EventPluginAnswered<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += blob_len(self.plugin.len(), EVENT_PLUGIN_ANSWERED_PLUGIN_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.request.to_le_bytes(), out, offset);
-        write_blob(self.plugin.as_bytes(), out, offset);
-        write_bytes(&self.outcome.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventPluginAnswered<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.request.to_le_bytes(), 0);
+        sink.blob(
+            self.plugin.as_bytes(),
+            EVENT_PLUGIN_ANSWERED_PLUGIN_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.outcome.to_le_bytes(), 0);
     }
 }
 
@@ -5213,12 +5106,11 @@ impl<'a> WireEncode for EventPluginAnswered<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -5263,19 +5155,20 @@ impl<'a> ServiceRegQuery<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.scope.len(), SERVICE_REG_QUERY_SCOPE_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.scope.as_bytes(), out, offset);
-        write_bytes(&self.cursor.to_le_bytes(), out, offset);
-        write_bytes(&self.generation.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceRegQuery<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.scope.as_bytes(), SERVICE_REG_QUERY_SCOPE_MAX_BYTES, 0);
+        sink.scalar(&self.cursor.to_le_bytes(), 0);
+        sink.scalar(&self.generation.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -5285,12 +5178,11 @@ impl<'a> WireEncode for ServiceRegQuery<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -5326,13 +5218,17 @@ impl<'a> ServiceRegKey<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.key.len(), SERVICE_REG_KEY_KEY_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.key.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceRegKey<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.key.as_bytes(), SERVICE_REG_KEY_KEY_MAX_BYTES, 0);
     }
 }
 
@@ -5342,12 +5238,11 @@ impl<'a> WireEncode for ServiceRegKey<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -5407,25 +5302,31 @@ impl<'a> ServiceRegSetting<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.key.len(), SERVICE_REG_SETTING_KEY_MAX_BYTES)?;
-        len += blob_len(self.group.len(), SERVICE_REG_SETTING_GROUP_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.title.len(), SERVICE_REG_SETTING_TITLE_MAX_BYTES)?;
-        len += blob_len(self.value.len(), SERVICE_REG_SETTING_VALUE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.key.as_bytes(), out, offset);
-        write_blob(self.group.as_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.source.to_le_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.value, out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceRegSetting<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.key.as_bytes(), SERVICE_REG_SETTING_KEY_MAX_BYTES, 0);
+        sink.blob(
+            self.group.as_bytes(),
+            SERVICE_REG_SETTING_GROUP_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.source.to_le_bytes(), 0);
+        sink.blob(
+            self.title.as_bytes(),
+            SERVICE_REG_SETTING_TITLE_MAX_BYTES,
+            0,
+        );
+        sink.blob(self.value, SERVICE_REG_SETTING_VALUE_MAX_BYTES, 0);
     }
 }
 
@@ -5435,12 +5336,11 @@ impl<'a> WireEncode for ServiceRegSetting<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -5516,48 +5416,51 @@ impl<'a> ServiceRegSettingExtra<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.unit.len(), SERVICE_REG_SETTING_EXTRA_UNIT_MAX_BYTES)?;
-        len += blob_len(
-            self.section.len(),
-            SERVICE_REG_SETTING_EXTRA_SECTION_MAX_BYTES,
-        )?;
-        len += blob_len(
-            self.follows.len(),
-            SERVICE_REG_SETTING_EXTRA_FOLLOWS_MAX_BYTES,
-        )?;
-        len += blob_len(
-            self.shown_id.len(),
-            SERVICE_REG_SETTING_EXTRA_SHOWN_ID_MAX_BYTES,
-        )?;
-        len += blob_len(
-            self.shown_value.len(),
-            SERVICE_REG_SETTING_EXTRA_SHOWN_VALUE_MAX_BYTES,
-        )?;
-        len += 4;
-        len += blob_len(
-            self.editor.len(),
-            SERVICE_REG_SETTING_EXTRA_EDITOR_MAX_BYTES,
-        )?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.min.to_le_bytes(), out, offset);
-        write_bytes(&self.max.to_le_bytes(), out, offset);
-        write_bytes(&self.step.to_le_bytes(), out, offset);
-        write_blob(self.unit.as_bytes(), out, offset);
-        write_blob(self.section.as_bytes(), out, offset);
-        write_blob(self.follows.as_bytes(), out, offset);
-        write_blob(self.shown_id.as_bytes(), out, offset);
-        write_blob(self.shown_value.as_bytes(), out, offset);
-        write_bytes(&self.editor_kind.to_le_bytes(), out, offset);
-        write_blob(self.editor.as_bytes(), out, offset);
-        write_bytes(&self.choices.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceRegSettingExtra<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.min.to_le_bytes(), 0);
+        sink.scalar(&self.max.to_le_bytes(), 0);
+        sink.scalar(&self.step.to_le_bytes(), 0);
+        sink.blob(
+            self.unit.as_bytes(),
+            SERVICE_REG_SETTING_EXTRA_UNIT_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.section.as_bytes(),
+            SERVICE_REG_SETTING_EXTRA_SECTION_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.follows.as_bytes(),
+            SERVICE_REG_SETTING_EXTRA_FOLLOWS_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.shown_id.as_bytes(),
+            SERVICE_REG_SETTING_EXTRA_SHOWN_ID_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.shown_value.as_bytes(),
+            SERVICE_REG_SETTING_EXTRA_SHOWN_VALUE_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.editor_kind.to_le_bytes(), 0);
+        sink.blob(
+            self.editor.as_bytes(),
+            SERVICE_REG_SETTING_EXTRA_EDITOR_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.choices.to_le_bytes(), 0);
     }
 }
 
@@ -5567,12 +5470,11 @@ impl<'a> WireEncode for ServiceRegSettingExtra<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -5613,15 +5515,18 @@ impl<'a> ServiceRegChoice<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.value.len(), SERVICE_REG_CHOICE_VALUE_MAX_BYTES)?;
-        len += blob_len(self.title.len(), SERVICE_REG_CHOICE_TITLE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.value.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceRegChoice<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.value.as_bytes(), SERVICE_REG_CHOICE_VALUE_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), SERVICE_REG_CHOICE_TITLE_MAX_BYTES, 0);
     }
 }
 
@@ -5631,12 +5536,11 @@ impl<'a> WireEncode for ServiceRegChoice<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -5672,13 +5576,17 @@ impl<'a> ServiceRegText<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.text.len(), SERVICE_REG_TEXT_TEXT_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.text.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceRegText<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.text.as_bytes(), SERVICE_REG_TEXT_TEXT_MAX_BYTES, 0);
     }
 }
 
@@ -5688,12 +5596,11 @@ impl<'a> WireEncode for ServiceRegText<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -5747,21 +5654,25 @@ impl<'a> ServiceRegGroup<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.id.len(), SERVICE_REG_GROUP_ID_MAX_BYTES)?;
-        len += blob_len(self.parent.len(), SERVICE_REG_GROUP_PARENT_MAX_BYTES)?;
-        len += blob_len(self.page.len(), SERVICE_REG_GROUP_PAGE_MAX_BYTES)?;
-        len += 4;
-        len += blob_len(self.title.len(), SERVICE_REG_GROUP_TITLE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.id.as_bytes(), out, offset);
-        write_blob(self.parent.as_bytes(), out, offset);
-        write_blob(self.page.as_bytes(), out, offset);
-        write_bytes(&self.order.to_le_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceRegGroup<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.id.as_bytes(), SERVICE_REG_GROUP_ID_MAX_BYTES, 0);
+        sink.blob(
+            self.parent.as_bytes(),
+            SERVICE_REG_GROUP_PARENT_MAX_BYTES,
+            0,
+        );
+        sink.blob(self.page.as_bytes(), SERVICE_REG_GROUP_PAGE_MAX_BYTES, 0);
+        sink.scalar(&self.order.to_le_bytes(), 0);
+        sink.blob(self.title.as_bytes(), SERVICE_REG_GROUP_TITLE_MAX_BYTES, 0);
     }
 }
 
@@ -5771,12 +5682,11 @@ impl<'a> WireEncode for ServiceRegGroup<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -5842,29 +5752,33 @@ impl<'a> ServiceRegPlugin<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.id.len(), SERVICE_REG_PLUGIN_ID_MAX_BYTES)?;
-        len += blob_len(self.name.len(), SERVICE_REG_PLUGIN_NAME_MAX_BYTES)?;
-        len += blob_len(self.version.len(), SERVICE_REG_PLUGIN_VERSION_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.update.len(), SERVICE_REG_PLUGIN_UPDATE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.id.as_bytes(), out, offset);
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.version.as_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.state.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.problem.to_le_bytes(), out, offset);
-        write_bytes(&self.problem_arg.to_le_bytes(), out, offset);
-        write_blob(self.update.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceRegPlugin<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.id.as_bytes(), SERVICE_REG_PLUGIN_ID_MAX_BYTES, 0);
+        sink.blob(self.name.as_bytes(), SERVICE_REG_PLUGIN_NAME_MAX_BYTES, 0);
+        sink.blob(
+            self.version.as_bytes(),
+            SERVICE_REG_PLUGIN_VERSION_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.state.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.problem.to_le_bytes(), 0);
+        sink.scalar(&self.problem_arg.to_le_bytes(), 0);
+        sink.blob(
+            self.update.as_bytes(),
+            SERVICE_REG_PLUGIN_UPDATE_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -5874,12 +5788,11 @@ impl<'a> WireEncode for ServiceRegPlugin<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -5926,19 +5839,24 @@ impl<'a> ServiceRegNeed<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += blob_len(self.key.len(), SERVICE_REG_NEED_KEY_MAX_BYTES)?;
-        len += blob_len(self.version.len(), SERVICE_REG_NEED_VERSION_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_blob(self.key.as_bytes(), out, offset);
-        write_blob(self.version.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceRegNeed<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.blob(self.key.as_bytes(), SERVICE_REG_NEED_KEY_MAX_BYTES, 0);
+        sink.blob(
+            self.version.as_bytes(),
+            SERVICE_REG_NEED_VERSION_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -5948,12 +5866,11 @@ impl<'a> WireEncode for ServiceRegNeed<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -6002,19 +5919,20 @@ impl<'a> ServiceRegItem<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.id.len(), SERVICE_REG_ITEM_ID_MAX_BYTES)?;
-        len += blob_len(self.plugin.len(), SERVICE_REG_ITEM_PLUGIN_MAX_BYTES)?;
-        len += 4;
-        len += blob_len(self.title.len(), SERVICE_REG_ITEM_TITLE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.id.as_bytes(), out, offset);
-        write_blob(self.plugin.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceRegItem<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.id.as_bytes(), SERVICE_REG_ITEM_ID_MAX_BYTES, 0);
+        sink.blob(self.plugin.as_bytes(), SERVICE_REG_ITEM_PLUGIN_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.blob(self.title.as_bytes(), SERVICE_REG_ITEM_TITLE_MAX_BYTES, 0);
     }
 }
 
@@ -6024,12 +5942,11 @@ impl<'a> WireEncode for ServiceRegItem<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -6083,21 +6000,25 @@ impl<'a> ServiceRegSlot<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.id.len(), SERVICE_REG_SLOT_ID_MAX_BYTES)?;
-        len += blob_len(self.screen.len(), SERVICE_REG_SLOT_SCREEN_MAX_BYTES)?;
-        len += blob_len(self.default.len(), SERVICE_REG_SLOT_DEFAULT_MAX_BYTES)?;
-        len += 4;
-        len += blob_len(self.title.len(), SERVICE_REG_SLOT_TITLE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.id.as_bytes(), out, offset);
-        write_blob(self.screen.as_bytes(), out, offset);
-        write_blob(self.default.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceRegSlot<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.id.as_bytes(), SERVICE_REG_SLOT_ID_MAX_BYTES, 0);
+        sink.blob(self.screen.as_bytes(), SERVICE_REG_SLOT_SCREEN_MAX_BYTES, 0);
+        sink.blob(
+            self.default.as_bytes(),
+            SERVICE_REG_SLOT_DEFAULT_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.blob(self.title.as_bytes(), SERVICE_REG_SLOT_TITLE_MAX_BYTES, 0);
     }
 }
 
@@ -6107,12 +6028,11 @@ impl<'a> WireEncode for ServiceRegSlot<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -6182,29 +6102,37 @@ impl<'a> ServiceRegMenuRow<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.item.len(), SERVICE_REG_MENU_ROW_ITEM_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.by.len(), SERVICE_REG_MENU_ROW_BY_MAX_BYTES)?;
-        len += blob_len(self.title.len(), SERVICE_REG_MENU_ROW_TITLE_MAX_BYTES)?;
-        len += blob_len(self.icon.len(), SERVICE_REG_MENU_ROW_ICON_MAX_BYTES)?;
-        len += blob_len(self.badge.len(), SERVICE_REG_MENU_ROW_BADGE_MAX_BYTES)?;
-        len += blob_len(self.describe.len(), SERVICE_REG_MENU_ROW_DESCRIBE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.item.as_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.order.to_le_bytes(), out, offset);
-        write_blob(self.by.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.icon.as_bytes(), out, offset);
-        write_blob(self.badge.as_bytes(), out, offset);
-        write_blob(self.describe.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceRegMenuRow<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.item.as_bytes(), SERVICE_REG_MENU_ROW_ITEM_MAX_BYTES, 0);
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.order.to_le_bytes(), 0);
+        sink.blob(self.by.as_bytes(), SERVICE_REG_MENU_ROW_BY_MAX_BYTES, 0);
+        sink.blob(
+            self.title.as_bytes(),
+            SERVICE_REG_MENU_ROW_TITLE_MAX_BYTES,
+            0,
+        );
+        sink.blob(self.icon.as_bytes(), SERVICE_REG_MENU_ROW_ICON_MAX_BYTES, 0);
+        sink.blob(
+            self.badge.as_bytes(),
+            SERVICE_REG_MENU_ROW_BADGE_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.describe.as_bytes(),
+            SERVICE_REG_MENU_ROW_DESCRIBE_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -6214,12 +6142,11 @@ impl<'a> WireEncode for ServiceRegMenuRow<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -6268,19 +6195,32 @@ impl<'a> ServiceRegBinding<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.layer.len(), SERVICE_REG_BINDING_LAYER_MAX_BYTES)?;
-        len += blob_len(self.input.len(), SERVICE_REG_BINDING_INPUT_MAX_BYTES)?;
-        len += blob_len(self.action.len(), SERVICE_REG_BINDING_ACTION_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.layer.as_bytes(), out, offset);
-        write_blob(self.input.as_bytes(), out, offset);
-        write_blob(self.action.as_bytes(), out, offset);
-        write_bytes(&self.origin.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceRegBinding<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(
+            self.layer.as_bytes(),
+            SERVICE_REG_BINDING_LAYER_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.input.as_bytes(),
+            SERVICE_REG_BINDING_INPUT_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.action.as_bytes(),
+            SERVICE_REG_BINDING_ACTION_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.origin.to_le_bytes(), 0);
     }
 }
 
@@ -6290,12 +6230,11 @@ impl<'a> WireEncode for ServiceRegBinding<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -6350,23 +6289,30 @@ impl<'a> ServiceRegSetupStep<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.id.len(), SERVICE_REG_SETUP_STEP_ID_MAX_BYTES)?;
-        len += 4;
-        len += blob_len(self.page.len(), SERVICE_REG_SETUP_STEP_PAGE_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += blob_len(self.title.len(), SERVICE_REG_SETUP_STEP_TITLE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.id.as_bytes(), out, offset);
-        write_bytes(&self.page_kind.to_le_bytes(), out, offset);
-        write_blob(self.page.as_bytes(), out, offset);
-        write_bytes(&self.order.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceRegSetupStep<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.id.as_bytes(), SERVICE_REG_SETUP_STEP_ID_MAX_BYTES, 0);
+        sink.scalar(&self.page_kind.to_le_bytes(), 0);
+        sink.blob(
+            self.page.as_bytes(),
+            SERVICE_REG_SETUP_STEP_PAGE_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.order.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.blob(
+            self.title.as_bytes(),
+            SERVICE_REG_SETUP_STEP_TITLE_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -6376,12 +6322,11 @@ impl<'a> WireEncode for ServiceRegSetupStep<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -6425,17 +6370,19 @@ impl<'a> ServiceRegValue<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.key.len(), SERVICE_REG_VALUE_KEY_MAX_BYTES)?;
-        len += blob_len(self.value.len(), SERVICE_REG_VALUE_VALUE_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.key.as_bytes(), out, offset);
-        write_blob(self.value, out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceRegValue<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.key.as_bytes(), SERVICE_REG_VALUE_KEY_MAX_BYTES, 0);
+        sink.blob(self.value, SERVICE_REG_VALUE_VALUE_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -6445,12 +6392,11 @@ impl<'a> WireEncode for ServiceRegValue<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -6517,48 +6463,39 @@ impl<'a> ServiceRegWidget<'a> {
     }
 
     fn bits(&self) -> u8 {
-        let mut bits = 0;
-        if self.cells != 0 {
-            bits |= 0x01;
-        }
-        if !self.previews.is_empty() {
-            bits |= 0x02;
-        }
-        bits
+        fields_bits(self)
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let bits = self.bits();
-        // The bitmap is one byte when any optional field is present.
-        let mut len = 1 + usize::from(bits != 0);
-        len += blob_len(self.id.len(), SERVICE_REG_WIDGET_ID_MAX_BYTES)?;
-        len += blob_len(self.plugin.len(), SERVICE_REG_WIDGET_PLUGIN_MAX_BYTES)?;
-        len += blob_len(self.kind.len(), SERVICE_REG_WIDGET_KIND_MAX_BYTES)?;
-        len += blob_len(self.icon.len(), SERVICE_REG_WIDGET_ICON_MAX_BYTES)?;
-        len += 4;
-        len += blob_len(self.title.len(), SERVICE_REG_WIDGET_TITLE_MAX_BYTES)?;
-        if bits & 0x01 != 0 {
-            len += 4;
-        }
-        if bits & 0x02 != 0 {
-            len += blob_len(self.previews.len(), SERVICE_REG_WIDGET_PREVIEWS_MAX_BYTES)?;
-        }
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        let bits = self.bits();
-        write_blob(self.id.as_bytes(), out, offset);
-        write_blob(self.plugin.as_bytes(), out, offset);
-        write_blob(self.kind.as_bytes(), out, offset);
-        write_blob(self.icon.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        if bits & 0x01 != 0 {
-            write_bytes(&self.cells.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceRegWidget<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.id.as_bytes(), SERVICE_REG_WIDGET_ID_MAX_BYTES, 0);
+        sink.blob(
+            self.plugin.as_bytes(),
+            SERVICE_REG_WIDGET_PLUGIN_MAX_BYTES,
+            0,
+        );
+        sink.blob(self.kind.as_bytes(), SERVICE_REG_WIDGET_KIND_MAX_BYTES, 0);
+        sink.blob(self.icon.as_bytes(), SERVICE_REG_WIDGET_ICON_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.blob(self.title.as_bytes(), SERVICE_REG_WIDGET_TITLE_MAX_BYTES, 0);
+        if self.cells != 0 {
+            sink.scalar(&self.cells.to_le_bytes(), 0x01);
         }
-        if bits & 0x02 != 0 {
-            write_blob(self.previews.as_bytes(), out, offset);
+        if !self.previews.is_empty() {
+            sink.blob(
+                self.previews.as_bytes(),
+                SERVICE_REG_WIDGET_PREVIEWS_MAX_BYTES,
+                0x02,
+            );
         }
     }
 }
@@ -6569,16 +6506,11 @@ impl<'a> WireEncode for ServiceRegWidget<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        let bits = self.bits();
-        write_varint(u32::from(bits != 0), out, offset);
-        if bits != 0 {
-            write_bytes(&[bits], out, offset);
-        }
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -6641,27 +6573,28 @@ impl<'a> ServiceRegStatus<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.id.len(), SERVICE_REG_STATUS_ID_MAX_BYTES)?;
-        len += blob_len(self.plugin.len(), SERVICE_REG_STATUS_PLUGIN_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.tap.len(), SERVICE_REG_STATUS_TAP_MAX_BYTES)?;
-        len += blob_len(self.title.len(), SERVICE_REG_STATUS_TITLE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.id.as_bytes(), out, offset);
-        write_blob(self.plugin.as_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.priority.to_le_bytes(), out, offset);
-        write_bytes(&self.size.to_le_bytes(), out, offset);
-        write_blob(self.tap.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceRegStatus<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.id.as_bytes(), SERVICE_REG_STATUS_ID_MAX_BYTES, 0);
+        sink.blob(
+            self.plugin.as_bytes(),
+            SERVICE_REG_STATUS_PLUGIN_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.priority.to_le_bytes(), 0);
+        sink.scalar(&self.size.to_le_bytes(), 0);
+        sink.blob(self.tap.as_bytes(), SERVICE_REG_STATUS_TAP_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), SERVICE_REG_STATUS_TITLE_MAX_BYTES, 0);
     }
 }
 
@@ -6671,12 +6604,11 @@ impl<'a> WireEncode for ServiceRegStatus<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -6729,23 +6661,22 @@ impl<'a> InputSpec<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), INPUT_SPEC_NAME_MAX_BYTES)?;
-        len += blob_len(self.title.len(), INPUT_SPEC_TITLE_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 8;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.need.to_le_bytes(), out, offset);
-        write_bytes(&self.capability.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for InputSpec<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), INPUT_SPEC_NAME_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), INPUT_SPEC_TITLE_MAX_BYTES, 0);
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.need.to_le_bytes(), 0);
+        sink.scalar(&self.capability.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -6755,12 +6686,11 @@ impl<'a> WireEncode for InputSpec<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -6816,25 +6746,23 @@ impl<'a> HelpHint<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.screen.len(), HELP_HINT_SCREEN_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.text.len(), HELP_HINT_TEXT_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.screen.as_bytes(), out, offset);
-        write_bytes(&self.input.to_le_bytes(), out, offset);
-        write_bytes(&self.x.to_le_bytes(), out, offset);
-        write_bytes(&self.y.to_le_bytes(), out, offset);
-        write_bytes(&self.width.to_le_bytes(), out, offset);
-        write_bytes(&self.height.to_le_bytes(), out, offset);
-        write_blob(self.text.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for HelpHint<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.screen.as_bytes(), HELP_HINT_SCREEN_MAX_BYTES, 0);
+        sink.scalar(&self.input.to_le_bytes(), 0);
+        sink.scalar(&self.x.to_le_bytes(), 0);
+        sink.scalar(&self.y.to_le_bytes(), 0);
+        sink.scalar(&self.width.to_le_bytes(), 0);
+        sink.scalar(&self.height.to_le_bytes(), 0);
+        sink.blob(self.text.as_bytes(), HELP_HINT_TEXT_MAX_BYTES, 0);
     }
 }
 
@@ -6844,12 +6772,11 @@ impl<'a> WireEncode for HelpHint<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -6909,25 +6836,23 @@ impl<'a> WidgetSpec<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), WIDGET_SPEC_NAME_MAX_BYTES)?;
-        len += blob_len(self.title.len(), WIDGET_SPEC_TITLE_MAX_BYTES)?;
-        len += blob_len(self.category.len(), WIDGET_SPEC_CATEGORY_MAX_BYTES)?;
-        len += blob_len(self.previews.len(), WIDGET_SPEC_PREVIEWS_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.category.as_bytes(), out, offset);
-        write_blob(self.previews.as_bytes(), out, offset);
-        write_bytes(&self.cells.to_le_bytes(), out, offset);
-        write_bytes(&self.token.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for WidgetSpec<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), WIDGET_SPEC_NAME_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), WIDGET_SPEC_TITLE_MAX_BYTES, 0);
+        sink.blob(self.category.as_bytes(), WIDGET_SPEC_CATEGORY_MAX_BYTES, 0);
+        sink.blob(self.previews.as_bytes(), WIDGET_SPEC_PREVIEWS_MAX_BYTES, 0);
+        sink.scalar(&self.cells.to_le_bytes(), 0);
+        sink.scalar(&self.token.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -6937,12 +6862,11 @@ impl<'a> WireEncode for WidgetSpec<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -7007,26 +6931,34 @@ impl<'a> WidgetPlace<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), WIDGET_PLACE_NAME_MAX_BYTES)?;
-        len += blob_len(self.title.len(), WIDGET_PLACE_TITLE_MAX_BYTES)?;
-        len += blob_len(self.list_keys.len(), WIDGET_PLACE_LIST_KEYS_MAX_BYTES)?;
-        len += 4;
-        len += blob_len(self.shown_if_key.len(), WIDGET_PLACE_SHOWN_IF_KEY_MAX_BYTES)?;
-        len += blob_len(
-            self.shown_if_value.len(),
-            WIDGET_PLACE_SHOWN_IF_VALUE_MAX_BYTES,
-        )?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.list_keys.as_bytes(), out, offset);
-        write_bytes(&self.layout.to_le_bytes(), out, offset);
-        write_blob(self.shown_if_key.as_bytes(), out, offset);
-        write_blob(self.shown_if_value.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for WidgetPlace<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), WIDGET_PLACE_NAME_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), WIDGET_PLACE_TITLE_MAX_BYTES, 0);
+        sink.blob(
+            self.list_keys.as_bytes(),
+            WIDGET_PLACE_LIST_KEYS_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.layout.to_le_bytes(), 0);
+        sink.blob(
+            self.shown_if_key.as_bytes(),
+            WIDGET_PLACE_SHOWN_IF_KEY_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.shown_if_value.as_bytes(),
+            WIDGET_PLACE_SHOWN_IF_VALUE_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -7036,12 +6968,11 @@ impl<'a> WireEncode for WidgetPlace<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -7099,25 +7030,23 @@ impl<'a> StatusItem<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), STATUS_ITEM_NAME_MAX_BYTES)?;
-        len += blob_len(self.title.len(), STATUS_ITEM_TITLE_MAX_BYTES)?;
-        len += blob_len(self.tap.len(), STATUS_ITEM_TAP_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.tap.as_bytes(), out, offset);
-        write_bytes(&self.priority.to_le_bytes(), out, offset);
-        write_bytes(&self.min_width.to_le_bytes(), out, offset);
-        write_bytes(&self.token.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for StatusItem<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), STATUS_ITEM_NAME_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), STATUS_ITEM_TITLE_MAX_BYTES, 0);
+        sink.blob(self.tap.as_bytes(), STATUS_ITEM_TAP_MAX_BYTES, 0);
+        sink.scalar(&self.priority.to_le_bytes(), 0);
+        sink.scalar(&self.min_width.to_le_bytes(), 0);
+        sink.scalar(&self.token.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -7127,12 +7056,11 @@ impl<'a> WireEncode for StatusItem<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -7182,21 +7110,21 @@ impl<'a> StatusLine<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), STATUS_LINE_NAME_MAX_BYTES)?;
-        len += blob_len(self.title.len(), STATUS_LINE_TITLE_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_bytes(&self.height.to_le_bytes(), out, offset);
-        write_bytes(&self.token.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for StatusLine<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), STATUS_LINE_NAME_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), STATUS_LINE_TITLE_MAX_BYTES, 0);
+        sink.scalar(&self.height.to_le_bytes(), 0);
+        sink.scalar(&self.token.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -7206,12 +7134,11 @@ impl<'a> WireEncode for StatusLine<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -7267,21 +7194,21 @@ impl<'a> StatusPlace<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), STATUS_PLACE_NAME_MAX_BYTES)?;
-        len += blob_len(self.title.len(), STATUS_PLACE_TITLE_MAX_BYTES)?;
-        len += blob_len(self.left.len(), STATUS_PLACE_LEFT_MAX_BYTES)?;
-        len += blob_len(self.center.len(), STATUS_PLACE_CENTER_MAX_BYTES)?;
-        len += blob_len(self.right.len(), STATUS_PLACE_RIGHT_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.left.as_bytes(), out, offset);
-        write_blob(self.center.as_bytes(), out, offset);
-        write_blob(self.right.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for StatusPlace<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), STATUS_PLACE_NAME_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), STATUS_PLACE_TITLE_MAX_BYTES, 0);
+        sink.blob(self.left.as_bytes(), STATUS_PLACE_LEFT_MAX_BYTES, 0);
+        sink.blob(self.center.as_bytes(), STATUS_PLACE_CENTER_MAX_BYTES, 0);
+        sink.blob(self.right.as_bytes(), STATUS_PLACE_RIGHT_MAX_BYTES, 0);
     }
 }
 
@@ -7291,12 +7218,11 @@ impl<'a> WireEncode for StatusPlace<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -7355,27 +7281,28 @@ impl<'a> EventScreenOpened<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += blob_len(self.screen.len(), EVENT_SCREEN_OPENED_SCREEN_MAX_BYTES)?;
-        len += 4;
-        len += blob_len(self.slot.len(), EVENT_SCREEN_OPENED_SLOT_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_blob(self.screen.as_bytes(), out, offset);
-        write_bytes(&self.instance.to_le_bytes(), out, offset);
-        write_blob(self.slot.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.handover.to_le_bytes(), out, offset);
-        write_bytes(&self.params.to_le_bytes(), out, offset);
-        write_bytes(&self.text_bytes.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventScreenOpened<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.blob(
+            self.screen.as_bytes(),
+            EVENT_SCREEN_OPENED_SCREEN_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.instance.to_le_bytes(), 0);
+        sink.blob(self.slot.as_bytes(), EVENT_SCREEN_OPENED_SLOT_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.handover.to_le_bytes(), 0);
+        sink.scalar(&self.params.to_le_bytes(), 0);
+        sink.scalar(&self.text_bytes.to_le_bytes(), 0);
     }
 }
 
@@ -7385,12 +7312,11 @@ impl<'a> WireEncode for EventScreenOpened<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -7432,17 +7358,23 @@ impl<'a> EventScreenClosed<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += blob_len(self.screen.len(), EVENT_SCREEN_CLOSED_SCREEN_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_blob(self.screen.as_bytes(), out, offset);
-        write_bytes(&self.instance.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventScreenClosed<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.blob(
+            self.screen.as_bytes(),
+            EVENT_SCREEN_CLOSED_SCREEN_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.instance.to_le_bytes(), 0);
     }
 }
 
@@ -7452,12 +7384,11 @@ impl<'a> WireEncode for EventScreenClosed<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -7491,13 +7422,17 @@ impl EventStackChanged {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventStackChanged {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
     }
 }
 
@@ -7507,12 +7442,11 @@ impl WireEncode for EventStackChanged {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -7564,25 +7498,23 @@ impl EventAnswered {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.request.to_le_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.outcome.to_le_bytes(), out, offset);
-        write_bytes(&self.choice.to_le_bytes(), out, offset);
-        write_bytes(&self.length.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventAnswered {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.request.to_le_bytes(), 0);
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.outcome.to_le_bytes(), 0);
+        sink.scalar(&self.choice.to_le_bytes(), 0);
+        sink.scalar(&self.length.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -7592,12 +7524,11 @@ impl WireEncode for EventAnswered {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -7644,19 +7575,24 @@ impl<'a> EventWidgetMade<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += blob_len(self.widget.len(), EVENT_WIDGET_MADE_WIDGET_MAX_BYTES)?;
-        len += 4;
-        len += blob_len(self.place.len(), EVENT_WIDGET_MADE_PLACE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_blob(self.widget.as_bytes(), out, offset);
-        write_bytes(&self.instance.to_le_bytes(), out, offset);
-        write_blob(self.place.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventWidgetMade<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.blob(
+            self.widget.as_bytes(),
+            EVENT_WIDGET_MADE_WIDGET_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.instance.to_le_bytes(), 0);
+        sink.blob(self.place.as_bytes(), EVENT_WIDGET_MADE_PLACE_MAX_BYTES, 0);
     }
 }
 
@@ -7666,12 +7602,11 @@ impl<'a> WireEncode for EventWidgetMade<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -7708,15 +7643,18 @@ impl EventWidgetDropped {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.instance.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventWidgetDropped {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.instance.to_le_bytes(), 0);
     }
 }
 
@@ -7726,12 +7664,11 @@ impl WireEncode for EventWidgetDropped {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -7768,15 +7705,18 @@ impl EventWidgetChanged {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.instance.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventWidgetChanged {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.instance.to_le_bytes(), 0);
     }
 }
 
@@ -7786,12 +7726,11 @@ impl WireEncode for EventWidgetChanged {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -7833,17 +7772,23 @@ impl<'a> EventScreenReady<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += blob_len(self.screen.len(), EVENT_SCREEN_READY_SCREEN_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_blob(self.screen.as_bytes(), out, offset);
-        write_bytes(&self.instance.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventScreenReady<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.blob(
+            self.screen.as_bytes(),
+            EVENT_SCREEN_READY_SCREEN_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.instance.to_le_bytes(), 0);
     }
 }
 
@@ -7853,12 +7798,11 @@ impl<'a> WireEncode for EventScreenReady<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -7898,17 +7842,19 @@ impl EventSpoken {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.cookie.to_le_bytes(), out, offset);
-        write_bytes(&self.status.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventSpoken {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.cookie.to_le_bytes(), 0);
+        sink.scalar(&self.status.to_le_bytes(), 0);
     }
 }
 
@@ -7918,12 +7864,11 @@ impl WireEncode for EventSpoken {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -7972,23 +7917,22 @@ impl InputWidget {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.instance.to_le_bytes(), out, offset);
-        write_bytes(&self.target.to_le_bytes(), out, offset);
-        write_bytes(&self.x.to_le_bytes(), out, offset);
-        write_bytes(&self.y.to_le_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for InputWidget {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.instance.to_le_bytes(), 0);
+        sink.scalar(&self.target.to_le_bytes(), 0);
+        sink.scalar(&self.x.to_le_bytes(), 0);
+        sink.scalar(&self.y.to_le_bytes(), 0);
+        sink.scalar(&self.kind.to_le_bytes(), 0);
     }
 }
 
@@ -7998,12 +7942,11 @@ impl WireEncode for InputWidget {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -8055,21 +7998,25 @@ impl<'a> ServiceUiScreen<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.screen.len(), SERVICE_UI_SCREEN_SCREEN_MAX_BYTES)?;
-        len += 4;
-        len += blob_len(self.slot.len(), SERVICE_UI_SCREEN_SLOT_MAX_BYTES)?;
-        len += blob_len(self.owner.len(), SERVICE_UI_SCREEN_OWNER_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.screen.as_bytes(), out, offset);
-        write_bytes(&self.instance.to_le_bytes(), out, offset);
-        write_blob(self.slot.as_bytes(), out, offset);
-        write_blob(self.owner.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceUiScreen<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(
+            self.screen.as_bytes(),
+            SERVICE_UI_SCREEN_SCREEN_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.instance.to_le_bytes(), 0);
+        sink.blob(self.slot.as_bytes(), SERVICE_UI_SCREEN_SLOT_MAX_BYTES, 0);
+        sink.blob(self.owner.as_bytes(), SERVICE_UI_SCREEN_OWNER_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -8079,12 +8026,11 @@ impl<'a> WireEncode for ServiceUiScreen<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -8118,13 +8064,17 @@ impl ServiceUiRequest {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.request.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceUiRequest {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.request.to_le_bytes(), 0);
     }
 }
 
@@ -8134,12 +8084,11 @@ impl WireEncode for ServiceUiRequest {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -8200,23 +8149,30 @@ impl<'a> ServiceUiQuestion<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.title.len(), SERVICE_UI_QUESTION_TITLE_MAX_BYTES)?;
-        len += blob_len(self.text.len(), SERVICE_UI_QUESTION_TEXT_MAX_BYTES)?;
-        len += blob_len(self.choices.len(), SERVICE_UI_QUESTION_CHOICES_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.max_bytes.to_le_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.text.as_bytes(), out, offset);
-        write_blob(self.choices.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceUiQuestion<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.max_bytes.to_le_bytes(), 0);
+        sink.blob(
+            self.title.as_bytes(),
+            SERVICE_UI_QUESTION_TITLE_MAX_BYTES,
+            0,
+        );
+        sink.blob(self.text.as_bytes(), SERVICE_UI_QUESTION_TEXT_MAX_BYTES, 0);
+        sink.blob(
+            self.choices.as_bytes(),
+            SERVICE_UI_QUESTION_CHOICES_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -8226,12 +8182,11 @@ impl<'a> WireEncode for ServiceUiQuestion<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -8287,25 +8242,23 @@ impl<'a> ServiceUiHint<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.text.len(), SERVICE_UI_HINT_TEXT_MAX_BYTES)?;
-        len += blob_len(self.owner.len(), SERVICE_UI_HINT_OWNER_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.input.to_le_bytes(), out, offset);
-        write_bytes(&self.x.to_le_bytes(), out, offset);
-        write_bytes(&self.y.to_le_bytes(), out, offset);
-        write_bytes(&self.width.to_le_bytes(), out, offset);
-        write_bytes(&self.height.to_le_bytes(), out, offset);
-        write_blob(self.text.as_bytes(), out, offset);
-        write_blob(self.owner.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceUiHint<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.input.to_le_bytes(), 0);
+        sink.scalar(&self.x.to_le_bytes(), 0);
+        sink.scalar(&self.y.to_le_bytes(), 0);
+        sink.scalar(&self.width.to_le_bytes(), 0);
+        sink.scalar(&self.height.to_le_bytes(), 0);
+        sink.blob(self.text.as_bytes(), SERVICE_UI_HINT_TEXT_MAX_BYTES, 0);
+        sink.blob(self.owner.as_bytes(), SERVICE_UI_HINT_OWNER_MAX_BYTES, 0);
     }
 }
 
@@ -8315,12 +8268,11 @@ impl<'a> WireEncode for ServiceUiHint<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -8361,15 +8313,26 @@ impl<'a> ServiceUiWidgetRef<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.widget.len(), SERVICE_UI_WIDGET_REF_WIDGET_MAX_BYTES)?;
-        len += blob_len(self.place.len(), SERVICE_UI_WIDGET_REF_PLACE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.widget.as_bytes(), out, offset);
-        write_blob(self.place.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceUiWidgetRef<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(
+            self.widget.as_bytes(),
+            SERVICE_UI_WIDGET_REF_WIDGET_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.place.as_bytes(),
+            SERVICE_UI_WIDGET_REF_PLACE_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -8379,12 +8342,11 @@ impl<'a> WireEncode for ServiceUiWidgetRef<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -8421,15 +8383,18 @@ impl ServiceUiInstance {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.instance.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceUiInstance {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.instance.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -8439,12 +8404,11 @@ impl WireEncode for ServiceUiInstance {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -8490,21 +8454,21 @@ impl ServiceUiWidgetInput {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.instance.to_le_bytes(), out, offset);
-        write_bytes(&self.target.to_le_bytes(), out, offset);
-        write_bytes(&self.x.to_le_bytes(), out, offset);
-        write_bytes(&self.y.to_le_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceUiWidgetInput {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.instance.to_le_bytes(), 0);
+        sink.scalar(&self.target.to_le_bytes(), 0);
+        sink.scalar(&self.x.to_le_bytes(), 0);
+        sink.scalar(&self.y.to_le_bytes(), 0);
+        sink.scalar(&self.kind.to_le_bytes(), 0);
     }
 }
 
@@ -8514,12 +8478,11 @@ impl WireEncode for ServiceUiWidgetInput {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -8565,21 +8528,21 @@ impl ServiceUiTarget {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.target.to_le_bytes(), out, offset);
-        write_bytes(&self.x.to_le_bytes(), out, offset);
-        write_bytes(&self.y.to_le_bytes(), out, offset);
-        write_bytes(&self.width.to_le_bytes(), out, offset);
-        write_bytes(&self.height.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceUiTarget {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.target.to_le_bytes(), 0);
+        sink.scalar(&self.x.to_le_bytes(), 0);
+        sink.scalar(&self.y.to_le_bytes(), 0);
+        sink.scalar(&self.width.to_le_bytes(), 0);
+        sink.scalar(&self.height.to_le_bytes(), 0);
     }
 }
 
@@ -8589,12 +8552,11 @@ impl WireEncode for ServiceUiTarget {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -8657,23 +8619,22 @@ impl<'a> ServiceUiAsk<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += blob_len(self.slot.len(), SERVICE_UI_ASK_SLOT_MAX_BYTES)?;
-        len += blob_len(self.title.len(), SERVICE_UI_ASK_TITLE_MAX_BYTES)?;
-        len += blob_len(self.text.len(), SERVICE_UI_ASK_TEXT_MAX_BYTES)?;
-        len += blob_len(self.choices.len(), SERVICE_UI_ASK_CHOICES_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_blob(self.slot.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.text.as_bytes(), out, offset);
-        write_blob(self.choices.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceUiAsk<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.blob(self.slot.as_bytes(), SERVICE_UI_ASK_SLOT_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), SERVICE_UI_ASK_TITLE_MAX_BYTES, 0);
+        sink.blob(self.text.as_bytes(), SERVICE_UI_ASK_TEXT_MAX_BYTES, 0);
+        sink.blob(self.choices.as_bytes(), SERVICE_UI_ASK_CHOICES_MAX_BYTES, 0);
     }
 }
 
@@ -8683,12 +8644,11 @@ impl<'a> WireEncode for ServiceUiAsk<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -8736,21 +8696,21 @@ impl<'a> ServiceUiText<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.data.len(), SERVICE_UI_TEXT_DATA_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.text.to_le_bytes(), out, offset);
-        write_bytes(&self.offset.to_le_bytes(), out, offset);
-        write_bytes(&self.total.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_blob(self.data.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceUiText<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.text.to_le_bytes(), 0);
+        sink.scalar(&self.offset.to_le_bytes(), 0);
+        sink.scalar(&self.total.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.blob(self.data.as_bytes(), SERVICE_UI_TEXT_DATA_MAX_BYTES, 0);
     }
 }
 
@@ -8760,12 +8720,11 @@ impl<'a> WireEncode for ServiceUiText<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -8802,15 +8761,18 @@ impl ServiceUiTextAt {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.text.to_le_bytes(), out, offset);
-        write_bytes(&self.offset.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceUiTextAt {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.text.to_le_bytes(), 0);
+        sink.scalar(&self.offset.to_le_bytes(), 0);
     }
 }
 
@@ -8820,12 +8782,11 @@ impl WireEncode for ServiceUiTextAt {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -8865,17 +8826,19 @@ impl ServiceUiAnswer {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.request.to_le_bytes(), out, offset);
-        write_bytes(&self.outcome.to_le_bytes(), out, offset);
-        write_bytes(&self.choice.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceUiAnswer {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.request.to_le_bytes(), 0);
+        sink.scalar(&self.outcome.to_le_bytes(), 0);
+        sink.scalar(&self.choice.to_le_bytes(), 0);
     }
 }
 
@@ -8885,12 +8848,11 @@ impl WireEncode for ServiceUiAnswer {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -8936,21 +8898,21 @@ impl ServiceUiWidgetArea {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.instance.to_le_bytes(), out, offset);
-        write_bytes(&self.x.to_le_bytes(), out, offset);
-        write_bytes(&self.y.to_le_bytes(), out, offset);
-        write_bytes(&self.width.to_le_bytes(), out, offset);
-        write_bytes(&self.height.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceUiWidgetArea {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.instance.to_le_bytes(), 0);
+        sink.scalar(&self.x.to_le_bytes(), 0);
+        sink.scalar(&self.y.to_le_bytes(), 0);
+        sink.scalar(&self.width.to_le_bytes(), 0);
+        sink.scalar(&self.height.to_le_bytes(), 0);
     }
 }
 
@@ -8960,12 +8922,11 @@ impl WireEncode for ServiceUiWidgetArea {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -9002,15 +8963,18 @@ impl ServiceUiSize {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.height.to_le_bytes(), out, offset);
-        write_bytes(&self.min_height.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceUiSize {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.height.to_le_bytes(), 0);
+        sink.scalar(&self.min_height.to_le_bytes(), 0);
     }
 }
 
@@ -9020,12 +8984,11 @@ impl WireEncode for ServiceUiSize {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -9072,15 +9035,22 @@ impl<'a> ServiceUiStatusAsk<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.items.len(), SERVICE_UI_STATUS_ASK_ITEMS_MAX_BYTES)?;
-        len += blob_len(self.context.len(), SERVICE_UI_STATUS_ASK_CONTEXT_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.items.as_bytes(), out, offset);
-        write_blob(self.context, out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceUiStatusAsk<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(
+            self.items.as_bytes(),
+            SERVICE_UI_STATUS_ASK_ITEMS_MAX_BYTES,
+            0,
+        );
+        sink.blob(self.context, SERVICE_UI_STATUS_ASK_CONTEXT_MAX_BYTES, 0);
     }
 }
 
@@ -9090,12 +9060,11 @@ impl<'a> WireEncode for ServiceUiStatusAsk<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -9142,19 +9111,28 @@ impl<'a> ServiceUiStatusValue<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.item.len(), SERVICE_UI_STATUS_VALUE_ITEM_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += blob_len(self.text.len(), SERVICE_UI_STATUS_VALUE_TEXT_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.item.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.handle.to_le_bytes(), out, offset);
-        write_blob(self.text.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceUiStatusValue<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(
+            self.item.as_bytes(),
+            SERVICE_UI_STATUS_VALUE_ITEM_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.handle.to_le_bytes(), 0);
+        sink.blob(
+            self.text.as_bytes(),
+            SERVICE_UI_STATUS_VALUE_TEXT_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -9164,12 +9142,11 @@ impl<'a> WireEncode for ServiceUiStatusValue<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -9210,15 +9187,18 @@ impl<'a> ServiceUiParam<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.key.len(), SERVICE_UI_PARAM_KEY_MAX_BYTES)?;
-        len += blob_len(self.value.len(), SERVICE_UI_PARAM_VALUE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.key.as_bytes(), out, offset);
-        write_blob(self.value.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceUiParam<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.key.as_bytes(), SERVICE_UI_PARAM_KEY_MAX_BYTES, 0);
+        sink.blob(self.value.as_bytes(), SERVICE_UI_PARAM_VALUE_MAX_BYTES, 0);
     }
 }
 
@@ -9228,12 +9208,11 @@ impl<'a> WireEncode for ServiceUiParam<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -9267,13 +9246,17 @@ impl ServiceUiHandle {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.handle.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceUiHandle {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.handle.to_le_bytes(), 0);
     }
 }
 
@@ -9283,12 +9266,11 @@ impl WireEncode for ServiceUiHandle {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -9349,23 +9331,26 @@ impl<'a> FormatSpec<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), FORMAT_SPEC_NAME_MAX_BYTES)?;
-        len += blob_len(self.title.len(), FORMAT_SPEC_TITLE_MAX_BYTES)?;
-        len += blob_len(self.extensions.len(), FORMAT_SPEC_EXTENSIONS_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.extensions.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.priority.to_le_bytes(), out, offset);
-        write_bytes(&self.token.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for FormatSpec<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), FORMAT_SPEC_NAME_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), FORMAT_SPEC_TITLE_MAX_BYTES, 0);
+        sink.blob(
+            self.extensions.as_bytes(),
+            FORMAT_SPEC_EXTENSIONS_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.priority.to_le_bytes(), 0);
+        sink.scalar(&self.token.to_le_bytes(), 0);
     }
 }
 
@@ -9375,12 +9360,11 @@ impl<'a> WireEncode for FormatSpec<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -9435,19 +9419,20 @@ impl<'a> ReaderSpec<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), READER_SPEC_NAME_MAX_BYTES)?;
-        len += blob_len(self.screen.len(), READER_SPEC_SCREEN_MAX_BYTES)?;
-        len += blob_len(self.formats.len(), READER_SPEC_FORMATS_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.screen.as_bytes(), out, offset);
-        write_blob(self.formats.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ReaderSpec<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), READER_SPEC_NAME_MAX_BYTES, 0);
+        sink.blob(self.screen.as_bytes(), READER_SPEC_SCREEN_MAX_BYTES, 0);
+        sink.blob(self.formats.as_bytes(), READER_SPEC_FORMATS_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -9457,12 +9442,11 @@ impl<'a> WireEncode for ReaderSpec<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -9523,27 +9507,28 @@ impl<'a> ServiceDocOpen<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += blob_len(self.path.len(), SERVICE_DOC_OPEN_PATH_MAX_BYTES)?;
-        len += blob_len(self.format.len(), SERVICE_DOC_OPEN_FORMAT_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.css_path.len(), SERVICE_DOC_OPEN_CSS_PATH_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.root.to_le_bytes(), out, offset);
-        write_blob(self.path.as_bytes(), out, offset);
-        write_blob(self.format.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.image_side.to_le_bytes(), out, offset);
-        write_bytes(&self.cover_side.to_le_bytes(), out, offset);
-        write_bytes(&self.css_root.to_le_bytes(), out, offset);
-        write_blob(self.css_path.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocOpen<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.root.to_le_bytes(), 0);
+        sink.blob(self.path.as_bytes(), SERVICE_DOC_OPEN_PATH_MAX_BYTES, 0);
+        sink.blob(self.format.as_bytes(), SERVICE_DOC_OPEN_FORMAT_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.image_side.to_le_bytes(), 0);
+        sink.scalar(&self.cover_side.to_le_bytes(), 0);
+        sink.scalar(&self.css_root.to_le_bytes(), 0);
+        sink.blob(
+            self.css_path.as_bytes(),
+            SERVICE_DOC_OPEN_CSS_PATH_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -9553,12 +9538,11 @@ impl<'a> WireEncode for ServiceDocOpen<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -9599,15 +9583,18 @@ impl<'a> ServiceDocOption<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.key.len(), SERVICE_DOC_OPTION_KEY_MAX_BYTES)?;
-        len += blob_len(self.value.len(), SERVICE_DOC_OPTION_VALUE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.key.as_bytes(), out, offset);
-        write_blob(self.value.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocOption<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.key.as_bytes(), SERVICE_DOC_OPTION_KEY_MAX_BYTES, 0);
+        sink.blob(self.value.as_bytes(), SERVICE_DOC_OPTION_VALUE_MAX_BYTES, 0);
     }
 }
 
@@ -9617,12 +9604,11 @@ impl<'a> WireEncode for ServiceDocOption<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -9676,25 +9662,27 @@ impl<'a> ServiceDocState<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 8;
-        len += blob_len(self.format.len(), SERVICE_DOC_STATE_FORMAT_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.document.to_le_bytes(), out, offset);
-        write_bytes(&self.state.to_le_bytes(), out, offset);
-        write_bytes(&self.progress_ppm.to_le_bytes(), out, offset);
-        write_bytes(&self.status.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.conversion.to_le_bytes(), out, offset);
-        write_blob(self.format.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocState<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.document.to_le_bytes(), 0);
+        sink.scalar(&self.state.to_le_bytes(), 0);
+        sink.scalar(&self.progress_ppm.to_le_bytes(), 0);
+        sink.scalar(&self.status.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.conversion.to_le_bytes(), 0);
+        sink.blob(
+            self.format.as_bytes(),
+            SERVICE_DOC_STATE_FORMAT_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -9704,12 +9692,11 @@ impl<'a> WireEncode for ServiceDocState<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -9743,13 +9730,17 @@ impl ServiceDocRef {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.document.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocRef {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.document.to_le_bytes(), 0);
     }
 }
 
@@ -9759,12 +9750,11 @@ impl WireEncode for ServiceDocRef {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -9836,36 +9826,35 @@ impl<'a> ServiceDocMeta<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.title.len(), SERVICE_DOC_META_TITLE_MAX_BYTES)?;
-        len += blob_len(self.language.len(), SERVICE_DOC_META_LANGUAGE_MAX_BYTES)?;
-        len += blob_len(self.series.len(), SERVICE_DOC_META_SERIES_MAX_BYTES)?;
-        len += blob_len(
-            self.series_index.len(),
-            SERVICE_DOC_META_SERIES_INDEX_MAX_BYTES,
-        )?;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.language.as_bytes(), out, offset);
-        write_blob(self.series.as_bytes(), out, offset);
-        write_blob(self.series_index.as_bytes(), out, offset);
-        write_bytes(&self.direction.to_le_bytes(), out, offset);
-        write_bytes(&self.writing_mode.to_le_bytes(), out, offset);
-        write_bytes(&self.sections.to_le_bytes(), out, offset);
-        write_bytes(&self.authors.to_le_bytes(), out, offset);
-        write_bytes(&self.subjects.to_le_bytes(), out, offset);
-        write_bytes(&self.description_bytes.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocMeta<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.title.as_bytes(), SERVICE_DOC_META_TITLE_MAX_BYTES, 0);
+        sink.blob(
+            self.language.as_bytes(),
+            SERVICE_DOC_META_LANGUAGE_MAX_BYTES,
+            0,
+        );
+        sink.blob(self.series.as_bytes(), SERVICE_DOC_META_SERIES_MAX_BYTES, 0);
+        sink.blob(
+            self.series_index.as_bytes(),
+            SERVICE_DOC_META_SERIES_INDEX_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.direction.to_le_bytes(), 0);
+        sink.scalar(&self.writing_mode.to_le_bytes(), 0);
+        sink.scalar(&self.sections.to_le_bytes(), 0);
+        sink.scalar(&self.authors.to_le_bytes(), 0);
+        sink.scalar(&self.subjects.to_le_bytes(), 0);
+        sink.scalar(&self.description_bytes.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -9875,12 +9864,11 @@ impl<'a> WireEncode for ServiceDocMeta<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -9925,19 +9913,20 @@ impl<'a> ServiceDocText<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.text.len(), SERVICE_DOC_TEXT_TEXT_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.index.to_le_bytes(), out, offset);
-        write_bytes(&self.total.to_le_bytes(), out, offset);
-        write_blob(self.text.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocText<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.index.to_le_bytes(), 0);
+        sink.scalar(&self.total.to_le_bytes(), 0);
+        sink.blob(self.text.as_bytes(), SERVICE_DOC_TEXT_TEXT_MAX_BYTES, 0);
     }
 }
 
@@ -9947,12 +9936,11 @@ impl<'a> WireEncode for ServiceDocText<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -9995,19 +9983,20 @@ impl ServiceDocTextAt {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.document.to_le_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.index.to_le_bytes(), out, offset);
-        write_bytes(&self.offset.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocTextAt {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.document.to_le_bytes(), 0);
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.index.to_le_bytes(), 0);
+        sink.scalar(&self.offset.to_le_bytes(), 0);
     }
 }
 
@@ -10017,12 +10006,11 @@ impl WireEncode for ServiceDocTextAt {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -10067,19 +10055,20 @@ impl<'a> ServiceDocPage<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += blob_len(self.scope.len(), SERVICE_DOC_PAGE_SCOPE_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.document.to_le_bytes(), out, offset);
-        write_blob(self.scope.as_bytes(), out, offset);
-        write_bytes(&self.cursor.to_le_bytes(), out, offset);
-        write_bytes(&self.generation.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocPage<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.document.to_le_bytes(), 0);
+        sink.blob(self.scope.as_bytes(), SERVICE_DOC_PAGE_SCOPE_MAX_BYTES, 0);
+        sink.scalar(&self.cursor.to_le_bytes(), 0);
+        sink.scalar(&self.generation.to_le_bytes(), 0);
     }
 }
 
@@ -10089,12 +10078,11 @@ impl<'a> WireEncode for ServiceDocPage<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -10134,17 +10122,19 @@ impl ServiceDocSection {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.index.to_le_bytes(), out, offset);
-        write_bytes(&self.length.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocSection {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.index.to_le_bytes(), 0);
+        sink.scalar(&self.length.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -10154,12 +10144,11 @@ impl WireEncode for ServiceDocSection {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -10208,23 +10197,22 @@ impl ServiceDocAt {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.document.to_le_bytes(), out, offset);
-        write_bytes(&self.section.to_le_bytes(), out, offset);
-        write_bytes(&self.offset.to_le_bytes(), out, offset);
-        write_bytes(&self.insert.to_le_bytes(), out, offset);
-        write_bytes(&self.cursor.to_le_bytes(), out, offset);
-        write_bytes(&self.generation.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocAt {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.document.to_le_bytes(), 0);
+        sink.scalar(&self.section.to_le_bytes(), 0);
+        sink.scalar(&self.offset.to_le_bytes(), 0);
+        sink.scalar(&self.insert.to_le_bytes(), 0);
+        sink.scalar(&self.cursor.to_le_bytes(), 0);
+        sink.scalar(&self.generation.to_le_bytes(), 0);
     }
 }
 
@@ -10234,12 +10222,11 @@ impl WireEncode for ServiceDocAt {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -10290,23 +10277,22 @@ impl<'a> ServiceDocToc<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.title.len(), SERVICE_DOC_TOC_TITLE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.index.to_le_bytes(), out, offset);
-        write_bytes(&self.level.to_le_bytes(), out, offset);
-        write_bytes(&self.section.to_le_bytes(), out, offset);
-        write_bytes(&self.offset.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocToc<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.index.to_le_bytes(), 0);
+        sink.scalar(&self.level.to_le_bytes(), 0);
+        sink.scalar(&self.section.to_le_bytes(), 0);
+        sink.scalar(&self.offset.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.blob(self.title.as_bytes(), SERVICE_DOC_TOC_TITLE_MAX_BYTES, 0);
     }
 }
 
@@ -10316,12 +10302,11 @@ impl<'a> WireEncode for ServiceDocToc<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -10358,15 +10343,18 @@ impl ServiceDocIndex {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.document.to_le_bytes(), out, offset);
-        write_bytes(&self.index.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocIndex {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.document.to_le_bytes(), 0);
+        sink.scalar(&self.index.to_le_bytes(), 0);
     }
 }
 
@@ -10376,12 +10364,11 @@ impl WireEncode for ServiceDocIndex {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -10417,13 +10404,17 @@ impl<'a> ServiceDocLabel<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.text.len(), SERVICE_DOC_LABEL_TEXT_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.text.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocLabel<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.text.as_bytes(), SERVICE_DOC_LABEL_TEXT_MAX_BYTES, 0);
     }
 }
 
@@ -10433,12 +10424,11 @@ impl<'a> WireEncode for ServiceDocLabel<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -10477,15 +10467,18 @@ impl<'a> ServiceDocXpointer<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += blob_len(self.text.len(), SERVICE_DOC_XPOINTER_TEXT_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.document.to_le_bytes(), out, offset);
-        write_blob(self.text.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocXpointer<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.document.to_le_bytes(), 0);
+        sink.blob(self.text.as_bytes(), SERVICE_DOC_XPOINTER_TEXT_MAX_BYTES, 0);
     }
 }
 
@@ -10495,12 +10488,11 @@ impl<'a> WireEncode for ServiceDocXpointer<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -10549,23 +10541,22 @@ impl ServiceDocSpan {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.document.to_le_bytes(), out, offset);
-        write_bytes(&self.section.to_le_bytes(), out, offset);
-        write_bytes(&self.from.to_le_bytes(), out, offset);
-        write_bytes(&self.to.to_le_bytes(), out, offset);
-        write_bytes(&self.cursor.to_le_bytes(), out, offset);
-        write_bytes(&self.generation.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocSpan {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.document.to_le_bytes(), 0);
+        sink.scalar(&self.section.to_le_bytes(), 0);
+        sink.scalar(&self.from.to_le_bytes(), 0);
+        sink.scalar(&self.to.to_le_bytes(), 0);
+        sink.scalar(&self.cursor.to_le_bytes(), 0);
+        sink.scalar(&self.generation.to_le_bytes(), 0);
     }
 }
 
@@ -10575,12 +10566,11 @@ impl WireEncode for ServiceDocSpan {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -10625,19 +10615,20 @@ impl<'a> ServiceDocLink<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.href.len(), SERVICE_DOC_LINK_HREF_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.start.to_le_bytes(), out, offset);
-        write_bytes(&self.end.to_le_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_blob(self.href.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocLink<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.start.to_le_bytes(), 0);
+        sink.scalar(&self.end.to_le_bytes(), 0);
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.blob(self.href.as_bytes(), SERVICE_DOC_LINK_HREF_MAX_BYTES, 0);
     }
 }
 
@@ -10647,12 +10638,11 @@ impl<'a> WireEncode for ServiceDocLink<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -10691,15 +10681,18 @@ impl<'a> ServiceDocHref<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += blob_len(self.href.len(), SERVICE_DOC_HREF_HREF_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.document.to_le_bytes(), out, offset);
-        write_blob(self.href.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocHref<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.document.to_le_bytes(), 0);
+        sink.blob(self.href.as_bytes(), SERVICE_DOC_HREF_HREF_MAX_BYTES, 0);
     }
 }
 
@@ -10709,12 +10702,11 @@ impl<'a> WireEncode for ServiceDocHref<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -10757,19 +10749,20 @@ impl ServiceDocFont {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.index.to_le_bytes(), out, offset);
-        write_bytes(&self.family.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.bytes.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocFont {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.index.to_le_bytes(), 0);
+        sink.scalar(&self.family.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.bytes.to_le_bytes(), 0);
     }
 }
 
@@ -10779,12 +10772,11 @@ impl WireEncode for ServiceDocFont {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -10842,24 +10834,25 @@ impl<'a> ServiceDocFormat<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.id.len(), SERVICE_DOC_FORMAT_ID_MAX_BYTES)?;
-        len += blob_len(self.title.len(), SERVICE_DOC_FORMAT_TITLE_MAX_BYTES)?;
-        len += blob_len(
-            self.extensions.len(),
-            SERVICE_DOC_FORMAT_EXTENSIONS_MAX_BYTES,
-        )?;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.id.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.extensions.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.priority.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocFormat<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.id.as_bytes(), SERVICE_DOC_FORMAT_ID_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), SERVICE_DOC_FORMAT_TITLE_MAX_BYTES, 0);
+        sink.blob(
+            self.extensions.as_bytes(),
+            SERVICE_DOC_FORMAT_EXTENSIONS_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.priority.to_le_bytes(), 0);
     }
 }
 
@@ -10869,12 +10862,11 @@ impl<'a> WireEncode for ServiceDocFormat<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -10916,17 +10908,19 @@ impl<'a> ServiceDocPath<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += blob_len(self.path.len(), SERVICE_DOC_PATH_PATH_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.root.to_le_bytes(), out, offset);
-        write_blob(self.path.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocPath<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.root.to_le_bytes(), 0);
+        sink.blob(self.path.as_bytes(), SERVICE_DOC_PATH_PATH_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -10936,12 +10930,11 @@ impl<'a> WireEncode for ServiceDocPath<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -10998,19 +10991,28 @@ impl<'a> ServiceDocReader<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.id.len(), SERVICE_DOC_READER_ID_MAX_BYTES)?;
-        len += blob_len(self.screen.len(), SERVICE_DOC_READER_SCREEN_MAX_BYTES)?;
-        len += blob_len(self.formats.len(), SERVICE_DOC_READER_FORMATS_MAX_BYTES)?;
-        len += blob_len(self.title.len(), SERVICE_DOC_READER_TITLE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.id.as_bytes(), out, offset);
-        write_blob(self.screen.as_bytes(), out, offset);
-        write_blob(self.formats.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocReader<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.id.as_bytes(), SERVICE_DOC_READER_ID_MAX_BYTES, 0);
+        sink.blob(
+            self.screen.as_bytes(),
+            SERVICE_DOC_READER_SCREEN_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.formats.as_bytes(),
+            SERVICE_DOC_READER_FORMATS_MAX_BYTES,
+            0,
+        );
+        sink.blob(self.title.as_bytes(), SERVICE_DOC_READER_TITLE_MAX_BYTES, 0);
     }
 }
 
@@ -11020,12 +11022,11 @@ impl<'a> WireEncode for ServiceDocReader<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -11059,13 +11060,17 @@ impl ServiceDocProgress {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.progress_ppm.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocProgress {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.progress_ppm.to_le_bytes(), 0);
     }
 }
 
@@ -11075,12 +11080,11 @@ impl WireEncode for ServiceDocProgress {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -11164,45 +11168,33 @@ impl<'a> ServiceDocBlock<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.lang.len(), SERVICE_DOC_BLOCK_LANG_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.level.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.start.to_le_bytes(), out, offset);
-        write_bytes(&self.end.to_le_bytes(), out, offset);
-        write_bytes(&self.align.to_le_bytes(), out, offset);
-        write_bytes(&self.indent.to_le_bytes(), out, offset);
-        write_bytes(&self.space.to_le_bytes(), out, offset);
-        write_bytes(&self.size.to_le_bytes(), out, offset);
-        write_bytes(&self.margin_start.to_le_bytes(), out, offset);
-        write_bytes(&self.margin_end.to_le_bytes(), out, offset);
-        write_bytes(&self.line_height.to_le_bytes(), out, offset);
-        write_bytes(&self.dir.to_le_bytes(), out, offset);
-        write_bytes(&self.writing_mode.to_le_bytes(), out, offset);
-        write_blob(self.lang.as_bytes(), out, offset);
-        write_bytes(&self.drop_cap.to_le_bytes(), out, offset);
-        write_bytes(&self.text_bytes.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocBlock<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.level.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.start.to_le_bytes(), 0);
+        sink.scalar(&self.end.to_le_bytes(), 0);
+        sink.scalar(&self.align.to_le_bytes(), 0);
+        sink.scalar(&self.indent.to_le_bytes(), 0);
+        sink.scalar(&self.space.to_le_bytes(), 0);
+        sink.scalar(&self.size.to_le_bytes(), 0);
+        sink.scalar(&self.margin_start.to_le_bytes(), 0);
+        sink.scalar(&self.margin_end.to_le_bytes(), 0);
+        sink.scalar(&self.line_height.to_le_bytes(), 0);
+        sink.scalar(&self.dir.to_le_bytes(), 0);
+        sink.scalar(&self.writing_mode.to_le_bytes(), 0);
+        sink.blob(self.lang.as_bytes(), SERVICE_DOC_BLOCK_LANG_MAX_BYTES, 0);
+        sink.scalar(&self.drop_cap.to_le_bytes(), 0);
+        sink.scalar(&self.text_bytes.to_le_bytes(), 0);
     }
 }
 
@@ -11212,12 +11204,11 @@ impl<'a> WireEncode for ServiceDocBlock<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -11253,13 +11244,21 @@ impl<'a> ServiceDocTextPart<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.text.len(), SERVICE_DOC_TEXT_PART_TEXT_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.text.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocTextPart<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(
+            self.text.as_bytes(),
+            SERVICE_DOC_TEXT_PART_TEXT_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -11269,12 +11268,11 @@ impl<'a> WireEncode for ServiceDocTextPart<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -11310,13 +11308,17 @@ impl<'a> ServiceDocColumns<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.weights.len(), SERVICE_DOC_COLUMNS_WEIGHTS_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.weights, out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocColumns<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.weights, SERVICE_DOC_COLUMNS_WEIGHTS_MAX_BYTES, 0);
     }
 }
 
@@ -11326,12 +11328,11 @@ impl<'a> WireEncode for ServiceDocColumns<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -11371,17 +11372,19 @@ impl ServiceDocRun {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.start.to_le_bytes(), out, offset);
-        write_bytes(&self.end.to_le_bytes(), out, offset);
-        write_bytes(&self.style.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocRun {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.start.to_le_bytes(), 0);
+        sink.scalar(&self.end.to_le_bytes(), 0);
+        sink.scalar(&self.style.to_le_bytes(), 0);
     }
 }
 
@@ -11391,12 +11394,11 @@ impl WireEncode for ServiceDocRun {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -11433,15 +11435,18 @@ impl ServiceDocMap {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.text.to_le_bytes(), out, offset);
-        write_bytes(&self.source.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocMap {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.text.to_le_bytes(), 0);
+        sink.scalar(&self.source.to_le_bytes(), 0);
     }
 }
 
@@ -11451,12 +11456,11 @@ impl WireEncode for ServiceDocMap {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -11505,23 +11509,22 @@ impl ServiceDocCell {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.end.to_le_bytes(), out, offset);
-        write_bytes(&self.span.to_le_bytes(), out, offset);
-        write_bytes(&self.rows.to_le_bytes(), out, offset);
-        write_bytes(&self.align.to_le_bytes(), out, offset);
-        write_bytes(&self.vertical.to_le_bytes(), out, offset);
-        write_bytes(&self.width.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocCell {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.end.to_le_bytes(), 0);
+        sink.scalar(&self.span.to_le_bytes(), 0);
+        sink.scalar(&self.rows.to_le_bytes(), 0);
+        sink.scalar(&self.align.to_le_bytes(), 0);
+        sink.scalar(&self.vertical.to_le_bytes(), 0);
+        sink.scalar(&self.width.to_le_bytes(), 0);
     }
 }
 
@@ -11531,12 +11534,11 @@ impl WireEncode for ServiceDocCell {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -11584,21 +11586,21 @@ impl<'a> ServiceDocRuby<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.text.len(), SERVICE_DOC_RUBY_TEXT_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.start.to_le_bytes(), out, offset);
-        write_bytes(&self.end.to_le_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.size.to_le_bytes(), out, offset);
-        write_blob(self.text.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocRuby<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.start.to_le_bytes(), 0);
+        sink.scalar(&self.end.to_le_bytes(), 0);
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.size.to_le_bytes(), 0);
+        sink.blob(self.text.as_bytes(), SERVICE_DOC_RUBY_TEXT_MAX_BYTES, 0);
     }
 }
 
@@ -11608,12 +11610,11 @@ impl<'a> WireEncode for ServiceDocRuby<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -11649,13 +11650,21 @@ impl<'a> ServiceDocInlineLang<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.lang.len(), SERVICE_DOC_INLINE_LANG_LANG_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.lang.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocInlineLang<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(
+            self.lang.as_bytes(),
+            SERVICE_DOC_INLINE_LANG_LANG_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -11665,12 +11674,11 @@ impl<'a> WireEncode for ServiceDocInlineLang<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -11716,21 +11724,21 @@ impl ServiceDocImage {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.image.to_le_bytes(), out, offset);
-        write_bytes(&self.index.to_le_bytes(), out, offset);
-        write_bytes(&self.width.to_le_bytes(), out, offset);
-        write_bytes(&self.height.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocImage {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.image.to_le_bytes(), 0);
+        sink.scalar(&self.index.to_le_bytes(), 0);
+        sink.scalar(&self.width.to_le_bytes(), 0);
+        sink.scalar(&self.height.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -11740,12 +11748,11 @@ impl WireEncode for ServiceDocImage {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -11785,17 +11792,19 @@ impl ServiceDocImageAsk {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.document.to_le_bytes(), out, offset);
-        write_bytes(&self.index.to_le_bytes(), out, offset);
-        write_bytes(&self.side.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocImageAsk {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.document.to_le_bytes(), 0);
+        sink.scalar(&self.index.to_le_bytes(), 0);
+        sink.scalar(&self.side.to_le_bytes(), 0);
     }
 }
 
@@ -11805,12 +11814,11 @@ impl WireEncode for ServiceDocImageAsk {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -11864,39 +11872,28 @@ impl<'a> EventImageReady<'a> {
     }
 
     fn bits(&self) -> u8 {
-        let mut bits = 0;
-        if !self.luma.is_empty() {
-            bits |= 0x01;
-        }
-        bits
+        fields_bits(self)
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let bits = self.bits();
-        // The bitmap is one byte when any optional field is present.
-        let mut len = 1 + usize::from(bits != 0);
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        if bits & 0x01 != 0 {
-            len += blob_len(self.luma.len(), EVENT_IMAGE_READY_LUMA_MAX_BYTES)?;
-        }
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        let bits = self.bits();
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.cookie.to_le_bytes(), out, offset);
-        write_bytes(&self.status.to_le_bytes(), out, offset);
-        write_bytes(&self.image.to_le_bytes(), out, offset);
-        write_bytes(&self.width.to_le_bytes(), out, offset);
-        write_bytes(&self.height.to_le_bytes(), out, offset);
-        if bits & 0x01 != 0 {
-            write_blob(self.luma, out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventImageReady<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.cookie.to_le_bytes(), 0);
+        sink.scalar(&self.status.to_le_bytes(), 0);
+        sink.scalar(&self.image.to_le_bytes(), 0);
+        sink.scalar(&self.width.to_le_bytes(), 0);
+        sink.scalar(&self.height.to_le_bytes(), 0);
+        if !self.luma.is_empty() {
+            sink.blob(self.luma, EVENT_IMAGE_READY_LUMA_MAX_BYTES, 0x01);
         }
     }
 }
@@ -11907,16 +11904,11 @@ impl<'a> WireEncode for EventImageReady<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        let bits = self.bits();
-        write_varint(u32::from(bits != 0), out, offset);
-        if bits != 0 {
-            write_bytes(&[bits], out, offset);
-        }
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -11974,21 +11966,25 @@ impl<'a> LookupSpec<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), LOOKUP_SPEC_NAME_MAX_BYTES)?;
-        len += blob_len(self.title.len(), LOOKUP_SPEC_TITLE_MAX_BYTES)?;
-        len += blob_len(self.languages.len(), LOOKUP_SPEC_LANGUAGES_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.languages.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.token.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for LookupSpec<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), LOOKUP_SPEC_NAME_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), LOOKUP_SPEC_TITLE_MAX_BYTES, 0);
+        sink.blob(
+            self.languages.as_bytes(),
+            LOOKUP_SPEC_LANGUAGES_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.token.to_le_bytes(), 0);
     }
 }
 
@@ -11998,12 +11994,11 @@ impl<'a> WireEncode for LookupSpec<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -12052,19 +12047,28 @@ impl<'a> ServiceLookupAsk<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.text.len(), SERVICE_LOOKUP_ASK_TEXT_MAX_BYTES)?;
-        len += blob_len(self.language.len(), SERVICE_LOOKUP_ASK_LANGUAGE_MAX_BYTES)?;
-        len += blob_len(self.context.len(), SERVICE_LOOKUP_ASK_CONTEXT_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.text.as_bytes(), out, offset);
-        write_blob(self.language.as_bytes(), out, offset);
-        write_blob(self.context.as_bytes(), out, offset);
-        write_bytes(&self.cursor.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLookupAsk<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.text.as_bytes(), SERVICE_LOOKUP_ASK_TEXT_MAX_BYTES, 0);
+        sink.blob(
+            self.language.as_bytes(),
+            SERVICE_LOOKUP_ASK_LANGUAGE_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.context.as_bytes(),
+            SERVICE_LOOKUP_ASK_CONTEXT_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.cursor.to_le_bytes(), 0);
     }
 }
 
@@ -12074,12 +12078,11 @@ impl<'a> WireEncode for ServiceLookupAsk<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -12128,19 +12131,28 @@ impl<'a> ServiceLookupEntry<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.provider.len(), SERVICE_LOOKUP_ENTRY_PROVIDER_MAX_BYTES)?;
-        len += blob_len(self.title.len(), SERVICE_LOOKUP_ENTRY_TITLE_MAX_BYTES)?;
-        len += blob_len(self.text.len(), SERVICE_LOOKUP_ENTRY_TEXT_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.provider.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.text.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLookupEntry<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(
+            self.provider.as_bytes(),
+            SERVICE_LOOKUP_ENTRY_PROVIDER_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.title.as_bytes(),
+            SERVICE_LOOKUP_ENTRY_TITLE_MAX_BYTES,
+            0,
+        );
+        sink.blob(self.text.as_bytes(), SERVICE_LOOKUP_ENTRY_TEXT_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -12150,12 +12162,11 @@ impl<'a> WireEncode for ServiceLookupEntry<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -12199,17 +12210,19 @@ impl<'a> BookFieldSpec<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), BOOK_FIELD_SPEC_NAME_MAX_BYTES)?;
-        len += blob_len(self.title.len(), BOOK_FIELD_SPEC_TITLE_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for BookFieldSpec<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), BOOK_FIELD_SPEC_NAME_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), BOOK_FIELD_SPEC_TITLE_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -12219,12 +12232,11 @@ impl<'a> WireEncode for BookFieldSpec<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -12266,17 +12278,19 @@ impl<'a> BookBadgeSpec<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), BOOK_BADGE_SPEC_NAME_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_bytes(&self.token.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for BookBadgeSpec<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), BOOK_BADGE_SPEC_NAME_MAX_BYTES, 0);
+        sink.scalar(&self.token.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -12286,12 +12300,11 @@ impl<'a> WireEncode for BookBadgeSpec<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -12330,15 +12343,18 @@ impl<'a> BookDataSpec<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), BOOK_DATA_SPEC_NAME_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for BookDataSpec<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), BOOK_DATA_SPEC_NAME_MAX_BYTES, 0);
+        sink.scalar(&self.kind.to_le_bytes(), 0);
     }
 }
 
@@ -12348,12 +12364,11 @@ impl<'a> WireEncode for BookDataSpec<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -12398,19 +12413,24 @@ impl<'a> EventLibraryChanged<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += 4;
-        len += blob_len(self.path.len(), EVENT_LIBRARY_CHANGED_PATH_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.what.to_le_bytes(), out, offset);
-        write_bytes(&self.generation.to_le_bytes(), out, offset);
-        write_blob(self.path.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventLibraryChanged<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.what.to_le_bytes(), 0);
+        sink.scalar(&self.generation.to_le_bytes(), 0);
+        sink.blob(
+            self.path.as_bytes(),
+            EVENT_LIBRARY_CHANGED_PATH_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -12420,12 +12440,11 @@ impl<'a> WireEncode for EventLibraryChanged<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -12468,19 +12487,20 @@ impl ServiceLibState {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.state.to_le_bytes(), out, offset);
-        write_bytes(&self.books.to_le_bytes(), out, offset);
-        write_bytes(&self.generation.to_le_bytes(), out, offset);
-        write_bytes(&self.walk_ppm.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibState {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.state.to_le_bytes(), 0);
+        sink.scalar(&self.books.to_le_bytes(), 0);
+        sink.scalar(&self.generation.to_le_bytes(), 0);
+        sink.scalar(&self.walk_ppm.to_le_bytes(), 0);
     }
 }
 
@@ -12490,12 +12510,11 @@ impl WireEncode for ServiceLibState {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -12572,35 +12591,40 @@ impl<'a> ServiceLibQuery<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.words.len(), SERVICE_LIB_QUERY_WORDS_MAX_BYTES)?;
-        len += blob_len(self.author.len(), SERVICE_LIB_QUERY_AUTHOR_MAX_BYTES)?;
-        len += blob_len(self.series.len(), SERVICE_LIB_QUERY_SERIES_MAX_BYTES)?;
-        len += blob_len(self.tag.len(), SERVICE_LIB_QUERY_TAG_MAX_BYTES)?;
-        len += blob_len(self.folder.len(), SERVICE_LIB_QUERY_FOLDER_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.show.to_le_bytes(), out, offset);
-        write_bytes(&self.sort.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_blob(self.words.as_bytes(), out, offset);
-        write_blob(self.author.as_bytes(), out, offset);
-        write_blob(self.series.as_bytes(), out, offset);
-        write_blob(self.tag.as_bytes(), out, offset);
-        write_blob(self.folder.as_bytes(), out, offset);
-        write_bytes(&self.added_since.to_le_bytes(), out, offset);
-        write_bytes(&self.cursor.to_le_bytes(), out, offset);
-        write_bytes(&self.generation.to_le_bytes(), out, offset);
-        write_bytes(&self.facet.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibQuery<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.show.to_le_bytes(), 0);
+        sink.scalar(&self.sort.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.blob(self.words.as_bytes(), SERVICE_LIB_QUERY_WORDS_MAX_BYTES, 0);
+        sink.blob(
+            self.author.as_bytes(),
+            SERVICE_LIB_QUERY_AUTHOR_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.series.as_bytes(),
+            SERVICE_LIB_QUERY_SERIES_MAX_BYTES,
+            0,
+        );
+        sink.blob(self.tag.as_bytes(), SERVICE_LIB_QUERY_TAG_MAX_BYTES, 0);
+        sink.blob(
+            self.folder.as_bytes(),
+            SERVICE_LIB_QUERY_FOLDER_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.added_since.to_le_bytes(), 0);
+        sink.scalar(&self.cursor.to_le_bytes(), 0);
+        sink.scalar(&self.generation.to_le_bytes(), 0);
+        sink.scalar(&self.facet.to_le_bytes(), 0);
     }
 }
 
@@ -12610,12 +12634,11 @@ impl<'a> WireEncode for ServiceLibQuery<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -12689,29 +12712,41 @@ impl<'a> ServiceLibEntry<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += blob_len(self.title.len(), SERVICE_LIB_ENTRY_TITLE_MAX_BYTES)?;
-        len += blob_len(self.author.len(), SERVICE_LIB_ENTRY_AUTHOR_MAX_BYTES)?;
-        len += blob_len(self.series.len(), SERVICE_LIB_ENTRY_SERIES_MAX_BYTES)?;
-        len += blob_len(self.number.len(), SERVICE_LIB_ENTRY_NUMBER_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.badges.len(), SERVICE_LIB_ENTRY_BADGES_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.key.to_le_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.author.as_bytes(), out, offset);
-        write_blob(self.series.as_bytes(), out, offset);
-        write_blob(self.number.as_bytes(), out, offset);
-        write_bytes(&self.progress.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.added.to_le_bytes(), out, offset);
-        write_blob(self.badges.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibEntry<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.key.to_le_bytes(), 0);
+        sink.blob(self.title.as_bytes(), SERVICE_LIB_ENTRY_TITLE_MAX_BYTES, 0);
+        sink.blob(
+            self.author.as_bytes(),
+            SERVICE_LIB_ENTRY_AUTHOR_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.series.as_bytes(),
+            SERVICE_LIB_ENTRY_SERIES_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.number.as_bytes(),
+            SERVICE_LIB_ENTRY_NUMBER_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.progress.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.added.to_le_bytes(), 0);
+        sink.blob(
+            self.badges.as_bytes(),
+            SERVICE_LIB_ENTRY_BADGES_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -12721,12 +12756,11 @@ impl<'a> WireEncode for ServiceLibEntry<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -12768,30 +12802,24 @@ impl<'a> ServiceLibRef<'a> {
     }
 
     fn bits(&self) -> u8 {
-        let mut bits = 0;
-        if self.key.is_some() {
-            bits |= 0x01;
-        }
-        bits
+        fields_bits(self)
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let bits = self.bits();
-        // The bitmap is one byte when any optional field is present.
-        let mut len = 1 + usize::from(bits != 0);
-        len += blob_len(self.path.len(), SERVICE_LIB_REF_PATH_MAX_BYTES)?;
-        len += 4;
-        if bits & 0x01 != 0 {
-            len += 4;
-        }
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.path.as_bytes(), out, offset);
-        write_bytes(&self.generation.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibRef<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.path.as_bytes(), SERVICE_LIB_REF_PATH_MAX_BYTES, 0);
+        sink.scalar(&self.generation.to_le_bytes(), 0);
         if let Some(value) = self.key {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x01);
         }
     }
 }
@@ -12802,16 +12830,11 @@ impl<'a> WireEncode for ServiceLibRef<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        let bits = self.bits();
-        write_varint(u32::from(bits != 0), out, offset);
-        if bits != 0 {
-            write_bytes(&[bits], out, offset);
-        }
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -12905,45 +12928,33 @@ impl<'a> ServiceLibBook<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += blob_len(self.path.len(), SERVICE_LIB_BOOK_PATH_MAX_BYTES)?;
-        len += blob_len(self.title.len(), SERVICE_LIB_BOOK_TITLE_MAX_BYTES)?;
-        len += blob_len(self.author.len(), SERVICE_LIB_BOOK_AUTHOR_MAX_BYTES)?;
-        len += blob_len(self.series.len(), SERVICE_LIB_BOOK_SERIES_MAX_BYTES)?;
-        len += blob_len(self.number.len(), SERVICE_LIB_BOOK_NUMBER_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 8;
-        len += blob_len(self.format.len(), SERVICE_LIB_BOOK_FORMAT_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.key.to_le_bytes(), out, offset);
-        write_bytes(&self.generation.to_le_bytes(), out, offset);
-        write_blob(self.path.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.author.as_bytes(), out, offset);
-        write_blob(self.series.as_bytes(), out, offset);
-        write_blob(self.number.as_bytes(), out, offset);
-        write_bytes(&self.progress.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.added.to_le_bytes(), out, offset);
-        write_bytes(&self.size.to_le_bytes(), out, offset);
-        write_blob(self.format.as_bytes(), out, offset);
-        write_bytes(&self.tags.to_le_bytes(), out, offset);
-        write_bytes(&self.fields.to_le_bytes(), out, offset);
-        write_bytes(&self.title_bytes.to_le_bytes(), out, offset);
-        write_bytes(&self.author_bytes.to_le_bytes(), out, offset);
-        write_bytes(&self.series_bytes.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibBook<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.key.to_le_bytes(), 0);
+        sink.scalar(&self.generation.to_le_bytes(), 0);
+        sink.blob(self.path.as_bytes(), SERVICE_LIB_BOOK_PATH_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), SERVICE_LIB_BOOK_TITLE_MAX_BYTES, 0);
+        sink.blob(self.author.as_bytes(), SERVICE_LIB_BOOK_AUTHOR_MAX_BYTES, 0);
+        sink.blob(self.series.as_bytes(), SERVICE_LIB_BOOK_SERIES_MAX_BYTES, 0);
+        sink.blob(self.number.as_bytes(), SERVICE_LIB_BOOK_NUMBER_MAX_BYTES, 0);
+        sink.scalar(&self.progress.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.added.to_le_bytes(), 0);
+        sink.scalar(&self.size.to_le_bytes(), 0);
+        sink.blob(self.format.as_bytes(), SERVICE_LIB_BOOK_FORMAT_MAX_BYTES, 0);
+        sink.scalar(&self.tags.to_le_bytes(), 0);
+        sink.scalar(&self.fields.to_le_bytes(), 0);
+        sink.scalar(&self.title_bytes.to_le_bytes(), 0);
+        sink.scalar(&self.author_bytes.to_le_bytes(), 0);
+        sink.scalar(&self.series_bytes.to_le_bytes(), 0);
     }
 }
 
@@ -12953,12 +12964,11 @@ impl<'a> WireEncode for ServiceLibBook<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -12998,17 +13008,19 @@ impl ServiceLibTextAt {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.index.to_le_bytes(), out, offset);
-        write_bytes(&self.offset.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibTextAt {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.index.to_le_bytes(), 0);
+        sink.scalar(&self.offset.to_le_bytes(), 0);
     }
 }
 
@@ -13018,12 +13030,11 @@ impl WireEncode for ServiceLibTextAt {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -13068,19 +13079,20 @@ impl<'a> ServiceLibText<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.text.len(), SERVICE_LIB_TEXT_TEXT_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.index.to_le_bytes(), out, offset);
-        write_bytes(&self.total.to_le_bytes(), out, offset);
-        write_blob(self.text.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibText<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.index.to_le_bytes(), 0);
+        sink.scalar(&self.total.to_le_bytes(), 0);
+        sink.blob(self.text.as_bytes(), SERVICE_LIB_TEXT_TEXT_MAX_BYTES, 0);
     }
 }
 
@@ -13090,12 +13102,11 @@ impl<'a> WireEncode for ServiceLibText<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -13137,17 +13148,19 @@ impl<'a> ServiceLibFacet<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.text.len(), SERVICE_LIB_FACET_TEXT_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.text.as_bytes(), out, offset);
-        write_bytes(&self.count.to_le_bytes(), out, offset);
-        write_bytes(&self.first.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibFacet<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.text.as_bytes(), SERVICE_LIB_FACET_TEXT_MAX_BYTES, 0);
+        sink.scalar(&self.count.to_le_bytes(), 0);
+        sink.scalar(&self.first.to_le_bytes(), 0);
     }
 }
 
@@ -13157,12 +13170,11 @@ impl<'a> WireEncode for ServiceLibFacet<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -13196,13 +13208,17 @@ impl ServiceLibCover {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.side.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibCover {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.side.to_le_bytes(), 0);
     }
 }
 
@@ -13212,12 +13228,11 @@ impl WireEncode for ServiceLibCover {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -13254,15 +13269,18 @@ impl ServiceLibStatus {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.set.to_le_bytes(), out, offset);
-        write_bytes(&self.clear.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibStatus {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.set.to_le_bytes(), 0);
+        sink.scalar(&self.clear.to_le_bytes(), 0);
     }
 }
 
@@ -13272,12 +13290,11 @@ impl WireEncode for ServiceLibStatus {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -13322,15 +13339,18 @@ impl<'a> ServiceLibPaths<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.paths.len(), SERVICE_LIB_PATHS_PATHS_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.paths.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibPaths<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.paths.as_bytes(), SERVICE_LIB_PATHS_PATHS_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -13340,12 +13360,11 @@ impl<'a> WireEncode for ServiceLibPaths<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -13387,17 +13406,19 @@ impl<'a> ServiceLibResult<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.path.len(), SERVICE_LIB_RESULT_PATH_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.path.as_bytes(), out, offset);
-        write_bytes(&self.status.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibResult<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.path.as_bytes(), SERVICE_LIB_RESULT_PATH_MAX_BYTES, 0);
+        sink.scalar(&self.status.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -13407,12 +13428,11 @@ impl<'a> WireEncode for ServiceLibResult<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -13456,17 +13476,19 @@ impl<'a> ServiceLibMove<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.from.len(), SERVICE_LIB_MOVE_FROM_MAX_BYTES)?;
-        len += blob_len(self.to.len(), SERVICE_LIB_MOVE_TO_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.from.as_bytes(), out, offset);
-        write_blob(self.to.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibMove<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.from.as_bytes(), SERVICE_LIB_MOVE_FROM_MAX_BYTES, 0);
+        sink.blob(self.to.as_bytes(), SERVICE_LIB_MOVE_TO_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -13476,12 +13498,11 @@ impl<'a> WireEncode for ServiceLibMove<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -13530,19 +13551,24 @@ impl<'a> ServiceLibImport<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.from.len(), SERVICE_LIB_IMPORT_FROM_MAX_BYTES)?;
-        len += blob_len(self.folder.len(), SERVICE_LIB_IMPORT_FOLDER_MAX_BYTES)?;
-        len += blob_len(self.name.len(), SERVICE_LIB_IMPORT_NAME_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.from.as_bytes(), out, offset);
-        write_blob(self.folder.as_bytes(), out, offset);
-        write_blob(self.name.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibImport<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.from.as_bytes(), SERVICE_LIB_IMPORT_FROM_MAX_BYTES, 0);
+        sink.blob(
+            self.folder.as_bytes(),
+            SERVICE_LIB_IMPORT_FOLDER_MAX_BYTES,
+            0,
+        );
+        sink.blob(self.name.as_bytes(), SERVICE_LIB_IMPORT_NAME_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -13552,12 +13578,11 @@ impl<'a> WireEncode for ServiceLibImport<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -13614,27 +13639,28 @@ impl<'a> ServiceLibPosition<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 8;
-        len += 8;
-        len += blob_len(self.xpointer.len(), SERVICE_LIB_POSITION_XPOINTER_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.section.to_le_bytes(), out, offset);
-        write_bytes(&self.offset.to_le_bytes(), out, offset);
-        write_bytes(&self.insert.to_le_bytes(), out, offset);
-        write_bytes(&self.progress_ppm.to_le_bytes(), out, offset);
-        write_bytes(&self.conversion.to_le_bytes(), out, offset);
-        write_bytes(&self.updated.to_le_bytes(), out, offset);
-        write_blob(self.xpointer.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibPosition<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.section.to_le_bytes(), 0);
+        sink.scalar(&self.offset.to_le_bytes(), 0);
+        sink.scalar(&self.insert.to_le_bytes(), 0);
+        sink.scalar(&self.progress_ppm.to_le_bytes(), 0);
+        sink.scalar(&self.conversion.to_le_bytes(), 0);
+        sink.scalar(&self.updated.to_le_bytes(), 0);
+        sink.blob(
+            self.xpointer.as_bytes(),
+            SERVICE_LIB_POSITION_XPOINTER_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -13644,12 +13670,11 @@ impl<'a> WireEncode for ServiceLibPosition<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -13683,13 +13708,17 @@ impl ServiceLibPositionSet {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibPositionSet {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -13699,12 +13728,11 @@ impl WireEncode for ServiceLibPositionSet {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -13741,15 +13769,18 @@ impl ServiceLibPage {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.cursor.to_le_bytes(), out, offset);
-        write_bytes(&self.annotation_generation.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibPage {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.cursor.to_le_bytes(), 0);
+        sink.scalar(&self.annotation_generation.to_le_bytes(), 0);
     }
 }
 
@@ -13759,12 +13790,11 @@ impl WireEncode for ServiceLibPage {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -13843,42 +13873,42 @@ impl<'a> ServiceLibAnnotation<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 8;
-        len += 8;
-        len += 8;
-        len += blob_len(
-            self.client_key.len(),
-            SERVICE_LIB_ANNOTATION_CLIENT_KEY_MAX_BYTES,
-        )?;
-        len += blob_len(self.text.len(), SERVICE_LIB_ANNOTATION_TEXT_MAX_BYTES)?;
-        len += blob_len(self.note.len(), SERVICE_LIB_ANNOTATION_NOTE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.id.to_le_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.start_section.to_le_bytes(), out, offset);
-        write_bytes(&self.start_offset.to_le_bytes(), out, offset);
-        write_bytes(&self.end_section.to_le_bytes(), out, offset);
-        write_bytes(&self.end_offset.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.percent.to_le_bytes(), out, offset);
-        write_bytes(&self.conversion.to_le_bytes(), out, offset);
-        write_bytes(&self.created.to_le_bytes(), out, offset);
-        write_bytes(&self.updated.to_le_bytes(), out, offset);
-        write_blob(self.client_key.as_bytes(), out, offset);
-        write_blob(self.text.as_bytes(), out, offset);
-        write_blob(self.note.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibAnnotation<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.id.to_le_bytes(), 0);
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.start_section.to_le_bytes(), 0);
+        sink.scalar(&self.start_offset.to_le_bytes(), 0);
+        sink.scalar(&self.end_section.to_le_bytes(), 0);
+        sink.scalar(&self.end_offset.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.percent.to_le_bytes(), 0);
+        sink.scalar(&self.conversion.to_le_bytes(), 0);
+        sink.scalar(&self.created.to_le_bytes(), 0);
+        sink.scalar(&self.updated.to_le_bytes(), 0);
+        sink.blob(
+            self.client_key.as_bytes(),
+            SERVICE_LIB_ANNOTATION_CLIENT_KEY_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.text.as_bytes(),
+            SERVICE_LIB_ANNOTATION_TEXT_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.note.as_bytes(),
+            SERVICE_LIB_ANNOTATION_NOTE_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -13888,12 +13918,11 @@ impl<'a> WireEncode for ServiceLibAnnotation<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -13943,21 +13972,21 @@ impl<'a> ServiceLibAnchor<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 8;
-        len += blob_len(self.start.len(), SERVICE_LIB_ANCHOR_START_MAX_BYTES)?;
-        len += blob_len(self.end.len(), SERVICE_LIB_ANCHOR_END_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.id.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.conversion.to_le_bytes(), out, offset);
-        write_blob(self.start.as_bytes(), out, offset);
-        write_blob(self.end.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibAnchor<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.id.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.conversion.to_le_bytes(), 0);
+        sink.blob(self.start.as_bytes(), SERVICE_LIB_ANCHOR_START_MAX_BYTES, 0);
+        sink.blob(self.end.as_bytes(), SERVICE_LIB_ANCHOR_END_MAX_BYTES, 0);
     }
 }
 
@@ -13967,12 +13996,11 @@ impl<'a> WireEncode for ServiceLibAnchor<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -14006,13 +14034,17 @@ impl ServiceLibEditHead {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.annotation_generation.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibEditHead {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.annotation_generation.to_le_bytes(), 0);
     }
 }
 
@@ -14022,12 +14054,11 @@ impl WireEncode for ServiceLibEditHead {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -14061,13 +14092,17 @@ impl ServiceLibTransaction {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.transaction.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibTransaction {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.transaction.to_le_bytes(), 0);
     }
 }
 
@@ -14077,12 +14112,11 @@ impl WireEncode for ServiceLibTransaction {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -14116,13 +14150,17 @@ impl ServiceLibTransactionRef {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.transaction.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibTransactionRef {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.transaction.to_le_bytes(), 0);
     }
 }
 
@@ -14132,12 +14170,11 @@ impl WireEncode for ServiceLibTransactionRef {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -14225,45 +14262,37 @@ impl<'a> ServiceLibEdit<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 8;
-        len += 8;
-        len += 8;
-        len += blob_len(self.client_key.len(), SERVICE_LIB_EDIT_CLIENT_KEY_MAX_BYTES)?;
-        len += blob_len(self.text.len(), SERVICE_LIB_EDIT_TEXT_MAX_BYTES)?;
-        len += blob_len(self.note.len(), SERVICE_LIB_EDIT_NOTE_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.action.to_le_bytes(), out, offset);
-        write_bytes(&self.id.to_le_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.start_section.to_le_bytes(), out, offset);
-        write_bytes(&self.start_offset.to_le_bytes(), out, offset);
-        write_bytes(&self.end_section.to_le_bytes(), out, offset);
-        write_bytes(&self.end_offset.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.percent.to_le_bytes(), out, offset);
-        write_bytes(&self.conversion.to_le_bytes(), out, offset);
-        write_bytes(&self.created.to_le_bytes(), out, offset);
-        write_bytes(&self.updated.to_le_bytes(), out, offset);
-        write_blob(self.client_key.as_bytes(), out, offset);
-        write_blob(self.text.as_bytes(), out, offset);
-        write_blob(self.note.as_bytes(), out, offset);
-        write_bytes(&self.text_bytes.to_le_bytes(), out, offset);
-        write_bytes(&self.note_bytes.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibEdit<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.action.to_le_bytes(), 0);
+        sink.scalar(&self.id.to_le_bytes(), 0);
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.start_section.to_le_bytes(), 0);
+        sink.scalar(&self.start_offset.to_le_bytes(), 0);
+        sink.scalar(&self.end_section.to_le_bytes(), 0);
+        sink.scalar(&self.end_offset.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.percent.to_le_bytes(), 0);
+        sink.scalar(&self.conversion.to_le_bytes(), 0);
+        sink.scalar(&self.created.to_le_bytes(), 0);
+        sink.scalar(&self.updated.to_le_bytes(), 0);
+        sink.blob(
+            self.client_key.as_bytes(),
+            SERVICE_LIB_EDIT_CLIENT_KEY_MAX_BYTES,
+            0,
+        );
+        sink.blob(self.text.as_bytes(), SERVICE_LIB_EDIT_TEXT_MAX_BYTES, 0);
+        sink.blob(self.note.as_bytes(), SERVICE_LIB_EDIT_NOTE_MAX_BYTES, 0);
+        sink.scalar(&self.text_bytes.to_le_bytes(), 0);
+        sink.scalar(&self.note_bytes.to_le_bytes(), 0);
     }
 }
 
@@ -14273,12 +14302,11 @@ impl<'a> WireEncode for ServiceLibEdit<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -14329,23 +14357,26 @@ impl<'a> ServiceLibEditText<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.data.len(), SERVICE_LIB_EDIT_TEXT_DATA_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.transaction.to_le_bytes(), out, offset);
-        write_bytes(&self.edit.to_le_bytes(), out, offset);
-        write_bytes(&self.field.to_le_bytes(), out, offset);
-        write_bytes(&self.offset.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_blob(self.data.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibEditText<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.transaction.to_le_bytes(), 0);
+        sink.scalar(&self.edit.to_le_bytes(), 0);
+        sink.scalar(&self.field.to_le_bytes(), 0);
+        sink.scalar(&self.offset.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.blob(
+            self.data.as_bytes(),
+            SERVICE_LIB_EDIT_TEXT_DATA_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -14355,12 +14386,11 @@ impl<'a> WireEncode for ServiceLibEditText<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -14403,19 +14433,20 @@ impl ServiceLibCommitted {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.transaction.to_le_bytes(), out, offset);
-        write_bytes(&self.annotation_generation.to_le_bytes(), out, offset);
-        write_bytes(&self.edits.to_le_bytes(), out, offset);
-        write_bytes(&self.added.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibCommitted {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.transaction.to_le_bytes(), 0);
+        sink.scalar(&self.annotation_generation.to_le_bytes(), 0);
+        sink.scalar(&self.edits.to_le_bytes(), 0);
+        sink.scalar(&self.added.to_le_bytes(), 0);
     }
 }
 
@@ -14425,12 +14456,11 @@ impl WireEncode for ServiceLibCommitted {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -14476,17 +14506,19 @@ impl<'a> ServiceLibField<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.id.len(), SERVICE_LIB_FIELD_ID_MAX_BYTES)?;
-        len += blob_len(self.title.len(), SERVICE_LIB_FIELD_TITLE_MAX_BYTES)?;
-        len += blob_len(self.value.len(), SERVICE_LIB_FIELD_VALUE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.id.as_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.value.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibField<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.id.as_bytes(), SERVICE_LIB_FIELD_ID_MAX_BYTES, 0);
+        sink.blob(self.title.as_bytes(), SERVICE_LIB_FIELD_TITLE_MAX_BYTES, 0);
+        sink.blob(self.value.as_bytes(), SERVICE_LIB_FIELD_VALUE_MAX_BYTES, 0);
     }
 }
 
@@ -14496,12 +14528,11 @@ impl<'a> WireEncode for ServiceLibField<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -14542,15 +14573,26 @@ impl<'a> ServiceLibFieldSet<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.field.len(), SERVICE_LIB_FIELD_SET_FIELD_MAX_BYTES)?;
-        len += blob_len(self.value.len(), SERVICE_LIB_FIELD_SET_VALUE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.field.as_bytes(), out, offset);
-        write_blob(self.value.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibFieldSet<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(
+            self.field.as_bytes(),
+            SERVICE_LIB_FIELD_SET_FIELD_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.value.as_bytes(),
+            SERVICE_LIB_FIELD_SET_VALUE_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -14560,12 +14602,11 @@ impl<'a> WireEncode for ServiceLibFieldSet<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -14630,23 +14671,38 @@ impl<'a> ServiceLibProvided<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.title.len(), SERVICE_LIB_PROVIDED_TITLE_MAX_BYTES)?;
-        len += blob_len(self.author.len(), SERVICE_LIB_PROVIDED_AUTHOR_MAX_BYTES)?;
-        len += blob_len(self.series.len(), SERVICE_LIB_PROVIDED_SERIES_MAX_BYTES)?;
-        len += blob_len(self.number.len(), SERVICE_LIB_PROVIDED_NUMBER_MAX_BYTES)?;
-        len += blob_len(self.tags.len(), SERVICE_LIB_PROVIDED_TAGS_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.author.as_bytes(), out, offset);
-        write_blob(self.series.as_bytes(), out, offset);
-        write_blob(self.number.as_bytes(), out, offset);
-        write_blob(self.tags.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibProvided<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(
+            self.title.as_bytes(),
+            SERVICE_LIB_PROVIDED_TITLE_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.author.as_bytes(),
+            SERVICE_LIB_PROVIDED_AUTHOR_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.series.as_bytes(),
+            SERVICE_LIB_PROVIDED_SERIES_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.number.as_bytes(),
+            SERVICE_LIB_PROVIDED_NUMBER_MAX_BYTES,
+            0,
+        );
+        sink.blob(self.tags.as_bytes(), SERVICE_LIB_PROVIDED_TAGS_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -14656,12 +14712,11 @@ impl<'a> WireEncode for ServiceLibProvided<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -14705,20 +14760,23 @@ impl<'a> ServiceLibKey<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.key.len(), SERVICE_LIB_KEY_KEY_MAX_BYTES)?;
-        len += blob_len(
-            self.fingerprint.len(),
-            SERVICE_LIB_KEY_FINGERPRINT_MAX_BYTES,
-        )?;
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.key.as_bytes(), out, offset);
-        write_blob(self.fingerprint.as_bytes(), out, offset);
-        write_bytes(&self.size.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibKey<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.key.as_bytes(), SERVICE_LIB_KEY_KEY_MAX_BYTES, 0);
+        sink.blob(
+            self.fingerprint.as_bytes(),
+            SERVICE_LIB_KEY_FINGERPRINT_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.size.to_le_bytes(), 0);
     }
 }
 
@@ -14728,12 +14786,11 @@ impl<'a> WireEncode for ServiceLibKey<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -14770,15 +14827,18 @@ impl ServiceLibReceiptAsk {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.transaction.to_le_bytes(), out, offset);
-        write_bytes(&self.cursor.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibReceiptAsk {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.transaction.to_le_bytes(), 0);
+        sink.scalar(&self.cursor.to_le_bytes(), 0);
     }
 }
 
@@ -14788,12 +14848,11 @@ impl WireEncode for ServiceLibReceiptAsk {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -14833,17 +14892,19 @@ impl ServiceLibReceipt {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.edit.to_le_bytes(), out, offset);
-        write_bytes(&self.id.to_le_bytes(), out, offset);
-        write_bytes(&self.action.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibReceipt {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.edit.to_le_bytes(), 0);
+        sink.scalar(&self.id.to_le_bytes(), 0);
+        sink.scalar(&self.action.to_le_bytes(), 0);
     }
 }
 
@@ -14853,12 +14914,11 @@ impl WireEncode for ServiceLibReceipt {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -14925,31 +14985,30 @@ impl<'a> ServiceDevDevice<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.id.len(), SERVICE_DEV_DEVICE_ID_MAX_BYTES)?;
-        len += blob_len(self.model.len(), SERVICE_DEV_DEVICE_MODEL_MAX_BYTES)?;
-        len += blob_len(self.catalog.len(), SERVICE_DEV_DEVICE_CATALOG_MAX_BYTES)?;
-        len += 4;
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 8;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.id.as_bytes(), out, offset);
-        write_blob(self.model.as_bytes(), out, offset);
-        write_blob(self.catalog.as_bytes(), out, offset);
-        write_bytes(&self.class.to_le_bytes(), out, offset);
-        write_bytes(&self.caps.to_le_bytes(), out, offset);
-        write_bytes(&self.controls.to_le_bytes(), out, offset);
-        write_bytes(&self.tls_sessions.to_le_bytes(), out, offset);
-        write_bytes(&self.start.to_le_bytes(), out, offset);
-        write_bytes(&self.slept_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDevDevice<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.id.as_bytes(), SERVICE_DEV_DEVICE_ID_MAX_BYTES, 0);
+        sink.blob(self.model.as_bytes(), SERVICE_DEV_DEVICE_MODEL_MAX_BYTES, 0);
+        sink.blob(
+            self.catalog.as_bytes(),
+            SERVICE_DEV_DEVICE_CATALOG_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.class.to_le_bytes(), 0);
+        sink.scalar(&self.caps.to_le_bytes(), 0);
+        sink.scalar(&self.controls.to_le_bytes(), 0);
+        sink.scalar(&self.tls_sessions.to_le_bytes(), 0);
+        sink.scalar(&self.start.to_le_bytes(), 0);
+        sink.scalar(&self.slept_ms.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -14959,12 +15018,11 @@ impl<'a> WireEncode for ServiceDevDevice<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -15003,15 +15061,18 @@ impl<'a> ServiceDevValue<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), SERVICE_DEV_VALUE_NAME_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_bytes(&self.value.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDevValue<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), SERVICE_DEV_VALUE_NAME_MAX_BYTES, 0);
+        sink.scalar(&self.value.to_le_bytes(), 0);
     }
 }
 
@@ -15021,12 +15082,11 @@ impl<'a> WireEncode for ServiceDevValue<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -15094,47 +15154,40 @@ impl<'a> ServiceDevFirmware<'a> {
     }
 
     fn bits(&self) -> u8 {
-        let mut bits = 0;
-        if self.flags != 0 {
-            bits |= 0x01;
-        }
-        bits
+        fields_bits(self)
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let bits = self.bits();
-        // The bitmap is one byte when any optional field is present.
-        let mut len = 1 + usize::from(bits != 0);
-        len += blob_len(self.version.len(), SERVICE_DEV_FIRMWARE_VERSION_MAX_BYTES)?;
-        len += blob_len(self.project.len(), SERVICE_DEV_FIRMWARE_PROJECT_MAX_BYTES)?;
-        len += 4;
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 8;
-        len += 8;
-        len += 4;
-        len += 4;
-        if bits & 0x01 != 0 {
-            len += 4;
-        }
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        let bits = self.bits();
-        write_blob(self.version.as_bytes(), out, offset);
-        write_blob(self.project.as_bytes(), out, offset);
-        write_bytes(&self.chip.to_le_bytes(), out, offset);
-        write_bytes(&self.room.to_le_bytes(), out, offset);
-        write_bytes(&self.undone.to_le_bytes(), out, offset);
-        write_bytes(&self.state.to_le_bytes(), out, offset);
-        write_bytes(&self.done.to_le_bytes(), out, offset);
-        write_bytes(&self.total.to_le_bytes(), out, offset);
-        write_bytes(&self.reason.to_le_bytes(), out, offset);
-        write_bytes(&self.request.to_le_bytes(), out, offset);
-        if bits & 0x01 != 0 {
-            write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDevFirmware<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(
+            self.version.as_bytes(),
+            SERVICE_DEV_FIRMWARE_VERSION_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.project.as_bytes(),
+            SERVICE_DEV_FIRMWARE_PROJECT_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.chip.to_le_bytes(), 0);
+        sink.scalar(&self.room.to_le_bytes(), 0);
+        sink.scalar(&self.undone.to_le_bytes(), 0);
+        sink.scalar(&self.state.to_le_bytes(), 0);
+        sink.scalar(&self.done.to_le_bytes(), 0);
+        sink.scalar(&self.total.to_le_bytes(), 0);
+        sink.scalar(&self.reason.to_le_bytes(), 0);
+        sink.scalar(&self.request.to_le_bytes(), 0);
+        if self.flags != 0 {
+            sink.scalar(&self.flags.to_le_bytes(), 0x01);
         }
     }
 }
@@ -15145,16 +15198,11 @@ impl<'a> WireEncode for ServiceDevFirmware<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        let bits = self.bits();
-        write_varint(u32::from(bits != 0), out, offset);
-        if bits != 0 {
-            write_bytes(&[bits], out, offset);
-        }
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -15195,15 +15243,22 @@ impl<'a> ServiceDevBuiltin<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.id.len(), SERVICE_DEV_BUILTIN_ID_MAX_BYTES)?;
-        len += blob_len(self.version.len(), SERVICE_DEV_BUILTIN_VERSION_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.id.as_bytes(), out, offset);
-        write_blob(self.version.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDevBuiltin<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.id.as_bytes(), SERVICE_DEV_BUILTIN_ID_MAX_BYTES, 0);
+        sink.blob(
+            self.version.as_bytes(),
+            SERVICE_DEV_BUILTIN_VERSION_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -15213,12 +15268,11 @@ impl<'a> WireEncode for ServiceDevBuiltin<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -15288,36 +15342,39 @@ impl<'a> ServiceDevNative<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.code_file.len(), SERVICE_DEV_NATIVE_CODE_FILE_MAX_BYTES)?;
-        len += 4;
-        len += blob_len(self.crashed.len(), SERVICE_DEV_NATIVE_CRASHED_MAX_BYTES)?;
-        len += blob_len(
-            self.last_loaded.len(),
-            SERVICE_DEV_NATIVE_LAST_LOADED_MAX_BYTES,
-        )?;
-        len += 4;
-        len += 4;
-        len += 8;
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.abi_major.to_le_bytes(), out, offset);
-        write_bytes(&self.abi_draft.to_le_bytes(), out, offset);
-        write_bytes(&self.target.to_le_bytes(), out, offset);
-        write_blob(self.code_file.as_bytes(), out, offset);
-        write_bytes(&self.safe_mode.to_le_bytes(), out, offset);
-        write_blob(self.crashed.as_bytes(), out, offset);
-        write_blob(self.last_loaded.as_bytes(), out, offset);
-        write_bytes(&self.pending.to_le_bytes(), out, offset);
-        write_bytes(&self.not_installed.to_le_bytes(), out, offset);
-        write_bytes(&self.room_free.to_le_bytes(), out, offset);
-        write_bytes(&self.room_largest.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDevNative<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.abi_major.to_le_bytes(), 0);
+        sink.scalar(&self.abi_draft.to_le_bytes(), 0);
+        sink.scalar(&self.target.to_le_bytes(), 0);
+        sink.blob(
+            self.code_file.as_bytes(),
+            SERVICE_DEV_NATIVE_CODE_FILE_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.safe_mode.to_le_bytes(), 0);
+        sink.blob(
+            self.crashed.as_bytes(),
+            SERVICE_DEV_NATIVE_CRASHED_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.last_loaded.as_bytes(),
+            SERVICE_DEV_NATIVE_LAST_LOADED_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.pending.to_le_bytes(), 0);
+        sink.scalar(&self.not_installed.to_le_bytes(), 0);
+        sink.scalar(&self.room_free.to_le_bytes(), 0);
+        sink.scalar(&self.room_largest.to_le_bytes(), 0);
     }
 }
 
@@ -15327,12 +15384,11 @@ impl<'a> WireEncode for ServiceDevNative<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -15400,43 +15456,38 @@ impl<'a> ServiceDevCheck<'a> {
     }
 
     fn bits(&self) -> u8 {
-        let mut bits = 0;
-        if !self.sha256.is_empty() {
-            bits |= 0x01;
-        }
-        bits
+        fields_bits(self)
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let bits = self.bits();
-        // The bitmap is one byte when any optional field is present.
-        let mut len = 1 + usize::from(bits != 0);
-        len += 4;
-        len += 4;
-        len += 8;
-        len += blob_len(self.signer.len(), SERVICE_DEV_CHECK_SIGNER_MAX_BYTES)?;
-        len += blob_len(self.key.len(), SERVICE_DEV_CHECK_KEY_MAX_BYTES)?;
-        len += blob_len(self.id.len(), SERVICE_DEV_CHECK_ID_MAX_BYTES)?;
-        len += blob_len(self.version.len(), SERVICE_DEV_CHECK_VERSION_MAX_BYTES)?;
-        len += 4;
-        if bits & 0x01 != 0 {
-            len += blob_len(self.sha256.len(), SERVICE_DEV_CHECK_SHA256_MAX_BYTES)?;
-        }
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        let bits = self.bits();
-        write_bytes(&self.reason.to_le_bytes(), out, offset);
-        write_bytes(&self.needs_draft.to_le_bytes(), out, offset);
-        write_bytes(&self.bytes.to_le_bytes(), out, offset);
-        write_blob(self.signer.as_bytes(), out, offset);
-        write_blob(self.key, out, offset);
-        write_blob(self.id.as_bytes(), out, offset);
-        write_blob(self.version.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        if bits & 0x01 != 0 {
-            write_blob(self.sha256, out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDevCheck<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.reason.to_le_bytes(), 0);
+        sink.scalar(&self.needs_draft.to_le_bytes(), 0);
+        sink.scalar(&self.bytes.to_le_bytes(), 0);
+        sink.blob(
+            self.signer.as_bytes(),
+            SERVICE_DEV_CHECK_SIGNER_MAX_BYTES,
+            0,
+        );
+        sink.blob(self.key, SERVICE_DEV_CHECK_KEY_MAX_BYTES, 0);
+        sink.blob(self.id.as_bytes(), SERVICE_DEV_CHECK_ID_MAX_BYTES, 0);
+        sink.blob(
+            self.version.as_bytes(),
+            SERVICE_DEV_CHECK_VERSION_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        if !self.sha256.is_empty() {
+            sink.blob(self.sha256, SERVICE_DEV_CHECK_SHA256_MAX_BYTES, 0x01);
         }
     }
 }
@@ -15447,16 +15498,11 @@ impl<'a> WireEncode for ServiceDevCheck<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        let bits = self.bits();
-        write_varint(u32::from(bits != 0), out, offset);
-        if bits != 0 {
-            write_bytes(&[bits], out, offset);
-        }
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -15511,27 +15557,24 @@ impl ServiceDevMemory {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.heap_free.to_le_bytes(), out, offset);
-        write_bytes(&self.heap_size.to_le_bytes(), out, offset);
-        write_bytes(&self.largest.to_le_bytes(), out, offset);
-        write_bytes(&self.stack_free.to_le_bytes(), out, offset);
-        write_bytes(&self.stack_size.to_le_bytes(), out, offset);
-        write_bytes(&self.external_free.to_le_bytes(), out, offset);
-        write_bytes(&self.external_size.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDevMemory {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.heap_free.to_le_bytes(), 0);
+        sink.scalar(&self.heap_size.to_le_bytes(), 0);
+        sink.scalar(&self.largest.to_le_bytes(), 0);
+        sink.scalar(&self.stack_free.to_le_bytes(), 0);
+        sink.scalar(&self.stack_size.to_le_bytes(), 0);
+        sink.scalar(&self.external_free.to_le_bytes(), 0);
+        sink.scalar(&self.external_size.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -15541,12 +15584,11 @@ impl WireEncode for ServiceDevMemory {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -15601,23 +15643,30 @@ impl<'a> ServiceDevWifi<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += blob_len(self.ssid.len(), SERVICE_DEV_WIFI_SSID_MAX_BYTES)?;
-        len += blob_len(self.address.len(), SERVICE_DEV_WIFI_ADDRESS_MAX_BYTES)?;
-        len += blob_len(self.host_name.len(), SERVICE_DEV_WIFI_HOST_NAME_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.state.to_le_bytes(), out, offset);
-        write_blob(self.ssid.as_bytes(), out, offset);
-        write_blob(self.address.as_bytes(), out, offset);
-        write_blob(self.host_name.as_bytes(), out, offset);
-        write_bytes(&self.guests.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDevWifi<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.state.to_le_bytes(), 0);
+        sink.blob(self.ssid.as_bytes(), SERVICE_DEV_WIFI_SSID_MAX_BYTES, 0);
+        sink.blob(
+            self.address.as_bytes(),
+            SERVICE_DEV_WIFI_ADDRESS_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.host_name.as_bytes(),
+            SERVICE_DEV_WIFI_HOST_NAME_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.guests.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -15627,12 +15676,11 @@ impl<'a> WireEncode for ServiceDevWifi<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -15674,17 +15722,19 @@ impl<'a> ServiceDevNetwork<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.ssid.len(), SERVICE_DEV_NETWORK_SSID_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.ssid.as_bytes(), out, offset);
-        write_bytes(&self.signal.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDevNetwork<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.ssid.as_bytes(), SERVICE_DEV_NETWORK_SSID_MAX_BYTES, 0);
+        sink.scalar(&self.signal.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -15694,12 +15744,11 @@ impl<'a> WireEncode for ServiceDevNetwork<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -15739,17 +15788,19 @@ impl ServiceDevBluetooth {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.radio.to_le_bytes(), out, offset);
-        write_bytes(&self.max_links.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDevBluetooth {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.radio.to_le_bytes(), 0);
+        sink.scalar(&self.max_links.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -15759,12 +15810,11 @@ impl WireEncode for ServiceDevBluetooth {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -15814,21 +15864,21 @@ impl<'a> ServiceDevBonded<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += blob_len(self.name.len(), SERVICE_DEV_BONDED_NAME_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += blob_len(self.given.len(), SERVICE_DEV_BONDED_GIVEN_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.device.to_le_bytes(), out, offset);
-        write_blob(self.name.as_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_blob(self.given.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDevBonded<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.device.to_le_bytes(), 0);
+        sink.blob(self.name.as_bytes(), SERVICE_DEV_BONDED_NAME_MAX_BYTES, 0);
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.blob(self.given.as_bytes(), SERVICE_DEV_BONDED_GIVEN_MAX_BYTES, 0);
     }
 }
 
@@ -15838,12 +15888,11 @@ impl<'a> WireEncode for ServiceDevBonded<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -15877,13 +15926,17 @@ impl ServiceDevInterval {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.base_ms.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDevInterval {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.base_ms.to_le_bytes(), 0);
     }
 }
 
@@ -15893,12 +15946,11 @@ impl WireEncode for ServiceDevInterval {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -15946,21 +15998,21 @@ impl<'a> ServiceDevPower<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += blob_len(self.mode.len(), SERVICE_DEV_POWER_MODE_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.level.to_le_bytes(), out, offset);
-        write_blob(self.mode.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.stretch.to_le_bytes(), out, offset);
-        write_bytes(&self.every_ms.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDevPower<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.level.to_le_bytes(), 0);
+        sink.blob(self.mode.as_bytes(), SERVICE_DEV_POWER_MODE_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.stretch.to_le_bytes(), 0);
+        sink.scalar(&self.every_ms.to_le_bytes(), 0);
     }
 }
 
@@ -15970,12 +16022,11 @@ impl<'a> WireEncode for ServiceDevPower<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -16009,13 +16060,17 @@ impl ServiceDevRequest {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.request.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDevRequest {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.request.to_le_bytes(), 0);
     }
 }
 
@@ -16025,12 +16080,11 @@ impl WireEncode for ServiceDevRequest {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -16090,29 +16144,25 @@ impl<'a> ServiceDevInstall<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 8;
-        len += 8;
-        len += blob_len(self.id.len(), SERVICE_DEV_INSTALL_ID_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.request.to_le_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.state.to_le_bytes(), out, offset);
-        write_bytes(&self.status.to_le_bytes(), out, offset);
-        write_bytes(&self.reason.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.done.to_le_bytes(), out, offset);
-        write_bytes(&self.total.to_le_bytes(), out, offset);
-        write_blob(self.id.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDevInstall<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.request.to_le_bytes(), 0);
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.state.to_le_bytes(), 0);
+        sink.scalar(&self.status.to_le_bytes(), 0);
+        sink.scalar(&self.reason.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.done.to_le_bytes(), 0);
+        sink.scalar(&self.total.to_le_bytes(), 0);
+        sink.blob(self.id.as_bytes(), SERVICE_DEV_INSTALL_ID_MAX_BYTES, 0);
     }
 }
 
@@ -16122,12 +16172,11 @@ impl<'a> WireEncode for ServiceDevInstall<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -16166,18 +16215,22 @@ impl<'a> ServiceDevNotInstalled<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(
-            self.plugin.len(),
-            SERVICE_DEV_NOT_INSTALLED_PLUGIN_MAX_BYTES,
-        )?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.plugin.as_bytes(), out, offset);
-        write_bytes(&self.reason.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDevNotInstalled<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(
+            self.plugin.as_bytes(),
+            SERVICE_DEV_NOT_INSTALLED_PLUGIN_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.reason.to_le_bytes(), 0);
     }
 }
 
@@ -16187,12 +16240,11 @@ impl<'a> WireEncode for ServiceDevNotInstalled<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -16228,13 +16280,17 @@ impl<'a> ServiceDevKey<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), SERVICE_DEV_KEY_NAME_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDevKey<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), SERVICE_DEV_KEY_NAME_MAX_BYTES, 0);
     }
 }
 
@@ -16244,12 +16300,11 @@ impl<'a> WireEncode for ServiceDevKey<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -16286,15 +16341,18 @@ impl EventWifiScanned {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.networks.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventWifiScanned {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.networks.to_le_bytes(), 0);
     }
 }
 
@@ -16304,12 +16362,11 @@ impl WireEncode for EventWifiScanned {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -16360,23 +16417,22 @@ impl<'a> EventWifiDone<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += blob_len(self.ssid.len(), EVENT_WIFI_DONE_SSID_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.request.to_le_bytes(), out, offset);
-        write_blob(self.ssid.as_bytes(), out, offset);
-        write_bytes(&self.status.to_le_bytes(), out, offset);
-        write_bytes(&self.reason.to_le_bytes(), out, offset);
-        write_bytes(&self.state.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventWifiDone<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.request.to_le_bytes(), 0);
+        sink.blob(self.ssid.as_bytes(), EVENT_WIFI_DONE_SSID_MAX_BYTES, 0);
+        sink.scalar(&self.status.to_le_bytes(), 0);
+        sink.scalar(&self.reason.to_le_bytes(), 0);
+        sink.scalar(&self.state.to_le_bytes(), 0);
     }
 }
 
@@ -16386,12 +16442,11 @@ impl<'a> WireEncode for EventWifiDone<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -16425,13 +16480,17 @@ impl EventNetworkWanted {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventNetworkWanted {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
     }
 }
 
@@ -16441,12 +16500,11 @@ impl WireEncode for EventNetworkWanted {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -16480,13 +16538,17 @@ impl EventNetworkIdle {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventNetworkIdle {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
     }
 }
 
@@ -16496,12 +16558,11 @@ impl WireEncode for EventNetworkIdle {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -16541,17 +16602,19 @@ impl EventFirmwareChanged {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.request.to_le_bytes(), out, offset);
-        write_bytes(&self.state.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventFirmwareChanged {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.request.to_le_bytes(), 0);
+        sink.scalar(&self.state.to_le_bytes(), 0);
     }
 }
 
@@ -16561,12 +16624,11 @@ impl WireEncode for EventFirmwareChanged {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -16620,25 +16682,23 @@ impl<'a> EventInstallDone<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.id.len(), EVENT_INSTALL_DONE_ID_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.request.to_le_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.status.to_le_bytes(), out, offset);
-        write_bytes(&self.reason.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_blob(self.id.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventInstallDone<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.request.to_le_bytes(), 0);
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.status.to_le_bytes(), 0);
+        sink.scalar(&self.reason.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.blob(self.id.as_bytes(), EVENT_INSTALL_DONE_ID_MAX_BYTES, 0);
     }
 }
 
@@ -16648,12 +16708,11 @@ impl<'a> WireEncode for EventInstallDone<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -16707,25 +16766,23 @@ impl<'a> EventBluetooth<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += 4;
-        len += blob_len(self.name.len(), EVENT_BLUETOOTH_NAME_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.device.to_le_bytes(), out, offset);
-        write_blob(self.name.as_bytes(), out, offset);
-        write_bytes(&self.device_kind.to_le_bytes(), out, offset);
-        write_bytes(&self.signal.to_le_bytes(), out, offset);
-        write_bytes(&self.reason.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventBluetooth<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.device.to_le_bytes(), 0);
+        sink.blob(self.name.as_bytes(), EVENT_BLUETOOTH_NAME_MAX_BYTES, 0);
+        sink.scalar(&self.device_kind.to_le_bytes(), 0);
+        sink.scalar(&self.signal.to_le_bytes(), 0);
+        sink.scalar(&self.reason.to_le_bytes(), 0);
     }
 }
 
@@ -16735,12 +16792,11 @@ impl<'a> WireEncode for EventBluetooth<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -16779,15 +16835,18 @@ impl<'a> ServiceFsPath<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += blob_len(self.path.len(), SERVICE_FS_PATH_PATH_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.root.to_le_bytes(), out, offset);
-        write_blob(self.path.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceFsPath<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.root.to_le_bytes(), 0);
+        sink.blob(self.path.as_bytes(), SERVICE_FS_PATH_PATH_MAX_BYTES, 0);
     }
 }
 
@@ -16797,12 +16856,11 @@ impl<'a> WireEncode for ServiceFsPath<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -16847,19 +16905,20 @@ impl<'a> ServiceFsList<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += blob_len(self.path.len(), SERVICE_FS_LIST_PATH_MAX_BYTES)?;
-        len += 8;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.root.to_le_bytes(), out, offset);
-        write_blob(self.path.as_bytes(), out, offset);
-        write_bytes(&self.cursor.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceFsList<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.root.to_le_bytes(), 0);
+        sink.blob(self.path.as_bytes(), SERVICE_FS_LIST_PATH_MAX_BYTES, 0);
+        sink.scalar(&self.cursor.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -16869,12 +16928,11 @@ impl<'a> WireEncode for ServiceFsList<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -16924,21 +16982,21 @@ impl<'a> ServiceFsMove<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += blob_len(self.from.len(), SERVICE_FS_MOVE_FROM_MAX_BYTES)?;
-        len += 4;
-        len += blob_len(self.to.len(), SERVICE_FS_MOVE_TO_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.from_root.to_le_bytes(), out, offset);
-        write_blob(self.from.as_bytes(), out, offset);
-        write_bytes(&self.to_root.to_le_bytes(), out, offset);
-        write_blob(self.to.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceFsMove<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.from_root.to_le_bytes(), 0);
+        sink.blob(self.from.as_bytes(), SERVICE_FS_MOVE_FROM_MAX_BYTES, 0);
+        sink.scalar(&self.to_root.to_le_bytes(), 0);
+        sink.blob(self.to.as_bytes(), SERVICE_FS_MOVE_TO_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -16948,12 +17006,11 @@ impl<'a> WireEncode for ServiceFsMove<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -16998,32 +17055,25 @@ impl<'a> ServiceFsEntry<'a> {
     }
 
     fn bits(&self) -> u8 {
-        let mut bits = 0;
-        if self.modified.is_some() {
-            bits |= 0x01;
-        }
-        bits
+        fields_bits(self)
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let bits = self.bits();
-        // The bitmap is one byte when any optional field is present.
-        let mut len = 1 + usize::from(bits != 0);
-        len += blob_len(self.name.len(), SERVICE_FS_ENTRY_NAME_MAX_BYTES)?;
-        len += 4;
-        len += 8;
-        if bits & 0x01 != 0 {
-            len += 8;
-        }
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.size.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceFsEntry<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), SERVICE_FS_ENTRY_NAME_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.size.to_le_bytes(), 0);
         if let Some(value) = self.modified {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x01);
         }
     }
 }
@@ -17034,16 +17084,11 @@ impl<'a> WireEncode for ServiceFsEntry<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        let bits = self.bits();
-        write_varint(u32::from(bits != 0), out, offset);
-        if bits != 0 {
-            write_bytes(&[bits], out, offset);
-        }
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -17083,17 +17128,19 @@ impl ServiceFsSpace {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 8;
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.free.to_le_bytes(), out, offset);
-        write_bytes(&self.total.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceFsSpace {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.free.to_le_bytes(), 0);
+        sink.scalar(&self.total.to_le_bytes(), 0);
     }
 }
 
@@ -17103,12 +17150,11 @@ impl WireEncode for ServiceFsSpace {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -17148,17 +17194,19 @@ impl ServiceFsProgress {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.removed.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.next.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceFsProgress {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.removed.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.next.to_le_bytes(), 0);
     }
 }
 
@@ -17168,12 +17216,11 @@ impl WireEncode for ServiceFsProgress {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -17225,25 +17272,23 @@ impl EventHttpDone {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.id.to_le_bytes(), out, offset);
-        write_bytes(&self.token.to_le_bytes(), out, offset);
-        write_bytes(&self.status.to_le_bytes(), out, offset);
-        write_bytes(&self.reason.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.body_len.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventHttpDone {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.id.to_le_bytes(), 0);
+        sink.scalar(&self.token.to_le_bytes(), 0);
+        sink.scalar(&self.status.to_le_bytes(), 0);
+        sink.scalar(&self.reason.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.body_len.to_le_bytes(), 0);
     }
 }
 
@@ -17253,12 +17298,11 @@ impl WireEncode for EventHttpDone {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -17307,23 +17351,22 @@ impl EventHttpProgress {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 8;
-        len += 8;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.id.to_le_bytes(), out, offset);
-        write_bytes(&self.token.to_le_bytes(), out, offset);
-        write_bytes(&self.received.to_le_bytes(), out, offset);
-        write_bytes(&self.total.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventHttpProgress {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.id.to_le_bytes(), 0);
+        sink.scalar(&self.token.to_le_bytes(), 0);
+        sink.scalar(&self.received.to_le_bytes(), 0);
+        sink.scalar(&self.total.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -17333,12 +17376,11 @@ impl WireEncode for EventHttpProgress {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -17386,21 +17428,21 @@ impl<'a> EventServer<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.address.len(), EVENT_SERVER_ADDRESS_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.server.to_le_bytes(), out, offset);
-        write_bytes(&self.state.to_le_bytes(), out, offset);
-        write_bytes(&self.reason.to_le_bytes(), out, offset);
-        write_blob(self.address.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventServer<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.server.to_le_bytes(), 0);
+        sink.scalar(&self.state.to_le_bytes(), 0);
+        sink.scalar(&self.reason.to_le_bytes(), 0);
+        sink.blob(self.address.as_bytes(), EVENT_SERVER_ADDRESS_MAX_BYTES, 0);
     }
 }
 
@@ -17410,12 +17452,11 @@ impl<'a> WireEncode for EventServer<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -17471,25 +17512,31 @@ impl<'a> EventServedRequest<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += 4;
-        len += blob_len(self.method.len(), EVENT_SERVED_REQUEST_METHOD_MAX_BYTES)?;
-        len += blob_len(self.target.len(), EVENT_SERVED_REQUEST_TARGET_MAX_BYTES)?;
-        len += 4;
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.server.to_le_bytes(), out, offset);
-        write_bytes(&self.request.to_le_bytes(), out, offset);
-        write_blob(self.method.as_bytes(), out, offset);
-        write_blob(self.target.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.body_len.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventServedRequest<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.server.to_le_bytes(), 0);
+        sink.scalar(&self.request.to_le_bytes(), 0);
+        sink.blob(
+            self.method.as_bytes(),
+            EVENT_SERVED_REQUEST_METHOD_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.target.as_bytes(),
+            EVENT_SERVED_REQUEST_TARGET_MAX_BYTES,
+            0,
+        );
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.body_len.to_le_bytes(), 0);
     }
 }
 
@@ -17499,12 +17546,11 @@ impl<'a> WireEncode for EventServedRequest<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -17560,25 +17606,27 @@ impl<'a> ServiceNetRequest<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += blob_len(self.method.len(), SERVICE_NET_REQUEST_METHOD_MAX_BYTES)?;
-        len += blob_len(self.url.len(), SERVICE_NET_REQUEST_URL_MAX_BYTES)?;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.token.to_le_bytes(), out, offset);
-        write_blob(self.method.as_bytes(), out, offset);
-        write_blob(self.url.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.timeout_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.max_body.to_le_bytes(), out, offset);
-        write_bytes(&self.max_file.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceNetRequest<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.token.to_le_bytes(), 0);
+        sink.blob(
+            self.method.as_bytes(),
+            SERVICE_NET_REQUEST_METHOD_MAX_BYTES,
+            0,
+        );
+        sink.blob(self.url.as_bytes(), SERVICE_NET_REQUEST_URL_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.timeout_ms.to_le_bytes(), 0);
+        sink.scalar(&self.max_body.to_le_bytes(), 0);
+        sink.scalar(&self.max_file.to_le_bytes(), 0);
     }
 }
 
@@ -17588,12 +17636,11 @@ impl<'a> WireEncode for ServiceNetRequest<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -17643,15 +17690,18 @@ impl<'a> ServiceNetHeader<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.name.len(), SERVICE_NET_HEADER_NAME_MAX_BYTES)?;
-        len += blob_len(self.value.len(), SERVICE_NET_HEADER_VALUE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.value.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceNetHeader<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.name.as_bytes(), SERVICE_NET_HEADER_NAME_MAX_BYTES, 0);
+        sink.blob(self.value.as_bytes(), SERVICE_NET_HEADER_VALUE_MAX_BYTES, 0);
     }
 }
 
@@ -17661,12 +17711,11 @@ impl<'a> WireEncode for ServiceNetHeader<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -17708,17 +17757,19 @@ impl<'a> ServiceNetFile<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += blob_len(self.path.len(), SERVICE_NET_FILE_PATH_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.role.to_le_bytes(), out, offset);
-        write_bytes(&self.root.to_le_bytes(), out, offset);
-        write_blob(self.path.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceNetFile<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.role.to_le_bytes(), 0);
+        sink.scalar(&self.root.to_le_bytes(), 0);
+        sink.blob(self.path.as_bytes(), SERVICE_NET_FILE_PATH_MAX_BYTES, 0);
     }
 }
 
@@ -17728,12 +17779,11 @@ impl<'a> WireEncode for ServiceNetFile<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -17769,13 +17819,17 @@ impl<'a> ServiceNetBody<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.data.len(), SERVICE_NET_BODY_DATA_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.data, out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceNetBody<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.data, SERVICE_NET_BODY_DATA_MAX_BYTES, 0);
     }
 }
 
@@ -17785,12 +17839,11 @@ impl<'a> WireEncode for ServiceNetBody<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -17824,13 +17877,17 @@ impl ServiceNetStarted {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.id.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceNetStarted {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.id.to_le_bytes(), 0);
     }
 }
 
@@ -17840,12 +17897,11 @@ impl WireEncode for ServiceNetStarted {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -17879,13 +17935,17 @@ impl ServiceNetToken {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.token.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceNetToken {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.token.to_le_bytes(), 0);
     }
 }
 
@@ -17895,12 +17955,11 @@ impl WireEncode for ServiceNetToken {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -17934,13 +17993,17 @@ impl ServiceNetId {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.id.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceNetId {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.id.to_le_bytes(), 0);
     }
 }
 
@@ -17950,12 +18013,11 @@ impl WireEncode for ServiceNetId {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -18010,26 +18072,30 @@ impl<'a> ServiceNetAnswer<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.etag.len(), SERVICE_NET_ANSWER_ETAG_MAX_BYTES)?;
-        len += blob_len(
-            self.content_type.len(),
-            SERVICE_NET_ANSWER_CONTENT_TYPE_MAX_BYTES,
-        )?;
-        len += blob_len(self.final_url.len(), SERVICE_NET_ANSWER_FINAL_URL_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.status.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.body_len.to_le_bytes(), out, offset);
-        write_blob(self.etag.as_bytes(), out, offset);
-        write_blob(self.content_type.as_bytes(), out, offset);
-        write_blob(self.final_url.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceNetAnswer<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.status.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.body_len.to_le_bytes(), 0);
+        sink.blob(self.etag.as_bytes(), SERVICE_NET_ANSWER_ETAG_MAX_BYTES, 0);
+        sink.blob(
+            self.content_type.as_bytes(),
+            SERVICE_NET_ANSWER_CONTENT_TYPE_MAX_BYTES,
+            0,
+        );
+        sink.blob(
+            self.final_url.as_bytes(),
+            SERVICE_NET_ANSWER_FINAL_URL_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -18039,12 +18105,11 @@ impl<'a> WireEncode for ServiceNetAnswer<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -18081,15 +18146,18 @@ impl ServiceNetRead {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.id.to_le_bytes(), out, offset);
-        write_bytes(&self.offset.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceNetRead {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.id.to_le_bytes(), 0);
+        sink.scalar(&self.offset.to_le_bytes(), 0);
     }
 }
 
@@ -18099,12 +18167,11 @@ impl WireEncode for ServiceNetRead {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -18140,13 +18207,17 @@ impl<'a> ServiceNetBytes<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.data.len(), SERVICE_NET_BYTES_DATA_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.data, out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceNetBytes<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.data, SERVICE_NET_BYTES_DATA_MAX_BYTES, 0);
     }
 }
 
@@ -18156,12 +18227,11 @@ impl<'a> WireEncode for ServiceNetBytes<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -18204,19 +18274,20 @@ impl ServiceNetServe {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.token.to_le_bytes(), out, offset);
-        write_bytes(&self.port.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.max_body.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceNetServe {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.token.to_le_bytes(), 0);
+        sink.scalar(&self.port.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.max_body.to_le_bytes(), 0);
     }
 }
 
@@ -18226,12 +18297,11 @@ impl WireEncode for ServiceNetServe {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -18273,20 +18343,23 @@ impl<'a> ServiceNetResponse<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += blob_len(
-            self.content_type.len(),
-            SERVICE_NET_RESPONSE_CONTENT_TYPE_MAX_BYTES,
-        )?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.request.to_le_bytes(), out, offset);
-        write_bytes(&self.status.to_le_bytes(), out, offset);
-        write_blob(self.content_type.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceNetResponse<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.request.to_le_bytes(), 0);
+        sink.scalar(&self.status.to_le_bytes(), 0);
+        sink.blob(
+            self.content_type.as_bytes(),
+            SERVICE_NET_RESPONSE_CONTENT_TYPE_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -18296,12 +18369,11 @@ impl<'a> WireEncode for ServiceNetResponse<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -18342,15 +18414,18 @@ impl<'a> ServiceSecName<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.plugin.len(), SERVICE_SEC_NAME_PLUGIN_MAX_BYTES)?;
-        len += blob_len(self.name.len(), SERVICE_SEC_NAME_NAME_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.plugin.as_bytes(), out, offset);
-        write_blob(self.name.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceSecName<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.plugin.as_bytes(), SERVICE_SEC_NAME_PLUGIN_MAX_BYTES, 0);
+        sink.blob(self.name.as_bytes(), SERVICE_SEC_NAME_NAME_MAX_BYTES, 0);
     }
 }
 
@@ -18360,12 +18435,11 @@ impl<'a> WireEncode for ServiceSecName<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -18419,17 +18493,19 @@ impl<'a> ServiceSecValue<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += blob_len(self.label.len(), SERVICE_SEC_VALUE_LABEL_MAX_BYTES)?;
-        len += blob_len(self.value.len(), SERVICE_SEC_VALUE_VALUE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_blob(self.label.as_bytes(), out, offset);
-        write_blob(self.value.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceSecValue<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.blob(self.label.as_bytes(), SERVICE_SEC_VALUE_LABEL_MAX_BYTES, 0);
+        sink.blob(self.value.as_bytes(), SERVICE_SEC_VALUE_VALUE_MAX_BYTES, 0);
     }
 }
 
@@ -18439,12 +18515,11 @@ impl<'a> WireEncode for ServiceSecValue<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -18481,15 +18556,18 @@ impl ServiceSecList {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.cursor.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceSecList {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.cursor.to_le_bytes(), 0);
     }
 }
 
@@ -18499,12 +18577,11 @@ impl WireEncode for ServiceSecList {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -18553,19 +18630,24 @@ impl<'a> ServiceSecEntry<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += blob_len(self.plugin.len(), SERVICE_SEC_ENTRY_PLUGIN_MAX_BYTES)?;
-        len += blob_len(self.name.len(), SERVICE_SEC_ENTRY_NAME_MAX_BYTES)?;
-        len += blob_len(self.label.len(), SERVICE_SEC_ENTRY_LABEL_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_blob(self.plugin.as_bytes(), out, offset);
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.label.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceSecEntry<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.blob(
+            self.plugin.as_bytes(),
+            SERVICE_SEC_ENTRY_PLUGIN_MAX_BYTES,
+            0,
+        );
+        sink.blob(self.name.as_bytes(), SERVICE_SEC_ENTRY_NAME_MAX_BYTES, 0);
+        sink.blob(self.label.as_bytes(), SERVICE_SEC_ENTRY_LABEL_MAX_BYTES, 0);
     }
 }
 
@@ -18575,12 +18657,11 @@ impl<'a> WireEncode for ServiceSecEntry<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -18646,21 +18727,21 @@ impl<'a> ServiceSecKeep<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.plugin.len(), SERVICE_SEC_KEEP_PLUGIN_MAX_BYTES)?;
-        len += blob_len(self.name.len(), SERVICE_SEC_KEEP_NAME_MAX_BYTES)?;
-        len += blob_len(self.label.len(), SERVICE_SEC_KEEP_LABEL_MAX_BYTES)?;
-        len += 4;
-        len += blob_len(self.value.len(), SERVICE_SEC_KEEP_VALUE_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.plugin.as_bytes(), out, offset);
-        write_blob(self.name.as_bytes(), out, offset);
-        write_blob(self.label.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_blob(self.value.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceSecKeep<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.plugin.as_bytes(), SERVICE_SEC_KEEP_PLUGIN_MAX_BYTES, 0);
+        sink.blob(self.name.as_bytes(), SERVICE_SEC_KEEP_NAME_MAX_BYTES, 0);
+        sink.blob(self.label.as_bytes(), SERVICE_SEC_KEEP_LABEL_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.blob(self.value.as_bytes(), SERVICE_SEC_KEEP_VALUE_MAX_BYTES, 0);
     }
 }
 
@@ -18670,12 +18751,11 @@ impl<'a> WireEncode for ServiceSecKeep<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -18709,13 +18789,17 @@ impl ServiceSecRandom {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.len.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceSecRandom {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.len.to_le_bytes(), 0);
     }
 }
 
@@ -18725,12 +18809,11 @@ impl WireEncode for ServiceSecRandom {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -18778,15 +18861,18 @@ impl<'a> ServiceSecBytes<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += blob_len(self.data.len(), SERVICE_SEC_BYTES_DATA_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_blob(self.data, out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceSecBytes<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.blob(self.data, SERVICE_SEC_BYTES_DATA_MAX_BYTES, 0);
     }
 }
 
@@ -18796,12 +18882,11 @@ impl<'a> WireEncode for ServiceSecBytes<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -18846,19 +18931,20 @@ impl<'a> EventWorkDue<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += 4;
-        len += blob_len(self.key.len(), EVENT_WORK_DUE_KEY_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.token.to_le_bytes(), out, offset);
-        write_bytes(&self.why.to_le_bytes(), out, offset);
-        write_blob(self.key.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventWorkDue<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.token.to_le_bytes(), 0);
+        sink.scalar(&self.why.to_le_bytes(), 0);
+        sink.blob(self.key.as_bytes(), EVENT_WORK_DUE_KEY_MAX_BYTES, 0);
     }
 }
 
@@ -18868,12 +18954,11 @@ impl<'a> WireEncode for EventWorkDue<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -18918,19 +19003,20 @@ impl<'a> EventWorkRefused<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += 4;
-        len += blob_len(self.key.len(), EVENT_WORK_REFUSED_KEY_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.token.to_le_bytes(), out, offset);
-        write_bytes(&self.reason.to_le_bytes(), out, offset);
-        write_blob(self.key.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventWorkRefused<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.token.to_le_bytes(), 0);
+        sink.scalar(&self.reason.to_le_bytes(), 0);
+        sink.blob(self.key.as_bytes(), EVENT_WORK_REFUSED_KEY_MAX_BYTES, 0);
     }
 }
 
@@ -18940,12 +19026,11 @@ impl<'a> WireEncode for EventWorkRefused<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -18979,13 +19064,17 @@ impl EventWorkAllowed {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventWorkAllowed {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
     }
 }
 
@@ -18995,12 +19084,11 @@ impl WireEncode for EventWorkAllowed {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -19060,29 +19148,25 @@ impl<'a> ServiceWorkSpec<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 8;
-        len += blob_len(self.key.len(), SERVICE_WORK_SPEC_KEY_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.token.to_le_bytes(), out, offset);
-        write_bytes(&self.needs.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.moments.to_le_bytes(), out, offset);
-        write_bytes(&self.after_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.within_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.every_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.at_ms.to_le_bytes(), out, offset);
-        write_blob(self.key.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceWorkSpec<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.token.to_le_bytes(), 0);
+        sink.scalar(&self.needs.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.moments.to_le_bytes(), 0);
+        sink.scalar(&self.after_ms.to_le_bytes(), 0);
+        sink.scalar(&self.within_ms.to_le_bytes(), 0);
+        sink.scalar(&self.every_ms.to_le_bytes(), 0);
+        sink.scalar(&self.at_ms.to_le_bytes(), 0);
+        sink.blob(self.key.as_bytes(), SERVICE_WORK_SPEC_KEY_MAX_BYTES, 0);
     }
 }
 
@@ -19092,12 +19176,11 @@ impl<'a> WireEncode for ServiceWorkSpec<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -19133,13 +19216,17 @@ impl<'a> ServiceWorkKey<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.key.len(), SERVICE_WORK_KEY_KEY_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.key.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceWorkKey<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.key.as_bytes(), SERVICE_WORK_KEY_KEY_MAX_BYTES, 0);
     }
 }
 
@@ -19149,12 +19236,11 @@ impl<'a> WireEncode for ServiceWorkKey<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -19202,21 +19288,21 @@ impl<'a> ServiceWorkRow<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 8;
-        len += blob_len(self.key.len(), SERVICE_WORK_ROW_KEY_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.token.to_le_bytes(), out, offset);
-        write_bytes(&self.state.to_le_bytes(), out, offset);
-        write_bytes(&self.reason.to_le_bytes(), out, offset);
-        write_bytes(&self.due_ms.to_le_bytes(), out, offset);
-        write_blob(self.key.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceWorkRow<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.token.to_le_bytes(), 0);
+        sink.scalar(&self.state.to_le_bytes(), 0);
+        sink.scalar(&self.reason.to_le_bytes(), 0);
+        sink.scalar(&self.due_ms.to_le_bytes(), 0);
+        sink.blob(self.key.as_bytes(), SERVICE_WORK_ROW_KEY_MAX_BYTES, 0);
     }
 }
 
@@ -19226,12 +19312,11 @@ impl<'a> WireEncode for ServiceWorkRow<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -19280,23 +19365,22 @@ impl EventSocket {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.socket.to_le_bytes(), out, offset);
-        write_bytes(&self.token.to_le_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.reason.to_le_bytes(), out, offset);
-        write_bytes(&self.len.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventSocket {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.socket.to_le_bytes(), 0);
+        sink.scalar(&self.token.to_le_bytes(), 0);
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.reason.to_le_bytes(), 0);
+        sink.scalar(&self.len.to_le_bytes(), 0);
     }
 }
 
@@ -19306,12 +19390,11 @@ impl WireEncode for EventSocket {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -19365,25 +19448,23 @@ impl<'a> EventBroadcast<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.from.len(), EVENT_BROADCAST_FROM_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.socket.to_le_bytes(), out, offset);
-        write_bytes(&self.token.to_le_bytes(), out, offset);
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_bytes(&self.reason.to_le_bytes(), out, offset);
-        write_bytes(&self.len.to_le_bytes(), out, offset);
-        write_blob(self.from.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventBroadcast<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.socket.to_le_bytes(), 0);
+        sink.scalar(&self.token.to_le_bytes(), 0);
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.scalar(&self.reason.to_le_bytes(), 0);
+        sink.scalar(&self.len.to_le_bytes(), 0);
+        sink.blob(self.from.as_bytes(), EVENT_BROADCAST_FROM_MAX_BYTES, 0);
     }
 }
 
@@ -19393,12 +19474,11 @@ impl<'a> WireEncode for EventBroadcast<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -19454,28 +19534,27 @@ impl<'a> ServiceSockConnect<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.host.len(), SERVICE_SOCK_CONNECT_HOST_MAX_BYTES)?;
-        len += blob_len(
-            self.server_name.len(),
-            SERVICE_SOCK_CONNECT_SERVER_NAME_MAX_BYTES,
-        )?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.token.to_le_bytes(), out, offset);
-        write_bytes(&self.port.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.timeout_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.idle_ms.to_le_bytes(), out, offset);
-        write_blob(self.host.as_bytes(), out, offset);
-        write_blob(self.server_name.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceSockConnect<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.token.to_le_bytes(), 0);
+        sink.scalar(&self.port.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.timeout_ms.to_le_bytes(), 0);
+        sink.scalar(&self.idle_ms.to_le_bytes(), 0);
+        sink.blob(self.host.as_bytes(), SERVICE_SOCK_CONNECT_HOST_MAX_BYTES, 0);
+        sink.blob(
+            self.server_name.as_bytes(),
+            SERVICE_SOCK_CONNECT_SERVER_NAME_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -19485,12 +19564,11 @@ impl<'a> WireEncode for ServiceSockConnect<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -19529,15 +19607,18 @@ impl<'a> ServiceSockPin<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += blob_len(self.hash.len(), SERVICE_SOCK_PIN_HASH_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.kind.to_le_bytes(), out, offset);
-        write_blob(self.hash, out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceSockPin<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.kind.to_le_bytes(), 0);
+        sink.blob(self.hash, SERVICE_SOCK_PIN_HASH_MAX_BYTES, 0);
     }
 }
 
@@ -19547,12 +19628,11 @@ impl<'a> WireEncode for ServiceSockPin<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -19586,13 +19666,17 @@ impl ServiceSockStarted {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.socket.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceSockStarted {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.socket.to_le_bytes(), 0);
     }
 }
 
@@ -19602,12 +19686,11 @@ impl WireEncode for ServiceSockStarted {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -19646,15 +19729,18 @@ impl<'a> ServiceSockSend<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += blob_len(self.data.len(), SERVICE_SOCK_SEND_DATA_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.socket.to_le_bytes(), out, offset);
-        write_blob(self.data, out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceSockSend<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.socket.to_le_bytes(), 0);
+        sink.blob(self.data, SERVICE_SOCK_SEND_DATA_MAX_BYTES, 0);
     }
 }
 
@@ -19664,12 +19750,11 @@ impl<'a> WireEncode for ServiceSockSend<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -19723,25 +19808,23 @@ impl<'a> ServiceSockRead<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 8;
-        len += 4;
-        len += blob_len(self.path.len(), SERVICE_SOCK_READ_PATH_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.socket.to_le_bytes(), out, offset);
-        write_bytes(&self.mode.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.max.to_le_bytes(), out, offset);
-        write_bytes(&self.len.to_le_bytes(), out, offset);
-        write_bytes(&self.root.to_le_bytes(), out, offset);
-        write_blob(self.path.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceSockRead<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.socket.to_le_bytes(), 0);
+        sink.scalar(&self.mode.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.max.to_le_bytes(), 0);
+        sink.scalar(&self.len.to_le_bytes(), 0);
+        sink.scalar(&self.root.to_le_bytes(), 0);
+        sink.blob(self.path.as_bytes(), SERVICE_SOCK_READ_PATH_MAX_BYTES, 0);
     }
 }
 
@@ -19751,12 +19834,11 @@ impl<'a> WireEncode for ServiceSockRead<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -19793,15 +19875,18 @@ impl ServiceSockAt {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.socket.to_le_bytes(), out, offset);
-        write_bytes(&self.offset.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceSockAt {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.socket.to_le_bytes(), 0);
+        sink.scalar(&self.offset.to_le_bytes(), 0);
     }
 }
 
@@ -19811,12 +19896,11 @@ impl WireEncode for ServiceSockAt {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -19852,13 +19936,17 @@ impl<'a> ServiceSockBytes<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += blob_len(self.data.len(), SERVICE_SOCK_BYTES_DATA_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_blob(self.data, out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceSockBytes<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.blob(self.data, SERVICE_SOCK_BYTES_DATA_MAX_BYTES, 0);
     }
 }
 
@@ -19868,12 +19956,11 @@ impl<'a> WireEncode for ServiceSockBytes<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -19918,22 +20005,24 @@ impl<'a> ServiceSockTls<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(
-            self.server_name.len(),
-            SERVICE_SOCK_TLS_SERVER_NAME_MAX_BYTES,
-        )?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.socket.to_le_bytes(), out, offset);
-        write_bytes(&self.timeout_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.idle_ms.to_le_bytes(), out, offset);
-        write_blob(self.server_name.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceSockTls<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.socket.to_le_bytes(), 0);
+        sink.scalar(&self.timeout_ms.to_le_bytes(), 0);
+        sink.scalar(&self.idle_ms.to_le_bytes(), 0);
+        sink.blob(
+            self.server_name.as_bytes(),
+            SERVICE_SOCK_TLS_SERVER_NAME_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -19943,12 +20032,11 @@ impl<'a> WireEncode for ServiceSockTls<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -19982,13 +20070,17 @@ impl ServiceSockRef {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.socket.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceSockRef {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.socket.to_le_bytes(), 0);
     }
 }
 
@@ -19998,12 +20090,11 @@ impl WireEncode for ServiceSockRef {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -20050,22 +20141,20 @@ impl<'a> ServiceSockPeer<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += blob_len(
-            self.certificate.len(),
-            SERVICE_SOCK_PEER_CERTIFICATE_MAX_BYTES,
-        )?;
-        len += blob_len(self.key.len(), SERVICE_SOCK_PEER_KEY_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_bytes(&self.reason.to_le_bytes(), out, offset);
-        write_blob(self.certificate, out, offset);
-        write_blob(self.key, out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceSockPeer<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.scalar(&self.reason.to_le_bytes(), 0);
+        sink.blob(self.certificate, SERVICE_SOCK_PEER_CERTIFICATE_MAX_BYTES, 0);
+        sink.blob(self.key, SERVICE_SOCK_PEER_KEY_MAX_BYTES, 0);
     }
 }
 
@@ -20075,12 +20164,11 @@ impl<'a> WireEncode for ServiceSockPeer<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -20122,17 +20210,19 @@ impl<'a> ServiceSockBroadcast<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        len += blob_len(self.data.len(), SERVICE_SOCK_BROADCAST_DATA_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.token.to_le_bytes(), out, offset);
-        write_bytes(&self.wait_ms.to_le_bytes(), out, offset);
-        write_blob(self.data, out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceSockBroadcast<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.token.to_le_bytes(), 0);
+        sink.scalar(&self.wait_ms.to_le_bytes(), 0);
+        sink.blob(self.data, SERVICE_SOCK_BROADCAST_DATA_MAX_BYTES, 0);
     }
 }
 
@@ -20142,12 +20232,11 @@ impl<'a> WireEncode for ServiceSockBroadcast<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -20181,13 +20270,17 @@ impl ServiceSockPort {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.port.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceSockPort {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.port.to_le_bytes(), 0);
     }
 }
 
@@ -20197,12 +20290,11 @@ impl WireEncode for ServiceSockPort {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -20242,17 +20334,19 @@ impl EventDocumentClosed {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.document.to_le_bytes(), out, offset);
-        write_bytes(&self.reason.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventDocumentClosed {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.document.to_le_bytes(), 0);
+        sink.scalar(&self.reason.to_le_bytes(), 0);
     }
 }
 
@@ -20262,12 +20356,11 @@ impl WireEncode for EventDocumentClosed {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -20304,15 +20397,18 @@ impl ServiceLibFieldPage {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.cursor.to_le_bytes(), out, offset);
-        write_bytes(&self.generation.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceLibFieldPage {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.cursor.to_le_bytes(), 0);
+        sink.scalar(&self.generation.to_le_bytes(), 0);
     }
 }
 
@@ -20322,12 +20418,11 @@ impl WireEncode for ServiceLibFieldPage {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -20379,17 +20474,19 @@ impl<'a> EventTextTyped<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += blob_len(self.text.len(), EVENT_TEXT_TYPED_TEXT_MAX_BYTES)?;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_blob(self.text.as_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventTextTyped<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.blob(self.text.as_bytes(), EVENT_TEXT_TYPED_TEXT_MAX_BYTES, 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
     }
 }
 
@@ -20399,12 +20496,11 @@ impl<'a> WireEncode for EventTextTyped<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -20443,15 +20539,22 @@ impl<'a> EventLookupReady<'a> {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += blob_len(self.provider.len(), EVENT_LOOKUP_READY_PROVIDER_MAX_BYTES)?;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_blob(self.provider.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventLookupReady<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.blob(
+            self.provider.as_bytes(),
+            EVENT_LOOKUP_READY_PROVIDER_MAX_BYTES,
+            0,
+        );
     }
 }
 
@@ -20461,12 +20564,11 @@ impl<'a> WireEncode for EventLookupReady<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -20509,19 +20611,20 @@ impl EventDocumentChanged {
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
-        len += 8;
-        len += 4;
-        len += 4;
-        len += 4;
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
-        write_bytes(&self.document.to_le_bytes(), out, offset);
-        write_bytes(&self.state.to_le_bytes(), out, offset);
-        write_bytes(&self.progress_ppm.to_le_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for EventDocumentChanged {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.now_ms.to_le_bytes(), 0);
+        sink.scalar(&self.document.to_le_bytes(), 0);
+        sink.scalar(&self.state.to_le_bytes(), 0);
+        sink.scalar(&self.progress_ppm.to_le_bytes(), 0);
     }
 }
 
@@ -20531,12 +20634,11 @@ impl WireEncode for EventDocumentChanged {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -20604,60 +20706,40 @@ impl<'a> ServiceDocReport<'a> {
     }
 
     fn bits(&self) -> u8 {
-        let mut bits = 0;
-        if self.page.is_some() {
-            bits |= 0x01;
-        }
-        if self.pages.is_some() {
-            bits |= 0x02;
-        }
-        if self.chapter_left.is_some() {
-            bits |= 0x04;
-        }
-        bits
+        fields_bits(self)
     }
 
     fn body_len(&self) -> Result<usize, i32> {
-        let bits = self.bits();
-        // The bitmap is one byte when any optional field is present.
-        let mut len = 1 + usize::from(bits != 0);
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += 4;
-        len += blob_len(self.title.len(), SERVICE_DOC_REPORT_TITLE_MAX_BYTES)?;
-        len += blob_len(self.chapter.len(), SERVICE_DOC_REPORT_CHAPTER_MAX_BYTES)?;
-        if bits & 0x01 != 0 {
-            len += 4;
-        }
-        if bits & 0x02 != 0 {
-            len += 4;
-        }
-        if bits & 0x04 != 0 {
-            len += 4;
-        }
-        Ok(len)
+        fields_len(self)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
-        write_bytes(&self.document.to_le_bytes(), out, offset);
-        write_bytes(&self.section.to_le_bytes(), out, offset);
-        write_bytes(&self.offset.to_le_bytes(), out, offset);
-        write_bytes(&self.insert.to_le_bytes(), out, offset);
-        write_bytes(&self.progress_ppm.to_le_bytes(), out, offset);
-        write_bytes(&self.flags.to_le_bytes(), out, offset);
-        write_blob(self.title.as_bytes(), out, offset);
-        write_blob(self.chapter.as_bytes(), out, offset);
+        fields_write(self, out, offset);
+    }
+}
+
+impl Fields for ServiceDocReport<'_> {
+    fn fields(&self, sink: &mut dyn Sink) {
+        sink.scalar(&self.document.to_le_bytes(), 0);
+        sink.scalar(&self.section.to_le_bytes(), 0);
+        sink.scalar(&self.offset.to_le_bytes(), 0);
+        sink.scalar(&self.insert.to_le_bytes(), 0);
+        sink.scalar(&self.progress_ppm.to_le_bytes(), 0);
+        sink.scalar(&self.flags.to_le_bytes(), 0);
+        sink.blob(self.title.as_bytes(), SERVICE_DOC_REPORT_TITLE_MAX_BYTES, 0);
+        sink.blob(
+            self.chapter.as_bytes(),
+            SERVICE_DOC_REPORT_CHAPTER_MAX_BYTES,
+            0,
+        );
         if let Some(value) = self.page {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x01);
         }
         if let Some(value) = self.pages {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x02);
         }
         if let Some(value) = self.chapter_left {
-            write_bytes(&value.to_le_bytes(), out, offset);
+            sink.scalar(&value.to_le_bytes(), 0x04);
         }
     }
 }
@@ -20668,16 +20750,11 @@ impl<'a> WireEncode for ServiceDocReport<'a> {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        self.body_len()
+        fields_len(self)
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        let bits = self.bits();
-        write_varint(u32::from(bits != 0), out, offset);
-        if bits != 0 {
-            write_bytes(&[bits], out, offset);
-        }
-        self.write(out, offset);
+        fields_write_framed(self, out, offset);
     }
 }
 
@@ -21638,14 +21715,6 @@ pub fn records_decode(bytes: &[u8]) -> Result<RecordBatch<'_>, i32> {
     Ok(RecordBatch { records, len })
 }
 
-fn blob_len(len: usize, cap: usize) -> Result<usize, i32> {
-    if len > cap {
-        Err(-3)
-    } else {
-        Ok(varint_len(len as u32) + len)
-    }
-}
-
 fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
     write_varint(bytes.len() as u32, out, offset);
     write_bytes(bytes, out, offset);
@@ -22539,6 +22608,95 @@ pub fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i
         record.write(out, &mut offset);
     }
     Ok(offset)
+}
+
+/// A record's fields in wire order, walked for its length, its presence bitmap or its
+/// bytes: one walk per record type instead of a step function each.
+trait Fields {
+    fn fields(&self, sink: &mut dyn Sink);
+}
+
+/// What a walk does with each field. `mask` is the field's presence bit (0: always on
+/// the wire); an optional field is only walked when it is present.
+trait Sink {
+    fn scalar(&mut self, bytes: &[u8], mask: u8);
+    fn blob(&mut self, bytes: &[u8], cap: usize, mask: u8);
+}
+
+/// The fields' length and presence bitmap; `over` when a field is over its cap.
+struct Measure {
+    len: usize,
+    bits: u8,
+    over: bool,
+}
+
+impl Sink for Measure {
+    fn scalar(&mut self, bytes: &[u8], mask: u8) {
+        self.len += bytes.len();
+        self.bits |= mask;
+    }
+
+    fn blob(&mut self, bytes: &[u8], cap: usize, mask: u8) {
+        self.over |= bytes.len() > cap;
+        self.len += varint_len(bytes.len() as u32) + bytes.len();
+        self.bits |= mask;
+    }
+}
+
+/// Writes the fields at `offset`; the caller checked the room.
+struct Put<'o> {
+    out: &'o mut [u8],
+    offset: &'o mut usize,
+}
+
+impl Sink for Put<'_> {
+    fn scalar(&mut self, bytes: &[u8], _: u8) {
+        write_bytes(bytes, self.out, self.offset);
+    }
+
+    fn blob(&mut self, bytes: &[u8], _: usize, _: u8) {
+        write_blob(bytes, self.out, self.offset);
+    }
+}
+
+fn measure(record: &dyn Fields) -> Measure {
+    let mut measure = Measure {
+        len: 0,
+        bits: 0,
+        over: false,
+    };
+    record.fields(&mut measure);
+    measure
+}
+
+/// The presence bitmap of the optional fields.
+fn fields_bits(record: &dyn Fields) -> u8 {
+    measure(record).bits
+}
+
+/// The body length: the presence bitmap (one byte more when an optional field is
+/// present) and the fields; a field over its cap is ERR_NO_SPACE.
+fn fields_len(record: &dyn Fields) -> Result<usize, i32> {
+    let measure = measure(record);
+    if measure.over {
+        return Err(-3);
+    }
+    Ok(1 + usize::from(measure.bits != 0) + measure.len)
+}
+
+/// The fields, without the presence bitmap.
+fn fields_write(record: &dyn Fields, out: &mut [u8], offset: &mut usize) {
+    record.fields(&mut Put { out, offset });
+}
+
+/// The body: the presence bitmap, then the fields.
+fn fields_write_framed(record: &dyn Fields, out: &mut [u8], offset: &mut usize) {
+    let bits = fields_bits(record);
+    write_varint(u32::from(bits != 0), out, offset);
+    if bits != 0 {
+        write_bytes(&[bits], out, offset);
+    }
+    fields_write(record, out, offset);
 }
 
 /// A record that encodes itself: its tag, its body length and its body. A plugin

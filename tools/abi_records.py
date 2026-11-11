@@ -1,7 +1,7 @@
 """Validate and emit the initial bounded registration and tick record codecs."""
 from abi_declarations import (check_tags, declaration_source, validate_wire_records,
                               wire_records, _camel, _const, _lifetime, _reader_extra,
-                              _record_extra, _record_source)
+                              _record_extra, _record_source, FIELDS_TEMPLATE)
 
 
 def _require(ok, message):
@@ -424,11 +424,8 @@ def local_codec_source(stage):
         core::str::from_utf8(self.blob(cap)?).map_err(|_| -2)
     }
 ''' + reader_extra + '}\n'
-    source += '''fn blob_len(len: usize, cap: usize) -> Result<usize, i32> {
-    if len > cap { return Err(-2); }
-    Ok(varint_len(len as u32) + len)
-}
-fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
+    source += FIELDS_TEMPLATE.replace('@NO_SPACE@', '-2')
+    source += '''fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
     write_varint(bytes.len() as u32, out, offset);
     write_bytes(bytes, out, offset);
 }
