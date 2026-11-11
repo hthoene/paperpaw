@@ -56,6 +56,16 @@ impl core::fmt::Debug for WorkInputs {
 }
 
 impl WorkInputs {
+    /// Whether the device is of the small memory class (the X4's).
+    pub(crate) fn small(&self) -> bool {
+        self.small
+    }
+
+    /// The device's view, for the clocks of other services.
+    pub(crate) fn device(&self) -> Rc<dyn WorkDevice> {
+        self.device.clone()
+    }
+
     /// `device` is the shell's view; `memory` picks the table sizes (`Small`:
     /// 8 works per plugin and 32 on the device; elsewhere 32 and 256).
     #[must_use]

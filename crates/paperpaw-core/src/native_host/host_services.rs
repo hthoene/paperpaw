@@ -75,6 +75,9 @@ pub(crate) struct HostServices {
     /// The ids of the plugins linked into the firmware (root 2 of the file
     /// service has no install folder for them).
     linked: OnceCell<Rc<super::linked_plugins::LinkedPlugins>>,
+    /// The device's facts the library's transactions read (memory class,
+    /// clock), told by the wirings in any order.
+    edit_policy: OnceCell<Rc<super::lib_edits::EditPolicy>>,
     /// The storage paths host writers hold (`core.net` saves), which
     /// `core.files` answers `ERR_BUSY` for. One per device.
     in_use: OnceCell<Rc<super::paths_in_use::PathsInUse>>,
@@ -148,6 +151,7 @@ impl HostServices {
             library_moves: OnceCell::new(),
             busy: OnceCell::new(),
             linked: OnceCell::new(),
+            edit_policy: OnceCell::new(),
             in_use: OnceCell::new(),
             policy: OnceCell::new(),
             pool: OnceCell::new(),
@@ -416,6 +420,11 @@ impl HostServices {
     pub(crate) fn policy(&self) -> &Rc<super::net_policy::NetPolicy> {
         self.policy
             .get_or_init(|| Rc::new(super::net_policy::NetPolicy::new()))
+    }
+
+    /// What the wirings tell the library's transactions, made on first use.
+    pub(crate) fn edit_policy(&self) -> &Rc<super::lib_edits::EditPolicy> {
+        self.edit_policy.get_or_init(Default::default)
     }
 
     /// Gives back the room kept while the plugins were hosted one by one.

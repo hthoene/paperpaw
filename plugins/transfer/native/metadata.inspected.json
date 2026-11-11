@@ -15,7 +15,7 @@
   "features": [
     {
       "key": "uses.install",
-      "required": true,
+      "required": false,
       "revision": 1
     },
     {
