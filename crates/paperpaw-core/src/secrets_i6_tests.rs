@@ -222,3 +222,97 @@ fn a_shell_that_wired_core_secrets_seals_with_no_native_plugin_admitted() {
     assert!(!kernel.secrets().saved("wifi.Work"));
     assert_eq!(file(&kernel), written);
 }
+
+#[test]
+fn a_card_from_another_device_is_told_once_per_start() {
+    use crate::native_host::shell_wiring::{SecretsInputs, SecretsLifecycle};
+    let theirs = seal_text(&veiled(&[("mail.pw", "one")]), "", &Fake::new(3)).unwrap();
+    let mut kernel = Kernel::builder(crate::tests::DEVICE)
+        .storage(MemoryStorage::new().with(FILE, theirs.as_bytes()))
+        .plugin(crate::tests::NoticePlugin {
+            log: crate::tests::log(),
+        })
+        .build()
+        .unwrap();
+    kernel.start(paperpaw_platform::Instant(0));
+    // No native plugin runs: the shell wired `core.secrets` only.
+    let mine: Rc<dyn Storage> = Rc::new(MemoryStorage::new());
+    let lifecycle = SecretsLifecycle::new(SecretsInputs::new(mine, Rc::new(Fake::new(9))).host());
+    kernel.wire_secrets(&lifecycle);
+    assert_eq!(kernel.secrets().get("mail.pw"), None, "absent here");
+    assert!(kernel.notice.is_none());
+    kernel.finish();
+    assert!(kernel.notice.is_some(), "told");
+    kernel.tick(paperpaw_platform::Instant(10_000));
+    assert!(kernel.notice.is_none(), "the notice went by");
+    // Read again by a save: not told twice in one start; the line stays.
+    kernel.set_secret(SecretChange::keep("wifi.Home", "Home", "two"));
+    kernel.tick(paperpaw_platform::Instant(11_000));
+    assert!(kernel.notice.is_none());
+    assert!(file(&kernel).contains(theirs.lines().next().unwrap()));
+}
+
+/// A kernel with interface 6's notice plugin whose card holds `text`, the
+/// shell's `core.secrets` wired with `sealer` (no native plugin runs).
+fn told_kernel(text: &str, sealer: Fake) -> Kernel {
+    use crate::native_host::shell_wiring::{SecretsInputs, SecretsLifecycle};
+    let mut kernel = Kernel::builder(crate::tests::DEVICE)
+        .storage(MemoryStorage::new().with(FILE, text.as_bytes()))
+        .plugin(crate::tests::NoticePlugin {
+            log: crate::tests::log(),
+        })
+        .build()
+        .unwrap();
+    kernel.start(paperpaw_platform::Instant(0));
+    let mine: Rc<dyn Storage> = Rc::new(MemoryStorage::new());
+    let lifecycle = SecretsLifecycle::new(SecretsInputs::new(mine, Rc::new(sealer)).host());
+    kernel.wire_secrets(&lifecycle);
+    kernel
+}
+
+/// Senior R1 (#254): a busy or unreadable flash is not "another device".
+#[test]
+fn a_busy_flash_is_not_told_as_another_device() {
+    let sealer = Fake::new(9);
+    let mine = seal_text(&veiled(&[("mail.pw", "one")]), "", &sealer).unwrap();
+    for fault in [
+        paperpaw_native::host_glue::ERR_BUSY,
+        paperpaw_native::host_glue::ERR_IO,
+    ] {
+        let busy = Fake::new(9);
+        busy.open_fault.set(Some(fault));
+        let mut kernel = told_kernel(&mine, busy);
+        assert_eq!(kernel.secrets().get("mail.pw"), None, "absent for now");
+        kernel.finish();
+        assert!(kernel.notice.is_none(), "not told: the values are ours");
+        assert!(file(&kernel).contains(mine.lines().next().unwrap()), "kept");
+    }
+}
+
+/// CR (#2491): the same key saved anew over a line that did not open replaces
+/// it: one line for it, sealed here, and the new value reads back.
+#[test]
+fn the_same_key_saved_anew_replaces_a_line_that_did_not_open() {
+    let theirs = seal_text(&veiled(&[("wifi.Home", "one")]), "", &Fake::new(3)).unwrap();
+    let mut kernel = told_kernel(&theirs, Fake::new(9));
+    assert_eq!(kernel.secrets().get("wifi.Home"), None, "absent here");
+    kernel.set_secret(SecretChange::keep("wifi.Home", "Home", "two"));
+    assert!(kernel.secrets().saved("wifi.Home"));
+    let written = file(&kernel);
+    assert!(
+        !written.contains(theirs.lines().next().unwrap()),
+        "replaced"
+    );
+    assert_eq!(
+        written
+            .lines()
+            .filter(|l| l.starts_with("wifi.Home\t"))
+            .count(),
+        1
+    );
+    let reread = Secrets::decode(&crate::native_host::secrets_text::open_text(
+        &written,
+        &Fake::new(9),
+    ));
+    assert_eq!(reread.get("wifi.Home"), Some("two"));
+}
