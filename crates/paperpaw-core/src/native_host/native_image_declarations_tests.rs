@@ -78,7 +78,7 @@ pub(super) fn image() -> &'static [u8] {
 
 fn declared_services() -> shell::DeclaredServices {
     use paperpaw_native::metadata::{self, Host as AdmissionHost, Profile, Service};
-    let services = ["core.registry", "core.ui", "core.library"].map(|key| Service {
+    let services = ["core.registry", "core.ui", "core.library", "core.files"].map(|key| Service {
         key,
         major: 1,
         semantic_revision: 0,
