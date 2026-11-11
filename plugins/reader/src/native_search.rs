@@ -328,6 +328,14 @@ impl Search {
         }
     }
 
+    /// The snippet of hit `index`, taken out of it (the hit keeps its place
+    /// and its progress): a screen that holds the snippet in its row does not
+    /// hold it twice. `None` where there is no such hit or it was taken.
+    pub fn take_snippet(&mut self, index: usize) -> Option<String> {
+        let hit = self.hits.get_mut(index)?;
+        (!hit.snippet.is_empty()).then(|| core::mem::take(&mut hit.snippet))
+    }
+
     /// The match of hit `index` to go to: where it begins and ends.
     #[must_use]
     pub fn target(&self, index: usize) -> Option<(Place, Place)> {

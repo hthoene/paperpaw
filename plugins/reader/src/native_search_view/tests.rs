@@ -84,8 +84,8 @@ fn a_screen_with_no_book_says_so_and_has_nothing_to_search() {
 #[test]
 fn the_list_has_a_row_for_each_hit_with_how_far_in() {
     let mut view = found(&["no", "a cat here", "none", "the cat and the cat"]);
-    view.rebuild_list().unwrap();
-    assert_eq!(view.shown, 3);
+    view.extend_list().unwrap();
+    assert_eq!(view.places.len(), 3);
     let Some(Item::Row(row)) = view.list.items().first() else {
         panic!("no row");
     };
@@ -104,10 +104,42 @@ fn a_hit_chosen_goes_to_where_its_match_begins() {
 }
 
 #[test]
+fn a_snippet_is_held_by_its_row_only_and_a_row_is_made_once() {
+    let mut view = found(&["a cat", "no", "the cat and the cat"]);
+    view.extend_list().unwrap();
+    assert_eq!(view.places.len(), 3);
+    // The hits keep their places, not their snippets.
+    let hits = view.search.as_ref().unwrap().hits();
+    assert!(hits.iter().all(|hit| hit.snippet.is_empty()));
+    // A second call finds nothing new: the rows are not made again.
+    view.extend_list().unwrap();
+    assert_eq!(view.list.items().len(), 3);
+    assert_eq!(view.places.len(), 3);
+    // A row leads to its hit's start.
+    assert_eq!(
+        view.places.iter().map(|p| p.offset).collect::<Vec<_>>(),
+        [2, 4, 16]
+    );
+}
+
+#[test]
+fn a_search_that_failed_says_so_and_keeps_its_rows() {
+    let mut view = found(&["a cat"]);
+    view.extend_list().unwrap();
+    view.fail(Error::NoMemory);
+    assert!(!view.searching());
+    assert_eq!(view.failed, Some(Error::NoMemory));
+    assert_eq!(view.list.items().len(), 1);
+}
+
+#[test]
 fn the_list_of_hits_survives_every_refused_allocation() {
-    let mut view = found(&["a cat", "a cat and a cat", "cat"]);
     sweep(|| {
-        view.rebuild_list()?;
-        Ok(view.shown)
+        // The fixture is not the code's: it is made without counting.
+        let mut view = crate::fail_alloc::exempt(|| found(&["a cat", "a cat and a cat", "cat"]));
+        view.extend_list()?;
+        let rows = view.places.len();
+        crate::fail_alloc::exempt(|| drop(view));
+        Ok(rows)
     });
 }

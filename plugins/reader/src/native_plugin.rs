@@ -287,10 +287,16 @@ impl NativeReader {
         };
         let (mut redraw, mut again) = (false, false);
         for view in self.searches.all() {
-            // A step that fails leaves its screen as it was: it is not asked again.
-            if let Ok(stepped) = view.step(host, docs) {
-                redraw |= stepped.redraw;
-                again |= stepped.again;
+            match view.step(host, docs) {
+                Ok(stepped) => {
+                    redraw |= stepped.redraw;
+                    again |= stepped.again;
+                }
+                // A step that fails ends its search, and the screen says so.
+                Err(error) => {
+                    view.fail(error);
+                    redraw = true;
+                }
             }
         }
         if redraw {

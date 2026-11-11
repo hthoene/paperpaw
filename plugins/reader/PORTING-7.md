@@ -527,7 +527,11 @@ relative to the data folder).
     after the filters); `core.input-filter` is Port C's.
   - A search needs the reading screen's document: from no reading screen it does nothing (interface 6 opened the book
     itself); the X4 holds one open document per plugin.
-  - The hits are held twice, by the model (place, snippet) and by the list's rows (snippet, percent): about 20-80 KB
-    for 100 hits on the 256 KiB heap. **X4 gate** (with the model's 41 KB worst case): measure it; `ItemList` would need
-    a row source to hold them once.
-  - Each step builds a `HostDocument` (a 4 KiB reply buffer and a 256 B one) and acquires the UI font once.
+  - **Memory (Port Reviewer's must-fix, Beta 3 held only the hits):** a hit's snippet lives in its list row only: when a
+    step finds hits, `extend_list` takes each snippet out of the model (`Search::take_snippet`, the hit keeps its place
+    and progress), makes its row (`ItemList::push`, the list grows in place, never rebuilt) and keeps the hit's start in
+    `places` (8 bytes a row) for the choice. A refused allocation in that ends the search with `reader.search.failed`
+    (the hits so far stay). Worst case 100 rows of at most 24 + 32 + 48 characters: about 20-40 KB. **X4 gate:**
+    measure it with `--heap-report`; `ItemList` still lays out every row (a row source would build per page).
+  - Each step builds a `HostDocument` (a 4 KiB reply buffer and a 256 B one) and acquires the UI font; the text size and
+    the row room are read from the display once per screen.

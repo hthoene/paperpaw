@@ -78,8 +78,12 @@ pub struct SearchView {
     progress: Option<Progress>,
     search: Option<Search>,
     list: ItemList,
-    /// The hits the list shows.
-    shown: usize,
+    /// Where each row of the list leads (its hit's start): the snippets are in
+    /// the rows only, not in the hits as well.
+    places: Vec<Place>,
+    /// The size of the text and the room of a snippet in a row, read from the
+    /// display once.
+    metrics: Option<(f32, f32)>,
     /// The text looked for, for the note of a search that found nothing.
     query: String,
     /// Why there is nothing to list (the key of the text).
@@ -173,7 +177,8 @@ impl SearchView {
             progress: None,
             search: None,
             list: ItemList::default(),
-            shown: 0,
+            places: Vec::new(),
+            metrics: None,
             query: String::new(),
             message: Some(message),
             failed: None,
@@ -264,11 +269,21 @@ impl SearchView {
                     }
                 }
             }
-            if grew {
-                self.rebuild_list()?;
-            }
+        }
+        // The rows of the hits found; a list that cannot grow ends the search.
+        if let Err(error) = self.extend_list() {
+            self.fail(error);
+            redraw = true;
+            again = false;
         }
         Ok(Stepped { redraw, again })
+    }
+
+    /// Ends the search on `error`: the hits so far stay, the note says it
+    /// stopped.
+    pub fn fail(&mut self, error: Error) {
+        self.search = None;
+        self.failed = Some(error);
     }
 
     /// One step of the scan over the document `id`, and how far it has read.
@@ -278,15 +293,22 @@ impl SearchView {
         docs: &Documents,
         id: DocId,
     ) -> Result<(Result<(), Error>, u8), Error> {
+        let (size, room) = match self.metrics {
+            Some(metrics) => metrics,
+            None => {
+                let metrics = Display::read(host).map_or((16.0, ROW_ROOM), |d| (d.size, d.room()));
+                self.metrics = Some(metrics);
+                metrics
+            }
+        };
         let Some(search) = self.search.as_mut() else {
             return Ok((Ok(()), 100));
         };
-        let display = Display::read(host);
+        let font = Font::acquire_role(host, FontRole::Ui).ok();
         let mut ruler = Ruler {
-            font: display.as_ref().and_then(|d| d.font.as_ref()),
-            size: display.as_ref().map_or(16.0, |d| d.size),
+            font: font.as_ref(),
+            size,
         };
-        let room = display.as_ref().map_or(ROW_ROOM, Display::room);
         let mut book = HostBlocks {
             document: HostDocument::new(host, docs, id, self.sections, false)?,
             progress: self.progress.as_ref(),
@@ -296,22 +318,28 @@ impl SearchView {
         Ok((result, search.percent(&book)))
     }
 
-    /// The list of the hits so far (a row each: the snippet, how far in).
-    fn rebuild_list(&mut self) -> Result<(), Error> {
-        let Some(search) = &self.search else {
+    /// Adds the rows of the hits found since: each takes its hit's snippet
+    /// (the hit keeps its place), so no snippet is held twice and no row is
+    /// made again.
+    fn extend_list(&mut self) -> Result<(), Error> {
+        let Some(search) = self.search.as_mut() else {
             return Ok(());
         };
-        let hits = search.hits();
-        let mut items = Vec::new();
-        items
-            .try_reserve_exact(hits.len())
-            .map_err(|_| Error::NoMemory)?;
-        for hit in hits {
-            let value = text::format(format_args!("{} %", hit.percent))?;
-            items.push(Item::row(&hit.snippet, &value)?);
+        while self.places.len() < search.hits().len() {
+            let index = self.places.len();
+            let Some(start) = search.hits().get(index).map(|hit| (hit.start, hit.percent)) else {
+                break;
+            };
+            let Some(snippet) = search.take_snippet(index) else {
+                break;
+            };
+            let value = text::format(format_args!("{} %", start.1))?;
+            let row = Item::row(&snippet, &value)?;
+            drop(snippet);
+            self.places.try_reserve(1).map_err(|_| Error::NoMemory)?;
+            self.list.push(row)?;
+            self.places.push(start.0);
         }
-        self.shown = items.len();
-        self.list.replace(items);
         Ok(())
     }
 
@@ -327,10 +355,9 @@ impl SearchView {
         let step = self.list.input(host, input)?;
         let outcome = match step {
             ItemStep::Chosen(index) => self
-                .search
-                .as_ref()
-                .and_then(|search| search.target(index))
-                .map_or(Outcome::Handled, |(start, _)| Outcome::Go(start)),
+                .places
+                .get(index)
+                .map_or(Outcome::Handled, |start| Outcome::Go(*start)),
             ItemStep::Ignored => Outcome::Ignored,
             _ => Outcome::Handled,
         };
@@ -351,7 +378,7 @@ impl SearchView {
             (_, Some(search), _) => self.note_of(host, &mut messages, search.note())?,
             _ => String::new(),
         };
-        if self.shown == 0 {
+        if self.places.is_empty() {
             return self.empty(host, frame, &title, &note);
         }
         self.list
@@ -387,7 +414,9 @@ impl SearchView {
     ) -> Result<String, Error> {
         let count = |n: usize| i64::try_from(n).unwrap_or(i64::MAX);
         match note {
-            Note::Searching(_) if self.shown == 0 => messages.copy(host, "reader.search.wait"),
+            Note::Searching(_) if self.places.is_empty() => {
+                messages.copy(host, "reader.search.wait")
+            }
             Note::Searching(percent) => messages.format(
                 host,
                 "reader.search.searching",
