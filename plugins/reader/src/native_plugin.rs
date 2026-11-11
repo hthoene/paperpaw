@@ -7,8 +7,8 @@
 //! `native_*` models, tested without one.
 use crate::{
     declarations::{
-        ANNOTATIONS, FOOTNOTE, SCREEN, SETTING_CHANGED, STACK_CHANGED, STOPPING, SUSPEND, TOC,
-        WORK_DUE,
+        ANNOTATIONS, FOOTNOTE, SCREEN, SETTING_CHANGED, SPOKEN, STACK_CHANGED, STOPPING, SUSPEND,
+        TOC, WORK_DUE,
     },
     native_annotations_view::{AnnotationsView, Outcome as NotesOutcome},
     native_footnote::{Footnote, Pressed},
@@ -404,7 +404,7 @@ impl Plugin for NativeReader {
                 Ok(())
             }
             // The host's answer to a sentence handed over (the cookie says whose).
-            Event::Spoken { cookie, status, .. } => {
+            Event::Spoken { cookie, status, .. } if token == SPOKEN => {
                 self.spoken(host, cookie, status);
                 Ok(())
             }
