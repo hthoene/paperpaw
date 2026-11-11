@@ -42,12 +42,13 @@ use crate::Kernel;
 use paperpaw_native::host_glue::ERR_INVALID;
 use paperpaw_sdk::{Id, Params, builtin::events as builtin};
 
-/// The most events one plugin's queue can hold (16 edges, 11 bits): a drain
+/// The most events one plugin's queue can hold (16 edges, 12 bits): a drain
 /// of one plugin ends within it.
-const QUEUE_MAX: usize = 27;
+const QUEUE_MAX: usize = 28;
 
 /// The lifecycle events that are edges, held encoded.
-const EDGE_TAGS: [u32; 6] = [
+const EDGE_TAGS: [u32; 7] = [
+    wire::EVENT_SCREEN_READY_TAG,
     wire::EVENT_STARTED_TAG,
     wire::EVENT_BATTERY_MEASURED_TAG,
     wire::EVENT_PAGE_TURNED_TAG,
@@ -118,6 +119,7 @@ fn drop_note(tag: u32) -> &'static str {
         wire::EVENT_BOOK_OPENED_TAG => "a native plugin lost event.book_opened; not retried",
         wire::EVENT_BOOK_CLOSED_TAG => "a native plugin lost event.book_closed; not retried",
         wire::EVENT_BOOK_FINISHED_TAG => "a native plugin lost event.book_finished; not retried",
+        wire::EVENT_SCREEN_READY_TAG => "a native plugin lost event.screen_ready; not retried",
         _ => "a native plugin lost event.page_turned; not retried",
     }
 }
@@ -196,6 +198,32 @@ impl Kernel {
             return;
         };
         let now = self.now.millis();
+        self.native_queue_event(tag, hears, &|queue| {
+            if CORE_TAGS.contains(&tag) {
+                queue.core(tag)
+            } else {
+                hold_edge(queue, tag, now, params)
+            }
+        });
+        // Only the sleep and the stop are told here, from the kernel's top
+        // level, before they go on; the pump tells every other event.
+        if matches!(tag, wire::EVENT_SUSPEND_TAG | wire::EVENT_STOPPING_TAG)
+            && self.shared.native_instances.depth() == 0
+        {
+            self.native_core_drain();
+        }
+    }
+
+    /// Holds an event in the queue of every running native plugin that
+    /// subscribed to `tag` and `hears` allows: `hold` puts it into the queue.
+    /// One that does not fit is dropped and logged once for a plugin until its
+    /// queue is empty again. Nothing is told here (the pump does).
+    fn native_queue_event(
+        &mut self,
+        tag: u32,
+        hears: &dyn Fn(&str) -> bool,
+        hold: &dyn Fn(&mut Pending) -> Result<(), i32>,
+    ) {
         // Whether an event was lost that was not logged yet (once for a
         // plugin until its queue is empty again).
         let mut report = false;
@@ -209,14 +237,9 @@ impl Kernel {
             if !instances.subscribed(owner, tag) || !hears(id.as_str()) {
                 continue;
             }
-            let held = instances.setting_events.with_queue(owner, |queue| {
-                let held = if CORE_TAGS.contains(&tag) {
-                    queue.core(tag)
-                } else {
-                    hold_edge(queue, tag, now, params)
-                };
-                held.map_err(|_| queue.note_drop())
-            });
+            let held = instances
+                .setting_events
+                .with_queue(owner, |queue| hold(queue).map_err(|_| queue.note_drop()));
             // A queue that cannot even be made is reported every time (it
             // cannot remember that it was).
             report |= matches!(held, Err(_) | Ok(Err(true)));
@@ -224,13 +247,21 @@ impl Kernel {
         if report {
             self.try_warn_runtime(&[drop_note(tag)]);
         }
-        // Only the sleep and the stop are told here, from the kernel's top
-        // level, before they go on; the pump tells every other event.
-        if matches!(tag, wire::EVENT_SUSPEND_TAG | wire::EVENT_STOPPING_TAG)
-            && self.shared.native_instances.depth() == 0
-        {
-            self.native_core_drain();
-        }
+    }
+
+    /// `event.screen_ready` (87) for the instance `instance` of `screen`, to
+    /// every running subscriber (the help plugin; each ignores its own
+    /// screens itself). An edge: kept, never merged with another.
+    pub(crate) fn native_screen_ready(&mut self, screen: &Id, instance: u32) {
+        let now_ms = self.now.millis();
+        self.native_queue_event(wire::EVENT_SCREEN_READY_TAG, &|_| true, &|queue| {
+            let record = wire::Record::EventScreenReady(wire::EventScreenReady {
+                now_ms,
+                screen: screen.as_str(),
+                instance,
+            });
+            queue.push_record(wire::EVENT_SCREEN_READY_TAG, &record)
+        });
     }
 
     /// The first running plugin that has something waiting.

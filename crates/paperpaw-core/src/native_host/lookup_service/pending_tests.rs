@@ -137,5 +137,5 @@ fn unmatched_ready_commands_are_counted_and_logged_at_most_once_a_minute() {
 #[test]
 fn the_table_is_32_bytes_an_entry_and_holds_no_text() {
     assert_eq!(core::mem::size_of::<Entry>(), 32);
-    assert!(core::mem::size_of::<PendingAsks>() <= CAPACITY * 32 + 24);
+    assert!(core::mem::size_of::<PendingAsks>() <= CAPACITY * 32 + 40);
 }

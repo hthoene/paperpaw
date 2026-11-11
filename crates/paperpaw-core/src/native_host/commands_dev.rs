@@ -369,6 +369,7 @@ impl<'a> CommandStage<'a> {
 
     /// Check the DEV commands of a batch without keeping anything; the bytes
     /// they will copy.
+    #[inline(never)]
     pub(super) fn validate_dev(&self, batch: &CommandBatch<'_>) -> Result<usize, i32> {
         let Some(dev) = &self.dev else {
             return if batch.iter().any(|command| is_dev(&command)) {
@@ -384,8 +385,32 @@ impl<'a> CommandStage<'a> {
         }
         let (mut wifi, mut power, mut bytes) = (0_usize, 0_usize, 0_usize);
         let mut firmware = 0_usize;
+        let mut revoked = 0_usize;
+        let mut evidence = firmware::EvidenceSeen::default();
         let mut requests = [0_u32; MAX_WIFI_PER_BATCH];
         for command in batch.iter() {
+            if firmware::is_evidence(&command) {
+                // Not a command of its own: it belongs to the install before it.
+                evidence.take(&command)?;
+                bytes = bytes.saturating_add(self.validate_firmware(&command)?);
+                continue;
+            }
+            if matches!(command, WireCommand::TrustRevoked { .. }) {
+                // Its own count; it stands between an install and its
+                // evidence like any other command.
+                evidence.other_command();
+                revoked += 1;
+                if revoked > firmware::MAX_REVOKED_PER_BATCH {
+                    return Err(ERR_INVALID);
+                }
+                bytes = bytes.saturating_add(self.validate_firmware(&command)?);
+                continue;
+            }
+            if let WireCommand::InstallPlugin { request, .. } = command {
+                evidence.install(request);
+            } else if area(&command).is_some() {
+                evidence.other_command();
+            }
             if firmware::is_firmware(&command) {
                 firmware += 1;
             } else {
@@ -469,6 +494,7 @@ impl<'a> CommandStage<'a> {
     }
 
     /// Room for this batch's DEV items, before any is pushed.
+    #[inline(never)]
     pub(super) fn dev_reserve(&mut self, batch: &CommandBatch<'_>) -> Result<(), i32> {
         let count = batch.iter().filter(|command| is_dev(command)).count();
         match &mut self.dev {
@@ -478,9 +504,13 @@ impl<'a> CommandStage<'a> {
     }
 
     /// Keep one validated DEV command after the ordinary ones before it.
-    pub(super) fn dev_push(&mut self, command: WireCommand<'_>) -> Result<(), i32> {
+    #[inline(never)]
+    pub(super) fn dev_push(&mut self, command: &WireCommand<'_>) -> Result<(), i32> {
         let at = self.staged.len();
-        let op = match command {
+        if firmware::is_evidence(command) {
+            return self.firmware_evidence(command);
+        }
+        let op = match *command {
             WireCommand::WifiOn { .. } => DevOp::WifiOn,
             WireCommand::WifiOff { .. } => DevOp::WifiOff,
             WireCommand::WifiScan { .. } => DevOp::WifiScan,
@@ -505,7 +535,7 @@ impl<'a> CommandStage<'a> {
                 ssid,
                 password,
             } => join_op(request, true, ssid, password.expose())?,
-            _ => self.firmware_op(&command)?,
+            _ => self.firmware_op(command)?,
         };
         let dev = self.dev.as_mut().ok_or(ERR_UNSUPPORTED)?;
         // Capacity was reserved by `dev_reserve`; this cannot reallocate.

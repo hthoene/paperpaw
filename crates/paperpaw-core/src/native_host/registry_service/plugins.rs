@@ -77,7 +77,15 @@ fn with_row<R>(sources: &Sources<'_>, info: &PluginInfo, visit: impl FnOnce(&dyn
     if let Some(next) = &info.update {
         let _ = write!(update, "{next}");
     }
-    let (problem, problem_arg) = problem(info.problem);
+    let (mut problem, mut problem_arg) = problem(info.problem);
+    // A plugin refused at a declaration cap says which (14, 15; the cap).
+    if matches!(info.state, PluginState::Failed)
+        && let Some(cap) = sources
+            .directory
+            .and_then(|directory| directory.refusal(id))
+    {
+        (problem, problem_arg) = (cap.problem, cap.arg);
+    }
     visit(&Record::ServiceRegPlugin(wire::ServiceRegPlugin {
         id,
         name: clip(name, caps::PLUGIN_NAME),

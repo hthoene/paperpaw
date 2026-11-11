@@ -20,6 +20,9 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+mod native_activation;
+use native_activation::BuildNative as _;
+
 use std::cell::RefCell;
 use std::fmt::Write as _;
 use std::rc::Rc;
@@ -189,9 +192,7 @@ impl App {
             .frame_rows(FRAME_ROWS)
             .row_align(8)
             .user_config("[core]\nlanguage = en\n");
-        let mut kernel = add(paperpaw_app::install(builder, fonts()))
-            .build()
-            .unwrap();
+        let mut kernel = add(paperpaw_app::install(builder, fonts())).build_native();
         let effects = kernel.start(Instant(0));
         let mut app = Self {
             kernel,
@@ -595,6 +596,10 @@ impl Plugin for Probe {
 /// file in every band (kept by the kernel while a frame is drawn, but read
 /// again for every frame).
 #[test]
+#[cfg_attr(
+    feature = "native-linked",
+    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
+)]
 fn a_screen_reading_while_it_draws_is_found() {
     let card = [("notes.txt".to_string(), b"Remember the milk".to_vec())];
     let mut app = App::with(&card, |builder| builder.plugin(Probe));

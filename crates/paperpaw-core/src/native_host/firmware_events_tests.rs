@@ -33,6 +33,8 @@ fn outcome(kind: u32, reason: u8) -> Outcome {
         request: 1,
         kind,
         reason,
+        flags: 0,
+        id: None,
     }
 }
 
@@ -120,4 +122,112 @@ fn the_firmware_events_can_be_registered_for() {
     assert!(super::super::events::is_event_tag(96));
     assert!(super::super::events::is_event_tag(97));
     assert!(!super::super::events::is_event_tag(98));
+}
+
+/// A removal with its data forgets the plugin's grants, `core.grant.<kind>.<id>`
+/// of exactly that id, and no other plugin's.
+fn is_set(kernel: &Kernel, id: &str) -> bool {
+    kernel.shared.settings.is_set(id)
+}
+
+#[test]
+fn removed_with_its_data_a_plugin_loses_its_grants_and_only_its_own() {
+    use paperpaw_sdk::{SettingSpec, SettingValue, builtin};
+    let mut kernel = kernel();
+    let ids = [
+        "core.grant.install.dials",
+        "core.grant.style.dials",
+        "core.grant.install.dials-plus",
+        "core.grant.install.clock",
+    ];
+    for id in ids {
+        kernel
+            .shared
+            .settings
+            .define(SettingSpec::switch(
+                id,
+                "grant",
+                false,
+                builtin::groups::OTHER,
+            ))
+            .unwrap();
+        kernel
+            .shared
+            .settings
+            .set(id, SettingValue::Bool(true))
+            .unwrap();
+    }
+    assert!(
+        kernel.forget_removed("dials"),
+        "no secrets host wired: nothing to fail"
+    );
+    assert!(
+        !kernel.forget_listed("dials"),
+        "a listed id's secrets are not forgotten by a host that is not there"
+    );
+    assert!(
+        !is_set(&kernel, ids[0]) && !is_set(&kernel, ids[1]),
+        "the plugin's own grants went"
+    );
+    assert!(
+        is_set(&kernel, ids[2]) && is_set(&kernel, ids[3]),
+        "no other plugin's grant did"
+    );
+    // Nothing to forget: nothing changes, and nothing is said.
+    kernel.forget_grants("dials");
+    kernel.forget_grants("nobody");
+    assert!(is_set(&kernel, ids[2]) && is_set(&kernel, ids[3]));
+}
+
+#[test]
+fn a_plugin_with_many_grants_loses_every_one() {
+    use paperpaw_sdk::{SettingSpec, SettingValue, builtin};
+    let mut kernel = kernel();
+    // Ids are `&'static` in a spec: a test may leak 20 short strings.
+    let ids: alloc::vec::Vec<&'static str> = (0..20)
+        .map(|n| &*alloc::format!("core.grant.kind{n}.dials").leak())
+        .collect();
+    for &id in &ids {
+        kernel
+            .shared
+            .settings
+            .define(SettingSpec::switch(
+                id,
+                "grant",
+                false,
+                builtin::groups::OTHER,
+            ))
+            .unwrap();
+        kernel
+            .shared
+            .settings
+            .set(id, SettingValue::Bool(true))
+            .unwrap();
+    }
+    kernel.forget_grants("dials");
+    assert!(ids.iter().all(|&id| !is_set(&kernel, id)));
+}
+
+#[test]
+fn the_grants_go_even_when_the_secrets_could_not_be_forgotten() {
+    use paperpaw_sdk::{SettingSpec, SettingValue, builtin};
+    let mut kernel = kernel();
+    let id = "core.grant.install.dials";
+    kernel
+        .shared
+        .settings
+        .define(SettingSpec::switch(
+            id,
+            "grant",
+            false,
+            builtin::groups::OTHER,
+        ))
+        .unwrap();
+    kernel
+        .shared
+        .settings
+        .set(id, SettingValue::Bool(true))
+        .unwrap();
+    assert!(!kernel.forget_removed_by("dials", || false));
+    assert!(!is_set(&kernel, id), "no grant stays for a later plugin");
 }

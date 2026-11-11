@@ -18,6 +18,16 @@ use std::{
 use paperpaw_core::sdk::HttpError;
 use paperpaw_core::{HttpCall, HttpResponse};
 
+/// How the reason of an answer too large for its file begins (see
+/// [`too_large`]).
+const TOO_LARGE: &str = "the answer is larger than";
+
+/// Whether `response` is a request's refusal for an answer larger than
+/// its file may be.
+pub fn too_large(response: &HttpResponse) -> bool {
+    response.error == Some(HttpError::Refused) && response.body.starts_with(TOO_LARGE.as_bytes())
+}
+
 /// Where requests go instead of the system's network ([`set_route`]).
 pub trait Route {
     /// Takes a request: its answer now, or `None` where it comes later
@@ -77,7 +87,27 @@ impl Http {
     }
 
     /// Starts a request: on the route set, else on the system's network.
+    /// Redirects are followed by `curl` (`-L`), with its own rules.
     pub fn start(&mut self, call: HttpCall) {
+        self.begin(call, true);
+    }
+
+    /// Starts a request whose redirects are the caller's to follow (a
+    /// 3xx answer comes back with its `Location` among the headers asked
+    /// for, so that the caller applies `paperpaw_http::follow`): `curl`
+    /// is told not to follow them (no `-L`).
+    pub fn start_unfollowed(&mut self, call: HttpCall) {
+        self.begin(call, false);
+    }
+
+    /// Answers a request that has not gone out: `response` comes with the
+    /// next answers.
+    pub fn answer_now(&mut self, response: HttpResponse) {
+        self.in_flight += 1;
+        let _ = self.sender.send(response);
+    }
+
+    fn begin(&mut self, call: HttpCall, follow: bool) {
         self.in_flight += 1;
         let mut call = Some(call);
         // Taken by the route, if one is set: its answer now, or later.
@@ -87,25 +117,25 @@ impl Http {
                 let _ = self.sender.send(answer);
             }
             (Some(None), _) => {}
-            (None, Some(call)) => self.system(call),
+            (None, Some(call)) => self.system(call, follow),
             (None, None) => {}
         }
     }
 
     /// Runs a request with `curl` on a thread of its own.
     #[cfg(not(target_arch = "wasm32"))]
-    fn system(&mut self, call: HttpCall) {
+    fn system(&mut self, call: HttpCall, follow: bool) {
         let sender = self.sender.clone();
         let progress = call.progress.then(|| self.progress.0.clone());
         thread::spawn(move || {
-            let _ = sender.send(run(call, progress.as_ref()));
+            let _ = sender.send(run(call, progress.as_ref(), follow));
         });
     }
 
     /// Answers a request at once as failed: in a browser the emulator
     /// has no network of its own.
     #[cfg(target_arch = "wasm32")]
-    fn system(&mut self, call: HttpCall) {
+    fn system(&mut self, call: HttpCall, _follow: bool) {
         let reason = "no network in the browser's emulator";
         let failed = HttpResponse::failed(call.id, HttpError::NoNetwork, reason);
         let _ = self.sender.send(failed);
@@ -137,7 +167,7 @@ impl Http {
 
 /// Makes the request with `curl`; status 0 with the reason if it fails.
 #[cfg(not(target_arch = "wasm32"))]
-fn run(call: HttpCall, progress: Option<&Sender<Progress>>) -> HttpResponse {
+fn run(call: HttpCall, progress: Option<&Sender<Progress>>, follow: bool) -> HttpResponse {
     let failed = |error, reason: String| HttpResponse::failed(call.id, error, &reason);
     let mut command = Command::new("curl");
     let seconds = call.timeout_ms.div_ceil(1000).max(1).to_string();
@@ -155,8 +185,11 @@ fn run(call: HttpCall, progress: Option<&Sender<Progress>>) -> HttpResponse {
     } else {
         &["--max-time", &seconds]
     };
+    command.arg("-sS");
+    if follow {
+        command.args(["-L", "--max-redirs", "10"]);
+    }
     command
-        .args(["-sS", "-L", "--max-redirs", "10"])
         .args(limit)
         .args(["-X", &call.method])
         .args(["-w", &written]);
@@ -290,7 +323,7 @@ fn answer(call: &HttpCall, mut out: Vec<u8>) -> HttpResponse {
     let status = line().and_then(|s| s.parse().ok()).unwrap_or(0);
     if out.len() > call.max_response && call.save_to.is_some() {
         // A file cut short would be saved as if whole.
-        let reason = format!("the answer is larger than {} bytes", call.max_response);
+        let reason = format!("{TOO_LARGE} {} bytes", call.max_response);
         return HttpResponse::failed(call.id, HttpError::Refused, &reason);
     }
     let truncated = out.len() > call.max_response;
@@ -370,5 +403,46 @@ https://a.example/book.epub"
         .to_vec();
         let fits = answer(&call(Some("Books/a.epub")), whole);
         assert_eq!((fits.status, fits.body.as_slice()), (200, &b"PK"[..]));
+    }
+
+    /// Where the caller follows the redirects, `curl` does not: the 3xx
+    /// answer comes back with its `Location`, and nothing is asked of the
+    /// address it names.
+    #[test]
+    fn an_unfollowed_redirect_comes_back_as_it_is() {
+        use std::io::{Read as _, Write as _};
+        if Command::new("curl").arg("--version").output().is_err() {
+            return;
+        }
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0; 2048];
+            let n = stream.read(&mut request).unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 307 Temporary Redirect\r\nLocation: http://127.0.0.1:9/never\r\n\
+                      Content-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+            String::from_utf8_lossy(&request[..n]).into_owned()
+        });
+        let mut call = call(None);
+        call.url = format!("http://127.0.0.1:{port}/a");
+        call.want_headers = vec![String::from("location")];
+        call.max_response = 100;
+        let mut http = Http::new();
+        http.start_unfollowed(call);
+        let answer = http.next(Some(Duration::from_secs(10))).unwrap();
+        assert_eq!(answer.status, 307, "{answer:?}");
+        assert_eq!(
+            answer.headers,
+            [(
+                String::from("location"),
+                String::from("http://127.0.0.1:9/never")
+            )]
+        );
+        assert!(server.join().unwrap().starts_with("GET /a "));
     }
 }

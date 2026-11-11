@@ -92,8 +92,8 @@ X4 peak is not measured.
 `native_model`: hidden items, depth, headings, tiles rule, the focus passing faint rows, what
 choosing does, stepping numbers and their ends, units, listing rules, and allocation-refusal sweeps.
 `paperpaw-ui-kit`: sheet geometry, faint rows. Declaration parity with the interface-6
-registration, linked entry, construction in the kernel's registered scope (refused as
-`Unsupported` until the host admits every declaration family, #944).
+registration, linked entry, construction in the kernel's registered scope (a real pass: the host admits every
+declaration, the events 64, 70 and 75 among them).
 `tests/acceptance_pending.rs`: ignored cases that name what they wait for.
 
 ## Not ported yet (explicit; each is an ignored acceptance case)

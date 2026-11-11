@@ -240,6 +240,7 @@ fn scoped(kernel: &crate::Kernel, call: impl FnOnce(&CoreFrame<'_>)) {
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,
+        log: Default::default(),
         ui: None,
     });
 }
@@ -493,6 +494,7 @@ fn registry_dispatches_idle_retained_owner_and_releases_it_after_last_frozen_lea
         Retained::make(hosted(false)).unwrap(),
         super::super::flat::FlatDepth::try_new().unwrap(),
         super::super::FlatHost {
+            log: Default::default(),
             meter: alloc::rc::Rc::clone(&kernel.shared.meter),
             directory: None,
             stack_rows: alloc::rc::Rc::clone(&kernel.shared.stack_rows),
@@ -552,6 +554,7 @@ fn shared_native_dispatch_scopes_all_screen_callbacks_and_retains_owner() {
         instance,
         super::super::flat::FlatDepth::try_new().unwrap(),
         super::super::FlatHost {
+            log: Default::default(),
             meter: alloc::rc::Rc::clone(&kernel.shared.meter),
             directory: None,
             stack_rows: alloc::rc::Rc::clone(&kernel.shared.stack_rows),
@@ -692,6 +695,7 @@ fn a_screen_callback_is_a_showing_screen_only_while_it_runs_on_the_stack() {
         Retained::make(hosted(false)).unwrap(),
         super::super::flat::FlatDepth::try_new().unwrap(),
         super::super::FlatHost {
+            log: Default::default(),
             meter: alloc::rc::Rc::clone(&kernel.shared.meter),
             directory: None,
             stack_rows: alloc::rc::Rc::clone(&rows),
@@ -740,6 +744,7 @@ fn a_native_owner_is_subscribed_to_the_events_it_registered_only() {
             Retained::make(hosted).unwrap(),
             super::super::flat::FlatDepth::try_new().unwrap(),
             super::super::FlatHost {
+                log: Default::default(),
                 meter: alloc::rc::Rc::clone(&kernel.shared.meter),
                 directory: None,
                 stack_rows: alloc::rc::Rc::clone(&kernel.shared.stack_rows),

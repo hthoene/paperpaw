@@ -182,6 +182,7 @@ fn owner_tokens_are_separate_calls_and_failures_leave_output_untouched() {
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,
+        log: Default::default(),
         ui: None,
     };
     let host_calls = StatusCalls {

@@ -330,6 +330,7 @@ impl NativePluginManager {
                             },
                             flags: plugin.flags(),
                             problem: Problem::from_wire(plugin.problem()),
+                            problem_arg: plugin.problem_arg(),
                             update: copy(plugin.update())?,
                         },
                     )?;

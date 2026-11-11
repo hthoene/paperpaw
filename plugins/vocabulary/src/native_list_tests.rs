@@ -180,3 +180,61 @@ fn a_list_shown_again_has_the_words_looked_up_meanwhile() {
     let titles: Vec<&str> = rows.iter().map(|row| row.title.as_str()).collect();
     assert_eq!(titles, ["folio", "verso", "quire"]);
 }
+
+/// *Export* is the row after the last word: on the page that holds it, and not
+/// with no word, nor where the list has no such row.
+#[test]
+fn export_is_the_row_after_the_last_word() {
+    let storage = MemoryStorage::new();
+    for name in ["quire", "verso", "folio"] {
+        store::add(&storage, &word(name, "", "A book")).unwrap();
+    }
+    let rows = WordRows::new(&storage, 3).with_export("Export".into(), "Help".into());
+    assert_eq!(rows.len_with_export(), 4);
+    // Not on the page of the first three, nor past it.
+    assert!(rows.export_row(0, 3).unwrap().is_none());
+    assert!(rows.export_row(5, 3).unwrap().is_none());
+    // On the page that holds the last word and on the one that starts with it.
+    for (first, max) in [(2, 3), (3, 3), (0, 10)] {
+        let row = rows.export_row(first, max).unwrap().unwrap();
+        assert_eq!((row.title.as_str(), row.note.as_str()), ("Export", "Help"));
+        assert_eq!(row.value, "›");
+    }
+    // The words' own rows are the words only.
+    assert_eq!(rows.rows(0, 10).unwrap().len(), 3);
+    // No word, no row; a list without the row has none.
+    let empty = WordRows::new(&storage, 0).with_export("Export".into(), "Help".into());
+    assert_eq!(empty.len_with_export(), 0);
+    assert!(empty.export_row(0, 10).unwrap().is_none());
+    assert_eq!(WordRows::new(&storage, 3).len_with_export(), 3);
+    assert!(
+        WordRows::new(&storage, 3)
+            .export_row(0, 10)
+            .unwrap()
+            .is_none()
+    );
+}
+
+/// The export of the words reads and writes through the storage the plugin
+/// gives it: the file is the header and a line a word, oldest first.
+#[test]
+fn the_export_is_the_header_and_a_line_a_word() {
+    let storage = MemoryStorage::new();
+    store::add(
+        &storage,
+        &word("quire", "A quire is a set of sheets.", "A book"),
+    )
+    .unwrap();
+    store::add(&storage, &word("verso", "", "Another")).unwrap();
+    store::export(&storage, "export.tsv").unwrap();
+    let text = String::from_utf8(storage.get("export.tsv").unwrap()).unwrap();
+    let mut lines = text.lines();
+    assert_eq!(lines.next(), Some("#separator:tab"));
+    assert_eq!(lines.next(), Some("#html:false"));
+    assert_eq!(
+        lines.next(),
+        Some("quire\tA quire is a set of sheets.\tA book")
+    );
+    assert_eq!(lines.next(), Some("verso\t\tAnother"));
+    assert_eq!(lines.next(), None);
+}

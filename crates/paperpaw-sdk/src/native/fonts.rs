@@ -41,6 +41,14 @@ pub enum FontRole {
     UiBold,
     /// The reader's text font.
     Reading,
+    /// The reader's bold text font; the reading font where none is bound.
+    ReadingBold,
+    /// The reader's italic text font; the reading font where none is bound.
+    ReadingItalic,
+    /// The reader's bold italic text font; the bold reading font where none is bound.
+    ReadingBoldItalic,
+    /// The status line's font.
+    Status,
     /// The monospace font.
     Mono,
 }
@@ -51,6 +59,10 @@ impl FontRole {
             Self::Ui => "role:ui",
             Self::UiBold => "role:ui-bold",
             Self::Reading => "role:reading",
+            Self::ReadingBold => "role:reading-bold",
+            Self::ReadingItalic => "role:reading-italic",
+            Self::ReadingBoldItalic => "role:reading-bold-italic",
+            Self::Status => "role:status",
             Self::Mono => "role:mono",
         }
     }

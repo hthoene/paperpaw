@@ -36,6 +36,8 @@ use paperpaw_core::{ServedFile, ServerCall, ServerEvent};
 use paperpaw_http::server::{MAX_REQUEST_HEAD, RequestHead, parse_request};
 
 mod link;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod secure;
 mod sockets;
 #[cfg(not(target_arch = "wasm32"))]
 mod tls;

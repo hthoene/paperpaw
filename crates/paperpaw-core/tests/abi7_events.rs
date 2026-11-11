@@ -332,13 +332,9 @@ fn only_suspend_and_stopping_bypass_the_queue() {
             tag == EVENT_SUSPEND_TAG || tag == EVENT_STOPPING_TAG
         );
     }
-    // 64, the book events 65-67 (registered, delivered by the reader port) and
-    // the hints 70-74 are admitted; 68 and 69 stay refused until Core wires
-    // their producers.
-    for tag in [0, 1, 2, 4, 5, 31, 38, 43, 63, u32::MAX]
-        .into_iter()
-        .chain(68..=69)
-    {
+    // 64, the book events 65-69 (registered, delivered by the reader port and
+    // the library moves) and the hints 70-74 are admitted.
+    for tag in [0, 1, 2, 4, 5, 31, 38, 43, 63, u32::MAX] {
         assert!(!events::is_event_tag(tag));
     }
 }
@@ -393,16 +389,17 @@ fn registration_admits_tick_and_every_event_kind_and_refuses_the_rest() {
     {
         assert_eq!(submit_one(tag), (OK, true), "tag {tag}");
     }
-    for tag in [0, 4, 5, 31, 38, 63, u32::MAX].into_iter().chain(68..=69) {
+    for tag in [0, 4, 5, 31, 38, 63, u32::MAX] {
         assert_eq!(submit_one(tag), (ERR_UNSUPPORTED, false), "tag {tag}");
     }
 }
 
-/// `event.book_opened`, `book_closed` and `book_finished` register (rules and
-/// setup subscribe to them); nothing produces them until the reader port.
+/// `event.book_opened`, `book_closed`, `book_finished`, `book_moved` and
+/// `book_removed` register (rules, setup and the reader subscribe to them);
+/// nothing produces them until the reader port and the library moves.
 #[test]
 fn the_book_events_register_and_each_is_admitted() {
-    for tag in 65..=67 {
+    for tag in 65..=69 {
         assert!(events::is_event_tag(tag), "tag {tag}");
         assert_eq!(submit_one(tag), (OK, true), "tag {tag}");
         assert!(!events::bypasses_queue(tag), "tag {tag}");
@@ -454,4 +451,13 @@ fn a_registration_batch_cannot_carry_an_event_record() {
                 .is_err()
         );
     }
+}
+
+/// `event.stack_changed` (81, a hint) registers; the stack path raises it
+/// later.
+#[test]
+fn the_stack_changed_hint_registers() {
+    assert!(events::is_event_tag(81));
+    assert_eq!(submit_one(81), (OK, true));
+    assert!(!events::bypasses_queue(81));
 }

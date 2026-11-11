@@ -57,6 +57,16 @@ const KEYS: &[&str] = &[
     "core.host-library.name-taken",
     "core.host-library.replace-denied",
     "core.host-safe-mode.power-escape",
+    "core.plugin.title",
+    "core.plugin.title.remove",
+    "core.plugin.what",
+    "core.plugin.sideload",
+    "core.plugin.uses",
+    "core.plugin.yes",
+    "core.plugin.yes.remove",
+    "core.plugin.remove-data",
+    "core.plugin.yes.remove-data",
+    "core.plugin.unforgotten",
 ];
 
 fn placeholders(text: &str) -> Vec<&str> {

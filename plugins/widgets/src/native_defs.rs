@@ -20,6 +20,8 @@ pub enum Tap {
     TickItems,
     /// It turns the quote on to the next.
     TurnQuote,
+    /// Each book on show is a target that opens it.
+    Books,
     /// It opens the book of the highlight shown at its place.
     OpenHighlight,
     /// It runs the action with this id (the library's numbers open the
@@ -141,6 +143,19 @@ static LIBRARY: Behaviour = Behaviour {
     tap: Tap::Run("core.library"),
 };
 
+static FAVOURITES: Behaviour = Behaviour {
+    height: crate::native_favourites::height,
+    draw: crate::native_favourites::draw,
+    shows: crate::native_favourites::shows,
+    tap: Tap::Books,
+};
+static SERIES: Behaviour = Behaviour {
+    height: crate::native_series::height,
+    draw: crate::native_series::draw,
+    shows: crate::native_series::shows,
+    tap: Tap::Books,
+};
+
 static HIGHLIGHT: Behaviour = Behaviour {
     height: crate::native_highlight::height,
     draw: crate::native_highlight::draw,
@@ -148,10 +163,20 @@ static HIGHLIGHT: Behaviour = Behaviour {
     tap: Tap::OpenHighlight,
 };
 
+static LOGO: Behaviour = Behaviour {
+    height: crate::native_logo::height,
+    // The picture is drawn by the plugin over the paint (`native_plugin`).
+    draw: |cx, out, area| crate::native_logo::draw_with(cx, out, area, None).map(|_| ()),
+    shows: crate::native_logo::shows,
+    tap: Tap::None,
+};
+
 /// The behaviour of the widget declared with `token`.
 #[must_use]
 pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
     match token {
+        117 => Some(&SERIES),
+        116 => Some(&FAVOURITES),
         115 => Some(&HIGHLIGHT),
         114 => Some(&LIBRARY),
         113 => Some(&BATTERY),
@@ -168,6 +193,7 @@ pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
         102 => Some(&CALENDAR),
         100 => Some(&DAY),
         101 => Some(&TILES),
+        121 => Some(&LOGO),
         _ => None,
     }
 }

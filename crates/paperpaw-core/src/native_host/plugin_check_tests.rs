@@ -536,6 +536,29 @@ fn a_header_the_loader_refuses_ends_with_the_loaders_reason() {
 }
 
 #[test]
+fn needs_draft_is_the_files_needs_minor_for_a_newer_minor_and_zero_otherwise() {
+    let code = good_code();
+    let draft = |edit: fn(&mut Vec<u8>)| {
+        let card = edited(&code, edit);
+        let (finished, _) = run(&card, SOURCE);
+        (finished.reason, finished.needs_draft)
+    };
+    // The revision the file needs (the header's `needs_minor`).
+    assert_eq!(draft(|c| set16(c, 10, 2)), (reason::NEEDS_NEWER, 2));
+    assert_eq!(
+        draft(|c| set16(c, 10, 60_000)),
+        (reason::NEEDS_NEWER, 60_000)
+    );
+    // A newer format or interface names no number of this interface; nor
+    // does any other end.
+    assert_eq!(draft(|c| set16(c, 4, 6)), (reason::NEEDS_NEWER, 0));
+    assert_eq!(draft(|c| set16(c, 8, 8)), (reason::NEEDS_NEWER, 0));
+    assert_eq!(draft(|c| set16(c, 6, 9)), (reason::OTHER_CHIP, 0));
+    assert_eq!(draft(|c| c[0] = b'X'), (reason::DAMAGED, 0));
+    assert_eq!(draft(|_| {}).1, 0);
+}
+
+#[test]
 fn a_changed_byte_is_damage_whether_in_the_image_or_the_signature() {
     let code = good_code();
     for at in [100, 3000, 4000, code.len() - 60, code.len() - 1] {

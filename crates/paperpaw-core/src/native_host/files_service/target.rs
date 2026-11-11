@@ -17,9 +17,6 @@ pub(super) const BOOK: u32 = 3;
 
 /// The host's folder in root 0, where served request bodies arrive.
 const RECEIVED: &str = ".received";
-/// The install folders, and the kernel's, which root 1 never reaches.
-const INSTALL: &str = "plugins";
-const KERNEL: &str = ".paperpaw";
 
 /// What a call does to the path, for the root rules.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -258,10 +255,10 @@ fn push(target: &mut Target, bytes: &[u8]) -> Result<(), i32> {
     Ok(())
 }
 
-/// Whether a first segment of root 1 is `plugins` or `.paperpaw`, by
-/// spelling in any case or by identity (the host).
+/// Whether a first segment of root 1 is `plugins`, `.paperpaw` or
+/// `paperpaw.ini`, by spelling in any case or by identity (the host).
 pub(super) fn reaches_protected(view: &View<'_>, first: &str) -> bool {
-    same_fold(first, INSTALL) || same_fold(first, KERNEL) || view.host.excluded(CARD, "", first)
+    super::super::owner_paths::protected_first(first) || view.host.excluded(CARD, "", first)
 }
 
 /// Whether `a` and `b` are one name to the FAT driver: in upper case, the

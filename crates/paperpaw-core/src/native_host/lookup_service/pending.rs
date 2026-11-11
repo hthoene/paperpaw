@@ -69,6 +69,8 @@ pub(crate) struct PendingAsks {
     unmatched: u32,
     /// When the last log line was due (`None`: none yet).
     last_log: Option<u64>,
+    /// The same for the full-table line.
+    last_full_log: Option<u64>,
 }
 
 impl PendingAsks {
@@ -77,6 +79,7 @@ impl PendingAsks {
             entries: [FREE; CAPACITY],
             unmatched: 0,
             last_log: None,
+            last_full_log: None,
         }
     }
 
@@ -170,6 +173,19 @@ impl PendingAsks {
             Some(last) if now.saturating_sub(last) < LOG_EVERY_MS => false,
             _ => {
                 self.last_log = Some(now);
+                true
+            }
+        }
+    }
+
+    /// Whether a log line about a full table is due at `now` (at most one a
+    /// minute, apart from the unmatched-ready line); taking it starts the
+    /// next minute.
+    pub(super) fn full_log_due(&mut self, now: u64) -> bool {
+        match self.last_full_log {
+            Some(last) if now.saturating_sub(last) < LOG_EVERY_MS => false,
+            _ => {
+                self.last_full_log = Some(now);
                 true
             }
         }

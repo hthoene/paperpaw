@@ -127,6 +127,13 @@ pub(crate) enum JobStep {
     Wait,
     /// The host asks the user; the job waits for [`PluginJob::answer`].
     Ask(PluginQuestion),
+    /// The host closes the instances of this plugin (a removal's first step
+    /// after its journal); the job waits for [`PluginJob::unloaded`].
+    Unload(Text<ID_MAX>),
+    /// The host forgets the plugin's host-held state (its secrets and its
+    /// grants), a removal with its data, after its folders moved; the job waits
+    /// for [`PluginJob::forgotten`]. Safe to repeat.
+    Forget(Text<ID_MAX>),
     /// Done: `reason` as in `device.md` 5.5, and for a check its facts (kept
     /// in the plugin's result slot).
     Done(Finished),
@@ -143,6 +150,10 @@ pub(crate) struct Finished {
     /// The plugin list changed (event 70): a data plugin to load now, or one
     /// gone.
     pub(crate) changed: Option<Text<ID_MAX>>,
+    /// `dev_check.needs_draft` of a check that ended with reason 10: the
+    /// interface revision the file needs (the header's `needs_minor`), 0 for
+    /// every other end and where the file names no number (`device.md` 5.1).
+    pub(crate) needs_draft: u32,
 }
 
 impl Finished {
@@ -152,6 +163,15 @@ impl Finished {
             facts: None,
             flags: 0,
             changed: None,
+            needs_draft: 0,
+        }
+    }
+
+    /// A check that ends with reason 10 and says which revision it needs.
+    pub(crate) const fn needs_newer(needs_draft: u32) -> Self {
+        Self {
+            needs_draft,
+            ..Self::refused(reason::NEEDS_NEWER)
         }
     }
 
@@ -162,10 +182,13 @@ impl Finished {
             facts,
             flags: 0,
             changed: None,
+            needs_draft: 0,
         }
     }
 }
 
+/// `install_done.flags` bit 0: the data of a removed plugin was kept.
+pub(crate) const DONE_DATA_KEPT: u32 = 1;
 /// `install_done.flags` bit 1: the code changes at the next start.
 pub(crate) const DONE_AT_NEXT_START: u32 = 2;
 
@@ -216,12 +239,13 @@ pub(crate) struct Uses {
     pub(crate) more: bool,
 }
 
-/// The user's answer to a confirmation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Answer {
-    Yes,
-    No,
-    Dismissed,
+/// The user's answer to a confirmation (the firmware's own).
+pub(crate) use super::firmware_install::Answer;
+
+/// The host's trusted-installer grants (`device.md` 5.2).
+pub(crate) trait InstallGrants {
+    /// Whether the plugin `owner` may install without being asked each time.
+    fn granted(&self, owner: u64) -> bool;
 }
 
 /// One plugin job in the queue.
@@ -237,9 +261,29 @@ pub(crate) trait PluginJob {
     fn step(&mut self, env: &JobEnv<'_>) -> JobStep;
     /// The user's answer to the question the job asked.
     fn answer(&mut self, answer: Answer);
+    /// The host closed the instances the job asked for ([`JobStep::Unload`]).
+    fn unloaded(&mut self) {}
+    /// The host forgot the plugin's state ([`JobStep::Forget`]); `ok`: all of it.
+    fn forgotten(&mut self, ok: bool) {
+        let _ = ok;
+    }
     /// Stops the job with `reason` (20 for a suspend or a stop). Infallible
     /// and allocation-free; the next `step` ends with it.
     fn abort(&mut self, reason: u8);
+    /// Whether the job may not be abandoned where it stands (an install past
+    /// the point where the card holds half of a change: its journal is
+    /// written). The host then steps it on to its end, bounded, after
+    /// `abort`, and the job ends with its own reason; any other job just
+    /// ends with the reason `abort` was given. Default: it may be abandoned.
+    fn must_finish(&self) -> bool {
+        false
+    }
+    /// Whether the job runs on when the plugin that asked stops (an install
+    /// the user confirmed): nobody is told its end. Default: it stops with
+    /// its sender.
+    fn keep_without_sender(&self) -> bool {
+        false
+    }
 }
 
 /// The buffer a job reads through: 4 KiB, taken fallibly when the job's

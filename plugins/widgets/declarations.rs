@@ -22,6 +22,7 @@ pub mod category {
     pub const WORDS: &str = "core.widgets.words";
     pub const DEVICE: &str = "core.widgets.device";
     pub const BOOKS: &str = "core.widgets.books";
+    pub const OTHER: &str = "core.widgets.other";
 }
 
 /// A widget of the pack.
@@ -294,6 +295,59 @@ const HIGHLIGHT_OPTIONS: &[Opt] = &[
     Opt::Part("note", "widgets.books.part.note", false),
 ];
 
+const FAVOURITES_OPTIONS: &[Opt] = &[
+    Opt::Size("core.size.medium", false),
+    Opt::Choice(
+        "layout",
+        "widgets.books.setting.layout",
+        &["widgets.books.layout.row", "widgets.books.layout.grid"],
+        "widgets.books.layout.row",
+        "widgets.favourites.layout.help",
+    ),
+    Opt::Number(
+        "count",
+        "widgets.books.setting.count",
+        1,
+        24,
+        8,
+        "widgets.setting.count.help",
+    ),
+    Opt::Part("caption", "widgets.books.part.caption", true),
+    Opt::Part("titles", "widgets.books.part.titles", false),
+    Opt::Part("read", "widgets.books.part.read", false),
+    Opt::Part("current", "widgets.books.part.current", false),
+];
+
+const SERIES_OPTIONS: &[Opt] = &[
+    Opt::Size("core.size.medium", false),
+    Opt::Text(
+        "name",
+        "widgets.books.setting.series-name",
+        "",
+        "widgets.books.setting.series-name.help",
+    ),
+    Opt::Number(
+        "count",
+        "widgets.books.setting.count",
+        2,
+        12,
+        6,
+        "widgets.setting.count.help",
+    ),
+    Opt::Choice(
+        "start",
+        "widgets.books.setting.series-start",
+        &["widgets.series.around", "widgets.series.first"],
+        "widgets.series.around",
+        "widgets.books.setting.series-start.help",
+    ),
+    Opt::Part("caption", "widgets.books.part.caption", true),
+    Opt::Part("numbers", "widgets.books.part.numbers", true),
+    Opt::Part("titles", "widgets.books.part.titles", false),
+    Opt::Part("read", "widgets.books.part.read", true),
+    Opt::Part("current", "widgets.books.part.current", true),
+];
+
 const MOON_OPTIONS: &[Opt] = &[
     Opt::Part("name", "widgets.setting.phase-name", true),
     Opt::Part("full", "widgets.setting.next-full-moon", true),
@@ -450,6 +504,18 @@ const GREETING_OPTIONS: &[Opt] = &[
         "widgets.setting.face-font.help",
     ),
     Opt::Size("core.size.fit", true),
+];
+
+const LOGO_OPTIONS: &[Opt] = &[
+    Opt::Part("name", "widgets.logo.setting.name", false),
+    Opt::Choice(
+        "face",
+        "widgets.setting.font",
+        FACES,
+        "widgets.face.ui",
+        "widgets.setting.face-font.help",
+    ),
+    Opt::Size("core.size.medium", true),
 ];
 
 const NOTE_OPTIONS: &[Opt] = &[
@@ -685,6 +751,33 @@ pub const WIDGETS: &[Def] = &[
         look_last: false,
         options: HIGHLIGHT_OPTIONS,
     },
+    Def {
+        name: "favourites",
+        token: 116,
+        category: category::BOOKS,
+        live: false,
+        align: "core.align.center",
+        look_last: false,
+        options: FAVOURITES_OPTIONS,
+    },
+    Def {
+        name: "series",
+        token: 117,
+        category: category::BOOKS,
+        live: false,
+        align: "core.align.center",
+        look_last: false,
+        options: SERIES_OPTIONS,
+    },
+    Def {
+        name: "logo",
+        token: 121,
+        category: category::OTHER,
+        live: false,
+        align: "core.align.center",
+        look_last: true,
+        options: LOGO_OPTIONS,
+    },
 ];
 
 /// The widgets and their settings groups and settings.
@@ -700,10 +793,9 @@ pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
         if widget.live {
             spec = spec.live();
         }
-        d.widget(
-            spec.previews(&group)
-                .map_err(|_| DeclareError::TooLong("widget preview"))?,
-        )?;
+        // No `previews`: the pack's widgets are offered in the Add picker; a
+        // widget made only to preview a settings group is never listed there.
+        d.widget(spec)?;
         declare_all(d, widget.name, &group, widget.all())?;
         d.submit()?;
     }
@@ -734,6 +826,9 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::Tick, TICK)?;
+    // The answer to the logo picture asked for, and a change of the picture set.
+    d.subscribe_event(EventKind::ImageReady, TICK)?;
+    d.subscribe_event(EventKind::SettingChanged, TICK)?;
     d.submit()?;
     Ok(())
 }

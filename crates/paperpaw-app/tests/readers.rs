@@ -14,6 +14,8 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+mod native_activation;
+
 use paperpaw_core::{Effects, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, MemoryClass, PixelFormat,
@@ -232,7 +234,7 @@ impl App {
             // On touch screens without the hints over it all.
             .user_config(format!("[core]\nlanguage = en\n{config}"));
         let builder = paperpaw_app::install(builder, paperpaw_app::Fonts::Packs);
-        let mut kernel = more(builder).build().unwrap();
+        let mut kernel = native_activation::build(more(builder));
         let effects = kernel.start(Instant(0));
         let mut app = Self { kernel, now: 0 };
         app.settle(effects);
@@ -424,6 +426,10 @@ fn open_with_lists_the_readers_of_the_book_and_keeps_the_one_chosen() {
 }
 
 #[test]
+#[cfg_attr(
+    feature = "native-linked",
+    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
+)]
 fn by_touch_a_reading_app_is_tapped_in_the_list_and_in_the_settings() {
     let mut app = App::on(BOOX, books(), "", true);
     assert_eq!(app.opens("plain.ask-book"), "core.choice-dialog");

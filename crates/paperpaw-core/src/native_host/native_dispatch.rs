@@ -73,6 +73,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             usage: env.usage(),
             plugins: env.plugins(),
             work: env.work(),
+            log: self.host.log,
             ui: self.identity.ui_services(),
         }
     }
@@ -173,7 +174,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             epoch.epoch(),
             self.depth.as_depth().current() == 0,
         );
-        shell::dispatch_token_draw(
+        let result = shell::dispatch_token_draw(
             batch,
             token,
             self.depth.as_depth(),
@@ -181,7 +182,11 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             frame,
             canvas,
         )
-        .map_err(status)
+        .map_err(status);
+        if matches!(result, Ok(0)) {
+            self.identity.mark_drew();
+        }
+        result
     }
 }
 
@@ -283,7 +288,9 @@ fn status(error: shell::Error) -> i32 {
         shell::Error::Allocation | shell::Error::Lifecycle(Error::Memory) => {
             host_glue::ERR_NO_MEMORY
         }
-        shell::Error::Lifecycle(Error::Busy | Error::Depth) => host_glue::ERR_BUSY,
+        shell::Error::Lifecycle(Error::Busy | Error::Depth) | shell::Error::Refused => {
+            host_glue::ERR_BUSY
+        }
         shell::Error::Lifecycle(Error::Capacity) => host_glue::ERR_NO_SPACE,
         shell::Error::Lifecycle(Error::State) | shell::Error::Attempt => host_glue::ERR_STATE,
         _ => host_glue::ERR_INVALID,
@@ -318,6 +325,21 @@ impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
         stage: &mut super::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.service_call(bytes, env, Some(stage))
+    }
+    fn input_staged(
+        &self,
+        token: u32,
+        bytes: &[u8],
+        env: &Env<'_>,
+        stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.invoke(
+            token,
+            env,
+            None,
+            shell::TokenInvocation::Input(bytes),
+            Some(stage),
+        )
     }
     fn retire(&self, owner: u64) -> Result<(), i32> {
         self.instance.host().stop();

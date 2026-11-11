@@ -10,7 +10,9 @@ use paperpaw_ui_kit::dialog::Dialog;
 
 use super::*;
 use crate::native_add_screen as add_screen;
-use crate::native_arrange::{self as arrange, CHOICES, Choice, Dir, Mode, Put};
+use crate::native_arrange::{self as arrange, Choice, Dir, Mode, Put, choices};
+use crate::native_item_settings as item_settings;
+use paperpaw_sdk::{native::callbacks::PointerPhase, widgets::grid::Cells};
 
 /// The options of the item of a cell: which button has the focus, and the
 /// dialog (made at the first draw: it needs the font).
@@ -19,6 +21,20 @@ pub(super) struct Options {
     cell: usize,
     focus: usize,
     dialog: Option<Dialog>,
+    /// The item is a widget that has settings of its own: *Settings* is offered.
+    settings: bool,
+}
+
+/// An item a finger has taken along: which finger, which item, whether by its
+/// corner (sizing it), where it came down and the cells it would take.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Drag {
+    contact: u32,
+    cell: usize,
+    resize: bool,
+    start: Point,
+    to: Cells,
+    moved: bool,
 }
 
 /// An item the buttons are moving or sizing.
@@ -31,12 +47,31 @@ pub(super) struct Moving {
 impl Dashboard {
     /// The options of the item of `cell` open.
     pub(super) fn open_options(&mut self, host: &Host<'_>, cell: usize) -> Result<(), Error> {
+        let settings = match self.widget_at(cell) {
+            // A refused read (other than for memory) means: no Settings.
+            Some(id) => match item_settings::has_settings(host, id) {
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                found => found.unwrap_or(false),
+            },
+            None => false,
+        };
         self.options = Some(Options {
             cell,
             focus: 0,
             dialog: None,
+            settings,
         });
         redraw(host)
+    }
+
+    /// The id of the widget in the item of `cell`, if the item is a widget.
+    fn widget_at(&self, cell: usize) -> Option<&str> {
+        let laid = self.laid.as_ref()?;
+        let item = laid.cells.get(cell)?.item;
+        match &laid.items.get(item)?.what {
+            What::Widget(id) => Some(id.as_str()),
+            What::Tool(_) => None,
+        }
     }
 
     /// Makes the options' dialog where it is not made yet.
@@ -50,7 +85,7 @@ impl Dashboard {
         let title = laid.cells.get(options.cell).map_or("", |c| c.name.as_str());
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
-        let made = Self::make_dialog(host, &display, &font, title);
+        let made = Self::make_dialog(host, &display, &font, title, options.settings);
         let released = font.release();
         let dialog = made?;
         released?;
@@ -63,14 +98,15 @@ impl Dashboard {
         display: &snapshot::Snapshot,
         font: &Font<'_>,
         title: &str,
+        settings: bool,
     ) -> Result<Dialog, Error> {
         let style = Style::read(host, display, font)?;
         let mut messages = Messages::new()?;
         let mut words: Vec<String> = Vec::new();
         words
-            .try_reserve_exact(CHOICES.len())
+            .try_reserve_exact(choices(settings).len())
             .map_err(|_| Error::NoMemory)?;
-        for (_, key) in CHOICES {
+        for (_, key) in choices(settings) {
             words.push(messages.copy(host, key)?);
         }
         let mut labels: Vec<&str> = Vec::new();
@@ -107,15 +143,211 @@ impl Dashboard {
         input: &Input<'_>,
     ) -> Result<Option<Handled>, Error> {
         if self.options.is_some() {
-            return self.options_input(host, input).map(Some);
+            return self.options_input(host, ui, input).map(Some);
         }
         if let Some(moving) = self.moving {
             return self.moving_input(host, ui, moving, input).map(Some);
         }
-        Ok(None)
+        self.drag_input(host, input)
     }
 
-    fn options_input(&mut self, host: &Host<'_>, input: &Input<'_>) -> Result<Handled, Error> {
+    /// A finger while editing: on an item it takes the item along (by its
+    /// corner it sizes it); lifted where it came down it is a tap (the item's
+    /// options), lifted elsewhere the item goes there where the cells are free.
+    /// What a finger takes is its own, with no gesture made of it.
+    fn drag_input(&mut self, host: &Host<'_>, input: &Input<'_>) -> Result<Option<Handled>, Error> {
+        let Input::Pointer {
+            position,
+            phase,
+            contact,
+            ..
+        } = *input
+        else {
+            return Ok(None);
+        };
+        if !self.editing {
+            return Ok(None);
+        }
+        match (phase, self.drag) {
+            // A finger down again is a fresh start: one whose end was lost (no up,
+            // no cancel) does not keep a later one from taking an item.
+            (PointerPhase::Down, drag) if drag.is_none_or(|drag| drag.contact == contact) => {
+                self.drag = None;
+                Ok(self.drag_start(position, contact))
+            }
+            (PointerPhase::Move, Some(drag)) if drag.contact == contact => {
+                self.drag_to(host, drag, position)?;
+                Ok(Some(Handled::Yes))
+            }
+            (PointerPhase::Up | PointerPhase::Cancel, Some(drag)) if drag.contact == contact => {
+                self.drag = None;
+                self.drag_end(host, drag, phase == PointerPhase::Up)?;
+                Ok(Some(Handled::Yes))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// The item under a finger that came down at `at`, and whether at its corner.
+    fn drag_start(&mut self, at: Point, contact: u32) -> Option<Handled> {
+        let laid = self.laid.as_ref()?;
+        let (cell, found) = laid
+            .cells
+            .iter()
+            .enumerate()
+            .find(|(_, cell)| inside(cell.rect, at))?;
+        let item = laid.items.get(found.item)?;
+        let to = item.at?;
+        let side = laid.handle;
+        let corner = Rect::new(
+            found
+                .rect
+                .x
+                .saturating_add(found.rect.width.saturating_sub(side)),
+            found
+                .rect
+                .y
+                .saturating_add(found.rect.height.saturating_sub(side)),
+            side,
+            side,
+        );
+        self.drag = Some(Drag {
+            contact,
+            cell,
+            resize: inside(corner, at),
+            start: at,
+            to,
+            moved: false,
+        });
+        Some(Handled::Yes)
+    }
+
+    /// The finger moved: where the item would land. Drawn again only where that
+    /// is other cells (a finger trembling in a cell asks for nothing: a refresh
+    /// takes most of a second on some panels).
+    fn drag_to(&mut self, host: &Host<'_>, mut drag: Drag, at: Point) -> Result<(), Error> {
+        let Some(laid) = self.laid.as_ref() else {
+            return Ok(());
+        };
+        let Some(cell) = laid.cells.get(drag.cell) else {
+            return Ok(());
+        };
+        let Some(from) = laid.items.get(cell.item).and_then(|item| item.at) else {
+            return Ok(());
+        };
+        let Some(to) = arrange::dragged(
+            &laid.frame.geometry,
+            from,
+            (drag.start, at),
+            drag.resize,
+            (cell.least, cell.span),
+        ) else {
+            return Ok(());
+        };
+        if to != drag.to {
+            drag.to = to;
+            drag.moved |= to != from;
+            self.drag = Some(drag);
+            redraw(host)?;
+        }
+        Ok(())
+    }
+
+    /// The finger lifted (`up`) or was taken away: a tap offers the item's
+    /// options, a drag puts the item where it would land if the cells are free.
+    fn drag_end(&mut self, host: &Host<'_>, drag: Drag, up: bool) -> Result<(), Error> {
+        if !up {
+            return redraw(host);
+        }
+        if !drag.moved {
+            let at = self.laid.as_ref().and_then(|laid| {
+                laid.targets
+                    .iter()
+                    .position(|t| t.owner == Owner::Tool(drag.cell))
+            });
+            if let Some(at) = at {
+                self.focus.to(at);
+            }
+            return self.open_options(host, drag.cell);
+        }
+        let Some(laid) = self.laid.as_ref() else {
+            return Ok(());
+        };
+        let Some(item) = laid.cells.get(drag.cell).map(|cell| cell.item) else {
+            return Ok(());
+        };
+        // Put on a copy: what is in memory is changed only once it is written.
+        let mut items = crate::native_grid::copy_items(&laid.items)?;
+        match arrange::put(&mut items, item, drag.to, &laid.frame.geometry) {
+            Put::Done => self.write(host, &items, &[]).map(drop),
+            Put::InTheWay => {
+                add_screen::say(host, "core.grid.in-the-way")?;
+                redraw(host)
+            }
+            Put::Same => redraw(host),
+        }
+    }
+
+    /// Where the item a finger has taken would land: a thick frame where the
+    /// cells are free, a thin one where not.
+    pub(super) fn drag_frame(
+        &self,
+        paint: &mut Vec<Paint>,
+        style: &Style,
+        laid: &Laid,
+    ) -> Result<(), Error> {
+        let Some(drag) = self.drag.filter(|drag| drag.moved) else {
+            return Ok(());
+        };
+        let Some(item) = laid.cells.get(drag.cell).map(|cell| cell.item) else {
+            return Ok(());
+        };
+        let free = arrange::free(&laid.items, item, drag.to, &laid.frame.geometry);
+        let width = u32::from(style.line).max(1) * if free { 4 } else { 1 };
+        paintpush(
+            paint,
+            Paint::Focus(
+                laid.frame.geometry.rect(drag.to),
+                style.corner,
+                Some(width),
+                style.ink,
+            ),
+        )
+    }
+
+    /// Two short strokes in the corner of a cell that a finger sizes it by.
+    pub(super) fn corner_mark(
+        &self,
+        paint: &mut Vec<Paint>,
+        style: &Style,
+        rect: Rect,
+        side: u16,
+    ) -> Result<(), Error> {
+        let (right, bottom) = (
+            i32::from(rect.x) + i32::from(rect.width) - 4,
+            i32::from(rect.y) + i32::from(rect.height) - 4,
+        );
+        let reach = i32::from(side) / 2;
+        for step in [reach, reach * 3 / 5] {
+            paintpush(
+                paint,
+                Paint::Line {
+                    from: Point::new(right - step, bottom),
+                    to: Point::new(right, bottom - step),
+                    width: u32::from(style.line).max(1),
+                    color: style.ink,
+                },
+            )?;
+        }
+        Ok(())
+    }
+
+    fn options_input(
+        &mut self,
+        host: &Host<'_>,
+        ui: &Ui,
+        input: &Input<'_>,
+    ) -> Result<Handled, Error> {
         self.ensure_dialog(host)?;
         let Some(options) = self.options.as_mut() else {
             return Ok(Handled::No);
@@ -128,7 +360,9 @@ impl Dashboard {
             Input::Action {
                 action: "core.confirm",
                 ..
-            } => CHOICES.get(options.focus).map(|(choice, _)| *choice),
+            } => choices(options.settings)
+                .get(options.focus)
+                .map(|(choice, _)| *choice),
             Input::Action { action, .. } => {
                 let to = options
                     .dialog
@@ -148,26 +382,64 @@ impl Dashboard {
                 .dialog
                 .as_ref()
                 .and_then(|dialog| dialog.hit(position))
-                .and_then(|button| CHOICES.get(button))
+                .and_then(|button| choices(options.settings).get(button))
                 .map(|(choice, _)| *choice),
             // The dialog is modal: everything else is taken.
             _ => None,
         };
         let cell = options.cell;
         if let Some(choice) = chosen {
-            self.choose(host, cell, choice)?;
+            self.choose(host, ui, cell, choice)?;
         }
         Ok(Handled::Yes)
     }
 
-    fn choose(&mut self, host: &Host<'_>, cell: usize, choice: Choice) -> Result<(), Error> {
+    fn choose(
+        &mut self,
+        host: &Host<'_>,
+        ui: &Ui,
+        cell: usize,
+        choice: Choice,
+    ) -> Result<(), Error> {
         self.options = None;
         match choice {
             Choice::Cancel => redraw(host),
             Choice::Move => self.pick_up(host, cell, Mode::Move),
             Choice::Resize => self.pick_up(host, cell, Mode::Resize),
+            Choice::Settings => self.settings(host, ui, cell),
             Choice::Remove => self.remove(host, cell),
         }
+    }
+
+    /// The widget's own settings: its placement (one placed before there were
+    /// placements gets its number first, kept on the page), then the settings
+    /// open on its page.
+    fn settings(&mut self, host: &Host<'_>, ui: &Ui, cell: usize) -> Result<(), Error> {
+        let Some(laid) = self.laid.as_ref() else {
+            return Ok(());
+        };
+        let Some(item) = laid.cells.get(cell).map(|c| c.item) else {
+            return Ok(());
+        };
+        let Some(What::Widget(id)) = laid.items.get(item).map(|i| &i.what) else {
+            return Ok(());
+        };
+        let shown = Shown::current(host)?;
+        let placed = item_settings::placement(host, &shown.src, id)?;
+        let renamed = placed != *id;
+        if renamed {
+            let mut items = crate::native_grid::copy_items(&laid.items)?;
+            let Some(entry) = items.get_mut(item) else {
+                return Ok(());
+            };
+            entry.what = What::Widget(paperpaw_ui_kit::text::copy(&placed)?);
+            // Not saved (too big): the settings would show a placement the page
+            // does not hold.
+            if !self.write(host, &items, &[])? {
+                return Ok(());
+            }
+        }
+        item_settings::open(host, ui, &placed)
     }
 
     /// The item of `cell` is picked up: the buttons move or size it.
@@ -264,17 +536,10 @@ impl Dashboard {
 
     /// The widget of a cell placed at the rectangle it has now.
     fn place_again(host: &Host<'_>, ui: &Ui, cell: &Cell) -> Result<(), Error> {
-        let Some(widget) = cell.widget.filter(|w: &WidgetHandle| !w.is_own()) else {
-            return Ok(());
-        };
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-        ui.widget_place(
-            host,
-            widget,
-            paint::frame_rect(cell.rect),
-            &mut input,
-            &mut out,
-        )
+        match cell.widget.as_ref() {
+            Some(made) => made.place(host, ui, cell.rect),
+            None => Ok(()),
+        }
     }
 
     /// Item of `cell` removed: what its placement set goes with it.
@@ -290,7 +555,7 @@ impl Dashboard {
         if let Some(id) = reset {
             push(&mut resets, id)?;
         }
-        self.write(host, &rest, &resets)
+        self.write(host, &rest, &resets).map(drop)
     }
 
     /// The items as they are now, kept.
@@ -299,27 +564,28 @@ impl Dashboard {
             return Ok(());
         };
         let items = crate::native_grid::copy_items(&laid.items)?;
-        self.write(host, &items, &[])
+        self.write(host, &items, &[]).map(drop)
     }
 
     /// Stages `items` as the page, and what the removed placements set reset.
     /// Laid out anew from the settings afterwards, which is the old layout where
-    /// the change was too big to save.
+    /// the change was too big to save; `false` comes back then.
     fn write(
         &mut self,
         host: &Host<'_>,
         items: &[crate::native_grid::Item],
         resets: &[String],
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         let Some(laid) = self.laid.as_ref() else {
-            return Ok(());
+            return Ok(false);
         };
         let shown = Shown::current(host)?;
         let in_layout = laid.wide.then_some(&shown.frame.geometry);
         let writes = native_pages::store(&shown.src, laid.slot, items, in_layout)?;
-        add_screen::apply(host, &writes, resets)?;
+        let saved = add_screen::apply(host, &writes, resets)?;
         self.stale = true;
-        redraw(host)
+        redraw(host)?;
+        Ok(saved)
     }
 }
 
@@ -329,8 +595,10 @@ mod tests {
 
     #[test]
     fn the_options_are_offered_in_the_order_the_dialog_has_its_buttons() {
-        assert_eq!(CHOICES.len(), 4);
-        assert_eq!(CHOICES[0].0, Choice::Move);
-        assert_eq!(CHOICES[3].0, Choice::Cancel);
+        let plain = choices(false);
+        assert_eq!(plain.len(), 4);
+        assert_eq!(plain[0].0, Choice::Move);
+        assert_eq!(plain[3].0, Choice::Cancel);
+        assert_eq!(choices(true)[2].0, Choice::Settings);
     }
 }

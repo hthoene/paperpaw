@@ -144,6 +144,7 @@ fn usage_slots_preserve_failures_read_positionally_and_expire_at_core_callback_e
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,
+        log: Default::default(),
         ui: None,
     };
     let mut handle = 0x1234;

@@ -39,7 +39,7 @@ damaged lines, the limit, allocator-failure sweeps of read, write and copy, the 
 (conditions, chain, battery levels, time and days, local time). The image holds what the builders make, and the host admits the screens
 (`tests/abi7_declarations.rs`),
 linked entry, construction in the kernel's real registered scope (`tests/hosted_construction.rs`:
-refused by the host today). The kernel tests that pinned the interface-6 plugin (`battery.rs`, `timing.rs`, `picking.rs`)
+a real pass; rules registers 9 events and the host's per-plugin cap is 32 since #871). The kernel tests that pinned the interface-6 plugin (`battery.rs`, `timing.rs`, `picking.rs`)
 went with it; the engine's logic is pinned without the host above.
 
 ## Acceptance pending on the host

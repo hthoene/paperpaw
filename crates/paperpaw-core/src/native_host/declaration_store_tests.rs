@@ -38,6 +38,8 @@ const KINDS: [Kind; KIND_COUNT] = [
     Kind::SetupStep,
     Kind::InputSpec,
     Kind::HelpHint,
+    Kind::Format,
+    Kind::Reader,
 ];
 struct Image {
     bytes: RefCell<Vec<u8>>,
@@ -196,6 +198,7 @@ fn every_reserve_failure_leaves_the_published_store_unchanged() {
             let mut store = DeclarationStore::default();
             let mut allocations = Allocations {
                 fail_after: Some(fail_after),
+                ..Default::default()
             };
             let result = pending(&source, owned, &mut allocations).and_then(|pending| {
                 store.prepare(pending, &mut allocations)?.commit();
@@ -234,6 +237,7 @@ fn failed_update_retains_old_entries_and_success_invalidates_old_keys() {
     new.generation.set(2);
     let mut failing = Allocations {
         fail_after: Some(0),
+        ..Default::default()
     };
     assert!(pending(&new, true, &mut failing).is_err());
     assert_eq!(keys(&store), old_keys);
@@ -469,6 +473,7 @@ fn ignored_failure_in_a_later_batch_cannot_publish_a_partial_load() {
     let mut pending = pending(&source, false, &mut allocations).unwrap();
     let mut failing = Allocations {
         fail_after: Some(0),
+        ..Default::default()
     };
     assert_eq!(
         pending.stage_batch(&source.bytes.borrow().clone(), &mut failing),
@@ -1281,6 +1286,7 @@ fn a_failed_reservation_in_staging_keeps_the_list_and_its_offsets_whole() {
     for fail_after in 0..12 {
         let mut allocations = Allocations {
             fail_after: Some(fail_after),
+            ..Default::default()
         };
         let source = image();
         let mut pending = PendingDeclarations::new(Id::new_static("fixture"), source);

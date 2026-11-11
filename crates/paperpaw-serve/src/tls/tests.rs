@@ -896,3 +896,139 @@ fn a_certificate_not_in_strict_der_is_refused_even_with_the_pinned_key() {
         server.join().unwrap();
     }
 }
+
+// The public client session (`crate::secure`) over the same checks.
+
+/// Takes the handshake through (the server's session starts on first use).
+fn drives(stream: &mut StreamOwned<ServerConnection, TcpStream>) {
+    let _ = stream.read(&mut [0u8; 1]);
+}
+
+fn client(port: u16) -> TcpStream {
+    TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap()
+}
+
+#[test]
+fn a_secure_session_reads_and_writes_after_a_pinned_handshake() {
+    use crate::secure::{Pins, handshake};
+    let own = self_signed("x.test", key());
+    let (port, server) = secure_server(&own, greets);
+    let mut tcp = client(port);
+    let pins = [[9; 32], own.sha256()];
+    let (session, peer) = handshake(
+        &mut tcp,
+        "x.test",
+        Pins::Certificates(&pins),
+        Duration::from_secs(5),
+    )
+    .unwrap();
+    assert_eq!(
+        (peer.certificate, peer.key),
+        (own.sha256(), own.key_sha256())
+    );
+    let mut buf = [0u8; 16];
+    let mut reader = tcp.try_clone().unwrap();
+    let n = session.read(&mut reader, &mut buf).unwrap();
+    assert_eq!(&buf[..n], b"hello");
+    session.write_all(b"ping").unwrap();
+    let n = session.read(&mut reader, &mut buf).unwrap();
+    assert_eq!(&buf[..n], b"ping");
+    session.close_write();
+    server.join().unwrap();
+}
+
+#[test]
+fn a_secure_session_trusts_a_pinned_key_and_nothing_else() {
+    use crate::secure::{Failure, Pins, handshake};
+    let own = self_signed("x.test", key());
+    let (port, server) = secure_server(&own, drives);
+    // Another key than the server's: untrusted, `not_pinned`, with its hashes.
+    let mut tcp = client(port);
+    let other = [[7; 32]];
+    let failed = handshake(
+        &mut tcp,
+        "x.test",
+        Pins::Keys(&other),
+        Duration::from_secs(5),
+    )
+    .err()
+    .unwrap();
+    let Failure::Untrusted { peer, not_pinned } = failed else {
+        panic!("{failed:?}");
+    };
+    assert!(not_pinned);
+    assert_eq!(
+        (peer.certificate, peer.key),
+        (own.sha256(), own.key_sha256())
+    );
+    server.join().unwrap();
+    // The right key is trusted.
+    let (port, server) = secure_server(&own, drives);
+    let mut tcp = client(port);
+    let kept = [own.key_sha256()];
+    let session = handshake(
+        &mut tcp,
+        "x.test",
+        Pins::Keys(&kept),
+        Duration::from_secs(5),
+    );
+    assert!(session.is_ok());
+    // The server waits for the client to be done.
+    drop(session);
+    drop(tcp);
+    server.join().unwrap();
+}
+
+#[test]
+fn a_secure_session_does_not_trust_a_certificate_nobody_vouches_for() {
+    use crate::secure::{Failure, Pins, handshake};
+    // The shipped authorities do not know a certificate that signed itself:
+    // there is no mode that accepts what it is shown.
+    let own = self_signed("x.test", key());
+    let (port, server) = secure_server(&own, drives);
+    let mut tcp = client(port);
+    let failed = handshake(
+        &mut tcp,
+        "x.test",
+        Pins::Authorities,
+        Duration::from_secs(5),
+    )
+    .err()
+    .unwrap();
+    assert!(
+        matches!(
+            failed,
+            Failure::Untrusted {
+                not_pinned: false,
+                ..
+            }
+        ),
+        "{failed:?}"
+    );
+    server.join().unwrap();
+}
+
+#[test]
+fn a_secure_handshake_that_takes_too_long_fails_with_timeout() {
+    use crate::secure::{Failure, Pins, handshake};
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let silent = thread::spawn(move || {
+        let (tcp, _) = listener.accept().unwrap();
+        thread::sleep(Duration::from_millis(1500));
+        drop(tcp);
+    });
+    let mut tcp = client(port);
+    let started = Instant::now();
+    let failed = handshake(
+        &mut tcp,
+        "x.test",
+        Pins::Authorities,
+        Duration::from_millis(300),
+    )
+    .err()
+    .unwrap();
+    assert_eq!(failed, Failure::Timeout);
+    assert!(started.elapsed() < Duration::from_secs(1));
+    silent.join().unwrap();
+}

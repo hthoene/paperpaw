@@ -36,12 +36,12 @@ use crate::native_host::codec;
 use alloc::rc::Rc;
 use core::cell::Cell;
 use paperpaw_native::host_glue::{
-    ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED,
+    ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
+    ERR_UNSUPPORTED,
 };
 use paperpaw_platform::Storage;
 
-#[allow(unused_imports, reason = "the emulator and Android shells use Veiling")]
-pub(crate) use super::secrets_file::{Sealer, Veiling};
+pub(crate) use super::secrets_file::Sealer;
 
 /// `uses.secrets`: the feature that reaches another plugin's secrets.
 const USES_SECRETS: &str = "uses.secrets";
@@ -63,7 +63,7 @@ const RANDOM_MAX: usize = 256;
 /// while the radio or the bootloader's entropy source is on, so a shell
 /// reports `strong == false` (or fails) at other times; nothing that makes a
 /// key, a token or a nonce may rely on weak bytes.
-pub(crate) trait Rng {
+pub trait Rng {
     /// Fills `out` and says whether the source is fully random now (`strong`).
     /// A device without a source is not wired; there is no weaker stand-in.
     fn fill(&self, out: &mut [u8]) -> Result<bool, i32>;
@@ -109,7 +109,6 @@ impl SecretsServices {
     ///
     /// # Errors
     /// `ERR_IO` (nothing changed), `ERR_NO_MEMORY`.
-    #[allow(dead_code, reason = "the shell calls it at start; tests do today")]
     pub(crate) fn upgrade(&self) -> Result<bool, i32> {
         if !self.host.sealer().seals() {
             return Ok(false);
@@ -128,13 +127,24 @@ impl SecretsServices {
     ///
     /// # Errors
     /// `ERR_IO` (nothing changed), `ERR_NO_MEMORY`, `ERR_INVALID`.
-    #[allow(dead_code, reason = "the uninstall path calls it; tests do today")]
+    #[allow(
+        dead_code,
+        reason = "the removal job uses [`forget_owner`]; tests this"
+    )]
     pub(crate) fn forget_plugin(&self, plugin: &str) -> Result<(), i32> {
-        check_owner(plugin)?;
-        let mut file = File::new(&*self.host)?;
-        file.rewrite(&Change::DropOwner(plugin))
-            .map_err(|e| self.failed(e))
+        forget_owner(&*self.host, plugin).map_err(|e| self.failed(e))
     }
+}
+
+/// Removes every secret of `plugin` from the file `host` keeps (the removal of
+/// a plugin with its data, decision 124); safe to repeat.
+///
+/// # Errors
+/// `ERR_IO` (nothing changed), `ERR_NO_MEMORY`, `ERR_INVALID`.
+pub(crate) fn forget_owner(host: &dyn SecretsHost, plugin: &str) -> Result<(), i32> {
+    check_owner(plugin)?;
+    let mut file = File::new(host)?;
+    file.rewrite(&Change::DropOwner(plugin))
 }
 
 /// The `core.secrets` backend.
@@ -354,6 +364,11 @@ fn keep(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(),
     }
     check_name(ask.name)?;
     check_label(ask.label)?;
+    // A device that does not seal writes nothing (decision 140): no file is
+    // opened, no temporary file is made.
+    if !secrets.host.sealer().seals() {
+        return Err(ERR_STATE);
+    }
     let (owner, own) = target(who, ask.plugin)?;
     let mut file = File::new(&*secrets.host)?;
     let probe = file.probe(owner, ask.name).map_err(|e| secrets.failed(e))?;

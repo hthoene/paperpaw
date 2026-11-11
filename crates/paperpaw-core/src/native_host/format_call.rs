@@ -53,6 +53,37 @@ fn scratch(capacity: usize) -> Result<Vec<u8>, i32> {
     Ok(bytes)
 }
 
+/// `payload` as the one `stage.call` record the format's `core.format` token
+/// takes, framed as a batch.
+///
+/// # Errors
+/// `ERR_NO_SPACE` for a payload over 3,840 bytes or a framed call over 4 KiB,
+/// `ERR_NO_MEMORY`.
+pub(crate) fn framed(payload: &[u8]) -> Result<Vec<u8>, i32> {
+    if payload.len() > PAYLOAD_MAX {
+        return Err(ERR_NO_SPACE);
+    }
+    let record = Record::StageCall(wire::StageCall {
+        stage: STAGE,
+        schema: MAJOR,
+        payload,
+    });
+    let capacity = codec::framed_len(&record)?
+        .checked_add(1)
+        .filter(|length| *length <= CALL_MAX)
+        .ok_or(ERR_NO_SPACE)?;
+    let mut framed = scratch(capacity)?;
+    if codec::encode_batch(&[record], &mut framed)? != capacity {
+        return Err(ERR_INVALID);
+    }
+    Ok(framed)
+}
+
+/// The reply of a format call is whole frames of at most the stage's rows.
+pub(crate) fn accept_reply(bytes: &[u8]) -> Result<(), i32> {
+    stage_wire::validate_reply(bytes, PAYLOAD_MAX, REPLY_ROWS)
+}
+
 /// Call the format with `payload` (the encoded `fmt.call` and its options) and
 /// write its counted reply batch at the front of `out`; returns its length.
 ///
@@ -71,22 +102,7 @@ pub(crate) fn call(
     out: &mut [u8],
     env: &Env<'_>,
 ) -> Result<usize, i32> {
-    if payload.len() > PAYLOAD_MAX {
-        return Err(ERR_NO_SPACE);
-    }
-    let record = Record::StageCall(wire::StageCall {
-        stage: STAGE,
-        schema: MAJOR,
-        payload,
-    });
-    let capacity = codec::framed_len(&record)?
-        .checked_add(1)
-        .filter(|length| *length <= CALL_MAX)
-        .ok_or(ERR_NO_SPACE)?;
-    let mut framed = scratch(capacity)?;
-    if codec::encode_batch(&[record], &mut framed)? != capacity {
-        return Err(ERR_INVALID);
-    }
+    let framed = framed(payload)?;
     let mut reply = scratch(out.len().min(PAYLOAD_MAX))?;
     // The retained epoch keeps start requests from flushing under this call.
     let _epoch = registry.callback()?;

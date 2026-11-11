@@ -6,28 +6,36 @@
 //! drops everything staged (`docs/abi/screens-input.md` 2.1), so a choice is
 //! all or nothing.
 //!
-//! Not here (ignored acceptance cases, `PORTING-7.md`): the gallery that draws
-//! widgets as they would show, the ready-made layouts, icons (#517).
+//! The things of a widget kind are a gallery (`native_gallery`): the widgets
+//! drawn as they would show, composed in by the host. Where the host composes
+//! nothing (the X4 until its stack gate) they are the list, as the tools are.
+//!
+//! Not here (ignored acceptance cases, `PORTING-7.md`): the ready-made layouts,
+//! icons (#517).
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
-    Handled,
+    Handled, Rect,
     native::{
         Error, Host,
-        callbacks::{DrawFrame, Input},
-        commands::{CommandSender, ResetTarget},
-        registry::{PageCursor, Registry, ValuesQuery},
+        callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
+        commands::{CommandSender, RedrawMode, ResetTarget},
+        fonts::{Font, FontRole},
         settings::SettingValue,
+        snapshot,
         ui::{HandoverId, Notify, Open, Param, Ui},
     },
 };
 use paperpaw_ui_kit::{
-    ListFocus, ListInput, ListRenderer, Messages, focus,
-    mem::{SERVICE_BUFFER, buffer},
+    ListFocus, ListInput, ListRenderer, Messages, Page, Paint, Style, focus, geometry, header,
+    mem::{SERVICE_BUFFER, buffer, push},
+    paint,
     text::{copy, decimal},
 };
 
-use crate::native_add::{self as add, Entry, Layout, Plan, Row};
-use crate::native_grid::What;
+use crate::native_add::{self as add, Entry, Layout, Plan, Row, TOOLS_KIND};
+use crate::native_gallery::{self as gallery, Drawn, Gallery, Stage};
+use crate::native_grid::{Sizes, What};
+use crate::native_made::Made;
 use crate::native_measure as measure;
 use crate::native_pages::{self, Write};
 use crate::native_shown::Shown;
@@ -41,6 +49,21 @@ const KIND: &str = "kind";
 /// Room for a command besides its text.
 const OVERHEAD: usize = 512;
 
+mod view;
+
+/// How the things of a kind show.
+#[derive(Debug)]
+enum Mode {
+    /// As rows: the kinds, the tools, and the widgets where the host composes
+    /// nothing.
+    List,
+    /// The widgets of a kind: the gallery is laid out at the first draw or input
+    /// (it measures them, which needs the screen's own callbacks).
+    Pending,
+    /// The widgets drawn as they would show.
+    Gallery(Gallery<Made>),
+}
+
 /// The *Add* screen with what it lists.
 #[derive(Debug)]
 pub struct AddScreen {
@@ -53,6 +76,11 @@ pub struct AddScreen {
     labels: Vec<(String, String)>,
     focus: ListFocus,
     renderer: ListRenderer,
+    mode: Mode,
+    /// The arrow keys stay on the gallery's page.
+    arrows_stay: bool,
+    /// The header's tap regions in the gallery.
+    header: Page,
 }
 
 /// The page and kind a handover names. A page that is not a number is the
@@ -130,6 +158,10 @@ impl AddScreen {
         let mut messages = Messages::new()?;
         let title = messages.copy(host, kind.as_deref().unwrap_or("home.edit.add"))?;
         let labels = Self::labels(host, &mut messages, &rows, &entries)?;
+        let mode = match kind.as_deref() {
+            Some(kind) if kind != TOOLS_KIND => Mode::Pending,
+            _ => Mode::List,
+        };
         Ok(Self {
             page,
             kind,
@@ -139,6 +171,9 @@ impl AddScreen {
             labels,
             focus: ListFocus::default(),
             renderer: ListRenderer::default(),
+            mode,
+            arrows_stay: false,
+            header: Page::default(),
         })
     }
 
@@ -178,7 +213,16 @@ impl AddScreen {
     ///
     /// # Errors
     /// Allocation, font, canvas and host errors.
-    pub fn draw(&mut self, host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
+    pub fn draw(
+        &mut self,
+        host: &Host<'_>,
+        ui: &Ui,
+        frame: &mut DrawFrame<'_>,
+    ) -> Result<(), Error> {
+        self.ensure(host, ui)?;
+        if matches!(self.mode, Mode::Gallery(_)) && self.draw_gallery(host, ui, frame)? {
+            return Ok(());
+        }
         self.renderer.draw(
             host,
             frame,
@@ -195,6 +239,10 @@ impl AddScreen {
     /// # Errors
     /// Allocation and host errors; nothing is staged then.
     pub fn input(&mut self, host: &Host<'_>, ui: &Ui, input: &Input<'_>) -> Result<Handled, Error> {
+        self.ensure(host, ui)?;
+        if matches!(self.mode, Mode::Gallery(_)) {
+            return self.gallery_input(host, ui, input);
+        }
         match self
             .focus
             .input(host, &self.renderer, self.rows.len(), input)?
@@ -267,25 +315,9 @@ impl AddScreen {
         let What::Widget(id) = &entry.what else {
             return entry.what.try_clone();
         };
-        let registry = Registry::open(host)?;
-        let found = (|| {
-            let mut input = buffer(OVERHEAD)?;
-            let mut out = buffer(SERVICE_BUFFER)?;
-            add::placement(src, id, |placed| {
-                let page = registry.values(
-                    host,
-                    ValuesQuery::Placement(placed),
-                    PageCursor::start(),
-                    &mut input,
-                    &mut out,
-                )?;
-                Ok(page.rows().next().is_some())
-            })
-        })();
-        let released = registry.release(host);
-        let placed = found?;
-        released?;
-        Ok(What::Widget(placed))
+        Ok(What::Widget(crate::native_item_settings::placement(
+            host, src, id,
+        )?))
     }
 
     fn open_kind(&self, host: &Host<'_>, ui: &Ui, kind: &str) -> Result<(), Error> {

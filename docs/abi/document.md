@@ -67,11 +67,10 @@ owner decision 125). Records: `abi/services/core.document@1.def`.
   op 1). The host never guesses from the path beyond that.
 - [D] `reader.spec` (interface 6 `ReaderSpec`): a reading app `<plugin>.<name>` whose `screen` (one
   of its own screens, `ERR_INVALID` otherwise) shows books of `formats` (format ids, one per line,
-  at most 8; empty: every format). `flags` reserved, 0. At most 4 readers per plugin
-  (`ERR_INVALID` for the batch) and 16 device-wide (`ERR_FULL`), as formats (Host #867). Op 21
-  lists them; which one opens a book is
-  the opener's choice (the files plugin remembers it in its Data, as interface 6
-  `readers::remember`).
+  at most 8; empty: every format). `flags` reserved, 0. At most 4 readers per plugin (a fifth is
+  `ERR_INVALID` for the batch) and 16 device-wide (`ERR_FULL` for the batch that would pass it;
+  #867). Op 21 lists them; which one opens a book is the opener's choice (the files plugin
+  remembers it in its Data, as interface 6 `readers::remember`).
 - [D] **Opening a book** (interface 6 `readers::open`, `open_page`, `Command::OpenBook`) is
   `command.open` (`ui.md` section 1) with a hand-over of the params `path` (the book's root-1 path)
   and, optionally, `page` (decimal): mode 1 with target slot `core.reader` opens it with the
@@ -199,8 +198,9 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
 - [D] **Preparing** (interface 6 `prepared`): while `state` is 1, the host calls the format's op 3
   `prepare` again and again from its main loop, between inputs, each call for at most 50 ms of work
   by the format's own clock (the format stops at a safe point and answers its progress), until it
-  answers done or fails. The opener gets `event.document_changed` (88, a hint per document,
-  coalesced) when the state or the progress moves; other ops on a preparing document are
+  answers done or fails. The opener gets `event.document_changed` (88: `document`, `state` and
+  `progress_ppm`, 0 to 1,000,000, as `doc_state` has them at delivery; one per document, coalesced,
+  the latest wins) when the state or the progress moves; other ops on a preparing document are
   `ERR_BUSY`. The X4 runs at most one preparation at a time, queued in open order.
 - [D] **The cache is whole or not used.** A cache is made for one **conversion**: the book's
   identity (LIB's fingerprint), the format plugin's id and version, and the conversion key, a hash
@@ -447,10 +447,15 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
 | 1560 | `command.image_release` | `image: u32` |
 | 90 | `event.image_ready` | `now_ms: u64`, `cookie: u32`, `status: u32`, `image: u32`, `width: u32`, `height: u32` |
 | 108 | `event.document_closed` | `now_ms: u64`, `document: u32`, `reason: u32` |
+| 88 | `event.document_changed` | `now_ms: u64`, `document: u32`, `state: u32`, `progress_ppm: u32` |
 
 - [D] `event.document_closed` was named 89 in earlier drafts, which is `event.spoken` (`ui.md`); it
   is 108 and comes with the draft-20 records. It comes from the host's document table (2 or 8 per
-  device), never from the held-event store, so it is never dropped.
+  device), never from the held-event store, so it is never dropped. The table keeps room for 2
+  undelivered document events per place: one 108 and one 88 (coalesced, so at most one per
+  document; its producer takes it from this room when it lands); while those of earlier
+  documents still fill it (their openers have not taken them yet), `open` answers `ERR_BUSY` and
+  opens nothing: the caller tries again at a later pass (Senior R1 on #919).
 
 - [D] An **image id** (`u32`, checked counter, never 0) names a decoded picture the host may draw. A
   document's images come from `doc_image` rows (a block's picture, the cover, op 16's larger one)

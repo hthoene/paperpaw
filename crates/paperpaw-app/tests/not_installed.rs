@@ -8,6 +8,8 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+mod native_activation;
+
 use paperpaw_core::{CodeFile, CodeLoader, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
@@ -75,7 +77,7 @@ fn shown_in(
         Some(safe_mode) => builder.safe_mode(safe_mode),
         None => builder,
     };
-    let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
+    let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
     let _ = kernel.start(Instant(0));
     kernel.render(&mut |_, _| {});
     kernel

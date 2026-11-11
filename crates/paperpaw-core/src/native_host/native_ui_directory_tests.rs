@@ -212,6 +212,7 @@ fn every_publication_allocation_failure_preserves_previous_rows() {
         let generation = directory.catalog.generation();
         let mut allocations = Allocations {
             fail_after: Some(fail_after),
+            ..Default::default()
         };
         let result = directory.stage(pending("other", 29, &other_live), 29, &mut allocations);
         match result {

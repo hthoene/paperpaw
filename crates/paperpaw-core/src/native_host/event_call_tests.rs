@@ -409,7 +409,7 @@ fn pass(kernel: &mut crate::Kernel, svc: &Svc) -> bool {
         let k = &*kernel;
         pump(
             &k.shared.native_instances,
-            &[Some(svc), None],
+            &[Some(svc), None, None],
             &env,
             &|owner, lease, bytes| {
                 let _ = k.native_event_call(owner, lease, bytes);

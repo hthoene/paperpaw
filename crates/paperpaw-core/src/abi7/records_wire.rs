@@ -14993,6 +14993,8 @@ pub struct ServiceDevFirmware<'a> {
     pub reason: u32,
     /// Little-endian u32.
     pub request: u32,
+    /// Little-endian u32. Appended and optional; 0 when absent.
+    pub flags: u32,
 }
 
 impl<'a> ServiceDevFirmware<'a> {
@@ -15001,7 +15003,7 @@ impl<'a> ServiceDevFirmware<'a> {
     }
 
     fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
-        body.bitmap()?;
+        let bits = body.bitmap_bits()?;
         Ok(Self {
             version: body.string(SERVICE_DEV_FIRMWARE_VERSION_MAX_BYTES)?,
             project: body.string(SERVICE_DEV_FIRMWARE_PROJECT_MAX_BYTES)?,
@@ -15013,11 +15015,22 @@ impl<'a> ServiceDevFirmware<'a> {
             total: u64::from_le_bytes(body.scalar()?),
             reason: u32::from_le_bytes(body.scalar()?),
             request: u32::from_le_bytes(body.scalar()?),
+            flags: body.opt_u32(bits, 0x01, 0)?,
         })
     }
 
+    fn bits(&self) -> u8 {
+        let mut bits = 0;
+        if self.flags != 0 {
+            bits |= 0x01;
+        }
+        bits
+    }
+
     fn body_len(&self) -> Result<usize, i32> {
-        let mut len = 1; // The initial bitmap is empty.
+        let bits = self.bits();
+        // The bitmap is one byte when any optional field is present.
+        let mut len = 1 + usize::from(bits != 0);
         len += blob_len(self.version.len(), SERVICE_DEV_FIRMWARE_VERSION_MAX_BYTES)?;
         len += blob_len(self.project.len(), SERVICE_DEV_FIRMWARE_PROJECT_MAX_BYTES)?;
         len += 4;
@@ -15028,10 +15041,14 @@ impl<'a> ServiceDevFirmware<'a> {
         len += 8;
         len += 4;
         len += 4;
+        if bits & 0x01 != 0 {
+            len += 4;
+        }
         Ok(len)
     }
 
     fn write(&self, out: &mut [u8], offset: &mut usize) {
+        let bits = self.bits();
         write_blob(self.version.as_bytes(), out, offset);
         write_blob(self.project.as_bytes(), out, offset);
         write_bytes(&self.chip.to_le_bytes(), out, offset);
@@ -15042,6 +15059,9 @@ impl<'a> ServiceDevFirmware<'a> {
         write_bytes(&self.total.to_le_bytes(), out, offset);
         write_bytes(&self.reason.to_le_bytes(), out, offset);
         write_bytes(&self.request.to_le_bytes(), out, offset);
+        if bits & 0x01 != 0 {
+            write_bytes(&self.flags.to_le_bytes(), out, offset);
+        }
     }
 }
 
@@ -15055,7 +15075,11 @@ impl<'a> WireEncode for ServiceDevFirmware<'a> {
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
-        write_varint(0, out, offset);
+        let bits = self.bits();
+        write_varint(u32::from(bits != 0), out, offset);
+        if bits != 0 {
+            write_bytes(&[bits], out, offset);
+        }
         self.write(out, offset);
     }
 }
@@ -20379,6 +20403,76 @@ impl<'a> WireRecord<'a> for EventLookupReady<'a> {
         Self::decode_fields(&mut Reader { remaining: body })
     }
 }
+/// Wire tag of the `event.document_changed` record.
+pub const EVENT_DOCUMENT_CHANGED_TAG: u32 = 88;
+
+/// The `event.document_changed` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventDocumentChanged {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian u32.
+    pub document: u32,
+    /// Little-endian u32.
+    pub state: u32,
+    /// Little-endian u32.
+    pub progress_ppm: u32,
+}
+
+impl EventDocumentChanged {
+    fn decode<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventDocumentChanged)
+    }
+
+    fn decode_fields(body: &mut Reader<'_>) -> Result<Self, i32> {
+        body.bitmap()?;
+        Ok(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            document: u32::from_le_bytes(body.scalar()?),
+            state: u32::from_le_bytes(body.scalar()?),
+            progress_ppm: u32::from_le_bytes(body.scalar()?),
+        })
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += 4;
+        len += 4;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_bytes(&self.document.to_le_bytes(), out, offset);
+        write_bytes(&self.state.to_le_bytes(), out, offset);
+        write_bytes(&self.progress_ppm.to_le_bytes(), out, offset);
+    }
+}
+
+impl WireEncode for EventDocumentChanged {
+    fn wire_tag(&self) -> u32 {
+        EVENT_DOCUMENT_CHANGED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventDocumentChanged {
+    const TAG: u32 = EVENT_DOCUMENT_CHANGED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 
 /// A registration or declaration record, borrowed from one validated batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20916,6 +21010,8 @@ pub enum Record<'a> {
     EventTextTyped(EventTextTyped<'a>),
     /// A `EventLookupReady` record.
     EventLookupReady(EventLookupReady<'a>),
+    /// A `EventDocumentChanged` record.
+    EventDocumentChanged(EventDocumentChanged),
 }
 
 impl<'a> Reader<'a> {
@@ -21250,6 +21346,7 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         SERVICE_LIB_FIELD_PAGE_TAG => ServiceLibFieldPage::decode(body)?,
         EVENT_TEXT_TYPED_TAG => EventTextTyped::decode(body)?,
         EVENT_LOOKUP_READY_TAG => EventLookupReady::decode(body)?,
+        EVENT_DOCUMENT_CHANGED_TAG => EventDocumentChanged::decode(body)?,
         _ => return Err(-1),
     })
 }
@@ -21606,6 +21703,7 @@ impl Record<'_> {
             Record::ServiceLibFieldPage(_) => SERVICE_LIB_FIELD_PAGE_TAG,
             Record::EventTextTyped(_) => EVENT_TEXT_TYPED_TAG,
             Record::EventLookupReady(_) => EVENT_LOOKUP_READY_TAG,
+            Record::EventDocumentChanged(_) => EVENT_DOCUMENT_CHANGED_TAG,
         }
     }
 
@@ -21878,6 +21976,7 @@ impl Record<'_> {
             Record::ServiceLibFieldPage(record) => record.body_len(),
             Record::EventTextTyped(record) => record.body_len(),
             Record::EventLookupReady(record) => record.body_len(),
+            Record::EventDocumentChanged(record) => record.body_len(),
         }
     }
 
@@ -22155,6 +22254,7 @@ impl Record<'_> {
             Record::ServiceLibFieldPage(record) => record.write(out, offset),
             Record::EventTextTyped(record) => record.write(out, offset),
             Record::EventLookupReady(record) => record.write(out, offset),
+            Record::EventDocumentChanged(record) => record.write(out, offset),
         }
     }
 
@@ -22170,6 +22270,7 @@ impl Record<'_> {
             Record::EventBookFinished(record) => record.bits(),
             Record::ServiceRegWidget(record) => record.bits(),
             Record::ServiceLibRef(record) => record.bits(),
+            Record::ServiceDevFirmware(record) => record.bits(),
             Record::ServiceDevCheck(record) => record.bits(),
             Record::ServiceFsEntry(record) => record.bits(),
             _ => 0,
@@ -22458,11 +22559,11 @@ where
 }
 
 /// The tags of the declared records, ascending (registrations are named by their constants).
-const RECORD_TAGS: [u16; 265] = [
+const RECORD_TAGS: [u16; 266] = [
     5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
     30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 52, 64, 65,
-    66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 85, 86, 87, 89, 90, 91,
-    92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 192,
+    66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 85, 86, 87, 88, 89, 90,
+    91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 192,
     193, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 512, 513, 1024, 1025, 1026, 1027, 1028,
     1029, 1030, 1031, 1032, 1033, 1034, 1035, 1036, 1037, 1038, 1039, 1040, 1041, 1042, 1043, 1044,
     1045, 1046, 1047, 1048, 1049, 1050, 1051, 1052, 1053, 1054, 1055, 1056, 1057, 1058, 1059, 1060,
@@ -23044,7 +23145,8 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         | SERVICE_SOCK_PEER_TAG
         | EVENT_DOCUMENT_CLOSED_TAG
         | EVENT_TEXT_TYPED_TAG
-        | EVENT_LOOKUP_READY_TAG => return Err(-2),
+        | EVENT_LOOKUP_READY_TAG
+        | EVENT_DOCUMENT_CHANGED_TAG => return Err(-2),
         _ => return Err(-1),
     })
 }

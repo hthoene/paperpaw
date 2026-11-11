@@ -66,9 +66,7 @@ const WORD_LIST_ACTIONS: Case = Case {
     name: "vocabulary-word-list-go-to-and-export",
     golden: None,
     blocked_by: &[
-        "reader open-at (#224)",
-        "core.files #339",
-        "native::files facade #384",
+        "a scripted host that draws the list and drives its input and dialogs (hosted construction, #944)",
     ],
 };
 /// A flash card due is the sleep screen; the review opens on waking.
@@ -143,7 +141,7 @@ fn card_files_on_the_card_update_the_decks() {
 }
 
 #[test]
-#[ignore = "BLOCKED #224/#339/#384: Go to in the book (reader open-at) and Export (a Storage over core.files) on the list of words"]
+#[ignore = "BLOCKED a scripted host that drives the list screen, its dialogs and core.files (hosted construction #944): Export and Go to are native (native_export.rs, native_goto.rs); the rows and the export format are tested"]
 fn a_word_is_gone_to_in_its_book_and_the_list_is_exported() {
     WORD_LIST_ACTIONS.refuse().unwrap();
 }

@@ -46,10 +46,19 @@ pub struct Hooks {
     /// reader from unloading or powering off).
     pub teardown_failed: fn(id: &str, why: native_host::Error),
     /// Plugin code of this plugin id is about to run (`make`, a callback or
-    /// the plugin's destructor). Always followed by `call_end`, also when the
-    /// call failed. The X4 uses the pair to keep the id in memory a reset
-    /// survives while the plugin runs, so a crash is told afterwards.
-    pub call_begin: fn(id: &str),
+    /// the plugin's destructor). Where it answers `true` the call runs and is
+    /// always followed by `call_end`, also when the call failed. The X4 uses
+    /// the pair to keep the id in memory a reset survives while the plugin
+    /// runs, so a crash is told afterwards.
+    ///
+    /// `false` refuses the call (the X4 refuses at an interrupt level that
+    /// must never run plugin code; `abi/heap-word.md`): the plugin is not run
+    /// and no `call_end` follows. A refused `make` is `Error::Refused`, a
+    /// refused callback `Error::Refused` (nothing of it changed), and a
+    /// refused destructor (the drop) keeps the owner as a leak and tells
+    /// [`Hooks::leaked`]; none of them panics. The shell logs the refusal
+    /// once.
+    pub call_begin: fn(id: &str) -> bool,
     /// The plugin code returned (the shell checks its stack here).
     pub call_end: fn(id: &str),
 }
@@ -61,9 +70,9 @@ struct Call<'a> {
 }
 
 impl<'a> Call<'a> {
-    fn new(hooks: &'a Hooks, id: &'a str) -> Self {
-        (hooks.call_begin)(id);
-        Self { hooks, id }
+    /// `None` where the shell refused the call (it will not run, no `call_end`).
+    fn new(hooks: &'a Hooks, id: &'a str) -> Option<Self> {
+        (hooks.call_begin)(id).then(|| Self { hooks, id })
     }
 }
 
@@ -77,8 +86,6 @@ impl Drop for Call<'_> {
 #[allow(missing_debug_implementations, reason = "holds the generated table")]
 pub struct Instance<S: Services + 'static, M: 'static> {
     id: Box<str>,
-    /// What it registered, in batch order.
-    records: Vec<Registration>,
     /// Staged by `make`, kept and never applied here (never dropped silently).
     declarations: Declarations,
     batch: Option<Batch<'static, S, M, Registration>>,
@@ -122,7 +129,9 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
         // destructor included, runs inside it (attributed, and the shell's
         // stack check follows it), also when an allocation after `commit`
         // fails.
-        let _call = Call::new(&hooks, id);
+        let Some(_call) = Call::new(&hooks, id) else {
+            return Err(Error::Refused);
+        };
         // SAFETY: the caller's contract.
         let hosted = try_box(unsafe {
             Hosted::new(
@@ -141,14 +150,6 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
         transaction.set_image(image)?;
         let mut batch = hosted.make_registered(transaction)?.commit()?;
         let declarations = batch.take_declarations();
-        let depth = DispatchDepth::new();
-        let mut records = Vec::new();
-        records
-            .try_reserve_exact(batch.len())
-            .map_err(|_| Error::Allocation)?;
-        for index in 0..batch.len() {
-            records.push(batch.dispatch(index, &depth, |_, record| *record)?);
-        }
         let mut owned_id = alloc::string::String::new();
         owned_id
             .try_reserve_exact(id.len())
@@ -162,7 +163,6 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
         let batch = unsafe { batch.into_retained() };
         Ok(Self {
             id: owned_id.into_boxed_str(),
-            records,
             declarations,
             batch: Some(batch),
             hosted: ManuallyDrop::new(hosted),
@@ -224,7 +224,9 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
     ) -> Result<i32, Error> {
         match (&self.batch, self.hosted.is_stopped()) {
             (Some(batch), false) => {
-                let _call = Call::new(&self.hooks, &self.id);
+                let Some(_call) = Call::new(&self.hooks, &self.id) else {
+                    return Err(Error::Refused);
+                };
                 dispatch_registration(batch, index, depth, invocation)
             }
             _ => Err(Error::Lifecycle(native_host::Error::State)),
@@ -238,14 +240,18 @@ impl<S: Services + 'static, M: 'static> Instance<S, M> {
             return Vec::new();
         };
         let depth = DispatchDepth::new();
-        self.records
-            .iter()
-            .enumerate()
-            .filter(|(_, record)| {
-                matches!(record, Registration::Event { event_tag, .. } if *event_tag == EVENT_TICK_TAG)
+        let Some(batch) = &self.batch else {
+            return Vec::new();
+        };
+        (0..batch.len())
+            .filter(|&index| {
+                matches!(
+                    batch.record(index),
+                    Some(Registration::Event { event_tag, .. }) if *event_tag == EVENT_TICK_TAG
+                )
             })
             .map(
-                |(index, _)| match self.dispatch(index, &depth, Invocation::Tick(&bytes[..len])) {
+                |index| match self.dispatch(index, &depth, Invocation::Tick(&bytes[..len])) {
                     Ok(status) | Err(Error::Status(status)) => status,
                     Err(_) => host_glue::ERR_STATE,
                 },
@@ -297,7 +303,13 @@ impl<S: Services + 'static, M: 'static> Drop for Instance<S, M> {
         self.hosted.stop();
         drop(self.batch.take());
         // The plugin's destructor runs in `finish` or in the owner's drop.
-        let _call = Call::new(&self.hooks, &self.id);
+        let Some(_call) = Call::new(&self.hooks, &self.id) else {
+            // The shell refuses plugin code now: the destructor does not run,
+            // the owner is kept (never freed, as for a teardown that stays
+            // busy) and the shell is told. Nothing panics.
+            (self.hooks.leaked)(&self.id);
+            return;
+        };
         let owner = self.hosted.owner();
         // A step answering Busy cannot be deferred from a drop: it is told,
         // and `finish` below tries the same steps once more and refuses the
@@ -324,7 +336,14 @@ impl<S: Services + 'static, M: 'static> Drop for Instance<S, M> {
 
 impl<S: Services + 'static, M: 'static> FlatInstance for Instance<S, M> {
     fn registrations(&self, visit: &mut dyn FnMut(FlatRegistration)) {
-        for (index, record) in self.records.iter().enumerate() {
+        // Read through the batch: no second copy of the records is kept.
+        let Some(batch) = &self.batch else {
+            return;
+        };
+        for index in 0..batch.len() {
+            let Some(record) = batch.record(index) else {
+                continue;
+            };
             visit(match *record {
                 Registration::Event { event_tag, .. } => {
                     FlatRegistration::Event { event_tag, index }
@@ -359,6 +378,8 @@ impl<S: Services + 'static, M: 'static> FlatInstance for Instance<S, M> {
         match self.dispatch(index, depth, Invocation::Event(payload)) {
             Ok(status) | Err(Error::Status(status)) => Ok(status),
             Err(Error::Lifecycle(why)) => Err(why),
+            // The shell refused to run plugin code now: try again later.
+            Err(Error::Refused) => Err(native_host::Error::Busy),
             Err(_) => Err(native_host::Error::State),
         }
     }

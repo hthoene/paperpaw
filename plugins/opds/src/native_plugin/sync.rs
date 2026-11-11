@@ -87,11 +87,15 @@ impl NativeOpds {
         self.sync_begin(host, Some(index))
     }
 
-    /// The action `opds.sync` (a menu, a rule): the sync is declared as work,
-    /// due at a good moment within the hour; where there is no work service
-    /// it runs at once.
-    pub(super) fn sync_action(&mut self, host: &Host<'_>) -> Result<(), Error> {
+    /// The action `opds.sync`. The reader's own run (a menu, a key) syncs at
+    /// once; a background run (a rule's, another plugin's) declares the sync as
+    /// work, due at a good moment within the hour. Where there is no work
+    /// service it runs at once.
+    pub(super) fn sync_action(&mut self, host: &Host<'_>, background: bool) -> Result<(), Error> {
         self.open(host)?;
+        if !background {
+            return self.sync_begin(host, None);
+        }
         let Some(work) = &self.work else {
             return self.sync_begin(host, None);
         };

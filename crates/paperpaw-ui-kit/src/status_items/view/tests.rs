@@ -5,7 +5,10 @@
 use super::*;
 use crate::fail_alloc;
 use alloc::string::ToString;
-use paperpaw_sdk::{Point, Rect, native::callbacks::Input};
+use paperpaw_sdk::{
+    Point, Rect,
+    native::callbacks::{Input, PointerPhase},
+};
 
 fn texts() -> Texts {
     Texts {
@@ -366,4 +369,167 @@ fn back_tap() -> Input<'static> {
         position: Point::new(10, 10),
         kind: InputGestureKind::Tap,
     }
+}
+
+/// What a drawn frame leaves for the grips: the last 40 px of each of the first
+/// `shown` rows (rows of 100 px).
+fn draw_grips(view: &mut StatusItemsView, shown: usize) {
+    view.list.grip_rects = (0..shown)
+        .map(|row| (Rect::new(60, 40 + 40 * row as u16, 40, 40), row))
+        .collect();
+    view.list.set_grips(if shown > 1 { shown } else { 0 });
+}
+
+fn pointer(view: &mut StatusItemsView, phase: PointerPhase, contact: u32, y: i32) -> Step {
+    let input = Input::Pointer {
+        now_ms: 0,
+        position: Point::new(80, y),
+        phase,
+        contact,
+    };
+    view.step(&input).unwrap()
+}
+
+#[test]
+fn a_finger_takes_a_shown_item_along_by_its_grip_and_puts_it_where_it_lifts() {
+    let mut v = view("clock, wifi, battery");
+    draw(&mut v);
+    draw_grips(&mut v, 3);
+    assert_eq!(
+        pointer(&mut v, PointerPhase::Down, 1, row_y(0)),
+        Step::Redraw
+    );
+    assert_eq!(v.list().focus(), 0);
+    // Over the third row: the bar moves (a redraw); within it, nothing to draw.
+    assert_eq!(
+        pointer(&mut v, PointerPhase::Move, 1, row_y(2)),
+        Step::Redraw
+    );
+    assert_eq!(
+        pointer(&mut v, PointerPhase::Move, 1, row_y(2) + 5),
+        Step::Taken
+    );
+    assert_eq!(
+        pointer(&mut v, PointerPhase::Up, 1, row_y(2)),
+        Step::Changed("wifi, battery, clock".to_string())
+    );
+    assert_eq!(v.list().focus(), 2);
+    assert_eq!(values(&v)[2], pair("Name of clock", "on (3)"));
+    // Lifted below the shown ones: the last of them; above: the first.
+    assert_eq!(
+        pointer(&mut v, PointerPhase::Down, 1, row_y(2)),
+        Step::Redraw
+    );
+    assert_eq!(
+        pointer(&mut v, PointerPhase::Up, 1, row_y(3) + 30),
+        Step::Redraw
+    );
+    assert_eq!(v.value().unwrap(), "wifi, battery, clock");
+    assert_eq!(
+        pointer(&mut v, PointerPhase::Down, 1, row_y(2)),
+        Step::Redraw
+    );
+    assert_eq!(
+        pointer(&mut v, PointerPhase::Up, 1, 0),
+        Step::Changed("clock, wifi, battery".to_string())
+    );
+}
+
+#[test]
+fn only_a_contact_on_the_grip_of_a_shown_item_is_taken() {
+    let mut v = view("clock, wifi");
+    draw(&mut v);
+    draw_grips(&mut v, 2);
+    // On the row but not on the grip (a tap's business), on a hidden row's
+    // place, with nothing taken: not for the view.
+    let off_grip = Input::Pointer {
+        now_ms: 0,
+        position: Point::new(20, row_y(0)),
+        phase: PointerPhase::Down,
+        contact: 1,
+    };
+    assert_eq!(v.step(&off_grip).unwrap(), Step::Ignored);
+    assert_eq!(
+        pointer(&mut v, PointerPhase::Down, 1, row_y(2)),
+        Step::Ignored
+    );
+    assert_eq!(
+        pointer(&mut v, PointerPhase::Move, 1, row_y(1)),
+        Step::Ignored
+    );
+    assert_eq!(
+        pointer(&mut v, PointerPhase::Up, 1, row_y(1)),
+        Step::Ignored
+    );
+    // A lone shown item has no other to move past, so no grip.
+    let mut one = view("clock");
+    draw(&mut one);
+    draw_grips(&mut one, 1);
+    assert_eq!(
+        pointer(&mut one, PointerPhase::Down, 1, row_y(0)),
+        Step::Ignored
+    );
+}
+
+#[test]
+fn another_finger_is_not_taken_and_a_cancel_changes_nothing() {
+    let mut v = view("clock, wifi, battery");
+    draw(&mut v);
+    draw_grips(&mut v, 3);
+    pointer(&mut v, PointerPhase::Down, 1, row_y(0));
+    // Another finger meanwhile: neither its moves nor its end are taken.
+    assert_eq!(
+        pointer(&mut v, PointerPhase::Move, 2, row_y(2)),
+        Step::Ignored
+    );
+    assert_eq!(
+        pointer(&mut v, PointerPhase::Up, 2, row_y(2)),
+        Step::Ignored
+    );
+    assert_eq!(
+        pointer(&mut v, PointerPhase::Move, 1, row_y(1)),
+        Step::Redraw
+    );
+    assert_eq!(
+        pointer(&mut v, PointerPhase::Cancel, 1, row_y(1)),
+        Step::Redraw
+    );
+    assert_eq!(v.value().unwrap(), "clock, wifi, battery");
+    // The drag is over: its moves are not taken any more.
+    assert_eq!(
+        pointer(&mut v, PointerPhase::Move, 1, row_y(2)),
+        Step::Ignored
+    );
+}
+
+#[test]
+fn a_finger_takes_over_from_the_buttons() {
+    let mut v = view("clock, wifi, battery");
+    draw(&mut v);
+    draw_grips(&mut v, 3);
+    act(&mut v, "core.menu");
+    assert!(v.chooser().moving());
+    pointer(&mut v, PointerPhase::Down, 1, row_y(1));
+    assert!(!v.chooser().moving());
+    assert_eq!(v.list().focus(), 1);
+}
+
+#[test]
+fn drags_survive_refused_allocations() {
+    let mut v = view("clock, wifi, battery");
+    draw(&mut v);
+    draw_grips(&mut v, 3);
+    fail_alloc::sweep(|| {
+        for (phase, y) in [(PointerPhase::Down, row_y(0)), (PointerPhase::Up, row_y(2))] {
+            v.step(&Input::Pointer {
+                now_ms: 0,
+                position: Point::new(80, y),
+                phase,
+                contact: 1,
+            })?;
+        }
+        Ok(())
+    });
+    let rows = v.build().unwrap();
+    assert_eq!(v.list().items(), rows.as_slice());
 }

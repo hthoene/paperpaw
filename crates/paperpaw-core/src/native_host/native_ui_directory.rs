@@ -11,6 +11,9 @@ use alloc::vec::Vec;
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, ERR_NOT_FOUND};
 
+/// `screen.spec` flags bit 3: help waits until the plugin says it is ready.
+const WAITS_READY: u32 = 1 << 3;
+
 impl UiDirectory for NativeDeclarations {
     fn widget(&self, widget: &str) -> Result<Declared, i32> {
         self.lookup(widget, Kind::Widget)
@@ -77,6 +80,25 @@ impl UiDirectory for NativeDeclarations {
     }
 }
 impl NativeDeclarations {
+    /// Whether the screen `screen` (a full id) is declared `waits_ready`
+    /// (`screen.spec` flags bit 3): its plugin says when it is ready. A screen
+    /// nobody declared (an interface 6 or a host screen) is not.
+    pub(crate) fn screen_waits_ready(&self, screen: &str) -> bool {
+        let Some((plugin, name)) = screen.split_once('.') else {
+            return false;
+        };
+        let Ok(store) = self.store.try_borrow() else {
+            return false;
+        };
+        let mut waits = false;
+        store.find(plugin, Kind::Screen, name, &mut |record| {
+            if let Record::ScreenSpec(spec) = record {
+                waits = spec.flags & WAITS_READY != 0;
+            }
+        });
+        waits
+    }
+
     fn lookup(&self, id: &str, kind: Kind) -> Result<Declared, i32> {
         full_id(id)?;
         let (plugin, name) = id.split_once('.').ok_or(ERR_NOT_FOUND)?;
