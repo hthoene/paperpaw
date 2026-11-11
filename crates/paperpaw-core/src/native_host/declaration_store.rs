@@ -12,7 +12,9 @@ use super::{
     registrations::{Record, host_records_decode},
     staged::DECLARATIONS_MAX_BYTES,
 };
-use alloc::{boxed::Box, rc::Rc, vec::Vec};
+#[cfg(test)]
+use alloc::rc::Rc;
+use alloc::{boxed::Box, vec::Vec};
 use core::mem::size_of;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE};
 use paperpaw_sdk::Id;
@@ -33,25 +35,69 @@ pub(crate) trait ImageOwner {
     }
 }
 
-/// Test fixtures may use Rc; native admission uses checked shared ownership.
+/// A native owner keeps its lease and host key inline: no box, and the plugin
+/// id is kept once, in the owner's record. Test fixtures may use Rc; the
+/// firmware has no such owner, so it pays no enum tag for one.
 enum OwnerRef {
+    #[cfg(test)]
     Existing(Rc<dyn ImageOwner>),
-    Native(super::shared::Shared<Box<dyn ImageOwner>>),
+    Native {
+        lease: super::native_instances::NativeLease,
+        owner: u64,
+    },
 }
 impl OwnerRef {
     fn try_clone(&self) -> Result<Self, i32> {
         match self {
+            #[cfg(test)]
             Self::Existing(owner) => Ok(Self::Existing(Rc::clone(owner))),
-            Self::Native(owner) => owner.try_clone().map(Self::Native).ok_or(ERR_NO_MEMORY),
+            Self::Native { lease, owner } => Ok(Self::Native {
+                lease: lease.try_clone()?,
+                owner: *owner,
+            }),
         }
     }
-}
-impl core::ops::Deref for OwnerRef {
-    type Target = dyn ImageOwner;
-    fn deref(&self) -> &Self::Target {
+    /// A native owner is generation 1 while its instance runs, 0 after.
+    fn generation(&self) -> u32 {
         match self {
-            Self::Existing(owner) => &**owner,
-            Self::Native(owner) => &***owner,
+            #[cfg(test)]
+            Self::Existing(owner) => owner.generation(),
+            Self::Native { lease, .. } => u32::from(lease.live().is_ok()),
+        }
+    }
+    fn owner_id(&self) -> Result<u64, i32> {
+        match self {
+            #[cfg(test)]
+            Self::Existing(owner) => owner.owner_id(),
+            Self::Native { owner, .. } => Ok(*owner),
+        }
+    }
+    fn native_lease(&self) -> Result<super::native_instances::NativeLease, i32> {
+        match self {
+            #[cfg(test)]
+            Self::Existing(owner) => owner.native_lease(),
+            Self::Native { lease, .. } => {
+                lease.live()?;
+                lease.try_clone()
+            }
+        }
+    }
+    fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
+        match self {
+            #[cfg(test)]
+            Self::Existing(owner) => owner.with_image(visit),
+            Self::Native { lease, .. } => match lease.live() {
+                Ok(instance) => instance.with_image(visit),
+                Err(_) => visit(None),
+            },
+        }
+    }
+    fn invalid_declaration(&self, error: i32) {
+        use super::native_screen::Dispatch as _;
+        match self {
+            #[cfg(test)]
+            Self::Existing(owner) => owner.invalid_declaration(error),
+            Self::Native { lease, .. } => lease.dropped(0, error),
         }
     }
 }
@@ -133,7 +179,21 @@ pub(crate) enum Kind {
 }
 const _: () = assert!(Kind::Lookup as usize + 1 == KIND_COUNT);
 
+/// A slot's key keeps the kind in its top bits and the name hash in the
+/// others: one sorted list then holds every kind in its own range, with no
+/// table of offsets per owner.
+const KIND_SHIFT: u32 = 26;
+const _: () = assert!(KIND_COUNT <= 1 << (32 - KIND_SHIFT));
+
 impl Kind {
+    /// The key of a record of this kind whose name hashes to `hash`: its top
+    /// bits, so a kind keeps the order of the full hashes. Names whose hashes
+    /// differ only in the low bits share a key: every lookup compares the
+    /// names in a run of equal keys.
+    fn slot_key(self, hash: u32) -> u32 {
+        (self as u32) << KIND_SHIFT | hash >> (32 - KIND_SHIFT)
+    }
+
     fn category(self) -> u8 {
         match self {
             Self::Group => 0,
@@ -215,6 +275,7 @@ impl Kind {
 
 #[derive(Clone, Copy)]
 struct Slot {
+    /// The kind and name hash (`Kind::slot_key`).
     hash: u32,
     batch: u16,
     record: u16,
@@ -275,18 +336,60 @@ impl Input<'_> {
     }
 }
 
-pub(crate) struct PendingDeclarations {
+/// What the store keeps of one owner after admission.
+struct StoredOwner {
     id: Id,
     generation: u32,
     source: OwnerRef,
     batches: Vec<DeclRef>,
-    /// Every indexed record of the owner in one list: grouped by kind, and
-    /// inside a kind sorted by name hash once the owner is prepared. The
-    /// range of kind `k` is `starts[k]..starts[k + 1]`.
+    /// Every indexed record of the owner in one list, sorted by key: grouped
+    /// by kind, and inside a kind by name hash.
     slots: Vec<Slot>,
-    starts: [u16; KIND_COUNT + 1],
-    resident: usize,
     incarnation: u32,
+}
+impl StoredOwner {
+    fn new(id: Id, source: OwnerRef) -> Self {
+        Self {
+            id,
+            generation: source.generation(),
+            source,
+            batches: Vec::new(),
+            slots: Vec::new(),
+            incarnation: 0,
+        }
+    }
+
+    /// The slots of one kind, sorted by name hash.
+    fn of_kind(&self, kind: Kind) -> &[Slot] {
+        let from = self
+            .slots
+            .partition_point(|slot| slot.hash < kind.slot_key(0));
+        let rest = &self.slots[from..];
+        let len = rest.partition_point(|slot| slot.hash >> KIND_SHIFT == kind as u32);
+        &rest[..len]
+    }
+
+    /// The slots of `kind` whose name hashes to `hash` (`Kind::slot_key`).
+    fn run(&self, kind: Kind, hash: u32) -> &[Slot] {
+        let key = kind.slot_key(hash);
+        let from = self.slots.partition_point(|slot| slot.hash < key);
+        let rest = &self.slots[from..];
+        &rest[..rest.partition_point(|slot| slot.hash == key)]
+    }
+
+    /// Adds `slot` after the slots whose key is not greater, so the list
+    /// stays sorted. The caller has reserved room: nothing here allocates.
+    fn add_slot(&mut self, slot: Slot) {
+        let at = self.slots.partition_point(|old| old.hash <= slot.hash);
+        self.slots.insert(at, slot);
+    }
+}
+
+/// One owner during admission. The store keeps only `kept`: the charges
+/// and the failure are dropped at commit.
+pub(crate) struct PendingDeclarations {
+    kept: StoredOwner,
+    resident: usize,
     failure: Option<i32>,
     index_bytes: usize,
     image_entries: usize,
@@ -297,40 +400,21 @@ pub(crate) struct PendingDeclarations {
 }
 impl PendingDeclarations {
     pub(crate) fn plugin_id(&self) -> &str {
-        self.id.as_str()
+        self.kept.id.as_str()
     }
     pub(crate) fn host_owner_id(&self) -> Result<u64, i32> {
-        self.source.owner_id()
+        self.kept.source.owner_id()
     }
 
     /// The slots of one kind.
     fn of_kind(&self, kind: Kind) -> &[Slot] {
-        let k = kind as usize;
-        &self.slots[usize::from(self.starts[k])..usize::from(self.starts[k + 1])]
+        self.kept.of_kind(kind)
     }
 
-    /// Adds `slot` at the end of its kind's range. The caller has reserved
-    /// room, so nothing here allocates.
-    fn add_slot(&mut self, kind: Kind, slot: Slot) {
-        let at = usize::from(self.starts[kind as usize + 1]);
-        self.slots.insert(at, slot);
-        // Each owner holds far fewer than 65,535 records (the declaration
-        // byte cap); a saturated offset would only end a range early.
-        for start in &mut self.starts[kind as usize + 1..] {
-            *start = start.saturating_add(1);
-        }
-    }
-
-    pub(crate) fn new(id: Id, source: Rc<dyn ImageOwner>) -> Self {
+    fn with_source(id: Id, source: OwnerRef) -> Self {
         Self {
-            id,
-            generation: source.generation(),
-            source: OwnerRef::Existing(source),
-            batches: Vec::new(),
-            slots: Vec::new(),
-            starts: [0; KIND_COUNT + 1],
+            kept: StoredOwner::new(id, source),
             resident: 0,
-            incarnation: 0,
             failure: None,
             index_bytes: 0,
             image_entries: 0,
@@ -338,24 +422,26 @@ impl PendingDeclarations {
         }
     }
 
-    pub(crate) fn native(id: Id, source: impl ImageOwner + 'static) -> Result<Self, i32> {
-        let source: Box<dyn ImageOwner> = super::shared::try_box(source).ok_or(ERR_NO_MEMORY)?;
-        let source =
-            OwnerRef::Native(super::shared::Shared::try_new(source).map_err(|_| ERR_NO_MEMORY)?);
-        Ok(Self {
-            id,
-            generation: source.generation(),
-            source,
-            batches: Vec::new(),
-            slots: Vec::new(),
-            starts: [0; KIND_COUNT + 1],
-            resident: 0,
-            incarnation: 0,
-            failure: None,
-            index_bytes: 0,
-            image_entries: 0,
-            owned_counts: [0; LIMITED_KINDS],
-        })
+    #[cfg(test)]
+    pub(crate) fn new(id: Id, source: Rc<dyn ImageOwner>) -> Self {
+        Self::with_source(id, OwnerRef::Existing(source))
+    }
+
+    /// A native owner: `owner` is its host key, `lease` its running instance.
+    pub(crate) fn native(id: Id, lease: super::native_instances::NativeLease, owner: u64) -> Self {
+        Self::with_source(id, OwnerRef::Native { lease, owner })
+    }
+
+    /// Room for `batches` more batches and `entries` more indexed records,
+    /// reserved once before they are staged one by one.
+    pub(crate) fn reserve(
+        &mut self,
+        batches: usize,
+        entries: usize,
+        allocations: &mut Allocations,
+    ) -> Result<(), i32> {
+        allocations.reserve(&mut self.kept.batches, batches)?;
+        allocations.reserve(&mut self.kept.slots, entries)
     }
 
     /// Stage one whole batch. Failed reservations may grow capacity but never
@@ -377,7 +463,7 @@ impl PendingDeclarations {
             return self.stage(Input::Committed(raw), allocations);
         }
         let range = raw.image.ok_or(ERR_STATE)?;
-        let source = self.source.try_clone()?;
+        let source = self.kept.source.try_clone()?;
         let mut result = Err(ERR_STATE);
         source.with_image(&mut |image| {
             result = raw.view(image).and_then(|bytes| {
@@ -410,12 +496,12 @@ impl PendingDeclarations {
     }
 
     fn stage_inner(&mut self, input: Input<'_>, allocations: &mut Allocations) -> Result<(), i32> {
-        if self.source.generation() != self.generation {
+        if self.kept.source.generation() != self.kept.generation {
             return Err(ERR_STATE);
         }
         let bytes = input.bytes();
         let decoded = host_records_decode(bytes)?;
-        declarations::validate_batch(self.id.as_str(), &decoded)?;
+        declarations::validate_batch(self.kept.id.as_str(), &decoded)?;
         let offsets = super::raw_declarations::offsets(bytes, decoded.len())?;
         let mut counts = [0usize; KIND_COUNT];
         let mut kinds = [None; super::registrations::REGISTRATION_MAX_RECORDS];
@@ -439,7 +525,7 @@ impl PendingDeclarations {
         if counts.iter().all(|&n| n == 0) {
             return Ok(());
         }
-        let batch = u16::try_from(self.batches.len()).map_err(|_| ERR_NO_SPACE)?;
+        let batch = u16::try_from(self.kept.batches.len()).map_err(|_| ERR_NO_SPACE)?;
         let mut reference = match &input {
             Input::Image { offset, len, .. } => Some(DeclRef::Image {
                 offset: *offset,
@@ -448,7 +534,7 @@ impl PendingDeclarations {
             _ => None,
         };
         if matches!(input, Input::Borrowed(_)) {
-            self.source.with_image(&mut |image| {
+            self.kept.source.with_image(&mut |image| {
                 reference = image.and_then(|image| image_ref(image, bytes));
             });
         }
@@ -463,22 +549,19 @@ impl PendingDeclarations {
             Some(reference) => reference,
             None => input.own(allocations)?,
         };
-        allocations.reserve(&mut self.batches, 1)?;
-        allocations.reserve(&mut self.slots, counts.iter().sum())?;
+        allocations.reserve(&mut self.kept.batches, 1)?;
+        allocations.reserve(&mut self.kept.slots, counts.iter().sum())?;
         for (record, kind) in kinds.into_iter().enumerate() {
             if let Some((kind, hash)) = kind {
                 // The decoder bounds each batch to eight records.
-                self.add_slot(
-                    kind,
-                    Slot {
-                        hash,
-                        batch,
-                        record: offsets[record],
-                    },
-                );
+                self.kept.add_slot(Slot {
+                    hash: kind.slot_key(hash),
+                    batch,
+                    record: offsets[record],
+                });
             }
         }
-        self.batches.push(reference);
+        self.kept.batches.push(reference);
         self.resident = resident;
         self.index_bytes = index_bytes;
         self.image_entries = image_entries;
@@ -591,44 +674,42 @@ fn image_ref(image: &[u8], bytes: &[u8]) -> Option<DeclRef> {
 
 #[derive(Default)]
 pub(crate) struct DeclarationStore {
-    owners: Vec<Option<PendingDeclarations>>,
+    owners: Vec<Option<StoredOwner>>,
     incarnation: u32,
     /// Owners taken out so far.
     removed: u32,
 }
 
 /// Exclusive preparation prevents a second transaction invalidating reservations.
+/// It holds only what the store keeps: the admission charges are gone.
 pub(crate) struct Prepared<'a> {
     store: &'a mut DeclarationStore,
-    pending: PendingDeclarations,
+    owner: StoredOwner,
     at: usize,
 }
 impl Prepared<'_> {
     /// Every allocation and validation completed before this point.
     pub(crate) fn commit(self) {
-        self.store.incarnation = self.pending.incarnation;
+        self.store.incarnation = self.owner.incarnation;
         if self.at == self.store.owners.len() {
-            self.store.owners.push(Some(self.pending));
+            self.store.owners.push(Some(self.owner));
         } else {
-            self.store.owners[self.at] = Some(self.pending);
+            self.store.owners[self.at] = Some(self.owner);
         }
     }
 }
 impl DeclarationStore {
     pub(crate) fn prepare<'a>(
         &'a mut self,
-        mut pending: PendingDeclarations,
+        pending: PendingDeclarations,
         allocations: &mut Allocations,
     ) -> Result<Prepared<'a>, i32> {
         if let Some(error) = pending.failure {
             return Err(error);
         }
+        let mut pending = pending.kept;
         if pending.source.generation() != pending.generation {
             return Err(ERR_STATE);
-        }
-        for kind in 0..KIND_COUNT {
-            let range = usize::from(pending.starts[kind])..usize::from(pending.starts[kind + 1]);
-            super::declaration_index::sort_by_key(&mut pending.slots[range], |entry| entry.hash);
         }
         let at = self
             .owners
@@ -710,7 +791,7 @@ impl DeclarationStore {
         pending.incarnation = self.incarnation.checked_add(1).ok_or(ERR_NO_SPACE)?;
         Ok(Prepared {
             store: self,
-            pending,
+            owner: pending,
             at,
         })
     }
@@ -782,7 +863,7 @@ impl DeclarationStore {
             .flatten()
             .find(|owner| owner.source.owner_id() == Ok(key))
             .filter(|owner| owner.source.generation() == owner.generation)
-            .map(PendingDeclarations::plugin_id)
+            .map(|owner| owner.id.as_str())
     }
 
     pub(crate) fn host_owner(&self, plugin: &str) -> Result<u64, i32> {
@@ -798,6 +879,8 @@ impl DeclarationStore {
         owner.source.owner_id()
     }
 
+    /// Every live record key, in owner and kind order.
+    #[cfg(test)]
     pub(crate) fn all_keys(&self, allocations: &mut Allocations) -> Result<Vec<DeclKey>, i32> {
         let mut keys = Vec::new();
         for (index, owner) in self.owners.iter().enumerate() {
@@ -879,9 +962,7 @@ impl DeclarationStore {
         };
         let category = kind.category();
         let hash = super::declaration_index::composite_hash(category, parts);
-        let slots = owner.of_kind(kind);
-        let from = slots.partition_point(|slot| slot.hash < hash);
-        for slot in slots[from..].iter().take_while(|slot| slot.hash == hash) {
+        for slot in owner.run(kind, hash) {
             let key = DeclKey {
                 owner: u16::try_from(index).unwrap_or(u16::MAX),
                 batch: slot.batch,
@@ -965,7 +1046,7 @@ impl DeclarationStore {
 }
 
 fn decode_entry<'a>(
-    owner: &'a PendingDeclarations,
+    owner: &'a StoredOwner,
     image: &'a [u8],
     batch: u16,
     record: u16,
@@ -989,7 +1070,7 @@ fn decode_entry<'a>(
 }
 
 fn check_indexed_name(
-    owner: &PendingDeclarations,
+    owner: &StoredOwner,
     image: &[u8],
     key: DeclKey,
     record: Record<'_>,
@@ -998,11 +1079,9 @@ fn check_indexed_name(
     let kind = Kind::of(&record).ok_or(ERR_INVALID)?;
     let (category, _) = name_key(record).ok_or(ERR_INVALID)?;
     let hash = record_hash(record).ok_or(ERR_INVALID)?;
-    let slots = owner.of_kind(kind);
-    let from = slots.partition_point(|slot| slot.hash < hash);
-    let run = slots[from..].iter().take_while(|slot| slot.hash == hash);
-    if !run
-        .clone()
+    if !owner
+        .run(kind, hash)
+        .iter()
         .any(|slot| slot.batch == key.batch && slot.record == key.record)
     {
         return Err(ERR_INVALID);
@@ -1015,11 +1094,9 @@ fn check_indexed_name(
         core::slice::from_ref(&kind)
     };
     for peer_kind in peer_kinds {
-        let peers = owner.of_kind(*peer_kind);
-        let from = peers.partition_point(|slot| slot.hash < hash);
-        for peer in peers[from..]
+        for peer in owner
+            .run(*peer_kind, hash)
             .iter()
-            .take_while(|slot| slot.hash == hash)
             .filter(|slot| slot.batch != key.batch || slot.record != key.record)
         {
             let Ok(other) = decode_entry(owner, image, peer.batch, peer.record) else {
@@ -1062,11 +1139,11 @@ const _: () = {
     assert!(size_of::<DeclRef>() == 12);
     assert!(size_of::<DeclKey>() == 16);
     assert!(size_of::<Slot>() == 8);
-    // One list and one table of offsets per owner, flat as kinds are added
-    // (`abi/heap-word.md` section 9).
-    assert!(size_of::<PendingDeclarations>() <= PENDING_BUDGET);
+    // One list per owner, with the kind in each slot's key: flat as kinds are
+    // added (`abi/heap-word.md` section 9). The admission counts are not kept.
+    assert!(size_of::<StoredOwner>() <= OWNER_BUDGET);
 };
 
-/// The most bytes of one owner's `PendingDeclarations` on the X4.
+/// The most bytes the store keeps of one owner on the X4.
 #[cfg(target_pointer_width = "32")]
-const PENDING_BUDGET: usize = 192;
+const OWNER_BUDGET: usize = 64;

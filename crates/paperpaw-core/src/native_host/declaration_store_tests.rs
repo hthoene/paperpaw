@@ -171,7 +171,7 @@ fn both_entry_kinds_decode_all_six_records_and_unload_removes_them() {
         let mut store = DeclarationStore::default();
         let mut allocations = Allocations::default();
         let pending = pending(&source, owned, &mut allocations).unwrap();
-        assert_eq!(matches!(pending.batches[0], DeclRef::Owned(_)), owned);
+        assert_eq!(matches!(pending.kept.batches[0], DeclRef::Owned(_)), owned);
         store.prepare(pending, &mut allocations).unwrap().commit();
         let before = keys(&store);
         assert_eq!(before.len(), 6);
@@ -366,10 +366,11 @@ fn visitors_hold_the_image_guard_and_ranges_require_the_same_allocation() {
 #[test]
 fn layout_is_measured_instead_of_assuming_a_twelve_byte_entry() {
     std::println!(
-        "DeclRef={} DeclKey={} Slot={} Owner={}",
+        "DeclRef={} DeclKey={} Slot={} Owner={} Pending={}",
         size_of::<DeclRef>(),
         size_of::<DeclKey>(),
         size_of::<Slot>(),
+        size_of::<StoredOwner>(),
         size_of::<PendingDeclarations>()
     );
     assert_eq!(size_of::<Slot>(), 8);
@@ -438,7 +439,7 @@ fn known_image_batches_have_no_snapshot_and_owned_snapshots_never_promote() {
             .stage_committed(batch, &mut Allocations::default())
             .unwrap();
         assert_eq!(
-            matches!(pending.batches[0], DeclRef::Image { .. }),
+            matches!(pending.kept.batches[0], DeclRef::Image { .. }),
             known_image
         );
     }
@@ -461,7 +462,7 @@ fn committed_runtime_copy_moves_into_owned_storage_without_copying_again() {
     pending
         .stage_committed(batch, &mut Allocations::default())
         .unwrap();
-    let DeclRef::Owned(bytes) = &pending.batches[0] else {
+    let DeclRef::Owned(bytes) = &pending.kept.batches[0] else {
         panic!("runtime bytes must be owned");
     };
     assert_eq!(bytes.as_ptr(), address);
@@ -546,6 +547,7 @@ fn full_widgets_image_moves_into_the_guarded_store_without_owned_bytes() {
     assert_eq!((pending.image_entries, pending.resident), (400, 0));
     assert!(
         pending
+            .kept
             .batches
             .iter()
             .all(|batch| matches!(batch, DeclRef::Image { .. }))
@@ -553,7 +555,7 @@ fn full_widgets_image_moves_into_the_guarded_store_without_owned_bytes() {
     std::println!(
         "widgets full image: construction index charged={construction_index_budget}; committed descriptor/index bytes={}; owner header={}",
         pending.index_bytes,
-        size_of::<PendingDeclarations>()
+        size_of::<StoredOwner>()
     );
     let mut store = DeclarationStore::default();
     store.prepare(pending, &mut allocations).unwrap().commit();
@@ -606,7 +608,7 @@ fn image_staging_and_lookup_acquire_a_non_reentrant_guard_only_once() {
     let mut allocations = Allocations::default();
     let mut pending = PendingDeclarations::new(Id::new_static("fixture"), source.clone());
     pending.stage_committed(batch, &mut allocations).unwrap();
-    assert!(matches!(pending.batches[0], DeclRef::Image { .. }));
+    assert!(matches!(pending.kept.batches[0], DeclRef::Image { .. }));
     assert_eq!(source.denied.get(), 0);
     let mut store = DeclarationStore::default();
     store.prepare(pending, &mut allocations).unwrap().commit();
@@ -1209,16 +1211,13 @@ fn staged(allocations: &mut Allocations) -> Result<PendingDeclarations, i32> {
     Ok(pending)
 }
 
-/// The ranges of the one list: in kind order, whole, and each kind's records
-/// together (`starts[k]..starts[k + 1]`).
+/// The ranges of the one list: sorted by key, so in kind order, and the
+/// kinds' ranges together make the whole list.
 fn ranges_hold(pending: &PendingDeclarations) {
-    assert!(pending.starts.windows(2).all(|pair| pair[0] <= pair[1]));
-    assert_eq!(pending.starts[0], 0);
-    assert_eq!(
-        usize::from(pending.starts[KIND_COUNT]),
-        pending.slots.len(),
-        "the last offset ends the list"
-    );
+    let slots = &pending.kept.slots;
+    assert!(slots.windows(2).all(|pair| pair[0].hash <= pair[1].hash));
+    let total: usize = KINDS.iter().map(|kind| pending.of_kind(*kind).len()).sum();
+    assert_eq!(total, slots.len(), "the kinds' ranges make the whole list");
 }
 
 #[test]
@@ -1228,7 +1227,7 @@ fn every_kind_lives_in_one_list_by_ranges_and_names_are_found_in_their_kind() {
     ranges_hold(&pending);
     assert_eq!(pending.of_kind(Kind::Group).len(), 3);
     assert_eq!(pending.of_kind(Kind::Action).len(), 3);
-    assert_eq!(pending.slots.len(), 6);
+    assert_eq!(pending.kept.slots.len(), 6);
     let mut store = DeclarationStore::default();
     store.prepare(pending, &mut allocations).unwrap().commit();
     let owner = store.owners[0].as_ref().unwrap();
@@ -1299,7 +1298,7 @@ fn a_failed_reservation_in_staging_keeps_the_list_and_its_offsets_whole() {
         }
         if results.iter().all(Result::is_ok) {
             reached_success = true;
-            assert_eq!(pending.slots.len(), 6);
+            assert_eq!(pending.kept.slots.len(), 6);
         } else {
             assert!(results.contains(&Err(ERR_NO_MEMORY)));
             // A failed owner stays failed: nothing publishes it.
@@ -1312,16 +1311,53 @@ fn a_failed_reservation_in_staging_keeps_the_list_and_its_offsets_whole() {
 
 #[test]
 fn an_owner_costs_a_flat_amount_however_many_kinds_exist() {
-    // The offsets and counts are 16-bit tables, one list for every kind: the
-    // owner no longer pays a `Vec` and a counter per kind (`abi/heap-word.md`
-    // section 9). On a 32-bit target the build pins it (`PENDING_BUDGET`).
-    let per_kind = size_of::<[u16; KIND_COUNT + 1]>() + size_of::<[u16; KIND_COUNT]>();
-    assert_eq!(per_kind, 2 * (2 * KIND_COUNT) + 2);
+    // One list for every kind, with the kind in each slot's key: the owner
+    // pays no `Vec`, counter or offset per kind (`abi/heap-word.md` section
+    // 9). The admission counts are not kept: the store holds `StoredOwner`
+    // only. On a 32-bit target the build pins it (`OWNER_BUDGET`).
     assert!(
-        size_of::<PendingDeclarations>() <= 2 * size_of::<Vec<Slot>>() + per_kind + 160,
+        size_of::<StoredOwner>() <= 2 * size_of::<Vec<Slot>>() + 80,
         "{}",
-        size_of::<PendingDeclarations>()
+        size_of::<StoredOwner>()
     );
+    assert!(size_of::<Option<StoredOwner>>() == size_of::<StoredOwner>());
+}
+
+#[test]
+fn slot_keys_keep_kinds_apart_and_the_hash_order_inside_a_kind() {
+    // A kind's keys come before the next kind's, whatever the hash.
+    assert!(Kind::Group.slot_key(u32::MAX) < Kind::Spec.slot_key(0));
+    // The top bits of the hash order a kind; the low bits share a key.
+    assert_eq!(
+        Kind::Spec.slot_key(0x8000_0000),
+        Kind::Spec.slot_key(0x8000_003f)
+    );
+    assert!(Kind::Spec.slot_key(0x8000_003f) < Kind::Spec.slot_key(0x8000_0040));
+    let mut owner = PendingDeclarations::new(Id::new_static("fixture"), image()).kept;
+    owner.slots.reserve_exact(5);
+    for (kind, hash, record) in [
+        (Kind::Spec, 0x40, 0),
+        (Kind::Lookup, 0, 1),
+        (Kind::Group, u32::MAX, 2),
+        (Kind::Spec, 0x3f, 3),
+        (Kind::Spec, 0, 4),
+    ] {
+        owner.add_slot(Slot {
+            hash: kind.slot_key(hash),
+            batch: 0,
+            record,
+        });
+    }
+    let records = |slots: &[Slot]| slots.iter().map(|slot| slot.record).collect::<Vec<_>>();
+    assert_eq!(records(owner.of_kind(Kind::Group)), [2]);
+    // Equal keys stay in the order they were added.
+    assert_eq!(records(owner.of_kind(Kind::Spec)), [3, 4, 0]);
+    assert_eq!(records(owner.of_kind(Kind::Lookup)), [1]);
+    assert!(owner.of_kind(Kind::Extra).is_empty());
+    // A run holds every slot of the key: the lookup compares their names.
+    assert_eq!(records(owner.run(Kind::Spec, 0x3f)), [3, 4]);
+    assert_eq!(records(owner.run(Kind::Spec, 0x40)), [0]);
+    assert!(owner.run(Kind::Group, 0x40).is_empty());
 }
 
 /// An image of `records` for the fixture owner.
