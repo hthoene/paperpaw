@@ -190,7 +190,9 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   and path and goes when the maker is uninstalled). A handed document ends when its maker stops,
   for any reason (stopped, turned off, uninstalled, failed): the opener gets
   `event.document_closed` with `reason` 3 and later calls on the id are `ERR_CANCELLED`, as for
-  a book that was removed. Root 5 exists only in `doc_open`
+  a book that was removed. A reader instance that holds a handed file may hand it on to its own
+  screens (the table of contents): `core.ui` op 16 with `root` `5` and the same `path` (`ui.md` 1);
+  the new instance's root 5 is the same file of the same maker. Root 5 exists only in `doc_open`
   (slots 20-26, `core.files` and format calls answer it `ERR_UNSUPPORTED`). A host answers
   `ERR_UNSUPPORTED` until it is wired.
 - [D] **Options reach their format whole.** An option's `key` is a full setting id

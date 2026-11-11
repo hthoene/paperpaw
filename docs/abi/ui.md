@@ -77,7 +77,11 @@ events 83, 88 and 90 are free).
   `[a-z0-9_.-]{1,32}`, unique; a value is any UTF-8, newlines included. The host checks the form at
   op 16 (`ERR_INVALID`, over the cap `ERR_NO_SPACE`) and keeps them unchanged; their meaning belongs
   to the screen that reads them. Keys starting with `core.` are the host's (section 3:
-  `core.request`, `core.kind`): op 16 naming one is `ERR_INVALID`.
+  `core.request`, `core.kind`): op 16 naming one is `ERR_INVALID`. **One exception to "unchanged":**
+  an instance that holds a handed file (`document.md` 1, root 5) hands it on to its own screens
+  (a reader's table of contents) with `root` `5` and the same `path`; the host puts the file's own
+  root (`0` or `2`) in the params and the new instance's root 5 names the same file of the same
+  maker. Another path, an instance that holds none, or no path is `ERR_DENIED` at op 16.
 - [D] **Long values** (the reader's selected text, interface 6 `params::TEXT`): a hand-over also has
   one host text (section 3.1 rules: at most 24,576 bytes, written in 3 KiB parts with op 9
   `text_write` on the hand-over id by its maker in the callback that made it, never cut; a begun but
