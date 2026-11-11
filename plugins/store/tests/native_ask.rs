@@ -244,6 +244,9 @@ fn the_dialog_names_the_plugins_with_their_sizes_in_both_languages() {
     };
     // The library's own listing is what the dialog names; unlisted is left out.
     assert_eq!(dialog.ids, ["script-greek", "airy"]);
+    // The one the library lacks is answered at once; nothing is left unanswered.
+    assert_eq!(dialog.not_found, ["unlisted"]);
+    assert!(dialog.declined.is_empty());
     assert_eq!(
         dialog.title,
         "This book needs more letters to show its text. Download them?"
@@ -379,7 +382,7 @@ fn no_network_is_failed_and_a_card_that_refuses_is_declined() {
 }
 
 #[test]
-fn a_long_list_fits_the_question_and_ends_in_dots() {
+fn a_long_list_names_what_it_asks_for_and_declines_the_rest() {
     let storage = MemoryStorage::new();
     let long = "N".repeat(78);
     let plugins: Vec<(String, String, u64)> = (0..16)
@@ -404,10 +407,19 @@ fn a_long_list_fits_the_question_and_ends_in_dots() {
         panic!("a dialog")
     };
     assert!(dialog.text.len() <= 1024, "{}", dialog.text.len());
-    assert!(dialog.text.ends_with("\n…"));
     dialog.question().unwrap();
-    // All are still fetched: the request keeps every id the dialog named.
-    assert_eq!(dialog.ids.len(), 16);
+    // Every plugin fetched was named in the dialog: what does not fit is not
+    // asked for and is answered *declined*; the request keeps the named ones.
+    assert!(!dialog.text.ends_with('…'));
+    assert_eq!(dialog.text.lines().count(), dialog.ids.len());
+    assert!(dialog.ids.len() < 16, "the text cannot name all of them");
+    assert_eq!(dialog.ids.len() + dialog.declined.len(), 16);
+    assert!(dialog.not_found.is_empty());
+    for id in &dialog.ids {
+        assert!(!dialog.declined.contains(id));
+    }
+    let open = Request::open(&storage).unwrap().unwrap();
+    assert_eq!(open.ids, dialog.ids);
 }
 
 #[test]
@@ -429,6 +441,7 @@ fn the_whole_ask_keeps_what_was_last_shown() {
             flags,
         )
         .unwrap()
+        .reply
     };
     let first = run(&mut last, &mut say, 10, (true, false, false));
     assert!(matches!(first, Reply::Dialog(_)));
@@ -451,7 +464,8 @@ fn the_whole_ask_keeps_what_was_last_shown() {
         30,
         (true, false, false),
     )
-    .unwrap();
+    .unwrap()
+    .reply;
     assert_eq!(none, Reply::Nothing);
 }
 
@@ -534,17 +548,24 @@ fn download_queues_the_plugins_as_asked_for_and_shows_the_download() {
 }
 
 #[test]
-fn the_connection_gone_meanwhile_is_failed_and_a_closed_dialog_tells_nobody() {
+fn the_connection_gone_meanwhile_is_failed_and_a_closed_dialog_is_declined() {
     let storage = MemoryStorage::new();
     let ids = strings(&["pack-a"]);
     Request::start(&storage, "reader", &ids).unwrap();
     let mut last = None;
     let ignored = ask::answered(&storage, &mut last, 1, true, Decision::Ignore).unwrap();
-    assert_eq!(ignored, Reply::Nothing);
-    assert!(
-        storage.size(REQUEST).is_ok(),
-        "left for the next ask to close"
+    // A closed dialog is not left open: the host would keep the request open
+    // for good, and it allows only a few.
+    assert_eq!(
+        ignored,
+        Reply::Answer {
+            ids: ids.clone(),
+            outcome: PluginOutcome::Declined
+        }
     );
+    assert!(storage.size(REQUEST).is_err());
+    assert!(last.is_none(), "nothing remembered: the ask may come again");
+    Request::start(&storage, "reader", &ids).unwrap();
     let reply = ask::answered(&storage, &mut last, 1, false, Decision::Download).unwrap();
     assert_eq!(
         reply,
@@ -897,4 +918,111 @@ fn the_labels_fit_a_confirmation() {
             assert!(line.len() <= 128 && !line.contains('\n'));
         }
     }
+}
+
+// --- every id gets an outcome on every path ---------------------------------
+
+/// A catalog that says nothing: the host refuses.
+struct Mute;
+
+impl Say for Mute {
+    fn lookup(&mut self, _: &str) -> Result<Option<String>, Error> {
+        Err(Error::Unsupported)
+    }
+    fn format(&mut self, _: &str, _: &[Arg<'_>]) -> Result<String, Error> {
+        Err(Error::Unsupported)
+    }
+    fn digits(&mut self, _: &str) -> Result<String, Error> {
+        Err(Error::Unsupported)
+    }
+}
+
+#[test]
+fn the_request_a_closed_dialog_left_is_answered_declined_by_the_next_ask() {
+    let storage = MemoryStorage::new();
+    indexed(
+        &storage,
+        &[("pack-a", "Pack A", 10), ("pack-b", "Pack B", 10)],
+    );
+    let index = Index::kept(&storage).unwrap();
+    let left = strings(&["pack-a"]);
+    Request::start(&storage, "reader", &left).unwrap();
+    let wanted = strings(&["pack-b"]);
+    let mut last = None;
+    // Another plugin asks; the card holds a request nobody answered.
+    let told = ask::asked(
+        &storage,
+        &mut words("en"),
+        index.as_ref(),
+        &mut last,
+        ("store", &wanted),
+        5,
+        (true, true, false),
+    )
+    .unwrap();
+    assert_eq!(told.stale, left);
+    let Reply::Dialog(dialog) = told.reply else {
+        panic!("a dialog")
+    };
+    assert_eq!(dialog.ids, wanted);
+    let open = Request::open(&storage).unwrap().unwrap();
+    assert_eq!((open.by.as_str(), open.ids), ("store", wanted));
+}
+
+#[test]
+fn an_ask_the_store_cannot_go_on_with_is_answered_failed() {
+    let storage = MemoryStorage::new();
+    indexed(&storage, &[("pack-a", "Pack A", 10)]);
+    let index = Index::kept(&storage).unwrap();
+    let wanted = strings(&["pack-a"]);
+    let mut last = None;
+    // The host refuses the words: no dialog, so nothing may stay open.
+    let told = ask::asked(
+        &storage,
+        &mut Mute,
+        index.as_ref(),
+        &mut last,
+        ("reader", &wanted),
+        5,
+        (true, false, false),
+    )
+    .unwrap();
+    assert_eq!(told.reply, Reply::AnswerAll(PluginOutcome::Failed));
+    assert!(storage.size(REQUEST).is_err(), "no request left open");
+    assert!(last.is_none());
+}
+
+#[test]
+fn a_queue_the_card_refuses_is_answered_failed_not_dropped() {
+    let storage = MemoryStorage::new();
+    let ids = strings(&["pack-a", "pack-b"]);
+    Request::start(&storage, "reader", &ids).unwrap();
+    let card = Refusing(&storage);
+    let mut last = None;
+    let reply = ask::answered(&card, &mut last, 1, true, Decision::Download).unwrap();
+    assert_eq!(
+        reply,
+        Reply::Answer {
+            ids,
+            outcome: PluginOutcome::Failed
+        }
+    );
+    assert!(storage.size(REQUEST).is_err(), "the request is closed");
+}
+
+#[test]
+fn the_end_of_a_request_is_told_without_memory() {
+    let done = Finished {
+        by: "reader".into(),
+        installed: strings(&["pack-b"]),
+        missing: strings(&["pack-a"]),
+    };
+    let told: Vec<_> = ask::finished_outcomes(&done).collect();
+    assert_eq!(
+        told,
+        [
+            ("pack-b", PluginOutcome::Installed),
+            ("pack-a", PluginOutcome::Failed)
+        ]
+    );
 }
