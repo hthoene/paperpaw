@@ -151,9 +151,9 @@ fn a_book_without_a_cover_is_not_found_and_the_document_is_closed() {
 }
 
 #[test]
-fn a_format_that_is_still_preparing_is_busy_and_one_that_failed_has_no_cover() {
+fn a_format_still_preparing_or_that_failed_has_no_cover_now() {
     // A failed document carries its ERR_* (`check::state`).
-    for (state, status, expected) in [(1, 0, ERR_BUSY), (2, ERR_IO, ERR_NOT_FOUND)] {
+    for (state, status, expected) in [(1, 0, ERR_NOT_FOUND), (2, ERR_IO, ERR_NOT_FOUND)] {
         let fake = Fake::new(Limits::X4);
         with(&fake, |view| {
             fake.queue
@@ -237,7 +237,7 @@ fn the_library_host_makes_the_cover_of_a_catalog_book() {
         lib_cover::CoverCx,
         lib_host::LibraryHost,
         lib_reads::tests::card,
-        lib_service::{BookRef, Caller as Who, LibQuery},
+        lib_service::{BookRef, Caller as Who, LibQuery, LibWrite},
     };
     let card = card();
     let library = LibraryHost::new(card.storage.clone(), card.env.clone(), None);
@@ -267,10 +267,152 @@ fn the_library_host_makes_the_cover_of_a_catalog_book() {
             .unwrap();
         assert_eq!(got, Some(id));
         assert_eq!(fake.readers.borrow()[0], (1, 1, BOOK.into()));
+        // A format that is not running yet is busy and the caller is told to
+        // ask again (bit 6, one change for that book).
+        fake.fails.set(Some(ERR_BUSY));
+        let busy = library.cover(&who, BookRef::Path(BOOK), 0, &cx, &mut |_| {});
+        assert_eq!(busy, Err(ERR_BUSY));
+        fake.fails.set(None);
+        let mut told = None;
+        assert!(library.take_changed(&mut |what, _, path| {
+            told = Some((what, std::string::String::from(path)));
+        }));
+        assert_eq!(told, Some((1 << 6, std::string::String::from(BOOK))));
         // Not in the catalog: not found, no document opened.
         let calls = fake.calls.borrow().len();
         let none = library.cover(&who, BookRef::Path("books/none.epub"), 0, &cx, &mut |_| {});
         assert_eq!(none, Err(ERR_NOT_FOUND));
         assert_eq!(fake.calls.borrow().len(), calls);
+    });
+}
+
+/// The production close path: closing the document ends its pictures, so the
+/// cover must be the caller's before that (adopted first), and a cover whose
+/// id cannot be adopted ends with the document.
+#[test]
+fn the_cover_survives_the_close_that_ends_the_documents_pictures() {
+    use crate::native_host::host_services::HostServices;
+    let fake = Fake::new(Limits::X4);
+    // The hosts the fake's close path ends pictures in (a test's one leak).
+    let hosts: &'static HostServices =
+        std::boxed::Box::leak(std::boxed::Box::new(HostServices::new()));
+    hosts.wire_documents(fake.clone()).unwrap();
+    fake.ending.set(Some(hosts));
+    with(&fake, |view| {
+        let who = Caller {
+            hosts,
+            ..caller(view)
+        };
+        let id = hosts
+            .images()
+            .add(
+                OWNER,
+                Origin::Document {
+                    document: 1,
+                    index: u32::MAX,
+                },
+                "cache/a/cover.gray",
+                100,
+                50,
+                false,
+            )
+            .unwrap();
+        fake.image.set(Some(Some(id)));
+        fake.queue
+            .borrow_mut()
+            .extend([Ok(state_answer(0, 0)), Ok(picture(100))]);
+        let image = make_cover(view, &who, BOOK, 0).unwrap();
+        // The document was closed and its pictures ended in the real table.
+        assert_eq!(*fake.images_ended.borrow(), [1]);
+        assert_eq!(image.image, id);
+        let info = hosts.images().info(OWNER, id).unwrap();
+        assert_eq!((info.width, info.height, info.index), (100, 50, u32::MAX));
+        // A document that is not the caller's: adopting fails, nothing is
+        // handed out, and its picture ends with the document.
+        let foreign = hosts
+            .images()
+            .add(
+                OWNER + 1,
+                Origin::Document {
+                    document: 2,
+                    index: u32::MAX,
+                },
+                "cache/b/cover.gray",
+                100,
+                50,
+                false,
+            )
+            .unwrap();
+        fake.image.set(Some(Some(foreign)));
+        fake.queue
+            .borrow_mut()
+            .extend([Ok(state_answer(0, 0)), Ok(picture(100))]);
+        assert_eq!(
+            make_cover(view, &who, "books/b.epub", 0).unwrap_err(),
+            ERR_NOT_FOUND
+        );
+        assert!(hosts.images().info(OWNER + 1, foreign).is_err());
+        assert_eq!(*fake.released.borrow(), [1, 2]);
+    });
+}
+
+/// The call as a plugin's callback makes it: the wire op 7 of `core.library`
+/// through the service's backend (the dispatcher's entry), the real library
+/// host on a card catalog, the document service and the format behind it.
+/// The reply is checked as the dispatcher checks it, and is the picture.
+#[test]
+#[ignore = "needs LibraryHost::screen_long_side (Host's #2348): the op checks `side` against it first and answers ERR_UNSUPPORTED until then; remove this attribute with that slice"]
+fn the_wire_call_of_op_7_reaches_the_format_and_answers_the_picture() {
+    use crate::abi7::services_wire;
+    use crate::native_host::{
+        call_services::validate_reply,
+        lib_host::LibraryHost,
+        lib_reads::tests::card,
+        lib_service::{LibHost, backend},
+    };
+    let card = card();
+    let library: Rc<dyn LibHost> = Rc::new(LibraryHost::new(
+        card.storage.clone(),
+        card.env.clone(),
+        None,
+    ));
+    let fake = Fake::new(Limits::X4);
+    with(&fake, |view| {
+        view.hosts.wire_library(library).unwrap();
+        let id = mapped(view, &fake, 1, "cache/a/cover.gray");
+        fake.queue
+            .borrow_mut()
+            .extend([Ok(state_answer(0, 0)), Ok(picture(100))]);
+        let op = services_wire::service_schema("core.library", 1)
+            .unwrap()
+            .op(7)
+            .unwrap();
+        assert_eq!(op.name, "cover");
+        let mut input = std::vec![0; 4096];
+        let used = wire::records_encode_counted(
+            &[
+                Record::ServiceLibRef(wire::ServiceLibRef {
+                    path: BOOK,
+                    generation: 0,
+                    key: None,
+                }),
+                Record::ServiceLibCover(wire::ServiceLibCover { side: 0 }),
+            ],
+            usize::from(op.input_rows),
+            op.max_input,
+            &mut input,
+        )
+        .unwrap();
+        // The reply buffer is the op's whole `max_reply`.
+        let mut out = std::vec![0; op.max_reply];
+        let length = backend(view, &caller(view), op, &input[..used], &mut out).unwrap();
+        validate_reply(&out[..length], op).unwrap();
+        match wire::record_decode_one(&out[..length]).unwrap() {
+            Record::ServiceDocImage(image) => {
+                assert_eq!((image.image, image.index), (id, u32::MAX));
+            }
+            _ => panic!("a picture"),
+        }
+        assert_eq!(*fake.ended.borrow(), [1], "the format's document is closed");
     });
 }

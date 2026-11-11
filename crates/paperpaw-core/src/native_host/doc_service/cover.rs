@@ -12,8 +12,8 @@
 //! Memory: one scratch of 4,096 bytes (what the dispatcher lends the
 //! document service), taken fallibly and freed on return, and the encoded
 //! `doc_open` (the path and a few bytes). Nothing is kept between calls. The
-//! format call is the document service's own: depth 0 only (`ERR_BUSY`
-//! otherwise), through the caller's frame.
+//! format call is the document service's own, through the caller's frame
+//! (a nested callback like the reader's own `doc_open`).
 use super::{Caller, Cx, DocHost, Frame, READY, Record, close, codec, op, open, read, wire};
 use crate::abi7::services_wire;
 use alloc::vec::Vec;
@@ -33,9 +33,9 @@ fn bytes(size: usize) -> Result<Vec<u8>, i32> {
 
 /// The cover of the library book at `path` as an image id of `caller`
 /// (`side` as `doc_open.cover_side`: 0 for the default). `ERR_NOT_FOUND` for
-/// a book without one, `ERR_BUSY` when the document table has no place for
-/// the caller now, the format is not ready (still preparing) or the call
-/// is not at depth 0; the format's and the card's own statuses otherwise.
+/// a book without one or whose format is still preparing, `ERR_BUSY` when
+/// the document table has no place for the caller now or the format is not
+/// running yet; the format's and the card's own statuses otherwise.
 pub(crate) fn make(
     frame: &dyn Frame,
     caller: &Caller<'_>,
@@ -51,15 +51,19 @@ pub(crate) fn make(
             owner: caller.owner,
             library: true,
         };
-        result = covered(&host, path, side, &mut scratch);
+        // Its id is the caller's and must outlive the document made for it:
+        // adopted before the document is closed, which ends the document's
+        // own pictures (an id that is not adopted ends with it).
+        let adopt = |image: wire::ServiceDocImage| -> Result<wire::ServiceDocImage, i32> {
+            let id = caller
+                .hosts
+                .images()
+                .adopt_cover(caller.owner, image.image)?;
+            Ok(wire::ServiceDocImage { image: id, ..image })
+        };
+        result = covered(&host, path, side, &mut scratch, &adopt);
     });
-    let image = result?;
-    // Its id is the caller's; it must outlive the document made for it.
-    let id = caller
-        .hosts
-        .images()
-        .adopt_cover(caller.owner, image.image)?;
-    Ok(wire::ServiceDocImage { image: id, ..image })
+    result
 }
 
 /// Opens, asks for the cover, closes: the document is closed whatever
@@ -69,6 +73,7 @@ fn covered(
     path: &str,
     side: u32,
     out: &mut [u8],
+    adopt: &dyn Fn(wire::ServiceDocImage) -> Result<wire::ServiceDocImage, i32>,
 ) -> Result<wire::ServiceDocImage, i32> {
     let mut input = bytes(path.len().saturating_add(96))?;
     // `doc_open` is a counted batch (its options follow the request).
@@ -97,12 +102,15 @@ fn covered(
     let ready = state.state == READY;
     let failed = state.state == super::table::FAILED;
     let asked = if ready {
-        cover_of(host, document, out)
+        // A picture whose id cannot be adopted is not handed out: the close
+        // below ends it with the document.
+        cover_of(host, document, out).and_then(adopt)
     } else if failed {
         Err(ERR_NOT_FOUND)
     } else {
-        // Preparing: the host's preparing loop is not there; try again later.
-        Err(ERR_BUSY)
+        // Preparing: the host's preparing loop does not run for a library
+        // call, and a retry would never end: no cover now.
+        Err(ERR_NOT_FOUND)
     };
     let reference = codec::encode_batch(
         &[Record::ServiceDocRef(wire::ServiceDocRef { document })],

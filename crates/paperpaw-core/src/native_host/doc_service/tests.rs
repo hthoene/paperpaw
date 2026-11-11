@@ -72,6 +72,9 @@ pub(crate) struct Fake {
     pub(crate) roots: Cell<u32>,
     pub(crate) ended: RefCell<Vec<u32>>,
     pub(crate) images_ended: RefCell<Vec<u32>>,
+    /// Where the document's pictures really end (the production close path),
+    /// when a test wants it; else they are only recorded.
+    pub(crate) ending: Cell<Option<&'static crate::native_host::host_services::HostServices>>,
     /// The format plugin stops while the host is calling it (it crashed).
     pub(crate) stops_during_call: Cell<bool>,
     pub(crate) closed: RefCell<Vec<(u32, u32)>>,
@@ -107,6 +110,7 @@ impl Fake {
             roots: Cell::new(0b11),
             ended: RefCell::new(Vec::new()),
             images_ended: RefCell::new(Vec::new()),
+            ending: Cell::new(None),
             stops_during_call: Cell::new(false),
             closed: RefCell::new(Vec::new()),
             image: Cell::new(Some(Some(41))),
@@ -203,6 +207,10 @@ impl DocHost for Fake {
     }
     fn end_images(&self, document: &Document) {
         self.images_ended.borrow_mut().push(document.id);
+        if let Some(hosts) = self.ending.get() {
+            // As the production host does: the document's pictures end now.
+            let _ = hosts.images().document_closed(document.id);
+        }
     }
     fn document_closed(&self, document: &Document, reason: u32) {
         self.closed.borrow_mut().push((document.id, reason));

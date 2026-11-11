@@ -166,7 +166,14 @@ impl LibQuery for LibraryHost {
         // The path is copied out of the catalog read: the format call takes
         // the frame, not a borrow of the catalog.
         let path = self.reads.path_of(book, lib_cover::owned)?;
-        lib_cover::make(cx, who, &path, side, visit)
+        let made = lib_cover::make(cx, who, &path, side, visit);
+        if made == Err(paperpaw_native::host_glue::ERR_BUSY) {
+            // Nothing makes the cover in the background in this version: the
+            // plugin that was told "busy" is told to ask again (bit 6), for
+            // the places and formats that are there a moment later.
+            self.changes.raise(lib_changed::COVER, &path);
+        }
+        made
     }
     fn position(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         self.visible(book)?;

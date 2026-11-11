@@ -7,12 +7,15 @@
 //!
 //! The first version makes the picture **inside the asking call**, in the
 //! caller's frame (formats can be called nowhere else); a later call finds
-//! the picture in the cache and decodes nothing. The contract's `ERR_BUSY`
-//! with `event.library_changed` bit 6 when it is ready belongs to the version
-//! that makes it in the background (the work pump); until then `ERR_BUSY`
-//! means: no place in the caller's document table now, a format that is
-//! still preparing, or a call that is not at depth 0 (the format cannot be
-//! called from inside another call): ask again later.
+//! the picture in the cache and decodes nothing. Making it in the background
+//! (the work pump) is not in this version. `ERR_BUSY` means: no place in the
+//! caller's document table now, or a format not running yet (its start is
+//! requested): the library host raises `event.library_changed` bit 6 then, so
+//! the caller asks again. A format whose `open` is still *preparing* is
+//! `ERR_NOT_FOUND` (no cover now: the host's preparing loop does not run for
+//! a library call, and a retry would spin); the book shows its outline until
+//! the screen is built again, which finds the cover once the reader has
+//! prepared the book.
 //!
 //! Nothing is kept between calls: the host's scratch (4 KiB, `doc_service::
 //! cover`) and the book's path are freed on return.
