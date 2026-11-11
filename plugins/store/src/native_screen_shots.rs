@@ -54,8 +54,19 @@ pub const SMALL_BYTES: u64 = 300 * 1000;
 const DECODE_MAX: u32 = paperpaw_sdk::native::image::SIDE_MAX;
 /// The size of the buffers of a request to the host.
 const IO: usize = 2048;
-/// The buffers of a cancel: one token in, nothing out.
-const CANCEL_IO: usize = 64;
+/// The buffers of a cancel: one token in (64 B), and a reply buffer that holds
+/// the op's `max_reply` (`core.net` `cancel`: 1,536 B; the host refuses a smaller
+/// one). Both are on the stack, so a cancel cannot be refused for memory.
+const CANCEL_IN: usize = 64;
+const CANCEL_OUT: usize = 1_536;
+
+/// Stops the download of this screen's picture. Its own frame (about 1.6 KiB,
+/// under the X4's 2,048 B limit) keeps the buffers off the callers' frames.
+#[inline(never)]
+fn cancel_request(net: &Net, host: &Host<'_>) {
+    let (mut input, mut out) = ([0; CANCEL_IN], [0; CANCEL_OUT]);
+    let _ = net.cancel(host, TOKEN, &mut input, &mut out);
+}
 /// The parameter that names the plugin.
 const ID: &str = "id";
 
@@ -252,8 +263,7 @@ impl View {
             && let Some(net) = &self.net
         {
             // A cancel the host refuses ends by itself with its request.
-            let (mut input, mut out) = ([0; CANCEL_IO], [0; CANCEL_IO]);
-            let _ = net.cancel(ctx.host, TOKEN, &mut input, &mut out);
+            cancel_request(net, ctx.host);
         }
         if let Picture::Here(id, ..) = self.picture {
             release(ctx.host, id);
