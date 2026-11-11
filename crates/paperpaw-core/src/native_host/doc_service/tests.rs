@@ -756,18 +756,25 @@ fn a_stopped_format_ends_its_documents_and_their_openers_hear_it() {
 
 #[test]
 fn the_table_allocates_once_and_ids_run_out_without_wrapping() {
+    // The room is made at the first open: a table too large for the heap
+    // says so there, and keeps nothing.
+    let huge = DocumentTable::try_new(Limits {
+        per_owner: 1,
+        device: usize::MAX / 8,
+    })
+    .unwrap();
+    assert_eq!(huge.capacity(), 0);
     assert_eq!(
-        DocumentTable::try_new(Limits {
-            per_owner: 1,
-            device: usize::MAX / 8
-        })
-        .err(),
+        huge.open(1, true, FORMAT, 0, 0, &|_| true).err(),
         Some(ERR_NO_MEMORY)
     );
+    assert_eq!(huge.capacity(), 0);
     let fake = Fake::new(Limits::X4);
+    // A device that opens nothing keeps no room.
+    assert_eq!(fake.table.capacity(), 0);
+    let id = opened(&fake);
     let capacity = fake.table.capacity();
     assert!(capacity >= 2);
-    let id = opened(&fake);
     call(&fake, 18, &[doc_ref(id)]).unwrap();
     opened(&fake);
     assert_eq!(

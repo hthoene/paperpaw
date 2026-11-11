@@ -45,13 +45,16 @@ use paperpaw_sdk::{Id, Settings, wifi::WifiState};
 const TAG: u32 = wire::EVENT_SETTING_CHANGED_TAG;
 
 /// The hint events a plugin can subscribe to.
-const HINTS: [u32; 6] = [
+const HINTS: [u32; 9] = [
     wire::EVENT_PLUGINS_CHANGED_TAG,
     wire::EVENT_WIFI_CHANGED_TAG,
     wire::EVENT_POWER_CHANGED_TAG,
     wire::EVENT_STATUS_CHANGED_TAG,
     wire::EVENT_CHARGE_CHANGED_TAG,
     wire::EVENT_PREVIEW_CHANGED_TAG,
+    wire::EVENT_WIFI_SCANNED_TAG,
+    wire::EVENT_NETWORK_WANTED_TAG,
+    wire::EVENT_NETWORK_IDLE_TAG,
 ];
 
 /// Events told to one plugin in one pass.
@@ -186,6 +189,23 @@ impl SettingEvents {
             if let Ok(queue) = self.queue_of(&mut queues, owner) {
                 let _ = queue.hint(tag);
             }
+        }
+    }
+
+    /// As [`Self::publish_hint`], to the plugin `plugin` alone (`wanted` and
+    /// `idle` go to the network manager only).
+    pub(crate) fn publish_hint_to(&self, instances: &NativeInstances, plugin: &str, tag: u32) {
+        let Some(owner) = instances.find(plugin) else {
+            return;
+        };
+        if !HINTS.contains(&tag) || !instances.subscribed(owner, tag) {
+            return;
+        }
+        let Ok(mut queues) = self.queues.try_borrow_mut() else {
+            return;
+        };
+        if let Ok(queue) = self.queue_of(&mut queues, owner) {
+            let _ = queue.hint(tag);
         }
     }
 
@@ -333,6 +353,14 @@ impl crate::Kernel {
             wire::EVENT_POWER_CHANGED_TAG => Hint::Power(&shared.power),
             wire::EVENT_STATUS_CHANGED_TAG => Hint::Status,
             wire::EVENT_PREVIEW_CHANGED_TAG => Hint::Preview,
+            wire::EVENT_WIFI_SCANNED_TAG => Hint::Scanned(
+                shared
+                    .wifi
+                    .as_ref()
+                    .map_or(0, |wifi| wifi.networks.len() as u32),
+            ),
+            wire::EVENT_NETWORK_WANTED_TAG => Hint::NetworkWanted,
+            wire::EVENT_NETWORK_IDLE_TAG => Hint::NetworkIdle,
             wire::EVENT_CHARGE_CHANGED_TAG => {
                 Hint::Charge(ChargeState::from_status(&shared.status, None))
             }
@@ -348,6 +376,16 @@ impl crate::Kernel {
     /// Announces a hint to the plugins subscribed to it.
     pub(crate) fn native_hint_publish(&self, tag: u32) {
         let instances = &self.shared.native_instances;
+        // `network_wanted` and `network_idle` go to the network manager alone
+        // (`device.md` section 3); without one they go nowhere.
+        if tag == wire::EVENT_NETWORK_WANTED_TAG || tag == wire::EVENT_NETWORK_IDLE_TAG {
+            if let Some(manager) = self.network_manager() {
+                instances
+                    .setting_events
+                    .publish_hint_to(instances, manager, tag);
+            }
+            return;
+        }
         instances.setting_events.publish_hint(instances, tag);
     }
 
@@ -374,6 +412,8 @@ impl crate::Kernel {
     // frame adds their locals (the firmware's frame limit for host code).
     #[inline(never)]
     pub(crate) fn native_setting_pump(&mut self) -> bool {
+        // Requests nobody can answer any more are closed (free when none is open).
+        self.native_requests_settle();
         let events = &self.shared.native_instances.setting_events;
         events.prune(&self.shared.native_instances);
         let owners = events.waiting();

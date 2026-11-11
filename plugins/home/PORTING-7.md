@@ -12,9 +12,10 @@ until the host activates native plugins (then it goes together, no shim).
 - **H1/H3/H4:** the screens, composition (`ui.compose`, #827) and pointer input to a native screen on a
   real host with a screen stack: every ignored case in `tests/acceptance_pending.rs` is only that.
   The X4 refuses the compose family until its stack gate passes (ui.md 8.2).
-- **`event.widget_changed` (86):** the host delivers it to the maker that subscribes; the declare SDK's
-  `EventKind` has no variant for it, so home cannot subscribe (asked of Services). The handler is
-  written (`refresh`); until then a widget's update shows at the next minute tick.
+- **`event.widget_changed` (86):** home subscribes to it (`WIDGET_CHANGED`, `EventKind::WidgetChanged`,
+  #1071) and the page is laid out and drawn anew where the dashboard is on top (`refresh`), as the
+  minute tick does; seen only on a host with a screen stack (H1/H3). The scripted host proves the
+  subscription and that a change with no dashboard on top draws nothing.
 - **Scripted host:** it keeps no settings store, so the end-to-end case of the grid's reflow
   (`home-grid-reflow`, `HOST-settings-store`) runs only on a real host; `native_reflow` is unit-tested.
 - **Device gates:** heap peak and time of the dashboard's draw (status line about 17 KiB and the recent

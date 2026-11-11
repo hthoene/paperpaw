@@ -378,6 +378,21 @@ impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
     ) -> Result<i32, i32> {
         self.service_call(bytes, env, Some(stage))
     }
+    fn event_staged(
+        &self,
+        token: u32,
+        bytes: &[u8],
+        env: &Env<'_>,
+        stage: &mut super::commands::CommandStage<'_>,
+    ) -> Result<i32, i32> {
+        self.invoke(
+            token,
+            env,
+            None,
+            shell::TokenInvocation::Event(bytes),
+            Some(stage),
+        )
+    }
     fn input_staged(
         &self,
         token: u32,

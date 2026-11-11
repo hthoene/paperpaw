@@ -8,12 +8,14 @@ type Emit = fn(&mut dyn FnMut(&[u8]) -> Result<(), i32>) -> Result<(), String>;
 /// slice `NAME` over them; returns the length-framed bytes for the golden.
 fn emit(
     source: &mut String,
+    all: &mut Vec<Vec<u8>>,
     name: &str,
     build: impl FnOnce(&mut dyn FnMut(&[u8]) -> Result<(), i32>) -> Result<(), String>,
 ) -> Result<Vec<u8>, String> {
     let mut count = 0;
     let mut framed = Vec::new();
     build(&mut |batch| {
+        all.push(batch.to_vec());
         writeln!(
             source,
             "pub static {name}_{count}: [u8; {}] = {batch:?};",
@@ -37,7 +39,8 @@ fn main() -> Result<(), String> {
     println!("cargo:rerun-if-changed=declarations.rs");
     println!("cargo:rerun-if-changed=testdata/declarations.bin.v1");
     let mut source = String::new();
-    let settings = emit(&mut source, "SETTINGS", |sink| {
+    let mut all: Vec<Vec<u8>> = Vec::new();
+    let settings = emit(&mut source, &mut all, "SETTINGS", |sink| {
         declarations::settings(sink).map_err(|e| format!("invalid Vocabulary settings: {e:?}"))
     })?;
     if settings != include_bytes!("testdata/declarations.bin.v1") {
@@ -76,9 +79,21 @@ fn main() -> Result<(), String> {
         }),
     ];
     for (name, build) in emits {
-        emit(&mut source, name, build)?;
+        emit(&mut source, &mut all, name, build)?;
     }
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
+    // The settings as a table the kernel keeps in the program (a linked
+    // build only), made of the very records declared above.
+    let batches: Vec<&[u8]> = all.iter().map(Vec::as_slice).collect();
+    let table =
+        paperpaw_sdk::native::declare::fixed_settings_source("vocabulary", "SETTINGS", &batches)?
+            + &paperpaw_sdk::native::declare::fixed_groups_source(
+                "vocabulary",
+                "GROUPS",
+                &batches,
+            )?;
+    std::fs::write(out.join("vocabulary_settings.rs"), table)
+        .map_err(|error| format!("write settings table: {error}"))?;
     std::fs::write(out.join("vocabulary_declarations.rs"), source)
         .map_err(|error| format!("write declarations: {error}"))?;
     Ok(())

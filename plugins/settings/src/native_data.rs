@@ -88,6 +88,12 @@ impl<'h, 'cb> Reader<'h, 'cb> {
         })
     }
 
+    /// The transport buffers (input, reply), for another service's call made
+    /// while the reader is open: no second pair is held beside them.
+    pub fn buffers(&mut self) -> (&mut [u8], &mut [u8]) {
+        (&mut self.input, &mut self.output)
+    }
+
     /// Releases the registry, whatever `result` is.
     pub fn finish<T>(self, result: Result<T, Error>) -> Result<T, Error> {
         let released = self.registry.release(self.host);
