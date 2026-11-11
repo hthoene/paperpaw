@@ -22,11 +22,11 @@ enum Owned {
     /// Boxed at once: a spec is large, and the list holds one place for each
     /// declaration (the registration peak on the X4).
     Setting(alloc::boxed::Box<paperpaw_sdk::SettingSpec>),
-    /// The settings equal to entries `.1` to `.2` (not including) of the
-    /// plugin's table `.0` in the program: no copy of them is kept
-    /// (`fixed_settings`). A run, so that a pack of hundreds takes one place
-    /// in the list, not one of a spec's size for each.
-    FixedSettings(&'static [paperpaw_sdk::SettingSpec], usize, usize),
+    /// The settings equal to the entries `.1` of the plugin's table `.0` in the
+    /// program, in the table's order: no copy of them is kept
+    /// (`fixed_settings`). One place for all of them, not one of a spec's size
+    /// for each.
+    FixedSettings(&'static [paperpaw_sdk::SettingSpec], Vec<u16>),
     Group(alloc::boxed::Box<paperpaw_sdk::SettingGroupSpec>),
     Resource(super::native_resources::Resource),
     /// A screen the plugin offers for a slot (`slot.offer`).
@@ -614,10 +614,10 @@ impl crate::Kernel {
                         .native(owner, Contribution::Setting(spec))
                         .map_err(shell::Error::Status)?;
                 }
-                Owned::FixedSettings(list, first, end) => {
-                    for at in first..end {
+                Owned::FixedSettings(list, entries) => {
+                    for at in entries {
                         staging
-                            .native_fixed(list, at)
+                            .native_fixed(list, usize::from(at))
                             .map_err(shell::Error::Status)?;
                     }
                 }
@@ -813,6 +813,12 @@ fn map_declarations(
     view: &super::declaration_checks::View<'_>,
     fixed: &'static [paperpaw_sdk::SettingSpec],
 ) -> Result<(Id, Vec<Owned>, Vec<u32>, bool), i32> {
+    // Entries are numbered in two bytes; a longer table is not used.
+    let fixed = if fixed.len() > usize::from(u16::MAX) {
+        &[]
+    } else {
+        fixed
+    };
     // The host's own id is reserved: no plugin's action passes for a host
     // one (ui.md 4.3).
     if view.plugin == crate::RESERVED_PLUGIN_ID {
@@ -846,10 +852,11 @@ fn map_declarations(
     // items and status lines), which draws may name.
     let mut tokens = Vec::new();
     let mut any = false;
-    // Where the next setting is looked for in the table: they come in order.
-    let mut cursor = 0;
-    // Where the run of table settings is in `owned`.
-    let mut run: Option<usize> = None;
+    // The table entries the plugin's settings stand for.
+    let mut entries: Vec<u16> = Vec::new();
+    entries
+        .try_reserve_exact(fixed.len())
+        .map_err(|_| ERR_NO_MEMORY)?;
     let mut result: Result<(), i32> = Ok(());
     view.visit(&mut |record| {
         if result.is_err() {
@@ -864,27 +871,15 @@ fn map_declarations(
                 tokens.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
                 tokens.push(token);
             }
-            if let Some(mut value) = map_record(view.plugin, record)? {
-                if let Owned::Setting(spec) = &value {
+            if let Some(value) = map_record(view.plugin, record)? {
+                if let Owned::Setting(spec) = &value
+                    && let Some(at) = super::fixed_settings::find(fixed, spec, 0)
+                {
                     // Equal to an entry of the plugin's table: that entry is
-                    // kept, and the copy made here goes at once.
-                    if let Some(at) = super::fixed_settings::find(fixed, spec, cursor) {
-                        cursor = at + 1;
-                        value = Owned::FixedSettings(fixed, at, at + 1);
-                    }
-                }
-                if let Owned::FixedSettings(_, first, end) = &value {
-                    // The table's entries are one run in the list, wherever the
-                    // plugin's other declarations (a group between two of its
-                    // settings) fall: an entry that follows the run goes on it.
-                    if let Some(Owned::FixedSettings(_, _, last)) =
-                        run.and_then(|slot| owned.get_mut(slot))
-                        && *last == *first
-                    {
-                        *last = *end;
-                        return Ok(());
-                    }
-                    run = Some(owned.len());
+                    // kept, and the copy made here goes at once. The records
+                    // come in no order the table keeps.
+                    entries.push(u16::try_from(at).map_err(|_| ERR_INVALID)?);
+                    return Ok(());
                 }
                 owned.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
                 owned.push(value);
@@ -894,6 +889,12 @@ fn map_declarations(
         })();
     })?;
     result?;
+    if !entries.is_empty() {
+        // In the table's order, which is the order they were declared in.
+        entries.sort_unstable();
+        owned.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        owned.push(Owned::FixedSettings(fixed, entries));
+    }
     // Whether it declared anything is told with the result: a library that only
     // registers callbacks (an event, a tick) is admitted too; one with neither
     // is refused where the registrations are known ([`Kernel::admit_native`]).
@@ -929,7 +930,7 @@ pub(super) fn settings_paths(
     let kept = owned
         .iter()
         .map(|value| match value {
-            Owned::FixedSettings(_, first, end) => end - first,
+            Owned::FixedSettings(_, entries) => entries.len(),
             _ => 0,
         })
         .sum();
