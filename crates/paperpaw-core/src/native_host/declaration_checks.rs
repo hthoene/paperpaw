@@ -20,6 +20,10 @@ const KIND_MENU_SECTION: u8 = 26;
 const KIND_FORMAT: u8 = 31;
 /// Index category of `reader.spec`.
 const KIND_READER: u8 = 32;
+/// Index category of `book_field.spec`.
+const KIND_BOOK_FIELD: u8 = 34;
+/// Index category of `book_badge.spec`.
+const KIND_BOOK_BADGE: u8 = 35;
 /// Index category of `lookup.spec`.
 const KIND_LOOKUP: u8 = 33;
 const _: () = assert!(KIND_LOOKUP == super::declaration_index::KIND_TABLE[33].1);
@@ -42,6 +46,10 @@ impl Cap {
     pub(crate) const FORMATS: u32 = 14;
     /// `reg_plugin.problem`: too many readers.
     pub(crate) const READERS: u32 = 15;
+    /// `reg_plugin.problem`: too many book fields (8 per plugin, 64 device-wide).
+    pub(crate) const BOOK_FIELDS: u32 = 16;
+    /// `reg_plugin.problem`: too many book badges (4 per plugin, 16 device-wide).
+    pub(crate) const BOOK_BADGES: u32 = 17;
     /// `reg_plugin.problem`: too many lookup providers (16 and 17 are the
     /// book fields and badges).
     pub(crate) const LOOKUPS: u32 = 18;
@@ -227,18 +235,32 @@ impl<'a> View<'a> {
             )));
             return Err(ERR_INVALID);
         }
-        // At most 8 lookup providers per plugin: the ninth refuses the batch
-        // (`ERR_INVALID`); the 32 of the device are the store's.
-        let providers = self
-            .raw
-            .index
-            .iter()
-            .filter(|entry| entry.kind() == KIND_LOOKUP)
-            .count();
-        if providers > LOOKUPS_PER_PLUGIN {
-            self.refused
-                .set(Some(Cap::of(Cap::LOOKUPS, LOOKUPS_PER_PLUGIN)));
-            return Err(ERR_INVALID);
+        // At most 8 book fields, 4 book badges and 8 lookup providers per
+        // plugin (`library.md` section 1, `document.md` section 7): the one over
+        // refuses the batch (`ERR_INVALID`); the device's caps are the store's.
+        for (kind, cap, problem) in [
+            (
+                KIND_BOOK_FIELD,
+                super::declaration_store::FIELDS_PER_PLUGIN,
+                Cap::BOOK_FIELDS,
+            ),
+            (
+                KIND_BOOK_BADGE,
+                super::declaration_store::BADGES_PER_PLUGIN,
+                Cap::BOOK_BADGES,
+            ),
+            (KIND_LOOKUP, LOOKUPS_PER_PLUGIN, Cap::LOOKUPS),
+        ] {
+            let count = self
+                .raw
+                .index
+                .iter()
+                .filter(|entry| entry.kind() == kind)
+                .count();
+            if count > cap {
+                self.refused.set(Some(Cap::of(problem, cap)));
+                return Err(ERR_INVALID);
+            }
         }
         let mut result = Ok(());
         self.visit(&mut |record| {

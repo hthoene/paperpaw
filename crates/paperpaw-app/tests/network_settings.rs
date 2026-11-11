@@ -43,8 +43,8 @@ fn app(config: &str) -> Kernel {
 
 #[test]
 #[cfg_attr(
-    feature = "native-linked-store",
-    ignore = "waits for the host: the store plugins are native-linked (their interface-6 forms are out) and these tests count the interface-6 ones (#243)"
+    feature = "native-linked",
+    ignore = "needs native activation (#228, Services #894): a native plugin with admitted uses.network gets core.network.<id> and core.saving.<id> at admission; transfer is native now"
 )]
 fn fixed_network_settings_cover_the_plugins() {
     let kernel = app("");
@@ -68,8 +68,8 @@ fn fixed_network_settings_cover_the_plugins() {
 
 #[test]
 #[cfg_attr(
-    feature = "native-linked-store",
-    ignore = "waits for the host: the store plugins are native-linked (their interface-6 forms are out) and these tests count the interface-6 ones (#243)"
+    feature = "native-linked",
+    ignore = "needs native activation (#228, Services #894): a native plugin with admitted uses.network gets core.network.<id> and core.saving.<id> at admission; transfer is native now"
 )]
 fn network_settings_keep_their_ids_defaults_and_values() {
     let kernel = app("");

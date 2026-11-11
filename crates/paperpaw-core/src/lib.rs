@@ -342,6 +342,11 @@ pub struct Kernel {
     /// Setting defaults from plugins, applied once all are registered:
     /// `(plugin, setting, value)`.
     plugin_defaults: Vec<(Id, Id, Cow<'static, str>)>,
+    /// The device's defaults for settings no plugin had declared when they
+    /// were applied (a native plugin declares its settings after the kernel
+    /// is built): `(setting, value)`, applied as the declaring plugin is
+    /// published (`native_install`).
+    late_device_defaults: Vec<(String, String)>,
     /// Values plugins offer among other plugins' choices, added once all
     /// are registered: `(plugin, setting, value)`.
     plugin_choices: Vec<(Id, Id, Cow<'static, str>)>,
@@ -434,6 +439,9 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         self.now = now;
         self.last_activity = now;
+        // The shell hosted its native plugins before this call: what their
+        // admission kept in reserve is given back.
+        self.native_hosted();
         // Replace what the shell showed before startup, also under a home overlay.
         self.invalidate(self.framebuffer.bounds());
         self.output.commands.push(Command::open_slot(slots::HOME));

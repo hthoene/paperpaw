@@ -170,13 +170,14 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("power", &paperpaw_plugin_power::NATIVE_ENTRY),
     ("settings", &paperpaw_plugin_settings::NATIVE_ENTRY),
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
+    ("transfer", &paperpaw_plugin_transfer::NATIVE_ENTRY),
     ("update", &paperpaw_plugin_update::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
     ("widgets", &paperpaw_plugin_widgets::NATIVE_ENTRY),
 ];
 
 /// Whether the linked native plugin `id` is linked here and, if it is, on where
-/// nothing switched it (the default `Kernel::native_enabled` takes): the rule
+/// nothing switched it (the default `Kernel::native_decide` takes): the rule
 /// [`install_with`] applies to the plugin's interface-6 form, so that a plugin
 /// the store offers keeps the state it ships in.
 ///
@@ -421,9 +422,12 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);
         b = offered(b, store, paperpaw_plugin_format_images::ImagesFormat);
     }
-    b = b
-        .plugin(paperpaw_plugin_wifi::Wifi)
-        .plugin(paperpaw_plugin_transfer::Transfer);
+    b = b.plugin(paperpaw_plugin_wifi::Wifi);
+    // Transfer is a native plugin, linked (`NATIVE_PLUGINS`), where the feature says.
+    #[cfg(not(feature = "native-linked"))]
+    {
+        b = b.plugin(paperpaw_plugin_transfer::Transfer);
+    }
     #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_fonts_browser::FontsBrowser);

@@ -20,6 +20,8 @@ pub(crate) mod codec;
 pub(crate) mod event_tags;
 #[path = "native_host/owner_directory.rs"]
 pub(crate) mod owner_directory;
+#[path = "native_host/shrink.rs"]
+pub(crate) mod shrink;
 
 pub(crate) mod device_log;
 #[allow(
@@ -261,11 +263,17 @@ pub(crate) mod image_pump;
     reason = "wired into the shell table; the DOC, LIB and prepare producers fill it"
 )]
 pub(crate) mod image_service;
+pub(crate) mod lib_changed;
 #[allow(
     dead_code,
     reason = "wired by HostWiring::library; the write half is todo 307"
 )]
 pub(crate) mod lib_host;
+#[allow(dead_code, reason = "wired by the LIB write half (Services, #1050)")]
+pub(crate) mod lib_jobs;
+pub(crate) mod lib_jobs_env;
+#[allow(dead_code, reason = "wired by the LIB write half (Services, #1050)")]
+pub(crate) mod lib_jobs_journal;
 pub(crate) mod lib_moves_carry;
 pub(crate) mod lib_moves_host;
 pub(crate) mod lib_moves_journal;
@@ -275,6 +283,7 @@ pub(crate) mod lib_moves_walk;
 pub(crate) mod lib_reads;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;
+mod library_events;
 pub(crate) mod linked_plugins;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
@@ -301,6 +310,7 @@ mod service_slots;
 pub(crate) mod setting_events;
 #[allow(dead_code, reason = "wired into the shell frame by the SOCK adapter")]
 pub(crate) mod sock_service;
+pub(crate) mod speech;
 mod stack_events;
 #[allow(
     dead_code,
@@ -1006,11 +1016,13 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     fn publish(mut self, teardown: Teardown<C>) -> Result<RegistrationBatch<'a, C, M, T>, Error> {
         let lease = CallbackLease(self.owner.inner().activate_leased(teardown)?);
         Ok(RegistrationBatch {
-            records: core::mem::take(&mut self.records),
             declarations: core::mem::take(&mut self.declarations),
             raw: core::mem::take(&mut self.raw),
-            _image: core::marker::PhantomData,
-            lease,
+            records: PublishedRecords {
+                records: core::mem::take(&mut self.records),
+                _image: core::marker::PhantomData,
+                lease,
+            },
         })
     }
 
@@ -1122,34 +1134,71 @@ impl<C, M, T> Drop for Construction<'_, C, M, T> {
     }
 }
 
-/// Published records share a lease which keeps their context and code alive.
-/// Record destructors run before that lease is released. External queues need
-/// their own leases and must be cancelled before owner teardown.
+/// A committed batch: its records with their lease, and the declarations
+/// staged beside them, which the caller moves out before it retains the
+/// records (`into_retained` keeps only those).
+/// Declarations drop before the records, and the lease drops last.
 #[non_exhaustive]
 pub struct RegistrationBatch<'a, C, M, T> {
-    records: Vec<T>,
     declarations: Declarations,
     raw: raw_declarations::RawDeclarations,
+    records: PublishedRecords<'a, C, M, T>,
+}
+
+impl<C, M, T> RegistrationBatch<'_, C, M, T> {
+    /// The records alone, for as long as the caller retains the pinned owner
+    /// and image. What is left of the declarations is dropped here: a retained
+    /// batch keeps no room for them (they are moved out before, or unused).
+    ///
+    /// # Safety
+    /// The caller retains the pinned owner and image until the result drops.
+    unsafe fn into_retained(self) -> PublishedRecords<'static, C, M, T>
+    where
+        T: 'static,
+    {
+        let records = self.records;
+        PublishedRecords {
+            records: records.records,
+            _image: core::marker::PhantomData,
+            // SAFETY: the caller provides the retained pinned owner lifetime.
+            lease: CallbackLease(unsafe { records.lease.0.into_retained() }),
+        }
+    }
+
+    // The draft-4 bridge consumes these snapshots together with Declarations.
+    #[allow(dead_code, reason = "draft-4 registry bridge follows the substrate")]
+    pub(crate) fn take_raw_declarations(&mut self) -> raw_declarations::RawDeclarations {
+        core::mem::take(&mut self.raw)
+    }
+
+    /// Move decoded-only host declarations out, leaving an empty set behind.
+    /// Wire submissions are stored separately and do not appear here. They
+    /// currently refuse commit until the SDK declaration views are wired.
+    pub fn take_declarations(&mut self) -> Declarations {
+        core::mem::take(&mut self.declarations)
+    }
+}
+
+impl<'a, C, M, T> Deref for RegistrationBatch<'a, C, M, T> {
+    type Target = PublishedRecords<'a, C, M, T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.records
+    }
+}
+
+/// Published records share a lease which keeps their context and code alive.
+/// Record destructors run before that lease is released. External queues need
+/// their own leases and must be cancelled before owner teardown. This is all
+/// a retained batch keeps for each plugin.
+#[non_exhaustive]
+pub struct PublishedRecords<'a, C, M, T> {
+    records: Vec<T>,
     _image: core::marker::PhantomData<&'a [u8]>,
     lease: CallbackLease<'a, C, M>,
 }
 
-impl<C, M, T> RegistrationBatch<'_, C, M, T> {
-    /// The caller retains the pinned owner and image until this batch drops.
-    unsafe fn into_retained(self) -> RegistrationBatch<'static, C, M, T>
-    where
-        T: 'static,
-    {
-        RegistrationBatch {
-            records: self.records,
-            declarations: self.declarations,
-            raw: self.raw,
-            _image: core::marker::PhantomData,
-            // SAFETY: the caller provides the retained pinned owner lifetime.
-            lease: CallbackLease(unsafe { self.lease.0.into_retained() }),
-        }
-    }
-
+impl<C, M, T> PublishedRecords<'_, C, M, T> {
     /// Number of published host records.
     #[must_use]
     pub fn len(&self) -> usize {
@@ -1167,19 +1216,6 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.records.is_empty()
-    }
-
-    // The draft-4 bridge consumes these snapshots together with Declarations.
-    #[allow(dead_code, reason = "draft-4 registry bridge follows the substrate")]
-    pub(crate) fn take_raw_declarations(&mut self) -> raw_declarations::RawDeclarations {
-        core::mem::take(&mut self.raw)
-    }
-
-    /// Move decoded-only host declarations out, leaving an empty set behind.
-    /// Wire submissions are stored separately and do not appear here. They
-    /// currently refuse commit until the SDK declaration views are wired.
-    pub fn take_declarations(&mut self) -> Declarations {
-        core::mem::take(&mut self.declarations)
     }
 
     /// Dispatch a declared contribution's token through this batch's owner.
@@ -1257,6 +1293,14 @@ impl<C, M, T> fmt::Debug for Construction<'_, C, M, T> {
 impl<C, M, T> fmt::Debug for RegistrationBatch<'_, C, M, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RegistrationBatch")
+            .field("len", &self.records.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl<C, M, T> fmt::Debug for PublishedRecords<'_, C, M, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PublishedRecords")
             .field("len", &self.records.len())
             .finish_non_exhaustive()
     }
