@@ -600,7 +600,18 @@ impl Device {
         params: paperpaw_core::sdk::Params,
     ) {
         let now = self.now();
-        let effects = budget::track(|| self.kernel.open_screen(now, screen, params));
+        let effects = budget::track(|| {
+            // The keyboard asks a question (a native one cannot open without
+            // it): the step's `title` and `secret` are the question's.
+            if self.kernel.keyboard_screen() == Some(&screen) {
+                let title = params.get("title").unwrap_or_default();
+                let secret = params.get("secret").is_some_and(|value| value == "true");
+                if let Ok(effects) = self.kernel.stage_text_question(now, title, secret) {
+                    return effects;
+                }
+            }
+            self.kernel.open_screen(now, screen, params)
+        });
         self.execute(effects);
     }
 

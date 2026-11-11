@@ -188,13 +188,21 @@ impl Document for HostDocument<'_> {
         _storage: &dyn Storage,
         at: Locator,
     ) -> Result<Option<Block>, DocumentError> {
+        block_result(self.read_at(at))
+    }
+}
+
+impl HostDocument<'_> {
+    /// The block at `at`, with the host's refusal as it is (the search scan
+    /// tells the end of a section from a refusal by it).
+    ///
+    /// # Errors
+    /// What the host refuses; `State` while another read holds the buffers.
+    pub fn read_at(&self, at: Locator) -> Result<Block, Error> {
         let place = DocPosition::new(at.section, at.offset);
-        let mut buffers = self
-            .buffers
-            .try_borrow_mut()
-            .map_err(|_| DocumentError::Other(0))?;
+        let mut buffers = self.buffers.try_borrow_mut().map_err(|_| Error::State)?;
         let (input, out) = &mut *buffers;
-        let read = read_block(|cursor, assembler| {
+        read_block(|cursor, assembler| {
             let fragment = self
                 .documents
                 .block_at(self.host, self.id, place, cursor, input, out)?;
@@ -203,8 +211,7 @@ impl Document for HostDocument<'_> {
                 Some(block) => Ok(Next::Done(block)),
                 None => more.map(Next::More).ok_or(Error::Invalid),
             }
-        });
-        block_result(read)
+        })
     }
 }
 

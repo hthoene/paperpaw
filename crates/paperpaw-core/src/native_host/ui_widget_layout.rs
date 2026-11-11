@@ -38,6 +38,7 @@ use super::{
     ui_service::UiServices,
 };
 use crate::abi7::context::Frame;
+use crate::native_host::codec;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED,
@@ -182,7 +183,7 @@ impl UiServices {
             y: input.y,
             kind: input.kind,
         });
-        let length = wire::records_encode(&[record], out)?;
+        let length = codec::encode_batch(&[record], out)?;
         Ok(Some((*input, length)))
     }
 
@@ -243,10 +244,7 @@ fn locate(frame: &dyn Frame, ui: &UiServices, who: &Caller<'_>, id: u32) -> Resu
 }
 
 fn area(input: &[u8]) -> Result<wire::ServiceUiWidgetArea, i32> {
-    match wire::records_decode_single(input)? {
-        Record::ServiceUiWidgetArea(area) => Ok(area),
-        _ => Err(ERR_INVALID),
-    }
+    codec::single(input)
 }
 
 /// Op 6: a tap or long press for the owner's `input` callback, queued.
@@ -265,9 +263,7 @@ pub(super) fn widget_input(
     {
         return Err(ERR_UNSUPPORTED);
     }
-    let Record::ServiceUiWidgetInput(tap) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let tap: wire::ServiceUiWidgetInput = codec::single(input)?;
     if tap.kind >= KINDS {
         return Err(ERR_INVALID);
     }
@@ -310,7 +306,7 @@ pub(super) fn widget_measure(
             }
         }
     }
-    wire::record_encode_one(
+    codec::encode_one(
         &Record::ServiceUiSize(wire::ServiceUiSize {
             height,
             min_height: least,
@@ -368,7 +364,7 @@ pub(super) fn widget_targets(
             if count as usize == TARGETS_MAX {
                 break;
             }
-            used += wire::record_encode_one(
+            used += codec::encode_one(
                 &Record::ServiceUiTarget(wire::ServiceUiTarget {
                     target: target.target,
                     x: target.x,
@@ -389,7 +385,7 @@ pub(super) fn widget_targets(
         cursor: None,
     };
     Ok(used
-        + wire::record_encode_one(
+        + codec::encode_one(
             &Record::ServiceEnd(end),
             out.get_mut(used..).ok_or(ERR_INVALID)?,
         )?)

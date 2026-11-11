@@ -122,20 +122,17 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::StatusLine(_)
         | Record::StatusPlace(_) => super::declarations_uix::validate(plugin_id, record),
         // Format and reader declarations (`docs/abi/document.md` section 1):
-        // admitted (the cross-record limits are the commit's). The lookup and
-        // book declarations (`library.md`) are checked, then refused until the
-        // host admits them (DOC/LIB hand-off).
+        // admitted (the cross-record limits are the commit's), as are the
+        // book fields and badges (`library.md`). The lookup and book-data
+        // declarations are checked, then refused until the host admits them
+        // (DOC/LIB hand-off).
         Record::FormatSpec(spec) => docs::format_check(plugin_id, spec),
         Record::ReaderSpec(spec) => docs::reader_check(plugin_id, spec),
-        // A lookup provider: admitted (the counts are the commit's and the
-        // store's, `document.md` section 7).
+        // A lookup provider is admitted (the counts are the commit's and the
+        // store's, `document.md` section 7), as are book fields and badges.
         Record::LookupSpec(spec) => docs::lookup_check(plugin_id, spec),
-        Record::BookFieldSpec(spec) => {
-            docs::book_field_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED))
-        }
-        Record::BookBadgeSpec(spec) => {
-            docs::book_badge_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED))
-        }
+        Record::BookFieldSpec(spec) => docs::book_field_check(plugin_id, spec),
+        Record::BookBadgeSpec(spec) => docs::book_badge_check(plugin_id, spec),
         Record::BookDataSpec(spec) => {
             docs::book_data_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED))
         }

@@ -40,6 +40,7 @@ fn main() -> Result<(), String> {
     let mut all: Vec<Vec<u8>> = Vec::new();
     emit!(source, all, "SETTINGS", declarations::settings);
     emit!(source, all, "SCREENS", declarations::screens);
+    emit!(source, all, "STATUS", declarations::status);
     emit!(source, all, "NAVIGATION", declarations::navigation);
     emit!(source, all, "KEYS", declarations::keys);
     emit!(source, all, "HOLD_KEYS", declarations::hold_keys);

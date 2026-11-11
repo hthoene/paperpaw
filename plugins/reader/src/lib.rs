@@ -50,14 +50,18 @@ pub mod native_annotations;
 pub mod native_annotations_view;
 pub mod native_block;
 pub mod native_bookmark;
+pub mod native_chapter;
 pub mod native_decor;
 pub mod native_document;
 pub mod native_draw;
 mod native_entry;
+pub mod native_handsfree;
+pub mod native_index;
 pub mod native_look;
 pub mod native_place;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
+pub mod native_finding;
 
 /// The settings the plugin declares, made by its build script from the same
 /// declarations as a table.
@@ -78,14 +82,22 @@ pub static NATIVE_SETTINGS: &[paperpaw_sdk::SettingSpec] = &native_settings::SET
 #[cfg(feature = "linked")]
 pub static NATIVE_GROUPS: &[paperpaw_sdk::SettingGroupSpec] = &native_settings::GROUPS;
 pub mod native_footnote;
+pub mod native_headings;
 pub mod native_links;
 pub mod native_marking;
 pub mod native_notes;
 pub mod native_open;
 pub mod native_pages;
 pub mod native_plugin;
+pub mod native_search;
+pub mod native_search_view;
 pub mod native_selection;
+pub mod native_skim;
+pub mod native_skim_view;
+pub mod native_speech;
+pub mod native_start;
 pub mod native_state;
+pub mod native_status;
 #[cfg(test)]
 mod native_tests;
 pub mod native_toc;

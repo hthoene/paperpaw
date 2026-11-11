@@ -675,6 +675,10 @@ impl Kernel {
     /// ([`PLUGINS_ANSWERED`](paperpaw_sdk::builtin::events::PLUGINS_ANSWERED)).
     pub(crate) fn request_plugins(&mut self, by: Id, plugins: Vec<Id>) {
         use paperpaw_sdk::builtin::events::{self, PluginsAnswered};
+        // A native plugin asks native installers (`native_host::plugin_requests`).
+        if self.is_native_plugin(by.as_str()) {
+            return self.native_request_plugins(&by, plugins);
+        }
         let mut wanted: Vec<Id> = Vec::new();
         for id in plugins {
             if wanted.len() == paperpaw_sdk::MAX_REQUESTED_PLUGINS {

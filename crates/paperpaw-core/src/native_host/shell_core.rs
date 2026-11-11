@@ -1,6 +1,6 @@
 //! Test-only kernel-backed dispatch without exposing borrowed CoreFrame internals.
 use super::{
-    Batch, DispatchDepth, Error, Invocation, Registration, invoke_registration, screen_frame,
+    DispatchDepth, Error, Invocation, Published, Registration, invoke_registration, screen_frame,
 };
 use crate::{Kernel, abi7::core_frame::CoreFrame};
 use paperpaw_graphics::Canvas;
@@ -16,7 +16,7 @@ impl Kernel {
     /// Returns the owner or frame refusal, or a missing callback error.
     pub(crate) fn dispatch_native_for_test<S, M>(
         &self,
-        batch: &Batch<'_, S, M, Registration>,
+        batch: &Published<'_, S, M, Registration>,
         index: usize,
         depth: &DispatchDepth,
         invocation: Invocation<'_>,
@@ -41,7 +41,7 @@ impl Kernel {
             ui: None,
         };
         batch.dispatch(index, depth, |context, record| {
-            let _running = self.shared.meter.enter(&context.id);
+            let _running = self.shared.meter.enter(context.plugin_id());
             // SAFETY: the owner structurally pins this scope for the call.
             let scope = unsafe { context.map_unchecked(|value| &value.environment) };
             scope.scope_core(&frame, || invoke_registration(context, *record, invocation))?
@@ -56,7 +56,7 @@ impl Kernel {
     /// Returns an owner, frame or canvas refusal, or a missing callback error.
     pub(crate) fn draw_native_for_test<S, M>(
         &self,
-        batch: &Batch<'_, S, M, Registration>,
+        batch: &Published<'_, S, M, Registration>,
         index: usize,
         depth: &DispatchDepth,
         now: Instant,
@@ -85,7 +85,7 @@ impl Kernel {
             ui: None,
         };
         batch.dispatch(index, depth, |context, record| {
-            let _running = self.shared.meter.enter(&context.id);
+            let _running = self.shared.meter.enter(context.plugin_id());
             // SAFETY: the owner structurally pins both scoped fields.
             let environment = unsafe { context.map_unchecked(|value| &value.environment) };
             let drawing = unsafe { context.map_unchecked(|value| &value.canvas) };
@@ -103,7 +103,7 @@ impl Kernel {
     /// Input and its real command stage use the current kernel screen identity.
     pub(crate) fn input_native_for_test<S, M>(
         &mut self,
-        batch: &Batch<'_, S, M, Registration>,
+        batch: &Published<'_, S, M, Registration>,
         token: u32,
         depth: &DispatchDepth,
         bytes: &[u8],

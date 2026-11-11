@@ -46,6 +46,12 @@ impl Lists {
     }
 }
 
+/// The values of the items of the caller's own plugin: pairs of the full item
+/// id and its text. The host never calls its caller back for an item of its
+/// own (`ui.md` 5.3), so the caller says what they show; an item with no pair,
+/// or an empty text, is hidden.
+pub type Own<'o> = &'o [(&'o str, &'o str)];
+
 /// What a line is made with: the host, the font and the small text size.
 #[derive(Debug)]
 pub struct Face<'a, 'f> {
@@ -148,7 +154,7 @@ struct Shown<'a> {
 fn values<'a>(
     host: &'a Host<'a>,
     ui: &Ui,
-    meta: &[Meta],
+    (meta, own): (&[Meta], Own<'_>),
     lists: &[&str; 3],
     buffers: &'a mut [Vec<u8>; 2],
 ) -> Result<(Vec<Shown<'a>>, [Vec<usize>; 3]), Error> {
@@ -171,7 +177,22 @@ fn values<'a>(
         let page = ui.status_values(host, &items, &[], &mut scratch, &mut input, out)?;
         for row in page {
             let row = row?;
-            if row.is_own() || row.is_hidden() {
+            if row.is_hidden() {
+                continue;
+            }
+            if row.is_own() {
+                // The caller's own item: its value is the caller's to give.
+                let text = own.iter().find(|(id, _)| *id == row.item());
+                if let Some((id, text)) = text.filter(|(_, text)| !text.is_empty()) {
+                    mem::push(
+                        &mut shown,
+                        Shown {
+                            id: copy(id)?,
+                            text: copy(text)?,
+                            drawn: None,
+                        },
+                    )?;
+                }
                 continue;
             }
             let drawn = row.draw_handle().map(Compose::StatusItem);
@@ -226,11 +247,12 @@ fn lay_out<'a>(
     lists: &Lists,
     ui: &Ui,
     area: Rect,
+    own: Own<'_>,
     buffers: &'a mut [Vec<u8>; 2],
 ) -> Result<Line<'a>, Error> {
     let wanted = lists.wanted();
     let meta = read_meta(face.host, &wanted)?;
-    let (shown, at_part) = values(face.host, ui, &meta, &wanted, buffers)?;
+    let (shown, at_part) = values(face.host, ui, (&meta, own), &wanted, buffers)?;
     let size = face.small;
     let mut parts: Parts = [Vec::new(), Vec::new(), Vec::new()];
     for (part, indices) in at_part.iter().enumerate() {
@@ -275,12 +297,26 @@ pub struct Placed<'a> {
 /// # Errors
 /// Font and host refusals, [`Error::NoMemory`].
 pub fn draw<'a>(
-    (face, lists): (&Face<'a, '_>, &Lists),
+    items: (&Face<'a, '_>, &Lists),
     ui: &Ui,
     out: &mut Vec<Paint>,
     placed: &mut Vec<Placed<'a>>,
     buffers: &'a mut [Vec<u8>; 2],
-    (area, color): (Rect, paperpaw_sdk::Color),
+    on: (Rect, paperpaw_sdk::Color),
+) -> Result<(), Error> {
+    draw_own(items, ui, (out, placed), buffers, (on, &[]))
+}
+
+/// [`draw`] for a caller with items of its own, whose values are `own`.
+///
+/// # Errors
+/// Font and host refusals, [`Error::NoMemory`].
+pub fn draw_own<'a>(
+    (face, lists): (&Face<'a, '_>, &Lists),
+    ui: &Ui,
+    (out, placed): (&mut Vec<Paint>, &mut Vec<Placed<'a>>),
+    buffers: &'a mut [Vec<u8>; 2],
+    ((area, color), own): ((Rect, paperpaw_sdk::Color), Own<'_>),
 ) -> Result<(), Error> {
     let size = face.small;
     let chosen = lists.line.as_str();
@@ -299,7 +335,7 @@ pub fn draw<'a>(
         }
         return Ok(());
     }
-    let line = lay_out(face, lists, ui, area, buffers)?;
+    let line = lay_out(face, lists, ui, area, own, buffers)?;
     let baseline = ink_baseline(face.font, size, FIGURES, area)?;
     for laid in &line.laid {
         let Some(item) = line.shown.get(laid.index) else {
@@ -346,15 +382,28 @@ pub fn draw<'a>(
 /// # Errors
 /// Font and host refusals, [`Error::NoMemory`].
 pub fn targets(
+    items: (&Face<'_, '_>, &Lists),
+    ui: &Ui,
+    area: Rect,
+) -> Result<Vec<(u32, Rect)>, Error> {
+    targets_own(items, ui, area, &[])
+}
+
+/// [`targets`] for a caller with items of its own, whose values are `own`.
+///
+/// # Errors
+/// Font and host refusals, [`Error::NoMemory`].
+pub fn targets_own(
     (face, lists): (&Face<'_, '_>, &Lists),
     ui: &Ui,
     area: Rect,
+    own: Own<'_>,
 ) -> Result<Vec<(u32, Rect)>, Error> {
     let mut buffers = [
         mem::buffer(mem::SERVICE_BUFFER)?,
         mem::buffer(mem::SERVICE_BUFFER)?,
     ];
-    let line = lay_out(face, lists, ui, area, &mut buffers)?;
+    let line = lay_out(face, lists, ui, area, own, &mut buffers)?;
     let mut tappable = tapped(&line);
     tappable.sort_unstable_by(|a, b| a.0.x.total_cmp(&b.0.x));
     let reach = face.small * 0.2;
@@ -400,16 +449,29 @@ fn tapped<'l>(line: &'l Line<'_>) -> Vec<(Laid, &'l str)> {
 /// # Errors
 /// Font and host refusals, [`Error::NoMemory`].
 pub fn action(
-    (face, lists): (&Face<'_, '_>, &Lists),
+    items: (&Face<'_, '_>, &Lists),
     ui: &Ui,
     area: Rect,
+    target: u32,
+) -> Result<Option<String>, Error> {
+    action_own(items, ui, (area, &[]), target)
+}
+
+/// [`action`] for a caller with items of its own, whose values are `own`.
+///
+/// # Errors
+/// Font and host refusals, [`Error::NoMemory`].
+pub fn action_own(
+    (face, lists): (&Face<'_, '_>, &Lists),
+    ui: &Ui,
+    (area, own): (Rect, Own<'_>),
     target: u32,
 ) -> Result<Option<String>, Error> {
     let mut buffers = [
         mem::buffer(mem::SERVICE_BUFFER)?,
         mem::buffer(mem::SERVICE_BUFFER)?,
     ];
-    let line = lay_out(face, lists, ui, area, &mut buffers)?;
+    let line = lay_out(face, lists, ui, area, own, &mut buffers)?;
     let mut tappable = tapped(&line);
     tappable.sort_unstable_by(|a, b| a.0.x.total_cmp(&b.0.x));
     let at = usize::try_from(target).unwrap_or(0).saturating_sub(1);
@@ -428,7 +490,7 @@ pub fn shows(host: &Host<'_>, lists: &Lists, ui: &Ui) -> Result<u64, Error> {
     ];
     let wanted = lists.wanted();
     let meta = read_meta(host, &wanted)?;
-    let (shown, _) = values(host, ui, &meta, &wanted, &mut buffers)?;
+    let (shown, _) = values(host, ui, (&meta, &[]), &wanted, &mut buffers)?;
     let mut hash = 0xcbf2_9ce4_8422_2325_u64;
     for item in &shown {
         for byte in item.id.bytes().chain(item.text.bytes()).chain([0xff]) {

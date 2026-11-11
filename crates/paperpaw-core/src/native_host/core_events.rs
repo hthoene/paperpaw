@@ -46,8 +46,9 @@ use paperpaw_sdk::{Id, Params, builtin::events as builtin};
 /// of one plugin ends within it.
 const QUEUE_MAX: usize = 28;
 
-/// The lifecycle events that are edges, held encoded.
-const EDGE_TAGS: [u32; 7] = [
+/// The lifecycle events that are edges, held encoded (and `library_changed`,
+/// held the same way: its queue must not be pruned for want of a listener).
+const EDGE_TAGS: [u32; 11] = [
     wire::EVENT_SCREEN_READY_TAG,
     wire::EVENT_STARTED_TAG,
     wire::EVENT_BATTERY_MEASURED_TAG,
@@ -55,6 +56,10 @@ const EDGE_TAGS: [u32; 7] = [
     wire::EVENT_BOOK_OPENED_TAG,
     wire::EVENT_BOOK_CLOSED_TAG,
     wire::EVENT_BOOK_FINISHED_TAG,
+    wire::EVENT_LIBRARY_CHANGED_TAG,
+    wire::EVENT_SPOKEN_TAG,
+    wire::EVENT_PLUGINS_REQUESTED_TAG,
+    wire::EVENT_PLUGIN_ANSWERED_TAG,
 ];
 
 /// The wire tag of the kernel event `event`, `None` for any other event.
@@ -120,6 +125,16 @@ fn drop_note(tag: u32) -> &'static str {
         wire::EVENT_BOOK_CLOSED_TAG => "a native plugin lost event.book_closed; not retried",
         wire::EVENT_BOOK_FINISHED_TAG => "a native plugin lost event.book_finished; not retried",
         wire::EVENT_SCREEN_READY_TAG => "a native plugin lost event.screen_ready; not retried",
+        wire::EVENT_LIBRARY_CHANGED_TAG => {
+            "a native plugin lost event.library_changed; not retried"
+        }
+        wire::EVENT_SPOKEN_TAG => "a native plugin lost event.spoken; not retried",
+        wire::EVENT_PLUGINS_REQUESTED_TAG => {
+            "a native plugin lost event.plugins_requested; not retried"
+        }
+        wire::EVENT_PLUGIN_ANSWERED_TAG => {
+            "a native plugin lost event.plugin_answered; not retried"
+        }
         _ => "a native plugin lost event.page_turned; not retried",
     }
 }
@@ -230,9 +245,21 @@ impl Kernel {
         hears: &dyn Fn(&str) -> bool,
         hold: &dyn Fn(&mut Pending) -> Result<(), i32>,
     ) {
+        let _ = self.native_queue_event_if(tag, &|_, _, id| hears(id), hold);
+    }
+
+    /// As [`Self::native_queue_event`], where `hears` also sees the instances
+    /// and the plugin's owner key (e.g. whether it may answer plugin requests).
+    pub(super) fn native_queue_event_if(
+        &mut self,
+        tag: u32,
+        hears: &dyn Fn(&NativeInstances, u64, &str) -> bool,
+        hold: &dyn Fn(&mut Pending) -> Result<(), i32>,
+    ) -> usize {
         // Whether an event was lost that was not logged yet (once for a
         // plugin until its queue is empty again).
         let mut report = false;
+        let mut held_by = 0;
         let mut n = 0;
         let instances = &self.shared.native_instances;
         while let Some((owner, _)) = instances.running_nth(n) {
@@ -240,7 +267,7 @@ impl Kernel {
             let Some(id) = instances.id(owner) else {
                 continue;
             };
-            if !instances.subscribed(owner, tag) || !hears(id.as_str()) {
+            if !instances.subscribed(owner, tag) || !hears(instances, owner, id.as_str()) {
                 continue;
             }
             let held = instances
@@ -249,10 +276,12 @@ impl Kernel {
             // A queue that cannot even be made is reported every time (it
             // cannot remember that it was).
             report |= matches!(held, Err(_) | Ok(Err(true)));
+            held_by += usize::from(matches!(held, Ok(Ok(()))));
         }
         if report {
             self.try_warn_runtime(&[drop_note(tag)]);
         }
+        held_by
     }
 
     /// `event.screen_ready` (87) for the instance `instance` of `screen`, to
