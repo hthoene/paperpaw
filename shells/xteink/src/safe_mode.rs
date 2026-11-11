@@ -225,6 +225,26 @@ pub fn started() {
     }
 }
 
+/// The firmware restarts or switches off by its own choice (a plugin's
+/// power-off, a pending restart), maybe before the first frame: the start it
+/// ends did not fail, so it counts for neither counter (`start_count`).
+pub fn clean_exit() {
+    let mut record = read();
+    let mut count = paperpaw_x4::start_count::Count {
+        failed: record.failed,
+        counted: record.counted != 0,
+    };
+    count.clean_exit();
+    record.failed = count.failed;
+    record.counted = u8::from(count.counted);
+    write(record);
+    // SAFETY: as in `begin`.
+    unsafe {
+        core::ptr::addr_of_mut!(EARLY)
+            .write_volatile(paperpaw_x4::start_count::early::clean_exit());
+    }
+}
+
 /// The panic going on was in the code of plugin `id` (from the panic
 /// handler: nothing is allocated).
 pub fn crashed_in(id: &str) {

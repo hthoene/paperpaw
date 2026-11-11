@@ -517,6 +517,7 @@ impl Firmware {
 
     fn restart(&mut self) -> ! {
         info!("restarting");
+        crate::safe_mode::clean_exit();
         self.settle_frame();
         crate::startup::restarting(&mut self.panel, &self.kernel);
         self.pause_trial();
@@ -721,6 +722,7 @@ impl Firmware {
             // Started again: whatever the light sleeps did to the USB link,
             // the computer finds the X4 again.
             power::mark(power::at::TRIED);
+            crate::safe_mode::clean_exit();
             esp_hal::system::software_reset();
         }
         // A press under way: read again soon, awake (the readings stop in
@@ -849,6 +851,8 @@ impl Firmware {
     )]
     #[inline(never)]
     fn power_off(&mut self) -> ! {
+        // Its own choice, maybe before the first frame: not a failed start.
+        crate::safe_mode::clean_exit();
         // The next start ends this sleep: the mark says so, for plugins to
         // hear the device wake (`core.resume`). A switch-off a plugin asked
         // for leaves it too: the start is a cold one, but plugins that

@@ -69,6 +69,13 @@ impl Count {
     pub fn started(&mut self) {
         *self = Self::default();
     }
+
+    /// The firmware restarts or switches off by its own choice (a plugin's
+    /// power-off, a pending restart), possibly before the first frame: that
+    /// start did not fail, whatever it had counted.
+    pub fn clean_exit(&mut self) {
+        *self = Self::default();
+    }
 }
 
 /// Starts counted from the very first instruction, before the stack's band,
@@ -100,6 +107,13 @@ pub mod early {
     /// The word this start leaves, counting itself.
     pub fn next(word: u32) -> u32 {
         MAGIC | u32::from(previous(word).saturating_add(1))
+    }
+
+    /// The word a restart or switch-off the firmware chose itself leaves (a
+    /// plugin's power-off, a pending restart before the first frame): the
+    /// start it ends did not fail.
+    pub fn clean_exit() -> u32 {
+        CLEARED
     }
 
     /// The word a start that goes without native plugins because of
@@ -224,5 +238,29 @@ mod tests {
             word = early::next(word);
         }
         assert_eq!(early::previous(word), 255);
+    }
+
+    #[test]
+    fn a_restart_or_switch_off_of_its_own_before_the_first_frame_is_no_failed_start() {
+        // Two starts that ended by their own choice in a row: neither counts,
+        // the third is a normal one (with native plugins, with the band).
+        let mut word = early::CLEARED;
+        let mut count = Count::default();
+        for _ in 0..3 {
+            let previous = early::previous(word);
+            assert!(!early::refuses(previous));
+            assert_eq!(count.decide(false, false), None);
+            word = early::next(word);
+            count.loading();
+            // Before any first frame: a plugin's power-off or a restart.
+            word = early::clean_exit();
+            count.clean_exit();
+        }
+        assert_eq!(early::previous(word), 0);
+        assert_eq!(count, Count::default());
+        // A start that dies instead still counts, as before.
+        word = early::next(early::clean_exit());
+        word = early::next(word);
+        assert!(early::refuses(early::previous(word)));
     }
 }
