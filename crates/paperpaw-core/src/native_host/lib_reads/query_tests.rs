@@ -503,3 +503,23 @@ fn a_sort_key_is_cut_at_96_bytes_and_a_tie_goes_by_path() {
     let keys: Vec<u64> = rows.iter().map(|r| u64::from(r.key)).collect();
     assert_eq!(keys, [s.at[2], s.at[1], s.at[0]]);
 }
+
+#[test]
+fn a_title_that_begins_another_comes_first_whatever_the_paths() {
+    // The key holds text and path in one buffer: "ab" before "abc" although
+    // its path is after; the same titles go by path, and descending turns
+    // all of it round.
+    let s = shelf(&[
+        line("books/z.epub", "A", "Ab", "", "", ["", "", "1"]),
+        line("books/a.epub", "A", "Abc", "", "", ["", "", "1"]),
+        line("books/m.epub", "A", "ab", "", "", ["", "", "1"]),
+    ]);
+    let keys = |q: &wire::ServiceLibQuery<'_>| -> Vec<u64> {
+        let (rows, _) = page(&s.reads(), q, 9).unwrap();
+        rows.iter().map(|r| u64::from(r.key)).collect()
+    };
+    assert_eq!(keys(&ask()), [s.at[2], s.at[0], s.at[1]]);
+    let mut down = ask();
+    down.flags = 1;
+    assert_eq!(keys(&down), [s.at[1], s.at[0], s.at[2]]);
+}
