@@ -32,7 +32,11 @@ impl<V> Screens<V> {
             *old = view;
             return Ok(());
         }
-        self.open.try_reserve(1).map_err(|_| Error::NoMemory)?;
+        // Exactly one more: a screen's state can be hundreds of bytes, and the
+        // usual growth would reserve room for four.
+        self.open
+            .try_reserve_exact(1)
+            .map_err(|_| Error::NoMemory)?;
         self.open.push((instance, view));
         Ok(())
     }
@@ -80,6 +84,11 @@ impl<V> Screens<V> {
     /// Every open instance's state.
     pub fn all(&mut self) -> impl Iterator<Item = &mut V> {
         self.open.iter_mut().map(|(_, view)| view)
+    }
+
+    /// Every open instance with its state.
+    pub fn all_with_instance(&mut self) -> impl Iterator<Item = (Instance, &mut V)> {
+        self.open.iter_mut().map(|(instance, view)| (*instance, view))
     }
 
     /// Whether no instance is open.
