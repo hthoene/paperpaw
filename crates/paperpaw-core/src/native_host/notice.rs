@@ -29,6 +29,10 @@ pub(crate) struct Notice {
 }
 
 impl Notice {
+    /// The notice of `params`' text. Its allocations (the wrap ranges, the
+    /// lines) are infallible, as Beta 3's were: accepted (Code Reviewer,
+    /// #1270), since the text is bounded by the wire record (at most 256
+    /// bytes) and a notice exists only while it shows.
     pub(crate) fn new(env: &Env<'_>, params: &Params) -> Self {
         let style = UiStyle::new(env);
         let display = env.device().display;

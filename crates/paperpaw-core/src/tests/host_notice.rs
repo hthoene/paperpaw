@@ -107,8 +107,40 @@ fn a_long_text_is_cut_to_three_lines() {
         &Params::new().with(paperpaw_sdk::builtin::params::TEXT, "Saved"),
     );
     assert_eq!(short.lines(), ["Saved"]);
-    let empty = crate::native_host::notice::Notice::new(&env, &Params::new());
-    assert!(empty.lines().len() <= 1);
+    // No text: no line with words in it (at most one empty one), not a
+    // line of some other text.
+    for params in [
+        Params::new(),
+        Params::new().with(paperpaw_sdk::builtin::params::TEXT, ""),
+    ] {
+        let empty = crate::native_host::notice::Notice::new(&env, &params);
+        assert!(empty.lines().len() <= 1, "{:?}", empty.lines());
+        assert!(
+            empty.lines().iter().all(String::is_empty),
+            "{:?}",
+            empty.lines()
+        );
+    }
+}
+
+/// A plugin may open the host's notice as an ordinary screen: it takes no
+/// action of its own, so Back closes it as any screen.
+#[test]
+fn back_closes_the_notice_opened_as_a_screen() {
+    let mut kernel = Kernel::builder(DEVICE).build().unwrap();
+    kernel.start(Instant(0));
+    render(&mut kernel);
+    let below = kernel.active_screen().cloned();
+    let params = Params::new().with(paperpaw_sdk::builtin::params::TEXT, "Opened");
+    kernel.open_screen(Instant(10), crate::native_host::notice::SCREEN, params);
+    render(&mut kernel);
+    assert_eq!(
+        kernel.active_screen(),
+        Some(&crate::native_host::notice::SCREEN)
+    );
+    kernel.run_action(Instant(20), actions::BACK);
+    render(&mut kernel);
+    assert_eq!(kernel.active_screen().cloned(), below, "Back closed it");
 }
 
 #[test]
