@@ -361,8 +361,22 @@ pub(crate) unsafe fn draw(
         let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
         let width = with_font(scope, owner, handle, |font| {
             canvas.with_canvas(|canvas| {
-                graphics::text_draw(canvas, font, size, x, i64::from(baseline), text, color)
-                    .map_err(|_| ERR_INVALID)
+                let width =
+                    graphics::text_draw(canvas, font, size, x, i64::from(baseline), text, color)
+                        .map_err(|_| ERR_INVALID)?;
+                // Told as text where somebody asks, as a legacy label is
+                // (`screens-input.md` 6.1); nothing is done otherwise.
+                if canvas.is_describing() {
+                    let line = font.line_metrics(size);
+                    #[allow(
+                        clippy::cast_precision_loss,
+                        reason = "a baseline on a screen is far below 2^24"
+                    )]
+                    let top = baseline as f32 - line.ascent;
+                    let height = line.ascent + line.descent;
+                    super::canvas_describe::told_text(canvas, text, x, top, width, height);
+                }
+                Ok(width)
             })?
         })?;
         // SAFETY: output was validated before drawing.

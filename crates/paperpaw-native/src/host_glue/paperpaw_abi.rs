@@ -111,6 +111,8 @@ pub struct PpHost {
     pub icon_glyph: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, name: PpBytes, out: PpBuffer) -> i32,
     /// text.draw_inked: mutate, status, since 1.
     pub text_draw_inked: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, font: u32, size: f32, x: f32, baseline: i32, color: u32, text: PpBytes, extra: u32, tone: PpBytes, flags: u32, out: *mut f32) -> i32,
+    /// canvas.describe: mutate, count, since 1.
+    pub canvas_describe: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, role: u32, flags: u32, label: PpBytes, x: i32, y: i32, width: u32, height: u32) -> i32,
 }
 /// Generated ABI major.
 pub const MAJOR: u16 = 7;
