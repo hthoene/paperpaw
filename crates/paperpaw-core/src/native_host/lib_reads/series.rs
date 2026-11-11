@@ -61,7 +61,8 @@ impl CatalogReads {
             .map_err(fail)?
             .ok_or(ERR_STATE)?;
         let mut buffer = zeroed(ENTRY_BUFFER)?;
-        row(self, &changes, (at, &path), &mut buffer, &mut |record| {
+        // One row: the page is never full.
+        let _ = row(self, &changes, (at, &path), &mut buffer, &mut |record| {
             visit(record);
             ControlFlow::Continue(())
         })?;
