@@ -19,6 +19,7 @@ use crate::{
     paint, text,
 };
 use alloc::{string::String, vec::Vec};
+use paperpaw_sdk::native::canvas::PartRole;
 use paperpaw_sdk::{
     Color, Point, Rect,
     native::{Error, fonts::Font},
@@ -56,6 +57,8 @@ pub struct Dialog {
     stacked: bool,
     /// The interface runs right to left: buttons and lines start at the right.
     rtl: bool,
+    /// Whether to queue what the dialog tells about itself.
+    describing: bool,
     small_text: bool,
     title_size: f32,
     text_size: f32,
@@ -153,6 +156,7 @@ impl Dialog {
             room: screen.1,
             stacked,
             rtl: style.rtl,
+            describing: style.describing,
             small_text: false,
             title_size: style.title,
             text_size: style.text,
@@ -404,6 +408,12 @@ impl Dialog {
         }
     }
 
+    /// Sets whether the dialog tells what it is (`canvas.describe`): from
+    /// [`paint::asking`] in the draw callback; off unless set.
+    pub fn set_describing(&mut self, describing: bool) {
+        self.describing = describing;
+    }
+
     /// Prepares its drawing, button `focus` focused.
     ///
     /// # Errors
@@ -414,6 +424,14 @@ impl Dialog {
         font: &Font<'_>,
         focus: Option<usize>,
     ) -> Result<(), Error> {
+        paint::describe(
+            paint,
+            self.describing,
+            PartRole::Dialog,
+            self.panel,
+            false,
+            false,
+        )?;
         paint::push(paint, Paint::Fill(self.panel, self.paper))?;
         let thickness = u32::from(self.line).max(1);
         paint::push(
@@ -472,6 +490,14 @@ impl Dialog {
         }
         for (i, (rect, label)) in self.buttons.iter().zip(&self.labels).enumerate() {
             let focused = focus == Some(i);
+            paint::describe(
+                paint,
+                self.describing,
+                PartRole::Button,
+                *rect,
+                focused,
+                false,
+            )?;
             let (fill, ink) = if focused {
                 (Some(self.ink), self.paper)
             } else {
@@ -539,6 +565,7 @@ mod tests {
             room: 800,
             stacked,
             rtl: false,
+            describing: false,
             small_text: false,
             title_size: 24.0,
             text_size: 16.0,
