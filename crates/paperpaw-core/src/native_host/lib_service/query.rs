@@ -12,7 +12,6 @@ use crate::abi7::context::RowsEnd;
 use crate::native_host::registrations::{self as wire, Record};
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED};
-use paperpaw_sdk::SettingValue;
 
 /// The files plugin's archive folder setting: the folder a query may leave out.
 const ARCHIVE_SETTING: &str = "files.archive";
@@ -254,12 +253,10 @@ fn catalog(
         })
     } else {
         // The setting is read only for a query that leaves the archive out.
-        let setting = (query.flags & 0b10 != 0)
-            .then(|| frame.settings().get(ARCHIVE_SETTING))
-            .flatten();
-        let archive = match &setting {
-            Some(SettingValue::Text(text)) => text.as_ref(),
-            _ => "",
+        let archive = if query.flags & 0b10 != 0 {
+            frame.settings().text(ARCHIVE_SETTING)
+        } else {
+            ""
         };
         page::list(out, rows, check::Row::Entry, request, |visit| {
             host.query(&query, archive, visit)

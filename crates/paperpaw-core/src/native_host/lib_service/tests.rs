@@ -39,13 +39,15 @@ const WIRED: &[paperpaw_native::metadata::Feature<'static>] = &[
 /// wired (or not) and `uses.library` / `uses.storage` as the fields say.
 pub(super) struct View<'a> {
     env: &'a Env<'a>,
+    /// The settings the frame shows: `files.archive` as the test set it.
+    settings: Settings,
     hosts: crate::native_host::host_services::HostServices,
     pub(super) granted: bool,
     pub(super) storage: bool,
 }
 impl Frame for View<'_> {
     fn settings(&self) -> &Settings {
-        self.env.settings()
+        &self.settings
     }
     fn translator(&self) -> &Translator {
         self.env.i18n()
@@ -74,17 +76,25 @@ std::thread_local! {
 
 /// Run `body` with a frame over `host`.
 pub(super) fn with<R>(host: Rc<dyn LibHost>, body: impl FnOnce(&View<'_>) -> R) -> R {
-    let mut builder = crate::Kernel::builder(crate::tests::DEVICE);
-    let archive = ARCHIVE.with(core::cell::Cell::get);
-    if !archive.is_empty() {
-        builder = builder.setting_default_text("files.archive", archive);
-    }
-    let kernel = builder.build().unwrap();
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let mut settings = Settings::new();
+    settings
+        .define(paperpaw_sdk::SettingSpec::new(
+            paperpaw_sdk::Id::new_static("files.archive"),
+            "archive",
+            paperpaw_sdk::SettingKind::Text,
+            paperpaw_sdk::SettingValue::Text(ARCHIVE.with(core::cell::Cell::get).into()),
+            paperpaw_sdk::builtin::groups::OTHER,
+        ))
+        .unwrap();
     let env = kernel.shared.env(Instant(0));
     let hosts = crate::native_host::host_services::HostServices::new();
     hosts.wire_library(host).unwrap();
     body(&View {
         env: &env,
+        settings,
         hosts,
         granted: true,
         storage: STORAGE.with(core::cell::Cell::get),
