@@ -258,9 +258,8 @@ impl crate::Kernel {
                     .lease
                     .event_staged(pending.token, &pending.bytes, env, stage)
             });
-            if let Err(status) | Ok(status) = status
-                && !matches!(status, 0 | 1)
-            {
+            let (Ok(status) | Err(status)) = status;
+            if !matches!(status, 0 | 1) {
                 // A stopped or failing plugin leaves the action without
                 // effect; the report says why.
                 use super::native_screen::Dispatch as _;
