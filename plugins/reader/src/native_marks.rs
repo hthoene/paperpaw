@@ -155,13 +155,18 @@ pub fn load(host: &Host<'_>, library: &Library, path: &str, mine: u64) -> Result
                 && span.start < span.end
                 && found.len() < MAX_HIGHLIGHTS
             {
-                found.try_reserve(1).map_err(|_| Error::NoMemory)?;
+                // Exactly one more: the usual growth would take room for twice.
+                found.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
                 found.push(span);
             }
         }
         match page.end().next() {
             Some(next) if seen < MAX_ROWS => cursor = next,
-            _ => return Ok(found),
+            _ => {
+                // Nothing held beyond what was read.
+                found.shrink_to_fit();
+                return Ok(found);
+            }
         }
     }
 }
@@ -251,7 +256,7 @@ impl Painted {
         marks: &Marks,
         words: &[WordBox],
         hit: Option<Span>,
-        dpi: u16,
+        gauge: Gauge,
     ) -> Result<Self, Error> {
         if !marks.on_page(words, hit) {
             return Ok(Self::default());
@@ -262,7 +267,7 @@ impl Painted {
             Err(_) => Ok(Decoration::NONE),
         };
         let mut painted = Self {
-            gauge: Some(Gauge { dpi }),
+            gauge: Some(gauge),
             layers: Vec::new(),
         };
         let hits = hit.as_slice();
@@ -374,18 +379,53 @@ pub fn boxes(words: &[WordBox], spans: &[Span]) -> Vec<Rect> {
 }
 
 /// Sizes the marks are drawn in, from the display: half a millimetre of room
-/// round a mark, and a tenth of a millimetre for each unit of thickness.
+/// round a mark, and a tenth of a millimetre for each unit of thickness; and
+/// whether the panel has so few grays that a background is dithered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Gauge {
     pub dpi: u16,
+    /// Black and white alone, or four grays (not colour): a tone behind text is
+    /// a pattern of black rows by its lightness, as Beta 3's `fill_shaded`.
+    pub few_grays: bool,
 }
 
 impl Gauge {
+    /// The gauge of the display with `dpi`, `grays` levels (`None`: many) and
+    /// colour or not.
+    #[must_use]
+    pub fn of(dpi: u16, grays: Option<u16>, colour: bool) -> Self {
+        Self {
+            dpi,
+            few_grays: !colour && grays.is_some_and(|g| g <= 4),
+        }
+    }
+
     /// `tenths` tenths of a millimetre, in pixels.
     #[must_use]
     pub fn tenth_mm(self, tenths: u32) -> u32 {
         (u32::from(self.dpi) * tenths + 127) / 254
     }
+}
+
+/// Rows of the pattern that stands for a gray on a panel of few grays.
+const PATTERN_ROWS: i32 = 4;
+
+/// A tone as rows: of every [`PATTERN_ROWS`] rows (counted from the top of the
+/// screen, so the boxes of two lines meet without a seam) as many are black as the
+/// tone is dark, so a light gray stays a light pattern the text reads well on.
+fn shade(
+    pen: &mut impl Pen,
+    (x, y, width, height): (i32, i32, u32, u32),
+    tone: Tone,
+) -> Result<(), Error> {
+    let dark = i32::from(255 - tone.color().luma());
+    let black = ((dark * PATTERN_ROWS + 127) / 255).clamp(0, PATTERN_ROWS);
+    for row in y..y + height as i32 {
+        if row.rem_euclid(PATTERN_ROWS) < black {
+            pen.fill(x, row, width, 1, Color::BLACK)?;
+        }
+    }
+    Ok(())
 }
 
 /// Behind the words of `boxes` (one a line): the background.
@@ -407,13 +447,17 @@ pub fn draw_behind(
     for b in boxes {
         let left = (i32::from(b.x) - pad).max(0);
         let right = i32::from(b.x) + i32::from(b.width) + pad;
-        pen.fill(
+        let area = (
             left,
             i32::from(b.y),
             (right - left).max(0) as u32,
             u32::from(b.height),
-            tone.color(),
-        )?;
+        );
+        if gauge.few_grays {
+            shade(pen, area, tone)?;
+        } else {
+            pen.fill(area.0, area.1, area.2, area.3, tone.color())?;
+        }
     }
     Ok(())
 }

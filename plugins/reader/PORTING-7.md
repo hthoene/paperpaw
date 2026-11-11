@@ -813,7 +813,16 @@ relative to the data folder).
   `Decoration::of_role`). Backgrounds go behind the words (`Painted::behind`, before `draw_lines_marked`), lines under, frames
   and strikes over them (`Painted::over`); a box is one for each line of covered words (`native_selection::line_boxes`).
 - **Memory.** Only the highlights are held: 24 bytes each, at most 512 (`MAX_HIGHLIGHTS`; Beta 3 held every note with its
-  text); a book with more draws the first ones the library gives. The read is one pass of at most 8,192 rows through a 256 B
+  text). The cap is 12 KiB at most, kept for the whole reading, and a page rarely has more than a few; a book with more draws
+  the first ones the library gives. The list grows by exactly one entry (`try_reserve_exact`) and is shrunk to fit after the
+  read. No room for it (or a refusal of the library) at the open: the book opens without highlights.
+- **Marks never fail a page.** `Painted::new`, `behind` and `over` run on the page's draw: any error (no memory, a host
+  refusal) leaves the page drawn without the marks (or with those drawn so far), as the text is drawn after.
+- **Few grays.** On a panel of two or four grays (not colour) a background is not filled with the tone, which would turn
+  white (light gray 210) or black behind black text: it is rows of black by the tone's darkness (one in four for light gray,
+  three in four for dark gray), counted from the top of the screen so boxes of two lines meet without a seam; Beta 3's
+  `fill_shaded`. The looks are read on each draw that has a mark on the band (a handful of small host reads), not kept, so a
+  look changed in the settings shows at once. The read is one pass of at most 8,192 rows through a 256 B
   and a 4 KiB buffer at the open. The search results keep 4 bytes more a row (where the match ends, 100 rows at most).
 - **The hit.** Choosing a search hit goes to the page that starts at the match (`View::go_to_match`) and marks it there; the next
   page drops the mark (it is kept with the page it was set for).
