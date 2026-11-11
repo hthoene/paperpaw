@@ -301,8 +301,9 @@ impl<'a> Stage<'a> {
         drop(rows);
         // Only the encoded bytes stay while the format runs (the room for the
         // longest call goes first: the call's peak is the format's, #248).
-        let payload = exact(payload.get(..used).ok_or(ERR_INVALID)?)?;
-        self.route.call(target, &payload, out)
+        let encoded = exact(payload.get(..used).ok_or(ERR_INVALID)?)?;
+        drop(payload);
+        self.route.call(target, &encoded, out)
     }
 
     /// The format's batch in `out[..length]` as a bare stream in service tags.
