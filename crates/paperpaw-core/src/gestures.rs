@@ -8,6 +8,7 @@
 )]
 use super::*;
 use crate::commands::{Reserved, vet_reserved};
+use crate::native_host::native_action;
 
 /// On the same screen, how long before the last frame showed a press
 /// made more than a frame behind may be and still count: a click made
@@ -818,6 +819,10 @@ impl Kernel {
             return;
         };
         let env = self.shared.env(self.now);
+        if let Some((owner, token)) = spec.native() {
+            let instances = &self.shared.native_instances;
+            return native_action::queue_run(instances, owner, token, action.as_str(), &env);
+        }
         let _running = self.shared.meter.enter(action.namespace());
         commands::handing(out, |out| {
             spec.run(&env, params, out);
@@ -887,6 +892,13 @@ impl Kernel {
             }
         } else {
             match self.shared.actions.get(action.as_str()) {
+                // An interface-7 plugin's: its callback runs from the pump.
+                Some(spec) if spec.native().is_some() => {
+                    if let Some((owner, token)) = spec.native() {
+                        let instances = &self.shared.native_instances;
+                        native_action::queue_run(instances, owner, token, action.as_str(), &env);
+                    }
+                }
                 Some(spec) if spec.runs_itself() => {
                     let _running = self.shared.meter.enter(action.namespace());
                     let out = &mut self.output.commands;

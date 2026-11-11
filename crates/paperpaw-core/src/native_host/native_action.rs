@@ -1,12 +1,13 @@
 //! A native plugin's action: the host runs it by delivering `event.action_run`
 //! to the token the plugin declared (`docs/abi/screens-input.md` section 2).
 //!
-//! The handler keeps the plugin's lease, so [`Actions::remove_plugin`] must
-//! drop it when the plugin unloads (`begin_native_unload`). A stopped plugin's
+//! The action is kept without a handler ([`paperpaw_sdk::NativeAction`]: its
+//! id, title, plugin and token, #248); the plugin's lease is looked up when it
+//! runs, so an unloaded plugin's action finds none and a stopped plugin's
 //! lease refuses the event.
 //!
-//! The handler runs inside the kernel's action dispatch, where no command
-//! stage is at hand: it only queues the event ([`ActionQueue`]). The kernel
+//! It runs inside the kernel's action dispatch, where no command stage is at
+//! hand: the kernel only queues the event there ([`queue_run`]). The kernel
 //! delivers it from its pump, between callbacks (`Kernel::native_actions_run`),
 //! with the callback's command stage, as for every other callback, so that
 //! what the plugin asks (`open` its screen) reaches the kernel in the same
@@ -16,14 +17,11 @@
 
 use super::{
     native_instances::NativeLease,
-    native_values::Callback,
     registrations::{EventActionRun, Record},
-    shared::try_box,
 };
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, ERR_NO_SPACE};
-use paperpaw_sdk::{ActionHandler, ActionSpec};
 
 /// The longest action id `event.action_run` carries.
 const EVENT_BYTES: usize = 192;
@@ -89,55 +87,43 @@ impl ActionQueue {
     }
 }
 
-/// The action `callback` declares, run through `lease` of the plugin `owner`
-/// by way of the queue of `instances`.
-///
-/// # Errors
-/// `ERR_NO_MEMORY` when the id, the handler or its box cannot be allocated.
-pub(crate) fn spec(
-    callback: Callback,
-    lease: NativeLease,
-    owner: u64,
+/// Queues `event.action_run` for the native action `id`, which plugin `owner`
+/// declared with `token` ([`paperpaw_sdk::Action::native`]): what the
+/// kernel does where another action's handler runs. A plugin no longer
+/// installed, memory or a full queue leave the action without effect, as a
+/// stopped or failing plugin does; the pump reports a full queue
+/// ([`ActionQueue::refused`]).
+pub(crate) fn queue_run(
     instances: &super::native_instances::NativeInstances,
-) -> Result<ActionSpec, i32> {
-    let queue = instances.action_queue()?;
-    let Callback {
-        id, title, token, ..
-    } = callback;
-    let name = id.try_clone().ok_or(ERR_NO_MEMORY)?;
-    let run = move |env: &paperpaw_sdk::Env<'_>,
-                    _: &paperpaw_sdk::Params,
-                    _: &mut paperpaw_sdk::Commands| {
-        let mut bytes = [0; EVENT_BYTES];
-        let record = Record::EventActionRun(EventActionRun {
-            now_ms: env.now().millis(),
-            action: name.as_str(),
-            // Bit 0 `background`: not the reader's own doing (a rule's or
-            // another plugin's run), as interface 6 `Env::reader` said.
-            flags: u32::from(!env.reader()),
-        });
-        if let Ok(len) = super::events::encode(&record, &mut bytes) {
-            // Memory or a full queue leaves the action without effect, as a
-            // stopped or failing plugin does; the pump reports the failure of
-            // the callback.
-            let mut held = Vec::new();
-            if held.try_reserve_exact(len).is_ok()
-                && let Ok(lease) = lease.try_clone()
-            {
-                held.extend_from_slice(&bytes[..len]);
-                let _ = queue.push(Pending {
-                    owner,
-                    lease,
-                    token,
-                    bytes: held,
-                });
-            }
-        }
+    owner: u64,
+    token: u32,
+    id: &str,
+    env: &paperpaw_sdk::Env<'_>,
+) {
+    let mut bytes = [0; EVENT_BYTES];
+    let record = Record::EventActionRun(EventActionRun {
+        now_ms: env.now().millis(),
+        action: id,
+        // Bit 0 `background`: not the reader's own doing (a rule's or
+        // another plugin's run), as interface 6 `Env::reader` said.
+        flags: u32::from(!env.reader()),
+    });
+    let Ok(len) = super::events::encode(&record, &mut bytes) else {
+        return;
     };
-    let handler: ActionHandler = try_box(run).ok_or(ERR_NO_MEMORY)?;
-    let mut action = ActionSpec::new(id, title);
-    action.handler = Some(handler);
-    Ok(action)
+    let (Some(lease), Ok(queue)) = (instances.lease(owner), instances.action_queue()) else {
+        return;
+    };
+    let mut held = Vec::new();
+    if held.try_reserve_exact(len).is_ok() {
+        held.extend_from_slice(&bytes[..len]);
+        let _ = queue.push(Pending {
+            owner,
+            lease,
+            token,
+            bytes: held,
+        });
+    }
 }
 
 #[cfg(test)]

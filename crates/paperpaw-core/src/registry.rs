@@ -50,7 +50,11 @@ pub(crate) struct AddedMade {
 #[derive(Clone, Copy)]
 pub(crate) enum Maker<'a> {
     Added(&'a AddedMade),
-    Native(&'a crate::native_host::native_screen_factory::NativeMade),
+    /// With the screen's id, kept once, in the registry's titles.
+    Native(
+        &'a Id,
+        &'a crate::native_host::native_screen_factory::NativeMade,
+    ),
     Fixed(&'static paperpaw_sdk::FixedScreen),
 }
 
@@ -63,7 +67,7 @@ impl Maker<'_> {
         match self {
             Maker::Added(made) => Ok((made.factory)(env, params)),
             Maker::Fixed(fixed) => Ok(fixed.make(env, params)),
-            Maker::Native(made) => made.make(params),
+            Maker::Native(id, made) => made.make(id, params),
         }
     }
 
@@ -73,7 +77,7 @@ impl Maker<'_> {
         params: &paperpaw_sdk::Params,
     ) -> Result<Option<alloc::boxed::Box<dyn paperpaw_sdk::Screen>>, i32> {
         match self {
-            Maker::Native(made) => made.make(params).map(Some),
+            Maker::Native(id, made) => made.make(id, params).map(Some),
             _ => Ok(None),
         }
     }
@@ -88,19 +92,19 @@ impl Maker<'_> {
         match self {
             Maker::Added(made) => *screen = (made.factory)(env, params),
             Maker::Fixed(fixed) => *screen = fixed.make(env, params),
-            Maker::Native(_) => {}
+            Maker::Native(..) => {}
         }
     }
 
     pub(crate) fn is_native(self) -> bool {
-        matches!(self, Maker::Native(_))
+        matches!(self, Maker::Native(..))
     }
 
     pub(crate) fn refresh_on_open(self) -> Option<paperpaw_sdk::RefreshMode> {
         match self {
             Maker::Added(made) => made.refresh_on_open,
             Maker::Fixed(fixed) => fixed.refresh(),
-            Maker::Native(made) => made.refresh(),
+            Maker::Native(_, made) => made.refresh(),
         }
     }
 
@@ -108,7 +112,7 @@ impl Maker<'_> {
         match self {
             Maker::Added(made) => made.instances,
             Maker::Fixed(fixed) => fixed.how_many(),
-            Maker::Native(made) => made.instances,
+            Maker::Native(_, made) => made.instances,
         }
     }
 }
@@ -139,7 +143,7 @@ impl Screens {
         match self.find(id.borrow()) {
             Ok(at) => Some(match &self.made[at] {
                 Made::Added(made) => Maker::Added(made),
-                Made::Native(made) => Maker::Native(made),
+                Made::Native(made) => Maker::Native(&self.titles[at].0, made),
             }),
             Err(_) => self
                 .find_fixed(id.borrow())
@@ -605,6 +609,8 @@ impl Staged {
 #[derive(Default)]
 pub(crate) struct Staging {
     actions: Vec<ActionSpec>,
+    /// Interface-7 plugins' actions, kept without a handler (#248).
+    native_actions: Vec<paperpaw_sdk::NativeAction>,
     screens: Vec<ScreenSpec>,
     native_screens: Vec<crate::native_host::native_screen_factory::NativeScreenSpec>,
     slots: Vec<SlotSpec>,
@@ -719,6 +725,32 @@ impl Staging {
             return Err(paperpaw_native::host_glue::ERR_INVALID);
         }
         push_native(&mut self.native_screens, screen)
+    }
+
+    /// Stages the plugin's action `action`, without infallible growth. An id
+    /// of another plugin, or one staged already, is `ERR_INVALID`.
+    pub(crate) fn native_action(
+        &mut self,
+        owner: &Id,
+        action: paperpaw_sdk::NativeAction,
+    ) -> Result<(), i32> {
+        let id = paperpaw_sdk::Action::Native(&action).id();
+        if id.namespace() != owner.as_str()
+            || self.actions.iter().any(|other| &other.id == id)
+            || self
+                .native_actions
+                .iter()
+                .any(|other| paperpaw_sdk::Action::Native(other).id() == id)
+        {
+            return Err(paperpaw_native::host_glue::ERR_INVALID);
+        }
+        push_native(&mut self.native_actions, action)
+    }
+
+    /// How many native actions are staged: the room a publication makes in
+    /// the kernel's actions before it merges.
+    pub(crate) fn native_action_count(&self) -> usize {
+        self.native_actions.len()
     }
 
     /// Stages the offer of the plugin's screen `screen` for `slot`, without
@@ -836,6 +868,11 @@ impl Staging {
                     .iter()
                     .flat_map(|list| list.iter().map(|a| a.id())),
             )
+            .chain(
+                self.native_actions
+                    .iter()
+                    .map(|a| paperpaw_sdk::Action::Native(a).id()),
+            )
             .find(|id| actions.contains(id.as_str()))
             .or_else(|| {
                 self.screens
@@ -901,6 +938,9 @@ impl Staging {
         }
         for list in self.fixed_actions.drain(..) {
             actions.insert_fixed(list);
+        }
+        for action in self.native_actions.drain(..) {
+            actions.insert_native(action);
         }
         for screen in self.screens.drain(..) {
             registry.screens.insert(screen);

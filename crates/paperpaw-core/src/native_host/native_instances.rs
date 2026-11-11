@@ -459,6 +459,15 @@ impl NativeInstances {
             .and_then(super::shared::Shared::try_clone)
     }
 
+    /// A lease of the installed, enabled plugin `key` (`None` for none, or
+    /// where memory refuses the clone).
+    pub(crate) fn lease(&self, key: u64) -> Option<NativeLease> {
+        self.entry(key)
+            .filter(|entry| entry.enabled)
+            .and_then(|entry| entry.instance.as_ref())
+            .and_then(|lease| lease.try_clone().ok())
+    }
+
     pub(crate) fn id(&self, key: u64) -> Option<&Id> {
         self.entry(key)
             .filter(|entry| entry.enabled)
