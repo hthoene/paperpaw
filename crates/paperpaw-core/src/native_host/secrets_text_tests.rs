@@ -73,7 +73,7 @@ fn secrets() -> Secrets {
 #[test]
 fn what_is_sealed_opens_back_into_the_list() {
     let sealer = Fake::new(9);
-    let written = seal_text(&secrets().encode(), &sealer).unwrap();
+    let written = seal_text(&secrets().encode(), "", &sealer).unwrap();
     assert!(written.lines().all(|line| line.contains("\ts1:")));
     assert!(!written.contains("pa$$word"));
     assert_eq!(Secrets::decode(&open_text(&written, &sealer)), secrets());
@@ -83,17 +83,17 @@ fn what_is_sealed_opens_back_into_the_list() {
 fn a_line_that_does_not_open_here_is_kept_as_it_is() {
     let other = Fake::new(3);
     let here = Fake::new(9);
-    let foreign = seal_text(&secrets().encode(), &other).unwrap();
+    let foreign = seal_text(&secrets().encode(), "", &other).unwrap();
     let list = Secrets::decode(&open_text(&foreign, &here));
     assert!(list.is_empty(), "nothing opens under another key");
     // Written back, the lines are as they were: not lost, not resealed.
-    assert_eq!(seal_text(&list.encode(), &here).unwrap(), foreign);
+    assert_eq!(seal_text(&list.encode(), &foreign, &here).unwrap(), foreign);
 }
 
 #[test]
 fn a_sealed_value_copied_to_another_name_does_not_open() {
     let sealer = Fake::new(9);
-    let written = seal_text(&secrets().encode(), &sealer).unwrap();
+    let written = seal_text(&secrets().encode(), "", &sealer).unwrap();
     let moved = written.replace("mail.pw", "mail.other");
     let list = Secrets::decode(&open_text(&moved, &sealer));
     assert_eq!(list.get("mail.other"), None);
@@ -104,7 +104,7 @@ fn a_sealed_value_copied_to_another_name_does_not_open() {
 fn a_sealer_that_cannot_seal_fails_the_write_and_writes_nothing() {
     let sealer = Fake::new(9);
     sealer.fails.set(true);
-    assert_eq!(seal_text(&secrets().encode(), &sealer), Err(ERR_STATE));
+    assert_eq!(seal_text(&secrets().encode(), "", &sealer), Err(ERR_STATE));
 }
 
 #[test]
@@ -112,7 +112,7 @@ fn lines_these_functions_do_not_understand_pass_through() {
     let sealer = Fake::new(9);
     let text = "no tabs here\nid\tlabel\tzz\t00\nwifi.a\tL\t\tnot-hex\n";
     assert_eq!(open_text(text, &sealer), text);
-    assert_eq!(seal_text(text, &sealer).unwrap(), text);
+    assert_eq!(seal_text(text, "", &sealer).unwrap(), text);
 }
 
 #[test]
@@ -120,6 +120,34 @@ fn a_changeable_flag_and_an_escaped_label_are_kept() {
     let sealer = Fake::new(9);
     let mut list = Secrets::default();
     list.apply(SecretChange::keep("a.b", "La\tbel", "v").changeable(true));
-    let written = seal_text(&list.encode(), &sealer).unwrap();
+    let written = seal_text(&list.encode(), "", &sealer).unwrap();
     assert_eq!(Secrets::decode(&open_text(&written, &sealer)), list);
+}
+
+#[test]
+fn a_secret_whose_id_cannot_be_sealed_fails_the_write_and_is_never_veiled() {
+    let sealer = Fake::new(9);
+    let mut list = Secrets::default();
+    // No `.`: no owner to bind the sealed value to.
+    list.apply(SecretChange::keep("kosync", "Key", "abc"));
+    assert_eq!(
+        seal_text(&list.encode(), "", &sealer),
+        Err(paperpaw_native::host_glue::ERR_INVALID)
+    );
+}
+
+#[test]
+fn lines_that_did_not_change_are_kept_and_need_no_new_seal() {
+    let sealer = Fake::new(9);
+    let before = seal_text(&secrets().encode(), "", &sealer).unwrap();
+    // Removing one secret seals nothing: a sealer without a source is fine.
+    sealer.fails.set(true);
+    let mut list = Secrets::decode(&open_text(&before, &sealer));
+    list.apply(SecretChange::remove("mail.pw"));
+    let after = seal_text(&list.encode(), &before, &sealer).unwrap();
+    assert_eq!(after.lines().count(), 1);
+    assert!(before.contains(after.lines().next().unwrap()));
+    // A changed value is sealed anew, and so fails here.
+    list.apply(SecretChange::keep("wifi.Home\tNet", "Home", "other"));
+    assert_eq!(seal_text(&list.encode(), &before, &sealer), Err(ERR_STATE));
 }

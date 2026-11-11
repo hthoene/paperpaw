@@ -43,16 +43,18 @@ impl Kernel {
     }
 
     /// The text to write for `plain` (what [`Secrets::encode`] gave): sealed
-    /// where a sealer seals.
+    /// where a sealer seals, a line that did not change as it was in
+    /// `previous` (the file as read).
     ///
     /// # Errors
     /// The sealer's status where it cannot seal now.
     pub(crate) fn sealed_secrets(
         plain: String,
+        previous: &str,
         host: Option<&Rc<dyn SecretsHost>>,
     ) -> Result<String, i32> {
         match host {
-            Some(host) => seal_text(&plain, host.sealer()),
+            Some(host) => seal_text(&plain, previous, host.sealer()),
             None => Ok(plain),
         }
     }

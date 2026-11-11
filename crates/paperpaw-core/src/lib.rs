@@ -446,6 +446,10 @@ impl Kernel {
         // The shell hosted its native plugins before this call: what their
         // admission kept in reserve is given back.
         self.native_hosted();
+        // The passwords the sealer of `core.secrets` keeps are read before
+        // any plugin runs, whether or not a native plugin was admitted since
+        // the services were wired (`secrets_i6.rs`).
+        self.open_sealed_secrets();
         // Replace what the shell showed before startup, also under a home overlay.
         self.invalidate(self.framebuffer.bounds());
         self.output.commands.push(Command::open_slot(slots::HOME));
@@ -970,18 +974,25 @@ impl Kernel {
             self.output.commands.push(Command::Notify(text));
             return;
         }
-        let text = match Self::sealed_secrets(self.shared.secrets.encode(), sealer.as_ref()) {
-            Ok(text) => text,
-            Err(status) => {
-                // No value is written veiled where values are sealed.
-                self.shared.secrets.mark_unsaved(&id);
-                self.warn_runtime(format!(
-                    "{}: not sealed ({status}): not saved",
-                    secrets::FILE
-                ));
-                return;
-            }
-        };
+        let previous = read
+            .as_ref()
+            .ok()
+            .and_then(|d| d.as_deref())
+            .unwrap_or_default();
+        let previous = String::from_utf8_lossy(previous);
+        let text =
+            match Self::sealed_secrets(self.shared.secrets.encode(), &previous, sealer.as_ref()) {
+                Ok(text) => text,
+                Err(status) => {
+                    // No value is written veiled where values are sealed.
+                    self.shared.secrets.mark_unsaved(&id);
+                    self.warn_runtime(format!(
+                        "{}: not sealed ({status}): not saved",
+                        secrets::FILE
+                    ));
+                    return;
+                }
+            };
         let storage = self.shared.storage.as_ref();
         let _ = storage.create_dir(paperpaw_sdk::data::DIR);
         let saved = if self.shared.secrets.is_empty() {

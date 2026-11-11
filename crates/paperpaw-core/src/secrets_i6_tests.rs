@@ -91,7 +91,7 @@ fn without_core_secrets_the_file_stays_veiled_as_ever() {
 #[test]
 fn sealed_values_are_read_once_the_services_are_wired_and_saved_sealed() {
     let host = Fake::new(9);
-    let sealed = seal_text(&veiled(&[("mail.pw", "one")]), &host).unwrap();
+    let sealed = seal_text(&veiled(&[("mail.pw", "one")]), "", &host).unwrap();
     let (mut kernel, _) = kernel(&sealed, true);
     // The build read the file before the services were there.
     assert_eq!(kernel.secrets().get("mail.pw"), None);
@@ -108,11 +108,11 @@ fn sealed_values_are_read_once_the_services_are_wired_and_saved_sealed() {
 #[test]
 fn a_line_a_native_plugin_wrote_is_kept_by_the_next_interface_6_save() {
     let host = Fake::new(9);
-    let sealed = seal_text(&veiled(&[("mail.pw", "one")]), &host).unwrap();
+    let sealed = seal_text(&veiled(&[("mail.pw", "one")]), "", &host).unwrap();
     let (mut kernel, _) = kernel(&sealed, true);
     kernel.open_sealed_secrets();
     // A native plugin keeps a value by the file (as `core.secrets` does).
-    let more = seal_text(&veiled(&[("native.token", "abc")]), &host).unwrap();
+    let more = seal_text(&veiled(&[("native.token", "abc")]), "", &host).unwrap();
     let both = alloc::format!("{sealed}{more}");
     kernel.shared.storage.write(FILE, both.as_bytes()).unwrap();
     kernel.set_secret(SecretChange::keep("wifi.Home", "Home", "two"));
@@ -129,7 +129,7 @@ fn a_line_a_native_plugin_wrote_is_kept_by_the_next_interface_6_save() {
 #[test]
 fn a_save_that_cannot_seal_writes_nothing_and_is_not_saved() {
     let host = Fake::new(9);
-    let sealed = seal_text(&veiled(&[("mail.pw", "one")]), &host).unwrap();
+    let sealed = seal_text(&veiled(&[("mail.pw", "one")]), "", &host).unwrap();
     let (mut kernel, wired) = kernel(&sealed, true);
     kernel.open_sealed_secrets();
     // The sealer's key is gone for this write (a device without the radio's
@@ -140,4 +140,33 @@ fn a_save_that_cannot_seal_writes_nothing_and_is_not_saved() {
     assert!(!kernel.secrets().saved("wifi.Home"));
     // The change applies until the end.
     assert_eq!(kernel.secrets().get("wifi.Home"), Some("two"));
+}
+
+#[test]
+fn removing_a_password_needs_no_seal_so_it_works_without_the_radio() {
+    let host = Fake::new(9);
+    let sealed = seal_text(
+        &veiled(&[("mail.pw", "one"), ("wifi.Home", "two")]),
+        "",
+        &host,
+    )
+    .unwrap();
+    let (mut kernel, wired) = kernel(&sealed, true);
+    kernel.open_sealed_secrets();
+    wired.seal.fails.set(true);
+    kernel.set_secret(SecretChange::remove("mail.pw"));
+    assert!(kernel.secrets().saved("mail.pw"));
+    let left = file(&kernel);
+    assert_eq!(left.lines().count(), 1);
+    assert!(sealed.contains(left.lines().next().unwrap()));
+}
+
+#[test]
+fn a_start_reads_the_sealed_values_before_any_plugin_runs() {
+    let host = Fake::new(9);
+    let sealed = seal_text(&veiled(&[("mail.pw", "one")]), "", &host).unwrap();
+    let (mut kernel, _) = kernel(&sealed, true);
+    assert_eq!(kernel.secrets().get("mail.pw"), None);
+    kernel.start(paperpaw_platform::Instant(0));
+    assert_eq!(kernel.secrets().get("mail.pw"), Some("one"));
 }
