@@ -204,16 +204,31 @@ impl Firmware {
                 warn!("native: the stack's band is not armed: no plugin of interface 7 is hosted");
             }
         }
+        #[cfg(feature = "test-image")]
+        self.log_warnings("after the linked plugins");
         // Interface 6's passwords through the same sealer, before the start.
         #[cfg(feature = "ppn5")]
         self.secrets.started(&mut self.kernel);
         let effects = self.kernel.start(now());
+        #[cfg(feature = "test-image")]
+        self.log_warnings("after the kernel's start");
         self.apply(effects);
         self.finishing_update();
         // Its first frame is shown: its code plugins started cleanly.
         crate::safe_mode::started();
         loop {
             self.step();
+        }
+    }
+
+    /// The kernel's warnings so far, said with when (the owner's test image,
+    /// #2595: what the linked plugins and the start warned of is told at
+    /// once, not with the first frame).
+    #[cfg(feature = "test-image")]
+    #[inline(never)]
+    fn log_warnings(&mut self, when: &str) {
+        for warning in self.kernel.take_warnings() {
+            warn!("{when}: {warning}");
         }
     }
 

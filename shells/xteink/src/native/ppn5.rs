@@ -505,6 +505,9 @@ mod x4 {
         }
         use paperpaw_x4::native_offer::{features, leak, services};
         let wired = crate::device_host::wired_families(kernel.wifi_model().is_some());
+        // The test image says what it offers the linked plugins (#2595).
+        #[cfg(feature = "test-image")]
+        info!("native: families offered: {wired:?}");
         let offered = metadata::Host {
             abi_major: HOST.abi_major,
             minor: HOST.minor,
