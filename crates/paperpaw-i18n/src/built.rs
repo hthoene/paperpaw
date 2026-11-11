@@ -33,8 +33,8 @@ const fn low_of(entry: u32) -> u32 {
     entry & ((1 << OFFSET_BITS) - 1)
 }
 
-/// The catalogs of one language of the plugins built in (English unless
-/// [`in_language`](Self::in_language) says another), indexed together by a
+/// The catalogs of one language of the plugins built in (English, or the
+/// language of the [`BuiltLanguage`] that holds them), indexed together by a
 /// build script (`paperpaw-app`'s, with [`BuiltTable`]): kept in the
 /// program, handed to the translator
 /// ([`Translator::built_catalogs`](crate::Translator::built_catalogs)).
