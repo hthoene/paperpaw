@@ -65,8 +65,8 @@ pub mod native_notes;
 pub mod native_open;
 pub mod native_pages;
 pub mod native_plugin;
-pub mod native_speech;
 pub mod native_selection;
+pub mod native_speech;
 pub mod native_state;
 #[cfg(test)]
 mod native_tests;

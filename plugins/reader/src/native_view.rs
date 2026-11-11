@@ -20,8 +20,8 @@ use crate::{
     native_wordbox,
 };
 use alloc::string::String;
-use core::ops::Range;
 use alloc::vec::Vec;
+use core::ops::Range;
 use paperpaw_sdk::{
     Color, Handled, NoStorage,
     document::{DocumentError, Locator},
@@ -1065,8 +1065,8 @@ impl Open {
             rect.y as f32 + f32::from(area.y),
         );
         draw_lines_marked(&mut ink, &faces, page, origin, self.mark.clone())?;
-        
-let ctx = Ctx::new(
+
+        let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),
             &self.words,
             &self.path,
