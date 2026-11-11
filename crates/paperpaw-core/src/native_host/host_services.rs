@@ -333,10 +333,6 @@ impl HostServices {
     /// root 5 (see [`super::ui_store::UiStore::handed_file`]); the instance is
     /// the caller's (`Frame::calling_instance`). `ERR_UNSUPPORTED` while no
     /// `core.ui` store is wired.
-    #[allow(
-        dead_code,
-        reason = "Host's doc_open root 5 calls it (todo 410); tests do today"
-    )]
     pub(crate) fn handed_file(
         &self,
         instance: u32,
