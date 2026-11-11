@@ -148,6 +148,10 @@ pub(crate) struct DocState {
     pending_images: RefCell<Vec<u32>>,
     /// A document's image ids could not be recorded as ended (logged once).
     images_lost: Cell<bool>,
+    /// The document a left-out picture was last logged for (0 none): one
+    /// line per run of the same document, not one a picture (a reader
+    /// switching between two documents logs each switch).
+    pictures_logged: Cell<u32>,
     /// An event was raised since the pump's last pass: it asks for one. An
     /// event whose owner does not run stays queued without asking again, so
     /// an idle device is not woken for it.
@@ -238,6 +242,7 @@ impl DocState {
             colour: false,
             pending_images: RefCell::new(images_pending),
             images_lost: Cell::new(false),
+            pictures_logged: Cell::new(0),
             fresh: Cell::new(false),
             reading: super::doc_reading::Reading::new(),
         })
@@ -986,6 +991,13 @@ impl super::doc_service::DocHost for Bound<'_> {
         self
     }
     frameless!();
+    fn picture_left_out(&self, document: u32) {
+        if self.state.pictures_logged.replace(document) != document {
+            self.frame.log(format_args!(
+                "document {document}: a picture was left out, its block keeps its text"
+            ));
+        }
+    }
     fn end_images(&self, document: &Document) {
         // The ids end now where the table can be had, else with the next call.
         if self

@@ -276,6 +276,11 @@ pub(crate) trait DocHost {
         image: &wire::ServiceDocImage,
         in_block: bool,
     ) -> Result<Option<u32>, i32>;
+    /// A picture of `document` was left out of a block stream (it failed the
+    /// image check, or the format sent none): the block keeps its alt text.
+    /// The host says so once per run of left-out pictures of the same
+    /// document (it keeps the last document it named), never per picture.
+    fn picture_left_out(&self, _document: u32) {}
     /// The format answered that the document is ready (the open, or the
     /// last preparing call): what the host keeps for it is complete now.
     fn document_ready(&self, _document: u32) {}
@@ -473,6 +478,9 @@ impl DocHost for Cx<'_> {
     }
     fn document_ready(&self, document: u32) {
         self.host.document_ready(document);
+    }
+    fn picture_left_out(&self, document: u32) {
+        self.host.picture_left_out(document);
     }
     fn reader_closed(&self, document: u32) {
         self.host.reader_closed(document);
@@ -1132,6 +1140,9 @@ fn block_verify(
         at.resume,
         |_, _| Ok(()),
     )?;
+    if end.flags & 2 == 0 && fragment.picture_missing() {
+        host.picture_left_out(document.id);
+    }
     let kept = images(host, document, out, length, true)?;
     let pending = (end.flags & 2 != 0).then_some(table::Pending {
         section: at.section,
@@ -1178,6 +1189,9 @@ fn images(
                 at += used;
             }
             None => {
+                if in_block {
+                    host.picture_left_out(document.id);
+                }
                 out.copy_within(at + used..length, at);
                 length -= used;
             }

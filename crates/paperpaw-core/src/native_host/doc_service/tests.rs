@@ -89,6 +89,8 @@ pub(crate) struct Fake {
     pub(crate) reader_refuses: Cell<Option<i32>>,
     /// Bit `n` set: owner `n` shows a screen.
     pub(crate) shows: Cell<u64>,
+    /// The documents `picture_left_out` was called for, in order.
+    pub(crate) left_out: RefCell<Vec<u32>>,
 }
 impl Fake {
     pub(crate) fn new(limits: Limits) -> Rc<Self> {
@@ -114,6 +116,7 @@ impl Fake {
             readers: RefCell::new(Vec::new()),
             released: RefCell::new(Vec::new()),
             reader_refuses: Cell::new(None),
+            left_out: RefCell::new(Vec::new()),
             shows: Cell::new(0),
         })
     }
@@ -205,6 +208,9 @@ impl DocHost for Fake {
     }
     fn shows_screen(&self, owner: u64) -> bool {
         self.shows.get() & (1 << owner) != 0
+    }
+    fn picture_left_out(&self, document: u32) {
+        self.left_out.borrow_mut().push(document);
     }
     fn map_image(&self, _: &Document, _: &Image, in_block: bool) -> Result<Option<u32>, i32> {
         match self.image.get() {
