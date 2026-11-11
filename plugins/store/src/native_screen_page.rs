@@ -33,7 +33,7 @@ use paperpaw_sdk::{
         Error, Host,
         callbacks::{DrawFrame, Input},
         events::Event,
-        formatting::Arg,
+        formatting::{self, Arg},
     },
 };
 use paperpaw_ui_kit::{
@@ -933,10 +933,30 @@ impl View {
         let Some(at) = self.targets.iter().position(|row| *row == Some(Row::Stop)) else {
             return Ok(false);
         };
-        let mut say = Messages::new()?;
-        let mark = say.copy(ctx.host, "core.decimal")?;
-        let value = say.digits(ctx.host, &progress_text(done, total, &mark)?)?;
+        let value = progress_value(ctx.host, done, total)?;
         Ok(self.list.set_value(at, value))
+    }
+}
+
+/// The value of the progress row, said through stack arrays: no 4 KiB buffer
+/// is made for a progress event (one comes many times a second). A text that
+/// does not fit them (it does not happen for a size) falls back to `Messages`.
+fn progress_value(host: &Host<'_>, done: u32, total: u32) -> Result<String, Error> {
+    let mut mark = [0; 16];
+    let mut out = [0; 96];
+    let mark = match formatting::copy_message(host, "core.decimal", &mut mark) {
+        Ok(found) => copy(found)?,
+        Err(Error::NoSpace) => Messages::default().copy(host, "core.decimal")?,
+        Err(error) => return Err(error),
+    };
+    let text = progress_text(done, total, &mark)?;
+    match formatting::digits(host, &text, &mut out) {
+        Ok(length) => {
+            let bytes = out.get(..length).ok_or(Error::NoSpace)?;
+            copy(core::str::from_utf8(bytes).map_err(|_| Error::Utf8)?)
+        }
+        Err(Error::NoSpace) => Messages::default().digits(host, &text),
+        Err(error) => Err(error),
     }
 }
 

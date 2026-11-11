@@ -10,7 +10,7 @@ mod fail_alloc;
 use paperpaw_plugin_store::native_ask::{self as ask, Decision, Faces, Have, Say};
 use paperpaw_plugin_store::native_model::Entry;
 use paperpaw_plugin_store::native_queue::Report;
-use paperpaw_plugin_store::native_request::Last;
+use paperpaw_plugin_store::native_request::{Last, REQUEST, Request};
 use paperpaw_plugin_store::native_screen_fetch::{Core, Kind};
 use paperpaw_plugin_store::native_screens::{Installs, Step, Trouble};
 use paperpaw_sdk::native::Error;
@@ -181,4 +181,45 @@ fn the_fetch_screens_rules_survive_refused_allocations() {
         paperpaw_plugin_store::native_screen_fetch::request_ids("a\nb")?;
         Ok::<(), Error>(())
     });
+}
+
+/// A stale request that cannot be read (memory refused) is left on the card:
+/// closing it would leave its ids without an outcome. The ask that found it is
+/// answered *failed*; where it could be read, its ids come back as `stale`.
+#[test]
+fn a_stale_request_that_cannot_be_read_is_not_closed() {
+    let card = Card(MemoryStorage::new());
+    let left = strings(&["pack-a"]);
+    let wanted = strings(&["pack-b"]);
+    let mut refused = 0;
+    fail_alloc::sweep(|| {
+        fail_alloc::exempt(|| {
+            let _ = card.remove(REQUEST);
+            Request::start(&card, "reader", &left).unwrap();
+        });
+        let mut last: Option<Last> = None;
+        let told = ask::asked(
+            &card,
+            &mut Host,
+            None,
+            &mut last,
+            ("store", &wanted),
+            1,
+            (true, true, false),
+        )?;
+        if told.stale.is_empty() {
+            if let ask::Reply::AnswerAll(_) = told.reply {
+                refused += 1;
+                assert!(card.size(REQUEST).is_ok(), "the stale request stays");
+                return Err(Error::NoMemory);
+            }
+        } else {
+            assert_eq!(told.stale, left);
+        }
+        Ok::<(), Error>(())
+    });
+    assert!(
+        refused > 0,
+        "the read of the stale request was refused once"
+    );
 }

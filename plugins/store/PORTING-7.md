@@ -412,3 +412,20 @@ in place; its removal comes with the PR that finishes the port).
   and the offline offer depend on the facts the wiring provides (`flash_hint`,
   `no_room`, `can_install`); the setup step's applicability and badge are pushed by
   the plugin (`set_item_state`) because they cannot be declared.
+- **Unsupported-device screen: not ported (open).** Beta 3's start shows *No plugins
+  for this device* (`store.unsupported`, with its help) when the library does not know
+  the device (`env.catalog_device()` is none). Natively `Facts::read` gives `None`
+  then, `Loader::start_list` asks nothing, and `Trouble` has no such state, so the
+  start would show *Loading* for ever. Open for the wiring (Port A, `native_load`): a
+  state for it (`Trouble::Unsupported`, or `Loader::device_known`), then the start's
+  empty state says `store.unsupported` (texts exist, en/de).
+
+### Gates before the store joins `NATIVE_PLUGINS`
+
+- **Frame sizes** (X4: every frame under 2,048 B): measure with `tools/stack-frames.py` on the
+  X4 build of the store **and of the reader**: the reader now uses the new ui-kit
+  `header::pager` stack-buffer page-label helper (added for the shots screen), so its
+  frames change too. Not measured yet (owner: Port D for the store, Plugin Engineer for
+  the reader).
+- The wiring items above, the metadata `used` list, and the heap measurement against
+  Beta 3's 99.9 KiB (store start).
