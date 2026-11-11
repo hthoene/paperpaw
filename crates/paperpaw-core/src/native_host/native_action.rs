@@ -77,6 +77,11 @@ impl ActionQueue {
         Ok(())
     }
 
+    /// How many wait.
+    pub(crate) fn waiting(&self) -> usize {
+        self.waiting.try_borrow().map_or(0, |queue| queue.len())
+    }
+
     /// The oldest action waiting.
     pub(crate) fn take(&self) -> Option<Pending> {
         let mut queue = self.waiting.try_borrow_mut().ok()?;

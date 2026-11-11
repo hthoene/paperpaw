@@ -212,8 +212,8 @@ impl crate::Kernel {
     /// (`event.action_run`), each as a staged callback whose batch is run
     /// before the next: the plugin's `open` reaches the kernel in the call
     /// that ran the action. `true` when one was delivered (its commands wait
-    /// for the next round of `run_commands`, the caller's). Never inside a
-    /// callback.
+    /// for the next round of `run_commands`, the caller's, which bounds a
+    /// chain of actions that run one another). Never inside a callback.
     // Its own frame (the firmware's frame limit for host code).
     #[inline(never)]
     pub(crate) fn native_actions_run(&mut self) -> bool {
@@ -227,7 +227,13 @@ impl crate::Kernel {
             self.warn_runtime("a native plugin's action was not run: too many wait");
         }
         let mut delivered = false;
-        while let Some(pending) = queue.take() {
+        // Only what waits now: what a delivered action's commands run in turn
+        // (an action that runs itself, or two that run each other) is queued
+        // behind, for the next round of `run_commands`, which bounds them.
+        for _ in 0..queue.waiting() {
+            let Some(pending) = queue.take() else {
+                break;
+            };
             if self.shared.native_instances.outbox.full() {
                 self.native_outbox_run();
             }

@@ -14,8 +14,17 @@ use paperpaw_native::host_glue::ERR_INVALID;
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{Command, Env, Id, Params};
 
+struct Again {
+    queue: crate::native_host::shared::Shared<ActionQueue>,
+    lease: NativeLease,
+    owner: u64,
+}
+
 /// A plugin that notes the token and the record of each `event_staged`.
 struct Noting {
+    /// Runs the action again from its own callback (as a staged `RunAction`
+    /// of itself does): the queue, the lease and the key to do it with.
+    again: Rc<RefCell<Option<Again>>>,
     seen: Rc<RefCell<Vec<(u32, String)>>>,
     dropped: Rc<RefCell<Vec<(u32, i32)>>>,
     alive: Cell<bool>,
@@ -40,6 +49,14 @@ impl NativeInstance for Noting {
             self.seen
                 .borrow_mut()
                 .push((token, String::from(run.action)));
+        }
+        if let Some(again) = self.again.borrow().as_ref() {
+            let _ = again.queue.push(Pending {
+                owner: again.owner,
+                lease: again.lease.try_clone().unwrap(),
+                token,
+                bytes: bytes.to_vec(),
+            });
         }
         self.status
     }
@@ -67,6 +84,7 @@ impl Dispatch for Noting {
 }
 
 struct World {
+    again: Rc<RefCell<Option<Again>>>,
     kernel: crate::Kernel,
     seen: Rc<RefCell<Vec<(u32, String)>>>,
     dropped: Rc<RefCell<Vec<(u32, i32)>>>,
@@ -81,7 +99,9 @@ fn world(status: Result<i32, i32>) -> World {
     kernel.start(Instant(0));
     let seen = Rc::new(RefCell::new(Vec::new()));
     let dropped = Rc::new(RefCell::new(Vec::new()));
+    let again = Rc::new(RefCell::new(None));
     let lease = NativeLease::try_new(Noting {
+        again: Rc::clone(&again),
         seen: Rc::clone(&seen),
         dropped: Rc::clone(&dropped),
         alive: Cell::new(true),
@@ -98,6 +118,7 @@ fn world(status: Result<i32, i32>) -> World {
         )
         .unwrap();
     World {
+        again,
         kernel,
         seen,
         dropped,
@@ -188,4 +209,27 @@ fn a_status_other_than_0_or_1_is_reported_to_the_plugin() {
             .run_action(Instant(10), Id::try_parse("n.open").unwrap());
         assert_eq!(w.dropped.borrow().len(), 1, "{status:?}");
     }
+}
+
+#[test]
+fn an_action_that_runs_itself_does_not_hang_the_run() {
+    let mut w = world(Ok(0));
+    declare(&mut w);
+    *w.again.borrow_mut() = Some(Again {
+        queue: w.kernel.shared.native_instances.action_queue().unwrap(),
+        lease: w.lease.try_clone().unwrap(),
+        owner: w.owner,
+    });
+    w.kernel.output.commands.push(Command::RunAction(
+        Id::try_parse("n.open").unwrap(),
+        Params::new(),
+    ));
+    // Each delivery queues the next: a round delivers what waited when it
+    // began, so the rounds of `run_commands` bound the chain.
+    w.kernel.run_commands();
+    let delivered = w.seen.borrow().len();
+    assert!(delivered >= 1, "{delivered}");
+    assert!(delivered <= crate::MAX_COMMAND_ROUNDS, "{delivered}");
+    // Not a cycle past the test.
+    *w.again.borrow_mut() = None;
 }
