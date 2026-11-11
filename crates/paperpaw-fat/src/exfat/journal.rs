@@ -33,18 +33,28 @@ impl<B: Blocks + 'static> ExFatStorage<B> {
         if storage.fs.borrow().is_read_only() {
             return Ok(storage);
         }
-        let made = storage.fs.borrow_mut().bootstrap_intent(epoch);
-        let refusal = match made {
-            Ok(_) => return Ok(storage),
-            Err(e) => match e.kind() {
-                ErrorKind::Corrupt | ErrorKind::Unsupported => StorageError::CARD_NEEDS_CHECK,
-                ErrorKind::NoSpace => StorageError::Full,
-                _ => StorageError::Io,
-            },
+        // What was changed before is written first: only the setup's own
+        // blocks are ever discarded below.
+        let refusal = if disk.flush_all().is_err() {
+            StorageError::Io
+        } else {
+            let made = storage.fs.borrow_mut().bootstrap_intent(epoch);
+            match made {
+                Ok(_) => return Ok(storage),
+                Err(e) => match e.kind() {
+                    ErrorKind::Corrupt | ErrorKind::Unsupported => StorageError::CARD_NEEDS_CHECK,
+                    ErrorKind::NoSpace => StorageError::Full,
+                    _ => StorageError::Io,
+                },
+            }
         };
-        // Dropped unsynced: what a failed try wrote stays covered by the
-        // card's in-use mark, which only a computer's check clears.
+        // Dropped unsynced, and what the failed try left in the shared
+        // block cache forgotten: a read in refused mode would otherwise
+        // write it back when it evicts its slot (Senior M1). What reached
+        // the card is covered by its in-use mark, which only a computer's
+        // check clears.
         drop(storage);
+        disk.discard_changes();
         Self::mount_as(disk, Some(refusal))
     }
 

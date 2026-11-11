@@ -219,7 +219,15 @@ impl Blocks for OneShotWrite {
 /// an untouched card, and never take a second one.
 #[test]
 fn a_write_failure_during_the_first_mount_closes_writes_without_a_second_journal() {
-    let initial = library().0.borrow().clone();
+    let initial = {
+        let bytes = library();
+        // Bigger than the block cache, so reads evict every slot.
+        let card = exfat(&bytes);
+        card.write("big.bin", &[0x5a; 64 * 1024]).unwrap();
+        card.sync().unwrap();
+        drop(card);
+        bytes.0.borrow().clone()
+    };
     let free_before = exfat(&copy(&initial)).free_space().unwrap();
     let journal = {
         let fresh = copy(&initial);
@@ -242,11 +250,26 @@ fn a_write_failure_during_the_first_mount_closes_writes_without_a_second_journal
             assert_eq!(refusal, None);
             break;
         }
-        // Refused for this mount, also a write after it.
+        // Refused for this mount, also a write after it. Reads that evict
+        // every cache slot write nothing (Senior M1): what the failed
+        // setup left in the cache is gone, reads see the card.
         assert!(refusal.is_some(), "write {fail}");
+        let (writes, on_card) = (fault.borrow().writes, card.0.borrow().clone());
+        assert_eq!(read(&storage, "big.bin"), vec![0x5a; 64 * 1024]);
+        assert_eq!(read(&storage, "kept.txt"), b"safe content");
+        assert_eq!(read(&storage, "books/a.epub"), b"book a");
         assert_eq!(storage.write("x.txt", b"x"), Err(refusal.unwrap()));
         assert_eq!(storage.sync(), Ok(()));
         drop(storage);
+        assert_eq!(
+            fault.borrow().writes,
+            writes,
+            "write {fail}: refused mode wrote"
+        );
+        assert!(
+            *card.0.borrow() == on_card,
+            "write {fail}: refused mode changed the card"
+        );
         let untouched = *card.0.borrow() == initial;
         for _ in 0..3 {
             let before = card.0.borrow().clone();

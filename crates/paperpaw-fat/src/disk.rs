@@ -397,6 +397,18 @@ impl<B: Blocks> BlockDisk<B> {
             .count()
     }
 
+    /// Forgets every changed block without writing it: the next read of
+    /// it reads the disk again.
+    fn discard_changes(&mut self) {
+        for slot in &mut self.slots {
+            if slot.changed.is_some() {
+                slot.index = None;
+                slot.changed = None;
+                slot.used = 0;
+            }
+        }
+    }
+
     /// Writes back the blocks changed up to change `last`, in the order
     /// they were changed: cut off at any point, the disk holds the
     /// changes up to one of them, none after.
@@ -519,6 +531,13 @@ impl<B: Blocks> SharedDisk<B> {
     /// Writes back every changed block.
     pub fn flush_all(&self) -> Result<(), DiskError> {
         self.0.borrow_mut().flush()
+    }
+
+    /// Forgets every changed block that is not written back yet, without
+    /// writing it (e.g. what a refused exFAT journal setup left): reads
+    /// then see the card as it is, and no later read or flush writes them.
+    pub fn discard_changes(&self) {
+        self.0.borrow_mut().discard_changes();
     }
 
     /// Number of blocks of the volume.
