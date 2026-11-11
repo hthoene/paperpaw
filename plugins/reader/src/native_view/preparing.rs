@@ -102,7 +102,7 @@ impl View {
                         if let Body::Open(open) = &mut self.body
                             && open.pictures_pending()
                         {
-                            open.redraw_page(host, RedrawMode::Partial).ok();
+                            open.redraw_page(host, docs, RedrawMode::Partial).ok();
                         }
                     }
                     Err(Error::NoMemory) => {

@@ -393,3 +393,12 @@ fn the_text_of_a_page_is_the_same_with_its_pictures_and_without() {
         [(x, y, w, h)]
     );
 }
+
+#[test]
+fn a_pictures_path_names_its_image_id_and_its_index() {
+    assert_eq!(picture_of("12:3"), Some((12, Some(3))));
+    assert_eq!(picture_of("0:7"), Some((0, Some(7))));
+    assert_eq!(picture_of("12"), Some((12, None)));
+    assert_eq!(picture_of("12:x"), None);
+    assert_eq!(picture_of("cover.png"), None);
+}

@@ -161,6 +161,17 @@ pub fn picture_boxes(
         .map(move |image| place(image, (left, top)))
 }
 
+/// The image id and the format's index of a picture's path (`handle:index`,
+/// `native_block::picture_path`; a path of a handle only has no index).
+/// None for a path that is neither.
+#[must_use]
+pub fn picture_of(path: &str) -> Option<(u32, Option<u32>)> {
+    match path.split_once(':') {
+        Some((handle, index)) => Some((handle.parse().ok()?, Some(index.parse().ok()?))),
+        None => Some((path.parse().ok()?, None)),
+    }
+}
+
 /// Where a picture is drawn: its box rounded to pixels.
 fn place(image: &paperpaw_sdk::layout::PageImage, (left, top): (f32, f32)) -> (i32, i32, u32, u32) {
     (
@@ -178,7 +189,7 @@ fn draw_images(ink: &mut impl Ink, page: &Page, (left, top): (f32, f32)) -> Resu
     for image in &page.images {
         // Handle 0: the host had no id left to give (eight are out and none
         // drawn yet); the place stays empty, the page still draws.
-        let Ok(handle @ 1..) = image.image.path.parse::<u32>() else {
+        let Some((handle @ 1.., _)) = picture_of(&image.image.path) else {
             continue;
         };
         let (x, y, width, height) = place(image, (left, top));

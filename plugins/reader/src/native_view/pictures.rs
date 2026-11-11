@@ -8,12 +8,17 @@
 //! screen) and a page without pictures have one frame; a page turned before
 //! its pictures were drawn never draws them.
 use super::{Open, Setup, redraw};
-use crate::native_draw::{Pictures, picture_boxes};
+use crate::native_block::picture_path;
+use crate::native_draw::{Pictures, picture_boxes, picture_of};
+use alloc::string::String;
 use paperpaw_sdk::native::{
     Error, Host,
     callbacks::FrameRect,
     commands::{CommandSender, RedrawMode},
+    document::Documents,
+    image::{ImageId, ImageInfo},
 };
+use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 
 /// Where the page on show is in its two frames.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,12 +76,21 @@ impl Open {
     ///
     /// # Errors
     /// The host's refusal to redraw.
-    pub(super) fn redraw_page(&mut self, host: &Host<'_>, mode: RedrawMode) -> Result<(), Error> {
+    pub(super) fn redraw_page(
+        &mut self,
+        host: &Host<'_>,
+        docs: &Documents,
+        mode: RedrawMode,
+    ) -> Result<(), Error> {
         // Drawn whole unless the boxes are taken below: a refused redraw
         // never leaves the pictures' places empty.
         self.pictures = Pass::Whole;
         redraw(host, mode)?;
-        let Some(page) = self.page.as_ref().filter(|_| self.has_pictures()) else {
+        if !self.has_pictures() {
+            return Ok(());
+        }
+        self.ask_missing(host, docs);
+        let Some(page) = self.page.as_ref() else {
             return Ok(());
         };
         let Some(area) = Setup::read(host).ok().and_then(|setup| self.area(&setup)) else {
@@ -90,6 +104,82 @@ impl Open {
         }
         Ok(())
     }
+}
+
+impl Open {
+    /// The pictures of the page on show without a live image id (none was
+    /// free when the page was laid out, or the id ended since) are asked for
+    /// again by the format's index (op 16), at most [`MAX_ASKED`] a page; one
+    /// the host cannot give now keeps its box (#252 P2). The ids handed out
+    /// stay until they are drawn, in the frames this callback asks for.
+    /// That protection ends at the next frame drawn without the id: here the
+    /// text-only frame, so a new id is unprotected until the follow-up. Safe
+    /// while nothing else in the reader asks for ids in between; if that
+    /// changes, the follow-up meets `NotFound` and the box stays empty until
+    /// the next layout.
+    fn ask_missing(&mut self, host: &Host<'_>, docs: &Documents) {
+        let id = self.id;
+        let Some(page) = self.page.as_mut() else {
+            return;
+        };
+        let mut out = None;
+        for image in page.images.iter_mut().take(MAX_ASKED) {
+            let Some((handle, Some(index))) = picture_of(&image.image.path) else {
+                continue;
+            };
+            if live(host, handle) {
+                continue;
+            }
+            // The reply's room only where a picture is asked for.
+            if out.is_none() {
+                match buffer(SERVICE_BUFFER) {
+                    Ok(made) => out = Some(made),
+                    Err(_) => return,
+                }
+            }
+            let Some(out) = out.as_mut() else {
+                return;
+            };
+            let mut input = [0; 64];
+            let answer = docs.ask_image(host, id, index, 0, &mut input, out);
+            if !take_answer(&mut image.image.path, index, answer.map(|p| p.image())) {
+                return;
+            }
+        }
+    }
+}
+
+/// Takes the host's answer for the picture `index` of the page into its
+/// `path`: a new id is drawn; a picture the host could not give (id 0, also
+/// "not decoded yet" again, or a refusal) keeps its box and is not asked for
+/// again while this page is laid out (its path loses the index), so asking
+/// never loops. False where the next pictures wait for the next page laid
+/// out (Busy: all ids are out and none drawn yet).
+fn take_answer(path: &mut String, index: u32, answer: Result<u32, Error>) -> bool {
+    match answer {
+        Ok(image @ 1..) => {
+            if let Ok(made) = picture_path(image, index) {
+                *path = made;
+            }
+            true
+        }
+        Err(Error::Busy) => false,
+        Ok(0) | Err(_) => {
+            // No allocation: the path held `handle:index`.
+            path.clear();
+            path.push('0');
+            true
+        }
+    }
+}
+
+/// Most pictures of one page asked for again (the host's image ids).
+const MAX_ASKED: usize = 8;
+
+/// Whether `handle` names a picture the host still has.
+fn live(host: &Host<'_>, handle: u32) -> bool {
+    ImageId::new(handle)
+        .is_ok_and(|image| !matches!(ImageInfo::read(host, image), Err(Error::NotFound)))
 }
 
 /// Asks the host to draw the pictures' boxes (`(x, y, width, height)` from
@@ -111,8 +201,34 @@ fn ask_second_pass(host: &Host<'_>, mut boxes: impl Iterator<Item = (i32, i32, u
 
 #[cfg(test)]
 mod tests {
-    use super::Pass;
-    use crate::native_draw::Pictures;
+    use super::{Pass, take_answer};
+    use crate::native_draw::{Pictures, picture_of};
+    use alloc::string::String;
+    use paperpaw_sdk::native::Error;
+
+    #[test]
+    fn a_picture_given_again_takes_its_new_id_and_keeps_its_index() {
+        let mut path = String::from("0:4");
+        assert!(take_answer(&mut path, 4, Ok(9)));
+        assert_eq!(picture_of(&path), Some((9, Some(4))));
+    }
+
+    #[test]
+    fn a_picture_the_host_cannot_give_is_not_asked_for_again() {
+        // "Not decoded yet" again (id 0), a missing index, any refusal.
+        for answer in [Ok(0), Err(Error::NotFound), Err(Error::Invalid)] {
+            let mut path = String::from("0:4");
+            assert!(take_answer(&mut path, 4, answer));
+            assert_eq!(picture_of(&path), Some((0, None)));
+        }
+    }
+
+    #[test]
+    fn with_every_id_out_the_next_pictures_wait_for_the_next_layout() {
+        let mut path = String::from("0:4");
+        assert!(!take_answer(&mut path, 4, Err(Error::Busy)));
+        assert_eq!(picture_of(&path), Some((0, Some(4))));
+    }
 
     #[test]
     fn the_text_is_drawn_first_and_the_pictures_in_the_follow_up() {

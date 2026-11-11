@@ -4210,6 +4210,7 @@ pub const fn paperpaw_sdk::native::document::DocTextQuery::subject(u32) -> Self
 pub const fn paperpaw_sdk::native::document::DocTextQuery::title() -> Self
 pub struct paperpaw_sdk::native::document::Documents
 impl paperpaw_sdk::native::document::Documents
+pub fn paperpaw_sdk::native::document::Documents::ask_image(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, u32, u32, &mut [u8], &mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::BlockImage, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::document::Documents::block_at<'a>(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, paperpaw_sdk::native::document::DocPosition, paperpaw_sdk::native::document::BlockCursor, &mut [u8], &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::document::BlockFragment<'a>, paperpaw_sdk::native::Error>
 impl paperpaw_sdk::native::document::Documents
 pub fn paperpaw_sdk::native::document::Documents::close(&self, &paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::document::DocId, &mut [u8], &mut [u8]) -> core::result::Result<(), paperpaw_sdk::native::Error>
