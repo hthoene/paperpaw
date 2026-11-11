@@ -70,7 +70,7 @@ impl EventBudget {
 pub(crate) struct Pending {
     budget: Shared<PluginBudget>,
     edges: Vec<HeldEdge>,
-    // IDs 0..10 are hint, overflow, registry and lifecycle bits; IDs 11..26 name dense held-edge slots.
+    // IDs 0..14 are hint, overflow, registry, lifecycle and radio bits; IDs 15..30 name dense held-edge slots.
     // Coalescing moves its ID to the back. There is no sequence counter to wrap.
     order: [u8; ORDER],
     len: u8,
