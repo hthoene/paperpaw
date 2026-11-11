@@ -164,6 +164,8 @@ impl Plugin for NativeStore {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
         for batch in image::SETTINGS
             .iter()
+            .chain(image::SCREENS)
+            .chain(image::SETUP)
             .chain(image::NAVIGATION)
             .chain(image::EVENTS)
         {

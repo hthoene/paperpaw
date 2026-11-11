@@ -103,6 +103,7 @@ fn indexed(storage: &MemoryStorage, plugins: &[(&str, &str, u64)]) {
     let hooks = Hooks {
         author_of: &nobody,
         stopped: &none,
+        host_checks: false,
     };
     take(storage, "list.json", device, hooks).unwrap().unwrap();
 }

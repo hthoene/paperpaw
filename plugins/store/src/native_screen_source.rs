@@ -91,13 +91,18 @@ pub struct View {
     /// The address, written out below the code (or alone where there is none).
     caption: String,
     qr: Option<QrCode>,
+    /// The title, said once when the screen opens (a frame reads no text).
+    title: String,
 }
 
 impl Screen for View {
     fn open(ctx: &Ctx<'_>, params: &[(&str, &str)]) -> Result<Self, Error> {
         let (name, url) = read(params)?;
-        let help = Messages::new()?.copy(ctx.host, "store.source.help")?;
+        let mut messages = Messages::new()?;
+        let help = messages.copy(ctx.host, "store.source.help")?;
+        let title = messages.copy(ctx.host, "store.source")?;
         Ok(Self {
+            title,
             list: ItemList::new(items(name, &help)?),
             caption: text::copy(shown(url))?,
             qr: QrCode::try_new(url.as_bytes()).ok(),
@@ -113,7 +118,7 @@ impl Screen for View {
             None => Footer::Note(&self.caption),
         };
         self.list
-            .draw_with(ctx.host, frame, "store.source", true, footer)
+            .draw_with(ctx.host, frame, &self.title, true, footer)
     }
 
     fn input(&mut self, ctx: &Ctx<'_>, input: &Input<'_>) -> Result<(Handled, Next), Error> {

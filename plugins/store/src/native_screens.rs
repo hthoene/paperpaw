@@ -69,6 +69,59 @@ pub trait Loader {
     }
 }
 
+/// The store's loader (`native_load::Loader`, slice 1) as the screens read it.
+/// The plugin makes it for each call: `generation` is its count of the lists
+/// taken (it goes up when `native_load::Ended::List` came), `small_memory`
+/// what the wire says.
+#[derive(Debug, Clone, Copy)]
+pub struct LoaderView<'a> {
+    /// The loader.
+    pub loader: &'a crate::native_load::Loader,
+    /// Counts the lists taken.
+    pub generation: u32,
+    /// Whether the device has little memory.
+    pub small_memory: bool,
+}
+
+impl Loader for LoaderView<'_> {
+    fn list_state(&self) -> Trouble {
+        use crate::native_load::Trouble as Load;
+        match self.loader.trouble() {
+            Load::Loading => Trouble::Loading,
+            Load::Offline => Trouble::Offline,
+            Load::Failed => Trouble::Failed,
+            _ => Trouble::None,
+        }
+    }
+
+    fn index(&self) -> Option<&Index> {
+        self.loader.index()
+    }
+
+    fn page(&self, id: &str) -> Option<&Page> {
+        self.loader.page(id)
+    }
+
+    fn generation(&self) -> u32 {
+        self.generation
+    }
+
+    fn page_state(&self, id: &str) -> Trouble {
+        use crate::native_load::Details;
+        match self.loader.details() {
+            (Some(of), Details::Offline) if of == id => Trouble::Offline,
+            (Some(of), Details::Failed) if of == id => Trouble::Failed,
+            (Some(of), Details::Here) if of == id => Trouble::None,
+            _ if self.loader.page(id).is_some() => Trouble::None,
+            _ => Trouble::Loading,
+        }
+    }
+
+    fn small_memory(&self) -> bool {
+        self.small_memory
+    }
+}
+
 /// How the install of a plugin stands (Port E's steps).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Step {
@@ -138,6 +191,12 @@ pub trait Installs {
     fn flash_hint(&self) -> bool {
         false
     }
+    /// Whether the device loads code plugins and there is a network, so a
+    /// plugin of the library can be added (the first-run offer reads it). The
+    /// default says no. (Addition of the screens' port.)
+    fn can_install(&self) -> bool {
+        false
+    }
     /// Whether plugin `id` was installed and works only after a restart (a
     /// pack of letters is a data plugin and works at once). Added with the
     /// fetch screen; where the installs cannot tell, it is `false`.
@@ -182,6 +241,8 @@ pub mod ids {
     pub const SHOTS: &str = "store.shots";
     /// The progress of a fetch of the list or of *Update all*.
     pub const FETCH: &str = "store.fetch";
+    /// The first-run offer of a few plugins (the setup's page).
+    pub const OFFER: &str = "store.offer";
 }
 
 /// What the plugin carries out for a screen.
@@ -236,6 +297,17 @@ pub enum Next {
     SwitchOn(String),
     /// Say text `key` of the catalog with `name` for its `{name}`, once.
     Said { key: &'static str, name: String },
+    /// The plugins chosen on the first-run offer: switch on the built-in ones
+    /// `switch_on` (`set_plugin_enabled`), start the queue where `queued`
+    /// (they were put in it quietly, `native_ask::keep_chosen`), say text
+    /// `notify` once, and close the screen where `close` (it is not where the
+    /// page is left through *Back*). (Addition of the offer.)
+    Offered {
+        switch_on: Vec<&'static str>,
+        queued: bool,
+        notify: &'static str,
+        close: bool,
+    },
 }
 
 /// What a screen asks the reader. The texts are already in the reader's
@@ -315,6 +387,18 @@ pub trait Screen: Sized {
     /// `NoMemory`, or what the host refuses.
     fn input(&mut self, ctx: &Ctx<'_>, input: &Input<'_>) -> Result<(Handled, Next), Error>;
 
+    /// The reader leaves the screen through *Back* or the header's arrow, and
+    /// it may still do something first (the first-run offer adds the plugins
+    /// chosen). The default does nothing; the plugin calls this before it
+    /// closes the screen. (Addition of the offer.)
+    ///
+    /// # Errors
+    /// `NoMemory`, or what the card refuses.
+    fn closing(&mut self, ctx: &Ctx<'_>) -> Result<Next, Error> {
+        let _ = ctx;
+        Ok(Next::None)
+    }
+
     /// The screen is closed: it gives back what it holds (a picture the host
     /// keeps, a request going on, a file it wrote).
     ///
@@ -374,6 +458,8 @@ pub enum StoreView {
     Shots(crate::native_screen_shots::View),
     /// A fetch's progress.
     Fetch(crate::native_screen_fetch::View),
+    /// The first-run offer.
+    Offer(crate::native_screen_offer::View),
 }
 
 impl StoreView {
@@ -391,6 +477,7 @@ impl StoreView {
             ids::PLUGIN => Self::Plugin(Screen::open(ctx, params)?),
             ids::SHOTS => Self::Shots(Screen::open(ctx, params)?),
             ids::FETCH => Self::Fetch(Screen::open(ctx, params)?),
+            ids::OFFER => Self::Offer(Screen::open(ctx, params)?),
             _ => return Err(Error::NotFound),
         })
     }
@@ -408,6 +495,24 @@ impl StoreView {
             Self::Plugin(v) => v.shown(ctx),
             Self::Shots(v) => v.shown(ctx),
             Self::Fetch(v) => v.shown(ctx),
+            Self::Offer(v) => v.shown(ctx),
+        }
+    }
+
+    /// The screen is left through *Back*: what it does first.
+    ///
+    /// # Errors
+    /// What the screen says.
+    pub fn closing(&mut self, ctx: &Ctx<'_>) -> Result<Next, Error> {
+        match self {
+            Self::List(v) => v.closing(ctx),
+            Self::View(v) => v.closing(ctx),
+            Self::Letters(v) => v.closing(ctx),
+            Self::Source(v) => v.closing(ctx),
+            Self::Plugin(v) => v.closing(ctx),
+            Self::Shots(v) => v.closing(ctx),
+            Self::Fetch(v) => v.closing(ctx),
+            Self::Offer(v) => v.closing(ctx),
         }
     }
 
@@ -424,6 +529,7 @@ impl StoreView {
             Self::Plugin(v) => v.closed(ctx),
             Self::Shots(v) => v.closed(ctx),
             Self::Fetch(v) => v.closed(ctx),
+            Self::Offer(v) => v.closed(ctx),
         }
     }
 
@@ -440,6 +546,7 @@ impl StoreView {
             Self::Plugin(v) => v.resume(ctx),
             Self::Shots(v) => v.resume(ctx),
             Self::Fetch(v) => v.resume(ctx),
+            Self::Offer(v) => v.resume(ctx),
         }
     }
 
@@ -453,6 +560,7 @@ impl StoreView {
             Self::Plugin(v) => v.hidden(),
             Self::Shots(v) => v.hidden(),
             Self::Fetch(v) => v.hidden(),
+            Self::Offer(v) => v.hidden(),
         }
     }
 
@@ -469,6 +577,7 @@ impl StoreView {
             Self::Plugin(v) => v.draw(ctx, frame),
             Self::Shots(v) => v.draw(ctx, frame),
             Self::Fetch(v) => v.draw(ctx, frame),
+            Self::Offer(v) => v.draw(ctx, frame),
         }
     }
 
@@ -485,6 +594,7 @@ impl StoreView {
             Self::Plugin(v) => v.input(ctx, input),
             Self::Shots(v) => v.input(ctx, input),
             Self::Fetch(v) => v.input(ctx, input),
+            Self::Offer(v) => v.input(ctx, input),
         }
     }
 
@@ -501,6 +611,7 @@ impl StoreView {
             Self::Plugin(v) => v.event(ctx, event),
             Self::Shots(v) => v.event(ctx, event),
             Self::Fetch(v) => v.event(ctx, event),
+            Self::Offer(v) => v.event(ctx, event),
         }
     }
 
@@ -517,6 +628,7 @@ impl StoreView {
             Self::Plugin(v) => v.started(ctx),
             Self::Shots(v) => v.started(ctx),
             Self::Fetch(v) => v.started(ctx),
+            Self::Offer(v) => v.started(ctx),
         }
     }
 
@@ -533,6 +645,7 @@ impl StoreView {
             Self::Plugin(v) => v.answered(ctx, tag, reply),
             Self::Shots(v) => v.answered(ctx, tag, reply),
             Self::Fetch(v) => v.answered(ctx, tag, reply),
+            Self::Offer(v) => v.answered(ctx, tag, reply),
         }
     }
 
@@ -549,6 +662,7 @@ impl StoreView {
             Self::Plugin(v) => v.returned(ctx, key, value),
             Self::Shots(v) => v.returned(ctx, key, value),
             Self::Fetch(v) => v.returned(ctx, key, value),
+            Self::Offer(v) => v.returned(ctx, key, value),
         }
     }
 }

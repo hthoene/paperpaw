@@ -132,6 +132,7 @@ fn counting_picking_and_building_the_rows_survive_refused_allocations() {
     let hooks = Hooks {
         author_of: &nobody,
         stopped: &none,
+        host_checks: false,
     };
     let index = fail_alloc::exempt(|| {
         take(&card, "list.json", device, hooks)

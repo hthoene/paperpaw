@@ -106,3 +106,47 @@ fn the_action_menu_entries_and_event_are_what_the_image_holds_and_the_host_admit
         validate_batch("store", &records_decode(built).unwrap()).unwrap();
     }
 }
+
+/// The seven screens are what the image holds, the host admits them, and each
+/// has the id and the title of the interface-6 registration.
+#[test]
+fn the_screens_are_what_the_image_holds_and_the_registration_says() {
+    let screens = batches_of!(declarations::screens);
+    assert_eq!(screens.len(), image::SCREENS.len());
+    for (built, image) in screens.iter().zip(image::SCREENS) {
+        assert_eq!(built.as_slice(), *image);
+        let records = records_decode(built).unwrap();
+        assert_eq!(records.iter().count(), 8);
+        validate_batch("store", &records).unwrap();
+    }
+    let mut registrar = Registrar::new(Id::new_static("store"));
+    Store.register(&mut registrar).unwrap();
+    let mut old =
+        declared::legacy("store", "core.group.system", registrar.into_contributions()).screens;
+    let mut new = declared::native("store", &screens).screens;
+    old.sort();
+    new.sort();
+    assert_eq!(new, old);
+    assert_eq!(new.len(), 8);
+}
+
+/// The setup step is what the image holds, the host admits it, and it is the
+/// interface-6 registration's: its title, help and order, opening the page of
+/// the first-run offer.
+#[test]
+fn the_setup_step_is_what_the_image_holds_and_the_host_admits_it() {
+    let setup = batches_of!(declarations::setup);
+    assert_eq!(setup.len(), image::SETUP.len());
+    for (built, image) in setup.iter().zip(image::SETUP) {
+        assert_eq!(built.as_slice(), *image);
+        let records = records_decode(built).unwrap();
+        assert_eq!(records.iter().count(), 1);
+        validate_batch("store", &records).unwrap();
+    }
+    let mut registrar = Registrar::new(Id::new_static("store"));
+    Store.register(&mut registrar).unwrap();
+    let old = declared::legacy("store", "core.group.system", registrar.into_contributions());
+    let new = declared::native("store", &setup);
+    assert_eq!(new.others.len(), 1, "{:?}", new.others);
+    assert_eq!(old.others.len(), 0, "{:?}", old.others);
+}

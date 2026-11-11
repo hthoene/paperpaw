@@ -244,3 +244,44 @@ Each is an ignored case in `tests/acceptance_pending.rs`. The interface-6 tests
 - `native_plugin.rs`: the entry and the `Wire` over the host. Still open (other
   slices): the screens, the downloads and installs, the requests of other plugins, the
   first-run offer.
+
+## Ported in slice 3: the screens (`src/native_screens.rs`, `src/native_screen_*.rs`, `src/native_ask.rs`; ticket #244, assignment #2286)
+
+Status of the plugin is unchanged: **not complete** (the interface-6 plugin stays
+in place; its removal comes with the PR that finishes the port).
+
+- The contract (`native_screens.rs`): `StoreView` (`List`, `View`, `Letters`, `Source`,
+  `Plugin`, `Shots`, `Fetch`, `Offer`) with `open`, `shown`, `closed`, `resume`,
+  `hidden`, `draw`, `input`, `event`, `started`, `answered`, `returned`. Each answers
+  with a `Next` (open a screen, close, fetch the list or a page, install, update,
+  remove, stop, *Update all*, say a text, ask, restart) that `native_plugin.rs` carries
+  out. What a screen reads comes through `Ctx` (host, data folder, `Loader`,
+  `Installs`); `LoaderView` makes the slice-1 `native_load::Loader` one.
+- Screens, as the interface-6 ones (`list.rs`, `view.rs`, `letters.rs`, `source.rs`,
+  `page.rs`, `shots.rs`, `fetch.rs`): the start with the views and things to do, a
+  view (section, order, search, the letters to jump to), where the library is read
+  from, a plugin's page with its pictures, the progress of a fetch (list, *Update
+  all*, plugins another plugin asked for), the first-run offer.
+- `native_ask.rs`: the dialog of plugins other plugins ask for (events 77 and 78),
+  the first-run offer, and the offer of Literata's bold and italic, as pure functions
+  of what the plugin read; the answer to the one who asked is one `PluginOutcome` for
+  each id (`answer_plugin`) where interface 6 sent one event with lists.
+- Declarations (`declarations::screens`, `declarations::setup`): `store.list` and
+  `store.fetch` single, `store.plugin`, `store.view`, `store.letters`, `store.source`,
+  `store.shots`, `store.offer` as before; the setup step `store.setup`. The test
+  `native_declarations` compares the ids and titles with the interface-6
+  registration.
+- Memory (#248): nothing is built at the start. A screen builds its rows when it
+  opens or comes on top, lists are read from the index on the card a page at a time,
+  a plugin's page is held for the one screen and dropped (`forget_page`), no state is
+  kept between screens. Texts are copied once; every allocation is fallible. Frames
+  stay under 2,048 bytes.
+- **Not run on a host.** Pure functions and the screens' layout are tested; no screen
+  has run against the host yet. It runs when `native_plugin.rs` (slice 1) routes the
+  screen tokens to `StoreView`, when the downloads and installs (Port E, slice 2) give
+  `Installs`, and when native plugins are activated (#243). The store's start heap
+  against Beta 3's 99.9 KiB is measured then (`--heap-report`).
+- Open: the `Installs` adapter over Port E's steps and queue; the metadata `used` list
+  (`native/metadata.json`) for any host call a screen makes that slice 1 did not
+  (Port A regenerates it); the lazy `ItemList` (ui-kit has none: rows of a page of the
+  index are built eagerly, as Wi-Fi's).

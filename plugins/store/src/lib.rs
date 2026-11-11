@@ -58,6 +58,8 @@ pub mod native_screen_letters;
 #[doc(hidden)]
 pub mod native_screen_list;
 #[doc(hidden)]
+pub mod native_screen_offer;
+#[doc(hidden)]
 pub mod native_screen_page;
 #[doc(hidden)]
 pub mod native_screen_shots;

@@ -163,6 +163,7 @@ fn kept(storage: &MemoryStorage, count: usize, sections: &str) -> Index {
     let hooks = Hooks {
         author_of: &nobody,
         stopped: &none,
+        host_checks: false,
     };
     take(storage, "list.json", device(), hooks)
         .unwrap()
