@@ -1,7 +1,7 @@
 //! The settings screens as an interface-7 plugin: the main page, a group's
 //! page, choosing a value, themes and searching, all lists of the shared
 //! kit over the registry's settings, with host dialogs for questions.
-use crate::native_data::{self, Reader};
+use crate::native_data::{self, Fields, Reader};
 use crate::native_model::{
     self as model, Context, Detail, Group, Kind, PageRow, Setting, Val, flag,
 };
@@ -1260,27 +1260,15 @@ impl NativeSettings {
         let mut reader = Reader::open(host)?;
         let found = (|| {
             let groups = reader.groups()?;
-            let all = reader.settings("")?;
             let cx = context(host, false)?;
             let mut keys: Vec<String> = Vec::new();
-            for setting in &all {
-                if setting.has(flag::KEPT_ON_RESET)
-                    || setting.has(flag::SECRET)
-                    || setting.is_default && !setting.in_scope
-                    || setting.key == model::SCOPE_ONLY
-                {
-                    continue;
-                }
-                let chosen = if group.is_empty() {
-                    setting.key != model::LANGUAGE
-                } else {
-                    model::group_is(&groups, setting, group)
-                        && model::visible(&groups, cx, setting, None)
-                };
-                if chosen {
-                    push(&mut keys, copy(&setting.key)?)?;
-                }
-            }
+            reader.each_setting(
+                "",
+                Fields::Light,
+                |_| true,
+                |_, s| model::reset_step(&mut keys, &groups, cx, &s, group),
+            )?;
+            model::reset_end(&mut keys)?;
             Ok(keys)
         })();
         let keys = reader.finish(found)?;
@@ -1289,9 +1277,6 @@ impl NativeSettings {
         for key in &keys {
             commands.reset_setting(ResetTarget::Setting(key))?;
         }
-        // "Only this book" last: clearing it first would send later resets to
-        // the global settings instead of the book's values.
-        commands.reset_setting(ResetTarget::Setting(model::SCOPE_ONLY))?;
         Self::notify(host, "settings.reset-done")
     }
 }

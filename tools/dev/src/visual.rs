@@ -236,7 +236,12 @@ impl Looker {
         };
         // The keyboard, as the slot opens it.
         session.device.call(|kernel, now| {
-            kernel.open_slot(now, core_slots::KEYBOARD, paperpaw_core::sdk::Params::new())
+            // A native keyboard opens for a question (as `ui.ask` makes).
+            kernel
+                .stage_text_question(now, "", false)
+                .unwrap_or_else(|_| {
+                    kernel.open_slot(now, core_slots::KEYBOARD, paperpaw_core::sdk::Params::new())
+                })
         });
         session.settle();
         let keyboard = session

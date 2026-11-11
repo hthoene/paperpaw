@@ -639,6 +639,25 @@ fn a_book_is_opened_through_its_format_and_closed_telling_the_format() {
 }
 
 #[test]
+fn the_lists_of_books_and_unfinished_formats_are_reserved_at_their_first_use() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        // Nothing is kept before a document is opened.
+        assert_eq!(w.state.books.borrow().capacity(), 0);
+        assert_eq!(w.state.unfinished.borrow().capacity(), 0);
+        w.open(1, "books/a.epub").unwrap();
+        assert!(w.state.books.borrow().capacity() >= 2);
+        // The first unfinished format reserves its list, once, and is kept.
+        w.state.keep_unfinished(FormatRef(7));
+        let room = w.state.unfinished.borrow().capacity();
+        assert!(room >= 1);
+        assert_eq!(w.state.unfinished(), 1);
+        w.state.keep_unfinished(FormatRef(8));
+        assert_eq!(w.state.unfinished.borrow().capacity(), room);
+    });
+}
+
+#[test]
 fn a_book_of_the_card_is_held_until_its_document_closes() {
     world(|w| {
         w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);

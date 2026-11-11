@@ -1,0 +1,3 @@
+### Added
+
+- **Annotation transactions on the device host** (#245, `docs/abi/library.md` 2.2). `core.library` ops 17 to 21 and 26 (`edit_begin`, `edit_add`, `edit_text`, `edit_commit`, `edit_abort`, `edit_receipt`) work on the card: the staged edits go to a temporary file, the commit rewrites the book's annotation file as version 3 (ids, `next-id`, generation, client keys) through a temporary file renamed over the old one, and the receipt of the ids is kept until the plugin's next `edit_begin`, 10 minutes or its stop. A power cut leaves the old file whole. The native reader's bookmarks, highlights and notes use them.

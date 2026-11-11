@@ -34,6 +34,12 @@
   },
   "services": [
     {
+      "key": "core.device",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    },
+    {
       "key": "core.document",
       "major": 1,
       "min_table_bytes": 0,
@@ -52,6 +58,12 @@
       "semantic_revision": 0
     },
     {
+      "key": "core.registry",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    },
+    {
       "key": "core.ui",
       "major": 1,
       "min_table_bytes": 0,
@@ -65,5 +77,5 @@
     }
   ],
   "target": "esp32c3-riscv32imc-ilp32-soft-le",
-  "total_bytes": 219
+  "total_bytes": 267
 }

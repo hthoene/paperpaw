@@ -134,7 +134,7 @@ impl HostSource {
     /// [`Error::NoMemory`] and the host's refusals; nothing is kept in part.
     pub fn read(host: &Host<'_>, dpi: u16) -> Result<Self, Error> {
         let mut texts = Vec::new();
-        let mut scratch = buffer(TEXT_MAX + 64)?;
+        let mut scratch = buffer(TEXT_MAX)?;
         for wide in [false, true] {
             for slot in 0..MAX_PAGES {
                 let key = native_pages::setting(slot, wide)?;

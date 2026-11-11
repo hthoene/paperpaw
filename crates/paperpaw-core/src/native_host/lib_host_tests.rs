@@ -214,6 +214,28 @@ fn a_status_is_set_through_the_host_and_is_busy_for_a_book_the_move_carries() {
     );
 }
 
+#[test]
+fn a_delete_goes_to_the_journalled_job_hides_the_book_and_a_busy_path_is_not_passed_on() {
+    let card = card();
+    let moves = Rc::new(LibraryMoves::new(card.storage.clone()));
+    let host = LibraryHost::new(card.storage.clone(), card.env.clone(), Some(moves.clone()));
+    let answers = host
+        .delete(&["books/c.epub", "books/e.epub"], false)
+        .unwrap();
+    assert_eq!(answers[..2], [OK, OK]);
+    // The files are gone at once; the catalog's part is the pump's, so the
+    // books are hidden until it is done.
+    assert!(card.storage.size("books/c.epub").is_err());
+    assert!(
+        host.book(BookRef::Path("books/c.epub"), &mut |_| {})
+            .is_err()
+    );
+    assert!(moves.pending_delete("books/e.epub"));
+    // Another job is open: the whole call is busy, nothing was removed.
+    assert_eq!(host.delete(&["books/a.epub"], false), Err(ERR_BUSY));
+    assert!(card.storage.size("books/a.epub").is_ok());
+}
+
 /// A source that holds one path (a document, a transfer).
 struct Holds(&'static str);
 
@@ -221,6 +243,112 @@ impl BusySource for Holds {
     fn busy(&self, _: &dyn Storage, path: &str, _: Access) -> bool {
         path == self.0
     }
+}
+
+#[test]
+fn a_book_another_source_holds_is_busy_for_delete_and_import() {
+    let card = card();
+    let sources = Rc::new(BusySources::default());
+    sources
+        .register(BusyKind::ReaderBook, Rc::new(Holds("books/a.epub")))
+        .unwrap();
+    let moves = Rc::new(LibraryMoves::new(card.storage.clone()));
+    let host = LibraryHost::new(card.storage.clone(), card.env.clone(), Some(moves.clone()))
+        .with_busy_sources(sources);
+    let answers = host
+        .delete(&["books/a.epub", "books/c.epub"], false)
+        .unwrap();
+    assert_eq!(answers[..2], [ERR_BUSY, OK]);
+    // The held book is still there, not asked of the job.
+    assert!(card.storage.size("books/a.epub").is_ok());
+    assert!(moves.pending_delete("books/c.epub"));
+}
+
+#[test]
+fn a_delete_without_the_job_is_unsupported_and_a_path_the_move_holds_is_busy() {
+    let card = card();
+    let host = LibraryHost::new(card.storage.clone(), card.env.clone(), None);
+    assert_eq!(host.delete(&["books/c.epub"], false), Err(ERR_UNSUPPORTED));
+    let moves = Rc::new(LibraryMoves::new(card.storage.clone()));
+    moves.begin("books/c.epub", "moved/c.epub", false).unwrap();
+    let host = LibraryHost::new(card.storage.clone(), card.env.clone(), Some(moves));
+    // A move is open: the job refuses the call as a whole.
+    assert_eq!(host.delete(&["books/a.epub"], false), Err(ERR_BUSY));
+}
+
+#[test]
+fn an_import_is_planned_on_the_card_then_the_job_brings_the_file_in() {
+    let card = card();
+    card.storage
+        .write(".paperpaw/plugins/news/dl/issue.epub", &[1_u8; 3000])
+        .unwrap();
+    let moves = Rc::new(LibraryMoves::new(card.storage.clone()));
+    let host = LibraryHost::new(card.storage.clone(), card.env.clone(), Some(moves));
+    let who = Caller {
+        owner: 1,
+        plugin: "news",
+        storage: Ok(()),
+    };
+    let request = ImportRequest {
+        from: "dl/issue.epub",
+        folder: "feed",
+        name: "issue.epub",
+        replace: false,
+        free_name: false,
+    };
+    let mut taken = std::string::String::new();
+    host.import(&who, &request, &mut |path| taken = path.into())
+        .unwrap();
+    assert_eq!(taken, "feed/issue.epub");
+    assert!(card.storage.size("feed/issue.epub").is_ok());
+    assert!(
+        card.storage
+            .size(".paperpaw/plugins/news/dl/issue.epub")
+            .is_err()
+    );
+    // The job is open: another import (another file, another name) waits.
+    card.storage
+        .write(".paperpaw/plugins/news/dl/next.epub", &[2_u8; 100])
+        .unwrap();
+    let next = ImportRequest {
+        from: "dl/next.epub",
+        name: "next.epub",
+        ..request
+    };
+    assert_eq!(host.import(&who, &next, &mut |_| {}), Err(ERR_BUSY));
+    // The same name is the card's answer, before the job is asked.
+    card.storage
+        .write(".paperpaw/plugins/news/dl/issue.epub", &[1_u8; 10])
+        .unwrap();
+    assert_eq!(host.import(&who, &request, &mut |_| {}), Err(ERR_STATE));
+}
+
+#[test]
+fn an_import_without_the_job_is_unsupported_and_a_missing_source_is_not_found() {
+    let card = card();
+    let host = LibraryHost::new(card.storage.clone(), card.env.clone(), None);
+    let who = Caller {
+        owner: 1,
+        plugin: "news",
+        storage: Ok(()),
+    };
+    let request = ImportRequest {
+        from: "dl/none.epub",
+        folder: "",
+        name: "x.epub",
+        replace: false,
+        free_name: false,
+    };
+    assert_eq!(
+        host.import(&who, &request, &mut |_| {}),
+        Err(ERR_UNSUPPORTED)
+    );
+    let moves = Rc::new(LibraryMoves::new(card.storage.clone()));
+    let host = LibraryHost::new(card.storage.clone(), card.env.clone(), Some(moves));
+    assert_eq!(
+        host.import(&who, &request, &mut |_| {}),
+        Err(paperpaw_native::host_glue::ERR_NOT_FOUND)
+    );
 }
 
 /// A host with the move job and, if asked, a source that holds `held`.

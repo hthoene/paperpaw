@@ -6,6 +6,7 @@
 //!
 //! Nothing is kept: the empty entry is built in the caller's scratch, and the
 //! providers' own answers pass untouched (the service checks them).
+use crate::native_host::codec;
 use crate::native_host::registrations::{self as wire, Record};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND};
 
@@ -77,11 +78,8 @@ pub(super) fn finish(
 /// of the texts is made.
 fn set_more(out: &mut [u8], length: usize, more: bool) -> Result<usize, i32> {
     let reply = out.get(..length).ok_or(ERR_INVALID)?;
-    let (Record::ServiceLookupEntry(entry), used) =
-        wire::record_decode_prefix(reply).map_err(|_| ERR_INVALID)?
-    else {
-        return Err(ERR_INVALID);
-    };
+    let (entry, used) =
+        codec::prefix::<wire::ServiceLookupEntry<'_>>(reply).map_err(|_| ERR_INVALID)?;
     if used != length || length < 4 {
         return Err(ERR_INVALID);
     }
@@ -100,7 +98,7 @@ fn set_more(out: &mut [u8], length: usize, more: bool) -> Result<usize, i32> {
 
 /// The entry of a provider that has none for the text.
 pub(super) fn empty(provider: &str, more: bool, out: &mut [u8]) -> Result<usize, i32> {
-    wire::record_encode_one(
+    codec::encode_one(
         &Record::ServiceLookupEntry(wire::ServiceLookupEntry {
             provider,
             title: "",

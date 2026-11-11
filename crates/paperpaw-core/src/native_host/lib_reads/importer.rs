@@ -14,7 +14,8 @@
 //! matches. The move carry also calls [`clear`] for the old path, so that a
 //! book moved away and back is not taken for the importer's again; a delete
 //! removes it with the rest of the book's marks.
-use super::{carry_status, kept_file, storage_status};
+use super::{kept_file, storage_status};
+use crate::native_host::lib_jobs::carry_status;
 use alloc::string::String;
 use core::fmt::Write as _;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_IO, ERR_NO_MEMORY};

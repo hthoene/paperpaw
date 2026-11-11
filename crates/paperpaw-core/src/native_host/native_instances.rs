@@ -182,11 +182,16 @@ struct Entry {
     replacement: Option<String>,
     retry_at: u64,
     failure_reported: bool,
+    /// It declared `uses.install` (it may answer plugin requests).
+    installer: bool,
 }
 
 #[derive(Default)]
 pub(crate) struct NativeInstances {
     entries: Vec<Entry>,
+    /// The plugin requests under way (`plugin_requests.rs`); nothing is
+    /// allocated before the first request.
+    pub(crate) plugin_requests: core::cell::RefCell<super::plugin_requests::PluginRequests>,
     callbacks: CallbackClock,
     pool: Option<OwnerResourceView>,
     orphan_retry_at: Cell<u64>,
@@ -322,6 +327,19 @@ impl NativeInstances {
         Some(&self.pool.as_ref()?.hosts().screen_stage)
     }
 
+    /// Notes that the instance of `key` declared `uses.install`.
+    pub(crate) fn set_installer(&mut self, key: u64, installer: bool) {
+        if let Some(entry) = self.entry_mut(key) {
+            entry.installer = installer;
+        }
+    }
+
+    /// Whether the running instance of `key` may answer plugin requests.
+    pub(crate) fn is_installer(&self, key: u64) -> bool {
+        self.entry(key)
+            .is_some_and(|entry| entry.enabled && entry.installer)
+    }
+
     /// The host owner key of the running plugin `id`, if it has an instance.
     pub(crate) fn key_of(&self, id: &str) -> Option<u64> {
         self.entries
@@ -379,6 +397,7 @@ impl NativeInstances {
             replacement: None,
             retry_at: 0,
             failure_reported: false,
+            installer: false,
         });
         Ok(key)
     }
@@ -726,6 +745,20 @@ impl NativeInstances {
     /// The device's `core.work` host, once the shell wired it.
     pub(crate) fn work_services(&self) -> Option<&super::work_service::WorkServices> {
         self.pool.as_ref()?.hosts().work()
+    }
+
+    /// Gives back what the tables kept in reserve while the plugins were
+    /// hosted one by one (every list grows by doubling): called once, when
+    /// the shell has hosted them all ([`Kernel::start`](crate::Kernel::start)).
+    pub(crate) fn shrink_to_fit(&mut self) {
+        super::shrink::shrink(&mut self.entries);
+        self.setting_events.shrink_to_fit();
+        if let Some(directory) = self.directory() {
+            directory.shrink_to_fit();
+        }
+        if let Some(hosts) = self.hosts() {
+            hosts.shrink_to_fit();
+        }
     }
 
     /// The device's wired host views (none before a pool is adopted).

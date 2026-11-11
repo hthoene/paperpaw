@@ -178,10 +178,26 @@ fn producer_reports_every_unrepresentable_edge_and_never_truncates_old() {
 
 #[test]
 fn the_events_of_subscription_checked_services_can_be_registered() {
-    // 90 `image_ready`, 108 `document_closed` and 110 `lookup_ready`: their
-    // producers deliver only to a plugin that subscribed.
-    for tag in [90, 108, 110] {
+    // 89 `spoken`, 90 `image_ready`, 91 `library_changed`, 108 `document_closed` and 110
+    // `lookup_ready`: their producers deliver only to a plugin that subscribed
+    // (the native `files` plugin is refused at admission without 91).
+    for tag in [89, 90, 91, 108, 110] {
         assert!(super::super::events::is_event_tag(tag), "{tag}");
+    }
+}
+
+#[test]
+fn the_wifi_hints_and_the_registry_requests_can_be_registered_and_38_and_39_cannot() {
+    // 92 `wifi_scanned`, 94 `network_wanted`, 95 `network_idle` (the native
+    // wifi plugin was refused at `make` without them), 77 `plugins_requested`
+    // and 78 `plugin_answered`: `device.md` 4, `registry.md` 5.
+    for tag in [77, 78, 92, 94, 95] {
+        assert!(super::super::events::is_event_tag(tag), "{tag}");
+    }
+    // 38 and 39 go to the token of the declaration they name, never to a
+    // registration (`screens-input.md` section 2); 98 waits for its delivery.
+    for tag in [38, 39, 98] {
+        assert!(!super::super::events::is_event_tag(tag), "{tag}");
     }
 }
 
@@ -389,4 +405,36 @@ fn registry_and_preview_bits_are_held_while_all_sixteen_edges_are_held() {
         Some(Ready::Hint(wire::EVENT_PREVIEW_CHANGED_TAG))
     ));
     assert!(queue.take().is_none());
+}
+
+#[test]
+fn the_radio_hints_are_pending_bits_that_keep_the_order_and_fit_with_every_other_bit() {
+    let budget = EventBudget::try_new().unwrap();
+    let mut queue = budget.pending().unwrap();
+    for tag in [92, 94, 95, 92, 94] {
+        queue.hint(tag).unwrap();
+    }
+    // Each once, in the order of the last time it was raised.
+    for want in [95, 92, 94] {
+        assert!(matches!(queue.take(), Some(Ready::Hint(tag)) if tag == want));
+    }
+    assert!(queue.take().is_none());
+    // Every bit and every edge together: none overwrites another.
+    for at in 0..16 {
+        raise(&mut queue, at);
+    }
+    for tag in (70..=74).chain([92, 94, 95, wire::EVENT_PREVIEW_CHANGED_TAG]) {
+        queue.hint(tag).unwrap();
+    }
+    for tag in CORE_TAGS {
+        queue.core(tag).unwrap();
+    }
+    queue.registry(1);
+    let mut hints = 0;
+    let mut told = 0;
+    while let Some(ready) = queue.take() {
+        told += 1;
+        hints += usize::from(matches!(ready, Ready::Hint(_)));
+    }
+    assert_eq!((told, hints), (16 + 5 + 3 + 1 + 4 + 1, 9));
 }
