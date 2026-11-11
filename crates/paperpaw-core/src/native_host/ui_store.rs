@@ -495,7 +495,7 @@ impl UiStore {
             return Err(ERR_NO_SPACE);
         }
         self.insert(
-            params,
+            params.iter().copied(),
             State::Made {
                 owner: who.owner,
                 epoch: who.epoch,
@@ -515,7 +515,7 @@ impl UiStore {
     /// As [`Self::handover_make`].
     pub(crate) fn handover_dialog(&self, request: &str, kind: &str) -> Result<u32, i32> {
         self.insert(
-            &[
+            [
                 Param {
                     key: "core.request",
                     value: request,
@@ -524,7 +524,8 @@ impl UiStore {
                     key: "core.kind",
                     value: kind,
                 },
-            ],
+            ]
+            .into_iter(),
             // `batch` is a number no `claim` makes (they count up from 0), so
             // that no plugin's rollback frees it.
             State::Claimed {
@@ -535,12 +536,122 @@ impl UiStore {
         )
     }
 
+    /// The hand-over of the host's own for a native screen opened without
+    /// one: by `Kernel::open` with interface-6 `Params` (a shell's script or
+    /// request, an interface-6 plugin, the kernel), never for a native
+    /// plugin's `command.open` (that one names its own, or none). Its params
+    /// are those of `params` a plugin's op 16 could name (other keys, and a key
+    /// again, are left out), under op 16's caps; `text` (interface 6
+    /// `params::TEXT`) is also its text (op 10), and stays a param only where
+    /// it fits those caps. Made **claimed** by the host as
+    /// [`Self::handover_dialog`]'s, so the stack's `attach` gives it to the
+    /// instance (freed when it closes) and [`Self::release`] frees it where it
+    /// does not open.
+    ///
+    /// # Errors
+    /// `ERR_NO_SPACE` when the params beyond `text` exceed op 16's caps or the
+    /// text is longer than a hand-over's; as [`Self::text_write`] for the
+    /// text; `ERR_FULL`, `ERR_NO_MEMORY`. Nothing is kept then.
+    pub(crate) fn handover_params(&self, params: &[Param<'_>]) -> Result<u32, i32> {
+        // Interface 6 names the long text so; it is also the hand-over's text.
+        const TEXT: &str = "text";
+        if params.len() > 2 * PARAMS_MAX {
+            return Err(ERR_NO_SPACE);
+        }
+        let named = |at: usize, param: &Param<'_>| {
+            key_fine(param.key)
+                && !param.key.starts_with("core.")
+                && !params[..at].iter().any(|before| before.key == param.key)
+        };
+        let others = params
+            .iter()
+            .enumerate()
+            .filter(move |(at, param)| param.key != TEXT && named(*at, param))
+            .map(|(_, param)| *param);
+        let (count, content) = others
+            .clone()
+            .fold((0_usize, 0_usize), |(count, bytes), param| {
+                (count + 1, bytes + param.key.len() + param.value.len())
+            });
+        if count > PARAMS_MAX || content > PARAM_BYTES_MAX {
+            return Err(ERR_NO_SPACE);
+        }
+        let text = params
+            .iter()
+            .find(|param| param.key == TEXT)
+            .map_or("", |param| param.value);
+        if text.len() > TEXT_MAX {
+            return Err(ERR_NO_SPACE);
+        }
+        let as_param = !text.is_empty()
+            && count < PARAMS_MAX
+            && content + TEXT.len() + text.len() <= PARAM_BYTES_MAX;
+        let text_param = as_param.then_some(Param {
+            key: TEXT,
+            value: text,
+        });
+        let id = self.insert(
+            others.chain(text_param),
+            State::Claimed {
+                owner: HOST_OWNER,
+                batch: u64::MAX,
+            },
+            // The room of the host's own, as a dialog's.
+            (HOST_ROOM, HOST_BYTES),
+        )?;
+        if let Err(error) = self.host_text(id, text.as_bytes()) {
+            let mut inner = self.inner()?;
+            if let Some(at) = Self::position(&inner, id) {
+                Self::free(&mut inner, at);
+            }
+            return Err(error);
+        }
+        Ok(id)
+    }
+
+    /// The host's own text of its hand-over `id`, in parts as op 9 writes
+    /// them, committed (nothing for none).
+    fn host_text(&self, id: u32, text: &[u8]) -> Result<(), i32> {
+        let mut offset = 0;
+        for part in text.chunks(PART_MAX) {
+            let mut inner = self.inner()?;
+            let at = Self::position(&inner, id).ok_or(ERR_NOT_FOUND)?;
+            let slots_free = Self::text_slots(&inner) < self.limits.texts;
+            let Inner {
+                entries,
+                text_memory,
+                ..
+            } = &mut *inner;
+            write_part(
+                &mut entries[at].text,
+                text_memory,
+                &WriteRules {
+                    slots_free,
+                    memory_cap: self.limits.text_memory,
+                    text_cap: TEXT_MAX,
+                },
+                offset,
+                part,
+                offset + part.len() == text.len(),
+            )?;
+            offset += part.len();
+        }
+        Ok(())
+    }
+
     /// Keeps a hand-over of `params` (checked) in `state`, `room` (hand-overs,
     /// bytes) beyond the limits allowed.
-    fn insert(&self, params: &[Param<'_>], state: State, room: (usize, usize)) -> Result<u32, i32> {
+    fn insert<'p>(
+        &self,
+        params: impl Iterator<Item = Param<'p>> + Clone,
+        state: State,
+        room: (usize, usize),
+    ) -> Result<u32, i32> {
         // Encode once into a block of exactly the size.
         let mut framed = 0_usize;
-        for param in params {
+        let mut count = 0_u32;
+        for param in params.clone() {
+            count += 1;
             framed += codec::framed_len(&Record::ServiceUiParam(wire::ServiceUiParam {
                 key: param.key,
                 value: param.value,
@@ -571,7 +682,7 @@ impl UiStore {
             id,
             state,
             params: block,
-            count: u32::try_from(params.len()).map_err(|_| ERR_INVALID)?,
+            count,
             text: Text::default(),
         });
         Ok(id)

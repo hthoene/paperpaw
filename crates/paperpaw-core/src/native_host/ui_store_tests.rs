@@ -609,3 +609,77 @@ fn a_plugin_that_fills_the_params_pool_leaves_room_for_the_hosts_dialogs() {
     s.attach(Some(id), 3).unwrap();
     assert_eq!(read_params(&s, 3, id).unwrap().len(), 2);
 }
+
+#[test]
+fn the_host_hands_over_the_params_of_an_open_no_plugin_made() {
+    let s = store();
+    let id = s
+        .handover_params(&[
+            p("id", "core.rotation"),
+            // What op 16 refuses a plugin is left out, as is a key again.
+            p("core.request", "7"),
+            p("Bad Key", "x"),
+            p("id", "again"),
+            p("text", "A note."),
+        ])
+        .unwrap();
+    s.attach(Some(id), 4).unwrap();
+    assert_eq!(
+        read_params(&s, 4, id).unwrap(),
+        [
+            ("id".into(), "core.rotation".into()),
+            ("text".into(), "A note.".into())
+        ]
+    );
+    // The text is also the hand-over's text.
+    assert_eq!(read_text(&s, 4, id).unwrap(), "A note.");
+    // Closing the screen frees all of it.
+    s.instance_closed(4).unwrap();
+    assert_eq!((s.len(), s.held()), (0, (0, 0)));
+}
+
+#[test]
+fn a_long_text_is_handed_over_as_the_text_only() {
+    let s = store();
+    let long = "ä".repeat(2_000);
+    let id = s
+        .handover_params(&[p("title", "Name"), p("text", &long)])
+        .unwrap();
+    s.attach(Some(id), 2).unwrap();
+    assert_eq!(
+        read_params(&s, 2, id).unwrap(),
+        [("title".into(), "Name".into())]
+    );
+    assert_eq!(read_text(&s, 2, id).unwrap(), long);
+    s.instance_closed(2).unwrap();
+    assert_eq!((s.len(), s.held()), (0, (0, 0)));
+    // One no screen took is freed by the release.
+    let loose = s.handover_params(&[p("save", "1")]).unwrap();
+    s.release(loose).unwrap();
+    assert_eq!((s.len(), s.held()), (0, (0, 0)));
+}
+
+#[test]
+fn params_over_the_caps_of_op_16_are_not_handed_over() {
+    let s = store();
+    let keys: Vec<String> = (0..=PARAMS_MAX).map(|n| format!("k{n}")).collect();
+    let many: Vec<Param<'_>> = keys.iter().map(|key| p(key, "v")).collect();
+    assert_eq!(s.handover_params(&many), Err(ERR_NO_SPACE));
+    let long = "x".repeat(PARAM_BYTES_MAX);
+    assert_eq!(s.handover_params(&[p("id", &long)]), Err(ERR_NO_SPACE));
+    let text = "x".repeat(TEXT_MAX + 1);
+    assert_eq!(s.handover_params(&[p("text", &text)]), Err(ERR_NO_SPACE));
+    // A text the device has no room for: nothing is kept.
+    let mut limits = Limits::ELSEWHERE;
+    limits.text_memory = 64;
+    let small = UiStore::new(limits);
+    let text = "x".repeat(4_000);
+    assert!(
+        small
+            .handover_params(&[p("id", "a"), p("text", &text)])
+            .is_err()
+    );
+    for store in [&s, &small] {
+        assert_eq!((store.len(), store.held()), (0, (0, 0)));
+    }
+}

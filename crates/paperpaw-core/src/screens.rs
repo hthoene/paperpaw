@@ -386,7 +386,7 @@ impl Kernel {
     /// none clears its params and text). A screen that is not native keeps
     /// what it has and leaves the hand-over to the drain.
     fn on_reopen_with_handover(&mut self, index: usize, params: &Params) {
-        let info = self.attach_pending_handover(index);
+        let info = self.attach_pending_handover(index, params);
         self.shared.native_instances.set_open_info(info);
         self.with_screen(index, |screen, cx| {
             screen.on_reopen(params, cx);
@@ -398,16 +398,24 @@ impl Kernel {
 
     /// The hand-over the applied `open` names goes to native instance
     /// `index`: what its `screen_opened` says of it comes back (none for no
-    /// staged open).
+    /// staged open and no `params`). Opened without a native `open` (by
+    /// `Kernel::open` with interface-6 `params`: a shell, an interface-6
+    /// plugin, the kernel), the host hands the params over itself
+    /// ([`UiStore::handover_params`](crate::native_host::ui_store::UiStore::handover_params)).
     fn attach_pending_handover(
         &mut self,
         index: usize,
+        params: &Params,
     ) -> Option<crate::native_host::ui_store::Info> {
         if !self.is_native_at(index) {
             return None;
         }
         let serial = self.stack.get(index)?.serial;
-        let pending = self.shared.native_instances.take_pending_handover()?;
+        let pending = match self.shared.native_instances.take_pending_handover() {
+            Some(pending) => pending,
+            None if !params.is_empty() => return self.attach_host_handover(serial, params),
+            None => return None,
+        };
         let store = self.shared.native_instances.ui_store()?;
         let attached = store.attach(pending, serial);
         let info = attached.is_ok().then(|| store.info(serial)).flatten();
@@ -418,6 +426,37 @@ impl Kernel {
             self.warn_runtime("a screen's hand-over could not be attached; it opens without");
         }
         Some(info.unwrap_or(crate::native_host::ui_store::Info::NONE))
+    }
+
+    /// The host's own hand-over of interface-6 `params` goes to native
+    /// instance `serial`; where it cannot be made the screen opens without
+    /// (said as a warning), as it did before.
+    fn attach_host_handover(
+        &mut self,
+        serial: u32,
+        params: &Params,
+    ) -> Option<crate::native_host::ui_store::Info> {
+        use crate::native_host::ui_store::{Info, Param};
+        let store = self.shared.native_instances.ui_store()?;
+        let mut list = Vec::new();
+        let made = list
+            .try_reserve_exact(params.iter().count())
+            .map_err(|_| paperpaw_native::host_glue::ERR_NO_MEMORY)
+            .and_then(|()| {
+                list.extend(params.iter().map(|(key, value)| Param { key, value }));
+                store.handover_params(&list)
+            })
+            .and_then(|id| {
+                store.attach(Some(id), serial).inspect_err(|_| {
+                    let _ = store.release(id);
+                })
+            });
+        drop(list);
+        let info = made.is_ok().then(|| store.info(serial)).flatten();
+        if made.is_err() {
+            self.warn_runtime("a screen's params could not be handed over; it opens without");
+        }
+        Some(info.unwrap_or(Info::NONE))
     }
 
     /// Whether `active` has the params an open brings: where a staged open
