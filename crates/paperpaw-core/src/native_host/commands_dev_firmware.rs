@@ -21,6 +21,7 @@
 //!   install and removal are not commands here yet (`BLOCKED 5.2-install`).
 use super::{CommandStage, DevOp, WireCommand};
 use crate::native_host::{
+    dual_boot_ini::Mode,
     firmware_driver::Driver,
     owner_paths,
     plugin_check::PluginCheck,
@@ -45,7 +46,8 @@ pub(super) const MAX_PER_BATCH: usize = 1;
 /// At most this many `trust_revoked` in a batch (`device.md` 3).
 pub(super) const MAX_REVOKED_PER_BATCH: usize = 8;
 const FEATURE_FIRMWARE: &str = "uses.firmware";
-const FEATURE_INSTALL: &str = "uses.install";
+/// The feature key of plugin installs, and of answering plugin requests.
+pub const FEATURE_INSTALL: &str = "uses.install";
 /// `install_firmware.flags` bits 0 (older) and 1 (foreign).
 const FLAGS: u32 = 3;
 /// `check_file.kind` of a plugin and of a firmware image.
@@ -112,6 +114,8 @@ pub(crate) enum FirmwareOp {
     },
     /// `firmware_restart`: the host asks the user.
     Restart(FirmwareContext),
+    /// `firmware_dual_boot`: a job of the queue (mode 1 asks the user).
+    DualBoot { request: u32, mode: Mode },
     /// `trust_revoked`: handed to the driver, which keeps it if it holds.
     Revoke {
         ctx: FirmwareContext,
@@ -164,6 +168,7 @@ pub(super) fn is_firmware(command: &WireCommand<'_>) -> bool {
         WireCommand::InstallFirmware { .. }
             | WireCommand::FirmwareRestart {}
             | WireCommand::CheckFile { .. }
+            | WireCommand::FirmwareDualBoot { .. }
             | WireCommand::InstallPlugin { .. }
             | WireCommand::RemovePlugin { .. }
     )
@@ -234,9 +239,9 @@ impl EvidenceSeen {
 /// The feature key the command needs.
 pub(super) fn area(command: &WireCommand<'_>) -> Option<&'static str> {
     match command {
-        WireCommand::InstallFirmware { .. } | WireCommand::FirmwareRestart {} => {
-            Some(FEATURE_FIRMWARE)
-        }
+        WireCommand::InstallFirmware { .. }
+        | WireCommand::FirmwareRestart {}
+        | WireCommand::FirmwareDualBoot { .. } => Some(FEATURE_FIRMWARE),
         WireCommand::CheckFile { kind, .. } if *kind == KIND_PLUGIN => Some(FEATURE_INSTALL),
         WireCommand::InstallPlugin { .. }
         | WireCommand::RemovePlugin { .. }
@@ -387,6 +392,19 @@ impl CommandStage<'_> {
                 let mut driver = ctx.driver.try_borrow_mut().map_err(|_| ERR_BUSY)?;
                 driver.restart_gate(ctx.owner).map(|()| 0)
             }
+            // Answered as unsupported until the host opens it
+            // ([`Driver::open_dual_boot`]); a mode beyond 1 is `ERR_INVALID`.
+            WireCommand::FirmwareDualBoot { request, mode } => {
+                let ctx = self.firmware()?;
+                let driver = ctx.driver.try_borrow().map_err(|_| ERR_BUSY)?;
+                if !driver.dual_boot_open() || !driver.plugins_accepted() {
+                    return Err(ERR_UNSUPPORTED);
+                }
+                if request == 0 || Mode::of(mode).is_none() {
+                    return Err(ERR_INVALID);
+                }
+                Ok(0)
+            }
             _ => Ok(0),
         }
     }
@@ -465,6 +483,12 @@ impl CommandStage<'_> {
             WireCommand::FirmwareRestart {} => Ok(DevOp::Firmware(FirmwareOp::Restart(
                 self.firmware()?.clone(),
             ))),
+            WireCommand::FirmwareDualBoot { request, mode } => {
+                Ok(DevOp::Firmware(FirmwareOp::DualBoot {
+                    request,
+                    mode: Mode::of(mode).ok_or(ERR_INVALID)?,
+                }))
+            }
             _ => Err(ERR_UNSUPPORTED),
         }
     }
@@ -525,6 +549,7 @@ impl CommandStage<'_> {
                             | FirmwareOp::PluginCheck { .. }
                             | FirmwareOp::PluginInstall { .. }
                             | FirmwareOp::PluginRemove { .. }
+                            | FirmwareOp::DualBoot { .. }
                     )
                 )
             })
@@ -551,6 +576,9 @@ impl CommandStage<'_> {
                     .map(|()| *request),
                 DevOp::Firmware(FirmwareOp::Check { request, path }) => driver
                     .submit_check(ctx.owner, *request, path)
+                    .map(|()| *request),
+                DevOp::Firmware(FirmwareOp::DualBoot { request, mode }) => driver
+                    .submit_dual_boot(ctx.owner, *request, *mode)
                     .map(|()| *request),
                 DevOp::Firmware(FirmwareOp::PluginCheck { request, path }) => {
                     PluginCheck::new(ctx.owner, *request, path)
@@ -601,7 +629,8 @@ impl crate::Kernel {
             | FirmwareOp::Check { request, .. }
             | FirmwareOp::PluginCheck { request, .. }
             | FirmwareOp::PluginInstall { request, .. }
-            | FirmwareOp::PluginRemove { request, .. } => {
+            | FirmwareOp::PluginRemove { request, .. }
+            | FirmwareOp::DualBoot { request, .. } => {
                 if let Some(release) = fw {
                     release.applied(request);
                 }

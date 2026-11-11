@@ -35,6 +35,7 @@ fn hooks() -> Hooks<'static> {
     Hooks {
         author_of: &nobody,
         stopped: &none,
+        host_checks: false,
     }
 }
 

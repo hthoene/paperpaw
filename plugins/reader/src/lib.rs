@@ -44,16 +44,72 @@ static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
     reason = "the build script and the declaration test also use the builders"
 )]
 pub mod declarations;
+pub mod native_actions;
 pub mod native_aloud;
+pub mod native_annotations;
+pub mod native_annotations_view;
+pub mod native_block;
+pub mod native_bookmark;
+pub mod native_chapter;
+pub mod native_decor;
+pub mod native_document;
+pub mod native_draw;
 mod native_entry;
+pub mod native_handsfree;
+pub mod native_index;
+pub mod native_look;
+pub mod native_place;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
+pub mod native_finding;
+
+/// The settings the plugin declares, made by its build script from the same
+/// declarations as a table.
+#[cfg(feature = "linked")]
+mod native_settings {
+    use paperpaw_sdk::{Id, SettingSpec};
+    include!(concat!(env!("OUT_DIR"), "/reader_settings.rs"));
+}
+
+/// The settings the plugin declares as a table kept in the program (as Beta 3
+/// kept them), for a linked build to use in place of a copy on the heap of
+/// each (`Kernel::register_linked`). Only a linked plugin has it.
+#[cfg(feature = "linked")]
+pub static NATIVE_SETTINGS: &[paperpaw_sdk::SettingSpec] = &native_settings::SETTINGS;
+
+/// The setting groups the plugin declares, as a table kept in the program
+/// like [`NATIVE_SETTINGS`].
+#[cfg(feature = "linked")]
+pub static NATIVE_GROUPS: &[paperpaw_sdk::SettingGroupSpec] = &native_settings::GROUPS;
+
+/// The full ids the plugin declares, sorted, as a table kept in the program
+/// like [`NATIVE_SETTINGS`] (the kernel takes them in place of copies).
+#[cfg(feature = "linked")]
+pub static NATIVE_IDS: &[paperpaw_sdk::Id] = &native_settings::IDS;
+pub mod native_footnote;
+pub mod native_headings;
+pub mod native_links;
+pub mod native_marking;
 pub mod native_notes;
 pub mod native_open;
+pub mod native_pages;
 pub mod native_plugin;
+pub mod native_search;
+pub mod native_search_view;
+pub mod native_selection;
+pub mod native_skim;
+pub mod native_skim_view;
+pub mod native_speech;
+pub mod native_start;
 pub mod native_state;
+pub mod native_status;
 #[cfg(test)]
 mod native_tests;
+pub mod native_toc;
+pub mod native_toc_view;
+pub mod native_typeset;
+pub mod native_view;
+pub mod native_wordbox;
 pub mod native_words;
 
 /// The codec of the reader's own stage schemas (`stages/*.def`, made by

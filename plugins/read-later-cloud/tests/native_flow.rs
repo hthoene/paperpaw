@@ -52,6 +52,7 @@ fn the_fetch_action_declares_the_fetch_as_work() {
         Record::EventActionRun(EventActionRun {
             now_ms: 0,
             action: "fetch",
+            flags: 0,
         }),
     );
     assert_eq!(run.status, 0);
@@ -100,6 +101,7 @@ fn a_page_turn_with_nothing_to_note_and_a_stop_with_nothing_to_cancel_change_not
             page: Some(5),
             pages: Some(5),
             insert: None,
+            chapter_left: None,
         }),
     );
     assert_eq!(turned.status, 0);

@@ -12,17 +12,19 @@ fn own_widgets_and_scalar_composition_preserve_host_markers_and_errors() {
     let ui = Ui::open(&host).unwrap();
     let mut input = [0; 4096];
     let mut out = [0; 4096];
-    set_reply(
-        &state,
-        wire::Record::ServiceUiInstance(wire::ServiceUiInstance {
-            instance: 9,
-            flags: 1,
-        }),
-    );
-    let widget = ui
-        .widget_make(&host, "fixture.clock", "core.home", &mut input, &mut out)
-        .unwrap();
-    assert!(widget.is_own());
+    let mut make = |instance, flags| {
+        set_reply(
+            &state,
+            wire::Record::ServiceUiInstance(wire::ServiceUiInstance { instance, flags }),
+        );
+        ui.widget_make(&host, "fixture.clock", "core.home", &mut input, &mut out)
+    };
+    assert_eq!(make(0, 1), Ok(MadeWidget::Own));
+    assert_eq!(make(9, 1), Err(Error::Invalid));
+    assert_eq!(make(0, 0), Err(Error::Invalid));
+    let Ok(MadeWidget::Widget(widget)) = make(9, 0) else {
+        panic!("a host-made instance reads as a widget");
+    };
     assert_eq!(widget.instance().get(), 9);
     let rect = Rect::new(-10, 5, 0, u32::MAX);
     for (status, expected) in [

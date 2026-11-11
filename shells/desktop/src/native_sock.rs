@@ -9,13 +9,17 @@
 //! happened to a channel that `pump` drains. A read is allowed only as far as
 //! core asked for it (`read`), so nothing arrives unasked.
 //!
-//! **No TLS:** the emulator carries no TLS library, so no [`SockTls`] is
-//! given and core answers a `connect` with `tls`, `start_tls` and `peer` with
-//! `ERR_UNSUPPORTED` (it fails closed: nothing is sent in the clear for a
-//! plugin that asked for TLS). A plugin that needs TLS sockets (mail) cannot
-//! connect on the desktop yet.
+//! **TLS** is `paperpaw_serve::secure` (rustls with ring; the authorities
+//! PaperPaw ships, Mozilla's list as on the X4, or the pins a plugin gave; no
+//! mode trusts what it is shown). Core starts a handshake ([`SockTls::begin`])
+//! on a connected socket that holds the device's session; it runs on a thread
+//! of its own and passes or fails through `secured`, `untrusted` or
+//! `tls_failed`. Nothing of the plugin goes out before it passed, and
+//! `begin` refuses a socket with bytes of the peer waiting, a read or unsent
+//! bytes (a STARTTLS injection would pass as secure): `ERR_STATE`, and core
+//! ends the socket. Pins of both kinds at once are refused (`ERR_INVALID`).
 //!
-//! [`SockTls`]: paperpaw_core::native_host::shell_wiring::SockTls
+//! [`SockTls::begin`]: paperpaw_core::native_host::shell_wiring::SockTls::begin
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -27,12 +31,20 @@ use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use paperpaw_core::native_host::shell_wiring::{Connect, SockFailure, SockReports, SockTransport};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NOT_FOUND};
+use paperpaw_core::native_host::shell_wiring::{
+    Connect, PeerInfo, SockFailure, SockReports, SockTls, SockTransport, TlsFailure, TlsOpen,
+    UntrustedWhy,
+};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_IO, ERR_NOT_FOUND, ERR_STATE};
+use paperpaw_serve::secure::{Failure, Pins, Session};
 
 /// The bytes a connection's writer holds at most (the queue core keeps is
 /// smaller: this only bounds what the transport takes at once).
 const WRITE_HELD: usize = 16 << 10;
+
+/// How long a handshake may take at most (core ends the socket sooner when
+/// the plugin set a shorter time).
+const HANDSHAKE_MAX: Duration = Duration::from_secs(60);
 
 /// The most one read from the connection takes at a time.
 const READ_PIECE: usize = 16 << 10;
@@ -48,6 +60,9 @@ trait Sink {
     fn peer_closed(&self, id: u32) -> Result<(), i32>;
     fn writable(&self, id: u32) -> Result<(), i32>;
     fn answered(&self, id: u32, from: &[u8], data: &[u8]) -> Result<(), i32>;
+    fn secured(&self, id: u32, peer: &PeerInfo) -> Result<(), i32>;
+    fn untrusted(&self, id: u32, why: UntrustedWhy, peer: &PeerInfo) -> Result<(), i32>;
+    fn tls_failed(&self, id: u32, how: TlsFailure) -> Result<(), i32>;
     fn network_lost(&self) -> Result<(), i32>;
     fn tick(&self) -> Result<(), i32>;
 }
@@ -71,6 +86,15 @@ impl Sink for SockReports {
     fn answered(&self, id: u32, from: &[u8], data: &[u8]) -> Result<(), i32> {
         SockReports::answered(self, id, from, data)
     }
+    fn secured(&self, id: u32, peer: &PeerInfo) -> Result<(), i32> {
+        SockReports::secured(self, id, peer)
+    }
+    fn untrusted(&self, id: u32, why: UntrustedWhy, peer: &PeerInfo) -> Result<(), i32> {
+        SockReports::untrusted(self, id, why, peer)
+    }
+    fn tls_failed(&self, id: u32, how: TlsFailure) -> Result<(), i32> {
+        SockReports::tls_failed(self, id, how)
+    }
     fn network_lost(&self) -> Result<(), i32> {
         SockReports::network_lost(self)
     }
@@ -88,6 +112,9 @@ enum Event {
     PeerClosed(u32),
     Writable(u32),
     Answer(u32, String, Vec<u8>),
+    Secured(u32, PeerInfo),
+    Untrusted(u32, UntrustedWhy, PeerInfo),
+    TlsFailed(u32, TlsFailure),
 }
 
 impl Event {
@@ -98,7 +125,10 @@ impl Event {
             | Event::Data(id, _)
             | Event::PeerClosed(id)
             | Event::Writable(id)
-            | Event::Answer(id, ..) => *id,
+            | Event::Answer(id, ..)
+            | Event::Secured(id, _)
+            | Event::Untrusted(id, ..)
+            | Event::TlsFailed(id, _) => *id,
         }
     }
 }
@@ -115,6 +145,18 @@ struct Link {
     wants_room: AtomicBool,
     /// The connection, once made (to shut it down on close).
     stream: Mutex<Option<TcpStream>>,
+    /// The secure session, once the handshake passed: reading and writing go
+    /// through it from then on.
+    secure: Mutex<Option<Session>>,
+    /// A handshake was begun on this connection: no second one, and with no
+    /// session (running, or ended) nothing is read or written in clear.
+    secured: AtomicBool,
+    /// The reader is inside a read of the connection.
+    reading: AtomicBool,
+    /// Bytes the reader took off the connection and core has not taken yet
+    /// (in the event channel, or refused and kept in `unread`): clear bytes
+    /// that must not pass a switch to TLS.
+    unoffered: AtomicUsize,
 }
 
 impl Link {
@@ -126,7 +168,25 @@ impl Link {
             held: AtomicUsize::new(0),
             wants_room: AtomicBool::new(false),
             stream: Mutex::new(None),
+            secure: Mutex::new(None),
+            secured: AtomicBool::new(false),
+            reading: AtomicBool::new(false),
+            unoffered: AtomicUsize::new(0),
         })
+    }
+
+    /// The secure session, if the handshake passed.
+    fn session(&self) -> Option<Session> {
+        self.secure
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// A handshake was begun and no session came out of it (yet, or any
+    /// more): nothing of the connection is clear to use.
+    fn in_handshake(&self) -> bool {
+        self.secured.load(Ordering::SeqCst) && self.session().is_none()
     }
 
     fn is_closed(&self) -> bool {
@@ -137,6 +197,10 @@ impl Link {
     fn close(&self) {
         self.closed.store(true, Ordering::Release);
         self.wake.notify_all();
+        // The session says it is done (`close_notify`) before the connection goes.
+        if let Some(session) = self.session() {
+            session.close_write();
+        }
         let stream = self.stream.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(stream) = stream.as_ref() {
             let _ = stream.shutdown(Shutdown::Both);
@@ -154,8 +218,9 @@ struct Entry {
 /// The shell side of `core.sockets` (see the module).
 pub struct NativeSock {
     entries: RefCell<HashMap<u32, Entry>>,
-    events: Sender<Event>,
-    arrived: Receiver<Event>,
+    /// The reports of the threads, made when the first socket opens (a
+    /// channel costs 512 B of the heap the budget counts).
+    channel: std::cell::OnceCell<(Sender<Event>, Receiver<Event>)>,
     /// Reports core answered `ERR_BUSY`: again at the next turn.
     again: RefCell<Vec<Event>>,
     /// Bytes core did not take yet, by socket.
@@ -181,15 +246,23 @@ impl Default for NativeSock {
 impl NativeSock {
     #[must_use]
     pub fn new() -> Self {
-        let (events, arrived) = channel();
         Self {
             entries: RefCell::new(HashMap::new()),
-            events,
-            arrived,
+            channel: std::cell::OnceCell::new(),
             again: RefCell::new(Vec::new()),
             unread: RefCell::new(HashMap::new()),
             was_up: Cell::new(false),
         }
+    }
+
+    /// Where the threads report: made at the first use.
+    fn events(&self) -> &Sender<Event> {
+        &self.channel.get_or_init(channel).0
+    }
+
+    /// What the threads reported, if anything could have.
+    fn arrived(&self) -> Option<&Receiver<Event>> {
+        self.channel.get().map(|(_, arrived)| arrived)
     }
 
     /// Sockets and broadcasts open (not closed or failed).
@@ -212,13 +285,16 @@ impl NativeSock {
             }
             self.unread.borrow_mut().clear();
             self.again.borrow_mut().clear();
-            while self.arrived.try_recv().is_ok() {}
+            while self
+                .arrived()
+                .is_some_and(|arrived| arrived.try_recv().is_ok())
+            {}
             let _ = reports.network_lost();
             let _ = reports.tick();
             return;
         }
         let mut todo = std::mem::take(&mut *self.again.borrow_mut());
-        todo.extend(self.arrived.try_iter());
+        todo.extend(self.arrived().into_iter().flat_map(Receiver::try_iter));
         for event in todo {
             self.report(event, reports);
         }
@@ -256,6 +332,10 @@ impl NativeSock {
             Event::PeerClosed(id) => reports.peer_closed(*id),
             Event::Writable(id) => reports.writable(*id),
             Event::Answer(id, from, data) => reports.answered(*id, from.as_bytes(), data),
+            // Core ends the socket after these two, and closes it.
+            Event::Secured(id, peer) => reports.secured(*id, peer),
+            Event::Untrusted(id, why, peer) => reports.untrusted(*id, *why, peer),
+            Event::TlsFailed(id, how) => reports.tls_failed(*id, *how),
         };
         if done == Err(ERR_BUSY) {
             self.again.borrow_mut().push(event);
@@ -273,7 +353,20 @@ impl NativeSock {
         // Core may call back (`close`) from `received`: no borrow is held.
         // `ERR_BUSY` and `ERR_STATE` (no read asked for yet): it stays.
         if let Ok(taken) = reports.received(id, &held) {
-            held.drain(..taken.min(held.len()));
+            let taken = taken.min(held.len());
+            held.drain(..taken);
+            if let Some(entry) = self.entries.borrow().get(&id) {
+                let counter = &entry.link.unoffered;
+                let mut left = counter.load(Ordering::SeqCst);
+                while let Err(now) = counter.compare_exchange(
+                    left,
+                    left.saturating_sub(taken),
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                ) {
+                    left = now;
+                }
+            }
         }
         if !held.is_empty() && self.entries.borrow().contains_key(&id) {
             self.unread.borrow_mut().insert(id, held);
@@ -285,7 +378,7 @@ impl NativeSock {
         let link = Link::new();
         let (writer, queue) = channel();
         let host = host.to_owned();
-        let (thread_link, events) = (link.clone(), self.events.clone());
+        let (thread_link, events) = (link.clone(), self.events().clone());
         self.entries.borrow_mut().insert(
             id,
             Entry {
@@ -296,6 +389,121 @@ impl NativeSock {
         thread::spawn(move || {
             run_connection(id, (host, port, timeout), &thread_link, &events, queue);
         });
+    }
+
+    /// Starts the handshake of socket `id` for `server_name`, trusting `pins`
+    /// (`(kind, hash)`: 0 the leaf certificate's SHA-256, 1 its key's; none:
+    /// the authorities PaperPaw ships). The result comes from the pump.
+    fn start_handshake(
+        &self,
+        id: u32,
+        server_name: &str,
+        pins: &[(u32, [u8; 32])],
+    ) -> Result<(), i32> {
+        let entries = self.entries.borrow();
+        let Some(Entry {
+            link,
+            writer: Some(_),
+        }) = entries.get(&id)
+        else {
+            return Err(ERR_NOT_FOUND);
+        };
+        let certificates: Vec<[u8; 32]> = pins.iter().filter(|p| p.0 == 0).map(|p| p.1).collect();
+        let keys: Vec<[u8; 32]> = pins.iter().filter(|p| p.0 == 1).map(|p| p.1).collect();
+        // Both kinds at once are not backed.
+        if !certificates.is_empty() && !keys.is_empty() {
+            return Err(ERR_INVALID);
+        }
+        // What is seen at once: bytes not sent yet, or bytes read and not taken
+        // by core (in the event channel, or refused and kept): they would pass
+        // as secure. Nothing is changed by this refusal.
+        if link.held.load(Ordering::SeqCst) > 0 || link.unoffered.load(Ordering::SeqCst) > 0 {
+            return Err(ERR_STATE);
+        }
+        // The switch is begun: from here nothing is read or written in clear
+        // (the reader parks at its next look).
+        if link
+            .secured
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return Err(ERR_STATE);
+        }
+        link.wake.notify_all();
+        let (link, events) = (link.clone(), self.events().clone());
+        let name = server_name.to_owned();
+        drop(entries);
+        // The rest runs on the handshake's thread, not core's: it waits for
+        // the reader to park, looks once more for clear bytes (the reader may
+        // have taken some just before it parked), and fails closed (`tls`,
+        // nothing sent) where it finds any or the reader does not park in time.
+        thread::spawn(move || {
+            let end = Instant::now() + Duration::from_secs(1);
+            while link.reading.load(Ordering::SeqCst) && Instant::now() < end {
+                thread::sleep(Duration::from_millis(5));
+            }
+            let tcp = link
+                .stream
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .as_ref()
+                .and_then(|stream| stream.try_clone().ok());
+            let clean = tcp.filter(|tcp| {
+                if link.reading.load(Ordering::SeqCst) {
+                    return false;
+                }
+                let _ = tcp.set_nonblocking(true);
+                let waiting = tcp.peek(&mut [0u8; 1]);
+                let _ = tcp.set_nonblocking(false);
+                matches!(&waiting, Err(error) if error.kind() == ErrorKind::WouldBlock)
+                    && link.unoffered.load(Ordering::SeqCst) == 0
+                    && link.held.load(Ordering::SeqCst) == 0
+                    && !link.is_closed()
+            });
+            let Some(mut tcp) = clean else {
+                if !link.is_closed() {
+                    let _ = events.send(Event::TlsFailed(id, TlsFailure::Tls));
+                }
+                return;
+            };
+            // The read core granted is over: the allowance ends here.
+            *link.allow.lock().unwrap_or_else(PoisonError::into_inner) = 0;
+            let pins = if !certificates.is_empty() {
+                Pins::Certificates(&certificates)
+            } else if !keys.is_empty() {
+                Pins::Keys(&keys)
+            } else {
+                Pins::Authorities
+            };
+            let outcome = paperpaw_serve::secure::handshake(&mut tcp, &name, pins, HANDSHAKE_MAX);
+            if link.is_closed() {
+                return;
+            }
+            let event = match outcome {
+                Ok((session, peer)) => {
+                    *link.secure.lock().unwrap_or_else(PoisonError::into_inner) = Some(session);
+                    link.wake.notify_all();
+                    Event::Secured(
+                        id,
+                        PeerInfo::new(peer.certificate, peer.key, peer.time_checked),
+                    )
+                }
+                Err(Failure::Untrusted { peer, not_pinned }) => Event::Untrusted(
+                    id,
+                    if not_pinned {
+                        UntrustedWhy::NotPinned
+                    } else {
+                        UntrustedWhy::UnknownIssuer
+                    },
+                    PeerInfo::new(peer.certificate, peer.key, peer.time_checked),
+                ),
+                Err(Failure::Name) => Event::TlsFailed(id, TlsFailure::Name),
+                Err(Failure::Expired) => Event::TlsFailed(id, TlsFailure::Expired),
+                Err(_) => Event::TlsFailed(id, TlsFailure::Tls),
+            };
+            let _ = events.send(event);
+        });
+        Ok(())
     }
 
     /// A socket that ended: its entry and what it still held go.
@@ -374,7 +582,9 @@ fn run_connection(
     loop {
         let allowed = {
             let mut allow = link.allow.lock().unwrap_or_else(PoisonError::into_inner);
-            while *allow == 0 && !link.is_closed() {
+            // Nothing is read when no read was asked for, nor while a
+            // handshake runs (its bytes are the handshake's).
+            while (*allow == 0 || link.in_handshake()) && !link.is_closed() {
                 allow = link
                     .wake
                     .wait(allow)
@@ -385,21 +595,44 @@ fn run_connection(
         if link.is_closed() {
             return;
         }
+        // Said before the check: a handshake begun now sees this read, or
+        // this read sees the handshake.
+        link.reading.store(true, Ordering::SeqCst);
+        if link.in_handshake() {
+            link.reading.store(false, Ordering::SeqCst);
+            continue;
+        }
         let n = allowed.min(piece.len());
-        match reader.read(&mut piece[..n]) {
+        let session = link.session();
+        let read = if let Some(session) = &session {
+            session.read(&mut reader, &mut piece[..n])
+        } else {
+            // A look now and then: a handshake that wants the connection
+            // waits no longer than that for this read to end.
+            let _ = reader.set_read_timeout(Some(LOOK));
+            reader.read(&mut piece[..n])
+        };
+        if let Ok(k @ 1..) = read {
+            let mut allow = link.allow.lock().unwrap_or_else(PoisonError::into_inner);
+            *allow = allow.saturating_sub(k);
+            drop(allow);
+            link.unoffered.fetch_add(k, Ordering::SeqCst);
+            let _ = events.send(Event::Data(id, piece[..k].to_vec()));
+        }
+        link.reading.store(false, Ordering::SeqCst);
+        match read {
             Ok(0) => {
                 if !link.is_closed() {
                     let _ = events.send(Event::PeerClosed(id));
                 }
                 return;
             }
-            Ok(read) => {
-                let mut allow = link.allow.lock().unwrap_or_else(PoisonError::into_inner);
-                *allow = allow.saturating_sub(read);
-                drop(allow);
-                let _ = events.send(Event::Data(id, piece[..read].to_vec()));
+            Ok(_) => {}
+            Err(error)
+                if error.kind() == ErrorKind::Interrupted
+                    || (session.is_none()
+                        && matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut)) => {
             }
-            Err(error) if error.kind() == ErrorKind::Interrupted => {}
             Err(error) => {
                 if !link.is_closed() {
                     let _ = events.send(Event::Failed(id, failure(&error)));
@@ -423,7 +656,15 @@ fn write_connection(
         if link.is_closed() {
             return;
         }
-        if let Err(error) = stream.write_all(&chunk) {
+        let written = match link.session() {
+            Some(session) => session.write_all(&chunk),
+            // A connection that began TLS and has no session (the handshake
+            // runs, or the session ended and the close is coming): nothing
+            // goes out in clear.
+            None if link.secured.load(Ordering::SeqCst) => return,
+            None => stream.write_all(&chunk),
+        };
+        if let Err(error) = written {
             if !link.is_closed() {
                 let _ = events.send(Event::Failed(id, failure(&error)));
             }
@@ -467,6 +708,35 @@ fn run_broadcast(id: u32, socket: &UdpSocket, link: &Link, events: &Sender<Event
     }
 }
 
+impl SockTls for NativeSock {
+    fn begin(&self, id: u32, to: &TlsOpen<'_>) -> Result<(), i32> {
+        let pins: Vec<(u32, [u8; 32])> = to.pins.iter().map(|pin| (pin.kind, pin.hash)).collect();
+        self.start_handshake(id, to.server_name, &pins)
+    }
+
+    fn end(&self, id: u32) {
+        let link = self
+            .entries
+            .borrow()
+            .get(&id)
+            .map(|entry| entry.link.clone());
+        if let Some(link) = link {
+            // The session says it is done (`close_notify`), and the connection
+            // ends with it: a writer that comes after finds no session and
+            // writes nothing in clear.
+            let session = link
+                .secure
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take();
+            if let Some(session) = session {
+                session.close_write();
+            }
+            link.close();
+        }
+    }
+}
+
 impl SockTransport for NativeSock {
     fn connect(&self, id: u32, to: &Connect<'_>) -> Result<(), i32> {
         let port = u16::try_from(to.port).map_err(|_| ERR_INVALID)?;
@@ -499,7 +769,7 @@ impl SockTransport for NativeSock {
             if link.held.load(Ordering::Acquire) < WRITE_HELD
                 && link.wants_room.swap(false, Ordering::AcqRel)
             {
-                let _ = self.events.send(Event::Writable(id));
+                let _ = self.events().send(Event::Writable(id));
             }
             return Ok(0);
         }
@@ -539,7 +809,7 @@ impl SockTransport for NativeSock {
             return Err(ERR_IO);
         }
         let link = Link::new();
-        let (thread_link, events) = (link.clone(), self.events.clone());
+        let (thread_link, events) = (link.clone(), self.events().clone());
         self.entries
             .borrow_mut()
             .insert(id, Entry { link, writer: None });
@@ -556,11 +826,24 @@ mod tests {
 
     /// The next thing a thread reported, within a few seconds.
     fn next(sock: &NativeSock) -> Event {
-        sock.arrived.recv_timeout(Duration::from_secs(10)).unwrap()
+        sock.arrived()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(10))
+            .unwrap()
     }
 
     fn connect(sock: &NativeSock, id: u32, port: u16) {
         sock.connect_to(id, "127.0.0.1", port, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn no_channel_is_made_until_a_socket_could_report() {
+        let sock = NativeSock::new();
+        assert!(sock.arrived().is_none());
+        sock.pump_with(&Core::new(0), true);
+        assert!(sock.arrived().is_none());
+        sock.events();
+        assert!(sock.arrived().is_some());
     }
 
     #[test]
@@ -581,7 +864,8 @@ mod tests {
         assert_eq!(&server.join().unwrap(), b"ping");
         // Nothing arrives unasked: the greeting waits for a read of 5.
         assert!(
-            sock.arrived
+            sock.arrived()
+                .unwrap()
                 .recv_timeout(Duration::from_millis(300))
                 .is_err()
         );
@@ -591,7 +875,8 @@ mod tests {
         };
         assert_eq!(first, b"hello");
         assert!(
-            sock.arrived
+            sock.arrived()
+                .unwrap()
                 .recv_timeout(Duration::from_millis(300))
                 .is_err()
         );
@@ -680,6 +965,8 @@ mod tests {
     /// A core that is busy `busy` times, then takes what it is told.
     struct Core {
         busy: Cell<u32>,
+        /// How many `received` it takes before it refuses them (`ERR_STATE`).
+        receives: Cell<u32>,
         told: RefCell<Vec<String>>,
     }
 
@@ -687,6 +974,7 @@ mod tests {
         fn new(busy: u32) -> Self {
             Self {
                 busy: Cell::new(busy),
+                receives: Cell::new(u32::MAX),
                 told: RefCell::new(Vec::new()),
             }
         }
@@ -709,6 +997,10 @@ mod tests {
             self.take(format!("failed {id} {why:?}"))
         }
         fn received(&self, id: u32, bytes: &[u8]) -> Result<usize, i32> {
+            if self.receives.get() == 0 {
+                return Err(ERR_STATE);
+            }
+            self.receives.set(self.receives.get() - 1);
             self.take(format!("received {id} {}", bytes.len()))?;
             Ok(bytes.len())
         }
@@ -720,6 +1012,15 @@ mod tests {
         }
         fn answered(&self, id: u32, _: &[u8], _: &[u8]) -> Result<(), i32> {
             self.take(format!("answered {id}"))
+        }
+        fn secured(&self, id: u32, _: &PeerInfo) -> Result<(), i32> {
+            self.take(format!("secured {id}"))
+        }
+        fn untrusted(&self, id: u32, why: UntrustedWhy, _: &PeerInfo) -> Result<(), i32> {
+            self.take(format!("untrusted {id} {why:?}"))
+        }
+        fn tls_failed(&self, id: u32, how: TlsFailure) -> Result<(), i32> {
+            self.take(format!("tls_failed {id} {how:?}"))
         }
         fn network_lost(&self) -> Result<(), i32> {
             self.take(String::from("network_lost"))
@@ -770,10 +1071,316 @@ mod tests {
         for _ in 0..(ANSWERS_MAX * 3) {
             flooder.send_to(b"x", target).unwrap();
         }
-        thread::sleep(Duration::from_millis(500));
+        // The cap's worth of answers comes (as fast as the machine is), and
+        // no more.
+        for _ in 0..ANSWERS_MAX {
+            arrived.recv_timeout(Duration::from_secs(10)).unwrap();
+        }
+        thread::sleep(Duration::from_millis(300));
         link.close();
         reader.join().unwrap();
-        assert_eq!(arrived.try_iter().count(), ANSWERS_MAX);
+        assert_eq!(arrived.try_iter().count(), 0);
         assert_eq!(sock.open(), 0);
+    }
+    /// A server with a certificate of its own (nobody vouches for it): its
+    /// SHA-256 hashes, and the port of a server that runs `script` once on
+    /// the secure stream.
+    fn tls_server(
+        greeting: &'static [u8],
+        script: impl FnOnce(&mut rustls::StreamOwned<rustls::ServerConnection, TcpStream>)
+        + Send
+        + 'static,
+    ) -> (u16, [u8; 32], [u8; 32], thread::JoinHandle<()>) {
+        use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
+        let key = rcgen::KeyPair::generate().unwrap();
+        let cert = rcgen::CertificateParams::new(vec![String::from("x.test")])
+            .unwrap()
+            .self_signed(&key)
+            .unwrap();
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let config = rustls::ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![cert.der().clone()],
+                PrivateKeyDer::from(PrivatePkcs8KeyDer::from(key.serialize_der())),
+            )
+            .unwrap();
+        let config = Arc::new(config);
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            use std::io::Write as _;
+            let (mut tcp, _) = listener.accept().unwrap();
+            // Said in clear, before the switch.
+            tcp.write_all(greeting).unwrap();
+            let mut stream =
+                rustls::StreamOwned::new(rustls::ServerConnection::new(config).unwrap(), tcp);
+            script(&mut stream);
+        });
+        let hash = |bytes: &[u8]| paperpaw_digest::sha256::digest(bytes);
+        let (der, spki) = (
+            cert.der().to_vec(),
+            rcgen::PublicKeyData::subject_public_key_info(&key),
+        );
+        (port, hash(&der), hash(&spki), server)
+    }
+
+    #[test]
+    fn a_pinned_server_is_secured_and_the_plugins_bytes_go_through_the_session() {
+        let (port, certificate, _, server) = tls_server(b"", |stream| {
+            use std::io::{Read as _, Write as _};
+            stream.write_all(b"hello").unwrap();
+            stream.flush().unwrap();
+            let mut got = [0u8; 8];
+            let n = stream.read(&mut got).unwrap();
+            stream.write_all(&got[..n]).unwrap();
+            stream.flush().unwrap();
+            let _ = stream.read(&mut got);
+        });
+        let sock = NativeSock::new();
+        connect(&sock, 11, port);
+        assert!(matches!(next(&sock), Event::Connected(11)));
+        sock.start_handshake(11, "x.test", &[(0, [9; 32]), (0, certificate)])
+            .unwrap();
+        let Event::Secured(11, peer) = next(&sock) else {
+            panic!("not secured");
+        };
+        assert_eq!(peer.certificate, certificate);
+        sock.read(11, 5);
+        let Event::Data(11, hello) = next(&sock) else {
+            panic!("no data");
+        };
+        assert_eq!(hello, b"hello");
+        assert_eq!(sock.send(11, b"ping").unwrap(), 4);
+        sock.read(11, 8);
+        let Event::Data(11, echo) = next(&sock) else {
+            panic!("no echo");
+        };
+        assert_eq!(echo, b"ping");
+        sock.close(11);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_server_nobody_vouches_for_is_untrusted_and_not_trusted_for_it() {
+        let (port, _, key, server) = tls_server(b"", |stream| {
+            use std::io::Read as _;
+            let _ = stream.read(&mut [0u8; 1]);
+        });
+        let sock = NativeSock::new();
+        connect(&sock, 12, port);
+        assert!(matches!(next(&sock), Event::Connected(12)));
+        // The shipped authorities do not know it: untrusted, with its hashes.
+        sock.start_handshake(12, "x.test", &[]).unwrap();
+        let Event::Untrusted(12, UntrustedWhy::UnknownIssuer, peer) = next(&sock) else {
+            panic!("not untrusted");
+        };
+        assert_eq!(peer.key, key);
+        sock.close(12);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_pin_of_another_certificate_is_not_pinned() {
+        let (port, _, _, server) = tls_server(b"", |stream| {
+            use std::io::Read as _;
+            let _ = stream.read(&mut [0u8; 1]);
+        });
+        let sock = NativeSock::new();
+        connect(&sock, 13, port);
+        assert!(matches!(next(&sock), Event::Connected(13)));
+        sock.start_handshake(13, "x.test", &[(1, [7; 32])]).unwrap();
+        assert!(matches!(
+            next(&sock),
+            Event::Untrusted(13, UntrustedWhy::NotPinned, _)
+        ));
+        sock.close(13);
+        server.join().unwrap();
+    }
+
+    /// A server that greets in clear and then waits; what it receives is
+    /// kept for the test.
+    fn clear_greeter(greeting: &'static [u8]) -> (u16, thread::JoinHandle<Vec<u8>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            use std::io::{Read as _, Write as _};
+            let (mut tcp, _) = listener.accept().unwrap();
+            tcp.write_all(greeting).unwrap();
+            tcp.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            let mut got = Vec::new();
+            let mut buf = [0u8; 64];
+            while let Ok(n @ 1..) = tcp.read(&mut buf) {
+                got.extend_from_slice(&buf[..n]);
+            }
+            got
+        });
+        (port, server)
+    }
+
+    /// Pins of both kinds and an unknown socket are refused at once.
+    #[test]
+    fn a_handshake_is_refused_for_mixed_pins_and_an_unknown_socket() {
+        let (port, server) = clear_greeter(b"");
+        let sock = NativeSock::new();
+        connect(&sock, 14, port);
+        assert!(matches!(next(&sock), Event::Connected(14)));
+        assert_eq!(
+            sock.start_handshake(14, "x.test", &[(0, [1; 32]), (1, [2; 32])]),
+            Err(ERR_INVALID)
+        );
+        assert_eq!(sock.start_handshake(99, "x.test", &[]), Err(ERR_NOT_FOUND));
+        sock.close(14);
+        server.join().unwrap();
+    }
+
+    /// The peer's greeting is waiting in clear when the switch begins: the
+    /// handshake fails closed (`tls`) and sends nothing.
+    #[test]
+    fn a_greeting_waiting_in_clear_fails_the_handshake_and_sends_nothing() {
+        let (port, server) = clear_greeter(b"220 injected");
+        let sock = NativeSock::new();
+        connect(&sock, 18, port);
+        assert!(matches!(next(&sock), Event::Connected(18)));
+        // Give the greeting time to arrive.
+        thread::sleep(Duration::from_millis(300));
+        sock.start_handshake(18, "x.test", &[]).unwrap();
+        assert!(matches!(next(&sock), Event::TlsFailed(18, TlsFailure::Tls)));
+        // And nothing of the plugin's goes out in clear after it.
+        let _ = sock.send(18, b"CLEAR BYTES");
+        thread::sleep(Duration::from_millis(300));
+        sock.close(18);
+        assert_eq!(server.join().unwrap(), b"");
+    }
+
+    /// Bytes the reader has already taken (not core's yet) refuse the switch
+    /// at once, before anything is changed.
+    #[test]
+    fn bytes_read_and_not_taken_refuse_the_switch_at_once() {
+        let (port, server) = clear_greeter(b"220 injected");
+        let sock = NativeSock::new();
+        connect(&sock, 19, port);
+        assert!(matches!(next(&sock), Event::Connected(19)));
+        sock.read(19, 4);
+        thread::sleep(Duration::from_millis(400));
+        assert_eq!(sock.start_handshake(19, "x.test", &[]), Err(ERR_STATE));
+        assert!(
+            !sock.entries.borrow()[&19]
+                .link
+                .secured
+                .load(Ordering::SeqCst)
+        );
+        sock.close(19);
+        server.join().unwrap();
+    }
+
+    /// A man in the middle sends the answer in two pieces: core takes the
+    /// first and refuses the second, which the shell keeps. The switch is
+    /// refused while it holds them, so the plugin's first secure read cannot
+    /// be those clear bytes.
+    #[test]
+    fn clear_bytes_core_refused_do_not_pass_the_switch() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            use std::io::Write as _;
+            let (mut tcp, _) = listener.accept().unwrap();
+            tcp.write_all(b"abcd").unwrap();
+            thread::sleep(Duration::from_millis(200));
+            tcp.write_all(b"efghij").unwrap();
+            thread::sleep(Duration::from_millis(1500));
+        });
+        let sock = NativeSock::new();
+        connect(&sock, 15, port);
+        assert!(matches!(next(&sock), Event::Connected(15)));
+        sock.read(15, 10);
+        thread::sleep(Duration::from_millis(600));
+        let core = Core::new(0);
+        // Core takes the first piece and refuses the second.
+        core.receives.set(1);
+        sock.pump_with(&core, true);
+        assert_eq!(sock.unread.borrow().get(&15).map(Vec::len), Some(6));
+        assert_eq!(sock.start_handshake(15, "x.test", &[]), Err(ERR_STATE));
+        // Nor was a handshake begun: the connection is still plain.
+        assert!(
+            !sock.entries.borrow()[&15]
+                .link
+                .secured
+                .load(Ordering::SeqCst)
+        );
+        sock.close(15);
+        server.join().unwrap();
+    }
+
+    /// An ordinary STARTTLS: the plugin read a short answer (core granted the
+    /// full `max`, so the allowance is not spent), then switches. The reader
+    /// parks at its next look and the handshake takes the connection.
+    #[test]
+    fn a_switch_after_a_short_read_goes_through() {
+        let (port, certificate, _, server) = tls_server(b"ok", |stream| {
+            use std::io::{Read as _, Write as _};
+            stream.write_all(b"secret").unwrap();
+            stream.flush().unwrap();
+            let _ = stream.read(&mut [0u8; 1]);
+        });
+        let sock = NativeSock::new();
+        connect(&sock, 16, port);
+        assert!(matches!(next(&sock), Event::Connected(16)));
+        sock.read(16, 10);
+        let core = Core::new(0);
+        let until = Instant::now() + Duration::from_secs(10);
+        while !core
+            .told
+            .borrow()
+            .iter()
+            .any(|line| line == "received 16 2")
+        {
+            sock.pump_with(&core, true);
+            assert!(Instant::now() < until, "no greeting");
+            thread::sleep(Duration::from_millis(10));
+        }
+        // 8 bytes of the read are still granted; the reader is blocked in a read.
+        sock.start_handshake(16, "x.test", &[(0, certificate)])
+            .unwrap();
+        let Event::Secured(16, _) = next(&sock) else {
+            panic!("not secured");
+        };
+        sock.read(16, 6);
+        let Event::Data(16, data) = next(&sock) else {
+            panic!("no data");
+        };
+        assert_eq!(data, b"secret");
+        sock.close(16);
+        server.join().unwrap();
+    }
+
+    /// Core drops the session just before it closes the socket: what the
+    /// plugin queued in between is not written in clear, and the server is
+    /// told the session ended (`close_notify`).
+    #[test]
+    fn after_the_session_ends_nothing_goes_out_in_clear() {
+        let (port, certificate, _, server) = tls_server(b"", |stream| {
+            use std::io::Read as _;
+            // The first read takes the handshake through; what comes after is
+            // the end of the session, not a clear byte (that would be an error).
+            let mut buf = [0u8; 16];
+            let first = stream.read(&mut buf);
+            let after = stream.read(&mut buf);
+            assert!(matches!(first, Ok(0)), "{first:?}");
+            assert!(after.is_ok(), "{after:?}");
+        });
+        let sock = NativeSock::new();
+        connect(&sock, 17, port);
+        assert!(matches!(next(&sock), Event::Connected(17)));
+        sock.start_handshake(17, "x.test", &[(0, certificate)])
+            .unwrap();
+        assert!(matches!(next(&sock), Event::Secured(17, _)));
+        SockTls::end(&sock, 17);
+        // Queued after the session went: the writer finds none.
+        let _ = sock.send(17, b"CLEAR BYTES");
+        server.join().unwrap();
+        sock.close(17);
     }
 }

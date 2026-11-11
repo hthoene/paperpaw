@@ -91,14 +91,14 @@ fn takes_betas(env: &Env<'_>) -> bool {
 }
 
 /// Whether `version` is a pre-release (`0.5.0-beta.1`).
-fn is_pre_release(version: &str) -> bool {
+pub(crate) fn is_pre_release(version: &str) -> bool {
     version.split('+').next().is_some_and(|v| v.contains('-'))
 }
 
 /// Whether `offered` is an update over `here`, whole versions compared
 /// (`0.5.0-beta.2` after `0.5.0-beta.1`, `0.5.0` after both); a beta only
 /// where the device takes `betas`.
-fn offers(offered: &str, here: &str, betas: bool) -> bool {
+pub(crate) fn offers(offered: &str, here: &str, betas: bool) -> bool {
     Version::parse(offered).is_some()
         && compare_versions(offered, here) == Ordering::Greater
         && (betas || !is_pre_release(offered))

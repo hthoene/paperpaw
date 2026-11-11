@@ -19,22 +19,34 @@ mod books;
 mod native_analogue;
 mod native_battery;
 mod native_battery_shapes;
+mod native_block;
 mod native_books;
 mod native_calendar;
 mod native_countdown;
+mod native_current;
 mod native_dates;
 mod native_day;
 mod native_defs;
 mod native_draw;
 mod native_entry;
+mod native_favourites;
 mod native_greeting;
 mod native_highlight;
+mod native_logo;
 mod native_moon;
+mod native_next;
 mod native_note;
 mod native_numbers;
+mod native_picture;
+mod native_picture_host;
 /// The interface-7 plugin.
 pub mod native_plugin;
+mod native_progress;
 mod native_quote;
+mod native_reading;
+mod native_recorder;
+mod native_series;
+mod native_shelf;
 mod native_tiles;
 mod native_todo;
 mod native_todo_list;
@@ -61,6 +73,32 @@ use paperpaw_sdk::{Env, Id, Manifest, Plugin, RegisterError, Registrar};
 
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
+
+/// The settings the plugin declares, made by its build script from the same
+/// declarations as a table.
+#[cfg(feature = "linked")]
+mod native_settings {
+    use paperpaw_sdk::{Id, SettingSpec};
+    include!(concat!(env!("OUT_DIR"), "/widgets_settings.rs"));
+}
+
+/// The settings the plugin declares as a table kept in the program (as Beta 3
+/// kept them), for a linked build to use in place of a copy on the heap of
+/// each (`Kernel::register_linked`); the kernel takes an entry only when it
+/// equals the declared setting. Only a linked plugin has it: a plugin file's
+/// image does not change.
+#[cfg(feature = "linked")]
+pub static NATIVE_SETTINGS: &[paperpaw_sdk::SettingSpec] = &native_settings::SETTINGS;
+
+/// The setting groups the plugin declares, as a table kept in the program
+/// like [`NATIVE_SETTINGS`].
+#[cfg(feature = "linked")]
+pub static NATIVE_GROUPS: &[paperpaw_sdk::SettingGroupSpec] = &native_settings::GROUPS;
+
+/// The full ids the plugin declares, sorted, as a table kept in the program
+/// like [`NATIVE_SETTINGS`] (the kernel takes them in place of copies).
+#[cfg(feature = "linked")]
+pub static NATIVE_IDS: &[paperpaw_sdk::Id] = &native_settings::IDS;
 
 /// The native declarations (widgets, settings, events) of the plugin.
 #[path = "../declarations.rs"]

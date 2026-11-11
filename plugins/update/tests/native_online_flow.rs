@@ -55,6 +55,7 @@ fn world(host: &ScriptedHost, look: bool) -> Rc<RefCell<Vec<String>>> {
             total: 0,
             reason: 0,
             request: 0,
+            flags: 0,
         }))),
         _ => Err(-1),
     });
@@ -162,6 +163,7 @@ fn a_check_a_rule_asks_for_waits_for_a_cheap_moment() {
         Record::EventActionRun(EventActionRun {
             now_ms: 0,
             action: "update.check",
+            flags: 0,
         }),
     );
     assert_eq!(run.status, 0);

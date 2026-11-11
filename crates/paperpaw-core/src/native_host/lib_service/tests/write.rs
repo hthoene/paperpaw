@@ -9,7 +9,7 @@ use crate::native_host::lib_service::{
 use alloc::rc::Rc;
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{
-    ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
+    ERR_BUSY, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
 };
 use std::{collections::BTreeMap, string::String};
 use wire::{
@@ -33,6 +33,8 @@ pub(super) struct Fake {
     pub(super) commit: Cell<Result<w::Committed, i32>>,
     pub(super) fields: RefCell<BTreeMap<String, bool>>,
     pub(super) receipts: RefCell<std::vec::Vec<(u32, u32, u32)>>,
+    /// What `delete` answers (the status of each path, or as a whole).
+    pub(super) deleted: Cell<Result<[i32; 7], i32>>,
 }
 impl Fake {
     pub(super) fn new() -> Rc<Self> {
@@ -51,6 +53,7 @@ impl Fake {
             })),
             fields: RefCell::new(BTreeMap::from([(String::from("files.rating"), true)])),
             receipts: RefCell::new(std::vec::Vec::new()),
+            deleted: Cell::new(Ok([0; 7])),
         })
     }
     pub(super) fn note(&self, line: impl Into<String>) {
@@ -89,9 +92,12 @@ impl LibWrite for Fake {
         self.note(std::format!("can_delete {path}"));
         self.facts.borrow().get(path).copied().unwrap_or((0, 0))
     }
-    fn delete(&self, path: &str) -> (i32, u32) {
-        self.note(std::format!("delete {path}"));
-        (0, 0)
+    fn delete(&self, paths: &[&str], with_notes: bool) -> Result<[i32; 7], i32> {
+        self.note(std::format!("batch {} {with_notes}", paths.len()));
+        for path in paths {
+            self.note(std::format!("delete {path}"));
+        }
+        self.deleted.get()
     }
     fn move_book(&self, from: &str, to: &str, replace: bool) -> Result<(), i32> {
         self.note(std::format!("move {from} {to} {replace}"));
@@ -434,8 +440,18 @@ fn delete_needs_storage_and_keeps_a_book_with_notes_unless_told() {
         ["delete plain.epub", "delete gone.epub"],
         "a gone book is only forgotten"
     );
+    // One call to the host for the whole list (one journalled job).
+    assert_eq!(
+        fake.log
+            .borrow()
+            .iter()
+            .filter(|l| l.starts_with("batch"))
+            .count(),
+        1
+    );
     let reply = del("noted.epub", 1).unwrap();
-    assert_eq!(results(&reply), [("noted.epub".into(), 0, 0)]);
+    // The facts say what was kept for the book that went.
+    assert_eq!(results(&reply), [("noted.epub".into(), 0, 1)]);
     assert_eq!(fake.last(), "delete noted.epub");
     assert_eq!(del("a", 2), Err(ERR_INVALID));
     // Without `uses.storage` nothing is touched, can_delete excepted.
@@ -1099,4 +1115,89 @@ fn provided_tags_are_one_to_32_lines_of_1_to_128_bytes() {
     let tag = |n: usize| -> &'static str { std::boxed::Box::leak("x".repeat(n).into_boxed_str()) };
     assert!(provide(provided(0b10000, "", tag(128))).is_ok());
     assert_eq!(provide(provided(0b10000, "", tag(129))), Err(ERR_NO_SPACE));
+}
+
+#[test]
+fn delete_hands_the_accepted_paths_to_the_host_as_one_list_and_keeps_each_status() {
+    let fake = Fake::new();
+    fake.facts
+        .borrow_mut()
+        .insert("noted.epub".into(), (0, 0b001));
+    // The host answers per accepted path: the first is in use on the card.
+    fake.deleted.set(Ok([ERR_BUSY, 0, 0, 0, 0, 0, 0]));
+    let reply = go_rows(
+        &fake,
+        10,
+        &[Record::ServiceLibPaths(Paths {
+            paths: "busy.epub\nnoted.epub\nok.epub",
+            flags: 0,
+        })],
+    )
+    .unwrap();
+    assert_eq!(
+        results(&reply),
+        [
+            ("busy.epub".into(), ERR_BUSY, 0),
+            ("noted.epub".into(), ERR_STATE, 1),
+            ("ok.epub".into(), 0, 0),
+        ]
+    );
+    assert!(fake.log.borrow().contains(&"batch 2 false".into()));
+    // A job open is refused as a whole: that status for each path, nothing
+    // removed, and the refused ones are not asked about again.
+    fake.deleted.set(Err(ERR_BUSY));
+    let reply = go_rows(
+        &fake,
+        10,
+        &[Record::ServiceLibPaths(Paths {
+            paths: "a.epub\nb.epub",
+            flags: 0,
+        })],
+    )
+    .unwrap();
+    assert_eq!(
+        results(&reply),
+        [
+            ("a.epub".into(), ERR_BUSY, 0),
+            ("b.epub".into(), ERR_BUSY, 0)
+        ]
+    );
+    // Nothing accepted: the host is not called at all.
+    fake.log.borrow_mut().clear();
+    fake.facts
+        .borrow_mut()
+        .insert("txt.txt".into(), (ERR_INVALID, 0));
+    go_rows(
+        &fake,
+        10,
+        &[Record::ServiceLibPaths(Paths {
+            paths: "txt.txt",
+            flags: 0,
+        })],
+    )
+    .unwrap();
+    assert!(!fake.log.borrow().iter().any(|l| l.starts_with("batch")));
+}
+
+#[test]
+fn a_book_named_twice_goes_to_the_host_once_and_both_rows_say_the_same() {
+    let fake = Fake::new();
+    let reply = go_rows(
+        &fake,
+        10,
+        &[Record::ServiceLibPaths(Paths {
+            paths: "a.epub\nb.epub\na.epub",
+            flags: 0,
+        })],
+    )
+    .unwrap();
+    assert_eq!(
+        results(&reply),
+        [
+            ("a.epub".into(), 0, 0),
+            ("b.epub".into(), 0, 0),
+            ("a.epub".into(), 0, 0)
+        ]
+    );
+    assert!(fake.log.borrow().contains(&"batch 2 false".into()));
 }

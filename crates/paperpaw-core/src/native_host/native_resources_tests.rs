@@ -1,6 +1,7 @@
 //! Font and hyphenation records of a native plugin: published with the rest,
 //! all or nothing, and gone with the plugin.
 use super::*;
+use alloc::string::String;
 
 /// The batch of the resource mode `res`: the screen and
 /// 1 the three kinds; 2 a face with no family; 3 a language twice; 4 an

@@ -134,6 +134,7 @@ fn about_inventory_reads_use_schema_operations_and_borrowed_values() {
             total: 0,
             reason: 99,
             request: 0,
+            flags: 0,
         })],
     );
     let row = device.firmware(&host, &mut input, &mut out).unwrap();
@@ -641,4 +642,118 @@ fn file_check_digest_is_borrowed_exactly_or_absent() {
         device.check(&host, DeviceRequest::new(1).unwrap(), &mut input, &mut out),
         Err(Error::Invalid)
     ));
+}
+
+#[test]
+fn leaves_out_pages_under_the_checks_request_and_the_hosts_refusals_are_the_status() {
+    let table = table();
+    let mut state = State::default();
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::from_mut(&mut state).cast(),
+    };
+    let device = Device::open(&host).unwrap();
+    let mut input = [0; 256];
+    let mut out = [0; 4096];
+    // The first page: generation 0 sent; the end carries the check's request.
+    reply(&state, &[builtin(), end(0, 2, 9, 1)]);
+    let page = device
+        .leaves_out(&host, DeviceCursor::start(), &mut input, &mut out)
+        .unwrap();
+    assert_eq!(state.op.get(), schema::OP_LEAVES_OUT);
+    assert_eq!(page.rows().next().unwrap().id(), "demo");
+    let next = page.end().next_cursor().unwrap();
+    // A cursor goes back with the end's generation; another one is stale.
+    reply(&state, &[builtin(), end(1, 2, 8, 2)]);
+    assert!(matches!(
+        device.leaves_out(&host, next, &mut input, &mut out),
+        Err(Error::State)
+    ));
+    reply(&state, &[builtin(), end(1, 2, 9, 2)]);
+    assert!(
+        device
+            .leaves_out(&host, next, &mut input, &mut out)
+            .unwrap()
+            .end()
+            .next_cursor()
+            .is_none()
+    );
+    let bytes = state.input.borrow();
+    let sent = wire::records_decode(&bytes).unwrap();
+    assert!(matches!(
+        sent.iter().next(),
+        Some(Record::ServiceRegQuery(q)) if (q.scope, q.cursor, q.generation) == ("", 1, 9)
+    ));
+    drop(bytes);
+    // None left out: no rows.
+    reply(&state, &[end(1, 0, 9, 0)]);
+    assert!(
+        device
+            .leaves_out(&host, DeviceCursor::start(), &mut input, &mut out)
+            .unwrap()
+            .is_empty()
+    );
+    // No check, one running, a foreign image: the call's status.
+    for (status, error) in [
+        (abi::ERR_NOT_FOUND, Error::NotFound),
+        (abi::ERR_BUSY, Error::Busy),
+        (abi::ERR_UNSUPPORTED, Error::Unsupported),
+    ] {
+        state.error.set(status);
+        assert_eq!(
+            device
+                .leaves_out(&host, DeviceCursor::start(), &mut input, &mut out)
+                .map(|page| page.len()),
+            Err(error)
+        );
+    }
+    state.error.set(0);
+    // More rows than a page, a row after the end or a missing end: Invalid.
+    let mut rows = vec![builtin(); schema::PAGE_MAX_ROWS + 1];
+    rows.push(end(1, 65, 9, 65));
+    reply(&state, &rows);
+    assert!(
+        device
+            .leaves_out(&host, DeviceCursor::start(), &mut input, &mut out)
+            .is_err()
+    );
+    reply(&state, &[builtin()]);
+    assert!(
+        device
+            .leaves_out(&host, DeviceCursor::start(), &mut input, &mut out)
+            .is_err()
+    );
+}
+
+#[test]
+fn file_check_leaves_out_reads_flag_bit_5_alone() {
+    let table = table();
+    let mut state = State::default();
+    let host = Host {
+        table: &table,
+        ctx: core::ptr::from_mut(&mut state).cast(),
+    };
+    let device = Device::open(&host).unwrap();
+    let mut input = [0; 256];
+    let mut out = [0; 4096];
+    for (flags, leaves_out) in [(0, false), (1 << 5, true), (0b01_1111, false), (!0, true)] {
+        reply(
+            &state,
+            &[Record::ServiceDevCheck(wire::ServiceDevCheck {
+                reason: 0,
+                needs_draft: 0,
+                bytes: 1,
+                signer: "",
+                key: &[],
+                id: "firmware",
+                version: "1",
+                flags,
+                sha256: &[],
+            })],
+        );
+        let row = device
+            .check(&host, DeviceRequest::new(1).unwrap(), &mut input, &mut out)
+            .unwrap();
+        assert_eq!(row.leaves_out(), leaves_out, "flags {flags:#x}");
+    }
 }

@@ -2,6 +2,7 @@
 use super::{
     canvas::CanvasScope,
     environment::EnvironmentScope,
+    fonts_data::DataFont,
     resources::{FontKey, FontRole, OwnerResources},
 };
 use crate::abi7::{context::Frame, graphics};
@@ -43,7 +44,10 @@ fn resolve_role(fonts: &Fonts, role: FontRole) -> Option<FontHandle<'_>> {
     }
 }
 
-fn resolve<'a>(frame: &'a dyn Frame, key: &FontKey) -> Result<FontHandle<'a>, i32> {
+fn resolve<'a>(frame: &'a dyn Frame, key: &'a FontKey) -> Result<FontHandle<'a>, i32> {
+    if let FontKey::Data(font) = key {
+        return font.handle();
+    }
     let fonts = frame.fonts().ok_or(ERR_STATE)?;
     match key {
         FontKey::Role(role) => resolve_role(fonts, *role).ok_or(ERR_NOT_FOUND),
@@ -53,6 +57,7 @@ fn resolve<'a>(frame: &'a dyn Frame, key: &FontKey) -> Result<FontHandle<'a>, i3
             }
             fonts.get(id.as_str()).ok_or(ERR_STATE)
         }
+        FontKey::Data(_) => Err(ERR_STATE),
     }
 }
 
@@ -62,7 +67,15 @@ fn with_font<R>(
     handle: u32,
     call: impl FnOnce(&FontHandle<'_>) -> Result<R, i32>,
 ) -> Result<R, i32> {
-    scope.with_frame(|frame| owner.with_font(handle, |key| call(&resolve(frame, key)?)))?
+    scope.with_frame(|frame| {
+        owner.with_font(handle, |key| {
+            if let FontKey::Data(font) = key {
+                // Once the file is changed or removed the handle is stale.
+                font.check(owner, frame.callback_epoch().ok())?;
+            }
+            call(&resolve(frame, key)?)
+        })
+    })?
 }
 
 /// Validate scalar output ranges without borrowing or initializing their storage.
@@ -96,6 +109,25 @@ fn status(result: Result<(), i32>) -> i32 {
     result.map_or_else(|error| error, |()| OK)
 }
 
+/// The key of a font file in the plugin's own data folder: `data:<path>`.
+const DATA_KEY: &str = "data:";
+
+/// A role key, or a registered font id.
+fn named_or_role(frame: &dyn Frame, key: &str) -> Result<FontKey, i32> {
+    let fonts = frame.fonts().ok_or(ERR_STATE)?;
+    if key.starts_with("role:") {
+        let role = role(key).ok_or(ERR_NOT_FOUND)?;
+        if !matches!(role, FontRole::Icons) && resolve_role(fonts, role).is_none() {
+            return Err(ERR_NOT_FOUND);
+        }
+        return Ok(FontKey::Role(role));
+    }
+    let acquired = frame.font_generation().ok_or(ERR_STATE)?;
+    let font = fonts.get(key).ok_or(ERR_NOT_FOUND)?;
+    let id = font.id().try_clone().ok_or(ERR_NO_MEMORY)?;
+    Ok(FontKey::Named { id, acquired })
+}
+
 /// Acquire slot 7. The key is copied only for a named font, using checked allocation.
 ///
 /// # Safety
@@ -111,20 +143,11 @@ pub(crate) unsafe fn acquire(
         outputs([out])?;
         // SAFETY: caller guarantees readable input for this synchronous call.
         let key = unsafe { buffers::text_in(key, 128) }?;
-        let key = scope.with_frame(|frame| {
-            let fonts = frame.fonts().ok_or(ERR_STATE)?;
-            if key.starts_with("role:") {
-                let role = role(key).ok_or(ERR_NOT_FOUND)?;
-                if !matches!(role, FontRole::Icons) && resolve_role(fonts, role).is_none() {
-                    return Err(ERR_NOT_FOUND);
-                }
-                return Ok(FontKey::Role(role));
-            }
-            let acquired = frame.font_generation().ok_or(ERR_STATE)?;
-            let font = fonts.get(key).ok_or(ERR_NOT_FOUND)?;
-            let id = font.id().try_clone().ok_or(ERR_NO_MEMORY)?;
-            Ok(FontKey::Named { id, acquired })
-        })??;
+        let key = if let Some(path) = key.strip_prefix(DATA_KEY) {
+            FontKey::Data(DataFont::open(scope, owner, path)?)
+        } else {
+            scope.with_frame(|frame| named_or_role(frame, key))??
+        };
         let handle = owner.insert_font(key)?;
         // SAFETY: validated scalar output; no fallible step follows publication.
         unsafe { out.write(handle) };
@@ -338,8 +361,22 @@ pub(crate) unsafe fn draw(
         let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
         let width = with_font(scope, owner, handle, |font| {
             canvas.with_canvas(|canvas| {
-                graphics::text_draw(canvas, font, size, x, i64::from(baseline), text, color)
-                    .map_err(|_| ERR_INVALID)
+                let width =
+                    graphics::text_draw(canvas, font, size, x, i64::from(baseline), text, color)
+                        .map_err(|_| ERR_INVALID)?;
+                // Told as text where somebody asks, as a legacy label is
+                // (`screens-input.md` 6.1); nothing is done otherwise.
+                if canvas.is_describing() {
+                    let line = font.line_metrics(size);
+                    #[allow(
+                        clippy::cast_precision_loss,
+                        reason = "a baseline on a screen is far below 2^24"
+                    )]
+                    let top = baseline as f32 - line.ascent;
+                    let height = line.ascent + line.descent;
+                    super::canvas_describe::told_text(canvas, text, x, top, width, height);
+                }
+                Ok(width)
             })?
         })?;
         // SAFETY: output was validated before drawing.

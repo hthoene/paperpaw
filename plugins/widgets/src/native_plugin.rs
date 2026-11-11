@@ -10,8 +10,8 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, DrawPurpose, Input},
         commands::CommandSender,
-        events::{AnswerOutcome, Answered, Event, Incoming, kinds},
-        fonts::{Font, FontRole},
+        events::{AnswerOutcome, Answered, BookKind, Event, Incoming, kinds},
+        image::{ImageId, ImageReady, ImageStyle, PrepareImage},
         registrations,
         reply::Reply,
         ui::{
@@ -31,6 +31,8 @@ mod image {
 
 /// The callback token of the minute tick, as declared.
 const TICK: u32 = crate::declarations::TICK;
+/// The callback token of the reading events, as declared.
+const READING: u32 = crate::declarations::READING;
 /// The target of a widget whose tap opens its settings.
 const SETTINGS_TARGET: u32 = 1;
 /// The slot the settings fill.
@@ -46,6 +48,16 @@ pub(crate) struct Item {
     widget: String,
     /// What it showed when it was last drawn or asked about, for the tick.
     shown: Option<u64>,
+    /// A cover was still being made when it was drawn: the tick asks for a new
+    /// draw until that is queued.
+    retry: bool,
+}
+
+impl Item {
+    /// The widget's id as the host names it, with its placement.
+    pub(crate) fn widget(&self) -> &str {
+        &self.widget
+    }
 }
 
 /// What an open question is for.
@@ -61,9 +73,9 @@ pub(crate) enum Asked {
     Options { index: usize, title: String },
 }
 
-/// The widget pack.
+/// What the pack keeps once it has something to keep.
 #[derive(Debug, Default)]
-pub struct NativeWidgets {
+pub(crate) struct State {
     pub(crate) items: Vec<Item>,
     /// The question open, and what it is for.
     pub(crate) asked: Option<(RequestId, Asked)>,
@@ -78,16 +90,30 @@ pub struct NativeWidgets {
     highlights: crate::native_quote::Showings,
     /// The library's numbers as last counted.
     numbers: crate::native_numbers::Cache,
+    /// The favourites and the series as last read.
+    favourites: crate::native_favourites::Cache,
+    series: crate::native_series::Cache,
+    next: crate::native_next::Cache,
+    /// The book being read, for the progress and reading widgets.
+    current: crate::native_current::Cache,
+    /// The page, chapter and speed of the book read last.
+    recorder: crate::native_recorder::Recorder,
+    /// The logo picture, held and asked for.
+    logo: crate::native_logo::Logo,
+    /// The pictures of the picture widgets, held and asked for.
+    pub(crate) pictures: crate::native_picture::Pictures,
+    /// How often a picture was shown.
+    pub(crate) picture_showings: crate::native_quote::Showings,
 }
 
-impl NativeWidgets {
+impl State {
     fn find(&self, instance: u32) -> Option<&Item> {
         self.items
             .iter()
             .find(|item| item.instance.get() == instance)
     }
 
-    fn made(&mut self, widget: &str, instance: Instance) -> Result<(), Error> {
+    fn made(&mut self, host: &Host<'_>, widget: &str, instance: Instance) -> Result<(), Error> {
         let Some(token) = token_of(widget) else {
             return Ok(());
         };
@@ -98,21 +124,41 @@ impl NativeWidgets {
             token,
             widget: paperpaw_ui_kit::text::copy(widget)?,
             shown: None,
+            retry: false,
         });
+        self.want_logo(host, widget);
+        if token == crate::native_picture::TOKEN
+            && let Err(error) = self.picture_made(host, instance.get())
+        {
+            // No slot for its picture: the widget is not kept half made.
+            self.items.retain(|item| item.instance != instance);
+            return Err(error);
+        }
         Ok(())
     }
 
-    fn stage(&self, host: &Host<'_>, payload: &[u8], reply: &mut Reply<'_>) -> Result<(), Error> {
+    fn stage(
+        &mut self,
+        host: &Host<'_>,
+        payload: &[u8],
+        reply: &mut Reply<'_>,
+    ) -> Result<(), Error> {
         let call = WidgetCall::decode(payload)?;
         let mut out = paperpaw_ui_kit::mem::buffer(REPLY)?;
         let written = match call {
             WidgetCall::Measure { instance, width } => {
-                let item = self.find(instance.get()).ok_or(Error::NotFound)?;
+                let item = self
+                    .items
+                    .iter()
+                    .find(|item| item.instance.get() == instance.get())
+                    .ok_or(Error::NotFound)?;
                 let behaviour = behaviour(item.token).ok_or(Error::NotFound)?;
                 let mut cx = Cx::open(host, &item.widget)?;
                 let width = u16::try_from(width).unwrap_or(u16::MAX);
                 let height = if item.token == crate::native_todo::TOKEN {
                     crate::native_todo::height_with(&mut cx, width, &self.todo)?
+                } else if item.token == crate::native_favourites::TOKEN {
+                    crate::native_favourites::height_with(&mut cx, width, &mut self.favourites)?
                 } else {
                     (behaviour.height)(&mut cx, width)?
                 };
@@ -123,9 +169,28 @@ impl NativeWidgets {
                 call.reply_place(&mut out)?
             }
             WidgetCall::Targets { instance, rect } => {
-                let item = self.find(instance.get()).ok_or(Error::NotFound)?;
+                let item = self
+                    .items
+                    .iter()
+                    .find(|item| item.instance.get() == instance.get())
+                    .ok_or(Error::NotFound)?;
                 let tap = behaviour(item.token).map(|b| b.tap);
-                if tap == Some(Tap::TickItems) {
+                if matches!(tap, Some(Tap::Books | Tap::Next)) {
+                    let cx = Cx::open(host, &item.widget)?;
+                    let area = frame_to_area(rect);
+                    let targets = if item.token == crate::native_reading::TOKEN {
+                        crate::native_reading::targets_with(&cx, area, &mut self.current)?
+                    } else if item.token == crate::native_progress::TOKEN {
+                        crate::native_progress::targets_with(&cx, area, &mut self.current)?
+                    } else if item.token == crate::native_next::TOKEN {
+                        crate::native_next::targets_with(&cx, area, &mut self.next)?
+                    } else if item.token == crate::native_favourites::TOKEN {
+                        crate::native_favourites::targets_with(&cx, area, &mut self.favourites)?
+                    } else {
+                        crate::native_series::targets_with(&cx, area, &mut self.series)?
+                    };
+                    call.reply_targets(&targets, &mut out)?
+                } else if tap == Some(Tap::TickItems) {
                     let cx = Cx::open(host, &item.widget)?;
                     let area = frame_to_area(rect);
                     let targets = crate::native_todo::targets(&cx, area, &self.todo)?;
@@ -179,6 +244,11 @@ impl NativeWidgets {
     /// A widget that fails (its time or its command) is left for the next
     /// tick and costs the others nothing: the tick itself is not refused.
     fn tick(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.tick_pictures(host);
+        // A logo that was refused for want of memory is asked for again.
+        if self.has_logo() && self.logo.wants() {
+            self.ask_logo(host, 0).ok();
+        }
         let mut scratch = [0; 64];
         let mut commands = CommandSender::new(host, &mut scratch);
         for item in &mut self.items {
@@ -190,6 +260,8 @@ impl NativeWidgets {
                 crate::native_todo::shows_with(host, &item.widget, &self.todo)
             } else if item.token == crate::native_quote::TOKEN {
                 crate::native_quote::shows_with(host, &item.widget, &self.showings)
+            } else if item.token == crate::native_reading::TOKEN {
+                crate::native_reading::shows_with(host, &item.widget, &self.recorder)
             } else if item.token == crate::native_highlight::TOKEN {
                 crate::native_highlight::shows_with(
                     host,
@@ -201,9 +273,172 @@ impl NativeWidgets {
                 (behaviour.shows)(host, &item.widget)
             };
             settle(&mut item.shown, shown, || commands.widget_changed(instance));
+            retry(&mut item.retry, || commands.widget_changed(instance));
         }
         Ok(())
     }
+}
+
+/// A tap on a widget of one book (the one being read, or the one chosen): the
+/// library opens where there is none, else the book.
+fn open_current(
+    host: &Host<'_>,
+    (token, widget): (u32, &str),
+    target: u32,
+    (current, next): (
+        &mut crate::native_current::Cache,
+        &mut crate::native_next::Cache,
+    ),
+) -> Result<Handled, Error> {
+    if target == crate::native_next::LIBRARY_TARGET {
+        let mut scratch = [0; 128];
+        CommandSender::new(host, &mut scratch).run_action("core.library")?;
+        return Ok(Handled::Yes);
+    }
+    let book = if token == crate::native_progress::TOKEN || token == crate::native_reading::TOKEN {
+        crate::native_progress::book(host, current)?
+    } else {
+        crate::native_next::book(host, widget, next)?
+    };
+    let Some(book) = book else {
+        return Ok(Handled::No);
+    };
+    crate::native_books::open_book(host, book)?;
+    Ok(Handled::Yes)
+}
+
+impl State {
+    /// Whether a logo widget is placed.
+    fn has_logo(&self) -> bool {
+        self.items
+            .iter()
+            .any(|item| item.token == crate::native_logo::TOKEN)
+    }
+
+    /// Asks for the logo picture when `widget` is one, none is held or asked
+    /// for and none is known to be missing. A failure is tried again at the
+    /// next minute.
+    fn want_logo(&mut self, host: &Host<'_>, widget: &str) {
+        if token_of(widget) == Some(crate::native_logo::TOKEN) {
+            self.ask_logo(host, 0).ok();
+        }
+    }
+
+    /// Asks for the first file from step `from` on that can be asked for. With
+    /// none left the name stays alone.
+    fn ask_logo(&mut self, host: &Host<'_>, from: usize) -> Result<(), Error> {
+        use crate::native_logo::{SIDE, candidate, steps};
+        if from == 0 && !self.logo.wants() {
+            return Ok(());
+        }
+        let mut bytes = paperpaw_ui_kit::mem::buffer(crate::native_logo::PATH_MAX + 16)?;
+        let own = logo_setting(host, &mut bytes);
+        let mut scratch = paperpaw_ui_kit::mem::buffer(640)?;
+        let mut step = from;
+        while step < steps(own) {
+            if let Some((root, path)) = candidate(own, step) {
+                let request = PrepareImage::new(root, path, self.logo.cookie(step)).side(SIDE);
+                match CommandSender::new(host, &mut scratch).image_prepare(&request) {
+                    Ok(()) => {
+                        self.logo.asked(step);
+                        return Ok(());
+                    }
+                    // For want of memory: asked again at the next minute.
+                    Err(Error::NoMemory) => return Err(Error::NoMemory),
+                    // Refused otherwise (the card is not granted, a path the
+                    // host does not take): the next file is tried.
+                    Err(_) => {}
+                }
+            }
+            step = step.saturating_add(1);
+        }
+        self.logo.gave_up();
+        Ok(())
+    }
+
+    /// The host's answer to a picture asked for.
+    fn logo_ready(&mut self, host: &Host<'_>, ready: &ImageReady) -> Result<(), Error> {
+        use crate::native_logo::Next;
+        let mut bytes = paperpaw_ui_kit::mem::buffer(crate::native_logo::PATH_MAX + 16)?;
+        let own = logo_setting(host, &mut bytes);
+        let size = (ready.width(), ready.height());
+        match self
+            .logo
+            .ready((ready.cookie(), ready.status(), ready.image(), size), own)
+        {
+            // Not an answer anyone waits for: a picture it holds is given back
+            // (only for the cookies of the logo, not another request's).
+            Next::Ignore => {
+                if crate::native_logo::is_cookie(ready.cookie())
+                    && let Some(image) = ready.image()
+                {
+                    release_image(host, image);
+                }
+                Ok(())
+            }
+            Next::Gone | Next::Retry => Ok(()),
+            Next::Again(step) => self.ask_logo(host, step),
+            Next::Ready { release, .. } => {
+                if let Some(old) = release {
+                    release_image(host, old);
+                }
+                self.redraw_logos(host);
+                Ok(())
+            }
+        }
+    }
+
+    /// The picture set changed: the held one goes and the new one is asked for.
+    fn logo_changed(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if let Some(old) = self.logo.forget() {
+            release_image(host, old);
+        }
+        self.redraw_logos(host);
+        if self.has_logo() {
+            self.ask_logo(host, 0).ok();
+        }
+        Ok(())
+    }
+
+    /// The last logo widget is gone: the picture is given back.
+    fn drop_logo(&mut self, host: &Host<'_>) {
+        if !self.has_logo()
+            && let Some(old) = self.logo.forget()
+        {
+            release_image(host, old);
+        }
+    }
+
+    /// Tells the makers of the logo widgets that they show something new.
+    fn redraw_logos(&self, host: &Host<'_>) {
+        let mut scratch = [0; 64];
+        let mut commands = CommandSender::new(host, &mut scratch);
+        for item in &self.items {
+            if item.token == crate::native_logo::TOKEN {
+                commands.widget_changed(item.instance).ok();
+            }
+        }
+    }
+}
+
+/// The picture the setting `core.logo` names, without slashes at its ends
+/// (empty: none, or one too long to read).
+fn logo_setting<'a>(host: &Host<'_>, bytes: &'a mut [u8]) -> &'a str {
+    match paperpaw_sdk::native::settings::read_setting(host, crate::native_logo::SETTING, bytes) {
+        Ok(paperpaw_sdk::native::settings::SettingValue::Text(path)) => {
+            path.trim().trim_matches('/')
+        }
+        _ => "",
+    }
+}
+
+/// Gives a picture back; a refusal leaves it with the host, which ends it with
+/// the plugin.
+fn release_image(host: &Host<'_>, image: ImageId) {
+    let mut scratch = [0; 64];
+    CommandSender::new(host, &mut scratch)
+        .image_release(image)
+        .ok();
 }
 
 /// Notes what a widget shows now. If it differs from what it showed before,
@@ -224,27 +459,23 @@ fn settle(
     *shown = Some(now);
 }
 
-impl Plugin for NativeWidgets {
-    fn make(host: &Host<'_>) -> Result<Self, Error> {
-        for batch in image::WIDGETS
-            .iter()
-            .chain(image::SCREENS)
-            .chain(image::NAVIGATION)
-            .chain(image::EVENTS)
-        {
-            registrations::submit(host, batch)?;
-        }
-        Ok(Self::default())
+/// Asks for a new draw while `wanted` (a cover was still being made), and
+/// stops asking once that is queued; a refusal leaves it for the next tick.
+fn retry(wanted: &mut bool, queue: impl FnOnce() -> Result<(), Error>) {
+    if *wanted && queue().is_ok() {
+        *wanted = false;
     }
+}
 
-    fn event(
+impl State {
+    pub(crate) fn event(
         &mut self,
         host: &Host<'_>,
         token: u32,
         incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall, kinds::Tick, kinds::Answered)
+        let Some(event) = read_event!(incoming; kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall, kinds::Tick, kinds::Answered, kinds::ImageReady, kinds::SettingChanged, kinds::PageTurned, kinds::BookOpened, kinds::BookClosed, kinds::Suspend, kinds::Stopping)
         else {
             return Ok(());
         };
@@ -258,20 +489,47 @@ impl Plugin for NativeWidgets {
                 match paperpaw_ui_kit::widget::settings::base(widget) {
                     "widgets.quote" => self.showings.made(now_ms),
                     "widgets.highlight" => self.highlights.made(now_ms),
+                    "widgets.picture" => self.picture_showings.made(now_ms),
                     _ => {}
                 }
-                self.made(widget, instance)
+                self.made(host, widget, instance)
             }
             Event::WidgetDropped { instance, .. } => {
                 self.items.retain(|item| item.instance != instance);
+                self.drop_logo(host);
+                self.picture_dropped(host, instance.get());
                 Ok(())
             }
+            Event::ImageReady(ready) if crate::native_picture::is_cookie(ready.cookie()) => {
+                self.picture_ready(host, &ready)
+            }
+            Event::ImageReady(ready) => self.logo_ready(host, &ready),
+            Event::SettingChanged {
+                key: crate::native_logo::SETTING,
+                ..
+            } => self.logo_changed(host),
+            Event::SettingChanged { .. } => Ok(()),
             Event::StageCall {
                 stage: "core.widget",
                 payload,
                 ..
             } => self.stage(host, payload, reply),
             Event::Tick { .. } if token == TICK => self.tick(host),
+            Event::PageTurned(view) if token == READING => self.recorder.reading(host, &view, true),
+            Event::Book {
+                kind: BookKind::Opened,
+                reading,
+                ..
+            } if token == READING => self.recorder.reading(host, &reading, false),
+            Event::Book {
+                kind: BookKind::Closed,
+                reading,
+                ..
+            } if token == READING => self.recorder.closed(host, &reading),
+            Event::Suspend { .. } | Event::Stopping { .. } if token == READING => {
+                self.recorder.save(host);
+                Ok(())
+            }
             Event::Answered { answer, .. } => self.answered(host, answer),
             Event::ActionRun {
                 action: native_todo_screen::OPEN_ACTION,
@@ -290,7 +548,7 @@ impl Plugin for NativeWidgets {
         }
     }
 
-    fn draw(
+    pub(crate) fn draw(
         &mut self,
         host: &Host<'_>,
         _token: u32,
@@ -302,44 +560,101 @@ impl Plugin for NativeWidgets {
         if frame.purpose != DrawPurpose::Widget {
             return Err(Error::Unsupported);
         }
-        let item = self
-            .items
-            .iter()
-            .find(|item| item.instance.get() == frame.id)
-            .ok_or(Error::NotFound)?;
-        let behaviour = behaviour(item.token).ok_or(Error::NotFound)?;
-        let mut cx = Cx::open(host, &item.widget)?;
-        let area = Rect::new(
-            paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.x)),
-            paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.y)),
-            paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.width)),
-            paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.height)),
-        );
-        let mut out = Vec::new();
-        if item.token == crate::native_todo::TOKEN {
-            crate::native_todo::draw_with(&mut cx, &mut out, area, &self.todo)?;
-        } else if item.token == crate::native_quote::TOKEN {
-            crate::native_quote::draw_with(&mut cx, &mut out, area, &self.showings)?;
-        } else if item.token == crate::native_highlight::TOKEN {
-            let kept = (&mut self.highlight, &self.highlights);
-            crate::native_highlight::draw_with(&mut cx, &mut out, area, kept)?;
-        } else if item.token == crate::native_numbers::TOKEN {
-            crate::native_numbers::draw_with(&mut cx, &mut out, area, &mut self.numbers)?;
-        } else {
-            (behaviour.draw)(&mut cx, &mut out, area)?;
-        }
-        let bold = if out
-            .iter()
-            .any(|op| matches!(op, paperpaw_ui_kit::Paint::Bold { .. }))
+        let mut pictures = paperpaw_ui_kit::covers::Pictures::default();
+        let mut logo: Option<(_, _, bool)> = None;
         {
-            Some(Font::acquire_role(host, FontRole::UiBold)?)
-        } else {
-            None
-        };
-        paint::replay_with(&mut frame, &cx.font, bold.as_ref(), &out)
+            let item = self
+                .items
+                .iter()
+                .find(|item| item.instance.get() == frame.id)
+                .ok_or(Error::NotFound)?;
+            let behaviour = behaviour(item.token).ok_or(Error::NotFound)?;
+            let mut cx = Cx::open(host, &item.widget)?;
+            let area = Rect::new(
+                paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.x)),
+                paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.y)),
+                paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.width)),
+                paperpaw_ui_kit::geometry::clamp_u16(i64::from(frame.rect.height)),
+            );
+            let mut out = Vec::new();
+            if item.token == crate::native_logo::TOKEN {
+                logo = crate::native_logo::draw_with(&mut cx, &mut out, area, self.logo.held())?
+                    .map(|(image, room)| (image, room, false));
+            } else if item.token == crate::native_picture::TOKEN {
+                let state = self.pictures.state(frame.id);
+                logo = crate::native_picture::draw_with(&mut cx, &mut out, area, state)?
+                    .map(|placed| (placed.image, placed.rect, placed.fill));
+            } else if item.token == crate::native_reading::TOKEN {
+                let kept = (&mut self.current, &mut pictures, &mut self.recorder);
+                crate::native_reading::draw_with(&mut cx, &mut out, area, kept)?;
+            } else if item.token == crate::native_progress::TOKEN {
+                let kept = (&mut self.current, &mut pictures);
+                crate::native_progress::draw_with(&mut cx, &mut out, area, kept)?;
+            } else if item.token == crate::native_next::TOKEN {
+                let kept = (&mut self.next, &mut pictures);
+                crate::native_next::draw_with(&mut cx, &mut out, area, kept)?;
+            } else if item.token == crate::native_favourites::TOKEN {
+                let kept = (&mut self.favourites, &mut pictures);
+                crate::native_favourites::draw_with(&mut cx, &mut out, area, kept)?;
+            } else if item.token == crate::native_series::TOKEN {
+                let kept = (&mut self.series, &mut pictures);
+                crate::native_series::draw_with(&mut cx, &mut out, area, kept)?;
+            } else if item.token == crate::native_todo::TOKEN {
+                crate::native_todo::draw_with(&mut cx, &mut out, area, &self.todo)?;
+            } else if item.token == crate::native_quote::TOKEN {
+                crate::native_quote::draw_with(&mut cx, &mut out, area, &self.showings)?;
+            } else if item.token == crate::native_highlight::TOKEN {
+                let kept = (&mut self.highlight, &self.highlights);
+                crate::native_highlight::draw_with(&mut cx, &mut out, area, kept)?;
+            } else if item.token == crate::native_numbers::TOKEN {
+                crate::native_numbers::draw_with(&mut cx, &mut out, area, &mut self.numbers)?;
+            } else {
+                (behaviour.draw)(&mut cx, &mut out, area)?;
+            }
+            paint::replay(&mut frame, &cx.font, &out)?;
+        }
+        // The covers go where nothing else is drawn. One the host no longer has
+        // (it ended the id for room) or cannot draw is left out: the next draw
+        // asks for it again.
+        for (image, at) in &pictures.placed {
+            frame
+                .draw_canvas()?
+                .draw_image(*image, paint::frame_rect(*at), ImageStyle::new().small())
+                .ok();
+        }
+        if pictures.busy {
+            // A cover still being made: the next tick draws the widget again.
+            let instance = frame.id;
+            if let Some(item) = self
+                .items
+                .iter_mut()
+                .find(|item| item.instance.get() == instance)
+            {
+                item.retry = true;
+            }
+        }
+        // The logo or the picture over what the frame drew. Where the host
+        // refuses it, the widget is the frame and its words.
+        if let Some((image, room, fill)) = logo {
+            let style = if fill {
+                ImageStyle::new().fill()
+            } else {
+                ImageStyle::new()
+            };
+            frame
+                .draw_canvas()?
+                .draw_image(image, paint::frame_rect(room), style)
+                .ok();
+        }
+        Ok(())
     }
 
-    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+    pub(crate) fn input(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        input: Input<'_>,
+    ) -> Result<Handled, Error> {
         if token == native_todo_screen::SCREEN {
             return self.todo_input(host, input);
         }
@@ -379,6 +694,29 @@ impl Plugin for NativeWidgets {
             CommandSender::new(host, &mut [0; 64]).widget_changed(item.instance)?;
             return Ok(Handled::Yes);
         }
+        if tap == Some(Tap::Next) {
+            let kept = (&mut self.current, &mut self.next);
+            return open_current(host, (item.token, &item.widget), target, kept);
+        }
+        if tap == Some(Tap::Books) {
+            if target & crate::native_shelf::BOOK_TARGET == 0 {
+                return Ok(Handled::No);
+            }
+            let index = usize::try_from(target & !crate::native_shelf::BOOK_TARGET).unwrap_or(0);
+            let widget = item.widget.as_str();
+            let book = if item.token == crate::native_favourites::TOKEN {
+                crate::native_favourites::book_at(host, widget, &mut self.favourites, index)?
+            } else {
+                crate::native_series::book_at(host, widget, &mut self.series, index)?
+            };
+            return match book {
+                Some(book) => {
+                    crate::native_books::open_book(host, book)?;
+                    Ok(Handled::Yes)
+                }
+                None => Ok(Handled::No),
+            };
+        }
         if target != SETTINGS_TARGET {
             return Ok(Handled::No);
         }
@@ -401,6 +739,11 @@ impl Plugin for NativeWidgets {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).run_action(action)?;
             }
+            Some(Tap::TurnPicture) => {
+                crate::native_picture::turn(host, base)?;
+                // Every picture widget takes the turn, as before.
+                self.tick_pictures(host);
+            }
             Some(Tap::TurnQuote) => {
                 crate::native_quote::turn(host, base)?;
                 CommandSender::new(host, &mut [0; 64]).widget_changed(item.instance)?;
@@ -417,6 +760,83 @@ impl Plugin for NativeWidgets {
         }
         Ok(Handled::Yes)
     }
+}
+
+/// The widget pack. Its state is made when something first needs it, so a
+/// device that shows no widget and reads no book holds a pointer and no more.
+#[derive(Debug, Default)]
+pub struct NativeWidgets {
+    /// Empty, or the one `State` (a vector so that making it can fail).
+    state: Vec<State>,
+}
+
+impl NativeWidgets {
+    /// The state, made if it is not yet.
+    #[inline(never)]
+    fn state(&mut self) -> Result<&mut State, Error> {
+        if self.state.is_empty() {
+            self.state
+                .try_reserve_exact(1)
+                .map_err(|_| Error::NoMemory)?;
+            self.state.push(State::default());
+        }
+        self.state.first_mut().ok_or(Error::NoMemory)
+    }
+}
+
+impl Plugin for NativeWidgets {
+    fn make(host: &Host<'_>) -> Result<Self, Error> {
+        for batch in image::WIDGETS
+            .iter()
+            .chain(image::SCREENS)
+            .chain(image::NAVIGATION)
+            .chain(image::EVENTS)
+        {
+            registrations::submit(host, batch)?;
+        }
+        Ok(Self::default())
+    }
+
+    fn event(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        incoming: Incoming<'_>,
+        reply: &mut Reply<'_>,
+    ) -> Result<(), Error> {
+        // Nothing is kept until a widget, a screen, a question or a book is
+        // there: what would only look at an empty state is let go.
+        if self.state.is_empty() && !needs_state(&incoming) {
+            return Ok(());
+        }
+        self.state()?.event(host, token, incoming, reply)
+    }
+
+    fn draw(&mut self, host: &Host<'_>, token: u32, frame: DrawFrame<'_>) -> Result<(), Error> {
+        // Nothing is drawn before it is made, and making it makes the state.
+        match self.state.first_mut() {
+            Some(state) => state.draw(host, token, frame),
+            None => Err(Error::NotFound),
+        }
+    }
+
+    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        match self.state.first_mut() {
+            Some(state) => state.input(host, token, input),
+            None => Err(Error::NotFound),
+        }
+    }
+}
+
+/// Whether an event is for something the pack has to hold: a tick, a widget
+/// dropped, a changed setting and the end of a session find nothing to do
+/// while no state is made.
+fn needs_state(incoming: &Incoming<'_>) -> bool {
+    !(incoming.is::<kinds::Tick>()
+        || incoming.is::<kinds::WidgetDropped>()
+        || incoming.is::<kinds::SettingChanged>()
+        || incoming.is::<kinds::Suspend>()
+        || incoming.is::<kinds::Stopping>())
 }
 
 /// Says `key` (a translation key) in a notice.
@@ -488,6 +908,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn an_idle_pack_holds_a_pointer_and_makes_its_state_at_first_use() {
+        let mut pack = NativeWidgets::default();
+        assert!(pack.state.is_empty());
+        assert_eq!(
+            core::mem::size_of::<NativeWidgets>(),
+            3 * core::mem::size_of::<usize>()
+        );
+        assert!(pack.state().is_ok());
+        assert_eq!(pack.state.len(), 1);
+        assert_eq!(pack.state.capacity(), 1);
+        assert!(pack.state().is_ok());
+        assert_eq!(pack.state.len(), 1, "made once");
+    }
+
+    #[test]
     fn the_first_look_remembers_and_tells_nobody() {
         let mut shown = None;
         settle(&mut shown, Ok(7), || panic!("nothing changed"));
@@ -517,6 +952,22 @@ mod tests {
             Ok(())
         });
         assert_eq!((shown, told), (Some(8), 1));
+    }
+
+    #[test]
+    fn a_cover_still_being_made_asks_for_a_new_draw_until_it_is_queued() {
+        let mut wanted = false;
+        retry(&mut wanted, || panic!("nothing was busy"));
+        wanted = true;
+        retry(&mut wanted, || Err(Error::NoSpace));
+        assert!(wanted, "a refused command is tried again");
+        let mut told = 0;
+        retry(&mut wanted, || {
+            told += 1;
+            Ok(())
+        });
+        assert_eq!((wanted, told), (false, 1));
+        retry(&mut wanted, || panic!("asked once"));
     }
 
     #[test]

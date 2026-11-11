@@ -12,14 +12,18 @@
 //! ([`Pump::Wait`]); the entry is never dropped for it.
 use super::{
     host_services::HostServices,
+    lib_jobs::Jobs,
+    lib_jobs_env::EnvJobs,
+    lib_jobs_journal::DELETE_MAX,
     lib_moves_carry::EnvCarry,
     lib_moves_host::{CardMoves, StepHost},
     lib_moves_walk::Resume,
+    lib_reads::CatalogJobs,
     lib_service::moves::Moves,
 };
 use alloc::rc::Rc;
 use core::cell::Cell;
-use paperpaw_native::host_glue::ERR_STATE;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_STATE};
 use paperpaw_platform::Storage;
 use paperpaw_sdk::{Command, Env};
 
@@ -36,10 +40,16 @@ pub(crate) enum Pump {
 
 /// The move job and its card side.
 pub(crate) struct LibraryMoves {
+    storage: Rc<dyn Storage>,
+    /// The delete or import in progress (the journal holds one entry).
+    jobs: Jobs,
     moves: Rc<Moves>,
     card: Rc<CardMoves>,
     /// The machine has read the journal at least once with a catalog.
     started: Cell<bool>,
+    /// How many moves were begun (wrapping): the pump's back-off starts again
+    /// when it changes (`moves_pump`).
+    begun: Cell<u32>,
     /// The walk over the moved folder, kept between steps.
     resume: Resume,
 }
@@ -47,9 +57,12 @@ pub(crate) struct LibraryMoves {
 impl LibraryMoves {
     pub(crate) fn new(storage: Rc<dyn Storage>) -> Self {
         Self {
+            jobs: Jobs::default(),
             moves: Rc::default(),
-            card: Rc::new(CardMoves::new(storage)),
+            card: Rc::new(CardMoves::new(storage.clone())),
+            storage,
             started: Cell::new(false),
+            begun: Cell::new(0),
             resume: Resume::default(),
         }
     }
@@ -69,7 +82,65 @@ impl LibraryMoves {
     /// # Errors
     /// As [`Moves::begin`].
     pub(crate) fn begin(&self, from: &str, to: &str, replace: bool) -> Result<(), i32> {
-        self.moves.begin(&*self.card, from, to, replace)
+        self.moves.begin(&*self.card, from, to, replace)?;
+        self.begun.set(self.begun.get().wrapping_add(1));
+        Ok(())
+    }
+
+    /// How many moves were begun, wrapping.
+    pub(crate) fn begun(&self) -> u32 {
+        self.begun.get()
+    }
+
+    /// Deletes the books at `paths` (at most 7, judged by the caller: books,
+    /// not in use, annotations only with `with_notes`): the journal entry,
+    /// then the files. Each answer is the card's: `OK` the file is gone.
+    /// The catalog's part, what plugins keep and the caches follow from the
+    /// pump. See [`Jobs::begin_delete`].
+    ///
+    /// # Errors
+    /// `ERR_BUSY` while a move, a delete or an import is open; as
+    /// [`Jobs::begin_delete`].
+    #[allow(dead_code, reason = "wired by the LIB write half (Services, #1050)")]
+    pub(crate) fn begin_delete(
+        &self,
+        paths: &[&str],
+        with_notes: bool,
+    ) -> Result<[i32; DELETE_MAX], i32> {
+        if self.moves.active() {
+            return Err(ERR_BUSY);
+        }
+        self.jobs.begin_delete(&*self.storage, paths, with_notes)
+    }
+
+    /// Brings `from` into the library at `to` (final), as LIB's `import`. See
+    /// [`Jobs::begin_import`].
+    ///
+    /// # Errors
+    /// `ERR_BUSY` while a move, a delete or an import is open; as
+    /// [`Jobs::begin_import`].
+    #[allow(dead_code, reason = "wired by the LIB write half (Services, #1050)")]
+    pub(crate) fn begin_import(
+        &self,
+        from: &str,
+        to: &str,
+        importer: &str,
+        replace: bool,
+    ) -> Result<(), i32> {
+        if self.moves.active() {
+            return Err(ERR_BUSY);
+        }
+        self.jobs
+            .begin_import(&*self.storage, from, to, importer, replace)
+    }
+
+    /// Whether `path` is a book of a delete whose catalog part is not done:
+    /// lists and stats hide it.
+    #[allow(dead_code, reason = "wired by the LIB write half (Services, #1050)")]
+    pub(crate) fn pending_delete(&self, path: &str) -> bool {
+        let path = path.trim_matches('/');
+        self.jobs
+            .pending_delete(&|book| self.card.same_path(book, path))
     }
 
     /// A reader opens `book`: it is carried first when the job has not
@@ -89,13 +160,21 @@ impl LibraryMoves {
         let carry = EnvCarry::new(env, &self.resume, out);
         let step = StepHost::new(&self.card, &carry);
         if !self.started.get() {
-            if self.moves.start(&step).is_err() {
+            // The move machine first: it sets aside a record that is not
+            // whole; the job machine picks up a delete or an import.
+            if self.moves.start(&step).is_err() || self.jobs.start(&*self.storage).is_err() {
                 return Pump::Wait;
             }
             self.started.set(true);
         }
         if !self.moves.active() {
-            return Pump::Idle;
+            let catalog = CatalogJobs::new(carry.storage());
+            let jobs = EnvJobs::new(&carry, &catalog, &catalog);
+            return match self.jobs.step(&jobs) {
+                Ok(true) => Pump::More,
+                Ok(false) => Pump::Idle,
+                Err(_) => Pump::Wait,
+            };
         }
         match self.moves.step(&step) {
             Ok(true) => Pump::More,

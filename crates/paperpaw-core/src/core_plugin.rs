@@ -15,7 +15,6 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use catalog_job::{CatalogJob, make_library_folder, waits};
 use clean_up::{ask_clean_up, register_clean_up};
-
 use paperpaw_sdk::builtin::{
     actions, events, fonts, group_sections, groups, keymap_presets, menus, params, screens,
     settings, settings_page, slots, status_items,
@@ -92,14 +91,7 @@ impl Plugin for CorePlugin {
                 paperpaw_sdk::SettingValue::Text(Cow::Owned(String::from(text))),
             ));
         })?;
-        // Each plugin's network (its settings made by the kernel).
-        static NETWORK: SettingGroupSpec =
-            SettingGroupSpec::new(crate::work::NETWORK_GROUP, "core.group.network")
-                .order(87)
-                .within(groups::PLUGINS);
-        r.add_setting_group(&NETWORK)?;
-        static NETWORK_ICON: [(Id, &str); 1] = [(crate::work::NETWORK_GROUP, "world")];
-        r.add_icons(&NETWORK_ICON)?;
+        crate::work::register_network(r)?;
         Ok(())
     }
 }
@@ -1751,11 +1743,7 @@ fn register_keymaps_and_setup(r: &mut Registrar) -> Result<(), RegisterError> {
                 .is_none_or(|c| c.utc_offset_minutes.is_none())
         })),
     )?;
-    r.add_translations(Cow::Borrowed(include_str!("../i18n/en.ini")))?;
-    r.add_translations(Cow::Borrowed(include_str!("../i18n/de.ini")))?;
-    // Keep source offsets below the 15-bit static catalog-index limit.
-    r.add_translations(Cow::Borrowed(include_str!("../i18n/host/en.ini")))?;
-    r.add_translations(Cow::Borrowed(include_str!("../i18n/host/de.ini")))?;
+    crate::core_texts::add(r)?;
     Ok(())
 }
 

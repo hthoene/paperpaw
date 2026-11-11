@@ -120,7 +120,7 @@ input(state: pointer, token: u32, input: bytes) -> i32
 | Tag | Record | Fields |
 | --- | --- | --- |
 | 38 | `event.screen_shown` | `now_ms: u64`, `screen: str 128` (full id), `width: u32`, `height: u32` |
-| 39 | `event.action_run` | `now_ms: u64`, `action: str 128` (full id), optional `flags: u32` (draft 34) |
+| 39 | `event.action_run` | `now_ms: u64`, `action: str 128` (full id), optional `flags: u32` |
 | 40 | `input.key` | `now_ms: u64`, `key: str 32`, `state: u32` (0 press, 1 release, 2 repeat) |
 | 41 | `input.pointer` | `now_ms: u64`, `x: i32`, `y: i32`, `phase: u32` (0 down, 1 move, 2 up, 3 cancel), optional `contact: u32` |
 | 42 | `input.gesture` | `now_ms: u64`, `kind: u32` (0 tap, 1 long press, 2-5 swipe left/right/up/down), `x: i32`, `y: i32` |
@@ -135,7 +135,7 @@ input(state: pointer, token: u32, input: bytes) -> i32
   with `done`, confirms it. Text longer than 1,024 bytes comes in several events, cut between
   characters, `done` only on the last. It needs no subscription: `registration.event` naming 109
   refuses the batch (`ERR_UNSUPPORTED`), as for 82 (`ui.md` section 3.2). Other `flags` bits are 0 (decoders refuse them).
-  `text` carries `"secret": true` (draft 30): it may be a password, so the generated record's
+  `text` carries `"secret": true`: it may be a password, so the generated record's
   `Debug` shows neither the text nor its length, and the SDK's `TypedText` shows only its length.
 - [D] Tag families: `event` 32-39 and `input` 40-43, each with a growth block (section 8).
 - [D] `event.action_run.flags` bit 0 `background` (draft 34, interface 6 `!Env::reader`): the
@@ -301,6 +301,22 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
   `role:icons` acquires even while no icon font is bound; a text call through it answers
   `ERR_NOT_FOUND` while none is (the plugin shows text only, as interface 6's menus do), checked
   again at each call.
+- [D] **A font file of the plugin's own** (fonts-browser samples): key `data:<path>`, a font file in
+  the caller's own Data (root 0). `<path>` is relative, `/`-separated, without `.`/`..` or empty
+  segments, no leading `/`, `:` or `\` (`ERR_INVALID`), checked before the card is asked; the
+  key is at most 128 bytes like every key (`ERR_INVALID` beyond), so the path at most 123.
+  A missing file is `ERR_NOT_FOUND`; a damaged or unsupported file `ERR_INVALID` at the acquire; no
+  room for it `ERR_NO_MEMORY`; a host with no card wired `ERR_UNSUPPORTED`. No `uses.*`: the file is
+  the plugin's own. The host reads it from the card through its font engine as it reads document
+  fonts: a font pack (`.ppfp`) where it is, a glyph at a time (its index and a glyph cache of at most
+  4 KiB on the X4, 16 KiB elsewhere, are kept, no copy of the file on the heap); a TrueType or
+  OpenType file is read whole into memory, so only where the build has outlines (else `ERR_INVALID`,
+  before any of it is read) and the heap has room. It counts towards the 8
+  handles. Once the file is changed or removed after the acquire (its size, time or identity on the
+  card), `text.*` through the handle answers `ERR_STATE` (acquire again), as for a replaced pack;
+  the card is asked once for each callback, not at every text call, so a file rewritten within the
+  callback that draws from it is noticed at the next callback (what a pack cannot read draws
+  nothing).
 - [D] **Named icons** (Port Reviewer, #344; draft 25): host slot 40 `icon.glyph(ctx, name: bytes,
   out: buffer) -> length`, `query`, writes the UTF-8 of the named icon's character in the bound
   icon font (at most 4 bytes; a smaller `out` is `ERR_NO_SPACE`) into `out` and returns its
@@ -318,8 +334,11 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
 - [D] Handles: at most 8 font handles per plugin, roles and font ids together (`ERR_FULL`
   beyond; a reading plugin holds five roles). This cap is the font family's own: blobs and
   operations count against their families' caps, not against it (section 7). X4 cost: a role
-  handle is a few bytes; a handle by id keeps its id (<= 128 B) and its counter, so up to about
-  1 KiB per plugin for 8; `handle.release` frees; teardown frees
+  handle is a few bytes; a handle by id keeps its id (<= 128 B) and its counter, a `data:` handle its path (<= 640 B joined), the pack's index (within the
+  device's pack limits) and a glyph cache that grows as glyphs are drawn, of at most 4 KiB on the X4
+  (16 KiB elsewhere; a refused allocation keeps a glyph less, never fails a draw), so up to about
+  1 KiB per plugin for 8 handles by id and 32 KiB for 8 `data:` handles on the X4; a TrueType or
+  OpenType file is held whole where the build has outlines (the X4's has none: packs only); `handle.release` frees; teardown frees
   all. A handle acquired by font id answers `ERR_STATE` on `text.*` once that id is gone: the
   pack that provides it was removed or replaced (updated) after the acquire, even if the same
   id is registered again, or the id no longer resolves. The plugin acquires again (on
@@ -392,14 +411,17 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
 
   Order: outside `draw` (no canvas) is `ERR_STATE` first; then a stale handle `ERR_STATE`; then
   the arguments (`size`, `text`, `tone`, `flags`) `ERR_INVALID` or `ERR_UTF8`. Every check
-  happens before anything is drawn, and a refused call draws nothing. X4: the curve is read from
-  the call's arguments (16 bytes), so the slot allocates nothing beyond what `text.draw` does
-  (its glyph cache and shaping paths, as in interface 6), and the drawing is the same code as
-  interface 6's `draw_toned`, so the flash cost is the slot and its checks alone. Hosts answer
-  `ERR_UNSUPPORTED` until wired.
+  happens before anything is drawn, so a refused call draws nothing. The host shapes the text
+  once, as `text.draw` does, so an advance error (`ERR_INVALID` for an advance that is not a
+  finite number ≥ 0) is reported after the text is drawn: like `text.draw`, slot 41 is not atomic
+  on an advance error. X4: the curve is read from the call's arguments (16 bytes), so the slot
+  allocates nothing beyond what `text.draw` does (its glyph cache and shaping paths, as in
+  interface 6), and the drawing is the same code as interface 6's `draw_toned`, so the flash cost
+  is the slot and its checks alone.
+  Hosts answer `ERR_UNSUPPORTED` until wired.
 - [D] `text.measure`/`text.draw` keep their signatures; `size` finite and > 0, text at most 4096
-  bytes UTF-8, `text.draw` needs a canvas (inside `draw`), else `ERR_STATE`. `text.draw` is not
-  atomic on an advance error (documented).
+  bytes UTF-8, `text.draw` needs a canvas (inside `draw`), else `ERR_STATE`. `text.draw` (and
+  slot 41) is not atomic on an advance error (documented).
 
 ## 5. i18n formatting, plurals and digits
 
@@ -473,6 +495,45 @@ draw(state: pointer, token: u32, input: bytes) -> i32
 - [D] `id` and `payload` are defined by the owner of the purpose, for example the reader's insert
   id. A screen gets `id = 0` and an empty payload.
 - [D] Drawing outside the clip is clipped by the canvas slots, not refused.
+
+### 6.1 Telling what is drawn (slot 42, #243)
+
+```
+canvas.describe(ctx, role: u32, flags: u32, label: bytes, x: i32, y: i32, width: u32, height: u32)
+    -> count   // slot 42
+```
+
+The host asks what a screen shows (automation such as `tap-on:`, reading aloud, tests) by drawing
+it aside with a describing canvas, as it asks a legacy screen (`Canvas::describe`). A native
+draw callback tells its parts with this slot.
+
+- [D] Only inside a draw callback (`ERR_STATE` elsewhere). Result 1: the part was told. Result 0:
+  nobody asks in this draw; the plugin may leave out the rest of this draw's parts. The host keeps,
+  copies and allocates nothing for a call that returns 0; while somebody asks, the describing
+  sink copies the label.
+- [D] One describe pass keeps at most 128 parts and 4 KiB of labels, counting the text parts the
+  host tells for the screen's own text draws (below). Past either bound, or where the host has no
+  memory for the part, the call returns 0 as where nobody asks; nothing is cut or aborted.
+- [D] `role`: 1 heading, 2 row, 3 button, 4 switch, 5 slider, 6 text, 7 check, 8 radio, 9 field,
+  10 image, 11 link, 12 dialog, 13 progress. 0 is `ERR_INVALID`; a number this host does not know
+  (a later one) is told as text.
+- [D] `flags`: bit 0 focused, bit 1 the part is on or off and bit 2 says which (on where set), bit
+  3 it does nothing now. Any other bit is `ERR_INVALID`. A part drawn while the host draws the
+  screen faint is told as doing nothing whatever bit 3 says.
+- [D] `label`: at most 256 bytes of UTF-8 (`ERR_INVALID` longer, `ERR_UTF8` not text); empty
+  where the part's text is drawn inside it. The area is in screen pixels like the other canvas
+  slots; what lies left of or above the screen is cut off. A row, button, switch, field, check,
+  radio or link needs an area that is not empty (`ERR_INVALID`): it is found and touched there.
+- [D] **Text.** Every `text.draw` is told as text where somebody asks, with its drawn width and
+  the font's line height, without a call of this slot. A part that contains text (a row, a
+  heading, a button) is told before the text inside it is drawn: a row with an empty label takes
+  the texts drawn inside it as its label, in reading order; a part with a label of its own keeps
+  it. A switch told inside a row makes the row on or off.
+- [D] Not told as text yet: text drawn with `text.draw_inked` (slot 41) and icons (glyphs of
+  `role:icons`, which the merge rules drop as saying nothing). A part whose words are drawn that
+  way gives them in its own `label`.
+- [D] No reply, no event, no state across draws. The slot announces itself in the X4 frame gate
+  like the other canvas slots; it needs no buffer of its own.
 
 ## 7. Lifetime and cancellation (all handles and async operations)
 
@@ -553,6 +614,13 @@ These rules bind every producer and consumer of `event.page_turned` and of a rea
   two pages never share a position. `event.page_turned` carries `insert` as an optional field
   (absent = 0). Consumers that only follow text, such as sync and statistics, ignore it, which is
   correct because progress is text-based.
+- [D] **`chapter_left`** (draft 37, an optional appended field of 37 and 65-67): the laid-out pages
+  after this one up to the end of the chapter the page is in (the table-of-contents entry `chapter`
+  names), 0 on its last page. It is present only with `page` and `pages` and is at most
+  `pages - page`; it is absent where the reader has no chapter end (no table of contents, a page
+  before its first entry, pages not counted yet). The reader fills it from its page index
+  (`document.md` 2.4); consumers show "pages left in the chapter" from it (interface 6
+  `Reading::chapter_left`).
 
 ## 10. Input limits in SDK glue (N7)
 

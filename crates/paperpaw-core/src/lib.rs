@@ -49,6 +49,7 @@ mod code_plugin;
 mod commands;
 mod config;
 mod core_plugin;
+mod core_texts;
 mod data_plugin;
 mod drawing;
 mod effects;
@@ -65,6 +66,7 @@ mod keymap;
 mod meter;
 pub mod native_host;
 mod network;
+mod notices;
 mod panes;
 mod plugins;
 mod realtime;
@@ -73,6 +75,7 @@ mod refresh;
 mod registry;
 mod room;
 mod screens;
+mod secrets_i6;
 mod shared_env;
 use screens::ActiveScreen;
 #[cfg(test)]
@@ -278,9 +281,9 @@ pub struct Kernel {
     /// Of the commands asked for, those of a screen guarding the device or
     /// one it opened: what they open above it is its own.
     own_trusted: Vec<usize>,
-    /// A notice given while a screen guarded the device, shown once it
-    /// lets go.
-    held_notice: Option<String>,
+    /// Notices given while a screen guarded the device, shown in turn once it
+    /// lets go (`notices`).
+    waiting_notices: notices::Waiting,
     /// When the device was last used (input, a page turned), for sleeping
     /// by itself ([`settings::SLEEP_AFTER`](core_settings::SLEEP_AFTER)).
     last_activity: Instant,
@@ -326,6 +329,12 @@ pub struct Kernel {
     /// The file of passwords and keys is there but could not be read at
     /// start: it is not written over.
     secrets_unreadable: bool,
+    /// The file was read again through the sealer of `core.secrets`
+    /// (`secrets_i6.rs`).
+    secrets_opened: bool,
+    /// The `core.secrets` host the shell gave [`Kernel::wire_secrets`]: the
+    /// kernel seals through it with or without a native plugin admitted.
+    secrets_wired: Option<alloc::rc::Rc<dyn crate::native_host::secrets_service::SecretsHost>>,
     /// The number a pairing question's answer must bring back.
     pairing_nonce: Option<u64>,
     /// A screen was opened or closed since the last call ended; then the
@@ -340,9 +349,21 @@ pub struct Kernel {
     /// Setting defaults from plugins, applied once all are registered:
     /// `(plugin, setting, value)`.
     plugin_defaults: Vec<(Id, Id, Cow<'static, str>)>,
+    /// The device's defaults for settings no plugin had declared when they
+    /// were applied (a native plugin declares its settings after the kernel
+    /// is built): `(setting, value)`, applied as the declaring plugin is
+    /// published (`native_install`).
+    late_device_defaults: Vec<(String, String)>,
+    /// The values the configuration gave for settings nobody had declared
+    /// when it was read (the same native plugins' ones): `(setting, value,
+    /// line)`, set as the declaring plugin is published (`native_install`),
+    /// and dropped at the start.
+    late_config: Vec<(String, String, Option<u32>)>,
     /// Values plugins offer among other plugins' choices, added once all
     /// are registered: `(plugin, setting, value)`.
     plugin_choices: Vec<(Id, Id, Cow<'static, str>)>,
+    /// The linked plugins' built-in catalogs are added ([`Kernel::claim_native_catalogs`]).
+    native_catalogs_added: bool,
     now: Instant,
     input: gestures::InputState,
     io: network::IoState,
@@ -432,6 +453,13 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         self.now = now;
         self.last_activity = now;
+        // The shell hosted its native plugins before this call: what their
+        // admission kept in reserve is given back.
+        self.native_hosted();
+        // The passwords the sealer of `core.secrets` keeps are read before
+        // any plugin runs, whether or not a native plugin was admitted since
+        // the services were wired (`secrets_i6.rs`).
+        self.open_sealed_secrets();
         // Replace what the shell showed before startup, also under a home overlay.
         self.invalidate(self.framebuffer.bounds());
         self.output.commands.push(Command::open_slot(slots::HOME));
@@ -924,19 +952,29 @@ impl Kernel {
     /// readable again takes the place of what could not be read at start.
     /// A change not written is not [`saved`](paperpaw_sdk::secrets::Secrets::saved).
     pub fn set_secret(&mut self, change: paperpaw_sdk::secrets::SecretChange) {
-        use paperpaw_sdk::secrets::{self, Secrets};
+        use paperpaw_sdk::secrets;
         let storage = self.shared.storage.clone();
+        let sealer = self.secrets_host();
         let read =
             paperpaw_sdk::files::load_for_update(storage.as_ref(), secrets::FILE, MAX_SECRETS);
         if let Ok(data) = &read
-            && self.secrets_unreadable
+            && (self.secrets_unreadable || sealer.is_some())
         {
-            // Damaged text keeps what can be read: values are in hex.
+            // Damaged text keeps what can be read: values are in hex. Where
+            // values are sealed the file is read again each time: native
+            // plugins write it too.
             let text = String::from_utf8_lossy(data.as_deref().unwrap_or_default());
-            self.shared.secrets = Secrets::decode(&text);
+            self.shared.secrets = Self::decode_secrets(&text, sealer.as_ref());
             self.secrets_unreadable = false;
         }
         let id = change.id.clone();
+        if sealer.is_some() && change.value.is_some() && !secrets_i6::sealable_id(&id) {
+            // No owner to bind a sealed value to: it is never applied, so it
+            // is never written veiled (nor does it stop later saves).
+            self.shared.secrets.mark_unsaved(&id);
+            self.warn_runtime(format!("{id}: cannot be sealed (no owner): not saved"));
+            return;
+        }
         self.shared.secrets.apply(change);
         if let Err(error) = read {
             self.shared.secrets.mark_unsaved(&id);
@@ -953,7 +991,25 @@ impl Kernel {
             self.output.commands.push(Command::Notify(text));
             return;
         }
-        let text = self.shared.secrets.encode();
+        let previous = read
+            .as_ref()
+            .ok()
+            .and_then(|d| d.as_deref())
+            .unwrap_or_default();
+        let previous = String::from_utf8_lossy(previous);
+        let text =
+            match Self::sealed_secrets(self.shared.secrets.encode(), &previous, sealer.as_ref()) {
+                Ok(text) => text,
+                Err(status) => {
+                    // No value is written veiled where values are sealed.
+                    self.shared.secrets.mark_unsaved(&id);
+                    self.warn_runtime(format!(
+                        "{}: not sealed ({status}): not saved",
+                        secrets::FILE
+                    ));
+                    return;
+                }
+            };
         let storage = self.shared.storage.as_ref();
         let _ = storage.create_dir(paperpaw_sdk::data::DIR);
         let saved = if self.shared.secrets.is_empty() {
@@ -1046,6 +1102,14 @@ impl Kernel {
         self.finish()
     }
 
+    /// The screen bound to [`slots::KEYBOARD`], if one is: what a tool
+    /// opens with [`Self::stage_text_question`], not with a bare
+    /// [`Self::open_screen`] (a native keyboard needs the question).
+    #[must_use]
+    pub fn keyboard_screen(&self) -> Option<&Id> {
+        self.shared.registry.resolve_slot(slots::KEYBOARD.as_str())
+    }
+
     /// Types `text` into the text field shown, as if on its keys, and
     /// confirms it with `done` ([`events::TYPE_TEXT`]): for a shell's
     /// remote control or keys of a keyboard. `None` where no text field
@@ -1075,6 +1139,7 @@ impl Kernel {
 
     /// Returns and clears the collected warnings.
     pub fn take_warnings(&mut self) -> Vec<Warning> {
+        self.report_event_failures();
         mem::take(&mut self.warnings)
     }
 
@@ -1335,6 +1400,10 @@ struct Shared {
     /// How code plugins are loaded, where they are (see
     /// [`KernelBuilder::code_plugins`]).
     native: Option<paperpaw_sdk::native::Native>,
+    /// This start went without code plugins ([`KernelBuilder::safe_mode`]),
+    /// kept for the native plugins' on/off decision, which does not need the
+    /// loader of code plugins (`Kernel::native_decide`).
+    native_safe_mode: Option<SafeMode>,
     /// What the firmware takes, told to plugins once the update on trial is
     /// kept ([`KernelBuilder::native_after_trial`]).
     after_trial: Option<paperpaw_sdk::native::Native>,
@@ -1348,7 +1417,7 @@ struct Shared {
     /// background work, whose notices become notes (see [`work`]).
     reader: bool,
     /// Text copied here.
-    clipboard: String,
+    clipboard: alloc::rc::Rc<native_host::ui_clipboard::ClipboardCell>,
     /// The system's clipboard has text (see
     /// [`Kernel::set_clipboard_available`]).
     system_clipboard: bool,

@@ -5,6 +5,7 @@ use super::{
     View, encode,
     target::{self, BOOK, CARD, Intent, Target},
 };
+use crate::native_host::codec;
 use crate::native_host::{
     registrations::{self as wire, Record},
     storage::{reserve, status},
@@ -52,13 +53,13 @@ pub(super) fn list(view: &View<'_>, record: Record<'_>, out: &mut [u8]) -> Resul
     if input.flags != 0 {
         return Err(ERR_UNSUPPORTED);
     }
-    let end_room = wire::record_framed_len(&Record::ServiceEnd(end(0, Some(u64::MAX))))
-        .map_err(|_| ERR_INVALID)?;
+    let end_room =
+        codec::framed_len(&Record::ServiceEnd(end(0, Some(u64::MAX)))).map_err(|_| ERR_INVALID)?;
     let room = out.len().checked_sub(end_room).ok_or(ERR_INVALID)?;
     if target.empty_bundle {
         // A built-in plugin's install folder: no rows, the last page.
         let closing = Record::ServiceEnd(end(END_LAST, None));
-        return wire::record_encode_one(&closing, out);
+        return codec::encode_one(&closing, out);
     }
     let hide_protected = target.is_card_top();
     let (mut used, mut rows, mut failure) = (0usize, 0usize, None);
@@ -78,7 +79,7 @@ pub(super) fn list(view: &View<'_>, record: Record<'_>, out: &mut [u8]) -> Resul
                     return false;
                 }
             };
-            let length = match wire::record_framed_len(&row) {
+            let length = match codec::framed_len(&row) {
                 Ok(length) => length,
                 Err(_) => {
                     failure = Some(ERR_INVALID);
@@ -90,7 +91,7 @@ pub(super) fn list(view: &View<'_>, record: Record<'_>, out: &mut [u8]) -> Resul
             if length > room - used {
                 return false;
             }
-            match wire::record_encode_one(&row, &mut out[used..]) {
+            match codec::encode_one(&row, &mut out[used..]) {
                 Ok(written) => {
                     used += written;
                     rows += 1;
@@ -118,7 +119,7 @@ pub(super) fn list(view: &View<'_>, record: Record<'_>, out: &mut [u8]) -> Resul
         Err(error) => return Err(list_error(view, &target, error)),
     };
     let closing = Record::ServiceEnd(end(if last.is_none() { END_LAST } else { 0 }, last));
-    Ok(used + wire::record_encode_one(&closing, &mut out[used..])?)
+    Ok(used + codec::encode_one(&closing, &mut out[used..])?)
 }
 
 /// `service.end` of a page: no total, no generation, no ordinal `next`.

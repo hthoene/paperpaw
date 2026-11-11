@@ -293,7 +293,8 @@ impl Session {
     fn end_with(&mut self, ending: Ending, first: Step) -> Result<Vec<Step>, Error> {
         let mut steps = Vec::new();
         push(&mut steps, first)?;
-        steps.append(&mut self.end(ending)?);
+        let more = self.end(ending)?;
+        append(&mut steps, more)?;
         Ok(steps)
     }
 
@@ -432,7 +433,8 @@ impl Session {
         let mut steps = Vec::new();
         push(&mut steps, Step::Disconnect)?;
         if !matches!(self.state, State::Ended(_)) {
-            steps.append(&mut self.end(Ending::Closed)?);
+            let more = self.end(Ending::Closed)?;
+            append(&mut steps, more)?;
         }
         Ok(steps)
     }
@@ -558,7 +560,8 @@ impl Session {
                     // the answer could be lost on the way.
                     Self::ok(&mut steps, OK_EMPTY)?;
                     push(&mut steps, Step::Read)?;
-                    steps.append(&mut self.end(Ending::Ejected)?);
+                    let more = self.end(Ending::Ejected)?;
+                    append(&mut steps, more)?;
                     return Ok(steps);
                 }
                 // Without cached metadata Calibre counts nothing; a plain NOOP
@@ -781,6 +784,13 @@ pub enum Placed {
     NotReplaced,
     /// The library took no book (the card, memory): nothing is kept.
     Failed,
+}
+
+/// `more` moved to the end of `steps`, with the room made fallibly first.
+fn append(steps: &mut Vec<Step>, mut more: Vec<Step>) -> Result<(), Error> {
+    steps.try_reserve(more.len()).map_err(|_| Error::NoMemory)?;
+    steps.append(&mut more);
+    Ok(())
 }
 
 /// The strings as `&str`s, kept fallibly.

@@ -399,8 +399,22 @@ fn others(storage: &dyn Storage, id: &Identity<'_>, own: &str) -> Result<Vec<Fou
     }
     // Oldest first by the folder's own time: on a FAT card that is when it
     // was made, which is when its conversion began.
-    found.sort_by_key(|f| f.changed);
+    oldest_first(&mut found);
     Ok(found)
+}
+
+/// Orders `found` oldest first, keeping the order of equal times (a stable
+/// sort). By hand: the standard library's stable sort keeps 4 KiB of scratch
+/// on the stack, which the firmware's frame limit for the host's code (2,048
+/// bytes) does not allow.
+fn oldest_first(found: &mut [Found]) {
+    for at in 1..found.len() {
+        let mut to = at;
+        while to > 0 && found[to - 1].changed > found[to].changed {
+            found.swap(to - 1, to);
+            to -= 1;
+        }
+    }
 }
 
 fn push_name(into: &mut Vec<String>, name: &str) -> Result<(), i32> {

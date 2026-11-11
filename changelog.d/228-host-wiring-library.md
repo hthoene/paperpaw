@@ -1,0 +1,3 @@
+### Added
+
+- **`HostWiring::library` wires `core.library` for a shell** (#228): the reads of the library's catalog on the card (state, book, text, key, position, annotations, anchors) with the facts the card cannot tell (`CatalogEnv`: whether the walk is making the catalog, today's date, a file's format). Every write op still answers `ERR_UNSUPPORTED` until the production write half exists, and a name below the card's top is one of the host's folders by spelling or, for an 8.3 alias, exactly as `core.files` decides it; where `core.files` is wired too, a book the library's move job carries answers `provide` with `ERR_BUSY`.

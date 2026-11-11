@@ -13,7 +13,7 @@ categories = ["no-std"]
 [package.metadata.paperpaw]
 # What the plugin reads from its folder on the card: the store's package
 # holds these files (tools/plugin-files/catalogue.py).
-card-files = ["data/quotes.*.txt"]
+card-files = ["data/quotes.*.txt", "pictures/*.png"]
 
 [features]
 linked = []
@@ -29,7 +29,9 @@ paperpaw-sdk.workspace = true
 paperpaw-ui-kit.workspace = true
 
 [build-dependencies]
-paperpaw-sdk.workspace = true
+# `kernel` only for the build script (not unified with the plugin's own use of
+# the SDK): it makes the table of settings a linked build keeps in the program.
+paperpaw-sdk = { workspace = true, features = ["kernel"] }
 paperpaw-ui-kit.workspace = true
 
 [dev-dependencies]

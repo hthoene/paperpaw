@@ -1,0 +1,3 @@
+### Added
+
+- **A format's pictures become the opener's image ids** (#228, `docs/abi/document.md` section 5). A `fmt.image` of a format's answer (a block, the cover, a larger picture) is checked against the document's cache folder (root 6: the path rules, the file's header against the width and height the format says) and given an image id of the opener, drawable with `canvas.draw_image` and `image.info`; a picture that fails the check is left out. The ids of a document end with it: by `close`, and with the next call of the opener when the host ended it (the format stopped, the card went, the place was needed). `HostWiring::document_colour` says whether the screen keeps colour, for `doc_image.flags` bit 0.

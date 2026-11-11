@@ -18,11 +18,9 @@
 //!   call); documents of a format that went end as the format stopped.
 //!
 //! Not served yet, each answered as the contract's "none" and never
-//! half-done: the images of a document (`map_image` leaves a picture out, so
-//! no image id exists to end), `event.document_changed` (88: nothing raises
-//! it before the preparing loop), sniffing a file's first 512 bytes,
-//! root 5, the preparing loop and the cache (`format.spec.flags` `prepared`
-//! formats open and answer as their op 2 does), the root-6 cache stamps.
+//! half-done: `event.document_changed` (88: nothing raises it before the
+//! preparing loop), root 5, and the preparing loop itself (`format.spec.flags`
+//! `prepared` formats open and answer as their op 2 does).
 //!
 //! Memory: the state is the table (about 40 bytes a document), one small
 //! index (under 100 bytes a format) and one `Book` per open document
@@ -46,8 +44,8 @@ use crate::native_host::codec;
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::{cell::Cell, cell::RefCell, ops::ControlFlow};
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_CANCELLED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND,
-    ERR_STATE, ERR_UNSUPPORTED,
+    ERR_BUSY, ERR_CANCELLED, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE,
+    ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
 };
 use paperpaw_platform::Storage;
 
@@ -63,6 +61,8 @@ const FOLDER: u32 = 1 << 2;
 /// What an open document's reader hold needs to be given back.
 struct Book {
     document: u32,
+    /// The root the book was opened on (1: a book of the library).
+    root: u32,
     /// The path as the host named it to the in-use table (root 1: the card
     /// path); empty when the book is not held.
     ///
@@ -70,6 +70,8 @@ struct Book {
     /// cannot be refused.
     path: String,
     held: bool,
+    /// The owner key of the plugin whose folder the book is in (root 5), else 0.
+    maker: u64,
     /// The cache the format reads and writes as root 6, once the open began
     /// to make it.
     cache: Option<Cache>,
@@ -136,10 +138,22 @@ pub(crate) struct DocState {
     storage: Option<Rc<dyn Storage>>,
     /// The most bytes one document's cache may hold.
     cache_cap: u64,
+    /// The books kept at most: the device's places for documents.
+    books_max: usize,
+    /// Whether the screen keeps colour (a picture's colour flag).
+    colour: bool,
+    /// Documents that ended where the image table could not be reached (the
+    /// host ended them, or the table was busy): their image ids end with the
+    /// next call.
+    pending_images: RefCell<Vec<u32>>,
+    /// A document's image ids could not be recorded as ended (logged once).
+    images_lost: Cell<bool>,
     /// An event was raised since the pump's last pass: it asks for one. An
     /// event whose owner does not run stays queued without asking again, so
     /// an idle device is not woken for it.
     fresh: Cell<bool>,
+    /// The reading session and the events it raises (`doc_reading.rs`).
+    reading: super::doc_reading::Reading,
 }
 
 /// Nothing is drawn from a format's picture yet: it is left out.
@@ -156,6 +170,43 @@ impl ImageMap for NoImages {
     }
 }
 
+/// A format's pictures as the opener's image ids: the cache files of the
+/// document's folder, checked, in the image table (`document.md` 5).
+struct DocImages<'a> {
+    table: &'a super::image_service::ImageTable,
+    storage: &'a dyn Storage,
+    state: &'a DocState,
+}
+
+impl ImageMap for DocImages<'_> {
+    fn map(
+        &self,
+        owner: u64,
+        document: u32,
+        image: &local::FmtImage<'_>,
+        in_block: bool,
+    ) -> Result<Option<wire::ServiceDocImage>, i32> {
+        let books = self.state.books.try_borrow().map_err(|_| ERR_BUSY)?;
+        let Some(cache) = books
+            .iter()
+            .find(|book| book.document == document)
+            .and_then(|book| book.cache.as_ref())
+        else {
+            // A document without a cache has no picture to vouch for.
+            return Ok(None);
+        };
+        self.table.map_fmt_image(
+            self.storage,
+            owner,
+            document,
+            &cache.folder,
+            image,
+            in_block,
+            self.state.colour,
+        )
+    }
+}
+
 impl DocState {
     /// The state for a device with `limits` open documents and a screen whose
     /// long side is `long_side` pixels; reader holds go to `in_use`.
@@ -168,14 +219,9 @@ impl DocState {
         in_use: Rc<PathsInUse>,
     ) -> Result<Self, i32> {
         let table = DocumentTable::try_new(limits)?;
-        let mut unfinished = Vec::new();
-        unfinished
-            .try_reserve_exact(super::format_index::DEVICE)
-            .map_err(|_| ERR_NO_MEMORY)?;
-        let mut books = Vec::new();
-        books
-            .try_reserve_exact(limits.device)
-            .map_err(|_| ERR_NO_MEMORY)?;
+        // The lists are reserved at first use (`hold_book`, `keep_unfinished`,
+        // `ended_images`): a device that never opens a document keeps none.
+        let (unfinished, images_pending, books) = (Vec::new(), Vec::new(), Vec::new());
         Ok(Self {
             table,
             index: RefCell::new(FormatIndex::new()),
@@ -188,7 +234,12 @@ impl DocState {
             now: Cell::new(0),
             storage: None,
             cache_cap: limits.cache_bytes(),
+            books_max: limits.device,
+            colour: false,
+            pending_images: RefCell::new(images_pending),
+            images_lost: Cell::new(false),
             fresh: Cell::new(false),
+            reading: super::doc_reading::Reading::new(),
         })
     }
 
@@ -198,6 +249,36 @@ impl DocState {
     pub(crate) fn with_storage(mut self, storage: Option<Rc<dyn Storage>>) -> Self {
         self.storage = storage;
         self
+    }
+
+    /// The state for a screen that keeps colour (or not): a picture's
+    /// `doc_image.flags` bit 0.
+    #[must_use]
+    pub(crate) fn with_colour(mut self, colour: bool) -> Self {
+        self.colour = colour;
+        self
+    }
+
+    /// The image ids of `document` end with the next call (the image table is
+    /// not at hand here).
+    fn ended_images(&self, document: u32) {
+        if let Ok(mut pending) = self.pending_images.try_borrow_mut()
+            && pending.try_reserve(1).is_ok()
+        {
+            pending.push(document);
+        } else {
+            // Not recorded: the ids live until their plugin stops (at most 8
+            // each). The next call with a frame says so, once.
+            self.images_lost.set(true);
+        }
+    }
+
+    /// The image ids of the documents that ended out of reach of the table
+    /// end now (`images` is the device's table).
+    fn end_pending_images(&self, images: &super::image_service::ImageTable) {
+        if let Ok(mut pending) = self.pending_images.try_borrow_mut() {
+            pending.retain(|document| images.document_closed(*document).is_err());
+        }
     }
 
     /// The oldest `event.document_closed` of `owner`, encoded into `out`. It
@@ -233,13 +314,19 @@ impl DocState {
         plugin: Option<&str>,
     ) -> Result<(), i32> {
         let mut books = self.books.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+        if books.capacity() == 0 {
+            books
+                .try_reserve_exact(self.books_max)
+                .map_err(|_| ERR_NO_MEMORY)?;
+        }
         if books.len() >= books.capacity() {
             return Err(ERR_FULL);
         }
         // The in-use table names the card path: root 1 is the card's top
-        // (without a leading slash), root 0 the opener's data folder. The
-        // install folder (root 5) is not held yet.
-        let held = root == 1 || root == 0;
+        // (without a leading slash), root 0 the opener's data folder, root 5
+        // the handed file's card path.
+        // Root 5's path is the card path the hand-over resolved to.
+        let held = root == 1 || root == 0 || root == super::doc_service::ROOT_HANDED;
         let copy = if root == 0 {
             // Without a caller there is no data folder to name.
             if plugin.is_none() {
@@ -271,14 +358,19 @@ impl DocState {
         }
         books.push(Book {
             document,
+            root,
             path: copy,
             held,
+            maker: 0,
             cache: None,
         });
         Ok(())
     }
 
-    fn reader_closed(&self, document: u32) {
+    /// The document ended at `now_ms`: its reading session (if it had one)
+    /// ends, and the reader hold is given back.
+    fn reader_closed_at(&self, document: u32, now_ms: u64) {
+        self.reading.document_ended(now_ms, document);
         let Ok(mut books) = self.books.try_borrow_mut() else {
             return;
         };
@@ -336,13 +428,22 @@ impl DocState {
     }
 
     fn keep_unfinished(&self, format: FormatRef) {
-        // The room is reserved for every format the device can hold, and a
-        // reference is kept once: a full list cannot happen. If it did, the
-        // format's documents would stay until their reader closes them.
-        if let Ok(mut pending) = self.unfinished.try_borrow_mut()
-            && pending.len() < pending.capacity()
-        {
-            pending.push(format);
+        // The room is reserved for every format the device can hold at the
+        // first reference, and a reference is kept once: a full list cannot
+        // happen. If it did, or the room cannot be had, the reference is
+        // dropped and the format's documents stay until their reader closes
+        // them.
+        if let Ok(mut pending) = self.unfinished.try_borrow_mut() {
+            if pending.capacity() == 0
+                && pending
+                    .try_reserve_exact(super::format_index::DEVICE)
+                    .is_err()
+            {
+                return;
+            }
+            if pending.len() < pending.capacity() {
+                pending.push(format);
+            }
         }
     }
 
@@ -377,9 +478,6 @@ macro_rules! frameless {
         ) -> Result<u64, i32> {
             self.state().conversion_key(open, format, options)
         }
-        fn end_images(&self, _document: &Document) {
-            // No image id exists until pictures are mapped.
-        }
         fn document_closed(&self, document: &Document, reason: u32) {
             self.state().table.raise_closed(document, reason);
             self.state().fresh.set(true);
@@ -388,7 +486,7 @@ macro_rules! frameless {
             self.state().next_event(owner, out)
         }
         fn events_waiting(&self) -> bool {
-            self.state().fresh.get()
+            self.state().fresh.get() || self.state().reading.waiting()
         }
         fn set_now(&self, now_ms: u64) {
             // The pass that takes the events starts here: what was raised
@@ -396,16 +494,37 @@ macro_rules! frameless {
             self.state().fresh.set(false);
             self.state().now.set(now_ms);
         }
-        fn reader_closed(&self, document: u32) {
-            self.state().reader_closed(document);
+        fn take_reading_edge(&self) -> Option<super::doc_reading::Edge> {
+            self.state().reading.take_edge()
+        }
+        fn reading_sleep(&self, now_ms: u64) {
+            self.state().reading.sleep(now_ms);
+        }
+        fn handed_maker(&self, document: u32, maker: u64) {
+            if let Ok(mut books) = self.state().books.try_borrow_mut()
+                && let Some(book) = books.iter_mut().find(|book| book.document == document)
+            {
+                book.maker = maker;
+            }
+        }
+        fn document_of_maker(&self, maker: u64) -> Option<u32> {
+            let books = self.state().books.try_borrow().ok()?;
+            books
+                .iter()
+                .find(|book| maker != 0 && book.maker == maker)
+                .map(|book| book.document)
         }
         fn map_image(
             &self,
             _document: &Document,
-            _image: &wire::ServiceDocImage,
+            image: &wire::ServiceDocImage,
             _in_block: bool,
         ) -> Result<Option<u32>, i32> {
-            Ok(None)
+            // The stage adapter mapped the picture when it translated the
+            // format's answer (`DocImages`: the cache check and the id), so
+            // the record carries the opener's id (0 where all are out, in a
+            // block stream); a picture that failed the check is not here.
+            Ok(Some(image.image))
         }
         fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
             self.state().formats_of_owner(owner, visit);
@@ -436,8 +555,18 @@ impl super::doc_service::DocHost for DocState {
         });
     }
     frameless!();
+    fn end_images(&self, document: &Document) {
+        self.ended_images(document.id);
+    }
+    fn flush_images(&self, images: &super::image_service::ImageTable) {
+        self.end_pending_images(images);
+    }
     fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
         self.hold_book(document, root, path, None)
+    }
+    fn reader_closed(&self, document: u32) {
+        // Without a frame the pump's clock stamps the close of a session.
+        self.reader_closed_at(document, self.now.get());
     }
     fn root_access(&self, _root: u32) -> Result<(), i32> {
         Err(ERR_UNSUPPORTED)
@@ -487,6 +616,14 @@ struct Bound<'a> {
 }
 
 impl Bound<'_> {
+    /// The kernel's clock now, milliseconds (the pump's where the frame has
+    /// no environment).
+    fn clock(&self) -> u64 {
+        self.frame
+            .kernel_env()
+            .map_or_else(|| self.state.now.get(), |env| env.now().millis())
+    }
+
     fn state(&self) -> &DocState {
         self.state
     }
@@ -637,7 +774,13 @@ impl Bound<'_> {
                     return Ok(());
                 }
                 let used = row.encode(&mut bytes)?;
-                if let Record::ServiceRegPlugin(row) = wire::record_decode_one(&bytes[..used])? {
+                // One bare record, exactly (the frame is the whole encoding).
+                let (raw, length) = wire::RawRecord::prefix(&bytes[..used])?;
+                if length != used {
+                    return Err(ERR_INVALID);
+                }
+                if raw.tag() == wire::SERVICE_REG_PLUGIN_TAG {
+                    let row: wire::ServiceRegPlugin<'_> = raw.decode()?;
                     version = copy(row.version);
                 }
                 Ok(())
@@ -700,6 +843,7 @@ impl Bound<'_> {
     /// it was. The documents of a format that went end as it stopped.
     fn sync(&self) -> Result<(), i32> {
         self.end_unfinished();
+        self.end_pending_images();
         let generation = self.frame.registry()?.generation();
         if self.state.synced.get() == generation {
             return Ok(());
@@ -730,11 +874,22 @@ impl Bound<'_> {
         for format in gone.iter().take(count) {
             if format_stopped(self, *format).is_err() {
                 // A table was borrowed: the next call ends the rest. The
-                // room is reserved for every format the device can hold.
+                // room is reserved at the first reference, for every format
+                // the device can hold.
                 self.state.keep_unfinished(*format);
             }
         }
         Ok(())
+    }
+
+    /// The image ids of documents that ended out of reach of the table end.
+    fn end_pending_images(&self) {
+        self.state.end_pending_images(self.who.hosts.images());
+        if self.state.images_lost.replace(false) {
+            self.frame.log(format_args!(
+                "document: image ids of an ended document kept"
+            ));
+        }
     }
 
     /// Ends the documents of formats an earlier call could not finish.
@@ -804,6 +959,17 @@ impl Bound<'_> {
         Err(ERR_NOT_FOUND)
     }
 
+    /// Whether the caller's plugin declares a reading app.
+    fn declares_reader(&self) -> bool {
+        let mut declares = false;
+        let _ = self.frame.with_declarations(&mut |any| {
+            if let Some(store) = any.downcast_ref::<super::declaration_store::DeclarationStore>() {
+                store.each_reader(&mut |reader| declares |= reader.plugin == self.who.plugin);
+            }
+        });
+        declares
+    }
+
     fn translate_format<'r>(&'r self, row: Record<'r>) -> Record<'r> {
         match row {
             Record::ServiceDocFormat(format) => Record::ServiceDocFormat(wire::ServiceDocFormat {
@@ -820,9 +986,43 @@ impl super::doc_service::DocHost for Bound<'_> {
         self
     }
     frameless!();
+    fn end_images(&self, document: &Document) {
+        // The ids end now where the table can be had, else with the next call.
+        if self
+            .who
+            .hosts
+            .images()
+            .document_closed(document.id)
+            .is_err()
+        {
+            self.state.ended_images(document.id);
+        }
+    }
     fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
         self.state
             .hold_book(document, root, path, Some(self.who.plugin))
+    }
+    fn reader_closed(&self, document: u32) {
+        self.state.reader_closed_at(document, self.clock());
+    }
+    fn reading_report(
+        &self,
+        document: &Document,
+        report: &wire::ServiceDocReport<'_>,
+    ) -> Result<(), i32> {
+        // Only a book of the library that its opener, a reading app (it
+        // declares a `reader.spec`) on top of the screen stack, reports drives
+        // the session (`document.md` 2.4). Which of its screens is on top is
+        // not told by the stack rows.
+        let books = self.state.books.try_borrow().map_err(|_| ERR_BUSY)?;
+        let book = books.iter().find(|book| book.document == document.id);
+        let library = book.is_some_and(|book| book.root == 1) && !document.background;
+        let facts = super::doc_reading::Facts {
+            document: document.id,
+            counts: library && self.declares_reader() && self.shows_screen(document.owner),
+            path: book.map_or("", |book| book.path.as_str()),
+        };
+        self.state.reading.report(self.clock(), &facts, report)
     }
 
     fn root_access(&self, root: u32) -> Result<(), i32> {
@@ -830,9 +1030,51 @@ impl super::doc_service::DocHost for Bound<'_> {
             0 => Ok(()),
             // The card's top needs `uses.storage` (decision 125).
             1 => self.who.features.feature("uses.storage"),
-            // The handed file is not wired yet.
+            // The handed file is resolved by `handed_open`.
             5 => Err(ERR_UNSUPPORTED),
             _ => Err(ERR_INVALID),
+        }
+    }
+
+    #[inline(never)]
+    fn handed_open(&self, path: &str) -> Result<super::doc_service::HandedBook, i32> {
+        // Until the `core.ui` store is wired no file is handed.
+        if self.who.hosts.ui().is_none() {
+            return Err(ERR_UNSUPPORTED);
+        }
+        // An instance that is not a reader screen has no hand-over.
+        let instance = self.frame.calling_instance().map_err(|_| ERR_DENIED)?;
+        let mut handed = Err(ERR_DENIED);
+        self.who.hosts.handed_file(instance, &mut |file| {
+            // Only the one file the hand-over names, in a folder of its maker.
+            let ours = file.path == path && matches!(file.root, 0 | 2);
+            handed = if ours && file.path.len() <= 512 {
+                copy(file.path).map(|text| (file.maker, file.root, text))
+            } else {
+                Err(ERR_DENIED)
+            };
+        })?;
+        let (maker, root, file_path) = handed?;
+        // The maker may be gone: its key never names another plugin.
+        let mut id: Result<String, i32> = Err(ERR_NOT_FOUND);
+        self.frame.with_declarations(&mut |any| {
+            let Some(store) = any.downcast_ref::<super::declaration_store::DeclarationStore>()
+            else {
+                return;
+            };
+            if let Some(name) = store.plugin_id_of_owner(maker) {
+                id = copy(name);
+            }
+        })?;
+        let joined = OwnerPaths::join(Some(&id?), root, &file_path)?;
+        let storage = self.state.storage.as_ref().ok_or(ERR_UNSUPPORTED)?;
+        match storage.size(&joined) {
+            Ok(_) => Ok(super::doc_service::HandedBook {
+                card_path: joined,
+                maker,
+            }),
+            Err(paperpaw_platform::StorageError::NotFound) => Err(ERR_NOT_FOUND),
+            Err(error) => Err(super::storage::status(error)),
         }
     }
 
@@ -871,9 +1113,17 @@ impl super::doc_service::DocHost for Bound<'_> {
         }
         let _scope = self.enter_scope(target.plugin, call, kind, &css)?;
         let route = FrameRoute(self.frame);
+        let pictures = self.state.storage.as_deref().map(|storage| DocImages {
+            table: self.who.hosts.images(),
+            storage,
+            state: self.state,
+        });
         let stage = Stage {
             route: &route,
-            images: &NoImages,
+            images: match &pictures {
+                Some(pictures) => pictures,
+                None => &NoImages,
+            },
         };
         let mut result = Err(ERR_NOT_FOUND);
         let mut run = |sibling: &str| {

@@ -12,7 +12,7 @@ use paperpaw_sdk::{
     native::{
         Error, Host,
         callbacks::DrawFrame,
-        ui::{Compose, Ui, WidgetHandle, WidgetInputKind},
+        ui::{Compose, MadeWidget, Ui, WidgetHandle, WidgetInputKind},
     },
     widgets::grid::Geometry,
 };
@@ -46,8 +46,12 @@ impl Made {
             return Ok(Self::Mine(mine));
         }
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-        ui.widget_make(host, id, place, &mut input, &mut out)
-            .map(Self::Host)
+        match ui.widget_make(host, id, place, &mut input, &mut out)? {
+            MadeWidget::Widget(widget) => Ok(Self::Host(widget)),
+            // The host says it is this plugin's, but home has no such widget
+            // of its own to draw: not shown, as a widget that is gone.
+            _ => Err(Error::NotFound),
+        }
     }
 
     /// Tells it where it sits (before the first draw there and when that

@@ -280,6 +280,15 @@ fn random(buf: &mut [u8]) -> bool {
     true
 }
 
+/// One line of the host's own diagnostics (`KernelBuilder::device_log`): to
+/// the log. A plain function without state that never calls the kernel, as
+/// the builder asks; the line is at most 120 bytes of plugin ids and numbers
+/// (never plugin text), and `log` formats it in place, so nothing is
+/// allocated.
+fn device_log(line: &str) {
+    log::info!("host: {line}");
+}
+
 /// How this start came, from the chip's reason for its reset: a sleep
 /// that cut the power ends by the power coming again.
 fn started() -> paperpaw_sdk::power::Start {
@@ -903,6 +912,7 @@ fn kernel(
         .clock(micros)
         // Fully random while the radio is on, as when serving.
         .random(random)
+        .device_log(device_log)
         .memory(memory)
         .started(start)
         .after_sleep(after_sleep)

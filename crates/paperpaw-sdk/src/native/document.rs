@@ -449,9 +449,21 @@ impl Documents {
 #[path = "document_readers.rs"]
 mod readers;
 pub use readers::{Reader, ReaderCursor, ReaderPage, ReaderPageEnd};
+#[path = "document_nav.rs"]
+mod nav;
+pub use nav::{DocCursor, DocPage, DocPageEnd, DocSpan, Link, LinkKind, SectionEntry, TocEntry};
+#[path = "document_blocks.rs"]
+mod blocks;
+pub use blocks::{
+    BlockCell, BlockColumns, BlockCursor, BlockFragment, BlockHead, BlockImage, BlockMap,
+    BlockRecord, BlockRuby, BlockRun,
+};
 #[path = "document_meta.rs"]
 mod meta;
 pub use meta::{DocTextPart, DocTextQuery, Metadata};
+#[path = "document_report.rs"]
+mod report;
+pub use report::Report;
 #[path = "document_formats.rs"]
 mod formats;
 pub use formats::{Format, FormatCursor, FormatPage, FormatPageEnd};
@@ -470,6 +482,9 @@ fn state_of(bytes: &[u8]) -> Result<DocState<'_>, Error> {
     Ok(DocState(row))
 }
 
+#[cfg(test)]
+#[path = "document_nav_tests.rs"]
+mod nav_tests;
 #[cfg(test)]
 #[path = "document_tests.rs"]
 mod tests;

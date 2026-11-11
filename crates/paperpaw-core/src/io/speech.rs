@@ -6,6 +6,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use crate::native_host::speech as native;
 use paperpaw_sdk::{Command, Id, Params};
 
 /// What a shell does for speech.
@@ -48,6 +49,10 @@ pub(crate) struct Speech {
     calls: Vec<SpeechCall>,
     speaking: Vec<Speaking>,
     next: u32,
+    /// How native plugins' texts ended, for `native_speech_pump`: the
+    /// plugin's own parameters (its id and cookie) and the status. Held here,
+    /// never on the event bus, so that no plugin can forge one.
+    ended: Vec<Params>,
     /// What was said last of the focus (`core_settings::SPEAK_FOCUS`).
     pub focus: Option<String>,
 }
@@ -70,13 +75,21 @@ impl Speech {
         out: &mut Vec<Command>,
     ) {
         if !available {
+            // Native plugins hear status 3 (no speech on this device) at once.
+            if native::is_reply(speech.reply()) {
+                self.ended.push(native::with_status(
+                    speech.params().clone(),
+                    Ended::NoSpeech as u32,
+                ));
+                return;
+            }
             return reply(speech.reply().clone(), speech.params().clone(), false, out);
         }
         let id = self.next;
         self.next = self.next.wrapping_add(1);
         let queue = speech.is_queued();
         if !queue {
-            self.speaking.clear();
+            self.drop_all();
         }
         self.speaking.push(Speaking {
             id,
@@ -94,11 +107,48 @@ impl Speech {
         });
     }
 
+    /// Forgets every text being spoken; those of native plugins are told
+    /// they were replaced or stopped (`event.spoken` status 1), the
+    /// interface-6 replies stay unsent (texts replaced are not reported).
+    fn drop_all(&mut self) {
+        for speaking in self.speaking.drain(..) {
+            if native::is_reply(&speaking.reply) {
+                self.ended
+                    .push(native::with_status(speaking.params, Ended::Stopped as u32));
+            }
+        }
+    }
+
     /// Stops speaking, if anything is spoken.
     pub fn stop(&mut self) {
         if !self.speaking.is_empty() {
-            self.speaking.clear();
+            self.drop_all();
             self.calls.push(SpeechCall::Stop);
+        }
+    }
+
+    /// Stops what the native plugin `owner` speaks (`command.stop_speaking`
+    /// stops the submitter's own speech only). The shell has one voice: where
+    /// the text spoken now is the owner's, it stops, and what waited behind it
+    /// stops with it.
+    pub fn stop_owned(&mut self, owner: &str) {
+        let mine =
+            |s: &Speaking| native::is_reply(&s.reply) && s.params.get(native::OWNER) == Some(owner);
+        if self.speaking.first().is_some_and(mine) {
+            self.stop();
+            return;
+        }
+        // Behind another's text: the owner's waiting texts are dropped from
+        // the line (the shell speaks them still; they end unreported).
+        let mut at = 0;
+        while at < self.speaking.len() {
+            if mine(&self.speaking[at]) {
+                let gone = self.speaking.remove(at);
+                self.ended
+                    .push(native::with_status(gone.params, Ended::Stopped as u32));
+            } else {
+                at += 1;
+            }
         }
     }
 
@@ -113,13 +163,37 @@ impl Speech {
     pub fn done(&mut self, id: u32, spoken: bool, out: &mut Vec<Command>) {
         if let Some(at) = self.speaking.iter().position(|s| s.id == id) {
             let speaking = self.speaking.remove(at);
-            reply(speaking.reply, speaking.params, spoken, out);
+            if native::is_reply(&speaking.reply) {
+                let ended = if spoken {
+                    Ended::Spoken
+                } else {
+                    Ended::NoVoice
+                };
+                self.ended
+                    .push(native::with_status(speaking.params, ended as u32));
+            } else {
+                reply(speaking.reply, speaking.params, spoken, out);
+            }
         }
+    }
+
+    /// The native endings since the last call (`ui.md` section 7, `spoken`).
+    pub fn take_ended(&mut self) -> Vec<Params> {
+        core::mem::take(&mut self.ended)
     }
 
     /// What the shell is to do.
     pub fn take(&mut self) -> Vec<SpeechCall> {
         core::mem::take(&mut self.calls)
+    }
+
+    /// How many texts of the native plugin `owner` are being spoken or wait
+    /// (`ui.md` section 7 caps them per plugin).
+    pub fn owned_texts(&self, owner: &str) -> usize {
+        self.speaking
+            .iter()
+            .filter(|s| native::is_reply(&s.reply) && s.params.get(native::OWNER) == Some(owner))
+            .count()
     }
 
     /// Whether a text is being spoken.
@@ -128,7 +202,17 @@ impl Speech {
     }
 }
 
-/// The reply to a [`Command::Speak`].
+/// How a text ended (the `status` of `event.spoken`, `ui.md` section 7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ended {
+    Spoken = 0,
+    Stopped = 1,
+    NoVoice = 2,
+    NoSpeech = 3,
+}
+
+/// The reply to an interface-6 [`Command::Speak`]: spoken or not, with the
+/// parameters the plugin gave (a replaced text is not reported there).
 fn reply(reply: Id, params: Params, spoken: bool, out: &mut Vec<Command>) {
     use paperpaw_sdk::event::EventData;
     let spoken = paperpaw_sdk::replies::Spoken::new(spoken, params);

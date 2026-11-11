@@ -384,35 +384,27 @@ fn different_plugins_may_declare_the_same_keys_and_unload_apart() {
 }
 
 #[test]
-fn unloading_drops_the_catalog_rows_with_the_owner() {
+fn unloading_drops_the_owner_rows_and_moves_the_catalog_on() {
     for owned in [false, true] {
         let source = source(&rows());
-        let store = RefCell::new(DeclarationStore::default());
-        install(&mut store.borrow_mut(), "fixture", &source, owned).unwrap();
+        let mut store = DeclarationStore::default();
+        install(&mut store, "fixture", &source, owned).unwrap();
         let catalog = RegCatalog::new();
-        let mut allocations = Allocations::default();
-        let keys = store.borrow().all_keys(&mut allocations).unwrap();
-        let generation = catalog.replace(&store, &keys, &mut allocations).unwrap();
-        for index in 0..7 {
-            catalog
-                .with_record(&store, generation, index, &mut |_| Ok(()))
-                .unwrap();
+        let keys = store.all_keys(&mut Allocations::default()).unwrap();
+        assert_eq!(keys.len(), 7);
+        for key in &keys {
+            assert!(store.visit_record(*key, &mut |_| {}));
         }
-        store
-            .borrow_mut()
-            .remove_owner(&Id::new_static("fixture"), 1);
-        // A row of an unloaded owner is no longer readable, and the next
-        // prune removes it from the catalog.
-        assert_eq!(
-            catalog.with_record(&store, generation, 0, &mut |_| Ok(())),
-            Err(ERR_STATE)
+        let generation = catalog.generation();
+        store.remove_owner(&Id::new_static("fixture"), 1);
+        // A row of an unloaded owner is no longer readable, and the prune
+        // after it moves the catalog's generation on.
+        assert!(
+            keys.iter()
+                .all(|key| !store.visit_record(*key, &mut |_| {}))
         );
-        catalog.prune(&store.borrow()).unwrap();
+        catalog.prune(&store).unwrap();
         assert_ne!(catalog.generation(), generation);
-        assert_eq!(
-            catalog.with_record(&store, catalog.generation(), 0, &mut |_| Ok(())),
-            Err(ERR_STATE)
-        );
     }
 }
 

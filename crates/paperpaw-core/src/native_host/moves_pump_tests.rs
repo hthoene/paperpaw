@@ -271,3 +271,40 @@ fn a_card_that_stays_broken_is_tried_less_and_less_often() {
     assert!(!w.moves.moves().active());
     assert_eq!(w.kernel.shared.native_instances.moves_retry(), None);
 }
+
+#[test]
+fn a_move_begun_during_the_back_off_is_not_held_back_by_it() {
+    let mut w = world();
+    // The state a card that stayed broken left: five refusals, the wait at
+    // its longest, a minute away.
+    let instances = &w.kernel.shared.native_instances;
+    for _ in 0..8 {
+        instances.moves_failed();
+    }
+    w.kernel.now = Instant(100_000);
+    instances.set_moves_retry(Some(100_000 + WAIT_MAX_MS));
+    assert!(!w.kernel.native_moves_pump(), "held back, nothing begun");
+    begun(&w);
+    // The new move runs at once and the back-off starts again.
+    let mut passes = 0;
+    while w.kernel.native_moves_pump() {
+        passes += 1;
+        assert!(passes < 50, "the job ends");
+    }
+    assert!(!w.moves.moves().active());
+    assert_eq!(library::favourites(&*w.card), ["Books/new/a.epub"]);
+    assert_eq!(w.kernel.shared.native_instances.moves_retry(), None);
+    // The first refusal after it waits two seconds again.
+    begun_again(&w);
+    w.refuse.set(true);
+    while w.kernel.native_moves_pump() {}
+    assert_eq!(
+        w.kernel.shared.native_instances.moves_retry(),
+        Some(100_000 + WAIT_MS)
+    );
+}
+
+/// Another move of the same books, from where the first one went.
+fn begun_again(w: &World) {
+    w.moves.begin("Books/new", "Books/newer", false).unwrap();
+}

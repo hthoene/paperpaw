@@ -236,8 +236,9 @@ typedef struct PpHeap {
     and its base save area lies in the band. `RESERVE = 6 * LIMIT + DEPTH`, with `DEPTH` the larger
     of the handler's and an interrupt's measured depth plus 256 bytes (2,048 assumed, the S3's
     exception frame being 256 bytes plus the spills): 14,336 bytes between the stack's end and the
-    band, 16 KiB with the band. The S3's `STACK_FLOOR` grows by that over the measured deepest path
-    (some 33 KiB): about 50 KiB, from the internal heap (`HEAP_SIZE`); PSRAM keeps the rest.
+    band, 16 KiB with the band, before the masked depth `CRIT` (below) is added. The S3's
+    `STACK_FLOOR` grows by that over the measured deepest path (some 33 KiB): about 50 KiB, from
+    the internal heap (`HEAP_SIZE`); PSRAM keeps the rest.
   - **Firmware on the chain (Senior M1).** The six-frame bound holds for the whole call chain,
     not only the plugin's code: a plugin calls into the firmware (host slots, shared-table
     entries, the dispatch entries), and those frames run on the same stack below the band. So on
@@ -250,6 +251,17 @@ typedef struct PpHeap {
     armed, and `band_armed()` can be true, only in a build where that check passed. A firmware
     function that fails it is fixed (smaller frame, `call8`), never waived; a ROM function called
     with `call4` is wrapped or not reachable from a host slot.
+  - **Masked delivery (Senior S1 on #917).** A store into the band while level 3 is masked (inside
+    a critical section of the firmware: esp-alloc, flash and PSRAM work, `println`; or anywhere at
+    `INTLEVEL` 3 or more) only latches the monitor's raw bit: the interrupt comes when the mask
+    ends, and until then the masked path can go deeper. Plugin code cannot mask (packer, below),
+    but its calls reach masked firmware paths (every allocation takes esp-alloc's section). So
+    `CRIT`, the deepest stack any masked section reachable from a plugin's call uses below the
+    `sp` it was entered with, counts into the reserve: `RESERVE = 6 * LIMIT + DEPTH + CRIT`. The
+    S3 frame scan reports `CRIT` over the masked paths it reaches (`frames-s3`: a function that
+    masks counts its own and its callees' frames until the mask ends) and the band is armed only
+    when the reserve in the build covers it; a masked path that cannot be bounded is a scan error,
+    not an allow line.
   - **Packer, target 9:** refuses in plugin code `call0`, `callx0`, `call4` and `callx4` (more
     windows per register file; `call8` and `call12` stay); any write to `a1` but `entry`'s
     (`movsp`, `mov`, `addi`, loads into `a1`); and the instructions that change the interrupt level
@@ -269,7 +281,9 @@ typedef struct PpHeap {
     the S3 fits above the band (the stack note's `left`); S7 the 16 KiB of band and reserve come
     out of the S3's internal RAM (`STACK_FLOOR` about 50 KiB, `HEAP_SIZE` less by as much): the
     X4 Pro and X4 Classic start, connect to Wi-Fi (and Bluetooth on the Pro) and open a large book
-    with the smaller internal heap, its low-water mark logged.
+    with the smaller internal heap, its low-water mark logged; S8 a store into the band from inside
+    a masked section (an allocation at the band's edge) fires when the mask ends, before the stack
+    passes the reserve's floor, and the measured masked depth stays within the scan's `CRIT`.
 - [D] Codes: 1 panic, 2 allocation failure (`handle_alloc_error`), 3 bad free detected by the host;
   others reserved. A block grown by `realloc` is never reported as a bad free.
 
@@ -282,8 +296,8 @@ typedef struct PpHeap {
   `.ppn` header says where the word is, and hosted loaders look it up by name. The ppn5 `flags` bit
   and `heap_at` field are Firmware's header reader (`paperpaw-native` `header5`).
 - SDK: `native_plugin!` defines the word and installs the global allocator and panic handler; a
-  plugin that wants no heap opts out. Shape change (new export and table), so the next draft, one
-  blessing line, CHANGELOG.
+  plugin that wants no heap opts out. Shape change (new export and table): the PR carries the
+  regenerated interface files and a changelog fragment.
 - Tests: allocator door equivalence (alloc through the table, free through slot 1, and back); null
   outside a frame; frame restore after an error return and after nested dispatch; budget refusal per
   plugin; teardown frees and counts leftovers; the leak rule keeps blocks; X4 loader refusals for each

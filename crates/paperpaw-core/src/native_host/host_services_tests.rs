@@ -412,6 +412,7 @@ struct Dictionary;
 impl LookupHost for Dictionary {
     fn ask(
         &self,
+        _frame: &dyn crate::abi7::context::Frame,
         _owner: u64,
         _ask: &registrations::ServiceLookupAsk<'_>,
         _out: &mut [u8],

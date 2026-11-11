@@ -1318,39 +1318,19 @@ fn malformed_widget_and_status_declarations_poison_construction() {
     }
 }
 
-/// DOC and LIB declarations (`docs/abi/document.md`, `library.md`: lookup
-/// providers, book badges and library sources) decode but stay refused until
-/// the host admits them, as the UIX ones. Formats and readers are admitted
-/// (`format_and_reader_declarations_are_admitted`).
+/// DOC and LIB declarations (`docs/abi/document.md`, `library.md`: library
+/// book data) decode but stay refused until the host admits them, as the UIX
+/// ones. Formats, readers and lookup providers are admitted
+/// (`format_and_reader_declarations_are_admitted`), as are book fields and
+/// badges (`book_field_and_badge_declarations_are_admitted`).
 #[test]
 fn doc_and_lib_declarations_stay_refused_until_admitted() {
-    use paperpaw_core::native_host::registrations::{
-        BookBadgeSpec, BookDataSpec, BookFieldSpec, LookupSpec,
-    };
+    use paperpaw_core::native_host::registrations::BookDataSpec;
     // Well-formed ones: checked, then refused, never accepted and dropped.
-    let valid = [
-        Record::LookupSpec(LookupSpec {
-            name: "dict",
-            title: "lookup.dict",
-            languages: "en",
-            flags: 0,
-            token: 1,
-        }),
-        Record::BookFieldSpec(BookFieldSpec {
-            name: "rating",
-            title: "field.rating",
-            flags: 0,
-        }),
-        Record::BookBadgeSpec(BookBadgeSpec {
-            name: "new",
-            token: 1,
-            flags: 0,
-        }),
-        Record::BookDataSpec(BookDataSpec {
-            name: "notes",
-            kind: 0,
-        }),
-    ];
+    let valid = [Record::BookDataSpec(BookDataSpec {
+        name: "notes",
+        kind: 0,
+    })];
     for record in valid {
         let bytes = encode(&[record]);
         let decoded = records_decode(&bytes).unwrap();
@@ -1381,12 +1361,70 @@ fn doc_and_lib_declarations_stay_refused_until_admitted() {
     }
 }
 
+/// A book field and a badge are checked and admitted (`library.md` section 1);
+/// the caps and the one-name rule are the commit's and the store's.
+#[test]
+fn book_field_and_badge_declarations_are_admitted() {
+    use paperpaw_core::native_host::registrations::{BookBadgeSpec, BookFieldSpec};
+    let admitted = [
+        Record::BookFieldSpec(BookFieldSpec {
+            name: "rating",
+            title: "field.rating",
+            flags: 0,
+        }),
+        Record::BookFieldSpec(BookFieldSpec {
+            name: "loan",
+            title: "field.loan",
+            flags: 1,
+        }),
+        Record::BookBadgeSpec(BookBadgeSpec {
+            name: "new",
+            token: 1,
+            flags: 0,
+        }),
+    ];
+    for record in admitted {
+        let bytes = encode(&[record]);
+        let decoded = records_decode(&bytes).unwrap();
+        let first = decoded.iter().next().unwrap();
+        assert_eq!(validate_record(PLUGIN, &first), Ok(()), "{first:?}");
+        assert_eq!(run(&bytes).0, Ok(()), "{first:?}");
+    }
+    // An unknown flag bit and an empty title are invalid, not unsupported.
+    for bad in [
+        Record::BookFieldSpec(BookFieldSpec {
+            name: "rating",
+            title: "field.rating",
+            flags: 2,
+        }),
+        Record::BookFieldSpec(BookFieldSpec {
+            name: "rating",
+            title: "",
+            flags: 0,
+        }),
+        Record::BookBadgeSpec(BookBadgeSpec {
+            name: "new",
+            token: 1,
+            flags: 1,
+        }),
+    ] {
+        assert_eq!(run(&encode(&[bad])).0, Err(ERR_INVALID), "{bad:?}");
+    }
+}
+
 /// A format and a reader are checked and admitted (`document.md` section 1);
 /// the cross-record rules (extensions, screens, limits) are the commit's.
 #[test]
 fn format_and_reader_declarations_are_admitted() {
-    use paperpaw_core::native_host::registrations::{FormatSpec, ReaderSpec};
+    use paperpaw_core::native_host::registrations::{FormatSpec, LookupSpec, ReaderSpec};
     let admitted = [
+        Record::LookupSpec(LookupSpec {
+            name: "dict",
+            title: "lookup.dict",
+            languages: "en",
+            flags: 0,
+            token: 1,
+        }),
         Record::FormatSpec(FormatSpec {
             name: "epub",
             title: "format.epub",
