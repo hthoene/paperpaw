@@ -54,15 +54,17 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
         "keyboard",
         "lock",
         "help",
+        "home",
         "opds",
         "power",
+        "reader",
         "bluetooth",
         "menu",
         "settings",
         "file-manager",
     ];
     #[cfg(feature = "native-linked-store")]
-    with_settings.push("aids");
+    with_settings.extend(["aids", "news", "vocabulary"]);
     for id in with_settings {
         assert!(
             !paperpaw_app::fixed_tables(id).settings.is_empty(),
@@ -71,9 +73,9 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
     }
     // The plugins that declare setting groups have their table of them (an
     // empty or stale one only costs memory, silently).
-    let mut with_groups = vec!["bluetooth", "keyboard", "lock", "power"];
+    let mut with_groups = vec!["bluetooth", "home", "keyboard", "lock", "power", "reader"];
     #[cfg(feature = "native-linked-store")]
-    with_groups.push("widgets");
+    with_groups.extend(["news", "vocabulary", "widgets"]);
     for id in with_groups {
         assert!(
             !paperpaw_app::fixed_tables(id).groups.is_empty(),
