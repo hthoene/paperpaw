@@ -107,7 +107,9 @@ pub(super) fn run(host: &LibEdits, request: &CommitRequest) -> Result<Committed,
     drops.sort_unstable();
     let mut news = table::<u32>(items.len())?;
     news.extend((0..items.len() as u32).filter(|i| items[*i as usize].action != REMOVE));
-    news.sort_by_key(|i| (items[*i as usize].start, items[*i as usize].end, *i));
+    paperpaw_sort::sort_by_key(&mut news, |i| {
+        (items[*i as usize].start, items[*i as usize].end, *i)
+    });
     let generation = write::generation_after(&info);
     // The receipt is made before the rename: nothing may fail once the file
     // is changed, or the plugin would retry and add everything twice.
