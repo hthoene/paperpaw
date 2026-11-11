@@ -52,6 +52,9 @@ pub(crate) struct NativeBookFormats {
     runs: Vec<(u64, u16)>,
 }
 
+/// A new stand-in's extensions, and its runs per plugin.
+type Gathered = (Vec<Cow<'static, str>>, Vec<(u64, u16)>);
+
 /// The heap refused: the sync is made again at the next call.
 #[derive(Debug)]
 struct NoRoom;
@@ -83,7 +86,7 @@ fn gather(
     formats: &Formats,
     store: &DeclarationStore,
     old: (&[Cow<'static, str>], &[(u64, u16)]),
-) -> Result<(Vec<Cow<'static, str>>, Vec<(u64, u16)>), NoRoom> {
+) -> Result<Gathered, NoRoom> {
     let kept = |owner: u64| store.owner_runs(owner) == Some(false);
     let (mut most, mut plugins) = (0_usize, 0_usize);
     for &(owner, count) in old.1 {
