@@ -467,8 +467,29 @@ impl crate::Kernel {
         redraw: Option<Redraw>,
         opens: super::Opens,
     ) {
-        let super::Opens { at, claims } = opens;
+        let clock = self.dev_clock();
+        let host = super::dev::DevHost {
+            clock: &clock,
+            stored: &super::dev::NoStoredNetworks,
+        };
+        let dev = super::dev::DevBatch::default();
+        self.drain_native_batch(owner, (commands, redraw, opens), dev, &host);
+    }
+
+    /// As [`Self::drain_native_opens`], with the DEV commands of the batch
+    /// applied in their place among the others (`commands_dev.rs`): a power
+    /// command after every command before it. The shell acts on the
+    /// kernel's sleep, power-off and restart flags once the frame is shown.
+    pub(crate) fn drain_native_batch(
+        &mut self,
+        owner: &Id,
+        (commands, redraw, mut opens): (Vec<Command>, Option<Redraw>, super::Opens),
+        mut dev: super::dev::DevBatch,
+        host: &super::dev::DevHost<'_>,
+    ) {
+        let (at, claims) = opens.take();
         for (index, command) in commands.into_iter().enumerate() {
+            self.apply_dev_until(owner, &mut dev, Some(index), host);
             let staged = at.iter().find(|open| open.index == index);
             // A replace is the submitter's own top screen's, nobody else's: if
             // another is on top by now (an earlier open of the same batch), it
@@ -490,11 +511,17 @@ impl crate::Kernel {
             // its claim is freed and the instance's old hand-over stays.
             self.release_pending_handover();
         }
+        self.apply_dev_until(owner, &mut dev, None, host);
         // Nothing stays claimed once the batch is applied.
+        let mut kept = false;
         if let Some(store) = self.shared.native_instances.ui_store() {
             for claims in claims {
-                let _ = store.rollback(claims);
+                kept |= store.rollback(claims).is_err();
             }
+        }
+        if kept {
+            // The store was in use: the claims stay until the owner's stop.
+            self.warn_runtime("native hand-over claims could not be freed: the store is busy");
         }
         self.finish_native_redraw(owner, redraw);
     }
@@ -502,8 +529,9 @@ impl crate::Kernel {
     fn release_pending_handover(&mut self) {
         if let Some(Some(id)) = self.shared.native_instances.take_pending_handover()
             && let Some(store) = self.shared.native_instances.ui_store()
+            && store.release(id).is_err()
         {
-            let _ = store.release(id);
+            self.warn_runtime("a native hand-over could not be freed: the store is busy");
         }
     }
 
