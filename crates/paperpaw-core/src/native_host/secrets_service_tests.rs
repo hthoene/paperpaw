@@ -1140,8 +1140,13 @@ fn a_large_file_streams_through_a_small_heap() {
             ("keep", keep),
             ("remove", remove),
         ] {
-            // The 4 KiB buffer, a line, two value buffers: about 9 KiB for a 59 KiB file.
-            assert!(bytes < 10 * 1024, "{what} held {bytes} bytes");
+            // The read buffer, two value buffers, and a line for a rewrite: about
+            // 7.5 KiB for a 59 KiB file.
+            assert!(bytes < 8 * 1024, "{what} held {bytes} bytes");
+        }
+        // `get` and `list` (the settings screen's calls) hold no line buffer.
+        for (what, bytes) in [("get", get), ("list", list)] {
+            assert!(bytes < 5 * 1024 + 512, "{what} held {bytes} bytes");
         }
         assert!(v.host.card.largest_read.get() <= READ_BUF);
         assert_eq!(v.get("p04x", "extra").unwrap().0, "new");

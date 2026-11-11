@@ -18,8 +18,11 @@ use paperpaw_platform::{Storage, StorageError};
 pub(super) const FILE: &str = ".paperpaw/secrets.txt";
 /// The new file, until it replaces the old by rename.
 pub(super) const TEMP: &str = ".paperpaw/secrets.new";
-/// The one read buffer.
-pub(super) const READ_BUF: usize = 4_096;
+/// The one read buffer: a whole line with its line break, and some room so
+/// that a read is not a few bytes long (it must be over [`LINE_MAX`], or a
+/// full buffer without a line break would read as the end of the file).
+pub(super) const READ_BUF: usize = LINE_MAX + 128;
+const _: () = assert!(READ_BUF > LINE_MAX);
 /// Longest line this host reads or writes, without its line break: the names,
 /// the label and a 1,024-byte value sealed (about 2.5 KiB).
 pub(super) const LINE_MAX: usize = 2_560;
@@ -112,7 +115,7 @@ impl Buf {
     }
 }
 
-fn nibble(byte: u8) -> Option<u8> {
+pub(super) fn nibble(byte: u8) -> Option<u8> {
     match byte {
         b'0'..=b'9' => Some(byte - b'0'),
         b'a'..=b'f' => Some(byte - b'a' + 10),
@@ -121,7 +124,7 @@ fn nibble(byte: u8) -> Option<u8> {
     }
 }
 
-fn is_hex(text: &[u8]) -> bool {
+pub(super) fn is_hex(text: &[u8]) -> bool {
     text.len().is_multiple_of(2) && text.iter().all(|byte| nibble(*byte).is_some())
 }
 
@@ -138,7 +141,7 @@ fn unhex_into(text: &[u8], out: &mut Buf) -> Result<(), i32> {
     Ok(())
 }
 
-fn veil(bytes: &mut [u8]) {
+pub(super) fn veil(bytes: &mut [u8]) {
     for (index, byte) in bytes.iter_mut().enumerate() {
         *byte ^= VEIL[index % VEIL.len()];
     }
@@ -450,7 +453,7 @@ impl<'a> Opener<'a> {
     }
 }
 
-fn aad_of<'b>(
+pub(super) fn aad_of<'b>(
     owner: &str,
     name: &str,
     out: &'b mut [u8; 2 * NAME_MAX + 1],

@@ -26,9 +26,13 @@ pub mod declarations;
 mod fetch;
 mod letters;
 mod list;
+#[doc(hidden)]
+pub mod native_download;
 mod native_entry;
 #[doc(hidden)]
 pub mod native_index;
+#[doc(hidden)]
+pub mod native_install;
 #[doc(hidden)]
 pub mod native_item;
 #[doc(hidden)]

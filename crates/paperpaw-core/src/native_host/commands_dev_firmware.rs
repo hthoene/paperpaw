@@ -46,7 +46,8 @@ pub(super) const MAX_PER_BATCH: usize = 1;
 /// At most this many `trust_revoked` in a batch (`device.md` 3).
 pub(super) const MAX_REVOKED_PER_BATCH: usize = 8;
 const FEATURE_FIRMWARE: &str = "uses.firmware";
-const FEATURE_INSTALL: &str = "uses.install";
+/// The feature key of plugin installs, and of answering plugin requests.
+pub const FEATURE_INSTALL: &str = "uses.install";
 /// `install_firmware.flags` bits 0 (older) and 1 (foreign).
 const FLAGS: u32 = 3;
 /// `check_file.kind` of a plugin and of a firmware image.

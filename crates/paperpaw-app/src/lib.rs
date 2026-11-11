@@ -143,7 +143,7 @@ pub const fn default_store() -> StorePlugins<'static> {
 /// [`native_registers`]. Not in the list yet, because their ports are not
 /// finished (each one's `PORTING-7.md` says what is open) or the interface-6
 /// reader still reads books through their interface-6 forms: the formats (txt,
-/// xtc, docx, images, mobi), sleep, dictionary, store, wifi, fonts-browser,
+/// xtc, docx, images, mobi), sleep, dictionary, store, fonts-browser,
 /// picture-home. Home, reader, news and vocabulary are linked since their
 /// settings tables are kept in the program (`fixed_tables`): without them
 /// linking costs about 39 KiB of heap (Core's measurement on #1140).
@@ -183,6 +183,7 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("vocabulary", &paperpaw_plugin_vocabulary::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
     ("widgets", &paperpaw_plugin_widgets::NATIVE_ENTRY),
+    ("wifi", &paperpaw_plugin_wifi::NATIVE_ENTRY),
 ];
 
 /// Whether the linked native plugin `id` is linked here and, if it is, on where
@@ -480,10 +481,11 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_format_docx::DocxFormat);
         b = offered(b, store, paperpaw_plugin_format_images::ImagesFormat);
     }
-    b = b.plugin(paperpaw_plugin_wifi::Wifi);
-    // Transfer is a native plugin, linked (`NATIVE_PLUGINS`), where the feature says.
+    // Wi-Fi and Transfer are native plugins, linked (`NATIVE_PLUGINS`), where
+    // the feature says.
     #[cfg(not(feature = "native-linked"))]
     {
+        b = b.plugin(paperpaw_plugin_wifi::Wifi);
         b = b.plugin(paperpaw_plugin_transfer::Transfer);
     }
     #[cfg(feature = "store-plugins")]
