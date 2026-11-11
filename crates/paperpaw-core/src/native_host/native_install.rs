@@ -848,6 +848,8 @@ fn map_declarations(
     let mut any = false;
     // Where the next setting is looked for in the table: they come in order.
     let mut cursor = 0;
+    // Where the run of table settings is in `owned`.
+    let mut run: Option<usize> = None;
     let mut result: Result<(), i32> = Ok(());
     view.visit(&mut |record| {
         if result.is_err() {
@@ -871,13 +873,18 @@ fn map_declarations(
                         value = Owned::FixedSettings(fixed, at, at + 1);
                     }
                 }
-                if let (Owned::FixedSettings(_, first, end), Some(Owned::FixedSettings(_, _, last))) =
-                    (&value, owned.last_mut())
-                    && *last == *first
-                {
-                    // The next entry of the table: the run goes on.
-                    *last = *end;
-                    return Ok(());
+                if let Owned::FixedSettings(_, first, end) = &value {
+                    // The table's entries are one run in the list, wherever the
+                    // plugin's other declarations (a group between two of its
+                    // settings) fall: an entry that follows the run goes on it.
+                    if let Some(Owned::FixedSettings(_, _, last)) =
+                        run.and_then(|slot| owned.get_mut(slot))
+                        && *last == *first
+                    {
+                        *last = *end;
+                        return Ok(());
+                    }
+                    run = Some(owned.len());
                 }
                 owned.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
                 owned.push(value);
