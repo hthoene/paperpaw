@@ -102,8 +102,8 @@ fn the_decoded_batches_say_what_the_registration_says() {
                 .collect::<Vec<_>>()
         })
         .collect();
-    // Only the note is an overlay (bit 2): the page shows above it.
-    assert_eq!(flags, [0, 0, 0, 0, 4, 0]);
+    // The note and the skim bar are overlays (bit 2): the page shows above them.
+    assert_eq!(flags, [0, 0, 0, 4, 4, 0]);
     assert_eq!(native.slots, old.slots);
     assert_eq!(native.slots.len(), 6);
     assert_eq!(native.actions, old.actions);

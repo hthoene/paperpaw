@@ -569,3 +569,47 @@ relative to the data folder).
     are turned quickly (Beta 3's `signature`) is not ported.
   - Not tested with a host: painting and the tap (the harness has no status service); the pure parts are tested
     (`room`, `bar`, `choice`, the state, `content_box` with room, the declarations).
+
+## Skim and headings (R6b)
+
+- `native_headings.rs`: the headings scan as a background step model like `native_index::Counter`.
+  `Scan::step(storage, read)` reads at most `STEP_BLOCKS` (60) blocks through `read(place)` and returns
+  `Step::More`, `Done` or `Stopped`; `read_seen` is the ready `read` over `core.document` op 6
+  (`native_block` joins the fragments; only the heading's text is kept). A section that does not read
+  is passed over; `Busy` or a refused allocation stops the scan and keeps nothing. At the end the
+  headings are normalized (`native_toc::normalize`) and kept, then `load` gives them back for a book of
+  the same size. **The caller wires `core.work`** (declare with a key, `native_index::pace` for the
+  wait, `Scan::percent` for the screen) and starts the scan where `native_toc::wants_scan(len)` and
+  `load` finds nothing; `TocView` is not changed yet (its `message` is where `native_finding` shows).
+- The kept copy is `headings-<hash of the path>.txt` in the data folder, not `headings.txt`: the data
+  storage is flat, so one name per book (`headings.list` keeps the newest 16, older files are removed).
+  Its form is the interface-6 one (`size N`, then tab-separated section, offset, level, title). It is
+  written in pieces of about 1 KiB to a `.new` file and renamed, so a cut leaves the old copy and the
+  whole text (up to 80 KB) is never one `String`; reading it back is one 80 KB read at most
+  (`read_file`). The size the caller passes is the book file's (`native::storage` for the book root).
+- `native_finding.rs`: the "Finding the chapters" model, `Finding::update(percent)` (steps of 5 so the
+  e-paper is not drawn for every block) and `draw` (the title and the text where the list is);
+  `reader.toc.finding` (existing) before a number is known, `reader.toc.finding-percent` (new, en and de)
+  after.
+- `native_skim.rs` is `skim.rs` without a host: the focus (bar or four buttons), what keys and taps ask
+  (`Move::Pages(+-10)`, `Chapters(+-1)`, `Back`, `Permille(n)`, `Number`) and when the screen closes.
+  `native_skim_view.rs` is the screen (`reader.skim-screen`, slot `core.skim`, token `SKIM`): an
+  overlay (now declared as one, like the note; the ABI-7 declaration test expects flag 4 for it)
+  with the page label and chapter, the bar (track, read part, chapter ticks, knob, focus frame) and the
+  buttons as `Chips` (they wrap to two rows or one column where the words do not fit, as Beta 3's
+  4/2/1). The action `reader.skim-book` (not `reader.skim`: the declared name) opens it from the reading
+  screen (`native_plugin`, as `reader.show-annotations`), with a hand-over of `page`, `chapter`,
+  `permille` and `marks`.
+- **Not yet:** the plugin gets the `Move` from `SkimView::input` and drops it: `View` has no page index
+  moves, no chapter marks, no percent jump and no `permille` / label / chapter to put in the hand-over
+  (it opens with an empty bar). To do: `View` methods for `Pages(n)` (needs the page index, R2b),
+  `Chapters(n)` (exists as `step_chapter`, private), `Permille(n)` (needs the sections' lengths, R2a's
+  `Progress`), `Back` (the place where skimming began, to keep in the screen) and `Number` (the
+  go-to-page dialog, not ported), `SkimView::update` after each move, and the marks from the table
+  of contents. `TocView` does not start the scan or show `Finding` yet. The slider's accessibility
+  description (`Role::Slider`) has no native counterpart in `Paint`. The skim bar's colour for a dark
+  focus (Beta 3's thin line) is not ported.
+- X4: the screen is one draw of up to ~25 paint operations and four chips (fonts acquired once per draw);
+  no float formatting; a frame is far below 2,048 bytes. The scan holds at most 500 headings (about
+  70 KB, shared with `TocView`'s list when both exist: on the measurement list) and one block's text
+  (up to 64 KiB, as the layout's) per step.
