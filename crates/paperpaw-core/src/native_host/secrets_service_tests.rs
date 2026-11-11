@@ -10,7 +10,7 @@ use crate::native_host::call_services::validate_reply;
 use alloc::{string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_i18n::Translator;
-use paperpaw_native::host_glue::ERR_NO_MEMORY;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
 use paperpaw_native::metadata::Feature;
 use paperpaw_platform::{DirEntry, Instant, StorageError};
 use paperpaw_sdk::{Env, Settings};
@@ -144,6 +144,11 @@ struct Seal {
     key: u8,
     seals: bool,
     nonce: Cell<u8>,
+    /// The random numbers are weak now: a seal is `ERR_STATE` (the X4 with
+    /// its radio off).
+    weak: Rc<Cell<bool>>,
+    /// Opens nothing now, with this status (a busy or unreadable flash).
+    open_fault: Cell<Option<i32>>,
 }
 
 impl Seal {
@@ -152,6 +157,8 @@ impl Seal {
             key,
             seals: true,
             nonce: Cell::new(1),
+            weak: Rc::new(Cell::new(false)),
+            open_fault: Cell::new(None),
         }
     }
     fn tag(&self, aad: &[u8], body: &[u8]) -> [u8; 16] {
@@ -168,6 +175,9 @@ impl Sealer for Seal {
         self.seals
     }
     fn seal(&self, aad: &[u8], plain: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+        if self.weak.get() {
+            return Err(ERR_STATE);
+        }
         let nonce = [self.nonce.replace(self.nonce.get().wrapping_add(1)); 12];
         let total = 12 + plain.len() + 16;
         let out = out.get_mut(..total).ok_or(ERR_NO_SPACE)?;
@@ -180,10 +190,15 @@ impl Sealer for Seal {
         Ok(total)
     }
     fn open(&self, aad: &[u8], sealed: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-        let body_len = sealed.len().checked_sub(28).ok_or(ERR_IO)?;
+        if let Some(fault) = self.open_fault.get() {
+            return Err(fault);
+        }
+        // As the device's sealer: too short is `ERR_INVALID`, another key's
+        // value `ERR_NOT_FOUND`.
+        let body_len = sealed.len().checked_sub(28).ok_or(ERR_INVALID)?;
         let (body, tag) = sealed.split_at(12 + body_len);
         if self.tag(aad, body) != tag {
-            return Err(ERR_IO);
+            return Err(ERR_NOT_FOUND);
         }
         let out = out.get_mut(..body_len).ok_or(ERR_NO_SPACE)?;
         for (i, b) in body[12..].iter().enumerate() {
@@ -211,6 +226,7 @@ struct Host {
     source: Source,
     has_source: bool,
     notices: Cell<u32>,
+    unopened: Cell<u32>,
 }
 impl SecretsHost for Host {
     fn storage(&self) -> &dyn Storage {
@@ -224,6 +240,9 @@ impl SecretsHost for Host {
     }
     fn unreadable(&self) {
         self.notices.set(self.notices.get() + 1);
+    }
+    fn unopened(&self) {
+        self.unopened.set(self.unopened.get() + 1);
     }
 }
 
@@ -401,6 +420,7 @@ fn host(seal: Seal) -> Rc<Host> {
         },
         has_source: true,
         notices: Cell::new(0),
+        unopened: Cell::new(0),
     })
 }
 
@@ -741,6 +761,52 @@ fn a_device_that_does_not_seal_refuses_keep_and_writes_nothing_but_still_reads_v
 }
 
 #[test]
+fn a_sealed_line_that_does_not_open_tells_the_host_and_a_veiled_or_good_one_does_not() {
+    with_view(|v| {
+        v.keep("mail", "password", "", "pw").unwrap();
+        assert_eq!(v.get("mail", "password").unwrap().0, "pw");
+        assert_eq!(v.host.unopened.get(), 0, "it opened");
+        // Interface 6's veiled values open everywhere.
+        let mut file = interface6(&[("stats.webdav", "stats.webdav", false, "d")]);
+        file.extend_from_slice(&v.host.card.file());
+        v.host.card.put(file::FILE, &file);
+        assert_eq!(v.get("stats", "webdav").unwrap().0, "d");
+        assert_eq!(v.host.unopened.get(), 0);
+        // A line sealed on another device (here: bytes no key here opens).
+        file.extend_from_slice(b"mail.other\t\t\ts1:");
+        file.extend_from_slice(&[b'0'; 2 * 30]);
+        file.push(b'\n');
+        v.host.card.put(file::FILE, &file);
+        assert_eq!(v.get("mail", "other").err(), Some(ERR_NOT_FOUND));
+        assert_eq!(v.host.unopened.get(), 1, "told once for the call");
+        // Each call that meets it says so; the kernel tells the user once.
+        assert_eq!(v.get("mail", "password").unwrap().0, "pw");
+        assert!(v.host.unopened.get() >= 1);
+    });
+}
+
+#[test]
+fn a_line_that_does_not_open_stays_byte_for_byte_until_its_plugin_saves_anew() {
+    // A test image's value (#2460's form) or another device's: no key opens it.
+    let foreign: &[u8] = b"wifi.Home\tHome\t\ts1:fe5645494c3b1dc5a1b2c3d4\n";
+    with_view(|v| {
+        v.host.card.put(file::FILE, foreign);
+        assert_eq!(v.get("wifi", "Home").err(), Some(ERR_NOT_FOUND));
+        // Other saves and the start-up upgrade keep it as it is.
+        v.keep("mail", "password", "", "pw").unwrap();
+        assert_eq!(v.services().upgrade(), Ok(false));
+        let file = v.host.card.file();
+        assert!(file.windows(foreign.len()).any(|w| w == foreign));
+        // Its own plugin saves a new value: that one replaces it, sealed.
+        v.keep("wifi", "Home", "Home", "new").unwrap();
+        assert_eq!(v.get("wifi", "Home").unwrap().0, "new");
+        let file = v.host.card.file();
+        assert!(!file.windows(foreign.len()).any(|w| w == foreign));
+        assert_eq!(text(&file).matches("wifi.Home").count(), 1);
+    });
+}
+
+#[test]
 fn a_failed_upgrade_leaves_the_veiled_lines_as_they_are() {
     let old = interface6(&[("mail.password", "mail.password", false, "old-pw")]);
     with_host(host(Seal::new(9)), true, |v| {
@@ -751,6 +817,29 @@ fn a_failed_upgrade_leaves_the_veiled_lines_as_they_are() {
         v.host.card.fail_rename.set(false);
         assert_eq!(v.services().upgrade(), Ok(true));
         assert!(text(&v.host.card.file()).contains("s1:"));
+    });
+}
+
+#[test]
+fn an_upgrade_with_weak_numbers_changes_nothing_and_says_so_until_they_are_strong() {
+    let old = interface6(&[("mail.password", "mail.password", false, "old-pw")]);
+    let seal = Seal::new(9);
+    let weak = seal.weak.clone();
+    with_host(host(seal), true, |v| {
+        v.host.card.put(file::FILE, &old);
+        // A power cut left a part of a rewrite: it is no file of ours.
+        v.host.card.put(file::TEMP, b"mail.password\t\t\ts1:00");
+        weak.set(true);
+        // At start, the radio off: nothing sealed, the shell tries again.
+        assert_eq!(v.services().upgrade(), Err(ERR_STATE));
+        assert_eq!(v.host.card.file(), old);
+        assert_eq!(v.get("mail", "password").unwrap().0, "old-pw");
+        // The radio on: sealed, and the value reads as before.
+        weak.set(false);
+        assert_eq!(v.services().upgrade(), Ok(true));
+        assert!(text(&v.host.card.file()).contains("s1:"));
+        assert_eq!(v.get("mail", "password").unwrap().0, "old-pw");
+        assert_eq!(v.services().upgrade(), Ok(false), "once");
     });
 }
 
@@ -1318,6 +1407,30 @@ fn a_secret_after_an_over_long_line_is_still_read_and_the_long_line_kept() {
             after.starts_with(long.as_bytes()),
             "the long line is kept first"
         );
+        assert_eq!(v.get("mail", "password").unwrap().0, "pw");
+    });
+}
+
+/// Senior R1 (#254): only the sealer's `ERR_NOT_FOUND` is "another device". A
+/// busy flash (an update holds it) or one that does not read is absent for
+/// the call, and nobody is told the values came from elsewhere.
+#[test]
+fn a_busy_or_unreadable_flash_is_not_another_device() {
+    with_view(|v| {
+        v.keep("mail", "password", "", "pw").unwrap();
+        for fault in [ERR_BUSY, ERR_IO] {
+            v.host.seal.open_fault.set(Some(fault));
+            assert_eq!(v.get("mail", "password").err(), Some(ERR_NOT_FOUND));
+            assert_eq!(v.host.unopened.get(), 0, "not another device");
+        }
+        // A value too short to be sealed is damaged, not another device's.
+        v.host.seal.open_fault.set(None);
+        let mut file = v.host.card.file();
+        file.extend_from_slice(b"mail.short\t\t\ts1:00aa\n");
+        v.host.card.put(file::FILE, &file);
+        assert_eq!(v.get("mail", "short").err(), Some(ERR_NOT_FOUND));
+        assert_eq!(v.host.unopened.get(), 0);
+        // The flash is back: the value opens again.
         assert_eq!(v.get("mail", "password").unwrap().0, "pw");
     });
 }

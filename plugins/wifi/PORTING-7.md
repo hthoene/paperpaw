@@ -144,6 +144,12 @@ existed and is not repeated; the random old-vs-new policy runs (200 runs of 40 e
   still not run on a host. Kernel's audit (#2269) reads the remaining markers H3, H4, H1 and `NET-serve-event` as
   stale for the host (compose, staged Wi-Fi commands, the status value and `serve` from the radio's event are
   there); the cases stay ignored until a run on the host shows each one, not on a reading.
+- **Differences to Beta 3 found with the headless run on the flip (#243):** the radio row of the Wi-Fi page has no
+  value text and is told as a switch (`RowItem::on`), so it reads `Wi-Fi, Connected to <network> (<address>)` or
+  `Wi-Fi, Off` as in Beta 3 (the headless test `online_from_the_start_with_wifi_online` pins it; the plugin has no
+  unit test of the row, it is made from the host's texts). The status item answers the host's `core.status` ask
+  (`native_plugin/events.rs`, `status`) with the item's label (*Wi-Fi*) while a network is joined, not the network's
+  name and not the icon Beta 3 drew; a drawn value (`StatusAnswer::drawn`) needs the host's status draw.
 - **Host admission of event subscriptions (found with `tests/hosted_construction.rs`, which runs now that
   Services' #1111 admits them):** the host refused tags 92 (`wifi_scanned`), 94 (`network_wanted`) and 95 (`network_idle`) at `make`
   (`Factory(-1)`; 71, 93, 101, 102 and the others are admitted), so the native Wi-Fi is not registered in the

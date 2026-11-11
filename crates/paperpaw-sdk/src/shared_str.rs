@@ -27,6 +27,14 @@ impl Str {
     pub fn as_str(&self) -> &str {
         self.0.as_ref()
     }
+
+    /// The text where it is kept in the program, `None` where it is owned
+    /// (see [`Id::kept`](crate::Id::kept)).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn kept(&self) -> Option<&'static str> {
+        self.0.kept()
+    }
 }
 
 impl Default for Str {

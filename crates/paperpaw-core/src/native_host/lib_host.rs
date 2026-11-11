@@ -11,6 +11,7 @@
 //! where one of those names also exists), as `core.files` decides it
 //! ([`excluded_on`]; it over-refuses where it cannot tell).
 use super::lib_changed::{self, Changes};
+use super::lib_cover::{self, CoverCx};
 use super::lib_edits::LibEdits;
 use super::lib_import::plan;
 use super::lib_moves_service::LibraryMoves;
@@ -24,7 +25,8 @@ use super::registrations::{self as wire};
 use super::storage_files::{BusySources, excluded_on};
 use crate::abi7::context::RowsEnd;
 use alloc::rc::Rc;
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_NOT_FOUND, ERR_UNSUPPORTED, OK};
+use core::cell::Cell;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NOT_FOUND, ERR_UNSUPPORTED, OK};
 use paperpaw_platform::Storage;
 
 /// `core.library` over the catalog on `storage`.
@@ -42,7 +44,36 @@ pub(crate) struct LibraryHost {
     sources: Option<Rc<BusySources>>,
     /// What changed, for `event.library_changed` (the kernel's pump takes it).
     changes: Changes,
+    /// A view of the library asked (op 1 or 2) since the start or the last
+    /// wake, and whether the kernel's pump has yet to want the catalog for it.
+    catalog_asked: Cell<bool>,
+    catalog_wanted: Cell<bool>,
+    /// The `cover` calls in a row that answered "the format is not running
+    /// yet" and told the caller to ask again (bit 6); at [`COVER_RETRIES`]
+    /// it stops telling, so a start that never ends cannot loop a caller
+    /// that redraws on the event. A cover made starts it again.
+    cover_retries: core::cell::Cell<u8>,
+    /// The cover job's failed books (`lib_cover::path_key`, 0: a free place),
+    /// the oldest given way to: their op 7 is `ERR_NOT_FOUND` (no cover), never
+    /// busy again. Kept in memory only, one array, nothing grows.
+    cover_failed: core::cell::Cell<[u64; COVER_FAILED]>,
+    cover_failed_next: core::cell::Cell<u8>,
+    /// Jobs that failed in a row. The first [`COVER_FAILED`] raise
+    /// `library_changed` for their end; after that none does, so a run of
+    /// failing books cannot loop a screen that redraws on it. A job that is
+    /// ready, or the next start, resets it.
+    cover_job_fails: core::cell::Cell<u8>,
+    /// What the device's wirings told (the screen's long side for op 7).
+    policy: Option<Rc<super::lib_edits::EditPolicy>>,
 }
+
+/// How often in a row a busy `cover` raises bit 6 (the format's start is
+/// asked for with the first).
+const COVER_RETRIES: u8 = 6;
+
+/// How many failed books the host remembers, and how many failed jobs in a row
+/// still raise an event.
+const COVER_FAILED: usize = 8;
 
 impl LibraryHost {
     pub(crate) fn new(
@@ -57,6 +88,13 @@ impl LibraryHost {
             moves,
             sources: None,
             changes: Changes::default(),
+            catalog_asked: Cell::new(false),
+            catalog_wanted: Cell::new(false),
+            cover_retries: core::cell::Cell::new(0),
+            cover_failed: core::cell::Cell::new([0; COVER_FAILED]),
+            cover_failed_next: core::cell::Cell::new(0),
+            cover_job_fails: core::cell::Cell::new(0),
+            policy: None,
         }
     }
 
@@ -65,6 +103,17 @@ impl LibraryHost {
     pub(crate) fn with_busy_sources(mut self, sources: Rc<BusySources>) -> Self {
         self.sources = Some(sources);
         self
+    }
+
+    /// Puts the book with `key` into the failure ring (the oldest gives way).
+    fn remember_failed(&self, key: u64) {
+        let mut failed = self.cover_failed.get();
+        let at = usize::from(self.cover_failed_next.get()) % COVER_FAILED;
+        if key != 0 && !failed.contains(&key) {
+            failed[at] = key;
+            self.cover_failed.set(failed);
+            self.cover_failed_next.set(((at + 1) % COVER_FAILED) as u8);
+        }
     }
 
     /// Notes that `what` (the bits of [`super::lib_changed`]) changed for the
@@ -81,7 +130,8 @@ impl LibraryHost {
     /// said ([`EditPolicy`]), whenever they came.
     #[must_use]
     pub(crate) fn with_policy(mut self, policy: Rc<super::lib_edits::EditPolicy>) -> Self {
-        self.edits = self.edits.with_policy(policy);
+        self.edits = self.edits.with_policy(policy.clone());
+        self.policy = Some(policy);
         self
     }
 
@@ -128,12 +178,46 @@ impl LibraryHost {
 }
 
 impl LibQuery for LibraryHost {
+    /// As `documents` named it, in whichever wiring call; unsupported (and so
+    /// op 7) before.
+    fn screen_long_side(&self) -> Result<u32, i32> {
+        self.policy
+            .as_ref()
+            .and_then(|policy| policy.long_side())
+            .ok_or(ERR_UNSUPPORTED)
+    }
     fn state(&self, visit: One<'_>) -> Result<(), i32> {
+        self.view_asked();
         self.reads.state(visit)
     }
-    fn query(&self, query: &wire::ServiceLibQuery<'_>, visit: Rows<'_>) -> Result<RowsEnd, i32> {
+    fn query(
+        &self,
+        query: &wire::ServiceLibQuery<'_>,
+        archive: &str,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        self.view_asked();
+        self.reads.query_hiding(
+            query,
+            archive,
+            &|path| self.deleted(BookRef::Path(path)),
+            visit,
+        )
+    }
+    fn next_in_series(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
+        self.visible(book)?;
         self.reads
-            .query_hiding(query, &|path| self.deleted(BookRef::Path(path)), visit)
+            .next_in_series_hiding(book, &|path| self.deleted(BookRef::Path(path)), visit)
+    }
+    fn fields(
+        &self,
+        book: BookRef<'_>,
+        cursor: u32,
+        generation: u32,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        self.visible(book)?;
+        self.reads.fields(book, cursor, generation, visit)
     }
     fn book(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         self.visible(book)?;
@@ -154,6 +238,83 @@ impl LibQuery for LibraryHost {
     fn book_key(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         self.visible(book)?;
         self.reads.book_key(book, visit)
+    }
+    /// The cover is made by `core.document` from the book's format, in the
+    /// caller's frame (`lib_cover`).
+    fn cover(
+        &self,
+        who: &Caller<'_>,
+        book: BookRef<'_>,
+        side: u32,
+        cx: &CoverCx<'_>,
+        visit: One<'_>,
+    ) -> Result<(), i32> {
+        self.visible(book)?;
+        // The path is copied out of the catalog read: the format call takes
+        // the frame, not a borrow of the catalog.
+        let path = self.reads.path_of(book, lib_cover::owned)?;
+        // A book whose cover job failed has no cover: not asked again.
+        if self
+            .cover_failed
+            .get()
+            .contains(&lib_cover::path_key(&path))
+        {
+            return Err(ERR_NOT_FOUND);
+        }
+        match lib_cover::make(cx, who, &path, side, visit) {
+            // Preparing (DOCX, MOBI): the book is the cover job, or waits for
+            // it; `cover_job_ended` raises bit 6 when the job has ended.
+            Ok(lib_cover::Covered::Queued) => Err(ERR_BUSY),
+            // The card does not take the job's marker: no cover, and not
+            // asked for again (the failure ring), or a screen would loop.
+            Ok(lib_cover::Covered::Failed) => {
+                self.remember_failed(lib_cover::path_key(&path));
+                Err(ERR_NOT_FOUND)
+            }
+            Ok(lib_cover::Covered::Done) => {
+                self.cover_retries.set(0);
+                Ok(())
+            }
+            // A format that is not running yet (its start is requested) is
+            // there a moment later: the plugin that was told "busy" is told
+            // to ask again (bit 6). Nothing makes the cover in the background
+            // in this version.
+            Err(ERR_BUSY) => {
+                let raised = self.cover_retries.get();
+                if raised < COVER_RETRIES {
+                    self.cover_retries.set(raised + 1);
+                    self.changes.raise(lib_changed::COVER, &path);
+                }
+                Err(ERR_BUSY)
+            }
+            // No place in the caller's document table does not clear by
+            // itself (the caller closes a document): busy, and no event, or
+            // a caller that redraws on it would ask again for ever.
+            Err(ERR_FULL) => Err(ERR_BUSY),
+            Err(other) => Err(other),
+        }
+    }
+    fn cover_job_left(&self, key: u64) {
+        self.remember_failed(key);
+    }
+    fn cover_jobs_began(&self) {
+        self.changes.raise(lib_changed::COVER, "");
+    }
+    fn cover_job_ended(&self, ready: bool, key: u64) {
+        if ready {
+            self.cover_job_fails.set(0);
+        } else {
+            self.remember_failed(key);
+            self.cover_job_fails
+                .set(self.cover_job_fails.get().saturating_add(1));
+        }
+        // The screen asks again for what it shows: the book that is ready
+        // gets its cover, a failed one is not found, and the next waiting
+        // book starts its job. After [`COVER_FAILED`] failed jobs in a row no more
+        // is raised.
+        if usize::from(self.cover_job_fails.get()) <= COVER_FAILED {
+            self.changes.raise(lib_changed::COVER, "");
+        }
     }
     fn position(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         self.visible(book)?;
@@ -203,6 +364,17 @@ impl LibWrite for LibraryHost {
 
     fn stored_position(&self, book: BookRef<'_>) -> Result<Option<StoredPosition>, i32> {
         self.reads.stored_position(book)
+    }
+
+    /// The catalogued book's root-1 path (by key, the path the catalog keeps
+    /// for it), for the `lib_result` of op 14; `ERR_NOT_FOUND` for a book a
+    /// pending delete holds, as for the reads.
+    fn book_path(&self, book: BookRef<'_>, visit: &mut dyn FnMut(&str)) -> Result<(), i32> {
+        self.visible(book)?;
+        self.reads.path_of(book, |path| {
+            visit(path);
+            Ok(())
+        })
     }
 
     /// A local or confirmed position is the book's own: the carry never
@@ -375,6 +547,18 @@ impl LibWrite for LibraryHost {
         self.pending_change(visit)
     }
 
+    fn take_catalog_wanted(&self) -> bool {
+        self.catalog_wanted.replace(false)
+    }
+
+    fn catalog_ask_again(&self) {
+        self.catalog_asked.set(false);
+    }
+
+    fn catalog_changed(&self) {
+        self.raise_changed(lib_changed::BOOKS | lib_changed::WALK, "");
+    }
+
     /// A field is part of the book's details, which a move carries: a book the
     /// job holds is `ERR_BUSY` (as for `provide`).
     fn set_field(&self, book: BookRef<'_>, field: &str, value: &str) -> Result<(), i32> {
@@ -386,6 +570,16 @@ impl LibWrite for LibraryHost {
 }
 
 impl LibraryHost {
+    /// A view of the library reads it (op 1 or 2): the first since the start or
+    /// the last wake wants the catalog, as Beta 3's library view did when it
+    /// showed (the kernel walks it where it was not walked since, or is not
+    /// there). Once: the queries after it want nothing.
+    fn view_asked(&self) {
+        if !self.catalog_asked.replace(true) {
+            self.catalog_wanted.set(true);
+        }
+    }
+
     /// `event.library_changed`'s change, as the pump takes it, with the
     /// catalog's generation (0 where the card cannot tell it now: the plugin
     /// reads again either way).

@@ -104,3 +104,24 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
         );
     }
 }
+
+/// Every linked plugin's ids and titles stay where the program keeps them
+/// (its id table and its image): none is copied onto the heap, the saving of
+/// #248 (about 9 KiB on the X4 for 22 plugins). A plugin added without its id
+/// table, or a title the host copies again, shows here by kind and id.
+#[test]
+fn no_linked_plugin_keeps_a_copy_of_its_ids_or_titles() {
+    let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
+    let builder = Kernel::builder(DEVICE).storage(storage);
+    let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
+    let _ = kernel.start(Instant(0));
+    assert!(
+        kernel
+            .actions()
+            .iter()
+            .any(|action| action.native().is_some()),
+        "linked plugins with actions are registered"
+    );
+    let owned = kernel.owned_native_texts();
+    assert!(owned.is_empty(), "{} copies: {owned:#?}", owned.len());
+}

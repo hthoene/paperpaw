@@ -73,6 +73,43 @@ fn the_file_a_hand_over_names_opens_read_only_from_its_makers_folder() {
     }
 }
 
+/// What a maker like fonts-browser or About hands the reader: the root and
+/// the path, and a reader's own place keys beside them (`root` is a key of
+/// the hand-over, the others are not the host's business).
+#[test]
+fn a_hand_over_with_a_places_keys_beside_root_and_path_still_names_the_file() {
+    world(|w| {
+        w.install("md", EPUB, &[format("md", "md", 0, 0)]);
+        w.install("maker", MAKER, &[]);
+        hand_over(
+            w,
+            MAKER,
+            4,
+            &[
+                p("path", "licences.md"),
+                p("section", "2"),
+                p("offset", "10"),
+                p("root", "0"),
+            ],
+        );
+        w.card.write(&card_path(0, "licences.md"), b"text").unwrap();
+        assert!(open5(w, "licences.md").is_ok());
+    });
+}
+
+/// The reader's own code for a handed book (`5`) is not a root the host takes
+/// from a hand-over: the maker names its folder.
+#[test]
+fn the_readers_own_code_is_not_a_root_of_a_hand_over() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.install("maker", MAKER, &[]);
+        hand_over(w, MAKER, 4, &[p("root", "5"), p("path", "licences.md")]);
+        w.card.write(&card_path(0, "licences.md"), b"text").unwrap();
+        assert_eq!(open5(w, "licences.md").err(), Some(ERR_DENIED));
+    });
+}
+
 #[test]
 fn another_path_no_hand_over_or_a_css_file_there_is_denied() {
     world(|w| {
@@ -150,7 +187,7 @@ fn a_maker_that_goes_while_its_file_is_open_ends_the_document_and_its_hold() {
         );
         let mut out = [0_u8; 64];
         let length = w.state.next_event(OPENER, &mut out).unwrap().unwrap();
-        match wire::record_decode_one(&out[..length]).unwrap() {
+        match crate::native_host::codec::decode_any_single(&out[..length]).unwrap() {
             Record::EventDocumentClosed(event) => {
                 assert_eq!((event.document, event.reason), (document, 3));
             }

@@ -22,20 +22,21 @@ use crate::native_state;
 pub const OPEN_LAST: &str = "reader.open-last";
 
 /// Opens the book read last, if the setting asks for it and the book is still
-/// on the card. Nothing to open is not an error.
+/// on the card; the [`book_key`] of the book it asked to open. Nothing to open is
+/// not an error.
 ///
 /// # Errors
 /// `NoMemory` and the host's refusals.
-pub fn reopen_last(host: &Host<'_>, ui: &Ui) -> Result<(), Error> {
+pub fn reopen_last(host: &Host<'_>, ui: &Ui) -> Result<Option<u64>, Error> {
     let mut bytes = [0; 32];
     if !matches!(
         settings::read_setting(host, OPEN_LAST, &mut bytes)?,
         SettingValue::Bool(true)
     ) {
-        return Ok(());
+        return Ok(None);
     }
     let Some(path) = last_book(host)? else {
-        return Ok(());
+        return Ok(None);
     };
     match on_the_card(host, &path)? {
         Card::There => {}
@@ -44,9 +45,9 @@ pub fn reopen_last(host: &Host<'_>, ui: &Ui) -> Result<(), Error> {
         // forgets nothing.
         Card::Gone => {
             paperpaw_sdk::native::storage::remove(host, Root::Data, native_state::STATE).ok();
-            return Ok(());
+            return Ok(None);
         }
-        Card::Unknown => return Ok(()),
+        Card::Unknown => return Ok(None),
     }
     // A path of at most 512 bytes (`MAX_PATH`) and its key in; the host asks for room
     // for the largest answer of the operation (`max_reply` 4,096), though the handle is 8.
@@ -54,7 +55,37 @@ pub fn reopen_last(host: &Host<'_>, ui: &Ui) -> Result<(), Error> {
     let params = [Param::new("path", &path)?];
     let handover = ui.handover(host, &params, &mut input, &mut out)?;
     let mut scratch = [0; 256];
-    CommandSender::new(host, &mut scratch).open(Open::slot("core.reader")?.handover(handover))
+    CommandSender::new(host, &mut scratch)
+        .open(Open::slot("core.reader")?.handover(handover))
+        .map(|()| Some(book_key(&path)))
+}
+
+/// A book's path as the start keeps it while the book opens: a hash, nothing held.
+#[must_use]
+pub fn book_key(path: &str) -> u64 {
+    paperpaw_sdk::digest::fnv1a64(path)
+}
+
+/// How long *Read aloud* pressed while the book read last opens is kept.
+pub const KEEP_ALOUD_MS: u64 = 10_000;
+
+/// Whether *Read aloud*, pressed at `asked_ms` while the book `reopened` opened,
+/// reads the book `shown` that a reading screen shows at `now_ms`: only that book
+/// (a failed open shows none), and only soon after. A book the user chose later
+/// is never read aloud by it.
+#[must_use]
+pub fn reads_aloud(
+    asked_ms: Option<u64>,
+    reopened: Option<u64>,
+    now_ms: u64,
+    shown: Option<u64>,
+) -> bool {
+    match (asked_ms, reopened, shown) {
+        (Some(asked), Some(book), Some(shown)) => {
+            book == shown && now_ms.saturating_sub(asked) <= KEEP_ALOUD_MS
+        }
+        _ => false,
+    }
 }
 
 /// The book `state.ini` names, if it has one.
@@ -124,6 +155,26 @@ pub fn follow(host: &Host<'_>, from: &str, to: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn read_aloud_kept_at_the_start_reads_only_the_book_reopened_and_soon() {
+        let (last, other) = (book_key("books/a.txt"), book_key("books/b.txt"));
+        assert!(reads_aloud(Some(100), Some(last), 900, Some(last)));
+        // Another book on show (the user chose it): not read aloud.
+        assert!(!reads_aloud(Some(100), Some(last), 900, Some(other)));
+        // The book did not open (the screen says so): nothing.
+        assert!(!reads_aloud(Some(100), Some(last), 900, None));
+        // Long after: dropped.
+        assert!(!reads_aloud(
+            Some(100),
+            Some(last),
+            100 + KEEP_ALOUD_MS + 1,
+            Some(last)
+        ));
+        // Nothing asked, or nothing reopened.
+        assert!(!reads_aloud(None, Some(last), 900, Some(last)));
+        assert!(!reads_aloud(Some(100), None, 900, Some(last)));
+    }
 
     /// The state a move leaves: the new path, read back as the last book.
     #[test]

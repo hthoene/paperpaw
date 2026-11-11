@@ -87,12 +87,12 @@ pub(crate) struct FormatIndex {
 /// A page of rows: the position after it and the identity it was cut from.
 type Rows<'a> = &'a mut dyn FnMut(Record<'_>) -> ControlFlow<()>;
 
-fn extensions_of(list: &str) -> impl Iterator<Item = &str> {
+pub(crate) fn extensions_of(list: &str) -> impl Iterator<Item = &str> {
     list.split('\n').filter(|_| !list.is_empty())
 }
 
 /// Whether `path` ends in `.extension`, ignoring ASCII case (FAT does).
-fn has_extension(path: &str, extension: &str) -> bool {
+pub(crate) fn has_extension(path: &str, extension: &str) -> bool {
     let (path, extension) = (path.as_bytes(), extension.as_bytes());
     path.len() > extension.len()
         && path[path.len() - extension.len() - 1] == b'.'

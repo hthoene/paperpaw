@@ -63,6 +63,9 @@ pub(crate) struct HostServices {
     /// The firmware request table (op 13 reads the state of a request and the
     /// outcome kept for it). One per device.
     firmware_requests: OnceCell<Rc<RefCell<super::firmware_driver::Driver>>>,
+    /// The kernel's table of Wi-Fi requests, which a callback's stage
+    /// reserves `join` and `host` in (`commands_dev.rs`). One per device.
+    radio_requests: OnceCell<Rc<RefCell<super::radio_requests::RadioRequests>>>,
     net: OnceCell<NetServices>,
     sockets: OnceCell<SockServices>,
     work: OnceCell<WorkServices>,
@@ -75,6 +78,8 @@ pub(crate) struct HostServices {
     /// The ids of the plugins linked into the firmware (root 2 of the file
     /// service has no install folder for them).
     linked: OnceCell<Rc<super::linked_plugins::LinkedPlugins>>,
+    /// The folders of the running data plugins (root 1 shows them read only).
+    data_plugins: OnceCell<Rc<super::data_plugin_folders::DataPluginFolders>>,
     /// The device's facts the library's transactions read (memory class,
     /// clock), told by the wirings in any order.
     edit_policy: OnceCell<Rc<super::lib_edits::EditPolicy>>,
@@ -144,6 +149,7 @@ impl HostServices {
             device: OnceCell::new(),
             firmware: OnceCell::new(),
             firmware_requests: OnceCell::new(),
+            radio_requests: OnceCell::new(),
             net: OnceCell::new(),
             sockets: OnceCell::new(),
             work: OnceCell::new(),
@@ -151,6 +157,7 @@ impl HostServices {
             library_moves: OnceCell::new(),
             busy: OnceCell::new(),
             linked: OnceCell::new(),
+            data_plugins: OnceCell::new(),
             edit_policy: OnceCell::new(),
             in_use: OnceCell::new(),
             policy: OnceCell::new(),
@@ -333,10 +340,6 @@ impl HostServices {
     /// root 5 (see [`super::ui_store::UiStore::handed_file`]); the instance is
     /// the caller's (`Frame::calling_instance`). `ERR_UNSUPPORTED` while no
     /// `core.ui` store is wired.
-    #[allow(
-        dead_code,
-        reason = "Host's doc_open root 5 calls it (todo 410); tests do today"
-    )]
     pub(crate) fn handed_file(
         &self,
         instance: u32,
@@ -369,6 +372,22 @@ impl HostServices {
     /// The firmware request table, where wired.
     pub(crate) fn firmware_requests(&self) -> Option<&Rc<RefCell<super::firmware_driver::Driver>>> {
         self.firmware_requests.get()
+    }
+
+    /// Wire the kernel's Wi-Fi request table; the first wiring stays (the
+    /// kernel has one table).
+    pub(crate) fn wire_radio_requests(
+        &self,
+        table: &Rc<RefCell<super::radio_requests::RadioRequests>>,
+    ) {
+        let _ = self.radio_requests.set(Rc::clone(table));
+    }
+
+    /// The kernel's Wi-Fi request table, where wired.
+    pub(crate) fn radio_requests(
+        &self,
+    ) -> Option<&Rc<RefCell<super::radio_requests::RadioRequests>>> {
+        self.radio_requests.get()
     }
 
     /// Wire the firmware install machine once.
@@ -437,6 +456,11 @@ impl HostServices {
     /// The linked plugin ids, made on first use.
     pub(crate) fn linked(&self) -> &Rc<super::linked_plugins::LinkedPlugins> {
         self.linked.get_or_init(Default::default)
+    }
+
+    /// The running data plugins' folders, made on first use.
+    pub(crate) fn data_plugins(&self) -> &Rc<super::data_plugin_folders::DataPluginFolders> {
+        self.data_plugins.get_or_init(Default::default)
     }
 
     /// The device's network pool, if a service has made it.
