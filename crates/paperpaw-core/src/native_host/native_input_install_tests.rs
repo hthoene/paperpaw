@@ -34,6 +34,9 @@ std::thread_local! {
     pub(super) static STAGED: RefCell<Option<Vec<u8>>> = const { RefCell::new(None) };
     pub(super) static STAGED_ON_SHOWN: Cell<bool> = const { Cell::new(false) };
     pub(super) static STAGED_ANSWER: Cell<i32> = const { Cell::new(1) };
+    /// The features the next installed plugin is admitted with.
+    pub(super) static FEATURES: Cell<crate::native_host::admitted_features::AdmittedFeatures> =
+        const { Cell::new(crate::native_host::admitted_features::AdmittedFeatures::NONE) };
     /// With a store, the callback makes a hand-over in it first (`page = 3`) and
     /// submits an `open` of `factory.screen` naming it, as the staged batch
     /// (the second: the id it names instead of the made one, 0 for the made one).
@@ -342,5 +345,7 @@ fn nothing_reaches_a_screen_below_a_guard() {
     assert_eq!(owners().len(), 1, "{:?}", owners());
 }
 
+#[path = "native_dev_screen_tests.rs"]
+mod dev_commands;
 #[path = "native_screen_command_tests.rs"]
 mod screen_commands;
