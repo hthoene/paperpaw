@@ -18,9 +18,35 @@ use core::sync::atomic::{AtomicPtr, Ordering};
 static BEGIN: AtomicPtr<()> = AtomicPtr::new(ptr::null_mut());
 static END: AtomicPtr<()> = AtomicPtr::new(ptr::null_mut());
 
+/// How many steps are open (a job's close inside another of its steps, a
+/// displaced job closed while a step runs): the shell hears the outermost
+/// only. The core runs on one thread; tests count per test thread.
+#[cfg(not(test))]
+static DEPTH: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+/// Adds `up` (1 or -1 as wrapping) to the open steps; the count before.
+#[cfg(not(test))]
+fn depth(up: u32) -> u32 {
+    DEPTH.fetch_add(up, Ordering::AcqRel)
+}
+
+#[cfg(test)]
+fn depth(up: u32) -> u32 {
+    extern crate std;
+    std::thread_local! {
+        static DEPTH: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
+    }
+    DEPTH.with(|depth| {
+        let before = depth.get();
+        depth.set(before.wrapping_add(up));
+        before
+    })
+}
+
 /// Sets what runs when a background job step begins and ends (once, at start;
 /// a shell with one core and one set of hooks). Each `begin` is followed by
-/// its `end`, also when the step fails; steps do not nest.
+/// its `end`, also when the step fails. Steps inside a step are counted:
+/// `begin` runs when the first opens, `end` when the last has ended.
 pub fn set(begin: fn(), end: fn()) {
     // A function pointer kept as a data pointer (its provenance with it).
     BEGIN.store(begin as *mut (), Ordering::Release);
@@ -44,13 +70,18 @@ pub(crate) struct Step(());
 /// Begins a background job step: hold the result until the format's call
 /// returned.
 pub(crate) fn enter() -> Step {
-    call(&BEGIN);
+    if depth(1) == 0 {
+        call(&BEGIN);
+    }
     Step(())
 }
 
 impl Drop for Step {
     fn drop(&mut self) {
-        call(&END);
+        // Each `Step` added one, so this never goes below zero.
+        if depth(u32::MAX) == 1 {
+            call(&END);
+        }
     }
 }
 
@@ -90,5 +121,22 @@ pub(crate) mod tests {
             assert_eq!(steps(), (1, 0));
         }
         assert_eq!(steps(), (1, 1));
+    }
+
+    #[test]
+    fn steps_inside_a_step_tell_only_the_outermost() {
+        let steps = count();
+        {
+            let _outer = super::enter();
+            {
+                let _inner = super::enter();
+                let _innermost = super::enter();
+                assert_eq!(steps(), (1, 0));
+            }
+            assert_eq!(steps(), (1, 0), "the outer step is still open");
+        }
+        assert_eq!(steps(), (1, 1));
+        let _again = super::enter();
+        assert_eq!(steps(), (2, 1), "a new step after the last ended");
     }
 }

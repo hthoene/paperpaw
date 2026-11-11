@@ -1264,6 +1264,9 @@ impl super::doc_service::DocHost for Bound<'_> {
         }
         scratch.resize(4096, 0);
         let route = FrameRoute(self.frame);
+        // The host job's document (also when a book to show displaced it):
+        // its close is a step of the background job (`job_step`).
+        let _job = (document.owner == super::doc_service::HOST_JOB).then(super::job_step::enter);
         Stage {
             route: &route,
             images: &NoImages,

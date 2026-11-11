@@ -827,3 +827,21 @@ fn a_failed_job_step_ends_too() {
         assert_eq!(steps(), (1, 1));
     });
 }
+
+/// A book to show that displaces the job closes the job's document: that
+/// close (op 4) is a job step; the shown book's own calls are not.
+#[test]
+fn a_displaced_jobs_close_is_a_background_step() {
+    let steps = crate::native_host::job_step::tests::count();
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        job(w, "books/a.epub");
+        assert_eq!(steps(), (0, 0));
+        let before = ops(w).len();
+        *w.reply.borrow_mut() = Ok(fmt_state(READY, 0, 0));
+        w.open(1, "books/b.epub").unwrap();
+        assert!(w.state.table.cover_job().is_none(), "displaced");
+        assert!(ops(w)[before..].contains(&4), "{:?}", ops(w));
+        assert_eq!(steps(), (1, 1), "the job's close alone");
+    });
+}
