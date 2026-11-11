@@ -31,11 +31,19 @@ pub const WORK_DUE: u32 = 7;
 pub const SETTING_CHANGED: u32 = 8;
 /// A screen opened, closed or came to the top: reading aloud ends when the
 /// reading screen is no longer the one on top (`native_view/aloud.rs`).
-pub const STACK_CHANGED: u32 = 9;
+pub const STACK_CHANGED: u32 = 17;
 /// The host's answer to a sentence handed over (`event.spoken`, 89): it goes
 /// only to plugins that subscribed (`docs/abi/ui.md` 7), so without this
 /// reading aloud stops after one sentence.
 pub const SPOKEN: u32 = 16;
+/// The token of the search's background scan (`core.work`, key `search`): a step
+/// of the book is read each time. Not a subscription: the work's own token comes
+/// back in `event.work_due`, which the reader hears as `WORK_DUE`.
+#[allow(
+    dead_code,
+    reason = "the plugin's code uses it; the build script that includes this file does not"
+)]
+pub const SEARCH_WORK: u32 = 9;
 pub const FIRST_ACTION: u32 = 100;
 
 const BEHAVIOUR: &str = "core.group.reading-behaviour";

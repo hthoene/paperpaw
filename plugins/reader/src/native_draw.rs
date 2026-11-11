@@ -4,7 +4,7 @@
 //! reaches the host is [`draw_run`], which draws with the weight and the tone
 //! of the letters' edges the reading settings give (`native_look`). Lines of mixed direction are set in logical
 //! order; the lines under, over and through runs and a table's rules are drawn
-//! (`native_decor`), pictures are not yet (`PORTING-7.md`).
+//! (`native_decor`), and so are pictures (`canvas.draw_image`).
 use crate::native_decor::{decorate, draw_rules};
 use crate::native_look::Look;
 use crate::native_typeset::{Faces, HostFonts, Measure, Role};
@@ -17,6 +17,7 @@ use paperpaw_sdk::{
         callbacks::FrameRect,
         canvas::Canvas,
         fonts::{Font, Ink as Inking, TextOrigin},
+        image::{ImageId, ImageStyle},
     },
 };
 
@@ -42,6 +43,13 @@ pub trait Ink {
     /// # Errors
     /// The host's refusal.
     fn fill(&mut self, x: i32, y: i32, width: u32, height: u32) -> Result<(), Error>;
+
+    /// Draws the picture the host knows as `image`, scaled into the rectangle at
+    /// `(x, y)`, `width` by `height` pixels (`canvas.draw_image`).
+    ///
+    /// # Errors
+    /// The host's refusal.
+    fn image(&mut self, image: u32, x: i32, y: i32, width: u32, height: u32) -> Result<(), Error>;
 }
 
 /// The page's lines (and rules) drawn with their content box's top left at `(left, top)`.
@@ -108,7 +116,29 @@ pub fn draw_lines_marked<M: Measure>(
         }
         under.end(ink)?;
     }
-    draw_rules(ink, &page.rules, (left, top))
+    draw_rules(ink, &page.rules, (left, top))?;
+    draw_images(ink, page, (left, top))
+}
+
+/// The page's pictures, each scaled into the box the layout gave it. A picture
+/// whose handle the host no longer knows (it ended; the document is asked again
+/// at the next layout) or a host that draws no pictures leaves its place empty.
+fn draw_images(ink: &mut impl Ink, page: &Page, (left, top): (f32, f32)) -> Result<(), Error> {
+    for image in &page.images {
+        // Handle 0: the host had no id left to give (eight are out and none
+        // drawn yet); the place stays empty, the page still draws.
+        let Ok(handle @ 1..) = image.image.path.parse::<u32>() else {
+            continue;
+        };
+        let (x, y) = ((left + image.x + 0.5) as i32, (top + image.y + 0.5) as i32);
+        let width = (image.width + 0.5) as u32;
+        let height = (image.height + 0.5) as u32;
+        match ink.image(handle, x, y, width, height) {
+            Err(Error::NotFound | Error::Unsupported) => {}
+            other => other?,
+        }
+    }
+    Ok(())
 }
 
 /// The line under a stretch of marked words on one line of the page: it
@@ -249,6 +279,14 @@ impl Ink for HostInk<'_, '_> {
     fn fill(&mut self, x: i32, y: i32, width: u32, height: u32) -> Result<(), Error> {
         self.canvas
             .fill_rectangle(FrameRect::new(x, y, width, height), self.color)
+    }
+
+    fn image(&mut self, image: u32, x: i32, y: i32, width: u32, height: u32) -> Result<(), Error> {
+        self.canvas.draw_image(
+            ImageId::new(image)?,
+            FrameRect::new(x, y, width, height),
+            ImageStyle::new(),
+        )
     }
 }
 

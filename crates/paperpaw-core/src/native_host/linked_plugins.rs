@@ -31,6 +31,13 @@ impl core::fmt::Debug for LinkedPlugins {
 }
 
 impl LinkedPlugins {
+    /// Gives back the room kept while the ids were added one by one.
+    pub(crate) fn shrink_to_fit(&self) {
+        if let Ok(mut ids) = self.0.try_borrow_mut() {
+            super::shrink::shrink(&mut ids);
+        }
+    }
+
     /// Adds `id` (once).
     ///
     /// # Errors

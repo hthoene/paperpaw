@@ -51,6 +51,8 @@ impl Document for Book {
 struct Recorder {
     calls: Vec<(Role, i32, i32, String)>,
     fills: Vec<(i32, i32, u32, u32)>,
+    images: Vec<(u32, i32, i32, u32, u32)>,
+    image_error: Option<Error>,
     fail_at: Cell<Option<usize>>,
 }
 
@@ -72,6 +74,14 @@ impl Ink for Recorder {
 
     fn fill(&mut self, x: i32, y: i32, width: u32, height: u32) -> Result<(), Error> {
         self.fills.push((x, y, width, height));
+        Ok(())
+    }
+
+    fn image(&mut self, image: u32, x: i32, y: i32, width: u32, height: u32) -> Result<(), Error> {
+        if let Some(error) = self.image_error {
+            return Err(error);
+        }
+        self.images.push((image, x, y, width, height));
         Ok(())
     }
 }
@@ -218,6 +228,9 @@ fn a_refused_fill_ends_the_drawing() {
         fn fill(&mut self, _: i32, _: i32, _: u32, _: u32) -> Result<(), Error> {
             Err(Error::State)
         }
+        fn image(&mut self, _: u32, _: i32, _: i32, _: u32, _: u32) -> Result<(), Error> {
+            Ok(())
+        }
     }
     let (page, faces) = page("abc", TextStyle::UNDERLINE);
     assert!(draw_lines(&mut Refuses, &faces, &page, (0.0, 0.0)).is_err());
@@ -281,4 +294,65 @@ fn a_word_in_two_runs_is_one_word() {
     // "efg" is word 1: from its own start, after a space.
     let second = marked(&page, &faces, 1..2);
     assert_eq!(second.fills, [(84, second.calls[0].2 + 2, 30, 1)]);
+}
+
+fn picture_page(handle: &str) -> (Page, Faces<Fixed>) {
+    let mut block = Block::new(BlockKind::Image, 0, 1, String::new());
+    block.image = Some(paperpaw_sdk::document::ImageRef {
+        path: handle.into(),
+        width: 200,
+        height: 100,
+    });
+    let book = Book {
+        blocks: alloc::vec![block],
+        metadata: Metadata::default(),
+    };
+    let faces = Faces::new(Fixed, 20.0, 1.0).unwrap();
+    let style = Style::new(0.0, 0.0, 20.0, false);
+    let cx = LayoutContext::new(&book, &NoStorage, 400.0, &style, &faces);
+    (layout_page(&cx, Locator::START, 400.0).unwrap(), faces)
+}
+
+#[test]
+fn a_picture_is_drawn_scaled_into_the_box_the_layout_gave_it() {
+    let (page, faces) = picture_page("7");
+    let mut ink = Recorder::default();
+    draw_lines(&mut ink, &faces, &page, (30.0, 50.0)).unwrap();
+    // 200 by 100 fits a 400-wide, 400-high box at twice its size, centred.
+    assert_eq!(ink.images.len(), 1);
+    let (handle, x, y, w, h) = ink.images[0];
+    assert_eq!((handle, w, h), (7, 400, 200));
+    assert_eq!(x, 30);
+    assert!(y >= 50);
+}
+
+#[test]
+fn a_picture_the_host_does_not_know_leaves_its_place_empty() {
+    for error in [Error::NotFound, Error::Unsupported] {
+        let (page, faces) = picture_page("7");
+        let mut ink = Recorder {
+            image_error: Some(error),
+            ..Recorder::default()
+        };
+        draw_lines(&mut ink, &faces, &page, (0.0, 0.0)).unwrap();
+    }
+    // Handle 0 (the host had no id to give) is no picture either, and does not fail the page.
+    let (page, faces) = picture_page("0");
+    let mut ink = Recorder::default();
+    draw_lines(&mut ink, &faces, &page, (0.0, 0.0)).unwrap();
+    assert!(ink.images.is_empty());
+    // A handle that is no number is no picture; another refusal ends the drawing.
+    let (page, faces) = picture_page("x7");
+    let mut ink = Recorder::default();
+    draw_lines(&mut ink, &faces, &page, (0.0, 0.0)).unwrap();
+    assert!(ink.images.is_empty());
+    let (page, faces) = picture_page("7");
+    let mut ink = Recorder {
+        image_error: Some(Error::Io),
+        ..Recorder::default()
+    };
+    assert_eq!(
+        draw_lines(&mut ink, &faces, &page, (0.0, 0.0)),
+        Err(Error::Io)
+    );
 }

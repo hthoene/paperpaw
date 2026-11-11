@@ -11,6 +11,7 @@
 //! where one of those names also exists), as `core.files` decides it
 //! ([`excluded_on`]; it over-refuses where it cannot tell).
 use super::files_service::Access;
+use super::lib_changed::{self, Changes};
 use super::lib_moves_service::LibraryMoves;
 use super::lib_reads::{CatalogEnv, CatalogReads};
 use super::lib_service::{
@@ -34,6 +35,8 @@ pub(crate) struct LibraryHost {
     /// document, the reader's, a transfer's. A move over it is `ERR_BUSY`.
     /// Without it only the move job counts.
     sources: Option<Rc<BusySources>>,
+    /// What changed, for `event.library_changed` (the kernel's pump takes it).
+    changes: Changes,
 }
 
 impl LibraryHost {
@@ -47,6 +50,7 @@ impl LibraryHost {
             storage,
             moves,
             sources: None,
+            changes: Changes::default(),
         }
     }
 
@@ -54,6 +58,14 @@ impl LibraryHost {
     pub(crate) fn with_busy_sources(mut self, sources: Rc<BusySources>) -> Self {
         self.sources = Some(sources);
         self
+    }
+
+    /// Notes that `what` (the bits of [`super::lib_changed`]) changed for the
+    /// book at `path` (empty: no one book) so that the plugins that subscribed
+    /// to `event.library_changed` are told, the changer too. Called after the
+    /// change is on the card; never fails, never calls a plugin.
+    pub(crate) fn raise_changed(&self, what: u32, path: &str) {
+        self.changes.raise(what, path);
     }
 }
 
@@ -111,7 +123,9 @@ impl LibQuery for LibraryHost {
 }
 
 /// The writes the catalog on the card backs: `provide` (op 24), the positions
-/// (ops 13/14's write half), `set_field` (op 23) and `move` (op 11). Every other op keeps its
+/// (ops 13/14's write half), `set_field` (op 23) and `move` (op 11). Each raises its bit of
+/// `event.library_changed` once it is on the card, with no one book named (the
+/// plugin re-reads what it shows). Every other op keeps its
 /// default (`ERR_UNSUPPORTED`) until the rest of the write half exists
 /// (todo 307).
 impl LibWrite for LibraryHost {
@@ -123,7 +137,9 @@ impl LibWrite for LibraryHost {
         // A book the move job carries is `ERR_BUSY`: the carry would put the
         // old details over what a source provided, although it answered OK.
         self.reads
-            .provide_unless(book, provided, &|path| self.in_use(path))
+            .provide_unless(book, provided, &|path| self.in_use(path))?;
+        self.raise_changed(lib_changed::FIELDS, "");
+        Ok(())
     }
 
     fn stored_position(&self, book: BookRef<'_>) -> Result<Option<StoredPosition>, i32> {
@@ -144,14 +160,18 @@ impl LibWrite for LibraryHost {
         self.reads
             .write_position_unless(book, position, from_sync, &|path| {
                 from_sync && self.in_use(path)
-            })
+            })?;
+        self.raise_changed(lib_changed::POSITIONS, "");
+        Ok(())
     }
 
     /// Status is part of the details and the lists a move carries: a book the
     /// job holds is `ERR_BUSY` (as for `set_field`).
     fn set_status(&self, book: BookRef<'_>, set: u32, clear: u32) -> Result<(), i32> {
         self.reads
-            .set_status_unless(book, set, clear, &|path| self.in_use(path))
+            .set_status_unless(book, set, clear, &|path| self.in_use(path))?;
+        self.raise_changed(lib_changed::STATUS, "");
+        Ok(())
     }
 
     /// A move of the book or folder at `from` to `to` (root 1 both), the
@@ -183,11 +203,28 @@ impl LibWrite for LibraryHost {
         self.reads.field_kind(field)
     }
 
+    fn take_changed(&self, visit: &mut dyn FnMut(u32, u32, &str)) -> bool {
+        self.pending_change(visit)
+    }
+
     /// A field is part of the book's details, which a move carries: a book the
     /// job holds is `ERR_BUSY` (as for `provide`).
     fn set_field(&self, book: BookRef<'_>, field: &str, value: &str) -> Result<(), i32> {
         self.reads
-            .set_field_unless(book, field, value, &|path| self.in_use(path))
+            .set_field_unless(book, field, value, &|path| self.in_use(path))?;
+        self.raise_changed(lib_changed::FIELDS, "");
+        Ok(())
+    }
+}
+
+impl LibraryHost {
+    /// `event.library_changed`'s change, as the pump takes it, with the
+    /// catalog's generation (0 where the card cannot tell it now: the plugin
+    /// reads again either way).
+    fn pending_change(&self, visit: &mut dyn FnMut(u32, u32, &str)) -> bool {
+        self.changes.take(&mut |what, path| {
+            visit(what, self.reads.generation().unwrap_or(0), path);
+        })
     }
 }
 

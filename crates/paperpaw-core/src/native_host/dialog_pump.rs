@@ -15,6 +15,7 @@
 //! events; the request is freed when that callback returned, whatever its
 //! status (`ui.md` 3.2, cleanup).
 use super::registrations::{self as wire};
+use crate::native_host::codec;
 use paperpaw_native::host_glue::ERR_BUSY;
 use paperpaw_sdk::{
     Command, Id, Params,
@@ -127,7 +128,7 @@ impl crate::Kernel {
                 };
                 let mut bytes = [0u8; 64];
                 let Ok(len) =
-                    wire::records_encode(&[wire::Record::EventAnswered(record)], &mut bytes)
+                    codec::encode_batch(&[wire::Record::EventAnswered(record)], &mut bytes)
                 else {
                     // Never: the record is fixed size. Freed all the same.
                     let _ = store.delivered(delivery.request);

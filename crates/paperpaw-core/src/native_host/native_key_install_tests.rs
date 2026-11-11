@@ -8,6 +8,7 @@ use crate::native_host::{
     declaration_store::Kind,
     registrations::{self as wire, Record},
 };
+use alloc::string::String;
 
 /// Where the fixture's modes start (below them are the menu records').
 pub(super) const FIRST: u8 = 100;
