@@ -251,7 +251,9 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   image ids end) and its opener gets `event.document_closed` with `reason` 4 `needed`; later calls
   on its id are `ERR_CANCELLED`. The shown book itself is never taken. Only when no document can
   be taken (the opener's own cap) is the `open` `ERR_FULL`. An index build that lost its place
-  starts again later (the library's walk tries it again).
+  starts again later (the library's walk tries it again). The host's own background job (covers,
+  book details) is no opener: it takes one device-wide place but no opener's cap, is the first
+  document a book to show takes, gets no `document_closed`, and starts again later.
 
 ### 2.2 Metadata
 
@@ -560,8 +562,13 @@ Slots 36 and 37 come with draft 25; a host answers `ERR_UNSUPPORTED` until it dr
   dropped, not refused: it is a format's reply row, so a bit a newer format sets must not cost an
   older host the picture (requests to the host keep refusing unknown bits). A `fmt.image` that
   fails the check becomes no `doc_image` (the block keeps its alt text, counted as a failed read)
-  and never fails the whole stream. Over the 8 image ids per plugin, the
-  host ends the opener's least recently drawn document image first, so a long chapter of pictures
+  and never fails the whole stream. A picture **not decoded yet** (`fmt.image` bit 0) has no cache
+  file to check: where its file is not there or not vouched for, the host checks only its path and
+  its size (`width` and `height` 1 to 1,600, the size it will decode to) and passes it on with
+  `image` 0 (no id) and bit 1, so the reader keeps a box of that size and asks op 16 by `index`
+  (the decoded answer is checked as above).
+  Over the 8 image ids per plugin, the host ends the opener's least recently drawn document image
+  first, so a long chapter of pictures
   never runs out (`ERR_NOT_FOUND` at a draw of an ended id: the reader asks again with op 16 by the
   picture's `index`; the host keeps nothing for an ended id). An id handed out is never ended before
   it has been drawn once, and that protection ends at the opener's next drawn frame that does not

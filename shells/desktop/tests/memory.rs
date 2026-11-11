@@ -635,11 +635,23 @@ fn a_book_without_room_to_open_says_so() {
         .expect("the notice in the catalog");
     let stdout = String::from_utf8_lossy(&tight.stdout);
     assert_eq!(heap(&tight).screen, "reader.screen", "{stdout}");
-    assert!(stdout.contains(notice), "{stdout}");
+    // The notice may be set over several lines: their texts, joined.
+    assert!(shown(&stdout).contains(notice), "{stdout}");
     let opened = heap(&free);
     assert_eq!(opened.screen, "reader.screen");
     assert!(opened.peak > budget.parse().unwrap(), "{opened:?}");
-    assert!(!String::from_utf8_lossy(&free.stdout).contains(notice));
+    assert!(!shown(&String::from_utf8_lossy(&free.stdout)).contains(notice));
+}
+
+/// The texts the screen's description lists (`Text "..." at ...`), joined
+/// with spaces: a message set over several lines reads as one.
+fn shown(stdout: &str) -> String {
+    stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix("Text \""))
+        .filter_map(|line| line.split('"').next())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Runs the emulator on the X4 in a fresh library with the book of

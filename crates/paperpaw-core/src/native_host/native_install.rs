@@ -595,6 +595,8 @@ impl crate::Kernel {
 
     /// What the plugin's declarations stage for the kernel's registries, and
     /// its resource files: every value the host mapped, taken in order.
+    /// Outlined, so its locals are not in `bind_lease`'s frame on the X4.
+    #[inline(never)]
     fn stage_owned(
         &self,
         owned: Vec<Owned>,
@@ -602,8 +604,8 @@ impl crate::Kernel {
         owner: &Id,
         folder: &str,
         instance: &NativeLease,
-    ) -> Result<(crate::registry::Staging, super::native_resources::Resources), shell::Error> {
-        let mut staging = crate::registry::Staging::default();
+        staging: &mut crate::registry::Staging,
+    ) -> Result<super::native_resources::Resources, shell::Error> {
         let mut resources = super::native_resources::Resources::default();
         for value in owned {
             match value {
@@ -653,7 +655,7 @@ impl crate::Kernel {
                     .map_err(shell::Error::Status)?,
             }
         }
-        Ok((staging, resources))
+        Ok(resources)
     }
 
     fn bind_native<S: Services + 'static, M: 'static>(
@@ -671,15 +673,26 @@ impl crate::Kernel {
         report: fn(&S, u32, i32),
     ) -> Result<(), shell::Error> {
         let (owned, raw, events, folder) = mapped;
-        let mut flat_host = self.flat_host();
-        flat_host.directory = self
-            .shared
-            .registry
-            .native_declarations
-            .as_ref()
-            .map(|directory| directory.downgrade().ok_or(shell::Error::Allocation))
-            .transpose()?;
-        let instance = NativeLease::try_new(NativeDispatch::with_events(
+        // Two frames of their own, each under the X4's 2 KiB stack band
+        // (`abi/heap-word.md` section 6): the dispatch, built by value, in the
+        // first; the registries' staging in the second, which is not generic.
+        let instance = self.native_lease(key, retained, depth, events, report)?;
+        self.bind_lease(key, &instance, (owned, raw, folder), owner)
+    }
+
+    /// The plugin's dispatch, made and leased: its host, its event tags and
+    /// its identity.
+    #[inline(never)]
+    fn native_lease<S: Services + 'static, M: 'static>(
+        &mut self,
+        key: u64,
+        retained: Retained<S, M>,
+        depth: FlatDepth,
+        events: super::event_tags::EventTags,
+        report: fn(&S, u32, i32),
+    ) -> Result<NativeLease, shell::Error> {
+        let flat_host = self.shared_flat_host()?;
+        NativeLease::try_new(NativeDispatch::with_events(
             retained,
             depth,
             flat_host,
@@ -690,8 +703,23 @@ impl crate::Kernel {
                 .map_err(shell::Error::Status)?,
             events,
         ))
-        .map_err(shell::Error::Status)?;
-        let (staging, resources) = self.stage_owned(owned, key, owner, folder, &instance)?;
+        .map_err(shell::Error::Status)
+    }
+
+    /// The plugin `instance` leases installed, its declarations staged and
+    /// everything it contributed published at once (all or nothing).
+    #[inline(never)]
+    fn bind_lease(
+        &mut self,
+        key: u64,
+        instance: &NativeLease,
+        (owned, raw, folder): (Vec<Owned>, super::raw_declarations::RawDeclarations, &str),
+        owner: &Id,
+    ) -> Result<(), shell::Error> {
+        // One staging, filled and published by reference: its seventy lists
+        // are too large to be moved from frame to frame on the X4.
+        let mut staging = crate::registry::Staging::default();
+        let resources = self.stage_owned(owned, key, owner, folder, instance, &mut staging)?;
         self.shared
             .native_instances
             .install(key, instance.try_clone().map_err(shell::Error::Status)?)
@@ -703,25 +731,39 @@ impl crate::Kernel {
             .as_ref()
             .and_then(super::shared::Shared::try_clone)
             .ok_or(shell::Error::Allocation)?;
-        let mut allocations = super::declaration_store::Allocations::default();
-        let pending = super::native_declarations::pending(
-            owner,
-            key,
-            instance.try_clone().map_err(shell::Error::Status)?,
-            raw,
-            &mut allocations,
-        )
-        .map_err(shell::Error::Status)?;
-        let publication = declarations
-            .stage(pending, key, &mut allocations)
-            .map_err(shell::Error::Status)?;
+        let publication = stage_declarations(&declarations, key, instance, raw, owner)?;
         // Every contribution at once (all or nothing): the refusals come
         // before anything is published, and the room is made first.
-        self.publish_native(staging, owner, folder, resources)
+        self.publish_native(&mut staging, owner, folder, resources)
             .map_err(|error| shell::Error::Status(merge_status(&error)))?;
         publication.commit();
         Ok(())
     }
+}
+
+/// The plugin's declarations staged in the shared store, to be committed once
+/// everything else is published. Outlined, like the other steps of
+/// `Kernel::bind_lease`, so no step's locals share one frame.
+#[inline(never)]
+fn stage_declarations<'a>(
+    declarations: &'a super::native_declarations::NativeDeclarations,
+    key: u64,
+    instance: &NativeLease,
+    raw: super::raw_declarations::RawDeclarations,
+    owner: &Id,
+) -> Result<super::native_declarations::Publication<'a>, shell::Error> {
+    let mut allocations = super::declaration_store::Allocations::default();
+    let pending = super::native_declarations::pending(
+        owner,
+        key,
+        instance.try_clone().map_err(shell::Error::Status)?,
+        raw,
+        &mut allocations,
+    )
+    .map_err(shell::Error::Status)?;
+    declarations
+        .stage(pending, key, &mut allocations)
+        .map_err(shell::Error::Status)
 }
 
 impl crate::Kernel {
@@ -767,9 +809,10 @@ impl crate::Kernel {
         self.shared.native_instances.shrink_to_fit();
     }
 
+    #[inline(never)]
     fn publish_native(
         &mut self,
-        mut staging: crate::registry::Staging,
+        staging: &mut crate::registry::Staging,
         owner: &Id,
         folder: &str,
         resources: super::native_resources::Resources,
@@ -851,7 +894,7 @@ impl crate::Kernel {
     /// The part of the publication after the room is made.
     fn publish_rest(
         &mut self,
-        mut staging: crate::registry::Staging,
+        staging: &mut crate::registry::Staging,
         owner: &Id,
         resources: super::native_resources::Resources,
         mut choices: Vec<(Id, Id, alloc::borrow::Cow<'static, str>)>,
@@ -1098,9 +1141,61 @@ pub(super) fn group_paths(
     Ok((kept, copied))
 }
 
+impl crate::Kernel {
+    /// The one [`FlatHost`](super::FlatHost) every native plugin's dispatch
+    /// shares, made with the first plugin. Its declaration directory is the
+    /// registry's, which is set before the first plugin and never replaced.
+    fn shared_flat_host(&mut self) -> Result<super::shared::Shared<super::FlatHost>, shell::Error> {
+        if self.shared.native_instances.flat_host.is_none() {
+            // `admit_native_with` makes the directory before the first plugin.
+            debug_assert!(self.shared.registry.native_declarations.is_some());
+            let mut host = self.flat_host();
+            host.directory = self
+                .shared
+                .registry
+                .native_declarations
+                .as_ref()
+                .map(|directory| directory.downgrade().ok_or(shell::Error::Allocation))
+                .transpose()?;
+            self.shared.native_instances.flat_host =
+                Some(super::shared::Shared::try_new(host).map_err(|_| shell::Error::Allocation)?);
+        }
+        self.shared
+            .native_instances
+            .flat_host
+            .as_ref()
+            .and_then(super::shared::Shared::try_clone)
+            .ok_or(shell::Error::Allocation)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every plugin's dispatch gets a handle to the same kernel handles,
+    /// with the registry's declaration directory: no copy per plugin.
+    #[test]
+    fn native_plugins_share_one_flat_host() {
+        let Ok(mut kernel) = crate::Kernel::builder(crate::tests::DEVICE).build() else {
+            panic!("kernel");
+        };
+        let Ok(directory) = super::super::shared::Shared::try_new(
+            super::super::native_declarations::NativeDeclarations::default(),
+        ) else {
+            panic!("directory");
+        };
+        kernel.shared.registry.native_declarations = Some(directory);
+        let (Ok(first), Ok(second)) = (kernel.shared_flat_host(), kernel.shared_flat_host()) else {
+            panic!("flat host");
+        };
+        assert!(core::ptr::eq(&*first, &*second));
+        let Ok(Some(seen)) = first.upgrade_directory() else {
+            panic!("directory handle");
+        };
+        let registry = kernel.shared.registry.native_declarations.as_ref();
+        assert!(registry.is_some_and(|registry| core::ptr::eq(&**registry, &*seen)));
+    }
     #[test]
     fn only_native_capacity_errors_become_no_memory() {
         for message in [
@@ -1181,7 +1276,7 @@ mod tests {
                 .unwrap();
         }
         kernel
-            .publish_native(staging, &owner, "", Default::default())
+            .publish_native(&mut staging, &owner, "", Default::default())
             .unwrap();
         assert!(kernel.plugin_choices.is_empty());
         let Some(SettingKind::Choice(list)) =

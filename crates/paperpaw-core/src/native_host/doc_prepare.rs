@@ -3,9 +3,10 @@
 //!
 //! A format whose `open` answered `state` 1 (preparing) is called again with
 //! op 3 `prepare`, one document and one call a pass, by the kernel's pump
-//! (`doc_pump`), between inputs: no opener callback runs, so the format is
-//! entered through the retained instance registry at depth 1 and the call is
-//! the format's own, metered to it. The format works for at most 50 ms of its
+//! (`doc_pump`), between inputs: the pump runs only outside every callback
+//! (instance depth 0), so no opener callback runs; the format is entered
+//! through the retained instance registry, its own call being the one level
+//! (depth 1), and the call is the format's own, metered to it. The format works for at most 50 ms of its
 //! own clock and answers its progress; the answer is checked and recorded
 //! (`doc_service::prepared`), the opener hears of a change with
 //! `event.document_changed` (88, one per document, the latest values), and
@@ -198,8 +199,13 @@ impl DocState {
                 PrepareStep::More
             }
             // The format is not started, or the plugin is its own format, or a
-            // table is held, or there is no room for the buffer: later.
-            Err(ERR_BUSY | ERR_NO_MEMORY | ERR_CANCELLED) => PrepareStep::Later,
+            // table is held, or there is no room for the buffer: later. The
+            // turn still passes on, so where several documents take turns one
+            // whose format cannot be called now does not hold up the others.
+            Err(ERR_BUSY | ERR_NO_MEMORY | ERR_CANCELLED) => {
+                self.last_prepared.set(document.id);
+                PrepareStep::Later
+            }
             Err(status) => {
                 self.fail_prepared(hosts, &document, status);
                 PrepareStep::More

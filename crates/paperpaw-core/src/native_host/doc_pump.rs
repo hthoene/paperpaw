@@ -79,6 +79,7 @@ impl crate::Kernel {
             };
             documents.0.prepare_step(hosts, &route)
         };
+        let job_only = documents.0.only_cover_job_preparing();
         // What the format staged runs now, outside any callback.
         self.native_outbox_run();
         let instances = &self.shared.native_instances;
@@ -91,7 +92,10 @@ impl crate::Kernel {
             PrepareStep::More => {
                 instances.doc_ok();
                 instances.set_doc_retry(None);
-                true
+                // The library's cover job is background work: its next step
+                // waits for the next pass for another reason, and never holds
+                // the idle or the sleep timer off.
+                !job_only
             }
             PrepareStep::Later => {
                 let failures = instances.doc_failed();

@@ -14,6 +14,7 @@ use crate::native_host::{
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_STATE, OK};
+use paperpaw_platform::Instant;
 use paperpaw_sdk::{Id, Params, builtin::events as builtin};
 
 const ALL: &[u32] = &[
@@ -250,6 +251,70 @@ fn an_event_raised_during_a_callback_arrives_after_it_returns() {
         [wire::EVENT_STARTED_TAG, wire::EVENT_SUSPEND_TAG],
         "in the order raised"
     );
+}
+
+/// An event raised after a call's pump ran (the kernel's `started`, raised as
+/// the commands of `start` run) wants the pump now, not at the next deadline:
+/// the shell would else tell it only at its next call (#243).
+#[test]
+fn an_event_left_waiting_after_the_pump_wants_the_pump_now() {
+    let mut w = world(ALL, &[]);
+    w.kernel.now = Instant(5_000);
+    assert_eq!(w.kernel.service_due(), None, "nothing waits");
+    w.kernel.emit(builtin::STARTED.id(), &Params::new());
+    assert!(tags(&w, 'a').is_empty(), "queued, not told yet");
+    assert_eq!(w.kernel.service_due(), Some(Instant(5_000)));
+    while w.kernel.native_setting_pump() {}
+    assert_eq!(tags(&w, 'a'), [wire::EVENT_STARTED_TAG]);
+    assert_eq!(w.kernel.service_due(), None, "told: nothing waits");
+}
+
+/// A plugin whose callback fails is not told the event again: one pass of the
+/// pump empties the queue, and nothing keeps the device awake for it.
+#[test]
+fn a_failing_callback_leaves_nothing_waiting_after_one_pass() {
+    let mut w = world(ALL, &[]);
+    w.kernel.now = Instant(5_000);
+    w.fails.set(true);
+    w.kernel.emit(builtin::STARTED.id(), &Params::new());
+    assert_eq!(w.kernel.service_due(), Some(Instant(5_000)));
+    assert!(!w.kernel.native_setting_pump(), "nothing is retried");
+    assert_eq!(w.kernel.service_due(), None);
+}
+
+/// The pump and `service_due` agree at every pass (R1, #1229): the walk over
+/// the waiting owners allocates nothing, so a pass that asks for no other pass
+/// leaves `service_due` free to wait for a deadline, and the device to sleep.
+#[test]
+fn the_pump_and_service_due_agree_at_every_pass() {
+    let mut w = world(ALL, ALL);
+    w.kernel.now = Instant(5_000);
+    for _ in 0..20 {
+        w.kernel
+            .emit(builtin::BATTERY_MEASURED.id(), &Params::new());
+        w.kernel.emit(builtin::RESUME.id(), &Params::new());
+    }
+    for pass in 0..50 {
+        let more = w.kernel.native_setting_pump();
+        let now = w.kernel.service_due() == Some(Instant(5_000));
+        assert_eq!(more, now, "pass {pass}");
+        if !more {
+            break;
+        }
+    }
+    assert_eq!(w.kernel.service_due(), None, "all told");
+}
+
+/// `Kernel::start` raises `started` as its commands run, after its pump: the
+/// effects it returns ask for the next call now (#243).
+#[test]
+fn start_asks_to_be_called_again_now_for_the_started_event() {
+    let mut w = world(ALL, &[]);
+    let effects = w.kernel.start(Instant(7_000));
+    assert!(!tags(&w, 'a').contains(&wire::EVENT_STARTED_TAG));
+    assert_eq!(effects.wake_at(), Some(Instant(7_000)));
+    let _ = w.kernel.tick(Instant(7_000));
+    assert!(tags(&w, 'a').contains(&wire::EVENT_STARTED_TAG));
 }
 
 #[test]

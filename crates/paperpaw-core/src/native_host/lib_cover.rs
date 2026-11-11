@@ -41,6 +41,28 @@ pub(crate) struct CoverCx<'a> {
     pub(crate) caller: &'a HostCaller<'a>,
 }
 
+/// What a `cover` call came to.
+pub(crate) enum Covered {
+    /// The picture was handed to `visit`.
+    Done,
+    /// The book is preparing (`doc_cover_job`): `ERR_BUSY` now, and
+    /// `library_changed` bit 6 when the job has ended.
+    Queued,
+    /// The book's job could not begin (the card does not take its marker): it
+    /// has no cover, and is not asked for again until the next start.
+    Failed,
+}
+
+/// A key of a book's path, for what the host remembers of a book without its
+/// path (FNV-1a, 64 bits; never 0).
+pub(crate) fn path_key(path: &str) -> u64 {
+    let mut key = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in path.bytes() {
+        key = (key ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+    }
+    key.max(1)
+}
+
 /// The cover of the book at `path` for `who` (`side` as in the contract).
 ///
 /// # Errors
@@ -52,14 +74,19 @@ pub(crate) fn make(
     path: &str,
     side: u32,
     visit: One<'_>,
-) -> Result<(), i32> {
+) -> Result<Covered, i32> {
     if cx.caller.hosts.documents().is_none() {
         return Err(ERR_UNSUPPORTED);
     }
     debug_assert_eq!(cx.caller.owner, who.owner);
-    let image = cover::make(cx.frame, cx.caller, path, side)?;
-    visit(Record::ServiceDocImage(image));
-    Ok(())
+    match cover::make(cx.frame, cx.caller, path, side)? {
+        cover::Made::Image(image) => {
+            visit(Record::ServiceDocImage(image));
+            Ok(Covered::Done)
+        }
+        cover::Made::Queued => Ok(Covered::Queued),
+        cover::Made::Failed => Ok(Covered::Failed),
+    }
 }
 
 /// A book's root-1 path, owned (the catalog hands it out for the length of

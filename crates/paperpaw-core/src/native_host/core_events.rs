@@ -236,6 +236,7 @@ impl Kernel {
         // A book that is open closes (reason 1) before the sleep or the stop
         // is raised: `book_closed` comes first (`core-events.md` 3.2).
         if matches!(tag, wire::EVENT_SUSPEND_TAG | wire::EVENT_STOPPING_TAG) {
+            self.native_cover_job_suspend();
             self.native_reading_sleep(now);
         }
         self.native_queue_event(tag, hears, &|queue| {

@@ -2,7 +2,7 @@
 //! catalog fetched with `core.net` into the data folder and kept there) and a
 //! font's page, on `core.ui` list screens (`PORTING-7.md` says what is not
 //! native yet: downloading and installing a font, removing it, the font's own
-//! face in the list, *Your own fonts*).
+//! face in the list). *Your own fonts* is `native_own`.
 //!
 //! The font a page shows is handed over as the screen's one parameter
 //! (`Font::to_param`), so that the page does not read the catalog again.
@@ -175,12 +175,10 @@ impl Plugin for NativeFontsBrowser {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).open(Open::screen("fonts-browser.list")?)
             }
-            // BLOCKED (#228): *Your own fonts* shows a page of the help in the
-            // reader (`command.open` into `core.reader`, root 5 "handed").
             Event::ActionRun {
                 action: "fonts-browser.own",
                 ..
-            } if token == OWN => Err(Error::Unsupported),
+            } if token == OWN => crate::native_own::show(host, self.ui(host)?),
             Event::HttpDone(done) if token == DOWNLOADED => {
                 if done.token() == CATALOG_REQUEST && self.fetching == Some(done.id()) {
                     self.fetching = None;

@@ -326,22 +326,41 @@ impl SettingEvents {
             .unwrap_or(0)
     }
 
-    /// The owners with something waiting, in the pump's order.
+    /// How many owners have something waiting. Nothing is allocated, so the
+    /// pump and [`Self::any_waiting`] never disagree while memory is short; a
+    /// queue table in use counts none (its user is the pump).
+    pub(super) fn waiting_count(&self) -> usize {
+        self.queues.try_borrow().map_or(0, |queues| {
+            queues.iter().filter(|(_, queue)| !queue.is_empty()).count()
+        })
+    }
+
+    /// The `n`th owner with something waiting, in the table's order; `None`
+    /// past the last (the table may have shrunk since it was counted).
+    pub(super) fn waiting_nth(&self, n: usize) -> Option<u64> {
+        let queues = self.queues.try_borrow().ok()?;
+        queues
+            .iter()
+            .filter(|(_, queue)| !queue.is_empty())
+            .nth(n)
+            .map(|(owner, _)| *owner)
+    }
+
+    /// The owners with something waiting, in the table's order (tests).
+    #[cfg(test)]
     pub(super) fn waiting(&self) -> Vec<u64> {
-        let Ok(queues) = self.queues.try_borrow() else {
-            return Vec::new();
-        };
-        let mut owners = Vec::new();
-        if owners.try_reserve_exact(queues.len()).is_err() {
-            return owners;
-        }
-        owners.extend(
-            queues
-                .iter()
-                .filter(|(_, queue)| !queue.is_empty())
-                .map(|(owner, _)| *owner),
-        );
-        owners
+        (0..self.waiting_count())
+            .filter_map(|n| self.waiting_nth(n))
+            .collect()
+    }
+
+    /// Whether an event waits for any plugin: what `Kernel::service_due`
+    /// asks so that an event raised after this call's pump (the kernel's
+    /// `started`, raised as its commands run) is told at once, not at the next
+    /// deadline. As [`Self::waiting_count`]: nothing allocated, a table in use
+    /// says no.
+    pub(super) fn any_waiting(&self) -> bool {
+        self.waiting_count() > 0
     }
 }
 
@@ -456,17 +475,24 @@ impl crate::Kernel {
         self.native_requests_settle();
         let events = &self.shared.native_instances.setting_events;
         events.prune(&self.shared.native_instances);
-        let owners = events.waiting();
-        if owners.is_empty() {
+        // Walked by index, not collected: the pump needs no allocation, so it
+        // cannot fail where `any_waiting` says an event waits.
+        let count = events.waiting_count();
+        if count == 0 {
             return false;
         }
         if self.shared.native_instances.depth() > 0 {
             return true;
         }
-        let start = events.cursor.get().checked_rem(owners.len()).unwrap_or(0);
+        let start = events.cursor.get().checked_rem(count).unwrap_or(0);
         events.cursor.set(start + 1);
-        for step in 0..owners.len() {
-            let owner = owners[(start + step) % owners.len()];
+        for step in 0..count {
+            // A table that shrank as owners were told: the rest waits for the
+            // next pass, which the result below asks for.
+            let events = &self.shared.native_instances.setting_events;
+            let Some(owner) = events.waiting_nth((start + step) % count) else {
+                continue;
+            };
             for _ in 0..PER_OWNER {
                 // What a callback staged runs before the next one is called.
                 self.native_outbox_run();
@@ -476,12 +502,7 @@ impl crate::Kernel {
             }
         }
         self.native_outbox_run();
-        !self
-            .shared
-            .native_instances
-            .setting_events
-            .waiting()
-            .is_empty()
+        self.shared.native_instances.setting_events.any_waiting()
     }
 
     /// Tells `owner` its oldest event; `false` when it had none. A queue left
