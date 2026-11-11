@@ -69,6 +69,7 @@ pub mod native_pages;
 pub mod native_plugin;
 pub mod native_selection;
 pub mod native_state;
+pub mod native_status;
 #[cfg(test)]
 mod native_tests;
 pub mod native_toc;

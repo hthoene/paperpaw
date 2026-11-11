@@ -41,9 +41,10 @@ mod image {
 /// settings and screens before what refers to them. The events are heard for
 /// what saves the place (sleep, stop, the quiet time); the start and a moved
 /// book have no handler yet (`PORTING-7.md`).
-const BATCHES: [&[&[u8]]; 7] = [
+const BATCHES: [&[&[u8]]; 8] = [
     image::SETTINGS,
     image::SCREENS,
+    image::STATUS,
     image::NAVIGATION,
     image::KEYS,
     image::HOLD_KEYS,
@@ -432,7 +433,7 @@ impl Plugin for NativeReader {
         let (Some(view), Some(docs)) = (self.screens.top(token), &self.docs) else {
             return Err(Error::State);
         };
-        view.draw(host, docs, &mut frame)
+        view.draw(host, (docs, self.ui.as_ref()), &mut frame)
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {

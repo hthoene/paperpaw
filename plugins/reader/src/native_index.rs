@@ -90,7 +90,7 @@ pub fn layout_text(
     text.try_reserve(64).map_err(|_| Error::NoMemory)?;
     write!(
         text,
-        "{}/{}/{}/{}/{}/{}/{}x{}x{}/{}",
+        "{}/{}/{}/{}/{}/{}/{}x{}x{}/{}/{}-{}",
         (reading.size_pt * 10.0) as u32,
         reading.line_spacing,
         reading.word_spacing,
@@ -101,6 +101,9 @@ pub fn layout_text(
         display.1,
         display.2,
         u8::from(whole_pages),
+        // The room of the status lines: another room, other page breaks.
+        if whole_pages { 0 } else { reading.status.0 },
+        if whole_pages { 0 } else { reading.status.1 },
     )
     .map_err(|_| Error::NoMemory)?;
     Ok(text)

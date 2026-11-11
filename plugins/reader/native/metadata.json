@@ -105,12 +105,17 @@
     {
       "kind": "callback",
       "name": "input"
+    },
+    {
+      "kind": "host",
+      "name": "ui.compose"
     }
   ],
   "services": [
     "core.document",
     "core.files",
     "core.library",
+    "core.registry",
     "core.ui",
     "core.work"
   ],
