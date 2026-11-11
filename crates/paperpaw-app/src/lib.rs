@@ -143,9 +143,10 @@ pub const fn default_store() -> StorePlugins<'static> {
 /// [`native_registers`]. Not in the list yet, because their ports are not
 /// finished (each one's `PORTING-7.md` says what is open) or the interface-6
 /// reader still reads books through their interface-6 forms: the formats (txt,
-/// xtc, docx, images, mobi), sleep (vocabulary's interface-6 card choice sets
-/// its setting), home, reader, dictionary, store, wifi, transfer,
-/// fonts-browser, vocabulary, news, picture-home.
+/// xtc, docx, images, mobi), sleep, dictionary, store, wifi, fonts-browser,
+/// picture-home. Home, reader, news and vocabulary are linked since their
+/// settings tables are kept in the program (`fixed_tables`): without them
+/// linking costs about 39 KiB of heap (Core's measurement on #1140).
 #[cfg(feature = "native-linked")]
 pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
@@ -155,11 +156,14 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
     ("files", &paperpaw_plugin_files::NATIVE_ENTRY),
     ("help", &paperpaw_plugin_help::NATIVE_ENTRY),
+    ("home", &paperpaw_plugin_home::NATIVE_ENTRY),
     ("keyboard", &paperpaw_plugin_keyboard::NATIVE_ENTRY),
     ("lock", &paperpaw_plugin_lock::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
     ("mail", &paperpaw_plugin_mail::NATIVE_ENTRY),
     ("menu", &paperpaw_plugin_menu::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("news", &paperpaw_plugin_news::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
     ("notes-vault", &paperpaw_plugin_notes_vault::NATIVE_ENTRY),
     ("opds", &paperpaw_plugin_opds::NATIVE_ENTRY),
@@ -168,10 +172,13 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
         &paperpaw_plugin_plugin_manager::NATIVE_ENTRY,
     ),
     ("power", &paperpaw_plugin_power::NATIVE_ENTRY),
+    ("reader", &paperpaw_plugin_reader::NATIVE_ENTRY),
     ("settings", &paperpaw_plugin_settings::NATIVE_ENTRY),
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
     ("transfer", &paperpaw_plugin_transfer::NATIVE_ENTRY),
     ("update", &paperpaw_plugin_update::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("vocabulary", &paperpaw_plugin_vocabulary::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
     ("widgets", &paperpaw_plugin_widgets::NATIVE_ENTRY),
 ];
@@ -220,18 +227,41 @@ pub fn native_version(id: &str) -> Option<&'static str> {
         .find_map(|(plugin, version)| (*plugin == id).then_some(*version))
 }
 
-/// The settings plugin `id` keeps in the program, as Beta 3 did, instead of
-/// one copy on the heap for each it declares (`Kernel::register_linked`): the
-/// table its build script makes of its own declarations. Empty for a plugin
-/// that has none; one that is not listed here only costs memory.
+/// The settings and setting groups plugin `id` keeps in the program, as Beta 3
+/// did, instead of one copy on the heap for each it declares
+/// (`Kernel::register_linked`): the tables its build script makes of its own
+/// declarations. Empty for a plugin that has none; one that is not listed here
+/// only costs memory.
 #[cfg(feature = "native-linked")]
-pub fn fixed_settings(id: &str) -> &'static [paperpaw_core::sdk::SettingSpec] {
-    #[cfg(feature = "native-linked-store")]
-    if id == "widgets" {
-        return paperpaw_plugin_widgets::NATIVE_SETTINGS;
+pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
+    use paperpaw_core::native_host::FixedTables;
+    macro_rules! tables {
+        ($plugin:ident) => {
+            FixedTables::new($plugin::NATIVE_SETTINGS, $plugin::NATIVE_GROUPS)
+        };
     }
-    let _ = id;
-    &[]
+    match id {
+        "bluetooth" => tables!(paperpaw_plugin_bluetooth),
+        "file-manager" => tables!(paperpaw_plugin_file_manager),
+        "help" => tables!(paperpaw_plugin_help),
+        "home" => tables!(paperpaw_plugin_home),
+        "keyboard" => tables!(paperpaw_plugin_keyboard),
+        "lock" => tables!(paperpaw_plugin_lock),
+        "menu" => tables!(paperpaw_plugin_menu),
+        "opds" => tables!(paperpaw_plugin_opds),
+        "power" => tables!(paperpaw_plugin_power),
+        "reader" => tables!(paperpaw_plugin_reader),
+        "settings" => tables!(paperpaw_plugin_settings),
+        #[cfg(feature = "native-linked-store")]
+        "aids" => tables!(paperpaw_plugin_aids),
+        #[cfg(feature = "native-linked-store")]
+        "news" => tables!(paperpaw_plugin_news),
+        #[cfg(feature = "native-linked-store")]
+        "vocabulary" => tables!(paperpaw_plugin_vocabulary),
+        #[cfg(feature = "native-linked-store")]
+        "widgets" => tables!(paperpaw_plugin_widgets),
+        _ => FixedTables::NONE,
+    }
 }
 
 /// Registers every plugin of [`NATIVE_PLUGINS`] with `kernel` through
@@ -315,7 +345,7 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
                 teardown,
                 report,
                 image,
-                fixed_settings(id),
+                fixed_tables(id),
             )
         };
         let state = if status.is_ok() {
@@ -418,14 +448,15 @@ pub fn install_with(
         .plugin(paperpaw_plugin_format_epub::Fb2Format)
         .plugin(paperpaw_plugin_format_epub::MarkdownFormat)
         .plugin(paperpaw_plugin_format_epub::CbzFormat)
-        .plugin(paperpaw_plugin_dictionary::DictionaryPlugin)
-        .plugin(paperpaw_plugin_reader::Reader);
-    // Home and Menu keep their order; Files and Menu are native plugins,
+        .plugin(paperpaw_plugin_dictionary::DictionaryPlugin);
+    // Reader, Home and Menu keep their order; they are native plugins,
     // linked (`NATIVE_PLUGINS`), where the feature says.
-    b = b.plugin(paperpaw_plugin_home::Home);
     #[cfg(not(feature = "native-linked"))]
     {
-        b = b.plugin(paperpaw_plugin_menu::Menu);
+        b = b
+            .plugin(paperpaw_plugin_reader::Reader)
+            .plugin(paperpaw_plugin_home::Home)
+            .plugin(paperpaw_plugin_menu::Menu);
     }
     #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
     {
@@ -456,12 +487,12 @@ pub fn install_with(
     {
         b = offered(b, store, paperpaw_plugin_aids::Aids);
     }
-    #[cfg(feature = "store-plugins")]
+    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
     {
         b = offered(b, store, paperpaw_plugin_vocabulary::Vocabulary);
     }
     b = b.plugin(paperpaw_plugin_sleep::Sleep);
-    #[cfg(feature = "store-plugins")]
+    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
     {
         b = offered(b, store, paperpaw_plugin_news::News);
     }

@@ -39,10 +39,10 @@ impl crate::Kernel {
     /// read-only data): the declarations are then kept as offsets into it and
     /// not copied, as for a loaded plugin. A null pointer with zero length gives
     /// none (the declarations are copied, under the smaller owned-copy limits).
-    /// `fixed` is the plugin's table of settings kept in the program (empty for
-    /// none): a setting it declares that equals an entry of the table is kept
-    /// as that entry (Beta 3's way, about 4 bytes of heap) and not as a copy;
-    /// any other is copied as before.
+    /// `fixed` is the plugin's tables of settings and setting groups kept in the
+    /// program (empty for none): a setting or group it declares that equals an
+    /// entry of its table is kept as that entry (Beta 3's way, about 4 bytes of
+    /// heap for a setting) and not as a copy; any other is copied as before.
     #[allow(
         clippy::too_many_arguments,
         reason = "admission supplies the shell host, the owner resources, both sinks and the metadata view"
@@ -59,7 +59,7 @@ impl crate::Kernel {
         teardown: shell::Report<S>,
         report: fn(&S, u32, i32),
         image: (*const u8, usize),
-        fixed: &'static [paperpaw_sdk::SettingSpec],
+        fixed: super::FixedTables,
     ) -> Result<(), shell::Error> {
         // Before anything is built and long before `make`: the host's own id
         // (reserved, ui.md 4.3), an id that is not a plugin id (1 to 40 bytes
