@@ -97,6 +97,8 @@ pub const fn paperpaw_graphics::Blit::at(paperpaw_platform::geometry::Point) -> 
 pub const fn paperpaw_graphics::Blit::dither(self, paperpaw_graphics::Dither) -> Self
 pub const fn paperpaw_graphics::Blit::scale(self, u8) -> Self
 pub struct paperpaw_graphics::Canvas<'a>
+impl paperpaw_graphics::Canvas<'_>
+pub fn paperpaw_graphics::Canvas<'_>::try_describe(&mut self, paperpaw_graphics::Described, &str, usize, usize) -> bool
 impl<'a> paperpaw_graphics::Canvas<'a>
 pub fn paperpaw_graphics::Canvas<'a>::blit(&mut self, &paperpaw_graphics::Bitmap<'_>, paperpaw_graphics::Blit)
 pub fn paperpaw_graphics::Canvas<'a>::clear(&mut self, paperpaw_platform::pixel::Color)

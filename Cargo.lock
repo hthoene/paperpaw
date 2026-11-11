@@ -1642,6 +1642,7 @@ name = "paperpaw-app"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-core",
+ "paperpaw-epub-family",
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
@@ -1653,9 +1654,13 @@ dependencies = [
  "paperpaw-plugin-files",
  "paperpaw-plugin-fonts-browser",
  "paperpaw-plugin-fonts-default",
+ "paperpaw-plugin-format-cbz",
  "paperpaw-plugin-format-docx",
  "paperpaw-plugin-format-epub",
+ "paperpaw-plugin-format-fb2",
+ "paperpaw-plugin-format-html",
  "paperpaw-plugin-format-images",
+ "paperpaw-plugin-format-markdown",
  "paperpaw-plugin-format-mobi",
  "paperpaw-plugin-format-txt",
  "paperpaw-plugin-format-xtc",
@@ -1809,6 +1814,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-epub-family"
+version = "1.0.5"
+dependencies = [
+ "miniz_oxide 0.9.1",
+ "paperpaw-i18n",
+ "paperpaw-layout",
+ "paperpaw-sdk",
+ "paperpaw-zip",
+ "proptest",
+]
+
+[[package]]
 name = "paperpaw-fat"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -1921,9 +1938,9 @@ name = "paperpaw-library-bench"
 version = "0.0.0"
 dependencies = [
  "paperpaw-core",
+ "paperpaw-epub-family",
  "paperpaw-fat",
  "paperpaw-platform",
- "paperpaw-plugin-format-epub",
  "paperpaw-sdk",
  "paperpaw-zip",
 ]
@@ -1999,11 +2016,11 @@ name = "paperpaw-plugin-browser"
 version = "1.0.8"
 dependencies = [
  "paperpaw-core",
+ "paperpaw-epub-family",
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-format-epub",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
  "proptest",
@@ -2081,6 +2098,7 @@ dependencies = [
  "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
+ "png",
 ]
 
 [[package]]
@@ -2110,6 +2128,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-format-cbz"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-epub-family",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-sdk",
+]
+
+[[package]]
 name = "paperpaw-plugin-format-docx"
 version = "1.0.3"
 dependencies = [
@@ -2125,12 +2154,34 @@ dependencies = [
 name = "paperpaw-plugin-format-epub"
 version = "1.0.5"
 dependencies = [
- "miniz_oxide 0.9.1",
+ "paperpaw-core",
+ "paperpaw-epub-family",
  "paperpaw-i18n",
- "paperpaw-layout",
+ "paperpaw-native",
  "paperpaw-sdk",
  "paperpaw-zip",
- "proptest",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-fb2"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-epub-family",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-html"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-epub-family",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-sdk",
 ]
 
 [[package]]
@@ -2142,6 +2193,17 @@ dependencies = [
  "paperpaw-native",
  "paperpaw-sdk",
  "proptest",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-markdown"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-epub-family",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-sdk",
 ]
 
 [[package]]
@@ -2358,12 +2420,12 @@ name = "paperpaw-plugin-notes-vault"
 version = "1.0.4"
 dependencies = [
  "paperpaw-core",
+ "paperpaw-epub-family",
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-files",
  "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-format-epub",
  "paperpaw-plugin-home",
  "paperpaw-plugin-reader",
  "paperpaw-sdk",
@@ -2450,11 +2512,11 @@ name = "paperpaw-plugin-reader"
 version = "1.0.10"
 dependencies = [
  "paperpaw-core",
+ "paperpaw-epub-family",
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-format-epub",
  "paperpaw-plugin-format-txt",
  "paperpaw-plugin-notes-vault",
  "paperpaw-sdk",

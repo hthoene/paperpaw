@@ -183,7 +183,7 @@ service.call(ctx, service: handle, op: u32, input: bytes, out: buffer) -> count 
 
   | Check | Status |
   | --- | --- |
-  | null `ctx`, bad pointers, `input` or `out` over 4,096 bytes | `ERR_INVALID` |
+  | null `ctx`, bad pointers, `input` or `out` over 4,096 bytes, `input` and `out` sharing a byte | `ERR_INVALID` |
   | no live frame, or a stale, foreign or wrong-kind handle | `ERR_STATE` |
   | an op the schema does not define, or one newer than the revision the handle was opened with | `ERR_UNSUPPORTED` |
   | an op whose required feature the plugin did not declare (D1) or the user did not grant | `ERR_DENIED` |
@@ -202,10 +202,11 @@ service.call(ctx, service: handle, op: u32, input: bytes, out: buffer) -> count 
   `records_encode_counted`.
 
   Every check above runs before the service does anything, so a refused call has no effect and
-  leaves `out` untouched. A service's own failure after that is its documented status, and `out`
-  stays untouched then too (as slot 18, `interface-7-usage-clock.md`): a service writes `out` only
-  once it will succeed, or builds its reply in host scratch of at most `max_reply` bytes and copies
-  it on success.
+  leaves `out` untouched. The service then builds its reply in `out` itself, in its first
+  `max_reply` bytes (the host keeps no copy of a reply, #248). A service's own failure after that
+  is its documented status, and **its reply room is cleared**: the first `max_reply` bytes of `out`
+  are zero, so no part of a reply remains, and the caller reads nothing of `out`. On success the
+  bytes past the count, up to `max_reply`, are zero too; bytes past `max_reply` are never touched.
 - [D] **Synchronous and bounded.** A call never waits on the network or the card beyond its op's
   stated bound. Longer work returns an operation handle (section 7, D3) whose completion is
   `event.op_done`, read with a further op of the same service.

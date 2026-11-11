@@ -53,7 +53,7 @@ pub(crate) mod records_wire;
 pub(crate) mod settings_value;
 
 #[cfg(feature = "kernel")]
-pub use crate::settings::fixed_settings_source;
+pub use crate::settings::{fixed_groups_source, fixed_ids_source, fixed_settings_source};
 
 use records_wire::{
     ActionSpec, ResourceFontExtension, ResourceFontFace, ResourceHyphenation, ScreenSpec,

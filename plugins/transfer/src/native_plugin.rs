@@ -120,7 +120,7 @@ pub struct NativeTransfer {
     /// The plugins sent from the computer: what is staged and how each stands.
     installs: Installs,
     /// The cable's screen, while it is open (`cable.rs`).
-    cable: Option<cable::CableScreen>,
+    cable: Option<alloc::boxed::Box<cable::CableScreen>>,
 }
 
 /// The handle in `slot`, opened on first use.
