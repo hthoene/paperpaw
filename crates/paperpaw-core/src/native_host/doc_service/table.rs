@@ -753,6 +753,15 @@ impl DocumentTable {
     }
 
     /// `reader_opened` accepted `id`: its book is held until `release_reader`.
+    /// Whether document `id` is live and preparing (a held table counts as
+    /// one that is).
+    pub(crate) fn is_preparing(&self, id: u32) -> bool {
+        self.documents.try_borrow().map_or(true, |rows| {
+            rows.iter()
+                .any(|d| d.id == id && d.state == PREPARING && d.closed_by_host == 0)
+        })
+    }
+
     pub(crate) fn hold_reader(&self, id: u32) {
         if let Ok(mut rows) = self.documents.try_borrow_mut()
             && let Some(document) = rows.iter_mut().find(|d| d.id == id)

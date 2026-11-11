@@ -870,19 +870,20 @@ impl Bound<'_> {
                 content: &content,
             };
             let made = if details {
-                // A `details` open reads what is there: no removal, no room
-                // made, no stamp (`document.md` 2.1); not while another
-                // document converts the book (a cover file half written).
-                let folder = id.folder()?;
+                // A `details` open reads what is there: no removal of its own
+                // or of another conversion (no room made), no stamp
+                // (`document.md` 2.1); not while another document of the book
+                // and its format plugin prepares, whatever its conversion.
                 let making = books.iter().any(|b| {
                     b.document != call.document
-                        && b.cache
-                            .as_ref()
-                            .is_some_and(|c| c.folder == folder && !c.finished && !c.details)
+                        && b.path == book.path
+                        && b.cache.as_ref().is_some_and(|c| c.plugin == plugin)
+                        && self.state.table.is_preparing(b.document)
                 });
                 if making {
                     return Err(ERR_BUSY);
                 }
+                let folder = id.folder()?;
                 super::doc_cache::Prepared {
                     bytes: super::doc_cache::current(storage, &id)?,
                     folder,
