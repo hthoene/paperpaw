@@ -226,7 +226,12 @@ impl DocState {
         }
         let now = self.now.get();
         let (key, spent) = self.job_awake.get();
-        let spent = spent.saturating_add(now.saturating_sub(self.job_seen.replace(now)));
+        // A job that no guard began (0: never seen) counts from now.
+        let seen = self.job_seen.replace(now);
+        let spent = match seen {
+            0 => spent,
+            seen => spent.saturating_add(now.saturating_sub(seen)),
+        };
         self.job_awake.set((key, spent));
         spent >= AWAKE_MAX_MS
     }
