@@ -428,9 +428,10 @@ fn a_book_whose_job_an_open_took_is_looked_at_again_and_never_holds_the_device_a
     pump(&mut w, 1_000);
     assert_eq!(w.format.opens(), 1);
     assert!(w.docs.cover_job_active());
-    // The job prepares: nothing asks for another pass, no deadline.
+    // The job prepares: nothing asks for another pass, a timed wake for its
+    // first step.
     assert!(!w.kernel.shared.native_instances.service_more());
-    assert_eq!(w.kernel.service_due(), None);
+    assert_eq!(w.kernel.service_due(), Some(Instant(1_100)));
     // A reader's open took its place (`doc_service::open`).
     assert!(w.docs.table().take_cover_job().is_some());
     w.format.open.set(READY);
@@ -564,4 +565,74 @@ fn a_preparing_book_is_converted_by_the_pumps_preparing_loop_then_read() {
     pump(&mut w, 2_000);
     assert_eq!(*w.format.ops.borrow(), [2, 3, 5, 6, 4]);
     assert_eq!(kept_title(&w, "books/a.docx").as_deref(), Some("Dune"));
+}
+
+#[test]
+fn the_job_goes_on_by_timed_wakes_holds_no_timer_off_and_is_slower_when_saving() {
+    let mut w = world(&["books/a.docx", "books/b.epub", "books/c.epub"]);
+    catalog(
+        &w,
+        &[
+            ("books/a.docx", false),
+            ("books/b.epub", false),
+            ("books/c.epub", false),
+        ],
+    );
+    started(&mut w);
+    w.format.open.set(PREPARING);
+    w.kernel.native_details_arm();
+    let asleep_at = w.kernel.sleep_due();
+    pump(&mut w, 1_000);
+    assert_eq!(*w.format.ops.borrow(), [2], "opened, preparing");
+    // No "more": a timed wake for its first step.
+    assert!(!w.kernel.shared.native_instances.service_more());
+    assert_eq!(w.kernel.service_due(), Some(Instant(1_100)));
+    // A pass for another reason before then: the step and the read; the
+    // next book waits for the wake.
+    w.format.open.set(READY);
+    pump(&mut w, 1_050);
+    assert_eq!(*w.format.ops.borrow(), [2, 3, 5, 6, 4]);
+    pump(&mut w, 1_060);
+    assert_eq!(w.format.opens(), 1);
+    assert_eq!(w.kernel.service_due(), Some(Instant(1_100)));
+    // At the wake: the next book, read at once (ready).
+    pump(&mut w, 1_100);
+    assert_eq!(*w.format.ops.borrow(), [2, 3, 5, 6, 4, 2, 5, 6, 4]);
+    assert_eq!(w.kernel.service_due(), Some(Instant(1_200)), "the next book");
+    // Saving: the gap is a second.
+    w.kernel.shared.power.level = paperpaw_sdk::power::PowerLevel::Saving;
+    pump(&mut w, 1_200);
+    assert_eq!(w.format.opens(), 3);
+    assert_eq!(w.kernel.service_due(), Some(Instant(2_200)));
+    // The catalog's end: wanted once, and no wake is left.
+    pump(&mut w, 2_200);
+    assert_eq!(wanted(&w), 1);
+    assert_eq!(w.kernel.service_due(), None);
+    // The job is no activity: the sleep is due when it was.
+    assert_eq!(w.kernel.sleep_due(), asleep_at);
+    assert!(!w.kernel.busy_at_sleep(Instant(2_200)));
+}
+
+#[test]
+fn a_displaced_job_waits_the_quiet_moment_by_a_timed_wake() {
+    use crate::native_host::doc_service::JobKind;
+    let mut w = world(&["books/a.epub"]);
+    catalog(&w, &[("books/a.epub", false)]);
+    started(&mut w);
+    w.format.open.set(PREPARING);
+    w.kernel.native_details_arm();
+    pump(&mut w, 1_000);
+    assert!(w.docs.cover_job_active());
+    // A reader's open took its place (`doc_service::taken`).
+    w.docs.set_now(1_000);
+    assert!(w.docs.table().take_cover_job().is_some());
+    w.docs.cover_job_displaced(JobKind::Details);
+    w.format.open.set(READY);
+    pump(&mut w, 1_500);
+    assert_eq!(w.format.opens(), 1, "the quiet moment");
+    assert_eq!(w.kernel.service_due(), Some(Instant(3_000)));
+    assert_eq!(w.docs.cover_job_given_up(), 0, "not given up");
+    pump(&mut w, 3_000);
+    assert_eq!(w.format.opens(), 2);
+    assert_eq!(kept_title(&w, "books/a.epub").as_deref(), Some("Dune"));
 }

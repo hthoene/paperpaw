@@ -257,3 +257,27 @@ fn a_book_that_is_not_the_cover_job_is_stepped_at_once_again() {
         assert_eq!(log.calls.borrow().len(), 2);
     });
 }
+
+#[test]
+fn at_a_saving_power_level_the_jobs_steps_are_a_second_apart() {
+    world(|w| {
+        let log = Rc::new(Log::default());
+        let (mut kernel, opener) = kernel(w, &log);
+        let document = open(w, &kernel, opener, "books/a.epub");
+        assert!(w.state.table.start_cover_job(opener, document));
+        kernel.now = Instant(10_000);
+        *log.reply.borrow_mut() = fmt_state(PREPARING, 100_000);
+        for level in [
+            paperpaw_sdk::power::PowerLevel::Saving,
+            paperpaw_sdk::power::PowerLevel::Offline,
+        ] {
+            kernel.shared.power.level = level;
+            assert!(!kernel.native_doc_pump());
+            let at = kernel.shared.native_instances.doc_retry().unwrap();
+            assert_eq!(at, kernel.now.millis() + 1_000);
+            assert!(!kernel.shared.native_instances.service_more());
+            kernel.now = Instant(at);
+        }
+        assert_eq!(log.calls.borrow().len(), 2);
+    });
+}

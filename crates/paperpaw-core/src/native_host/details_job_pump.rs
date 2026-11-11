@@ -214,16 +214,12 @@ impl crate::Kernel {
             }
             Pass::Started => {
                 // What the format staged runs now; a book that is ready at
-                // once is read in this pass, and the next is looked for soon.
+                // once is read in this pass. Soon the next look: the first
+                // step of a book that prepares (this pass's preparing loop
+                // came before it), or the next book.
                 self.native_outbox_run();
                 self.native_cover_job_pump();
-                let active = self
-                    .shared
-                    .native_instances
-                    .hosts()
-                    .and_then(|hosts| hosts.documents())
-                    .is_some_and(|documents| documents.0.cover_job_active());
-                (!active).then(|| self.native_job_next())
+                Some(self.native_job_next())
             }
             Pass::Refused {
                 status,

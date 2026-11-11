@@ -11,7 +11,7 @@ use crate::native_host::{
     fmt_call::FrameRoute,
     lib_cover::path_key,
 };
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NOT_FOUND};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NOT_FOUND, ERR_TIMEOUT};
 use paperpaw_sdk::document::Metadata;
 
 fn encoded(record: local::Record<'_>) -> Vec<u8> {
@@ -425,5 +425,45 @@ fn a_ready_cover_is_asked_beside_the_details_job_never_busy() {
         assert_eq!(job.job_kind, JobKind::Details);
         assert!(w.state.details.running());
         assert_eq!(ops(w), [2, 2, 17, 4]);
+    });
+}
+
+#[test]
+fn a_book_whose_jobs_keep_the_device_awake_ten_minutes_in_a_start_fails() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.state.now.set(1_000);
+        begin(w, "books/a.epub", PREPARING);
+        // Six minutes of steps, then the device sleeps (the job ends).
+        *w.reply.borrow_mut() = Ok(fmt_state(PREPARING, 0));
+        w.state.now.set(1_000 + 360_000);
+        w.state.prepare_step(&w.hosts, &FrameRoute(w));
+        assert_eq!(look(w).0, JobStep::Wait);
+        w.state.cover_job_end(&w.hosts, &FrameRoute(w));
+        // After the wake the same book's job counts on from there.
+        w.state.now.set(5_000_000);
+        start(w, "books/a.epub", PREPARING).unwrap();
+        *w.reply.borrow_mut() = Ok(fmt_state(PREPARING, 0));
+        w.state.now.set(5_000_000 + 239_999);
+        w.state.prepare_step(&w.hosts, &FrameRoute(w));
+        assert_eq!(look(w).0, JobStep::Wait, "not quite ten minutes");
+        w.state.now.set(5_000_000 + 240_000);
+        w.state.prepare_step(&w.hosts, &FrameRoute(w));
+        let job = w.state.table.cover_job().unwrap();
+        assert_eq!((job.state, job.status), (FAILED, ERR_TIMEOUT));
+        assert_eq!(
+            look(w).0,
+            JobStep::DetailsEnded {
+                filled: false,
+                key: path_key("books/a.epub")
+            }
+        );
+        // Another book starts at nought.
+        w.state.now.set(6_000_000);
+        start(w, "books/b.epub", PREPARING).unwrap();
+        *w.reply.borrow_mut() = Ok(fmt_state(PREPARING, 0));
+        w.state.now.set(6_000_000 + 500_000);
+        w.state.prepare_step(&w.hosts, &FrameRoute(w));
+        assert_eq!(look(w).0, JobStep::Wait);
     });
 }
