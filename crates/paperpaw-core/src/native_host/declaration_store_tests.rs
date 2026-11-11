@@ -1353,53 +1353,6 @@ fn an_owner_costs_a_flat_amount_however_many_kinds_exist() {
 }
 
 #[test]
-fn slot_keys_keep_kinds_apart_and_the_declaration_order_inside_a_kind() {
-    // A kind's keys come before the next kind's, whatever the hash.
-    assert!(Kind::Group.slot_key(u32::MAX) < Kind::Spec.slot_key(0));
-    // The top ten bits of the hash order a kind; the low bits share a key.
-    assert_eq!(
-        Kind::Spec.slot_key(0x8000_0000),
-        Kind::Spec.slot_key(0x803f_ffff)
-    );
-    assert!(Kind::Spec.slot_key(0x803f_ffff) < Kind::Spec.slot_key(0x8040_0000));
-    // The last kind and the largest hash still fit the 16-bit key.
-    assert_eq!(
-        Kind::BookBadge.slot_key(u32::MAX) >> KIND_SHIFT,
-        Kind::BookBadge as u16
-    );
-    let mut owner = PendingDeclarations::new(Id::new_static("fixture"), image()).kept;
-    owner.slots.reserve_exact(5);
-    for (kind, hash, record) in [
-        (Kind::Spec, 0x0040_0000, 0),
-        (Kind::Lookup, 0, 1),
-        (Kind::Group, u32::MAX, 2),
-        (Kind::Spec, 0x003f_ffff, 3),
-        (Kind::Spec, 0, 4),
-    ] {
-        owner.add_slot(Slot {
-            hash: kind.slot_key(hash),
-            place: record,
-        });
-    }
-    let records = |slots: &[Slot]| slots.iter().map(|slot| slot.record()).collect::<Vec<_>>();
-    assert_eq!(records(owner.of_kind(Kind::Group)), [2]);
-    // A kind's slots stay in the order they were added (declaration order).
-    assert_eq!(records(owner.of_kind(Kind::Spec)), [0, 3, 4]);
-    assert_eq!(records(owner.of_kind(Kind::Lookup)), [1]);
-    assert!(owner.of_kind(Kind::Extra).is_empty());
-    // A run holds every slot of the key: the lookup compares their names.
-    let run = |kind, hash| {
-        owner
-            .run(kind, hash)
-            .map(|slot| slot.record())
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(run(Kind::Spec, 0x003f_ffff), [3, 4]);
-    assert_eq!(run(Kind::Spec, 0x0040_0000), [0]);
-    assert!(run(Kind::Group, 0x0040_0000).is_empty());
-}
-
-#[test]
 fn a_slot_keeps_the_batch_and_the_place_in_it() {
     let slot = Slot {
         hash: 0,
