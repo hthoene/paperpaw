@@ -36,6 +36,8 @@ use crate::native_model::{FAMILIES, OFFICIAL_LIST, Provides};
 /// The settings' keys, as the host holds them (the plugin's id and the name).
 const CATALOG_KEY: &str = "store.catalog";
 const COMMUNITY_KEY: &str = "store.community";
+/// The most a registry or device query takes (`max_input` of the query ops).
+const REQUEST_BYTES: usize = 256;
 const MOST_PAGES: usize = 16;
 /// The flag of a registry row that says the plugin is switched on.
 const ENABLED: u32 = 1;
@@ -95,31 +97,15 @@ impl Facts {
     /// # Errors
     /// `NoMemory` and the host's refusals.
     pub fn read(host: &Host<'_>, catalog: &str) -> Result<Option<Self>, Error> {
-        let dev = Dev::open(host)?;
-        let mut input = buffer(SERVICE_BUFFER)?;
+        let mut input = [0; REQUEST_BYTES];
         let mut out = buffer(SERVICE_BUFFER)?;
-        let name = {
-            let identity = dev.device(host, &mut input, &mut out)?;
-            if identity.catalog().is_empty() {
-                None
-            } else {
-                Some(copy(identity.catalog())?)
-            }
-        };
-        let Some(name) = name else {
-            dev.release(host).ok();
+        let dev = Dev::open(host)?;
+        // The handle is let go on every path, an early `?` included.
+        let found = Self::read_device(host, &dev, &mut input, &mut out);
+        dev.release(host).ok();
+        let Some((name, code_file)) = found? else {
             return Ok(None);
         };
-        // A device with no native build says no code file: no code plugin loads.
-        let code_file = match dev.native(host, &mut input, &mut out) {
-            Ok(native) => copy(native.code_file())?,
-            Err(Error::NotFound | Error::Unsupported) => String::new(),
-            Err(error) => {
-                dev.release(host).ok();
-                return Err(error);
-            }
-        };
-        dev.release(host).ok();
         let mut scratch = [0u8; 16];
         let language = copy(i18n::language(host, &mut scratch)?)?;
         let have = installed(host, &mut input, &mut out)?;
@@ -130,6 +116,28 @@ impl Facts {
             official: catalog.trim() == OFFICIAL_LIST,
             have,
         }))
+    }
+
+    /// What plugin libraries call the device and the code file a build gets
+    /// here; `None` where libraries do not know the device.
+    fn read_device(
+        host: &Host<'_>,
+        dev: &Dev,
+        input: &mut [u8],
+        out: &mut [u8],
+    ) -> Result<Option<(String, String)>, Error> {
+        let identity = dev.device(host, input, out)?;
+        if identity.catalog().is_empty() {
+            return Ok(None);
+        }
+        let name = copy(identity.catalog())?;
+        // A device with no native build says no code file: no code plugin loads.
+        let code_file = match dev.native(host, input, out) {
+            Ok(native) => copy(native.code_file())?,
+            Err(Error::NotFound | Error::Unsupported) => String::new(),
+            Err(error) => return Err(error),
+        };
+        Ok(Some((name, code_file)))
     }
 
     /// The language libraries are asked in.

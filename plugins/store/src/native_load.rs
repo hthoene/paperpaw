@@ -328,7 +328,18 @@ impl Loader {
         match done.token {
             LIST_TOKEN if self.list == Some(done.id) => {
                 self.list = None;
-                self.list_ended(wire, done)
+                let ended = self.list_ended(wire, done);
+                if ended.is_err() {
+                    // A fetch that cannot go on leaves no part behind and no
+                    // "loading" that never ends.
+                    let _ = wire.storage().remove(LIST_PART);
+                    self.trouble = if self.index.is_some() {
+                        Trouble::None
+                    } else {
+                        Trouble::Failed
+                    };
+                }
+                ended
             }
             PAGE_TOKEN
                 if self
@@ -336,7 +347,11 @@ impl Loader {
                     .as_ref()
                     .is_some_and(|slot| slot.request == Some(done.id)) =>
             {
-                self.page_ended(wire, done)
+                let ended = self.page_ended(wire, done);
+                if let (Err(_), Some(slot)) = (&ended, self.page.as_mut()) {
+                    slot.details = Details::Failed;
+                }
+                ended
             }
             _ => Ok(Ended::Ignored),
         }

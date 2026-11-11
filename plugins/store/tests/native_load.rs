@@ -19,6 +19,7 @@ use paperpaw_sdk::{MemoryStorage, Storage};
 struct Script {
     storage: MemoryStorage,
     facts: Option<Facts>,
+    facts_error: Option<Error>,
     get: Result<u32, Error>,
     asked: Vec<(String, String, u32)>,
     cancelled: Vec<u32>,
@@ -29,6 +30,7 @@ impl Script {
     fn new() -> Self {
         Self {
             storage: MemoryStorage::new(),
+            facts_error: None,
             facts: Some(Facts::new("x4", "code.ppn", "en", true, Vec::new()).unwrap()),
             get: Ok(7),
             asked: Vec::new(),
@@ -43,6 +45,9 @@ impl Wire for Script {
         &self.storage
     }
     fn facts(&mut self) -> Result<Option<Facts>, Error> {
+        if let Some(error) = self.facts_error {
+            return Err(error);
+        }
         Ok(self.facts.clone())
     }
     fn catalog(&mut self) -> Result<(String, bool), Error> {
@@ -182,4 +187,23 @@ fn a_page_of_a_bad_name_is_not_asked_for_and_a_failed_one_says_so() {
     assert_eq!(loader.details(), (Some("plugin-a"), Details::Offline));
     loader.forget_page();
     assert_eq!(loader.details(), (None, Details::None));
+}
+
+#[test]
+fn a_fetch_that_cannot_go_on_leaves_no_part_and_no_loading() {
+    let mut wire = Script::new();
+    let mut loader = Loader::default();
+    loader.start_list(&mut wire).unwrap();
+    wire.storage.write(LIST_PART, LIST.as_bytes()).unwrap();
+    wire.facts_error = Some(Error::NoMemory);
+    let ended = loader.ended(&mut wire, &done(LIST_TOKEN, Reason::Ok, 200));
+    assert_eq!(ended, Err(Error::NoMemory));
+    assert_eq!(loader.trouble(), Trouble::Failed);
+    assert!(!wire.storage.exists(LIST_PART));
+    wire.facts_error = None;
+    loader.start_page(&mut wire, "plugin-a").unwrap();
+    wire.facts_error = Some(Error::NoMemory);
+    let ended = loader.ended(&mut wire, &done(PAGE_TOKEN, Reason::Ok, 200));
+    assert_eq!(ended, Err(Error::NoMemory));
+    assert_eq!(loader.details(), (Some("plugin-a"), Details::Failed));
 }

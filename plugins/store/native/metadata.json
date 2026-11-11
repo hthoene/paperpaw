@@ -121,6 +121,18 @@
     {
       "kind": "host",
       "name": "storage.remove"
+    },
+    {
+      "kind": "host",
+      "name": "storage.append"
+    },
+    {
+      "kind": "host",
+      "name": "storage.rename"
+    },
+    {
+      "kind": "host",
+      "name": "storage.sync"
     }
   ],
   "services": [

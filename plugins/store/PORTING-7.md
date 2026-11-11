@@ -229,7 +229,7 @@ finishes the port; until then nothing is dropped.
 Each is an ignored case in `tests/acceptance_pending.rs`. The interface-6 tests
 (`tests/*.rs`) stay as the references.
 
-## Ported in slice 5 (`src/native_device.rs`, `src/native_load.rs`, `src/native_plugin.rs`)
+## Ported in slice 7 (`src/native_device.rs`, `src/native_load.rs`, `src/native_plugin.rs`)
 
 - The device's facts (`native_device.rs`): its name, the code file a build gets, the
   plugins installed (sorted by id, read from the registry with a 256-byte stack
