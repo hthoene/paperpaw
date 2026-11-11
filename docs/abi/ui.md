@@ -844,6 +844,12 @@ or guard rule: only the maker drops its instances.
   could not be (`status` 0 spoken, 1 replaced or stopped, 2 no voice for the language, 3 no speech
   on this device). Only `menu.need` 0 (`speech`) devices speak; elsewhere `spoken` status 3 at
   once. `stop_speaking` stops the submitter's own speech only.
+- [D] **Who hears `spoken`.** 89 is registrable and goes only to the plugin that sent the
+  `speak`, and only if it subscribed with a `registration.event` for 89 (unlike the addressed
+  events 38, 39, 79, 80, 82 and 109, it is not delivered without one). A plugin that speaks
+  declares 89; without it the host still speaks, but the plugin never hears the end of a text.
+  Other subscribers never hear another plugin's 89; the plugin matches it to its text by
+  `cookie`.
 
 ## 8. Sizes and memory
 
