@@ -271,10 +271,38 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   the document. A format that is not running yet is `ERR_BUSY` with bit 6 raised, so the caller
   asks again (one counter for the whole library host, not per book: after 6 raises in a row it
   raises no more until a cover is made); a full document table is `ERR_BUSY` and **raises nothing**
-  (it does not clear by itself: the caller closes a document); a format whose first `open` is still *preparing*
-  (a conversion not yet in the cache: DOCX, MOBI) is `ERR_NOT_FOUND` for now, and the cover appears
-  after the book has been prepared once (reading it). The background job that makes those covers
-  and raises bit 6 when they are ready is the contract's own design and comes later.
+  (it does not clear by itself: the caller closes a document).
+  **Preparing books (DOCX, MOBI): the cover job.** A format whose first `open` is still *preparing*
+  (a conversion not yet in the cache) is `ERR_BUSY`, and the first such `cover` keeps its document
+  open as the one **cover job** of the device: a background document (any other open takes its place
+  first, the reader on the X4's two places always wins; sleep, a pulled card and any open that is
+  not this `cover` end it). The preparing loop (DOC section on preparing) converts it a step a pass
+  between inputs, and when it is ready or failed the host ends it and raises bit 6 once. The next
+  `cover` then makes the picture as above. A second book waits (`ERR_BUSY`, asked again after the
+  bit). No job begins before the kernel's start has returned, nor while a book is open for reading
+  (`ERR_BUSY`, nothing raised; bit 6 follows once jobs may begin). The job's document is the
+  host's own (it takes no plugin's document cap, so the caller's ready covers are made beside it).
+  A job that an open displaced (a book to show) is held back the same way, and for 2 s after the
+  displacement; it then **starts again from the beginning**: a cache is whole or not used
+  (`document.md` 2.1), nothing of a partial conversion is kept. A job displaced 3 times in a row
+  for the same book is not started again for that book until the next start (no cover, as for a
+  failed book). A job never holds the device awake
+  and does not restart after a sleep until a new `cover` asks. Between two of its steps the pump waits 100 ms (1 s in the power modes Saving and Offline), a
+  timed wake, so the job goes on on an idle device. A book's job may run 10 minutes in all per
+  start of the device (displaced and begun again counts together); then the book counts as failed
+  (as above). If a job's memory for the format's
+  `close` cannot be had (4 KiB, once, when the job ends) the format is not told and keeps its state
+  for that document until it stops. A book whose job failed (the
+  format could not prepare it, 8 steps in a row that could not be made) is `ERR_NOT_FOUND`, never
+  `ERR_BUSY` again, until the next start: the host remembers 8 such books in memory only, and after
+  8 failed jobs in a row raises no more bits (a ready job or the next start resets the run). A card
+  error is not the book's. **Crash guard:** when a job begins the host writes the book's key to
+  `.paperpaw/cover-job.txt` (and syncs); it removes the file when the job ends however it ends; if it
+  cannot write it the job does not begin and the book counts as failed (`ERR_NOT_FOUND`, as above).
+  At the next start a file (exactly 16 hexadecimal digits; any other file names no book) still
+  there means a reset happened in that job (or a plain power loss: then the book is counted failed
+  for that run only), and its book is counted as failed. The format's first `open` of a book (the call
+  that reports *preparing*) is not covered by the marker.
 
 ### 2.2 Status, positions, annotations
 
