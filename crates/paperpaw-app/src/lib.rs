@@ -160,6 +160,7 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
     macro_rules! tables {
         ($plugin:ident) => {
             FixedTables::new($plugin::NATIVE_SETTINGS, $plugin::NATIVE_GROUPS)
+                .with_ids($plugin::NATIVE_IDS)
         };
     }
     // With the ids the plugin's declarations name kept in the program too.

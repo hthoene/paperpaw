@@ -34,8 +34,9 @@ impl crate::Kernel {
     /// `entry` comes from `native_plugin!(..., linked = NAME)` of a crate that
     /// is linked into this program: its factory obeys the SDK's native factory
     /// contract and its code and static data stay loaded for the whole run.
-    /// `image` is a read-only mapping of that many bytes which stays mapped for
-    /// the whole run and holds the plugin's declaration bytes (the program's
+    /// `image` is a read-only mapping of that many bytes which stays mapped,
+    /// and is never written by anyone (no writable alias, no remap, no flash
+    /// write into its range), for the whole process; it holds the plugin's declaration bytes (the program's
     /// read-only data): the declarations are then kept as offsets into it and
     /// not copied, as for a loaded plugin, and the titles and other texts they
     /// hold are read from it where the registries keep them (no copy either,
