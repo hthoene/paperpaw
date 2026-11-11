@@ -213,6 +213,14 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   `progress_ppm`, 0 to 1,000,000, as `doc_state` has them at delivery; one per document, coalesced,
   the latest wins) when the state or the progress moves; other ops on a preparing document are
   `ERR_BUSY`. The X4 runs at most one preparation at a time, queued in open order.
+- [D] **A background open may skip preparing** (#245). A format may answer op 2 `open` with
+  `flags` bit 2 `background` as `ready` (state 0, no show-only `doc_state.flags`) without
+  converting: such a document serves only format ops 5 `meta`, 6 `meta_text` and 17 `cover`
+  (section 3), from what the format reads at open (a DOCX's `docProps/core.xml`, a MOBI's EXTH
+  header and cover record), answers its other ops `ERR_STATE` and writes no cache. It is never
+  given to an open without `background`: that one is a new open, prepared as usual. The host's own
+  background job (covers, book details) opens with `background`, so it reads a book's details and
+  cover without converting the book.
 - [D] **A preparation that does not move fails.** After 32 answers in a row of state 1 whose
   `progress_ppm` is not higher than the highest one this preparation gave (equal or lower counts),
   the host fails the document with `ERR_TIMEOUT`, exactly as if the format had answered failed:
