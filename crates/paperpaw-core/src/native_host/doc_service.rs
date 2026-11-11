@@ -32,9 +32,11 @@ mod args;
 mod check;
 pub(crate) mod cover;
 mod report;
+mod steps;
 mod table;
 #[allow(unused_imports, reason = "the shell builds the table with its limits")]
 pub(crate) use args::ROOT_HANDED;
+pub(crate) use steps::{JobStep, PrepareStep};
 pub(crate) use table::{
     Document, DocumentTable, FAILED, FormatRef, HOST_JOB, Limits, PREPARING, READY,
 };
@@ -421,30 +423,6 @@ pub(crate) trait DocHost {
         sniff: bool,
         visit: &mut dyn FnMut(Record<'_>),
     ) -> Result<(), i32>;
-}
-
-/// What one look at the library's cover job found.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum JobStep {
-    /// There is no cover job (or it was closed by the host: its row is freed).
-    None,
-    /// It is still preparing.
-    Wait,
-    /// Its preparation is over and it is closed: `ready` (else failed), and the
-    /// key of its book's path (`lib_cover::path_key`).
-    Ended { ready: bool, key: u64 },
-}
-
-/// What one step of the preparing loop did.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PrepareStep {
-    /// No document is preparing.
-    Idle,
-    /// A step was made; the next may be made at once (the next pass).
-    More,
-    /// The step could not be made now (the format is not started, a table or
-    /// the card is busy): the loop tries again later, not at once.
-    Later,
 }
 
 /// The format's answer to a `prepare` of `document`, checked and recorded:

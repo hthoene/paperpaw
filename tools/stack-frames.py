@@ -20,6 +20,8 @@ Usage:
                  through other big frames under it: N chains in all
     --min BYTES  what a big frame is, for those chains
     --root NAME  where the chains start (default `main`)
+    --cut RE     the functions whose names match RE are leaves: what they call
+                 is not followed (for a path the caller knows is not taken)
     --from RE    also the deepest chains from the functions whose names
                  match RE (e.g. `Firmware>::run$`, or a plugin's `draw`)
 
@@ -344,6 +346,8 @@ def main():
     ap.add_argument("--root", default="main")
     ap.add_argument("--from", dest="froms", action="append", default=[])
     ap.add_argument("--panics", action="store_true")
+    ap.add_argument("--cut", action="append", default=[],
+                    help="REGEX: functions matching it are leaves (what they call is not followed)")
     ap.add_argument("--objdump")
     a = ap.parse_args()
 
@@ -354,6 +358,10 @@ def main():
     out = subprocess.run(cmd, capture_output=True, text=True, errors="replace", check=True).stdout
     funcs = parse(out.splitlines(), arch, Image(a.elf) if arch == EM_XTENSA else None)
     link(funcs, a.panics)
+    for pattern in a.cut:
+        for f in funcs:
+            if re.search(pattern, short(f.name)):
+                f.callees, f.tailees = set(), set()
     depth, nxt = depths(funcs)
 
     print(f"{len(funcs)} functions. Columns: the frame's bytes, the chain's sum; "

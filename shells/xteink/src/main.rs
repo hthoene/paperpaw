@@ -170,7 +170,21 @@ esp_bootloader_esp_idf::esp_app_desc!(
 /// Bluetooth takes of the same memory for good, and less the X4's arena
 /// for plugins' hot code, which the heap gets once plugins are loaded as
 /// far as they did not take it (`native::HOT_ARENA_LEN`).
-const HEAP_SIZE: usize = (192 - BLUETOOTH_KB - S3_BAND_KB) * 1024 - native::HOT_ARENA_LEN;
+const HEAP_SIZE: usize =
+    (192 - BLUETOOTH_KB - S3_BAND_KB - X4_BAND_KB) * 1024 - native::HOT_ARENA_LEN;
+/// The X4's band at the stack's end and its reserve (4 KB and the band's 2 KB,
+/// `paperpaw_x4::stack_band`) take the top 7.7 KB of a stack that had only
+/// 37.4 KB left once the interface-7 plugins were built in: the start's path
+/// (some 33 KB) and then the first frame's card read (37.9 KB, a plugin's call
+/// into the files host and the FAT) tripped the band in the first two test
+/// images (#2556, on the device). The stack grows by as much as the heap gives
+/// (`build.rs` checks its size), as the ESP32-S3's does (`S3_BAND_KB`, 16 KB):
+/// 53.4 KB, 45.7 KB above the band.
+const X4_BAND_KB: usize = if cfg!(all(target_arch = "riscv32", feature = "ppn5")) {
+    16
+} else {
+    0
+};
 /// The ESP32-S3's band at the stack's end and its reserve, in KB, where
 /// interface-7 plugins are built in (`ppn5`): the stack grows by as much (the
 /// heap gives it, `build.rs` checks the stack's size). 16 KB: 14,336 bytes of
@@ -368,9 +382,23 @@ fn now() -> Instant {
 
 #[main]
 fn main() -> ! {
+    // Counted first: a start that dies before anything else (#2556) must
+    // not go on dying; after two, this one leaves the band off and goes
+    // without native plugins (`safe_mode::check`).
+    let earlier = safe_mode::begin();
     stack::paint();
-    stack::arm_band();
-    start().run()
+    if !paperpaw_x4::start_count::early::refuses(earlier) {
+        stack::arm_band();
+    }
+    let mut firmware = start();
+    // The radios the kernel has are told to the device once, now that the
+    // kernel exists (it answers their state itself).
+    #[cfg(feature = "ppn5")]
+    {
+        device_host::present(&firmware.device, &firmware.kernel);
+        device_host::check(&firmware.device, &firmware.kernel);
+    }
+    firmware.run()
 }
 
 /// Everything before the main loop, in frames of their own: what only the
@@ -423,13 +451,10 @@ fn start() -> Firmware {
     if let Some(at) = bundle {
         native::bundle::forget(&flash, at);
     }
-    // The radios the kernel has are told to the device once, now that the
-    // kernel exists (it answers their state itself).
-    #[cfg(feature = "ppn5")]
-    {
-        device_host::present(&firmware.device, &firmware.kernel);
-        device_host::check(&firmware.device, &firmware.kernel);
-    }
+    // Nothing here borrows `firmware`: a local that is borrowed after it is
+    // built cannot be returned in place, and the copy takes 7.8 KB more of the
+    // stack (#2556: with the band, the start's path no longer fitted). What
+    // needs the kernel built runs in `main`, on the firmware where it lies.
     power::mark(power::at::START_KERNEL);
     info!(
         "startup: kernel ready in {} ms",
