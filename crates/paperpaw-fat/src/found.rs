@@ -146,6 +146,7 @@ impl Scan {
 /// one was found on, then from the start up to there, is the one; where
 /// it begins, the next is looked for. `None` where the folder is not noted or
 /// the name may be a short one.
+#[inline(never)]
 pub(super) fn quick_lookup<IO: ReadWriteSeek + 'static>(
     dir: &FatDir<IO>,
     name: &str,
