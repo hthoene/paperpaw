@@ -18,8 +18,11 @@ use paperpaw_platform::{Storage, StorageError};
 pub(super) const FILE: &str = ".paperpaw/secrets.txt";
 /// The new file, until it replaces the old by rename.
 pub(super) const TEMP: &str = ".paperpaw/secrets.new";
-/// The one read buffer.
-pub(super) const READ_BUF: usize = 4_096;
+/// The one read buffer: a whole line with its line break, and some room so
+/// that a read is not a few bytes long (it must be over [`LINE_MAX`], or a
+/// full buffer without a line break would read as the end of the file).
+pub(super) const READ_BUF: usize = LINE_MAX + 128;
+const _: () = assert!(READ_BUF > LINE_MAX);
 /// Longest line this host reads or writes, without its line break: the names,
 /// the label and a 1,024-byte value sealed (about 2.5 KiB).
 pub(super) const LINE_MAX: usize = 2_560;
