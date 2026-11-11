@@ -214,7 +214,7 @@ finishes the port; until then nothing is dropped.
   interface-6 file and format (`<id>\t<release>`, at most four releases of a plugin,
   the newest last, the same release once), so what Beta 3 kept is read as it was;
   `adopt` keeps interface 6's rule (the plugins installed before the record count as
-  the store's, once). The no-downgrade rule is the host's (reason 11, "older").
+  the store's, once). The no-downgrade rule is the host's (reason 11 "older", 14 "the same version"; `device.md` 5.5).
   Kernel #1091's "installed by store" registry flag is to be used once it lands; the
   file stays the record until then.
 - **The queue** (`native_install::next`): goes on with `Queue::advance` and keeps the

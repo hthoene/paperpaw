@@ -192,20 +192,30 @@ impl Installer {
             download.set_step(Step::Failed(Failure::Damaged));
             return Ok(Step::Failed(Failure::Damaged));
         }
-        let proof = Proof::of(page)?;
+        let proof = match Proof::of(page) {
+            Ok(proof) => proof,
+            Err(error) => {
+                discard(wire.storage(), &staged.folder);
+                download.set_step(Step::Failed(Failure::Card));
+                return Err(error);
+            }
+        };
         // Nothing is asked of the host for a request already waiting: the
         // plugin's own numbers count up from 1, 0 is never sent.
         self.next = self.next.wrapping_add(1).max(1);
         let request = self.next;
         let update = have.version.is_some();
         let allow_older = have.repairs;
-        if wire
-            .install(request, &staged.folder, update, allow_older, &proof)
-            .is_err()
-        {
+        if let Err(error) = wire.install(request, &staged.folder, update, allow_older, &proof) {
             discard(wire.storage(), &staged.folder);
             download.set_step(Step::Failed(Failure::Card));
-            return Ok(Step::Failed(Failure::Card));
+            // No memory is the caller's to hear; any other refusal is the
+            // host's word that the install cannot start.
+            return if error == Error::NoMemory {
+                Err(error)
+            } else {
+                Ok(Step::Failed(Failure::Card))
+            };
         }
         self.going = Some(Going {
             request,
@@ -331,13 +341,16 @@ pub enum Next {
 /// finds it where it was.
 ///
 /// # Errors
-/// `NoMemory`; `Io` where the card refuses (the turn is given anyway).
+/// `NoMemory`. A card that refuses the queue file is not an error: the turn is
+/// given anyway.
 pub fn next(queue: &mut Queue, storage: &dyn Storage) -> Result<Next, Error> {
     let id = match queue.advance() {
         Some(id) => Some(copy(id)?),
         None => None,
     };
-    queue.keep(storage)?;
+    if queue.keep(storage) == Err(Error::NoMemory) {
+        return Err(Error::NoMemory);
+    }
     Ok(id.map_or(Next::Idle, Next::FetchPage))
 }
 
@@ -360,10 +373,13 @@ impl Installs {
     /// # Errors
     /// `NoMemory`.
     pub fn read(storage: &dyn Storage) -> Result<Self, Error> {
-        let Some(text) = crate::native_queue::read_text(storage, INSTALLS_FILE, MAX_INSTALLS)?
-        else {
-            return Ok(Self::default());
-        };
+        match crate::native_queue::read_text(storage, INSTALLS_FILE, MAX_INSTALLS)? {
+            Some(text) => Self::parse(&text),
+            None => Ok(Self::default()),
+        }
+    }
+
+    fn parse(text: &str) -> Result<Self, Error> {
         let mut kept = Vec::new();
         for line in text.lines() {
             let Some((id, release)) = line.split_once('\t') else {
@@ -374,6 +390,21 @@ impl Installs {
             }
         }
         Ok(Self { kept })
+    }
+
+    /// What the file says, or `None` where it is there but cannot be read (a
+    /// write on it would wipe the other plugins' records).
+    ///
+    /// # Errors
+    /// `NoMemory`.
+    fn load(storage: &dyn Storage) -> Result<Option<Self>, Error> {
+        if !storage.exists(INSTALLS_FILE) {
+            return Ok(Some(Self::default()));
+        }
+        match crate::native_queue::read_text(storage, INSTALLS_FILE, MAX_INSTALLS)? {
+            Some(text) => Self::parse(&text).map(Some),
+            None => Ok(None),
+        }
     }
 
     /// Whether the file is there (once it is, the plugins installed before are
@@ -411,7 +442,9 @@ impl Installs {
         if !is_plugin_name(plugin) || release.is_empty() || release.contains(['\t', '\n', '\r']) {
             return Ok(false);
         }
-        let mut now = Self::read(storage)?;
+        let Some(mut now) = Self::load(storage)? else {
+            return Ok(false);
+        };
         // The same release once, then room for the new one: the oldest of this
         // plugin's go when there are too many.
         now.kept
@@ -441,7 +474,9 @@ impl Installs {
     /// # Errors
     /// `NoMemory`.
     pub fn forget(storage: &dyn Storage, plugin: &str) -> Result<bool, Error> {
-        let mut now = Self::read(storage)?;
+        let Some(mut now) = Self::load(storage)? else {
+            return Ok(false);
+        };
         now.kept.retain(|(id, _)| id != plugin);
         Ok(now.keep(storage))
     }

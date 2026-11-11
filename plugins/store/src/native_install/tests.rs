@@ -327,3 +327,64 @@ fn the_queue_goes_on_with_the_next_plugin_and_is_kept() {
     assert_eq!(next(&mut queue, &storage).unwrap(), Next::Idle);
     assert!(Queue::read(&storage).unwrap().lines().is_empty());
 }
+
+#[test]
+fn a_record_that_cannot_be_read_is_not_written_over() {
+    // Not text: it is there, but says nothing the store can keep or lose.
+    let storage = MemoryStorage::new().with(INSTALLS_FILE, alloc::vec![0xff, 0xfe, 0x00]);
+    assert!(!Installs::remember(&storage, "airy-theme", "1.0.0").unwrap());
+    assert!(!Installs::forget(&storage, "airy-theme").unwrap());
+    let mut kept = alloc::vec![0; 3];
+    assert_eq!(storage.read_at(INSTALLS_FILE, 0, &mut kept).unwrap(), 3);
+    assert_eq!(kept, [0xff, 0xfe, 0x00]);
+    // No file at all is an empty record, which is written.
+    let empty = MemoryStorage::new();
+    assert!(Installs::remember(&empty, "airy-theme", "1.0.0").unwrap());
+}
+
+/// A card that refuses every write.
+struct ReadOnly(MemoryStorage);
+
+impl Storage for ReadOnly {
+    fn read_at(&self, p: &str, o: u64, b: &mut [u8]) -> Result<usize, paperpaw_sdk::StorageError> {
+        self.0.read_at(p, o, b)
+    }
+    fn size(&self, p: &str) -> Result<u64, paperpaw_sdk::StorageError> {
+        self.0.size(p)
+    }
+    fn write(&self, _: &str, _: &[u8]) -> Result<(), paperpaw_sdk::StorageError> {
+        Err(paperpaw_sdk::StorageError::Io)
+    }
+    fn append(&self, _: &str, _: &[u8]) -> Result<(), paperpaw_sdk::StorageError> {
+        Err(paperpaw_sdk::StorageError::Io)
+    }
+    fn list(
+        &self,
+        d: &str,
+        v: &mut dyn FnMut(paperpaw_sdk::DirEntry<'_>),
+    ) -> Result<(), paperpaw_sdk::StorageError> {
+        self.0.list(d, v)
+    }
+    fn remove(&self, _: &str) -> Result<(), paperpaw_sdk::StorageError> {
+        Err(paperpaw_sdk::StorageError::Io)
+    }
+    fn rename(&self, _: &str, _: &str) -> Result<(), paperpaw_sdk::StorageError> {
+        Err(paperpaw_sdk::StorageError::Io)
+    }
+}
+
+#[test]
+fn the_turn_is_given_though_the_card_refuses_the_queue() {
+    use crate::native_queue::Mark;
+    let storage = ReadOnly(MemoryStorage::new());
+    let mut queue = Queue::default();
+    queue.add(["alpha", "beta"], Mark::Quiet).unwrap();
+    assert_eq!(
+        next(&mut queue, &storage).unwrap(),
+        Next::FetchPage("alpha".into())
+    );
+    assert_eq!(
+        next(&mut queue, &storage).unwrap(),
+        Next::FetchPage("beta".into())
+    );
+}

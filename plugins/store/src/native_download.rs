@@ -33,6 +33,8 @@ pub const JOB_FILE: &str = "install.txt";
 pub const DONE_FILE: &str = "install.done";
 /// The longest line of a job read, in bytes.
 const MAX_LINE: usize = 2048;
+/// The longest address of a file.
+const MAX_URL: usize = 1024;
 /// The longest path of a file in a plugin's folder.
 const MAX_PATH: usize = 100;
 
@@ -282,7 +284,7 @@ impl Download {
             && holds(storage, &saved, &file.digest);
         if !whole {
             let failure = match done.reason {
-                Reason::Ok => Failure::Damaged,
+                Reason::Ok | Reason::TooLarge => Failure::Damaged,
                 Reason::Io | Reason::Full => Failure::Card,
                 _ => Failure::Network,
             };
@@ -351,10 +353,18 @@ impl Download {
             wire.cancel(FILE_REQUEST);
         }
         let storage = wire.storage();
-        if let Ok(Some(job)) = read_job(storage)
-            && let Ok(staging) = staging(&job.plugin)
-        {
-            let _ = storage.remove_dir_all(&staging);
+        match read_job(storage) {
+            Ok(Some(job)) => {
+                if let Ok(staging) = staging(&job.plugin) {
+                    let _ = storage.remove_dir_all(&staging);
+                }
+            }
+            // The job cannot be read for want of memory: its plugin is not
+            // known, so every staged plugin goes rather than one stays behind.
+            Err(_) => {
+                let _ = storage.remove_dir_all(STAGE_DIR);
+            }
+            Ok(None) => {}
         }
         let _ = storage.remove(JOB_FILE);
         let _ = storage.remove(DONE_FILE);
@@ -449,6 +459,7 @@ fn is_file(file: &File) -> bool {
     is_safe_path(&file.path)
         && file.path.len() <= MAX_PATH
         && !file.url.is_empty()
+        && file.url.len() <= MAX_URL
         && !file.url.contains(['\t', '\n', '\r'])
         && digest_is_valid(&file.digest)
 }
