@@ -9,7 +9,7 @@ use crate::{
     native_actions,
     native_chapter::{self, Chapter},
     native_document::HostDocument,
-    native_draw::{HostInk, draw_lines_marked},
+    native_draw::{HostInk, draw_page},
     native_index::Counter,
     native_links::DocRef,
     native_look::Look,
@@ -127,6 +127,8 @@ struct Open {
     unsaved: bool,
     /// The last input turned the page, not yet told to the plugin.
     turned: bool,
+    /// The pictures of the page on show: drawn a frame after its text (#252).
+    pictures: pictures::Pass,
     /// A jump from another screen is not yet reported to the host.
     report_due: bool,
     /// The book's title as a report carries it.
@@ -360,6 +362,7 @@ impl View {
             saved_at: None,
             unsaved: false,
             turned: false,
+            pictures: pictures::Pass::Whole,
             report_due: false,
             said: false,
             title,
@@ -1246,6 +1249,7 @@ impl Open {
         }
         if self.page.is_none() {
             let page = self.lay_with(host, docs, &faces, setup, self.at, area)?;
+            self.pictures = pictures::Pass::of(&page);
             self.page = Some(page);
             self.words = Vec::new();
             self.laid = Some(key);
@@ -1263,7 +1267,14 @@ impl Open {
             rect.x as f32 + f32::from(area.x),
             rect.y as f32 + f32::from(area.y),
         );
-        draw_lines_marked(&mut ink, &faces, page, origin, self.mark.clone())?;
+        let pictures = self.pictures.drawing();
+        draw_page(
+            &mut ink,
+            &faces,
+            page,
+            origin,
+            (self.mark.clone(), pictures),
+        )?;
         self.paint_status(host, ui, frame, (setup, &area))?;
         let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),
@@ -1320,6 +1331,7 @@ fn say_with(
 mod aloud;
 mod count;
 mod menu_bar;
+mod pictures;
 mod preparing;
 use preparing::Preparing;
 mod r3;
