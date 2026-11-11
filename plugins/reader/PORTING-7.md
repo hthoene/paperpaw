@@ -410,10 +410,9 @@ relative to the data folder).
 ## The page count (view slice R2b-1, `native_index.rs`, `native_view/count.rs`)
 
 - The pages are laid out in steps by `core.work` (key `count`, the reader's `WorkDue` token): 8 pages a
-  step and 2 ms apart, on a display of 800 x 480 or less (the X4) 1 page and 500 ms (Beta 3's values).
-  Native code cannot tell the memory class, so the small display stands for it: **gap for Kernel**
-  (a memory class in the snapshot). The count starts at open and again after a layout change, and runs
-  while the reading screen is on top.
+  step and 2 ms apart; on a small device (memory class Small, or a class the host does not tell:
+  `core.device` op 1, asked once per book) 1 page and 500 ms (Beta 3's values). The count starts at open
+  and again after a layout change, and runs while the reading screen is on top.
 - The file is `pages-<hash>.bin` in the data folder, named by the book's path, the edition (the open
   conversion) and the layout (size, spacing, margins, justify, display), 8 bytes a page and a closing
   mark, as `PageIndex` keeps it. The files of the last 4 layouts are kept (Beta 3's `INDEXES_KEPT`; the

@@ -130,6 +130,9 @@ struct Open {
     said: bool,
     /// The count of the book's pages in this layout.
     counter: Option<Counter>,
+    /// The device's memory class, once asked.
+    class: Option<paperpaw_sdk::native::device::DeviceClass>,
+    class_asked: bool,
     /// The chapter of the page on show (its start, the next start, its title).
     chapter: Option<Chapter>,
     /// The status lines chosen at the top and the bottom.
@@ -294,6 +297,8 @@ impl View {
             title,
             finished: false,
             counter: None,
+            class: None,
+            class_asked: false,
             chapter: None,
             status: native_status::State::default(),
         };

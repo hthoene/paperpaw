@@ -3,7 +3,9 @@
 //! report and the status lines carry once the count is complete.
 
 use paperpaw_sdk::document::Locator;
+use paperpaw_sdk::native::device::{Device, DeviceClass};
 use paperpaw_sdk::native::storage::DataStorage;
+use paperpaw_ui_kit::mem::buffer;
 
 use super::{Body, Documents, Host, Open, Setup, View};
 use crate::native_chapter::{self, Chapter};
@@ -37,10 +39,7 @@ impl Open {
         let setup = Setup::read(host).ok()?;
         self.ensure_counter(host, &setup);
         let mut counter = self.counter.take()?;
-        let (per_step, delay) = native_index::pace(
-            setup.display.display_width(),
-            setup.display.display_height(),
-        );
+        let (per_step, delay) = native_index::pace(self.device_class(host));
         let storage = DataStorage::new(host);
         let step = counter.step(&storage, per_step, &mut |at: Locator| {
             let (page, unreliable) =
@@ -62,6 +61,16 @@ impl Open {
             }
             Step::Stopped => None,
         }
+    }
+
+    /// The device's memory class, asked once (none where the host does not
+    /// tell: the pace of a small device).
+    fn device_class(&mut self, host: &Host<'_>) -> Option<DeviceClass> {
+        if !self.class_asked {
+            self.class_asked = true;
+            self.class = read_class(host);
+        }
+        self.class
     }
 
     /// The number of the page on show and of the pages of the book, once the
@@ -122,4 +131,12 @@ impl View {
             open.ensure_counter(host, &setup);
         }
     }
+}
+
+/// The memory class `core.device` tells.
+fn read_class(host: &Host<'_>) -> Option<DeviceClass> {
+    let device = Device::open(host).ok()?;
+    let (mut input, mut out) = (buffer(256).ok()?, buffer(1024).ok()?);
+    let identity = device.device(host, &mut input, &mut out).ok()?;
+    Some(identity.class())
 }

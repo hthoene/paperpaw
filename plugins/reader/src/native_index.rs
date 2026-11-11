@@ -10,6 +10,7 @@ use core::fmt::Write as _;
 
 use paperpaw_sdk::document::Locator;
 use paperpaw_sdk::native::Error;
+use paperpaw_sdk::native::device::DeviceClass;
 use paperpaw_sdk::reading::PageIndex;
 
 use crate::native_pages::Reading;
@@ -61,18 +62,14 @@ pub enum Step {
     Stopped,
 }
 
-/// A display of this many pixels or fewer is a small device's (the X4's 800 by
-/// 480): the native snapshot does not tell the memory class (`PORTING-7.md`).
-const SMALL_PIXELS: u32 = 800 * 480;
-
-/// Pages a step lays out and the wait before the next, for a display of
-/// `width` by `height` pixels.
+/// Pages a step lays out and the wait before the next, for a device of the
+/// memory class `class` (none: the host did not tell, so small): only a small
+/// device lays out slowly, as in Beta 3.
 #[must_use]
-pub const fn pace(width: u16, height: u16) -> (usize, u32) {
-    if width as u32 * height as u32 <= SMALL_PIXELS {
-        (PAGES_PER_STEP_SMALL, DELAY_SMALL_MS)
-    } else {
-        (PAGES_PER_STEP, DELAY_MS)
+pub const fn pace(class: Option<DeviceClass>) -> (usize, u32) {
+    match class {
+        Some(DeviceClass::Medium | DeviceClass::Large) => (PAGES_PER_STEP, DELAY_MS),
+        _ => (PAGES_PER_STEP_SMALL, DELAY_SMALL_MS),
     }
 }
 

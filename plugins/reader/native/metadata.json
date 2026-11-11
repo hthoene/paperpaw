@@ -112,6 +112,7 @@
     }
   ],
   "services": [
+    "core.device",
     "core.document",
     "core.files",
     "core.library",
