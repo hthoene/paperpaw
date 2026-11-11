@@ -133,15 +133,20 @@ impl Specs {
             .is_some_and(|total| total <= PLACES)
     }
 
-    /// Makes room for `additional` more made specs; nothing changes when the
-    /// heap refuses.
+    /// Makes room for `additional` more made specs and `fixed` more kept in
+    /// the program (which take a place in the two indexes only); nothing
+    /// changes when the heap refuses.
     pub(super) fn try_reserve(
         &mut self,
         additional: usize,
+        fixed: usize,
     ) -> Result<(), alloc::collections::TryReserveError> {
-        self.owned.try_reserve(additional)?;
-        self.order.try_reserve(additional)?;
-        self.by_id.try_reserve(additional)
+        // Exactly: a plugin's settings come in one batch, and room reserved by
+        // doubling would stay resident (it was 10 KiB on the X4 profile).
+        let indexed = additional.saturating_add(fixed);
+        self.owned.try_reserve_exact(additional)?;
+        self.order.try_reserve_exact(indexed)?;
+        self.by_id.try_reserve_exact(indexed)
     }
 
     /// Forgets every spec whose id belongs to `plugin`; the places of the

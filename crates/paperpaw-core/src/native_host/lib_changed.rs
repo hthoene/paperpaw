@@ -25,13 +25,6 @@ pub(crate) const STATUS: u32 = 1 << 1;
 /// Positions.
 pub(crate) const POSITIONS: u32 = 1 << 2;
 /// Annotations (a committed edit transaction).
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the transaction commit (Host, #2270) raises it; this goes with the first caller"
-    )
-)]
 pub(crate) const ANNOTATIONS: u32 = 1 << 3;
 /// Fields or badges.
 pub(crate) const FIELDS: u32 = 1 << 4;

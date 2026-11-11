@@ -33,9 +33,7 @@ the kernel's settings (`core.*`); the reader declares none of them and adds no d
   host and formats, `DOC-open-layout`), positions and book data (`add_book_data` has no native
   declaration; `LIB-position`), the screens, input and dialogs (H1–H4), reading aloud (a speech
   facade) and the timers.
-- **No native declaration exists yet for**: the status lines (the two places, the lines
-  *progress* and *empty*, the items title, chapter, page and progress, and their settings:
-  `status.size`, `status.edge`, the lines and parts, `battery-percent`), the sample widget above the
+- **No native declaration exists yet for** (the status lines are declared since R2b-2, see the end): the sample widget above the
   reading settings (`previews(groups::READING)`), the reading app (`readers::ReaderSpec`), the screen
   hints (*on press*) and the first-run help. The setup step *text size* is pending the host (op 22,
   Host todo 99); at P6 time its title reuses an existing reader title string, with no new text. Each
@@ -468,6 +466,24 @@ relative to the data folder).
   timers: this one is `after_ms`, so it may be late by a main-loop nap); at most 8 works per plugin on the X4 (this is the
   second, the quiet-time save the first).
 
+## The page count (view slice R2b-1, `native_index.rs`, `native_view/count.rs`)
+
+- The pages are laid out in steps by `core.work` (key `count`, the reader's `WorkDue` token): 8 pages a
+  step and 2 ms apart; on a small device (memory class Small, or a class the host does not tell:
+  `core.device` op 1, asked once per book) 1 page and 500 ms (Beta 3's values). The count starts at open
+  and again after a layout change, and runs while the reading screen is on top.
+- The file is `pages-<hash>.bin` in the data folder, named by the book's path, the edition (the open
+  conversion) and the layout (size, spacing, margins, justify, display), 8 bytes a page and a closing
+  mark, as `PageIndex` keeps it. The files of the last 4 layouts are kept (Beta 3's `INDEXES_KEPT`; the
+  data file `pages.list` names them, oldest first), the oldest is removed: switching back finds its count.
+  A font the host could not read mid-step (a card pulled) makes the step's pages untrusted: not kept,
+  laid out again at the next step, 3 times in a row at most, then the count stops (Beta 3's retry).
+  **Gap:** a file of a book closed long ago stays until its place in the list is needed.
+- Once the count is complete the host's report carries `page` and `pages` where the page starts at one
+  of the book's pages (a page started elsewhere, by a jump, reports none until a turn). Not yet:
+  `chapter` and `chapter_left` (R6 chapter of the page), the status lines (R2b-2).
+- `PageIndex::append` reserves its small batch (at most 64 bytes) with `Vec::with_capacity`: SDK code.
+
 ## Book info, the font panel and the bookmark (view slice R3b, Port D, `native_bookmark.rs`, `native_view/r3.rs`)
 
 - `reader.book-info` opens the slot `core.book-info` with the book's path as a hand-over parameter (the files
@@ -536,6 +552,126 @@ relative to the data folder).
   the library's preview (512 bytes), not whole (`annotation_text` would read it whole: the export uses the preview, as
   Beta 3's snippet was short too). Editing a note, deleting one and the bookmark toggle are not in this screen (Beta 3 had none
   here); `reader.toggle-bookmark` belongs to the reading screen.
+
+## Chapter in the report (R2b-3)
+
+- `native_chapter.rs`: `Chapter` (start, next start, title) is the chapter of the page on show. `Chapter::offer` takes one
+  table entry (exact start, title) for a place: the last start at or before it is the chapter (the later of equal starts,
+  as Beta 3's `update_chapter`), the first start after it ends the chapter; the table need not be in order. A place before
+  the first entry gives the empty chapter. The title is trimmed and cut at 256 bytes on a character boundary.
+  `pages_left(page, pages, next)` is Beta 3's `chapter_left`: the page the next start is on (from the count's
+  `locate`; the page before it when the start begins that page, the page itself when it begins inside it) minus the current
+  page, the last chapter ending with the book, never more than `pages - page`.
+- **Report.** `Open::announce` sets `.chapter(title)` always (empty where the book has no entry at or before the page, or
+  the table cannot be had) and `.chapter_left(n)` only with `.pages(..)` (the count complete, the page starting a counted
+  page) and a non-empty title, so the host's `ERR_INVALID` cases cannot arise. The report is sent on each page turn, jump,
+  count completion and close, as before; only the topmost screen's counts (host rule).
+- **X4 notes.** Only the current chapter is held (`Open::chapter`: two places and one title of at most 256 bytes). Nothing
+  is asked of the table while pages turn inside that chapter (`covers`). On leaving it `find` reads the table through
+  `core.document` toc pages (at most `MAX_ENTRIES` = 500 entries, one 256 B + one `SERVICE_BUFFER` pair of buffers for the
+  rows and a second pair for `toc_target`) and one `toc_target` per approximate entry in the page's section; no title is kept
+  but the chapter's. `chapter_left` costs one `PageIndex::locate` (a read of the index file) per announce, none for the
+  last chapter. A table the host cannot give leaves no chapter (no `chapter_left`) rather than a wrong one.
+- **Missing.** No scripted-host test of the report call itself (the pure model, the allocation sweep and the page-turn
+  and chapter-change sequence are tested; the announce wiring is checked on a device/simulator). The next-start of a
+  table that is out of order costs a full scan (up to 500 entries) per chapter change.
+
+## The status lines (R2b-2)
+
+- **Declared** (`declarations::status`, batch `STATUS`; `status_settings` inside `settings`): the places
+  `status.top` and `status.bottom` with their three part settings, the items `status.title`,
+  `status.chapter`, `status.page` and `status.progress` (token `STATUS_ITEM`, priorities as Beta 3: 64, 64, 224,
+  128), the lines `status-line.progress` and `status-line.empty` (token `STATUS_LINE`, height 2100 thousandths of the
+  text size), and the eleven settings of Beta 3's `status.rs` with its ids, defaults, bounds, units and sections
+  (`status.size`, `status.edge`, the two lines lists, the six parts, `status.battery-percent`). Texts are Beta 3's
+  keys (en and de already there; no new string). The declaration test compares them with the interface-6
+  registration, the editors of the lists apart.
+- **Own items are filled by the reader** (the host never calls it back, `ui.md` 5.3). `native_status::Texts` makes
+  the four texts: title; chapter (the chapter's title once the contents slice gives it, else the title, as Beta 3);
+  page (`12 / 340` from the counter, `native_view/count.rs` `page_numbers`, else the percentage; `reader.page`,
+  `reader.percent`); progress (`Progress::ppm`, whole percent cut). `paperpaw-ui-kit::status_line` has
+  `draw_own`, `targets_own` and `action_own` taking those values (`draw`, `targets`, `action` pass none).
+- **Lines.** A place shows one of the lines of its setting; a tap shows the next (`native_status::choice`,
+  `State::advance`), the choice kept in `status-lines.txt` as interface 6 kept it (same file and form). The items
+  line (`core.status-line.items`, also `reader.status-line.items`) is the kit's `status_line` over the place's three
+  parts (other plugins' items composed by the host, `ui.compose`; a tap on an item with an action of its owner runs
+  it, elsewhere shows the next line); `reader.status-line.progress` is the bar (`native_status::bar`, whole numbers,
+  marks at chapter starts, the page's label on the right); `reader.status-line.empty` nothing; any other id is a
+  line of another plugin, composed whole. The actions `reader.next-status-line` and `reader.next-top-status-line`
+  (the bottom line, the top where there is none below) show the next line.
+- **Room** (`native_status::room::Room`, whole numbers): size from the setting (5 to 16 pt) in pixels, a line 2.1
+  times as high, its distance from the edge, and 2 mm the text keeps: `Reading::status` carries the two reserved
+  heights into `content_box` and into the layout key (`native_index::layout_text` gains `/<top>-<bottom>`, so the
+  page count of another room is another file). A place with no line in its setting keeps nothing; the height
+  depends on the status text size, not on the line showing, so a tap never changes the pages. Books of whole pages
+  have no status lines.
+- **Hooks:** `native_view.rs` (`Setup::room`, `area()`, one call in `draw_with`, one in `input`, the field
+  `Open::status`; the glue is `native_view/status.rs`) and `native_plugin.rs` (the `STATUS` batch; `draw` hands the
+  view the `Ui`). Metadata asks `core.registry` and `ui.compose` (all four files regenerated).
+- **Not yet (named):**
+  - The editors of the lines and the parts: interface 6 used the kernel's `core.status-lines` and
+    `core.status-items` screens, which are not slots of the native host; a plugin names its own screen built on the
+    kit's `status_items` (as picture-home does, Kernel's ruling todo 121). The settings are declared without an
+    editor (plain lists) until the reader has those two screens.
+  - `status.battery-percent` is declared and kept, but the kit's items line has no way to hand it to the kernel's
+    battery item.
+  - The items `status.aloud`, `status.printed-page`, `status.chapter-page`, `status.chapter-left` and
+    `status.chapter-bar` of Beta 3 (the default of the bottom left part still names the first, which the host
+    leaves out where no plugin declares it). Context values (`reader.chapter-page` and the rest) are not passed to
+    other plugins' items (`status_values` is asked with no context).
+  - The chapter's title and the chapter marks of the progress bar wait for the chapter slice (`Facts::chapter`,
+    `Facts::marks`).
+  - The reader's items and lines when another plugin shows them (`draw` purpose 3 and 5, `core.status` stage):
+    not answered, so a line of another plugin that lists the reader's items shows nothing for them.
+  - The lines are not redrawn on the minute tick (the clock changes at the next turn or tap); the pause while pages
+    are turned quickly (Beta 3's `signature`) is not ported.
+  - Not tested with a host: painting and the tap (the harness has no status service); the pure parts are tested
+    (`room`, `bar`, `choice`, the state, `content_box` with room, the declarations).
+
+## Skim and headings (R6b)
+
+- `native_headings.rs`: the headings scan as a background step model like `native_index::Counter`.
+  `Scan::step(storage, read)` reads at most `STEP_BLOCKS` (60) blocks through `read(place)` and returns
+  `Step::More`, `Done` or `Stopped`; `read_seen` is the ready `read` over `core.document` op 6
+  (`native_block` joins the fragments; only the heading's text is kept). A section that does not read
+  is passed over; `Busy` or a refused allocation stops the scan and keeps nothing. At the end the
+  headings are normalized (`native_toc::normalize`) and kept, then `load` gives them back for a book of
+  the same size. **The caller wires `core.work`** (declare with a key, `native_index::pace` for the
+  wait, `Scan::percent` for the screen) and starts the scan where `native_toc::wants_scan(len)` and
+  `load` finds nothing; `TocView` is not changed yet (its `message` is where `native_finding` shows).
+- The kept copy is `headings-<hash of the path>.txt` in the data folder, not `headings.txt`: the data
+  storage is flat, so one name per book (`headings.list` keeps the newest 16, older files are removed).
+  Its form is the interface-6 one (`size N`, then tab-separated section, offset, level, title). It is
+  written in pieces of about 1 KiB to a `.new` file and renamed, so a cut leaves the old copy and the
+  whole text (up to 80 KB) is never one `String`; reading it back is one 80 KB read at most
+  (`read_file`). The size the caller passes is the book file's (`native::storage` for the book root).
+- `native_finding.rs`: the "Finding the chapters" model, `Finding::update(percent)` (steps of 5 so the
+  e-paper is not drawn for every block) and `draw` (the title and the text where the list is);
+  `reader.toc.finding` (existing) before a number is known, `reader.toc.finding-percent` (new, en and de)
+  after.
+- `native_skim.rs` is `skim.rs` without a host: the focus (bar or four buttons), what keys and taps ask
+  (`Move::Pages(+-10)`, `Chapters(+-1)`, `Back`, `Permille(n)`, `Number`) and when the screen closes.
+  `native_skim_view.rs` is the screen (`reader.skim-screen`, slot `core.skim`, token `SKIM`): an
+  overlay (now declared as one, like the note; the ABI-7 declaration test expects flag 4 for it)
+  with the page label and chapter, the bar (track, read part, chapter ticks, knob, focus frame) and the
+  buttons as `Chips` (they wrap to two rows or one column where the words do not fit, as Beta 3's
+  4/2/1). The action `reader.skim-book` (not `reader.skim`: the declared name) opens it from the reading
+  screen (`native_plugin`, as `reader.show-annotations`), with a hand-over of `page`, `chapter`,
+  `permille` and `marks`.
+- **Not yet:** the plugin gets the `Move` from `SkimView::input` and drops it: `View` has no page index
+  moves, no chapter marks, no percent jump and no `permille` / label / chapter to put in the hand-over
+  (it opens with an empty bar). To do: `View` methods for `Pages(n)` (needs the page index, R2b),
+  `Chapters(n)` (exists as `step_chapter`, private), `Permille(n)` (needs the sections' lengths, R2a's
+  `Progress`), `Back` (the place where skimming began, to keep in the screen) and `Number` (the
+  go-to-page dialog, not ported), `SkimView::update` after each move, and the marks from the table
+  of contents. `TocView` does not start the scan or show `Finding` yet. The slider's accessibility
+  description (`Role::Slider`) has no native counterpart in `Paint`. The skim bar's colour for a dark
+  focus (Beta 3's thin line) is not ported.
+- X4: the screen is one draw of up to ~25 paint operations and four chips (fonts acquired once per draw);
+  no float formatting; a frame is far below 2,048 bytes. The scan holds at most 500 headings (about
+  70 KB, shared with `TocView`'s list when both exist: on the measurement list) and one block's text
+  (up to 64 KiB, as the layout's) per step.
+
 ## Search (native model, `native_search.rs`)
 
 - Host-free: the text looked for (trimmed, compared by lower case, whole characters, hits do not overlap,
