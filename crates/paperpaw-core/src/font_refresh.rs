@@ -322,7 +322,10 @@ impl Kernel {
         )
         .ok_or(())?;
         settings.set_choices(core_settings::READING_APP.as_str(), all);
-        for format in formats.iter() {
+        // The native formats' stand-in (`native_book_formats`) is no format
+        // a reader is chosen for: native books open through `core.document`.
+        let stand_in = crate::native_host::native_book_formats::STAND_IN_ID;
+        for format in formats.iter().filter(|f| f.id.as_str() != stand_in) {
             let several = readers.reading(Some(&format.id)).nth(1).is_some();
             let choices = choice_list(
                 &default,

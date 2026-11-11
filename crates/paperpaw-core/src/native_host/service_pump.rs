@@ -253,6 +253,8 @@ impl crate::Kernel {
         self.native_data_plugins_sync();
         // The library's move job goes on, a bounded step a pass (`moves_pump`).
         let moves_more = self.native_moves_pump();
+        // The cover job waits while a library list is up (`doc_cover_job`).
+        self.native_cover_list();
         // A document a format is preparing takes a step (`doc_pump`).
         let doc_more = self.native_doc_pump();
         // A cover job whose preparation is over ends here (`doc_cover_job`).
