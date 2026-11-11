@@ -70,7 +70,9 @@ fn the_old_folder_is_the_one_beta_3s_reader_kept() {
 #[test]
 fn beta_3s_progress_is_the_books_position_and_moved_once() {
     let card = card();
-    card.storage.write(&old("progress.ini"), PROGRESS.as_bytes()).unwrap();
+    card.storage
+        .write(&old("progress.ini"), PROGRESS.as_bytes())
+        .unwrap();
     assert_eq!(position(&card), Ok([7, 1234, 415_000]));
     assert!(!exists(&card, &old("progress.ini")), "moved");
     assert!(exists(&card, &positions::file("books/a.epub")));
@@ -90,7 +92,9 @@ fn a_shared_position_is_never_replaced_by_the_old_one() {
         &positions::Position::new(paperpaw_sdk::document::Locator::new(2, 3), 12.0),
     )
     .unwrap();
-    card.storage.write(&old("progress.ini"), PROGRESS.as_bytes()).unwrap();
+    card.storage
+        .write(&old("progress.ini"), PROGRESS.as_bytes())
+        .unwrap();
     assert_eq!(position(&card), Ok([2, 3, 120_000]));
     assert!(exists(&card, &old("progress.ini")), "left as it is");
 }
