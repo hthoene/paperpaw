@@ -228,6 +228,21 @@ against that contract; what needs the host's cable is `tests/cable_native.rs`, i
   names, the host's refusals, an allocation sweep of each route), `native_files.rs` (the library folder and the
   book names).
 
+## Memory of the transfer screen on the X4 (#248)
+
+- **Beta 3 (interface 6), measured** (emulator `--heap-report`, X4 profile, `wait:300,reset-peak,run:transfer.open,wait:600`
+  on t10): the heap is 67.9 KiB at home and 89.8 KiB with the transfer screen open (+21.9 KiB); the peak since the reset
+  is 103.3 KiB (+35.4 KiB over home).
+- **Native: not measured yet, named.** The desktop emulator cannot run the native plugin end to end today: it does not
+  back `uses.install` (a refusal at admission; a local, uncommitted measurement patch offering it let `make` pass), and a
+  native plugin's `core.network.transfer` and `core.saving.transfer` settings are made at admission only with Services
+  #894 (`NET-SETTINGS-NATIVE`), so the `transfer.open` action does nothing (`unknown setting`). The X4 packer accepts
+  the file (`tools/plugin-files7/build.sh x4 --only transfer`: 250,784 bytes, every frame under 2,048 B). The gate of
+  #248 for this screen stays open until the flow runs natively; what is kept from Beta 3: streamed transfers (a body is
+  a file of the data folder, a download a `send_file`; no body in memory), an inline answer of at most 2,000 bytes, the
+  listing in parts, the page written to the data folder, buffers of one request on the heap and gone with it, one
+  `core.files` handle with its two buffers per request, fallible allocation everywhere (sweeps in the tests).
+
 ## `paperpaw.ini`: not served, not changed (defence in depth)
 
 In interface 7 `paperpaw.ini` never holds secrets (Kernel, decisions 138/140): Wi-Fi passwords, keys and tokens
