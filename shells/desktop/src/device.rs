@@ -1213,6 +1213,13 @@ fn build_kernel(
                 Box::new(crate::native::HostLoader::for_device(profile.device.memory)),
             );
         }
+        // Plugin installs from the card share the firmware's queue: the
+        // emulated device has one, with no firmware to install
+        // (`crate::linked::card_plugins`).
+        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        if let Some((_, _, chip)) = crate::linked::card_plugins(profile) {
+            builder = builder.firmware_host(Box::new(crate::no_firmware::NoFirmware::new(chip)));
+        }
         if let Some(add) = add {
             builder = add(builder);
         }
