@@ -992,3 +992,32 @@ fn the_job_is_small_enough_to_pass_by_value_on_the_x4() {
         core::mem::size_of::<PluginInstall>()
     );
 }
+
+#[test]
+fn the_buffer_is_let_go_before_the_question_and_the_swap() {
+    let card = MemoryStorage::new();
+    data_source(&card, "1.0.0");
+    let mut job = job(0, Evidence::NONE);
+    let env = JobEnv {
+        storage: &card,
+        host: &host(),
+        built_ins: &Names,
+        granted: false,
+    };
+    let mut asked = false;
+    while job.phase != Phase::Swapping {
+        match job.step(&env) {
+            JobStep::Ask(_) => {
+                assert_eq!(job.buf.capacity(), 0, "not held while the user decides");
+                asked = true;
+                job.answer(Answer::Yes);
+            }
+            JobStep::Done(done) => panic!("ended before the swap: {done:?}"),
+            _ => {}
+        }
+        if matches!(job.phase, Phase::Marks | Phase::Journal | Phase::Swapping) {
+            assert_eq!(job.buf.capacity(), 0, "not held through the swap");
+        }
+    }
+    assert!(asked);
+}
