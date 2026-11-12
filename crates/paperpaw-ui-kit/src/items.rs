@@ -961,6 +961,73 @@ pub(crate) fn heading(
     )
 }
 
+/// Beta 3's switch at the end of a row's first line: a rounded bar twice as
+/// wide as high, filled where on, with its knob at the end it stands at (the
+/// right where on, mirrored right to left); drawn light on a dark focus, in the
+/// faint ink where the row cannot be chosen. A switch row carries no value
+/// text: this says it.
+fn switch(
+    paint: &mut Vec<Paint>,
+    style: &Style,
+    rect: Rect,
+    on: bool,
+    (focused, disabled): (bool, bool),
+) -> Result<(), Error> {
+    let line = style.row.min(rect.height);
+    let height = (line * 7 / 10 * 3 / 4).max(8);
+    let width = height.saturating_mul(2);
+    let ltr = Rect::new(
+        rect.x
+            .saturating_add(rect.width)
+            .saturating_sub(width.saturating_add(style.margin)),
+        rect.y.saturating_add(line.saturating_sub(height) / 2),
+        width,
+        height,
+    );
+    let bar = style.flip(rect, ltr);
+    let (mut ink, paper) = if focused && !style.ring {
+        (style.paper, paperpaw_sdk::Color::BLACK)
+    } else {
+        (style.ink, style.paper)
+    };
+    if disabled {
+        ink = style.disabled;
+    }
+    let radius = if style.pill {
+        u32::from(height) / 2
+    } else {
+        style.corner
+    };
+    let border = u32::from(style.line.max(2));
+    if on {
+        paint::push(paint, Paint::Focus(bar, radius, None, ink))?;
+    } else {
+        paint::push(paint, Paint::Focus(bar, radius, None, paper))?;
+        paint::push(paint, Paint::Focus(bar, radius, Some(border), ink))?;
+    }
+    let pad = u16::try_from(border.saturating_mul(2))
+        .unwrap_or(u16::MAX)
+        .max(3);
+    let knob = height.saturating_sub(pad.saturating_mul(2));
+    let x = if on != style.rtl {
+        bar.x
+            .saturating_add(bar.width)
+            .saturating_sub(pad.saturating_add(knob))
+    } else {
+        bar.x.saturating_add(pad)
+    };
+    let knob_radius = if style.pill {
+        u32::from(knob) / 2
+    } else {
+        radius.saturating_sub(u32::from(pad))
+    };
+    let knob_rect = Rect::new(x, bar.y.saturating_add(pad), knob, knob);
+    paint::push(
+        paint,
+        Paint::Focus(knob_rect, knob_radius, None, if on { paper } else { ink }),
+    )
+}
+
 pub(crate) fn draw_row(
     paint: &mut Vec<Paint>,
     font: &Font<'_>,
@@ -980,6 +1047,7 @@ pub(crate) fn draw_row(
     )?;
     if let Some(on) = row.on {
         paint::describe_switch(paint, style.describing, rect, on, row.disabled)?;
+        switch(paint, style, rect, on, (focused, row.disabled))?;
     }
     let ink = if row.disabled {
         style.disabled
@@ -1117,6 +1185,87 @@ const _: fn() = || {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::string::ToString;
+    use paperpaw_sdk::Color;
+
+    fn style(rtl: bool) -> Style {
+        Style {
+            corner: 4,
+            pill: true,
+            ring: false,
+            separator_ink: Color::BLACK,
+            text: 22.0,
+            small: 17.0,
+            title: 26.0,
+            head: 28.0,
+            row: 60,
+            header: 56,
+            margin: 16,
+            gap: 8,
+            line: 2,
+            dark: false,
+            plain: false,
+            separators: "core.separators.lines".to_string(),
+            ink: Color::BLACK,
+            paper: Color::WHITE,
+            disabled: Color::gray(160),
+            rule: Color::gray(190),
+            muted: Color::gray(100),
+            note: Color::gray(80),
+            heading: 30,
+            card: Color::gray(230),
+            on_dark_muted: Color::gray(200),
+            strong: false,
+            rtl,
+            describing: false,
+        }
+    }
+
+    /// The rounded rectangles a switch drew: (rect, filled, colour).
+    fn switch_parts(rtl: bool, on: bool, focused: bool) -> Vec<(Rect, bool, Color)> {
+        let mut paint = Vec::new();
+        let row = Rect::new(0, 0, 480, 90);
+        switch(&mut paint, &style(rtl), row, on, (focused, false)).unwrap();
+        paint
+            .iter()
+            .filter_map(|p| match p {
+                Paint::Focus(rect, _, stroke, color) => Some((*rect, stroke.is_none(), *color)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_switch_is_drawn_as_in_beta_3_at_the_end_of_the_first_line() {
+        // Row 60: a bar 31 high and 62 wide, a margin from the right end,
+        // centred in the first line; the knob 4 in (twice the line).
+        let bar = Rect::new(402, 14, 62, 31);
+        let on = switch_parts(false, true, false);
+        assert_eq!(
+            on,
+            [
+                (bar, true, Color::BLACK),
+                (Rect::new(437, 18, 23, 23), true, Color::WHITE)
+            ]
+        );
+        let off = switch_parts(false, false, false);
+        assert_eq!(
+            off,
+            [
+                (bar, true, Color::WHITE),
+                (bar, false, Color::BLACK),
+                (Rect::new(406, 18, 23, 23), true, Color::BLACK)
+            ]
+        );
+        // Right to left: mirrored, the knob of an on switch at the left.
+        let rtl = switch_parts(true, true, false);
+        assert_eq!(rtl[0].0, Rect::new(16, 14, 62, 31));
+        assert_eq!(rtl[1].0, Rect::new(20, 18, 23, 23));
+        // On a dark focus: light on dark.
+        let focused = switch_parts(false, true, true);
+        assert_eq!(focused[0].2, Color::WHITE);
+        assert_eq!(focused[1].2, Color::BLACK);
+    }
 
     fn items(spec: &str) -> Vec<Item> {
         spec.chars()

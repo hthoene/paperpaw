@@ -500,7 +500,14 @@ impl NativeMenu {
                 continue;
             }
             let info = infos.iter().find(|i| i.key == row.item);
+            // A switch is drawn as one, as in Beta 3, and says no value.
+            let switch_on = match (row.kind, info.and_then(|i| i.value.as_ref())) {
+                (Kind::Setting, Some(Value::Bool(on))) => Some(*on),
+                _ if row.switch() => Some(row.checked()),
+                _ => None,
+            };
             let value = match (row.kind, info) {
+                _ if switch_on.is_some() => String::new(),
                 (Kind::Submenu, _) => copy("›")?,
                 (Kind::Setting, Some(info)) => {
                     let text = value_text(info, &on, &off, &mut |key| messages.copy(host, key))?;
@@ -517,12 +524,7 @@ impl NativeMenu {
             if let Item::Row(r) = &mut item {
                 r.disabled = !row.choosable();
                 r.stepper = touch && info.is_some_and(|i| i.kind == SettingKind::Int);
-                // A switch is told as one: the row is on or off.
-                if let (Kind::Setting, Some(Value::Bool(on))) =
-                    (row.kind, info.and_then(|i| i.value.as_ref()))
-                {
-                    r.on = Some(*on);
-                }
+                r.on = switch_on;
             }
             items.push(item);
         }

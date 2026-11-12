@@ -32,6 +32,9 @@ pub mod flag {
     pub const CHECKED: u32 = 1;
     /// Chosen now; otherwise shown faint and passed by the focus.
     pub const ENABLED: u32 = 1 << 1;
+    /// Shown as a switch (a Boolean setting, or an action its plugin made
+    /// one); [`CHECKED`] says whether it is on.
+    pub const SWITCH: u32 = 1 << 6;
 }
 
 /// What a row of a menu is.
@@ -93,6 +96,12 @@ impl Row {
     #[must_use]
     pub fn checked(&self) -> bool {
         self.flags & flag::CHECKED != 0
+    }
+
+    /// Whether it shows as a switch: on or off, by [`Self::checked`].
+    #[must_use]
+    pub fn switch(&self) -> bool {
+        self.flags & flag::SWITCH != 0
     }
 }
 
