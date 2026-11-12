@@ -65,10 +65,14 @@ impl Kernel {
     }
 
     /// The kernel's catalog changed (`core.catalog-changed`: a walk or a
-    /// catch-up ended): the plugins hear `event.library_changed` with books and
-    /// walk set at the next pass, and read again. The kernel's walk is the only
+    /// catch-up ended): the host's details job is armed, and the plugins hear
+    /// `event.library_changed` with books and walk set at the next pass, and
+    /// read again. The kernel's walk is the only
     /// one; the views of interface 6 heard it as that event.
     pub(crate) fn native_library_catalog_changed(&self) {
+        // Native books whose details are unread are read now
+        // (`details_job_pump`).
+        self.native_details_arm();
         if let Some(library) = self
             .shared
             .native_instances

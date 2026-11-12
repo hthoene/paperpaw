@@ -236,6 +236,23 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
             epoch.epoch(),
             self.depth.as_depth().current() == 0,
         );
+        // The screen's own draw of the follow-up of its areas: `id` bit 0
+        // (`command.redraw_area`), on every band and every send of it.
+        let marked;
+        let frame = match instance {
+            Some(key)
+                if frame.purpose == 0
+                    && self.depth.as_depth().current() == 0
+                    && self.host.stack_rows.is_followup(key) =>
+            {
+                marked = DrawFrame {
+                    id: frame.id | super::commands::FOLLOWUP_ID,
+                    ..*frame
+                };
+                &marked
+            }
+            _ => frame,
+        };
         let result = shell::dispatch_token_draw(
             batch,
             token,

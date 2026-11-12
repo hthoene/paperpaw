@@ -837,3 +837,81 @@ fn a_walks_progress_never_goes_back_and_ends_at_a_million() {
         assert_eq!(walk.progress_ppm(), 1_000_000);
     }
 }
+
+/// A library with a native format's book (the kernel's stand-in answers
+/// "not ready") beside an interface 6 one, the device knowing the date.
+fn native_library() -> common::Harness {
+    let storage = MemoryStorage::new()
+        .with("books/a.docx", "PK native")
+        .with("books/b.txt", "text");
+    let mut h = harness(storage).with_clock(1_760_000_000_000, Some(0));
+    h.formats
+        .add(FormatSpec::new(
+            Id::new_static("native.docx"),
+            "DOCX",
+            vec![Cow::Borrowed("docx")],
+            Box::new(|_, _, _| Err(DocumentError::NotReady)),
+        ))
+        .unwrap();
+    h
+}
+
+fn title_of(storage: &dyn Storage, path: &str) -> (String, String, Option<u32>) {
+    let mut found = None;
+    catalog::each(storage, &mut |r| {
+        if r.path == path {
+            found = Some((r.title.clone(), r.author.clone(), r.added));
+        }
+    });
+    found.unwrap()
+}
+
+#[test]
+fn a_native_book_is_read_by_the_host_later_and_an_unchanged_walk_writes_nothing() {
+    let h = native_library();
+    walk(&h.env());
+    // Nothing read of it: its file's name, and not marked as read.
+    let (title, author, added) = title_of(&h.storage, "books/a.docx");
+    assert_eq!((title.as_str(), author.as_str()), ("a", ""));
+    assert!(added.is_some(), "the day it came is kept");
+    // Walked again before the host read it: the same line, nothing written.
+    let before = h.storage.get(CATALOG).unwrap();
+    let watched = Watched::new(&h.storage);
+    walk(&h.env_on(&watched));
+    assert_eq!(watched.taken(), Vec::<String>::new());
+    assert_eq!(h.storage.get(CATALOG).unwrap(), before);
+    // The view's index does not mark it either.
+    let book = index(&h.env(), "books/a.docx");
+    assert!(!book.indexed);
+
+    // The host's details job read it through its format plugin.
+    let mut metadata = paperpaw_sdk::document::Metadata::default();
+    metadata.title = Some("The Real Title".into());
+    metadata.authors = vec!["Ann Author".into(), "Ben Second".into()];
+    metadata.series = Some("Saga".into());
+    metadata.series_index = Some("2".into());
+    metadata.subjects = vec!["fiction".into()];
+    library::keep_native_details(&h.env(), "books/a.docx", &metadata).unwrap();
+    walk(&h.env());
+    let (title, author, again) = title_of(&h.storage, "books/a.docx");
+    assert_eq!(
+        (title.as_str(), author.as_str()),
+        ("The Real Title", "Ann Author")
+    );
+    assert_eq!(again, added, "the day it came stays");
+    // And from then on an unchanged walk writes nothing.
+    let before = h.storage.get(CATALOG).unwrap();
+    let watched = Watched::new(&h.storage);
+    walk(&h.env_on(&watched));
+    assert_eq!(watched.taken(), Vec::<String>::new());
+    assert_eq!(h.storage.get(CATALOG).unwrap(), before);
+    assert_eq!(books(&h.storage).len(), 2);
+}
+
+#[test]
+fn native_details_of_a_book_that_is_gone_are_not_kept() {
+    let h = native_library();
+    walk(&h.env());
+    let metadata = paperpaw_sdk::document::Metadata::default();
+    assert!(library::keep_native_details(&h.env(), "books/gone.docx", &metadata).is_err());
+}

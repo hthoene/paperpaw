@@ -76,8 +76,34 @@ pub fn draw_lines_marked<M: Measure>(
     ink: &mut impl Ink,
     faces: &Faces<M>,
     page: &Page,
-    (left, top): (f32, f32),
+    origin: (f32, f32),
     mark: Option<Range<usize>>,
+) -> Result<(), Error> {
+    draw_page(ink, faces, page, origin, (mark, Pictures::Drawn))
+}
+
+/// What a page's pictures are in a frame (#252): drawn, or their places kept
+/// empty, each exactly the size of its picture, so that nothing moves when the
+/// pictures follow in the next frame (the text first: a page opens fast).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pictures {
+    /// The pictures are drawn.
+    Drawn,
+    /// Their places stay empty (the first of two passes).
+    Places,
+}
+
+/// [`draw_lines_marked`] with the pictures drawn or their places kept empty.
+/// The text is drawn the same either way.
+///
+/// # Errors
+/// What `ink` refuses.
+pub fn draw_page<M: Measure>(
+    ink: &mut impl Ink,
+    faces: &Faces<M>,
+    page: &Page,
+    (left, top): (f32, f32),
+    (mark, pictures): (Option<Range<usize>>, Pictures),
 ) -> Result<(), Error> {
     let mut number: usize = 0;
     for line in &page.lines {
@@ -117,7 +143,43 @@ pub fn draw_lines_marked<M: Measure>(
         under.end(ink)?;
     }
     draw_rules(ink, &page.rules, (left, top))?;
-    draw_images(ink, page, (left, top))
+    match pictures {
+        Pictures::Drawn => draw_images(ink, page, (left, top)),
+        Pictures::Places => Ok(()),
+    }
+}
+
+/// The boxes the page's pictures take on the screen, with the content box's
+/// top left at `(left, top)`: `(x, y, width, height)` in pixels, rounded as
+/// they are drawn.
+pub fn picture_boxes(
+    page: &Page,
+    (left, top): (f32, f32),
+) -> impl Iterator<Item = (i32, i32, u32, u32)> + '_ {
+    page.images
+        .iter()
+        .map(move |image| place(image, (left, top)))
+}
+
+/// The image id and the format's index of a picture's path (`handle:index`,
+/// `native_block::picture_path`; a path of a handle only has no index).
+/// None for a path that is neither.
+#[must_use]
+pub fn picture_of(path: &str) -> Option<(u32, Option<u32>)> {
+    match path.split_once(':') {
+        Some((handle, index)) => Some((handle.parse().ok()?, Some(index.parse().ok()?))),
+        None => Some((path.parse().ok()?, None)),
+    }
+}
+
+/// Where a picture is drawn: its box rounded to pixels.
+fn place(image: &paperpaw_sdk::layout::PageImage, (left, top): (f32, f32)) -> (i32, i32, u32, u32) {
+    (
+        (left + image.x + 0.5) as i32,
+        (top + image.y + 0.5) as i32,
+        (image.width + 0.5) as u32,
+        (image.height + 0.5) as u32,
+    )
 }
 
 /// The page's pictures, each scaled into the box the layout gave it. A picture
@@ -127,12 +189,10 @@ fn draw_images(ink: &mut impl Ink, page: &Page, (left, top): (f32, f32)) -> Resu
     for image in &page.images {
         // Handle 0: the host had no id left to give (eight are out and none
         // drawn yet); the place stays empty, the page still draws.
-        let Ok(handle @ 1..) = image.image.path.parse::<u32>() else {
+        let Some((handle @ 1.., _)) = picture_of(&image.image.path) else {
             continue;
         };
-        let (x, y) = ((left + image.x + 0.5) as i32, (top + image.y + 0.5) as i32);
-        let width = (image.width + 0.5) as u32;
-        let height = (image.height + 0.5) as u32;
+        let (x, y, width, height) = place(image, (left, top));
         match ink.image(handle, x, y, width, height) {
             Err(Error::NotFound | Error::Unsupported) => {}
             other => other?,

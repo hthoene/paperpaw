@@ -259,6 +259,9 @@ impl crate::Kernel {
         let doc_more = self.native_doc_pump();
         // A cover job whose preparation is over ends here (`doc_cover_job`).
         self.native_cover_job_pump();
+        // The host's details job begins on the next native book whose details
+        // are unread (`details_job_pump`); never "more", a timed wake at most.
+        self.native_details_job_pump();
         // Questions open their dialogs and their answers come back.
         let dialog_more = self.native_dialog_pump();
         // The outcomes of Wi-Fi requests reach their senders (`wifi_events`).
@@ -306,6 +309,7 @@ impl crate::Kernel {
             .chain(instances.image_pump.retry_at())
             .chain(instances.moves_retry())
             .chain(instances.doc_retry())
+            .chain(self.native_details_due())
             .chain(self.native_demand_due().map(|at| at.millis()))
             .chain(self.native_wifi_due())
             .chain(self.firmware_due())
