@@ -117,6 +117,10 @@ pub(crate) struct HostServices {
     /// alive plus the owners queued, so a drop never allocates and never finds
     /// the queue full.
     retiring: RefCell<Vec<u64>>,
+    /// The owner being parked again (#248, D3), 0 for none: its retirement
+    /// keeps its library receipts and its formats listed, since its owner
+    /// key lives on and the remade plugin may still use them.
+    parking: core::cell::Cell<u64>,
     /// Owners alive (admitted, not yet dropped).
     alive: Cell<usize>,
     /// Retirements that could not be queued: a broken invariant, reported by
@@ -175,6 +179,7 @@ impl HostServices {
             owners: OnceCell::new(),
             format_scope: super::format_scope::FormatScope::new(),
             retiring: RefCell::new(Vec::new()),
+            parking: core::cell::Cell::new(0),
             alive: Cell::new(0),
             lost: Cell::new(0),
         }
@@ -799,12 +804,17 @@ impl HostServices {
     /// borrowed) means a retry finishes what is left.
     pub(crate) fn owner_retired(&self, owner: u64) -> Result<(), i32> {
         let mut result = Ok(());
+        // Parked again (#248, D3): its owner key lives on, so do its formats
+        // and its library receipts (it is idle: no document uses a format).
+        let parking = self.parking.get() == owner;
         if let Some(documents) = self.documents.get() {
             let host = &*documents.0;
-            host.formats_of_owner(owner, &mut |format| {
-                result =
-                    result.and(doc_service::format_retired(host, format, Some(owner)).map(|_| ()));
-            });
+            if !parking {
+                host.formats_of_owner(owner, &mut |format| {
+                    result = result
+                        .and(doc_service::format_retired(host, format, Some(owner)).map(|_| ()));
+                });
+            }
             result = result.and(doc_service::opener_stopped(host, owner).map(|_| ()));
             // A book of this plugin's folders (root 5) cannot stay open under
             // a reader once the folder may go (its update or removal): the
@@ -823,7 +833,7 @@ impl HostServices {
             // through `end_document_by_host`.)
         }
         if let Some(library) = self.library.get() {
-            result = result.and(lib_service::owner_stopped(&*library.0, owner));
+            result = result.and(lib_service::owner_stopped(&*library.0, owner, parking));
         }
         // The plugin's pictures end with it (its image ids are its own).
         result = result.and(self.images.owner_stopped(owner));
@@ -845,6 +855,16 @@ impl HostServices {
         result
     }
 
+    /// Runs `park` (dropping `owner`'s instance to park it again, #248, D3)
+    /// with `owner`'s library receipts and formats kept through its
+    /// retirement.
+    pub(crate) fn parking_again<T>(&self, owner: u64, park: impl FnOnce() -> T) -> T {
+        let before = self.parking.replace(owner);
+        let parked = park();
+        self.parking.set(before);
+        parked
+    }
+
     /// Whether any service holds something of `owner` that
     /// [`Self::owner_retired`] would end (#248, D3: a plugin is parked again
     /// only when this is `false`): a document it opened (a pending open too)
@@ -861,7 +881,7 @@ impl HostServices {
         if let Some(documents) = self.documents.get() {
             let host = &*documents.0;
             let mut used = false;
-            host.formats_of_owner(owner, &mut |format| {
+            host.formats_owned(owner, &mut |format| {
                 used = used || host.table().uses_format(&|f| f == format);
             });
             if used || host.table().owner_holds(owner)? || host.document_of_maker(owner).is_some() {

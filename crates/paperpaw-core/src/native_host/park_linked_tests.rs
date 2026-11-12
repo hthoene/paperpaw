@@ -444,7 +444,17 @@ fn only_no_room_or_a_busy_owner_waits_every_other_hosting_error_refuses() {
         shell::Error::Lifecycle(Lifecycle::Depth),
     ];
     for error in waits {
-        assert!(matches!(unparked(error), Unparked::NoMemory));
+        let why = unparked(error);
+        assert!(
+            matches!(why, Unparked::NoMemory | Unparked::Busy),
+            "{error:?}"
+        );
+        // Only no room is memory pressure (Senior, R3 on #1365).
+        assert_eq!(
+            why == Unparked::NoMemory,
+            super::super::native_dispatch::status(error) == ERR_NO_MEMORY,
+            "{error:?}"
+        );
     }
     for status in [ERR_INVALID, ERR_STATE, ERR_CANCELLED] {
         for error in [shell::Error::Status(status), shell::Error::Factory(status)] {
@@ -642,4 +652,28 @@ fn a_format_may_be_parked_a_stage_subscriber_may_not() {
         token: 6,
     });
     assert!(nested_role(&lookup));
+}
+
+#[test]
+fn a_format_that_stays_without_room_is_seen_to_give_up_once() {
+    // Senior, R2 on #1365: what the document loop asks of the registry
+    // (`fmt_call::Registry::gave_up`) for a pending open's parked format.
+    let mut kernel = kernel(Mode::Parkable);
+    let key = admit(&mut kernel);
+    MODE.with(|cell| cell.set(Mode::NoRoom));
+    let instances = &kernel.shared.native_instances;
+    assert!(!instances.format_gave_up(key), "never tried yet");
+    let mut now = kernel.now.millis();
+    let mut tries = 0;
+    while !instances.format_gave_up(key) {
+        tries += 1;
+        assert!(tries <= 10, "it never gave up");
+        instances.set_now(now);
+        assert!(lease(&kernel, key).live().is_err());
+        now += 64_000;
+    }
+    // 1, 2, 4, 8, 16, 32 and 64 s of waits: tried seven times, taken once.
+    assert_eq!(tries, 7);
+    assert!(!instances.format_gave_up(key), "taken once");
+    assert!(lease(&kernel, key).is_parked());
 }

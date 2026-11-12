@@ -577,6 +577,13 @@ impl DocState {
             index.remove_formats_of(owner, visit);
         }
     }
+
+    /// The formats of `owner`, left in the index (a busy index lists none).
+    fn formats_owned(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
+        if let Ok(index) = self.index() {
+            index.formats_of(owner, visit);
+        }
+    }
 }
 
 macro_rules! frameless {
@@ -680,6 +687,9 @@ macro_rules! frameless {
         }
         fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
             self.state().formats_of_owner(owner, visit);
+        }
+        fn formats_owned(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
+            self.state().formats_owned(owner, visit);
         }
     };
 }

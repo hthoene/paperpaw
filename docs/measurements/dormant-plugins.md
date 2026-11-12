@@ -48,14 +48,22 @@ unparks it at the next safe point (prepare runs at depth 0). Saves ~0.55 KiB per
 **D3. Dormant again when idle (re-park).** A plugin that was parked at admission is parked again
 at a safe point when all hold:
 
-1. it is still eligible (conditions 1-4; condition 1 is re-checked on the `make` of its unpark);
-2. `Kernel::owner_idle(key)` (no handle, operation, file, socket, secret, timer, work, queued
-   event);
-3. no screen, slot or dialog of it on the stack, and no confirm or plugin request under way;
-4. no open document and no format scope of it (a format re-parked under an open book would turn
+1. its slot allows it: registered parked, running, no call holds the instance, no callback runs
+   (condition 1 is re-checked on the `make` of its unpark);
+2. it holds no blob handle, and nothing any host service would end with it
+   (`HostServices::owner_holds`: documents it opened, pending opens too, and documents its
+   formats read, a book of its folders, library transactions, image ids and prepares, UI
+   requests, entries, widgets, status handles and taps, network requests and servers, sockets
+   and casts, declared work and runs). Its font and service handles do not count: they live in
+   the instance's memory, are released when it is dropped and opened again by the remade plugin
+   (Senior on #1365); its library receipts are kept through the re-park, and so are a format
+   plugin's formats in the format index (the next open of one of its books finds them);
+3. no screen of it on the stack, no action or setting event queued for it, no hand-over pending
+   and no staged batch waiting;
+4. no open or pending document of its formats (a format re-parked under an open book would turn
    page reads inside the reader's callbacks into `ERR_BUSY`);
-5. the device goes to standby, or the heap is under pressure (Decision 166: no idle timer; at
-   most one plugin per safe point).
+5. the device goes to standby (every idle plugin), or an unpark found no memory (one plugin at
+   the next safe point). Decision 166: no idle timer.
 
 **Soundness:** `Slot::live` hands out `&dyn NativeInstance` from a `OnceCell`, which can never be
 emptied. D3 changes the slot to `RefCell<Option<Box<dyn NativeInstance>>>` and `live` returns a
@@ -124,8 +132,12 @@ Against +35.5 KiB that is about a third; with #1337 (-3.1 emulator) and the late
   six tries with the no-memory notice, #555).
 - No memory at re-park (the `Parked` row): stays running.
 - Batch hash differs at an unpark after a re-park: withdraw, as parking.
-- Re-park churn: one plugin per tick and the 30 s idle wait bound it; the heap is given back in
-  the same order it was taken (context, dispatch, `make` state), measured for fragmentation.
+- Re-park churn: only standby and memory pressure re-park (no idle timer), one plugin per
+  pressure; 50 standby cycles leave live heap and handles unchanged (`tests/sleep_cycles.rs`).
+- A pending open whose format gave up being made (no memory after its longest wait) fails the
+  document with `ERR_NO_MEMORY`; it does not stay preparing (Senior, R2 on #1365).
+- An unpark that meets something busy (the old owner not retired yet) waits like no memory
+  but is no memory pressure (Senior, R3 on #1365).
 
 ## Tests and gates
 
@@ -163,5 +175,6 @@ cursor or scroll kept in memory); (3) a first-open latency budget on the X4; (4)
 subscribers before or after 1.0.
 
 Senior: (a) formats park (D2); (b) `RefCell` slot and `Ref` accessor instead of `OnceCell` (D3);
-(c) re-park conditions 1-5 and `IDLE_PARK_MS`; (d) one row per plugin and the store's
-generation/incarnation in it (D4); (e) the stack gate of the unpark paths.
+(c) re-park conditions 1-5 and their triggers (standby, memory pressure); (d) one row per
+plugin and the store's generation/incarnation in it (D4); (e) the stack gate of the unpark
+paths.

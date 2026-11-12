@@ -360,10 +360,6 @@ impl UiHandles {
             .min()
     }
 
-    /// A plugin stopped: whatever it made or owns is gone, as are its status
-    /// handles and what it was yet to be told. The owners of what it made are
-    /// to be told. Allocation-free (see [`Self::make_widget`]), so nothing is
-    /// lost to the heap.
     /// Whether `plugin` made or owns a widget or a status handle, or has a
     /// drop notice waiting (#248, D3).
     pub(crate) fn plugin_holds(&self, plugin: u64) -> bool {
@@ -378,6 +374,10 @@ impl UiHandles {
                 .any(|s| s.caller == plugin || s.owner == plugin)
     }
 
+    /// A plugin stopped: whatever it made or owns is gone, as are its status
+    /// handles and what it was yet to be told. The owners of what it made are
+    /// to be told. Allocation-free (see [`Self::make_widget`]), so nothing is
+    /// lost to the heap.
     pub(crate) fn drop_plugin(&mut self, plugin: u64) {
         self.dropped.retain(|d| d.owner != plugin);
         let dropped = &mut self.dropped;

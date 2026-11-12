@@ -345,6 +345,10 @@ pub(crate) trait DocHost {
     /// format index and `visit` gets each format reference it had. Nothing
     /// is called on the plugin.
     fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef));
+    /// Each format reference of the plugin `owner`, left in the index: whether
+    /// a document uses one is asked before the plugin is parked again (#248,
+    /// D3), which must not take its formats away.
+    fn formats_owned(&self, owner: u64, visit: &mut dyn FnMut(FormatRef));
     /// Section 1's formats in a stable order; `ERR_STATE` for a stale
     /// generation (never 0, as REG's).
     fn formats(
@@ -647,6 +651,9 @@ impl DocHost for Cx<'_> {
     }
     fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
         self.host.formats_of_owner(owner, visit);
+    }
+    fn formats_owned(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
+        self.host.formats_owned(owner, visit);
     }
     fn formats(
         &self,

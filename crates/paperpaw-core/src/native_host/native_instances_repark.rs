@@ -17,6 +17,23 @@ impl super::NativeInstances {
         self.callbacks.take_pressure()
     }
 
+    /// Runs `park` with `owner`'s library receipts kept through the
+    /// retirement it causes (Senior, R1 on #1365).
+    pub(crate) fn parking_again(&self, owner: u64, park: impl FnOnce() -> bool) -> bool {
+        match self.pool.as_ref() {
+            Some(pool) => pool.hosts().parking_again(owner, park),
+            None => park(),
+        }
+    }
+
+    /// Whether the parked plugin `key` gave up being made (see
+    /// [`Slot::give_up`](super::super::lease_slot::Slot::give_up)); taken
+    /// once. For the document loop's pending opens (Senior, R2 on #1365).
+    pub(crate) fn format_gave_up(&self, key: u64) -> bool {
+        self.lease(key)
+            .is_some_and(|lease| lease.is_parked() && lease.slot().give_up())
+    }
+
     /// How many handles the pool holds, all owners together; `None` without
     /// a pool or while its table is in use. For the standby-cycle tests: a
     /// plugin parked again and made again must not leave handles behind.

@@ -118,7 +118,7 @@ impl crate::Kernel {
                 && lease
                     .peek()
                     .is_some_and(|instance| instance.holds_nothing());
-            if idle && lease.slot().repark() {
+            if idle && instances.parking_again(key, || lease.slot().repark()) {
                 parked += 1;
             }
         }

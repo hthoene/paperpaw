@@ -206,6 +206,8 @@ fn main() {
         .iter()
         .map(|plugin| (*plugin, run.way_to(plugin)))
         .collect();
+    // An empty list would pass with nothing tested (CR on #1365).
+    assert!(!ways.is_empty(), "no plugin may sleep: nothing to cycle");
     let mut first = None;
     for cycle in 1..=CYCLES {
         for (plugin, way) in &ways {

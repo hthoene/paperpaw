@@ -170,6 +170,9 @@ impl DocHost for Session {
     fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
         self.fake.formats_of_owner(owner, visit);
     }
+    fn formats_owned(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
+        self.fake.formats_owned(owner, visit);
+    }
     fn formats(
         &self,
         cursor: u32,

@@ -362,9 +362,15 @@ impl DocState {
         let length = match self.call_in_scope(hosts, route, document, (target, kind), op, &mut out)
         {
             Ok(length) => length,
-            // A pending open's format that is not made yet: later. One that
-            // cannot be made fails the document; one that answered an error
-            // has it (the open reached it: it gets `close` from now on).
+            // A pending open's format that is not made yet: later, until it
+            // gave up for want of memory, which fails the document (Senior,
+            // R2 on #1365). One that cannot be made fails it too; one that
+            // answered an error has it (the open reached it: it gets `close`
+            // from now on).
+            Err(ERR_BUSY) if document.open_pending && route.gave_up(target.plugin) => {
+                self.fail_prepared(hosts, document, ERR_NO_MEMORY);
+                return Ok(());
+            }
             Err(status @ (ERR_BUSY | ERR_NO_MEMORY)) => return Err(status),
             Err(status) if document.open_pending => {
                 if status != ERR_CANCELLED {

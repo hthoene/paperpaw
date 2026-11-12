@@ -91,6 +91,8 @@ pub(crate) struct Fake {
     pub(crate) owner: Cell<u64>,
     /// The owner of the fake format plugin.
     pub(crate) format_owner: Cell<u64>,
+    /// How often the format plugin's formats left the index.
+    pub(crate) formats_removed: Cell<u32>,
     /// (document, root, path) of each `reader_opened`, and the documents
     /// `reader_closed` was called for.
     pub(crate) readers: RefCell<Vec<(u32, u32, std::string::String)>>,
@@ -136,6 +138,7 @@ impl Fake {
             keyed: RefCell::new(Vec::new()),
             owner: Cell::new(OWNER),
             format_owner: Cell::new(FORMAT_OWNER),
+            formats_removed: Cell::new(0),
             readers: RefCell::new(Vec::new()),
             released: RefCell::new(Vec::new()),
             reader_refuses: Cell::new(None),
@@ -290,7 +293,13 @@ impl DocHost for Fake {
         }
     }
     fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
-        // The fake's format plugin is owner 99.
+        // The fake's format plugin is owner 99; what left the index is counted.
+        if owner == self.format_owner.get() {
+            self.formats_removed.set(self.formats_removed.get() + 1);
+            visit(FORMAT);
+        }
+    }
+    fn formats_owned(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
         if owner == self.format_owner.get() {
             visit(FORMAT);
         }

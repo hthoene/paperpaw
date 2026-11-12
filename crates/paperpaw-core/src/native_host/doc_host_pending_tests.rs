@@ -11,7 +11,7 @@ use crate::native_host::{
     },
     fmt_call::FrameRoute,
 };
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_CANCELLED};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_CANCELLED, ERR_NO_MEMORY};
 
 const DOCX: u64 = 13;
 
@@ -141,6 +141,45 @@ fn a_format_that_cannot_be_made_fails_the_document_and_the_opener_hears_it() {
         // The format never had the document: its close sends nothing.
         close(w, id);
         assert_eq!(ops(w), [2, 2]);
+    });
+}
+
+/// A route whose format plugin gave up being made (Senior, R2 on #1365).
+struct GaveUp<'a>(FrameRoute<'a>);
+impl crate::native_host::fmt_call::Route for GaveUp<'_> {
+    fn call(
+        &self,
+        target: crate::native_host::format_call::Target,
+        payload: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, i32> {
+        self.0.call(target, payload, out)
+    }
+    fn gave_up(&self, _plugin: u64) -> bool {
+        true
+    }
+}
+
+#[test]
+fn a_pending_open_whose_format_gave_up_fails_without_memory_and_the_opener_hears_it() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        parked(w);
+        let id = w.open(1, "books/a.epub").unwrap();
+        // Still busy, but not given up: later, as before.
+        assert_eq!(step(w), PrepareStep::Later);
+        // Given up: the document fails, it does not wait for ever.
+        assert_eq!(
+            w.state.prepare_step(&w.hosts, &GaveUp(FrameRoute(w))),
+            PrepareStep::More
+        );
+        let failed = document(w, id);
+        assert_eq!((failed.state, failed.status), (FAILED, ERR_NO_MEMORY));
+        assert_eq!(changed_event(w), Some((id, FAILED)));
+        assert_eq!(step(w), PrepareStep::Idle);
+        // The format never had it: no close.
+        close(w, id);
+        assert_eq!(ops(w), [2, 2, 2]);
     });
 }
 

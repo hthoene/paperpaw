@@ -48,6 +48,10 @@ fn one_batch_or_batches_far_apart_keep_a_start_and_a_mask_each() {
     assert_eq!(at, [Some(u32::MAX), Some(0), Some(65_536), None]);
     let kinds: Vec<_> = (0..4).map(|batch| starts.kinds(batch)).collect();
     assert_eq!(kinds, [1 << 1, 1 << 2, 0, 0]);
+    // The edge: 65,535 apart packs (the case above), 65,536 does not.
+    let edge = Starts::try_new(&[batch(0, &[1]), batch(65_536, &[2])]).unwrap();
+    assert!(!edge.is_packed(), "65,536 apart");
+    assert_eq!((edge.start(0), edge.start(1)), (Some(0), Some(65_536)));
 }
 
 #[test]

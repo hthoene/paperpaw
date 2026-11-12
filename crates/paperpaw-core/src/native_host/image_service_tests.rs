@@ -217,7 +217,11 @@ fn documents_and_plugins_ending_end_their_images() {
     assert_eq!(t.info(A, d1), Err(ERR_NOT_FOUND));
     assert_eq!(t.info(B, other), Err(ERR_NOT_FOUND), "any opener's");
     assert!(t.info(A, d2).is_ok() && t.info(A, own).is_ok());
+    // An image id keeps its plugin from sleeping again (#248, D3).
+    assert_eq!(t.owner_holds(A), Ok(true));
     t.owner_stopped(A).unwrap();
+    assert_eq!(t.owner_holds(A), Ok(false));
+    assert_eq!(t.owner_holds(B), Ok(false), "B's went with document 1");
     assert_eq!(t.info(A, d2), Err(ERR_NOT_FOUND));
     assert_eq!(t.info(A, own), Err(ERR_NOT_FOUND));
     t.owner_stopped(A).unwrap();

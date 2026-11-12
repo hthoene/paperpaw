@@ -27,7 +27,8 @@ pub(crate) trait Unpark {
     /// The instance, made anew.
     ///
     /// # Errors
-    /// [`Unparked::NoMemory`] where the heap has no room (the plugin stays
+    /// [`Unparked::NoMemory`] where the heap has no room and
+    /// [`Unparked::Busy`] where something is in use (the plugin stays
     /// parked); [`Unparked::Refused`] where `make` failed or its batch is not
     /// the one of the start (the plugin is withdrawn).
     fn unpark(&self) -> Result<Box<dyn NativeInstance>, Unparked>;
@@ -41,6 +42,10 @@ pub(crate) trait Unpark {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Unparked {
     NoMemory,
+    /// Something in use (the old owner not retired yet, a depth or a
+    /// lifecycle): waits as `NoMemory` does, but is no memory pressure
+    /// (Senior, R3 on #1365).
+    Busy,
     Refused,
 }
 
@@ -185,10 +190,12 @@ impl Slot {
             let _hold = parked.clock.hold();
             match parked.recipe.unpark() {
                 Ok(instance) => instance,
-                Err(Unparked::NoMemory) => {
+                Err(why @ (Unparked::NoMemory | Unparked::Busy)) => {
                     // Memory pressure: an idle plugin is parked again at the
                     // next safe point (D3, Decision 166).
-                    parked.clock.note_pressure();
+                    if why == Unparked::NoMemory {
+                        parked.clock.note_pressure();
+                    }
                     let wait = parked
                         .wait
                         .get()

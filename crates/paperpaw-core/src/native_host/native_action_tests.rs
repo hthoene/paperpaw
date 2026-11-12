@@ -169,9 +169,13 @@ fn more_actions_than_the_queue_keeps_are_refused_and_said_so() {
         w.kernel.dispatch(action.clone());
     }
     assert_eq!(queue.refused(), 2);
+    // A waiting action keeps its plugin from sleeping again (#248, D3).
+    let instances = &w.kernel.shared.native_instances;
+    assert!(instances.waits_for(w.owner) && !instances.waits_for(w.owner + 1));
     // What was kept is delivered.
     w.kernel.run_commands();
     assert_eq!(w.seen.borrow().len(), QUEUE_MAX);
+    assert!(!w.kernel.shared.native_instances.waits_for(w.owner));
 }
 
 #[test]

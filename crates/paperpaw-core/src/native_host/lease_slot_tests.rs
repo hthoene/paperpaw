@@ -185,6 +185,18 @@ fn no_memory_keeps_it_parked_and_waits_one_then_two_seconds() {
 }
 
 #[test]
+fn only_no_memory_is_memory_pressure_and_busy_waits_alike() {
+    let w = world(&[Err(Unparked::Busy), Err(Unparked::NoMemory)]);
+    w.clock.set_now(10_000);
+    assert_eq!(w.slot.live().err(), Some(ERR_BUSY));
+    assert!(!w.clock.take_pressure(), "busy is no pressure");
+    assert!(w.slot.is_parked());
+    w.clock.set_now(11_000);
+    assert_eq!(w.slot.live().err(), Some(ERR_BUSY));
+    assert!(w.clock.take_pressure(), "no memory is");
+}
+
+#[test]
 fn the_wait_after_no_memory_stops_growing_at_a_minute() {
     let outcomes = [Err(Unparked::NoMemory); 10];
     let w = world(&outcomes);
@@ -295,10 +307,15 @@ fn every_borrow_of_the_live_instance_is_checked() {
         "live.borrow_mut()",
         "live.replace(",
         "live.take()",
+        // The recipe part is only ever borrowed shared (Senior's nit on
+        // #1365): no exclusive borrow of it, no swap.
+        "parked.borrow_mut()",
+        "parked.replace(",
+        "parked.take()",
     ] {
         assert!(
             !source.contains(unchecked),
-            "`{unchecked}` in lease_slot.rs: use try_borrow / try_borrow_mut"
+            "`{unchecked}` in lease_slot.rs: use try_borrow / try_borrow_mut (`parked`: shared only)"
         );
     }
 }

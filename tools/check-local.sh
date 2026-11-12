@@ -11,7 +11,9 @@
 # Steps, in this order: fmt (and, for changed .rs files there, fmt-shells
 # for shells/xteink and fmt-fuzz for fuzz: rustfmt only), clippy (-D warnings), test,
 # test-linked (the tests of each package that has a `linked` feature, run with
-# it: the hosted tests there are built nowhere else), doc (-D warnings),
+# it: the hosted tests there are built nowhere else), test-native (the app's
+# flows, sleep_parity and sleep_cycles with `native-linked`, when the core, the
+# app, the native layer or a plugin changed, or with --all-linked), doc (-D warnings),
 # changelog, lockfiles, licences, checks (paperpaw-checks), abi-metadata.
 # Every step runs whatever the one before did; each one's own exit code is
 # what counts. The summary at the end lists them, and the script exits 1
@@ -59,7 +61,7 @@ base="origin/abi7/integration"
 jobs=4
 crates=()
 all_linked=0
-known=" fmt fmt-shells fmt-fuzz clippy clippy-features test test-features test-linked doc changelog lockfiles licences checks abi-metadata "
+known=" fmt fmt-shells fmt-fuzz clippy clippy-features test test-features test-linked test-native doc changelog lockfiles licences checks abi-metadata "
 
 check_names() { # LIST OPTION: every name must be a known step
     local name
@@ -275,6 +277,22 @@ elif ! wanted test-linked; then
     skipped+=("test-linked (left out by --only/--skip)")
 else
     skipped+=("test-linked (no selected package has a linked feature)")
+fi
+# The app's flows and sleep tests with the linked native plugins (#248): the
+# workspace test run leaves `native-linked` off, and sleep_* need it.
+native_wanted="$all_linked"
+for crate in "${crates[@]}"; do
+    case "$crate" in
+        paperpaw-core | paperpaw-app | paperpaw-native | paperpaw-plugin-*) native_wanted=1 ;;
+    esac
+done
+if [[ "$native_wanted" == 1 ]]; then
+    step test-native cargo test -j"$jobs" -p paperpaw-app --features native-linked \
+        --test flows --test sleep_parity --test sleep_cycles
+elif ! wanted test-native; then
+    skipped+=("test-native (left out by --only/--skip)")
+else
+    skipped+=("test-native (no core, app, native or plugin package selected)")
 fi
 pkg_step doc env RUSTDOCFLAGS="-D warnings" cargo doc -j"$jobs" --no-deps "${pkgs[@]}"
 step changelog python3 tools/changelog.py check

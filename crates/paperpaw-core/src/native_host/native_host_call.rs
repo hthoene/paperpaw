@@ -29,6 +29,9 @@ impl Route for HostRoute<'_> {
         let _running = self.meter.enter_scoped(id.as_str());
         format_call::call(self.registry, target, payload, out, self.env)
     }
+    fn gave_up(&self, plugin: u64) -> bool {
+        self.registry.format_gave_up(plugin)
+    }
 }
 
 #[cfg(test)]
