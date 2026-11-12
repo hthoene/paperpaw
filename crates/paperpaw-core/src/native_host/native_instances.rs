@@ -91,9 +91,8 @@ impl NativeLease {
     /// A parked plugin's lease: running for everyone, made by `recipe` at
     /// the first call at a safe point of `clock` (`lease_slot`).
     pub(crate) fn parked(recipe: Box<dyn Unpark>, clock: CallbackRuntime) -> Result<Self, i32> {
-        Shared::try_new(Slot::parked(recipe, clock))
-            .map(Self)
-            .map_err(|_| ERR_NO_MEMORY)
+        let slot = Slot::parked(recipe, clock).ok_or(ERR_NO_MEMORY)?;
+        Shared::try_new(slot).map(Self).map_err(|_| ERR_NO_MEMORY)
     }
     pub(crate) fn try_clone(&self) -> Result<Self, i32> {
         self.0.try_clone().map(Self).ok_or(ERR_NO_MEMORY)

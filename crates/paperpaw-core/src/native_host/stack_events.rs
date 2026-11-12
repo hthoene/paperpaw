@@ -101,10 +101,10 @@ impl crate::Kernel {
                 "no borrow across an unpark"
             );
             if due && self.native_ready(owner) {
-                if let Ok(mut told) = rows.told.try_borrow_mut() {
-                    if let Some((_, count)) = told.iter_mut().find(|(known, _)| *known == owner) {
-                        *count = now;
-                    }
+                if let Ok(mut told) = rows.told.try_borrow_mut()
+                    && let Some((_, count)) = told.iter_mut().find(|(known, _)| *known == owner)
+                {
+                    *count = now;
                 }
                 next = Some(owner);
             }
