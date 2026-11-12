@@ -46,6 +46,24 @@ impl Manifest {
         }
     }
 
+    /// Made of what it needs, usable in `const` and `static` items: a
+    /// linked plugin's manifest kept in the program, which the plugin list
+    /// then points to instead of holding a copy ([`ManifestRef::fixed`]).
+    ///
+    /// [`ManifestRef::fixed`]: crate::plugins::ManifestRef::fixed
+    #[must_use]
+    pub const fn fixed(id: Id, name: &'static str, version: Version) -> Self {
+        Self {
+            id,
+            name: crate::Str::new_static(name),
+            version,
+            description: crate::Str::new_static(""),
+            uses: Uses::NOTHING,
+            how: &[],
+            spare: 0,
+        }
+    }
+
     pub fn description(mut self, description: impl Into<Cow<'static, str>>) -> Self {
         self.description = crate::Str::new(description);
         self

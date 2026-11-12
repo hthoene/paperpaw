@@ -188,7 +188,8 @@ pub use params::Params;
 pub use plugin::{Manifest, Plugin, Priority, RegisterError, SlotSpec, Uses};
 pub use plugins::requires;
 pub use plugins::{
-    MAX_REQUESTED_PLUGINS, PluginInfo, PluginKind, PluginProblem, PluginState, Plugins, RequiredFor,
+    MAX_REQUESTED_PLUGINS, ManifestRef, PluginInfo, PluginKind, PluginProblem, PluginState,
+    Plugins, RequiredFor,
 };
 pub use replies::{
     FolderChosen, HttpError, HttpProgress, HttpReply, ServerNotice, SocketNotice, Typed,
