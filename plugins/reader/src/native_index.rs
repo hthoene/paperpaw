@@ -255,6 +255,22 @@ impl Counter {
         self.index.locate(storage, Locator::new(at.0, at.1))
     }
 
+    /// The pages counted so far and whether they are all.
+    #[must_use]
+    pub fn counted(&self) -> (u32, bool) {
+        (self.index.pages(), self.index.is_complete())
+    }
+
+    /// Where page `page` (from 0) starts, where it is counted.
+    #[must_use]
+    pub fn start(&self, storage: &dyn Storage, page: u32) -> Option<(u32, u32)> {
+        if page >= self.index.pages() {
+            return None;
+        }
+        let at = self.index.entry(storage, page)?;
+        Some((at.section, at.offset))
+    }
+
     /// The pages of the book, once counted.
     #[must_use]
     pub fn pages(&self) -> Option<u32> {

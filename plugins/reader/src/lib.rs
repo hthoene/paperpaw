@@ -87,6 +87,7 @@ pub static NATIVE_GROUPS: &[paperpaw_sdk::SettingGroupSpec] = &native_settings::
 #[cfg(feature = "linked")]
 pub static NATIVE_IDS: &[paperpaw_sdk::Id] = &native_settings::IDS;
 pub mod native_footnote;
+pub mod native_goto;
 pub mod native_headings;
 pub mod native_links;
 pub mod native_marking;
