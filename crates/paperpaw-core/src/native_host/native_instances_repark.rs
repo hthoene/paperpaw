@@ -38,16 +38,6 @@ impl super::NativeInstances {
         })
     }
 
-    /// An idle plugin was parked again for room: every parked plugin whose
-    /// last make found no memory is tried again at once, not after its wait.
-    pub(crate) fn retry_no_memory_now(&self) {
-        for entry in self.entries.iter().filter(|entry| entry.enabled) {
-            if let Some(lease) = entry.instance.as_ref() {
-                lease.slot().retry_now();
-            }
-        }
-    }
-
     /// Parking an idle plugin again freed nothing: every parked plugin whose
     /// last make found no memory is starved
     /// ([`Slot::starve`](super::super::lease_slot::Slot::starve)). Whether one
