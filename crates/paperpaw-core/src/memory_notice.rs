@@ -23,8 +23,8 @@ impl Kernel {
         self.waiting_notices.keep_memory_notice(Some(notice));
     }
 
-    /// Made again where one is made: the language or the interface's size
-    /// changed (before start there is none yet).
+    /// Made again where one is made: the language, the interface's size or
+    /// its font changed (before start there is none yet).
     pub(crate) fn renew_memory_notice(&mut self) {
         if self.waiting_notices.has_memory_notice() {
             self.reserve_memory_notice();
