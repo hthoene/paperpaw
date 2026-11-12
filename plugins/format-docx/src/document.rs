@@ -181,6 +181,51 @@ impl DocxDocument {
         })
     }
 
+    /// The document of a details open (the library's details): the book
+    /// is the archive (`""`), and what its properties say of it is all there
+    /// is: no cache is made or read, no block can be had (`length` 0). A title
+    /// the document has none of is left to the library.
+    ///
+    /// # Errors
+    /// `Malformed` for what is not a Word document, `OutOfMemory` where
+    /// memory is short, the card's error where it fails.
+    pub fn details(storage: &dyn Storage, fit: Fit, color: bool) -> Result<Self, DocumentError> {
+        let archive = ZipArchive::open(storage, "").map_err(error)?;
+        if archive
+            .entry(storage, "word/document.xml")
+            .map_err(error)?
+            .is_none()
+        {
+            return Err(malformed("not a Word document"));
+        }
+        let mut parts = Parts::default();
+        read_properties(storage, &archive, &mut parts)?;
+        drop(archive);
+        let mut metadata = Metadata::default();
+        let title = one_line(&parts.title).map_err(oom)?;
+        if !title.is_empty() {
+            metadata.title = Some(title);
+        }
+        let author = one_line(&parts.author).map_err(oom)?;
+        if !author.is_empty() {
+            let mut list = Vec::new();
+            mem::push(&mut list, author).map_err(oom)?;
+            metadata.authors = list;
+        }
+        let language = language(&parts.language).map_err(oom)?;
+        if !language.is_empty() {
+            metadata.language = Some(language);
+        }
+        Ok(Self {
+            path: String::new(),
+            dir: String::new(),
+            metadata,
+            length: 0,
+            fit,
+            color,
+        })
+    }
+
     /// Makes the cache of the document: its text read a piece at a time,
     /// into the folder `dir` of `storage` (the cache itself for `""`). The
     /// files of an earlier, half made cache are the caller's to remove.

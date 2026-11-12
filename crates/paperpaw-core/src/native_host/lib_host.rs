@@ -253,12 +253,8 @@ impl LibQuery for LibraryHost {
         // The path is copied out of the catalog read: the format call takes
         // the frame, not a borrow of the catalog.
         let path = self.reads.path_of(book, lib_cover::owned)?;
-        // A book whose cover job failed has no cover: not asked again.
-        if self
-            .cover_failed
-            .get()
-            .contains(&lib_cover::path_key(&path))
-        {
+        // A book whose job failed has no cover: not asked again.
+        if self.book_failed(lib_cover::path_key(&path)) {
             return Err(ERR_NOT_FOUND);
         }
         match lib_cover::make(cx, who, &path, side, visit) {
@@ -299,6 +295,9 @@ impl LibQuery for LibraryHost {
     }
     fn cover_jobs_began(&self) {
         self.changes.raise(lib_changed::COVER, "");
+    }
+    fn book_failed(&self, key: u64) -> bool {
+        key != 0 && self.cover_failed.get().contains(&key)
     }
     fn cover_job_ended(&self, ready: bool, key: u64) {
         if ready {

@@ -764,3 +764,105 @@ fn a_long_paragraph_is_cut_at_a_space_and_one_without_spaces_where_it_is() {
     );
     assert_eq!(solid_pieces.iter().map(|t| t.len()).sum::<usize>(), 9_000);
 }
+
+/// A details open (the library's details) is ready at once with what the
+/// properties say, converts nothing and writes nothing; the content asks are
+/// `State`; a normal open after it prepares the book as ever.
+#[test]
+fn a_details_open_answers_the_properties_and_converts_nothing() {
+    let data = docx(&rich_body());
+    let io = Roots::new(data);
+    let mut p = DocxProvider::new();
+    let reply = run(
+        &mut p,
+        &io,
+        &call(2, 1, |c| {
+            c.image_side = SIDE;
+            c.flags = 1 << 3;
+        }),
+    )
+    .unwrap();
+    // Ready, no show-only flags, nothing made.
+    assert_eq!(state(&reply), (0, 0, 0, 0));
+    let reply = run(&mut p, &io, &call(5, 1, |_| {})).unwrap();
+    assert!(matches!(
+        rows(&reply)[0],
+        stage::Record::FmtMeta(m) if m.title == "The Report" && m.language == "de-DE"
+            && m.sections == 1 && m.authors == 1 && m.subjects == 0
+    ));
+    let reply = run(
+        &mut p,
+        &io,
+        &call(6, 1, |c| {
+            c.flags = 1;
+            c.index = 0;
+        }),
+    )
+    .unwrap();
+    assert!(matches!(rows(&reply)[0], stage::Record::FmtText(t) if t.text == "Ann Author"));
+    // No cover, as for any Word document (not a refusal).
+    assert_eq!(run(&mut p, &io, &call(17, 1, |_| {})), Err(Error::NotFound));
+    // Content is not there: no block, section, contents or link.
+    for op in [3, 7, 8, 9, 10, 14, 15, 18] {
+        assert_eq!(
+            run(&mut p, &io, &call(op, 1, |_| {})),
+            Err(Error::State),
+            "op {op}"
+        );
+    }
+    // Nothing was converted or written.
+    for file in ["blocks.bin", "index.bin", "info.txt", "done"] {
+        assert!(io.size(file).is_err(), "{file}");
+    }
+    // Bit 3 together with bit 2 is a details open as well.
+    run(&mut p, &io, &call(4, 1, |_| {})).unwrap();
+    let reply = run(&mut p, &io, &call(2, 1, |c| c.flags = (1 << 3) | (1 << 2))).unwrap();
+    assert_eq!(state(&reply), (0, 0, 0, 0));
+    assert_eq!(run(&mut p, &io, &call(8, 1, |_| {})), Err(Error::State));
+    assert!(io.size("blocks.bin").is_err());
+    // The same document id, closed and opened as a book to show: prepared.
+    run(&mut p, &io, &call(4, 1, |_| {})).unwrap();
+    let (s, status, flags) = open_ready(&mut p, &io);
+    assert_eq!((s, status, flags), (0, 0, CACHE_MADE | HAS_TOC));
+    assert!(io.size("blocks.bin").is_ok());
+    // A details open of a book whose cache is whole is a ready document.
+    run(&mut p, &io, &call(4, 1, |_| {})).unwrap();
+    let reply = run(&mut p, &io, &call(2, 1, |c| c.flags = 1 << 3)).unwrap();
+    assert_eq!(state(&reply).0, 0);
+    // Not a Word document: a failed one, as a normal open says.
+    let other = Roots::new(
+        paperpaw_zip::testing::ZipBuilder::new()
+            .deflated("a", "b")
+            .build(),
+    );
+    let mut q = DocxProvider::new();
+    let reply = run(&mut q, &other, &call(2, 1, |c| c.flags = 1 << 3)).unwrap();
+    assert_eq!(state(&reply).0, 2);
+}
+
+/// A background open (bit 2, an index build) is not a details open: it needs
+/// blocks, so the book is prepared as for showing.
+#[test]
+fn a_background_open_still_converts_the_book() {
+    let io = Roots::new(docx(&rich_body()));
+    let mut p = DocxProvider::new();
+    let reply = run(
+        &mut p,
+        &io,
+        &call(2, 1, |c| {
+            c.image_side = SIDE;
+            c.flags = 1 << 2;
+        }),
+    )
+    .unwrap();
+    let mut s = state(&reply).0;
+    assert_eq!(s, 1, "preparing, not ready at once");
+    let mut guard = 0;
+    while s == 1 {
+        s = state(&run(&mut p, &io, &call(3, 1, |_| {})).unwrap()).0;
+        guard += 1;
+        assert!(guard < 1000);
+    }
+    assert_eq!(s, 0);
+    assert!(io.size("blocks.bin").is_ok());
+}

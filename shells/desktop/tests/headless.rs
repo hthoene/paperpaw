@@ -494,6 +494,55 @@ fn reading_aloud_waits_for_a_book_still_prepared() {
     assert!(spoken >= 2, "{}", aloud.stderr);
 }
 
+/// A page with a picture shows its text first: the frame of the turn keeps
+/// the picture's place empty (it reads none of the picture), and the frame the
+/// host draws the picture's box in after reads it (#252). Alice's one picture
+/// is its cover: turned away from and back to.
+#[test]
+#[ignore = "needs native activation (the native reader, #243)"]
+fn a_picture_follows_the_text_of_its_page_in_a_frame_of_its_own() {
+    let library = library("picture-pass");
+    let state = library.join(".paperpaw/plugins/reader");
+    fs::create_dir_all(&state).unwrap();
+    fs::write(
+        state.join("state.ini"),
+        "[reader]\nlast = books/alice-in-wonderland.epub\n",
+    )
+    .unwrap();
+    let turned = run_in(
+        &library,
+        "xteink-x4",
+        "wait:8000,page-forward,wait:1000,step:forward,page-back,wait:1000,step:back",
+        &["--trace"],
+    );
+    let _ = fs::remove_dir_all(&library);
+    assert!(turned.ok, "{}", turned.stderr);
+    // The reading screen's frames of the turn back onto the cover, with the
+    // kilobytes each read from the card.
+    let back: Vec<u64> = turned
+        .stdout
+        .lines()
+        .skip_while(|l| !l.starts_with("step forward"))
+        .take_while(|l| !l.starts_with("step back"))
+        .filter(|l| l.starts_with("frame reader.screen"))
+        .map(|l| {
+            let (_, after) = l.split_once(" reads of ").unwrap();
+            after.split(' ').next().unwrap().parse().unwrap()
+        })
+        .collect();
+    assert!(back.len() >= 2, "{}", turned.stdout);
+    assert_eq!(
+        back[0], 0,
+        "the first frame reads no picture: {}",
+        turned.stdout
+    );
+    assert!(
+        back[1..].iter().any(|&kb| kb > 100),
+        "a frame after draws the picture: {}",
+        turned.stdout
+    );
+}
+
 /// A configuration file (`--config`) is read, and `--set` wins over it.
 #[test]
 fn the_configuration_file_is_read_and_set_wins_over_it() {
