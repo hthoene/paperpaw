@@ -357,7 +357,7 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
     }
 }
 
-fn status(error: shell::Error) -> i32 {
+pub(super) fn status(error: shell::Error) -> i32 {
     match error {
         shell::Error::Status(code) | shell::Error::Factory(code) => code,
         shell::Error::Allocation | shell::Error::Lifecycle(Error::Memory) => {

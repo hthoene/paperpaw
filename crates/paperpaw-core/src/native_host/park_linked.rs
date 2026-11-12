@@ -11,8 +11,8 @@ use super::{
     FixedTables, FlatHost, HostResources, flat::FlatDepth, lease_slot::Unpark,
     lease_slot::Unparked, linked_entry, native_dispatch::NativeDispatch,
     native_instances::NativeIdentity, native_instances::NativeInstance,
-    raw_declarations::RawDeclarations, registrations::Record, resources::OwnerSeat,
-    retained::Retained, shared::Shared, shell,
+    raw_declarations::RawDeclarations, registrations::Record, registrations::Registration,
+    resources::OwnerSeat, retained::Retained, shared::Shared, shell,
 };
 use alloc::boxed::Box;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, PpEntry, Services};
@@ -210,13 +210,13 @@ impl crate::Kernel {
     }
 }
 
-/// Why a hosting failed, as an unpark: no room (or the old owner not gone
-/// yet) waits and tries again; anything else withdraws the plugin.
+/// Why a hosting failed, as an unpark, read as a call's status
+/// (`native_dispatch::status`): no room or busy (the old owner not gone yet,
+/// a depth or lifecycle in use, the plugin's own `make` out of memory) waits
+/// and tries again; anything else withdraws the plugin.
 fn unparked(error: shell::Error) -> Unparked {
-    match error {
-        shell::Error::Allocation | shell::Error::Status(ERR_NO_MEMORY | ERR_BUSY) => {
-            Unparked::NoMemory
-        }
+    match super::native_dispatch::status(error) {
+        ERR_NO_MEMORY | ERR_BUSY => Unparked::NoMemory,
         _ => Unparked::Refused,
     }
 }
@@ -260,9 +260,15 @@ pub(crate) fn batch_hash<S: Services + 'static, M: 'static>(
     }
     retained
         .registrations(depth.as_depth(), &mut |index, record| {
-            use core::fmt::Write;
             hash.bytes(&index.to_le_bytes());
-            let _ = write!(hash, "{record:?}");
+            // Each field as it is, no formatting (none collide, none pulled in).
+            let (kind, tag, token) = match record {
+                Registration::Event { event_tag, token } => (0_u8, event_tag, token),
+                Registration::Draw { token } => (1, 0, token),
+            };
+            hash.bytes(&[kind]);
+            hash.bytes(&tag.to_le_bytes());
+            hash.bytes(&token.to_le_bytes());
         })
         .ok()?;
     Some(hash.0)
@@ -281,12 +287,6 @@ impl Fnv {
             self.0 ^= u64::from(*byte);
             self.0 = self.0.wrapping_mul(0x0100_0000_01b3);
         }
-    }
-}
-impl core::fmt::Write for Fnv {
-    fn write_str(&mut self, text: &str) -> core::fmt::Result {
-        self.bytes(text.as_bytes());
-        Ok(())
     }
 }
 

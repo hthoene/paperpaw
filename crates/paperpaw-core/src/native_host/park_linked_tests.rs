@@ -421,19 +421,32 @@ fn a_refused_plugin_is_withdrawn_once_and_its_key_is_not_reused() {
 
 #[test]
 fn only_no_room_or_a_busy_owner_waits_every_other_hosting_error_refuses() {
+    use crate::native_host::Error as Lifecycle;
     use paperpaw_native::host_glue::{ERR_INVALID, ERR_STATE};
     let waits = [
         shell::Error::Allocation,
         shell::Error::Status(ERR_NO_MEMORY),
         shell::Error::Status(ERR_BUSY),
+        // The plugin's own `make` out of room or busy, at a heap peak.
+        shell::Error::Factory(ERR_NO_MEMORY),
+        shell::Error::Factory(ERR_BUSY),
+        shell::Error::Lifecycle(Lifecycle::Memory),
+        shell::Error::Lifecycle(Lifecycle::Busy),
+        shell::Error::Lifecycle(Lifecycle::Depth),
     ];
     for error in waits {
         assert!(matches!(unparked(error), Unparked::NoMemory));
     }
     for status in [ERR_INVALID, ERR_STATE, ERR_CANCELLED] {
-        assert!(matches!(
-            unparked(shell::Error::Status(status)),
-            Unparked::Refused
-        ));
+        for error in [shell::Error::Status(status), shell::Error::Factory(status)] {
+            assert!(matches!(unparked(error), Unparked::Refused));
+        }
+    }
+    for error in [
+        shell::Error::Lifecycle(Lifecycle::State),
+        shell::Error::Attempt,
+        shell::Error::Plugin,
+    ] {
+        assert!(matches!(unparked(error), Unparked::Refused));
     }
 }
