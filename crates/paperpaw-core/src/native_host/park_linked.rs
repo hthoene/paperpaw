@@ -369,10 +369,13 @@ impl Fnv {
 /// the host's drawing or a format call reaches it by (condition 4): such a
 /// plugin is never parked (a nested call cannot make it).
 pub(crate) fn nested_role(record: &Record<'_>) -> bool {
+    // A format is no nested role (D2, #248): every route into it answers
+    // `ERR_BUSY` while it is parked and keeps its request (an open stays
+    // preparing, the details and cover jobs try again), and it is made at
+    // the next safe point. A format sleeps only where its shell flags it.
     matches!(
         record,
         Record::RegistrationStage(_)
-            | Record::FormatSpec(_)
             | Record::LookupSpec(_)
             | Record::WidgetSpec(_)
             | Record::WidgetPlace(_)

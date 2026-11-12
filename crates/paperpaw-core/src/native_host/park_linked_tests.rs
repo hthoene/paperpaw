@@ -620,3 +620,26 @@ fn a_plugin_that_stays_without_room_gives_up_its_actions_and_a_later_one_reaches
     assert!(!lease(&kernel, key).is_parked());
     assert_eq!(actions_waiting(&kernel), 0);
 }
+
+#[test]
+fn a_format_may_be_parked_a_stage_subscriber_may_not() {
+    // D2 (#248): formats left condition 4; stage subscribers, lookup
+    // providers and widgets stay awake.
+    let format = wire::Record::FormatSpec(wire::FormatSpec {
+        name: "books",
+        title: "format.title",
+        extensions: "epub",
+        flags: 0,
+        priority: 0,
+        token: 5,
+    });
+    assert!(!nested_role(&format));
+    let lookup = wire::Record::LookupSpec(wire::LookupSpec {
+        name: "words",
+        title: "lookup.title",
+        languages: "en",
+        flags: 0,
+        token: 6,
+    });
+    assert!(nested_role(&lookup));
+}
