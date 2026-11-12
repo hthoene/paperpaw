@@ -24,7 +24,7 @@ use alloc::{rc::Rc, string::ToString, vec, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::ERR_INVALID;
 use paperpaw_platform::{DirEntry, Instant};
-use paperpaw_sdk::{Command, Id, Manifest, MemoryStorage, PluginState, Version};
+use paperpaw_sdk::{Command, Id, Manifest, MemoryStorage, Params, PluginState, Version};
 
 /// The card, shared by the kernel and the hosts.
 struct Card(Rc<MemoryStorage>);
@@ -185,6 +185,37 @@ impl Dispatch for Probe {
     }
 }
 
+/// A plugin with home's screen (offered for slot `core.home`) and a page of
+/// its own (offered for none), as the store's.
+struct Shelf;
+const HOME_SCREEN: Id = Id::new_static("shelf.home");
+const PAGE: Id = Id::new_static("shelf.page");
+
+struct Blank;
+impl paperpaw_sdk::Screen for Blank {
+    fn draw(&mut self, _: &mut paperpaw_sdk::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+        paperpaw_sdk::Handled::No
+    }
+}
+
+impl paperpaw_sdk::Plugin for Shelf {
+    fn manifest(&self) -> Manifest {
+        Manifest::new(Id::new_static("shelf"), "Shelf", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+        for id in [HOME_SCREEN, PAGE] {
+            r.add_screen(paperpaw_sdk::ScreenSpec::new(
+                id,
+                "shelf.screen",
+                alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Blank)),
+            ))?;
+        }
+        r.bind_slot(slots::HOME, HOME_SCREEN, paperpaw_sdk::Priority::DEFAULT)
+    }
+}
+
 /// No walk runs, no clock.
 struct Calm;
 impl CatalogEnv for Calm {
@@ -205,7 +236,7 @@ struct World {
 }
 
 /// A kernel with the native format `format-books.books` (EPUB, DOCX) on a card
-/// holding `books`; not started.
+/// holding `books`, home's screen on top; not started.
 fn world(books: &[&str]) -> World {
     let mut card = MemoryStorage::new();
     for book in books {
@@ -214,8 +245,10 @@ fn world(books: &[&str]) -> World {
     let card = Rc::new(card);
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .storage(Card(card.clone()))
+        .plugin(Shelf)
         .build()
         .unwrap();
+    kernel.open(HOME_SCREEN, Some(slots::HOME), &Params::default());
     let format = Rc::new(Format::default());
     *format.title.borrow_mut() = "Dune".to_string();
     let key = kernel
@@ -731,5 +764,160 @@ fn marks_of_a_walk_that_does_not_go_on_are_looked_at_ever_less_often() {
     pump(&mut w, now);
     assert_eq!(w.format.opens(), 1);
     let run = w.docs.details_job().unwrap().run();
-    assert_eq!(run.walk_waits(QUIET_MS, WALK_WAIT_MAX_MS), QUIET_MS);
+    assert_eq!(run.hold_waits(QUIET_MS, HOLD_WAIT_MAX_MS), QUIET_MS);
+}
+
+#[test]
+fn a_screen_other_than_homes_or_the_librarys_holds_the_job_until_it_goes() {
+    let mut w = world(&["books/a.epub"]);
+    catalog(&w, &[("books/a.epub", false)]);
+    started(&mut w);
+    w.kernel.native_details_arm();
+    // A page of a plugin's own on top (the store's), opened by its id.
+    w.kernel.open(PAGE, None, &Params::default());
+    pump(&mut w, 2_000);
+    assert_eq!(w.format.opens(), 0, "a plugin's page");
+    assert_eq!(
+        w.kernel.native_details_due(),
+        None,
+        "no timed wake: input takes it away"
+    );
+    // Home's screen opened for another slot (an overlay's, say) holds too.
+    w.kernel
+        .open(HOME_SCREEN, Some(slots::MENU), &Params::default());
+    pump(&mut w, 3_000);
+    assert_eq!(w.format.opens(), 0, "opened for another slot");
+    // Home's screen opened by its id: it is offered for `core.home`.
+    w.kernel.open(HOME_SCREEN, None, &Params::default());
+    pump(&mut w, 4_000);
+    assert_eq!(w.format.opens(), 1);
+    assert_eq!(kept_title(&w, "books/a.epub").as_deref(), Some("Dune"));
+}
+
+#[test]
+fn a_screen_opened_for_the_library_lets_it_run_and_no_screen_holds_it() {
+    let mut w = world(&["books/a.epub", "books/b.epub"]);
+    catalog(&w, &[("books/a.epub", false), ("books/b.epub", false)]);
+    started(&mut w);
+    w.kernel.native_details_arm();
+    // Nothing on the stack (before the first screen, say): held.
+    w.kernel.stack.clear();
+    pump(&mut w, 2_000);
+    assert_eq!(w.format.opens(), 0, "no screen");
+    // A screen opened for slot `core.library` (it need not be offered for it).
+    w.kernel
+        .open(PAGE, Some(slots::LIBRARY), &Params::default());
+    pump(&mut w, 3_000);
+    assert_eq!(w.format.opens(), 1, "the library's screen");
+}
+
+#[test]
+fn network_work_holds_the_job_until_it_ends() {
+    let mut w = world(&["books/a.epub"]);
+    catalog(&w, &[("books/a.epub", false)]);
+    started(&mut w);
+    w.kernel.native_details_arm();
+    let reply = Id::new_static("shelf.fetched");
+    let mut out = Vec::new();
+    let request = paperpaw_sdk::HttpRequest::get("https://example.org/", reply.clone());
+    let storage = w.kernel.shared.storage.clone();
+    w.kernel
+        .io
+        .http
+        .request(request, true, false, &*storage, &mut out);
+    assert!(w.kernel.details_busy());
+    let mut now = 2_000;
+    for wait in [1_000, 2_000, 4_000] {
+        pump(&mut w, now);
+        assert_eq!(w.format.opens(), 0, "a request waits");
+        assert_eq!(w.kernel.native_details_due(), Some(now + wait));
+        now += wait;
+    }
+    w.kernel.io.http.cancel(&reply, &mut out);
+    assert!(!w.kernel.details_busy());
+    pump(&mut w, now);
+    assert_eq!(w.format.opens(), 1, "at the next timed look");
+    // The next hold waits from a second again.
+    let run = w.docs.details_job().unwrap().run();
+    assert_eq!(run.hold_waits(QUIET_MS, HOLD_WAIT_MAX_MS), QUIET_MS);
+}
+
+#[test]
+fn a_job_of_the_install_queue_holds_the_job_until_it_ends() {
+    use crate::native_host::firmware_driver::Driver;
+    use paperpaw_platform::firmware::WRITE_BLOCK;
+    use paperpaw_platform::firmware_fake::{FakeFirmware, paperpaw_facts};
+    let mut w = world(&["books/a.epub"]);
+    catalog(&w, &[("books/a.epub", false)]);
+    started(&mut w);
+    w.kernel.native_details_arm();
+    let fake = FakeFirmware::new(
+        "0.5.0",
+        "paperpaw-x4",
+        5,
+        paperpaw_facts("0.6.0", "paperpaw-x4", 2 * WRITE_BLOCK),
+    );
+    use crate::native_host::firmware_cell::{FirmwareCell, test_shared};
+    let driver = test_shared(RefCell::new(Driver::new(
+        alloc::boxed::Box::new(fake),
+        test_shared(RefCell::new(
+            crate::native_host::firmware_install::FirmwareInstall::new(),
+        )),
+    )));
+    driver
+        .borrow_mut()
+        .submit_check(9, 1, "update.bin")
+        .unwrap();
+    w.kernel.firmware = Some(Rc::new(FirmwareCell::running(driver.try_clone().unwrap())));
+    // The details job's own pump alone: the queue's pump would run the check.
+    // The documents' clock as the service pump sets it (the quiet second
+    // after the start, `job_may_begin`).
+    w.kernel.now = Instant(2_000);
+    w.docs.set_now(2_000);
+    w.kernel.native_details_job_pump();
+    assert_eq!(w.format.opens(), 0, "a check waits in the queue");
+    assert_eq!(w.kernel.native_details_due(), Some(3_000));
+    // A queue its own pump holds borrowed counts as busy too.
+    {
+        let _held = driver.borrow_mut();
+        w.kernel.now = Instant(3_000);
+        w.docs.set_now(3_000);
+        w.kernel.native_details_job_pump();
+        assert_eq!(w.format.opens(), 0, "the queue is borrowed");
+        assert_eq!(w.kernel.native_details_due(), Some(5_000));
+    }
+    driver.borrow_mut().cancel(9, 1);
+    w.kernel.shared.recall.clear();
+    w.kernel.now = Instant(5_000);
+    w.docs.set_now(5_000);
+    w.kernel.native_details_job_pump();
+    assert_eq!(w.format.opens(), 1, "the queue is empty");
+}
+
+#[test]
+fn a_device_left_on_home_reads_every_book_through_holds() {
+    // The starvation rule: holds only defer; left alone on home, the job
+    // reaches the catalog's end.
+    let books = ["books/a.epub", "books/b.epub"];
+    let mut w = world(&books);
+    catalog(&w, &books.map(|book| (book, false)));
+    started(&mut w);
+    w.kernel.native_details_arm();
+    w.kernel.open(PAGE, None, &Params::default());
+    pump(&mut w, 2_000);
+    assert_eq!(w.format.opens(), 0);
+    // Back home (an input), then left alone.
+    w.kernel.close_top(paperpaw_sdk::CloseCause::Back);
+    w.kernel.last_activity = Instant(2_500);
+    let mut now = 3_000;
+    while now < 20_000 && w.docs.details_job().unwrap().run().armed() {
+        pump(&mut w, now);
+        now += 1_000;
+    }
+    assert_eq!(w.format.opens(), 2);
+    assert!(
+        books
+            .iter()
+            .all(|book| kept_title(&w, book).as_deref() == Some("Dune"))
+    );
 }

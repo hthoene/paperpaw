@@ -337,25 +337,27 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   steps, failures and awake-time cap (one book's time counts across both kinds, a give-way to a
   cover included). A `prepared` format's book (DOCX, MOBI) is **never converted** for it: the
   format answers ready from what it reads at open, or the book gets no details (an answer of
-  preparing closes it at once, as a failed book). Once it
-  is ready the host reads `meta` (op 5), the
+  preparing closes it at once, as a failed book). Once it is ready the host reads `meta` (op 5), the
   whole title and series by offsets where `meta` cut them, the first author and at most 16 subjects
-  (op 6, each cut at the details' caps), keeps them as the book's details marked as read (never where
-  nothing was read), and closes it. It begins only when no job of either kind runs and no book is
-  open for reading or showing, not within 1 s of the start or of any input, and not while a first
-  walk is under way (looked at again after 1 s, doubling up to 32 s): never at the start's peak
-  nor while the user is busy. A device in steady use (an input at least every second) reads no
-  details until it is left alone; a book the format failed (or whose job a reset ended) joins
-  the cover
-  job's failed books and is skipped until the next start. A `cover` never waits for the details job:
-  a ready cover is made beside it, and one that needs the slot makes the details job give way (it
-  ends, and its book is looked at again later, counted neither as failed nor as displaced). The
-  catalog is wanted
-  again (`core.catalog-wanted`, made anew) once when the job reaches the catalog's end and at most
-  every two minutes while it runs, each only where a book was read since the last: never per book,
-  and a walk after a pass that read nothing arms a pass that finds nothing. Nothing of it holds the
-  device awake: the next book is looked for by a timed wake at the job's pace (or at the end of the
-  2 s); it holds one 4 KiB reply buffer and what it read of one book.
+  (op 6, each cut at the details' caps), keeps them as the book's details marked as read (never
+  where nothing was read), and closes it. It begins only when no job of either kind runs and no book
+  is open for reading or showing, not within 1 s of the start or of any input, only while home's or
+  the library's screen is on top (opened for slot `core.home` or `core.library`, or offered for one;
+  an overlay, a plugin's page or the store holds it, looked at again at the next input, also after a
+  screen that closed on its own), and not while network work or a job of the install queue runs, nor
+  while a first walk is under way (these three looked at again after 1 s, doubling up to 32 s):
+  never at the start's peak, beside another screen's or job's, nor while the user is busy. A device
+  in steady use (an input at least every second) or left on another screen reads no details until it
+  is left alone on home or the library; a book the format failed (or whose job a reset ended) joins
+  the cover job's failed books and is skipped until the next start. A `cover` never waits for the
+  details job: a ready cover is made beside it, and one that needs the slot makes the details job
+  give way (it ends, and its book is looked at again later, counted neither as failed nor as
+  displaced). The catalog is wanted again (`core.catalog-wanted`, made anew) once when the job
+  reaches the catalog's end and at most every two minutes while it runs, each only where a book was
+  read since the last: never per book, and a walk after a pass that read nothing arms a pass that
+  finds nothing. Nothing of it holds the device awake: the next book is looked for by a timed wake
+  at the job's pace (or at the end of the 2 s); it holds one 4 KiB reply buffer and what it read of
+  one book.
 
 ### 2.2 Status, positions, annotations
 
