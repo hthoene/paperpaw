@@ -845,13 +845,10 @@ fn registrations_that_do_not_fit_the_declarations_refuse_the_whole_install() {
 #[test]
 fn native_screen_below_guard_is_opened_and_closed_without_being_shown() {
     let mut kernel = kernel(1 << 1);
+    let depth = device_depth(&kernel);
     for owner in ["base", "other"] {
         kernel
-            .register_native(
-                host_named(owner, 0),
-                &device_depth(&kernel),
-                |_, _, _, _| {},
-            )
+            .register_native(host_named(owner, 0), &depth, |_, _, _, _| {})
             .unwrap();
     }
     kernel.open_screen(
@@ -1268,17 +1265,15 @@ fn first_failed_admission_retains_pool_for_orphan_cleanup_before_any_row_exists(
 #[test]
 fn expired_directory_refuses_a_native_callback_before_entering_plugin_code() {
     use crate::native_host::{
-        native_dispatch::NativeDispatch, native_screen::Dispatch, retained::Retained,
+        native_declarations::NativeDeclarations, native_dispatch::NativeDispatch,
+        native_screen::Dispatch, retained::Retained, shared::Shared,
     };
     reset(NORMAL);
     DESTROYED.with(|value| value.set(0));
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let directory = crate::native_host::shared::Shared::try_new(
-        crate::native_host::native_declarations::NativeDeclarations::default(),
-    )
-    .unwrap();
+    let directory = Shared::try_new(NativeDeclarations::default()).unwrap();
     let mut flat_host = kernel.flat_host();
     flat_host.directory = directory.downgrade();
     let (retained, ()) = Retained::make_native(host(0), |_| Ok(())).unwrap();
