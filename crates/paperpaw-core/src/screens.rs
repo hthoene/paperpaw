@@ -980,6 +980,8 @@ impl Kernel {
     /// and a task with none left goes; so switching back never opens a
     /// file that is gone. A book moved (`BOOK_MOVED`): its screens open
     /// it where it is now.
+    // Its own frame: not inlined into `emit_from` (#250).
+    #[inline(never)]
     pub(crate) fn tasks_follow_books(&mut self, event: &Id, params: &Params) {
         let path = builtin_params::PATH;
         if let Some(removed) = events::BOOK_REMOVED.read(event, params) {
