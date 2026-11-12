@@ -270,28 +270,10 @@ impl crate::Kernel {
         self.admit_native_with(host, depth, folder, report, super::FixedTables::NONE, None)
     }
 
-    /// [`Self::admit_native`] for a plugin with a table of settings kept in the
-    /// program (`fixed`, empty for none).
-    fn admit_native_with<S: Services + 'static, M: 'static>(
-        &mut self,
-        host: shell::Hosted<S, M>,
-        depth: &FlatDepth,
-        folder: Option<&str>,
-        report: fn(&S, u32, i32),
-        fixed: super::FixedTables,
-        park: Option<super::park_linked::ParkArgs<S>>,
-    ) -> Result<(), shell::Error> {
-        // A registration transaction: no parked plugin is made during it
-        // (#248, parked plugins M5).
-        let _hold = self.shared.native_instances.hold_unparking();
-        let (networked, installer) = declared_uses(&host);
-        self.shared
-            .native_instances
-            .adopt_pool(
-                host.resource_identity()
-                    .ok_or(shell::Error::Status(ERR_NO_MEMORY))?,
-            )
-            .map_err(shell::Error::Status)?;
+    /// The tables every native admission shares, made at the first; the
+    /// plugin's copy of the device-wide callback depth (refused where it
+    /// brings a counter of its own).
+    fn admission_tables(&mut self, depth: &FlatDepth) -> Result<FlatDepth, shell::Error> {
         self.attach_native_hosts();
         if self.shared.registry.native_declarations.is_none() {
             self.shared.registry.native_declarations = Some(
@@ -315,6 +297,32 @@ impl crate::Kernel {
             }
             Some(_) => {}
         }
+        Ok(depth)
+    }
+
+    /// [`Self::admit_native`] for a plugin with a table of settings kept in the
+    /// program (`fixed`, empty for none).
+    fn admit_native_with<S: Services + 'static, M: 'static>(
+        &mut self,
+        host: shell::Hosted<S, M>,
+        depth: &FlatDepth,
+        folder: Option<&str>,
+        report: fn(&S, u32, i32),
+        fixed: super::FixedTables,
+        park: Option<super::park_linked::ParkArgs<S>>,
+    ) -> Result<(), shell::Error> {
+        // A registration transaction: no parked plugin is made during it
+        // (#248, parked plugins M5).
+        let _hold = self.shared.native_instances.hold_unparking();
+        let (networked, installer) = declared_uses(&host);
+        self.shared
+            .native_instances
+            .adopt_pool(
+                host.resource_identity()
+                    .ok_or(shell::Error::Status(ERR_NO_MEMORY))?,
+            )
+            .map_err(shell::Error::Status)?;
+        let depth = self.admission_tables(depth)?;
         let folder = folder
             .map(|folder| folder.trim_end_matches('/'))
             .filter(|folder| !folder.is_empty());

@@ -235,7 +235,17 @@ fn kernel(mode: Mode) -> crate::Kernel {
 
 /// Admits the fixture as `linked` through the parking entry.
 fn admit(kernel: &mut crate::Kernel) -> u64 {
+    admit_with(kernel, HostResources::try_new().unwrap())
+}
+
+/// [`admit`] with the shell's resources (one pool for every plugin).
+fn admit_with(kernel: &mut crate::Kernel, resources: HostResources) -> u64 {
     let image = image().bytes;
+    // The device's one depth counter (a second is refused).
+    let depth = match kernel.shared.native_depth.as_ref() {
+        Some(depth) => depth.try_clone().unwrap(),
+        None => FlatDepth::try_new().unwrap(),
+    };
     // SAFETY: the fixture obeys the factory contract, its code is static and
     // `image` is leaked and never written after it was made.
     unsafe {
@@ -245,8 +255,8 @@ fn admit(kernel: &mut crate::Kernel) -> u64 {
             &shell_host(),
             "linked",
             || Heap,
-            HostResources::try_new().unwrap(),
-            &FlatDepth::try_new().unwrap(),
+            resources,
+            &depth,
             |_, _, _, _| {},
             |_, _, _| {},
             (image.as_ptr(), image.len()),
@@ -366,4 +376,64 @@ fn the_plain_entry_never_parks() {
     let key = kernel.shared.native_instances.find("linked").unwrap();
     assert_eq!((makes(), drops()), (1, 0));
     assert!(!lease(&kernel, key).is_parked());
+}
+
+#[test]
+fn inside_another_admission_a_parked_plugin_is_busy_and_starts_after() {
+    let mut kernel = kernel(Mode::Parkable);
+    let key = admit(&mut kernel);
+    let lease = lease(&kernel, key);
+    {
+        // What a later plugin's `make` would reach it in: no safe point.
+        let _hold = kernel.shared.native_instances.hold_unparking().unwrap();
+        assert_eq!(
+            lease.live().err(),
+            Some(paperpaw_native::host_glue::ERR_BUSY)
+        );
+        assert_eq!(makes(), 1);
+    }
+    // Asked to start: made at the next safe point.
+    assert!(kernel.native_unpark_pending());
+    assert_eq!(makes(), 2);
+    assert!(!lease.is_parked());
+}
+
+#[test]
+fn a_refused_plugin_is_withdrawn_once_and_its_key_is_not_reused() {
+    let mut kernel = kernel(Mode::Parkable);
+    let resources = HostResources::try_new().unwrap();
+    let key = admit_with(&mut kernel, resources.try_clone().unwrap());
+    let _ = kernel.take_warnings();
+    MODE.with(|cell| cell.set(Mode::Retitled));
+    assert_eq!(lease(&kernel, key).live().err(), Some(ERR_CANCELLED));
+    kernel.native_unpark_pending();
+    kernel.native_unpark_pending();
+    assert_eq!(kernel.take_warnings().len(), 1);
+    let instances = &kernel.shared.native_instances;
+    assert!(instances.id(key).is_none());
+    assert!(instances.lease(key).is_none());
+    assert!(!kernel.shared.registry.screens.contains_key("linked.screen"));
+    // Admitted again, it is another owner: what named the old one misses.
+    MODE.with(|cell| cell.set(Mode::Parkable));
+    let again = admit_with(&mut kernel, resources);
+    assert_ne!(again, key);
+}
+
+#[test]
+fn only_no_room_or_a_busy_owner_waits_every_other_hosting_error_refuses() {
+    use paperpaw_native::host_glue::{ERR_INVALID, ERR_STATE};
+    let waits = [
+        shell::Error::Allocation,
+        shell::Error::Status(ERR_NO_MEMORY),
+        shell::Error::Status(ERR_BUSY),
+    ];
+    for error in waits {
+        assert!(matches!(unparked(error), Unparked::NoMemory));
+    }
+    for status in [ERR_INVALID, ERR_STATE, ERR_CANCELLED] {
+        assert!(matches!(
+            unparked(shell::Error::Status(status)),
+            Unparked::Refused
+        ));
+    }
 }
