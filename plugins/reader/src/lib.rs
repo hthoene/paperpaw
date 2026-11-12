@@ -52,12 +52,14 @@ pub mod native_block;
 pub mod native_bookmark;
 pub mod native_chapter;
 pub mod native_decor;
+pub mod native_decorations;
 pub mod native_document;
 pub mod native_draw;
 mod native_entry;
 pub mod native_handsfree;
 pub mod native_index;
 pub mod native_look;
+pub mod native_marks_codes;
 pub mod native_place;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
@@ -87,6 +89,7 @@ pub static NATIVE_GROUPS: &[paperpaw_sdk::SettingGroupSpec] = &native_settings::
 #[cfg(feature = "linked")]
 pub static NATIVE_IDS: &[paperpaw_sdk::Id] = &native_settings::IDS;
 pub mod native_footnote;
+pub mod native_goto;
 pub mod native_headings;
 pub mod native_links;
 pub mod native_marking;
@@ -95,6 +98,8 @@ pub mod native_notes;
 pub mod native_open;
 pub mod native_pages;
 pub mod native_plugin;
+pub mod native_ready;
+pub mod native_sample;
 pub mod native_search;
 pub mod native_search_view;
 pub mod native_selection;

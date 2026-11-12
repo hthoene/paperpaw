@@ -14,13 +14,18 @@ use paperpaw_ui_kit::{
     widget::{Cx, Frame},
 };
 
-/// The three lists and the chosen whole line of the widget `cx` is open on.
+use crate::native_lines;
+
+/// The three lists and the chosen whole line of the widget `cx` is open on: of
+/// the lines the setting lists, the first that is there, by its id now
+/// (`native_lines::shown`); none, and the items show.
 fn lists(cx: &Cx<'_>) -> Result<Lists, Error> {
+    let listed = cx.settings.string("line", 256)?;
     Ok(Lists {
         left: cx.settings.string("left", 1024)?,
         center: cx.settings.string("center", 1024)?,
         right: cx.settings.string("right", 1024)?,
-        line: cx.settings.string("line", 256)?,
+        line: native_lines::shown(cx.host, &listed)?,
     })
 }
 

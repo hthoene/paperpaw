@@ -7,11 +7,12 @@
 //! `native_*` models, tested without one.
 use crate::{
     declarations::{
-        ANNOTATIONS, BOOK_MOVED, DOCUMENT_CHANGED, FOOTNOTE, SCREEN, SEARCH, SEARCH_WORK,
+        ANNOTATIONS, BOOK_MOVED, DOCUMENT_CHANGED, FOOTNOTE, SAMPLE, SCREEN, SEARCH, SEARCH_WORK,
         SETTING_CHANGED, SKIM, SPOKEN, STACK_CHANGED, STARTED, STOPPING, SUSPEND, TOC, WORK_DUE,
     },
     native_annotations_view::{AnnotationsView, Outcome as NotesOutcome},
     native_footnote::{Footnote, Pressed},
+    native_goto::{self, Asked},
     native_handsfree::{self, Due, Hands, Kind},
     native_index, native_pages,
     native_search::MAX_NEEDLE,
@@ -31,10 +32,11 @@ use paperpaw_sdk::{
         commands::RedrawMode,
         document::Documents,
         events::{AnswerOutcome, Answered, Event, Incoming, SpeechStatus, kinds},
+        formatting::Arg,
         library::Library,
         registrations,
         reply::Reply,
-        ui::{Instance, Question, RequestId as AskId, TextWrite, Ui, UiCursor},
+        ui::{Instance, Question, RequestId as AskId, TextMode, TextWrite, Ui, UiCursor},
         work::{Work, WorkSpec},
     },
 };
@@ -52,7 +54,7 @@ mod image {
 /// settings and screens before what refers to them. The events are heard for
 /// what saves the place (sleep, stop, the quiet time); the start and a moved
 /// book have no handler yet (`PORTING-7.md`).
-const BATCHES: [&[&[u8]]; 8] = [
+const BATCHES: [&[&[u8]]; 9] = [
     image::SETTINGS,
     image::SCREENS,
     image::STATUS,
@@ -61,6 +63,8 @@ const BATCHES: [&[&[u8]]; 8] = [
     image::HOLD_KEYS,
     image::EVENTS,
     image::STAGES,
+    // The first-run help, the setup step and the sample widget (`native_sample`).
+    image::FIRST_RUN,
 ];
 
 /// The key of the work that writes the place, and how long a page rests first
@@ -88,8 +92,9 @@ pub struct NativeReader {
     /// The annotations screens.
     annotations: Screens<AnnotationsView>,
     searches: Screens<SearchView>,
-    /// The question for the text to search for, while it is open.
-    asking: Option<AskId>,
+    /// The question on the keyboard (the text to search for, a page or a
+    /// percentage to go to), while it is open.
+    asking: Option<(AskId, Asked)>,
     /// The question for the note of a highlight, while it is open: where the
     /// note goes.
     noting: Option<(AskId, crate::native_marks::Span)>,
@@ -489,7 +494,7 @@ impl NativeReader {
         let title = Messages::new()?.copy(host, "reader.search.prompt")?;
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let request = ui.ask(host, Question::text(&title, "")?, &mut input, &mut out)?;
-        self.asking = Some(request);
+        self.asking = Some((request, Asked::Search));
         Ok(Handled::Yes)
     }
 
@@ -553,7 +558,56 @@ impl NativeReader {
         }
     }
 
-    /// An answer to the question for the text: the search screen opens for it.
+    /// Asks for the page or the percentage to go to (the keyboard answers, in
+    /// digits): the prompt says the pages counted so far, as Beta 3's did.
+    fn ask_go_to(&mut self, host: &Host<'_>, asked: Asked) -> Result<Handled, Error> {
+        let (Some(view), Some(ui)) = (self.screens.top(SCREEN), &self.ui) else {
+            return Ok(Handled::No);
+        };
+        let Some((pages, complete)) = view.pages_counted() else {
+            return Ok(Handled::No);
+        };
+        let mut messages = Messages::new()?;
+        let title = match asked {
+            Asked::Percent => messages.copy(host, "reader.go-to-percent.prompt")?,
+            Asked::Page | Asked::Search => {
+                let key = if complete {
+                    "reader.go-to-page.prompt"
+                } else {
+                    "reader.go-to-page.counting"
+                };
+                let pages = Arg::Int {
+                    name: "pages",
+                    value: i64::from(pages),
+                };
+                messages.format(host, key, &[pages])?
+            }
+        };
+        drop(messages);
+        let question = Question::text(&title, "")?.mode(TextMode::Number)?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let request = ui.ask(host, question, &mut input, &mut out)?;
+        self.asking = Some((request, asked));
+        Ok(Handled::Yes)
+    }
+
+    /// The page or percentage typed: the reading screen goes there.
+    fn go_to_typed(&mut self, host: &Host<'_>, asked: Asked, typed: &str) -> Result<(), Error> {
+        let (Some(view), Some(docs)) = (self.screens.top(SCREEN), &self.docs) else {
+            return Ok(());
+        };
+        let pages = view.pages_counted().map_or(0, |(pages, _)| pages);
+        let Some(jump) = native_goto::jump(asked, typed, pages) else {
+            return Ok(());
+        };
+        if view.jump(host, docs, jump)? && view.take_turned() {
+            self.start_quiet(host);
+        }
+        Ok(())
+    }
+
+    /// An answer to a question on the keyboard: the search screen opens for
+    /// the text, or the reading screen goes to the page or percentage.
     fn answered(&mut self, host: &Host<'_>, answer: &Answered) -> Result<(), Error> {
         if let Some((request, target)) = self.noting
             && request == answer.request()
@@ -564,7 +618,10 @@ impl NativeReader {
             self.noting = None;
             return self.note_answered(host, target, answer);
         }
-        if answer.outcome() == AnswerOutcome::Typing || self.asking != Some(answer.request()) {
+        let Some((request, asked)) = self.asking else {
+            return Ok(());
+        };
+        if answer.outcome() == AnswerOutcome::Typing || request != answer.request() {
             return Ok(());
         }
         self.asking = None;
@@ -576,6 +633,9 @@ impl NativeReader {
         };
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let part = ui.text_read(host, answer.request().text(), 0, &mut input, &mut out)?;
+        if asked != Asked::Search {
+            return self.go_to_typed(host, asked, part.data());
+        }
         // What a query counts is its first characters: the screen shows the
         // text it searches for.
         let typed = part.data();
@@ -735,7 +795,11 @@ impl NativeReader {
     /// The pages of the reading screen on top are counted in the background:
     /// a step now, then one after the other.
     fn start_count(&mut self, host: &Host<'_>) {
-        if self.screens.top(SCREEN).is_some_and(|view| view.counting()) {
+        if self
+            .screens
+            .top(SCREEN)
+            .is_some_and(|view| view.counting() || view.marks_due())
+        {
             self.declare_work(
                 host,
                 (native_index::WORK_KEY, WORK_DUE),
@@ -747,7 +811,11 @@ impl NativeReader {
     /// One step of the count of the pages; the next is declared while pages remain.
     fn count_step(&mut self, host: &Host<'_>) {
         let more = match (self.screens.top(SCREEN), &self.docs) {
-            (Some(view), Some(docs)) => view.count_step(host, docs),
+            (Some(view), Some(docs)) => {
+                // The first page's marks are asked here, after it is shown.
+                view.marks_step(host, docs);
+                view.count_step(host, docs)
+            }
             _ => None,
         };
         if let Some(delay) = more {
@@ -833,6 +901,7 @@ impl NativeReader {
         let (asked, reopened) = (self.aloud_asked.take(), self.reopening.take());
         if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
             view.shown(host, docs);
+            crate::native_ready::say(host, view);
             // Read aloud kept at the start for the book reopened, or kept while
             // the book was prepared and covered since it opened.
             if crate::native_start::reads_aloud(asked, reopened, now_ms, view.book_key())
@@ -912,6 +981,9 @@ impl NativeReader {
             redraw |= view.prepared(host, (docs, library)).unwrap_or(true);
         }
         if redraw {
+            if let Some(view) = self.screens.top(SCREEN) {
+                crate::native_ready::say(host, view);
+            }
             self.aloud_when_on_top(host);
             let mut scratch = [0; 64];
             CommandSender::new(host, &mut scratch)
@@ -980,7 +1052,7 @@ impl Plugin for NativeReader {
         host: &Host<'_>,
         token: u32,
         incoming: Incoming<'_>,
-        _reply: &mut Reply<'_>,
+        reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         let Some(event) = read_event!(
             incoming;
@@ -997,7 +1069,8 @@ impl Plugin for NativeReader {
             kinds::SettingChanged,
             kinds::Spoken,
             kinds::StackChanged,
-            kinds::DocumentChanged
+            kinds::DocumentChanged,
+            kinds::StageCall
         ) else {
             return Ok(());
         };
@@ -1008,6 +1081,12 @@ impl Plugin for NativeReader {
                 self.auto_turn_due(host, due.now_ms());
                 Ok(())
             }
+            // The sample widget is measured, placed and asked for its targets.
+            Event::StageCall {
+                stage: "core.widget",
+                payload,
+                ..
+            } if token == SAMPLE => crate::native_sample::stage(host, payload, reply),
             Event::ActionRun { now_ms, .. } if native_handsfree::is_reader_action(token) => {
                 self.action_run(host, token, now_ms);
                 Ok(())
@@ -1090,6 +1169,9 @@ impl Plugin for NativeReader {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        if token == SAMPLE {
+            return crate::native_sample::draw(host, &mut frame);
+        }
         if token == TOC {
             let view = self.tocs.top(token).ok_or(Error::State)?;
             return view.draw(host, &mut frame);
@@ -1147,6 +1229,12 @@ impl Plugin for NativeReader {
             )
         {
             return self.show_notes(host);
+        }
+        if token == SCREEN
+            && let Input::Action { action, .. } = input
+            && let Some(asked) = Asked::of(action)
+        {
+            return self.ask_go_to(host, asked);
         }
         if token == SKIM {
             return self.skim_input(host, &input);

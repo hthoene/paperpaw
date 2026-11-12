@@ -16,6 +16,9 @@ pub const STATUS_ITEMS: u32 = 13;
 /// The minute tick: a bar that shows after a press goes, a bar that shows is
 /// drawn anew.
 pub const TICK: u32 = 14;
+/// A widget of the page says it shows something new (`event.widget_changed`):
+/// its cell is drawn anew.
+pub const WIDGET_CHANGED: u32 = 15;
 
 /// Pages at most.
 pub const MAX_PAGES: usize = 4;
@@ -490,7 +493,9 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The minute tick, for the status bar.
+/// The minute tick, for the status bar, and a widget that says it shows
+/// something new (`event.widget_changed`, which the host sends only to a maker
+/// that subscribes), for its cell.
 ///
 /// # Errors
 /// The declaration is refused.
@@ -498,5 +503,6 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::Tick, TICK)?;
+    d.subscribe_event(EventKind::WidgetChanged, WIDGET_CHANGED)?;
     d.submit()
 }

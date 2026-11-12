@@ -111,7 +111,7 @@ use paperpaw_sdk::{
     Settings, ShowsThrough, StatusItems,
 };
 
-pub use crate::builder::KernelBuilder;
+pub use crate::builder::{KernelBuilder, KernelError};
 pub use crate::card::CardTrouble;
 pub use crate::code_plugin::{CodeFile, CodeLoader, NativeAdmission, code_to_load};
 use crate::config::{mono_coverage, plugin_switches, read_config};
@@ -190,23 +190,6 @@ impl fmt::Display for Warning {
         write!(f, ": {}", self.message)
     }
 }
-
-/// Errors that prevent the kernel from starting.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum KernelError {
-    Graphics(GraphicsError),
-}
-
-impl fmt::Display for KernelError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            KernelError::Graphics(error) => write!(f, "cannot create framebuffer: {error}"),
-        }
-    }
-}
-
-impl core::error::Error for KernelError {}
 
 /// An open screen kept while its task is not shown
 /// ([`Command::SwitchTask`]): its id, slot and params.
@@ -838,6 +821,15 @@ impl Kernel {
     /// Advances time, e.g. when a requested [`Effect::WakeAt`] is due.
     pub fn tick(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
+        self.tick_due(now);
+        self.finish()
+    }
+
+    /// What comes due at `now` in [`Self::tick`], before the commands run.
+    /// Its own frame: its locals are not on the stack while `finish` calls
+    /// the plugins (a nested callback's route on the X4, #250).
+    #[inline(never)]
+    fn tick_due(&mut self, now: Instant) {
         self.now = now;
         self.hide_hints();
         self.escape(now);
@@ -893,7 +885,6 @@ impl Kernel {
         // while input waits.
         self.works.ticking();
         self.native_tick();
-        self.finish()
     }
 
     /// The framebuffer, for tests of a kernel that holds the whole screen.

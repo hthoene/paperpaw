@@ -34,6 +34,12 @@
   },
   "services": [
     {
+      "key": "core.device",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    },
+    {
       "key": "core.files",
       "major": 1,
       "min_table_bytes": 0,
@@ -41,6 +47,12 @@
     },
     {
       "key": "core.lookup",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    },
+    {
+      "key": "core.registry",
       "major": 1,
       "min_table_bytes": 0,
       "semantic_revision": 0
@@ -59,5 +71,5 @@
     }
   ],
   "target": "linux-x86_64-sysv64-le",
-  "total_bytes": 183
+  "total_bytes": 231
 }

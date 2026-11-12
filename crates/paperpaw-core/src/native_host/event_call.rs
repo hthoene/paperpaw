@@ -287,22 +287,30 @@ impl crate::Kernel {
             if self.shared.native_instances.outbox.full() {
                 self.native_outbox_run();
             }
-            let status = self.native_staged_call(pending.owner, |env, stage| {
-                pending
-                    .lease
-                    .event_staged(pending.token, &pending.bytes, env, stage)
-            });
-            let (Ok(status) | Err(status)) = status;
-            if !matches!(status, 0 | 1) {
-                // A stopped or failing plugin leaves the action without
-                // effect; the report says why.
-                use super::native_screen::Dispatch as _;
-                pending.lease.dropped(pending.token, status);
-            }
+            self.deliver_action(pending);
             self.native_outbox_run();
             delivered = true;
         }
         delivered
+    }
+
+    /// One waiting action to its plugin. Its own frame, gone before the
+    /// batch it staged runs (`native_outbox_run`): the commands applied
+    /// there go deep, the X4's stack is small (#250).
+    #[inline(never)]
+    fn deliver_action(&mut self, pending: super::native_action::Pending) {
+        let status = self.native_staged_call(pending.owner, |env, stage| {
+            pending
+                .lease
+                .event_staged(pending.token, &pending.bytes, env, stage)
+        });
+        let (Ok(status) | Err(status)) = status;
+        if !matches!(status, 0 | 1) {
+            // A stopped or failing plugin leaves the action without
+            // effect; the report says why.
+            use super::native_screen::Dispatch as _;
+            pending.lease.dropped(pending.token, status);
+        }
     }
 
     /// The screen a background callback of `owner` speaks for: its own
