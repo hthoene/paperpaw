@@ -6,14 +6,12 @@ fn entry(title: &str, level: u8) -> Entry {
 
 #[test]
 fn a_title_is_indented_two_spaces_a_level_down_to_the_deepest_shown() {
-    assert_eq!(row_title(&entry("One", 0)).unwrap(), "One");
-    assert_eq!(row_title(&entry("Two", 1)).unwrap(), "  Two");
-    assert_eq!(
-        row_title(&entry("Deep", MAX_LEVEL)).unwrap(),
-        "        Deep"
-    );
+    let at = |title: &str, level| indented(String::from(title), level).unwrap();
+    assert_eq!(at("One", 0), "One");
+    assert_eq!(at("Two", 1), "  Two");
+    assert_eq!(at("Deep", MAX_LEVEL), "        Deep");
     // Deeper than shown is as deep as shown.
-    assert_eq!(row_title(&entry("Deeper", 15)).unwrap(), "        Deeper");
+    assert_eq!(at("Deeper", 15), "        Deeper");
 }
 
 #[test]

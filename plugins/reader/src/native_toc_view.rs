@@ -23,7 +23,7 @@ use paperpaw_sdk::{
     },
 };
 use paperpaw_ui_kit::{
-    Footer, Item, ItemList, ItemStep, Messages,
+    Footer, Item, ItemList, ItemStep, Messages, RowItem,
     mem::{SERVICE_BUFFER, buffer},
 };
 
@@ -72,15 +72,16 @@ pub enum Outcome {
     Go(Place),
 }
 
-/// The title of an entry, indented by its level.
-fn row_title(entry: &Entry) -> Result<String, Error> {
-    let mut title = String::new();
-    let indent = usize::from(entry.level.min(MAX_LEVEL)) * 2;
-    title
-        .try_reserve(indent + entry.title.len())
-        .map_err(|_| Error::NoMemory)?;
-    title.extend(core::iter::repeat_n(' ', indent));
-    title.push_str(&entry.title);
+/// `title` indented by `level`, two spaces a level down to the deepest shown
+/// (the title's own text, not a copy of it).
+fn indented(mut title: String, level: u8) -> Result<String, Error> {
+    let indent = usize::from(level.min(MAX_LEVEL)) * 2;
+    if indent > 0 {
+        title
+            .try_reserve_exact(indent)
+            .map_err(|_| Error::NoMemory)?;
+        title.insert_str(0, &"        "[..indent]);
+    }
     Ok(title)
 }
 
@@ -331,7 +332,11 @@ impl TocView {
             .map_err(|_| Error::NoMemory)?;
         for entry in entries.into_iter().take(fit) {
             let (entry, approximate) = part(entry);
-            items.push(Item::row(&row_title(&entry)?, "")?);
+            // The row takes the entry's title: each title is held once.
+            items.push(Item::Row(RowItem {
+                title: indented(entry.title, entry.level)?,
+                ..RowItem::default()
+            }));
             targets.push((entry.at, approximate));
         }
         self.message = None;
