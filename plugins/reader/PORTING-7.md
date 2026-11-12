@@ -348,9 +348,13 @@ relative to the data folder).
   page left is kept to turn back to; the place is written as a turn's and reported to the host when the
   reading screen is shown again, as the host drops the report of a screen below the top) and closes the
   screen. Both screens are this plugin's, so no hand-over carries the place back.
-- **Not yet:** the headings found by scanning blocks where the book's table has at most one entry
-  (`native_toc`'s model: the scan, the kept copy `headings.txt`, the "Finding the chapters" screen), the
-  chapter of the page for the status line and the report, next/previous chapter actions, and the
+- Where the book's own table has at most one entry (`wants_scan`), the screen lists the headings
+  kept for the book (`native_headings::load`, keyed by the document's conversion, so a changed book
+  or converter finds them anew) where there are more of them; with none kept it scans
+  (`Scan`, `core.work` key `toc`, token `TOC_WORK`, a step every 50 ms) and shows "Finding the
+  chapters" with the percentage (`native_finding`) until the scan ends. A scan that stops lists the
+  book's own table; one that runs out of memory says `reader.no-memory`.
+- **Not yet:** the chapter of the page for the status line and the report, next/previous chapter actions, and the
   skim screen (R6b). The hosted end-to-end test waits for a document host in the harness.
 - The screen reads the reading screen's document (`View::doc_id`), never opening a second one: the X4 holds
   one open document per plugin. **X4 gates (Port Reviewer 2):** a list of 500 entries holds its titles twice
@@ -695,7 +699,7 @@ relative to the data folder).
   headings are normalized (`native_toc::normalize`) and kept, then `load` gives them back for a book of
   the same size. **The caller wires `core.work`** (declare with a key, `native_index::pace` for the
   wait, `Scan::percent` for the screen) and starts the scan where `native_toc::wants_scan(len)` and
-  `load` finds nothing; `TocView` is not changed yet (its `message` is where `native_finding` shows).
+  `load` finds nothing; `TocView` does so (#257, see the table of contents above).
 - The kept copy is `headings-<hash of the path>.txt` in the data folder, not `headings.txt`: the data
   storage is flat, so one name per book (`headings.list` keeps the newest 16, older files are removed).
   Its form is the interface-6 one (`size N`, then tab-separated section, offset, level, title). It is

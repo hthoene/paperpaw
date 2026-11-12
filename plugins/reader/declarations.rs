@@ -53,6 +53,13 @@ pub const DOCUMENT_CHANGED: u32 = 18;
     reason = "the plugin's code uses it; the build script that includes this file does not"
 )]
 pub const SEARCH_WORK: u32 = 9;
+/// The token of the table of contents' headings scan (`core.work`, key `toc`),
+/// as [`SEARCH_WORK`].
+#[allow(
+    dead_code,
+    reason = "the plugin's code uses it; the build script that includes this file does not"
+)]
+pub const TOC_WORK: u32 = 19;
 pub const FIRST_ACTION: u32 = 100;
 
 const BEHAVIOUR: &str = "core.group.reading-behaviour";

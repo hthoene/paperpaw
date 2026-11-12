@@ -639,6 +639,15 @@ impl View {
         }
     }
 
+    /// The open document and the conversion its places belong to.
+    #[must_use]
+    pub const fn document(&self) -> Option<(DocId, u64)> {
+        match &self.body {
+            Body::Open(open) => Some((open.id, open.conversion)),
+            Body::Message(_) | Body::Preparing(_) => None,
+        }
+    }
+
     /// The hand-over params of the table of contents of this book: where the
     /// book is and where the reader is in it. `None` where no book is open.
     #[must_use]

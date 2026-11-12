@@ -8,7 +8,8 @@
 use crate::{
     declarations::{
         ANNOTATIONS, BOOK_MOVED, DOCUMENT_CHANGED, FOOTNOTE, SCREEN, SEARCH, SEARCH_WORK,
-        SETTING_CHANGED, SKIM, SPOKEN, STACK_CHANGED, STARTED, STOPPING, SUSPEND, TOC, WORK_DUE,
+        SETTING_CHANGED, SKIM, SPOKEN, STACK_CHANGED, STARTED, STOPPING, SUSPEND, TOC, TOC_WORK,
+        WORK_DUE,
     },
     native_annotations_view::{AnnotationsView, Outcome as NotesOutcome},
     native_footnote::{Footnote, Pressed},
@@ -71,6 +72,9 @@ const QUIET_MS: u32 = 2_000;
 /// between two steps (the page is drawn between them).
 const SEARCH_KEY: &str = "search";
 const SEARCH_STEP_MS: u32 = 50;
+const TOC_KEY: &str = "toc";
+/// The wait between two steps of the headings scan (as the search's).
+const TOC_STEP_MS: u32 = 50;
 
 /// The interface-7 reader.
 #[derive(Debug, Default)]
@@ -284,9 +288,44 @@ impl NativeReader {
         let (Some(ui), Some(docs)) = (&self.ui, &self.docs) else {
             return Err(Error::State);
         };
-        let shared = self.screens.top(SCREEN).and_then(|v| v.doc_id());
+        let shared = self.screens.top(SCREEN).and_then(|v| v.document());
         let view = TocView::open(host, ui, docs, (handover, shared))?;
-        self.tocs.open(instance, view)
+        let scanning = view.scanning();
+        self.tocs.open(instance, view)?;
+        if scanning {
+            self.declare_work(host, (TOC_KEY, TOC_WORK), TOC_STEP_MS);
+        }
+        Ok(())
+    }
+
+    /// The work of the headings scan is due: every table of contents finding
+    /// its headings reads the next blocks of the book.
+    fn toc_due(&mut self, host: &Host<'_>) {
+        let Some(docs) = &self.docs else {
+            return;
+        };
+        let (mut redraw, mut again) = (false, false);
+        for view in self.tocs.all() {
+            match view.step(host, docs) {
+                Ok(stepped) => {
+                    redraw |= stepped.redraw;
+                    again |= stepped.again;
+                }
+                Err(error) => {
+                    view.give_up(error);
+                    redraw = true;
+                }
+            }
+        }
+        if redraw {
+            let mut scratch = [0; 64];
+            CommandSender::new(host, &mut scratch)
+                .queue_redraw(RedrawMode::Partial)
+                .ok();
+        }
+        if again {
+            self.declare_work(host, (TOC_KEY, TOC_WORK), TOC_STEP_MS);
+        }
     }
 
     /// The table of contents closed: its document is given back.
@@ -451,6 +490,15 @@ impl NativeReader {
         }
         if again {
             self.declare_work(host, (SEARCH_KEY, SEARCH_WORK), SEARCH_STEP_MS);
+        }
+    }
+
+    /// The work of a list screen is due: the search's or the table of contents'.
+    fn list_due(&mut self, host: &Host<'_>, work: u32) {
+        if work == TOC_WORK {
+            self.toc_due(host);
+        } else {
+            self.search_due(host);
         }
     }
 
@@ -948,8 +996,10 @@ impl Plugin for NativeReader {
                 self.moved(host, from, path)
             }
             // The search's work is due (the work's own token, as declared).
-            Event::WorkDue(due) if token == WORK_DUE && due.token() == SEARCH_WORK => {
-                self.search_due(host);
+            Event::WorkDue(due)
+                if token == WORK_DUE && matches!(due.token(), SEARCH_WORK | TOC_WORK) =>
+            {
+                self.list_due(host, due.token());
                 Ok(())
             }
             Event::Answered { answer, .. } => self.answered(host, &answer),
