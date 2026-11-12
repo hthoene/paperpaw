@@ -135,7 +135,8 @@ impl DocState {
             .iter()
             .find(|book| book.document == document)
             .and_then(|book| book.cache.as_ref())
-            .filter(|cache| !cache.finished)
+            // A `details` open's folder is not its own to remove.
+            .filter(|cache| !cache.finished && !cache.details)
         else {
             return;
         };
@@ -163,8 +164,9 @@ impl DocState {
                 .iter()
                 .find(|book| book.document == document)
                 .and_then(|book| book.cache.as_ref())
-                // A finished cache found at the open keeps its stamp.
-                .filter(|cache| !cache.finished)
+                // A finished cache found at the open keeps its stamp; a
+                // `details` open makes none (`document.md` 2.1).
+                .filter(|cache| !cache.finished && !cache.details)
             else {
                 return;
             };

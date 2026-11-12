@@ -38,8 +38,9 @@ pub(crate) enum Made {
     /// The picture, as an image id of the caller.
     Image(wire::ServiceDocImage),
     /// The book is still preparing: its document is the library's cover job
-    /// (or waits behind the one that runs); the library tells when to ask
-    /// again (`library_changed` bit 6).
+    /// (or waits behind the cover job that runs; the host's details job gives
+    /// way to it); the library tells when to ask again (`library_changed` bit
+    /// 6).
     Queued,
     /// The book's job could not begin: its marker cannot be written (the
     /// card). The library counts the book as failed.
@@ -110,7 +111,9 @@ fn covered(
             // Not for showing: a format skips what only a shown book needs
             // (contents, positions, page labels), and the open takes no
             // place another opener's document needs (`document.md` 2.1).
-            flags: BACKGROUND,
+            // `details` for a `prepared` format's book (DOCX, MOBI): its cover
+            // without a conversion (`document.md` 2.1).
+            flags: BACKGROUND | super::DETAILS,
             image_side: 0,
             cover_side: side,
             css_root: 0,
@@ -118,6 +121,15 @@ fn covered(
         })],
         &mut input,
     )?;
+    // The host's details job gives way first where it converts this very
+    // book (a second document would prepare the same cache beside it), or
+    // holds the place the cover needs (no cover is busy for it).
+    if host
+        .details_job()
+        .is_some_and(|details| details.preparing(path) || host.table().full())
+    {
+        super::details::give_way(host);
+    }
     // `ERR_FULL`: no place in the caller's table (the library host answers
     // that `ERR_BUSY` and raises nothing: it does not clear by itself).
     let length = open(host, &input[..used], out)?;
@@ -153,6 +165,14 @@ fn covered(
             return Ok(Made::Queued);
         }
         Ok(Made::Queued)
+    } else if host
+        .table()
+        .lease(host.owner(), document)
+        .is_ok_and(|d| d.details)
+    {
+        // A `details` open the format answered preparing is never prepared
+        // (`document.md` 2.1): no cover until the next start, no conversion.
+        Ok(Made::Failed)
     } else {
         // Preparing: the document stays open as the cover job, which the
         // preparing loop converts and the host ends (`doc_cover_job`); where
@@ -161,7 +181,8 @@ fn covered(
         // The marker is written only where a job really begins, before its
         // first preparing step; where it cannot be written, the job does not
         // begin and the book counts as failed ([`Made::Failed`]: no loop of
-        // asking again).
+        // asking again). The host's details job is no cover: it gives way.
+        super::details::give_way(host);
         if host.table().cover_job().is_some() {
             Ok(Made::Queued)
         } else if host.cover_job_guard(path).is_err() {

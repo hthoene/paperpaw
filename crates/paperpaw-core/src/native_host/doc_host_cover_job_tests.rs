@@ -4,7 +4,7 @@
 //! and cleaned up when the host closed it.
 use super::*;
 use crate::native_host::{
-    doc_service::{FAILED, JobStep, PREPARING, READY},
+    doc_service::{FAILED, JobKind, JobStep, PREPARING, READY},
     fmt_call::FrameRoute,
     lib_cover::path_key,
 };
@@ -63,7 +63,8 @@ fn prepare(w: &World<'_>) {
 }
 
 fn look(w: &World<'_>) -> JobStep {
-    w.state.cover_job_step(&w.hosts, &FrameRoute(w))
+    w.state
+        .cover_job_step(&w.hosts, &FrameRoute(w), &mut |_, _| false)
 }
 
 fn ops(w: &World<'_>) -> Vec<u32> {
@@ -98,7 +99,7 @@ fn a_job_held_back_waits_for_the_reader_and_a_displacement_for_a_quiet_moment() 
         w.state.table.close(OPENER, reader).unwrap();
         assert!(w.state.cover_jobs_released());
         // Displaced: held back for the quiet moment too.
-        w.state.cover_job_displaced();
+        w.state.cover_job_displaced(JobKind::Cover);
         assert!(!w.state.cover_jobs_released(), "not yet");
         w.state.now.set(10_000 + 1_999);
         assert!(!w.state.cover_jobs_released(), "not yet");
@@ -115,21 +116,21 @@ fn a_job_displaced_three_times_in_a_row_for_one_book_is_given_up() {
         w.state.job_key.set(5);
         for time in [0_u64, 10_000] {
             w.state.now.set(time);
-            w.state.cover_job_displaced();
+            w.state.cover_job_displaced(JobKind::Cover);
             assert_eq!(w.state.cover_job_given_up(), 0);
             w.state.now.set(time + 2_000);
             assert!(w.state.cover_jobs_released(), "starts again");
         }
         // Another book is not the same run.
         w.state.job_key.set(6);
-        w.state.cover_job_displaced();
+        w.state.cover_job_displaced(JobKind::Cover);
         assert_eq!(w.state.cover_job_given_up(), 0);
         assert!(w.state.job_held_back.replace(false));
         w.state.job_key.set(5);
-        w.state.cover_job_displaced();
-        w.state.cover_job_displaced();
+        w.state.cover_job_displaced(JobKind::Cover);
+        w.state.cover_job_displaced(JobKind::Cover);
         assert!(w.state.job_held_back.replace(false));
-        w.state.cover_job_displaced();
+        w.state.cover_job_displaced(JobKind::Cover);
         // The third in a row: not started again, and the book is named for
         // the library's ring, once.
         assert!(!w.state.job_held_back.get());
@@ -684,10 +685,12 @@ fn a_ready_cover_to_make_ends_without_a_cover_while_a_book_is_read_or_at_sleep()
         w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
         w.state.allow_cover_jobs();
         answer(w, READY, 0);
+        // A book open for reading (an open after the cover to make would
+        // close it first: it is the host job's alone).
+        let reader = w.open(1, "books/r.epub").unwrap();
         let document = w.open(1, "books/a.epub").unwrap();
         assert!(w.state.table.start_cover_make(OPENER, document));
-        // A book opened for reading: no picture beside it; nothing is told.
-        let reader = w.open(1, "books/r.epub").unwrap();
+        // No picture beside the reader; nothing is told.
         let before = ops(w).len();
         assert_eq!(look(w), JobStep::None);
         assert_eq!(ops(w).get(before..), Some(&[4][..]), "only its close");
@@ -699,6 +702,12 @@ fn a_ready_cover_to_make_ends_without_a_cover_while_a_book_is_read_or_at_sleep()
         w.state.cover_job_abort(&w.hosts, &FrameRoute(w));
         assert!(w.state.table.cover_make().is_none());
         assert!(!w.state.cover_job_active());
+        // Any other open closes it first, never takes it over.
+        let document = w.open(1, "books/a.epub").unwrap();
+        assert!(w.state.table.start_cover_make(OPENER, document));
+        let other = w.open(1, "books/a.epub").unwrap();
+        assert_ne!(other, document);
+        assert!(w.state.table.cover_make().is_none());
     });
 }
 
