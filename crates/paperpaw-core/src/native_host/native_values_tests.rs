@@ -370,3 +370,26 @@ fn an_action_named_as_in_the_titles_table_keeps_its_entry() {
     assert!(other.kept.is_none());
     assert_eq!(other.title, "battery.other-title");
 }
+
+/// A copy of its own the heap refuses: `ERR_NO_MEMORY`, no panic; a kept
+/// entry needs no heap at all (#248, B; Code Reviewer, #1372).
+#[test]
+fn a_title_the_heap_has_no_room_to_copy_is_refused() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    FAIL_NTH.with(|n| n.set(1));
+    let copy = titled(
+        None,
+        Id::new_static("battery.open"),
+        Cow::Borrowed("battery.open-title"),
+    );
+    let kept = titled(
+        Some(&TITLES[0]),
+        Id::new_static("battery.open"),
+        Cow::Borrowed("battery.open-title"),
+    );
+    let left = FAIL_NTH.with(|n| n.replace(0));
+    assert_eq!(copy.unwrap_err(), ERR_NO_MEMORY);
+    assert!(kept.unwrap().is_kept());
+    // The refused allocation was the copy's; the kept entry asked for none.
+    assert_eq!(left, 0);
+}
