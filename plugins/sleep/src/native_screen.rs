@@ -45,6 +45,9 @@ const MOST_STACK_PAGES: usize = 8;
 const VALUE_BUFFER: usize = 4096;
 /// Most lines the message takes.
 const MOST_LINES: usize = 4;
+/// The input of `core.ui` ops `stack` and `params`: at most 256 bytes (their
+/// `max_input`); replies keep a full service buffer (`max_reply`).
+const QUERY_INPUT: usize = 256;
 
 mod images;
 
@@ -603,7 +606,7 @@ fn drop_all(host: &Host<'_>, ui: &Ui, widgets: impl IntoIterator<Item = WidgetHa
 
 /// Whether the open says the device is switched off (`off` = `1`).
 fn off_param(host: &Host<'_>, ui: &Ui, handover: HandoverId) -> Result<bool, Error> {
-    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+    let (mut input, mut out) = (buffer(QUERY_INPUT)?, buffer(SERVICE_BUFFER)?);
     let params = ui.params(host, handover, &mut input, &mut out)?;
     for param in params {
         let param = param?;
@@ -617,7 +620,7 @@ fn off_param(host: &Host<'_>, ui: &Ui, handover: HandoverId) -> Result<bool, Err
 /// Whether a screen guards the device, and whether the topmost full screen
 /// shows the reader.
 fn page_below(host: &Host<'_>, ui: &Ui) -> Result<(bool, bool), Error> {
-    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+    let (mut input, mut out) = (buffer(QUERY_INPUT)?, buffer(SERVICE_BUFFER)?);
     let (mut guarded, mut reading, mut found) = (false, false, false);
     let mut cursor = UiCursor::start();
     for _ in 0..MOST_STACK_PAGES {
