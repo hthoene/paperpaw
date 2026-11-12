@@ -36,8 +36,9 @@ fn joined(parts: &[&str]) -> Result<String, i32> {
 }
 
 /// Plugins' folders looked into for one book at most, in the card's order:
-/// more than a device keeps installed. Folders past it (left by removed
-/// plugins) are not looked into; their files stay under the old key.
+/// more than a device installs. Folders past it (of any plugin, installed or
+/// not) are not looked into; their files stay under the old key, orphaned
+/// (`library.md` section 4).
 const PLUGINS_MAX: usize = 64;
 
 /// `<Data of plugin>/books/<key>`: the folder of one book's scope.
