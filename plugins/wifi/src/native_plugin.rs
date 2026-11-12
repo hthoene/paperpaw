@@ -43,6 +43,7 @@ use crate::native_policy::{Password, Policy, Radio, Step};
 
 mod events;
 mod phone;
+mod status_icon;
 mod views;
 
 use views::{Count, Found, Info, Mark, Named, Networks, Page, row_item};
@@ -199,6 +200,10 @@ impl Plugin for NativeWifi {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        // The status item is drawn by its owner into the place the line gives it.
+        if token == STATUS {
+            return status_icon::draw(host, &mut frame);
+        }
         // The list translates a title that is a catalog key: no catalog
         // buffers of ours are made for a frame.
         match self.screens.top(token).ok_or(Error::State)? {
