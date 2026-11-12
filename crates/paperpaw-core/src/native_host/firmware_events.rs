@@ -72,6 +72,34 @@ pub(crate) fn status_of(outcome: Outcome) -> i32 {
 }
 
 impl Kernel {
+    /// What the device tells plugin jobs about itself, as
+    /// [`KernelBuilder::plugin_host`](crate::KernelBuilder::plugin_host) does:
+    /// for a shell that knows what it offers card plugins only once its
+    /// services are wired, after the build. Before [`Kernel::start`]. Whether
+    /// it took: plugin jobs share the firmware's queue, so without
+    /// [`KernelBuilder::firmware_host`](crate::KernelBuilder::firmware_host)
+    /// (or with the driver in use) nothing is set and they stay
+    /// `ERR_UNSUPPORTED`.
+    pub fn set_plugin_host(
+        &mut self,
+        loader: paperpaw_native::header5::Host,
+        offered: paperpaw_native::metadata::Host<'static>,
+        signers: &'static [(&'static str, [u8; 32])],
+    ) -> bool {
+        let Some(driver) = self.firmware.as_ref() else {
+            return false;
+        };
+        let Ok(mut driver) = driver.try_borrow_mut() else {
+            return false;
+        };
+        driver.set_plugin_host(super::plugin_job::PluginHost {
+            loader,
+            offered,
+            signers,
+        });
+        true
+    }
+
     /// One step of the firmware table's job, then the outcomes that wait for
     /// their plugin. `true` while something is left (another pass).
     // Its own frame: the pump keeps the services' passes apart, so that no
