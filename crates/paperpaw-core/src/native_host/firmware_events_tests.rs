@@ -267,3 +267,80 @@ fn a_removal_a_cut_left_is_finished_at_the_first_pass_without_making_the_driver(
     assert!(kernel.shared.storage.size("plugins/.journal").is_err());
     assert!(cell.driver().is_none(), "nothing else asked for one");
 }
+
+#[test]
+fn a_stop_leaves_its_bounded_steps_to_the_end_of_the_pass() {
+    // Not under the command or callback that stopped (the X4's stack, #250):
+    // asked for there, taken once by the pass, before its effects.
+    let mut kernel = kernel();
+    let driver = kernel.firmware.clone().unwrap().make().unwrap();
+    kernel.firmware_suspend();
+    assert!(driver.borrow().finish_due());
+    let _ = kernel.finish();
+    assert!(!driver.borrow().finish_due());
+    // A sender's stop asks the same, taken by the next pass.
+    kernel.firmware_sender_stopped(9);
+    assert!(driver.borrow().finish_due());
+    let _ = kernel.finish();
+    assert!(!driver.borrow().finish_due());
+}
+
+#[test]
+fn a_driver_lent_out_at_the_end_of_the_pass_keeps_the_steps_asked_for() {
+    let mut kernel = kernel();
+    let driver = kernel.firmware.clone().unwrap().make().unwrap();
+    kernel.firmware_suspend();
+    {
+        let _lent = driver.borrow();
+        kernel.firmware_finish_due();
+    }
+    assert!(
+        driver.borrow().finish_due(),
+        "not lost: the next pass takes them"
+    );
+    let _ = kernel.finish();
+    assert!(!driver.borrow().finish_due());
+}
+
+#[test]
+fn an_install_a_stop_aborts_takes_its_steps_before_the_pass_returns_its_effects() {
+    use crate::native_host::firmware_driver::plugin_tests::{install_job, kernel_host};
+    use crate::native_host::plugin_job::KIND_INSTALL;
+    let fake = FakeFirmware::new(
+        "0.5.0",
+        "paperpaw-x4",
+        5,
+        paperpaw_facts("0.6.0", "paperpaw-x4", 2 * WRITE_BLOCK),
+    );
+    let (loader, offered) = kernel_host();
+    let mut kernel = Kernel::builder(crate::tests::DEVICE)
+        .firmware_host(alloc::boxed::Box::new(fake))
+        .plugin_host(loader, offered, &[])
+        .build()
+        .unwrap();
+    kernel.start(paperpaw_sdk::Instant(0));
+    let driver = kernel.firmware.clone().unwrap().make().unwrap();
+    // More steps than a pass's own pump takes, fewer than the bound.
+    let (job, seen) = install_job(1, 1, 100, true, false);
+    driver.borrow_mut().submit_plugin(job).unwrap();
+    kernel.native_firmware_pump();
+    kernel.native_firmware_pump();
+    let before = seen.steps.get();
+    assert!(before < 10 && !seen.dropped.get());
+    // The stop only asks: no step under it.
+    kernel.firmware_suspend();
+    assert_eq!(seen.steps.get(), before);
+    // The pass takes them all before it hands its effects back.
+    let _effects = kernel.finish();
+    assert_eq!(seen.steps.get(), 100);
+    assert!(seen.dropped.get());
+    let ended = driver
+        .borrow()
+        .kept(1, KIND_INSTALL)
+        .or_else(|| driver.borrow().peek_ready());
+    assert_eq!(
+        ended.map(|outcome| outcome.reason),
+        Some(0),
+        "its own reason"
+    );
+}

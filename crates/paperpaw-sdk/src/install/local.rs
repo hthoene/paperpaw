@@ -61,7 +61,8 @@ pub enum Refusal {
     /// A cause this build has no variant for, by its code (0: not said).
     /// Codes are listed here as they are given and never reused; a build
     /// that doesn't know one treats it as the most general failure of its
-    /// kind.
+    /// kind. 1: there was no memory to check its code (not judged: to try
+    /// again).
     Other(u16),
 }
 
@@ -233,7 +234,10 @@ impl Staging {
             .native
             .filter(|native| code.ends_with(&*native.file))
             .ok_or(Refusal::NoCode)?;
-        let (header, _) = native::check_file(storage, &code).map_err(|_| Refusal::BadCode)?;
+        let (header, _) = native::check_file(storage, &code).map_err(|problem| match problem {
+            native::Problem::Other(native::NO_MEMORY) => Refusal::Other(native::NO_MEMORY),
+            _ => Refusal::BadCode,
+        })?;
         if header.fingerprint != native.fingerprint.0 {
             return Err(Refusal::OtherBuild);
         }

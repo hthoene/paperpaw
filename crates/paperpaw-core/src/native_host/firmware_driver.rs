@@ -160,6 +160,9 @@ pub(crate) struct Driver {
     /// The running removal asks the host to forget this plugin's secrets and
     /// grants and waits for [`Self::plugin_forgotten`].
     plugin_forget: Option<Text<ID_MAX>>,
+    /// A stop asked for the bounded steps of [`Self::finish_stopped`]: the
+    /// kernel takes them at the end of its pass ([`Self::take_finish`]).
+    finish_due: bool,
     /// Revocations handed in (`trust_revoked`), kept at the next pump with no
     /// plugin job running; at most [`MAX_REVOCATIONS_QUEUED`].
     revocations: Vec<Revocation>,
@@ -237,6 +240,7 @@ impl Driver {
             plugin_shown: None,
             plugin_unload: None,
             plugin_forget: None,
+            finish_due: false,
             revocations: Vec::new(),
             ready: Vec::new(),
             kept,
@@ -295,6 +299,7 @@ impl Driver {
             && self.finishing.is_none()
             && self.plugin_question.is_none()
             && self.plugin_shown.is_none()
+            && !self.finish_due
             && self.plugin_unload.is_none()
             && self.plugin_forget.is_none()
             && self.revocations.is_empty()
@@ -550,6 +555,21 @@ impl Driver {
         {
             self.plugin_jobs[at].forgotten(ok);
         }
+    }
+
+    /// A stop wants [`Self::finish_stopped`] at the end of the kernel's pass.
+    pub(crate) fn want_finish(&mut self) {
+        self.finish_due = true;
+    }
+
+    /// Whether [`Self::want_finish`] is not done yet; taken once.
+    pub(crate) fn take_finish(&mut self) -> bool {
+        core::mem::take(&mut self.finish_due)
+    }
+
+    /// Whether [`Self::want_finish`] waits, without taking it.
+    pub(crate) fn finish_due(&self) -> bool {
+        self.finish_due
     }
 
     /// The host closed the instances asked for: the job goes on.

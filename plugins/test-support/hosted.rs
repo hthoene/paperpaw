@@ -103,7 +103,7 @@ impl Services for Heap {
     }
 }
 
-fn report(heap: &Heap, token: u32, status: i32) {
+fn report(heap: &Heap, _: &str, token: u32, status: i32) {
     heap.0.dropped.lock().unwrap().push((token, status));
 }
 

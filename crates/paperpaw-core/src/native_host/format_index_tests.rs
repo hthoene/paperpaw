@@ -323,3 +323,17 @@ fn spent_references_refuse_a_declaration_and_change_nothing() {
     );
     assert_eq!(index.formats.len(), 2);
 }
+
+/// The table holds room for the formats declared and no more (#248: it is
+/// live for the whole run).
+#[test]
+fn the_table_holds_exactly_the_formats_declared() {
+    let mut index = FormatIndex::new();
+    for (plugin, name) in ["epub", "fb2", "txt"].iter().enumerate() {
+        index
+            .declare_format(plugin as u64, name, &spec(name, name, 0, 0))
+            .unwrap();
+    }
+    assert_eq!(index.formats.capacity(), 3);
+    assert_eq!(index.formats.len(), 3);
+}

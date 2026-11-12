@@ -168,8 +168,8 @@ fn features_list(wired: Wired) -> &'static [Feature<'static>] {
 
 /// A linked plugin's diagnostics from the kernel (a refused declaration, a
 /// failed callback) go to stderr.
-fn linked_report(_: &DesktopServices, tag: u32, status: i32) {
-    eprintln!("native plugin: call {tag} ended with {status}");
+fn linked_report(_: &DesktopServices, plugin: &str, tag: u32, status: i32) {
+    eprintln!("native plugin {plugin}: call {tag} ended with {status}");
 }
 
 /// What the device tells `core.work` (`WorkDevice`): the kernel's clock as the
