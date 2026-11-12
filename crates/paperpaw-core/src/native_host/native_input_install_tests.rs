@@ -34,6 +34,8 @@ std::thread_local! {
     pub(super) static STAGED: RefCell<Option<Vec<u8>>> = const { RefCell::new(None) };
     pub(super) static STAGED_ON_SHOWN: Cell<bool> = const { Cell::new(false) };
     pub(super) static STAGED_ANSWER: Cell<i32> = const { Cell::new(1) };
+    /// What the host answered the staged batch submitted on `screen_hidden`.
+    pub(super) static HIDDEN_SUBMITTED: Cell<Option<i32>> = const { Cell::new(None) };
     /// The features the next installed plugin is admitted with.
     pub(super) static FEATURES: Cell<crate::native_host::admitted_features::AdmittedFeatures> =
         const { Cell::new(crate::native_host::admitted_features::AdmittedFeatures::NONE) };
@@ -45,11 +47,10 @@ std::thread_local! {
     > = const { RefCell::new(None) };
 }
 
-/// Submits the staged batch from the callback `state` is the screen's of.
-pub(super) fn submit_staged(state: *mut c_void) {
-    let Some(batch) = STAGED.with(|batch| batch.borrow().clone()) else {
-        return;
-    };
+/// Submits the staged batch from the callback `state` is the screen's of; the
+/// host's answer, none for no batch.
+pub(super) fn submit_staged(state: *mut c_void) -> Option<i32> {
+    let batch = STAGED.with(|batch| batch.borrow().clone())?;
     let batch = match STAGED_HANDOVER.with(|made| {
         made.borrow()
             .as_ref()
@@ -65,7 +66,7 @@ pub(super) fn submit_staged(state: *mut c_void) {
         (&*state.host, state.context)
     };
     // SAFETY: the batch is readable for its length.
-    let _ = unsafe { (host.commands_submit)(context, borrowed(&batch)) };
+    Some(unsafe { (host.commands_submit)(context, borrowed(&batch)) })
 }
 
 /// The batch of an `open` naming a hand-over the callback of `state` makes now
@@ -121,6 +122,12 @@ pub(super) fn events_submit(state: *mut c_void, bytes: &[u8]) {
         )
     {
         submit_staged(state);
+    }
+    if matches!(
+        wire::records_decode_single(bytes),
+        Ok(wire::Record::EventScreenHidden(_))
+    ) {
+        HIDDEN_SUBMITTED.with(|seen| seen.set(submit_staged(state)));
     }
 }
 
