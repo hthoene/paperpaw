@@ -79,13 +79,25 @@ struct Run {
     card: Card,
     now: u64,
     steps: Vec<String>,
+    /// Debug only, never compared: every pass of every step, unfolded,
+    /// as `@instant effects`.
+    raw: Vec<String>,
+    /// Debug only, never compared: `(step, passes folded)` for each step
+    /// that had a pass repeat the one before it at the same instant.
+    repeats: Vec<(usize, u32)>,
+    /// In standby (between `suspend` and `resume`): no timer is ticked.
+    in_standby: bool,
     /// Whether the plugin was parked right after the standby in the flow.
     reparked: Option<bool>,
 }
 
 impl Run {
-    fn start(sleep: fn(&str) -> bool) -> Self {
+    fn start(sleep: fn(&str) -> bool, book: Option<&Book>) -> Self {
+        native_activation::set_clock(0);
         let card = Card::new(true);
+        if let Some(book) = book {
+            card.write(book.path, &book.bytes).unwrap();
+        }
         let builder = Kernel::builder(BUTTONS)
             .storage(card.clone())
             .user_config("[core]\nlanguage = en\n[help]\nshow = false\n");
@@ -100,6 +112,9 @@ impl Run {
             card,
             now: 0,
             steps: Vec::new(),
+            raw: Vec::new(),
+            repeats: Vec::new(),
+            in_standby: false,
             reparked: None,
         };
         run.step("start", effects);
@@ -108,18 +123,47 @@ impl Run {
 
     /// Ticks until nothing is due within a second, then records the step.
     fn step(&mut self, what: &str, mut effects: Effects) {
-        let mut seen = format!("{effects:?}");
+        // A pass that ends exactly as the pass before it, at the same
+        // instant, is recorded once: a parked plugin is made at the next
+        // safe point, which may take a pass more at that instant, with
+        // nothing the user sees (#248). Nothing else is folded; the folds
+        // are counted in `repeats` and every pass is kept in `raw`.
+        let mut last = format!("{effects:?}");
+        let mut last_at = self.now;
+        let mut seen = last.clone();
+        let mut raw = format!("{what}: @{} {last}", self.now);
+        let mut folded = 0u32;
         for _ in 0..10_000 {
             let Some(at) = effects.wake_at() else {
                 break;
             };
-            if at.0 > self.now + 1000 {
+            // In standby the device ticks no timer: only the passes the
+            // standby itself asks for at its instant run (#248).
+            let horizon = if self.in_standby {
+                self.now
+            } else {
+                self.now + 1000
+            };
+            if at.0 > horizon {
                 break;
             }
             self.now = self.now.max(at.0);
+            native_activation::set_clock(self.now);
             effects = self.kernel.tick(Instant(self.now));
-            let _ = write!(seen, " {effects:?}");
+            let now = format!("{effects:?}");
+            let _ = write!(raw, " | @{} {now}", self.now);
+            if now == last && self.now == last_at {
+                folded += 1;
+            } else {
+                let _ = write!(seen, " {now}");
+                last = now;
+                last_at = self.now;
+            }
         }
+        if folded > 0 {
+            self.repeats.push((self.steps.len(), folded));
+        }
+        self.raw.push(raw);
         let mut frame = Fnv::default();
         self.kernel.render(&mut |top, rows| {
             frame.bytes(&top.to_le_bytes());
@@ -153,8 +197,35 @@ impl Run {
         ));
     }
 
+    /// Records a step that is not a pass of the kernel (in `raw` too).
+    fn note(&mut self, text: String) {
+        self.raw.push(text.clone());
+        self.steps.push(text);
+    }
+
+    /// With `PARITY_RAW_DIR` set, writes `raw` and `repeats` there, for a
+    /// diff of the unfolded runs (debug only).
+    fn dump(&self, plugin: &str, name: &str) {
+        let Some(dir) = std::env::var_os("PARITY_RAW_DIR") else {
+            return;
+        };
+        let dir = std::path::PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut text = self.raw.join("\n");
+        let _ = write!(text, "\nrepeats {:?}\n", self.repeats);
+        for ini in [
+            ".paperpaw/plugins/widgets/reading.ini",
+            ".paperpaw/library/status.log",
+        ] {
+            let body = self.card.0.get(ini).unwrap_or_default();
+            let _ = write!(text, "FILE {ini}:\n{}\n", String::from_utf8_lossy(&body));
+        }
+        std::fs::write(dir.join(format!("{plugin}-{name}.txt")), text).unwrap();
+    }
+
     fn run(&mut self, action: &Id) {
         self.now += 100;
+        native_activation::set_clock(self.now);
         let effects = self.kernel.run_action(Instant(self.now), action.clone());
         self.step(&format!("run {action}"), effects);
     }
@@ -163,24 +234,38 @@ impl Run {
     /// parked again on standby, and made again by the next input.
     fn standby(&mut self, plugin: &str) {
         self.now += 100;
+        native_activation::set_clock(self.now);
         let effects = self.kernel.suspend(Instant(self.now));
         self.reparked = self.kernel.native_is_parked(plugin);
+        self.in_standby = true;
         self.step("suspend", effects);
+        self.in_standby = false;
         self.now += 100;
+        native_activation::set_clock(self.now);
         let effects = self.kernel.resume(Instant(self.now));
         self.step("resume", effects);
     }
 
     fn open_slot(&mut self, slot: &Id) {
         self.now += 100;
+        native_activation::set_clock(self.now);
         let effects = self
             .kernel
             .open_slot(Instant(self.now), slot.clone(), Params::new());
         self.step(&format!("open slot {slot}"), effects);
     }
 
+    /// Opens the book at `path` as a shell does (the library's row).
+    fn book(&mut self, path: &str) {
+        self.now += 100;
+        native_activation::set_clock(self.now);
+        let effects = self.kernel.open_book(Instant(self.now), path);
+        self.step(&format!("open book {path}"), effects);
+    }
+
     fn open(&mut self, screen: &Id) {
         self.now += 100;
+        native_activation::set_clock(self.now);
         let effects = self
             .kernel
             .open_screen(Instant(self.now), screen.clone(), Params::new());
@@ -198,7 +283,7 @@ impl Run {
             hash.bytes(&self.card.0.get(&path).unwrap_or_default());
             let _ = write!(text, " {path}={:016x}", hash.0);
         }
-        self.steps.push(text);
+        self.note(text);
     }
 }
 
@@ -260,13 +345,16 @@ fn kernel_routes(plugin: &str) -> (&'static [Id], &'static [Id]) {
 /// from home, moved on, confirmed and left; each of its actions run from
 /// home; the card at the end.
 fn flow(run: &mut Run, plugin: &str) {
+    if let Some(book) = book_of(plugin) {
+        book_flow(run, plugin, &book);
+        return;
+    }
     let (route_slots, route_actions) = kernel_routes(plugin);
     for screen in route_slots {
         run.run(&actions::HOME);
         run.open_slot(screen);
         let parked = run.kernel.native_is_parked(plugin);
-        run.steps
-            .push(format!("{plugin} parked after {screen}: {parked:?}"));
+        run.note(format!("{plugin} parked after {screen}: {parked:?}"));
         run.run(&actions::DOWN);
         run.run(&actions::CONFIRM);
         run.run(&actions::BACK);
@@ -275,8 +363,7 @@ fn flow(run: &mut Run, plugin: &str) {
         run.run(&actions::HOME);
         run.run(action);
         let parked = run.kernel.native_is_parked(plugin);
-        run.steps
-            .push(format!("{plugin} parked after {action}: {parked:?}"));
+        run.note(format!("{plugin} parked after {action}: {parked:?}"));
         run.run(&actions::BACK);
     }
     // Mid-flow: home, standby, and the next input wakes it (D3).
@@ -314,11 +401,83 @@ fn flow(run: &mut Run, plugin: &str) {
     }
     run.run(&actions::HOME);
     run.card_files();
-    run.steps.push(format!(
+    run.note(format!(
         "{plugin}: {} screens, {} actions",
         screens.len(),
         own.len()
     ));
+}
+
+/// A book a format reads, for its case.
+struct Book {
+    path: &'static str,
+    bytes: Vec<u8>,
+}
+
+/// The book of the format `plugin` (#248: a format sleeps until a book of
+/// it opens); `None` for a plugin that is no format.
+fn book_of(plugin: &str) -> Option<Book> {
+    let story = "Gregor woke one morning from uneasy dreams and found himself \
+                 changed. His room, a proper room for a person, lay quiet. ";
+    let long = |open: &str, close: &str| -> Vec<u8> {
+        let mut text = String::new();
+        for at in 0..40 {
+            let _ = writeln!(text, "{open}{at}. {story}{story}{close}");
+        }
+        text.into_bytes()
+    };
+    let (path, bytes) = match plugin {
+        "format-txt" => ("books/notes.txt", long("", "")),
+        "format-epub" => (
+            "books/alice.epub",
+            include_bytes!("../../../samples/library/books/alice-in-wonderland.epub").to_vec(),
+        ),
+        "format-html" => {
+            let mut page = b"<html><head><title>Rooms</title></head><body>".to_vec();
+            page.extend(long("<p>", "</p>"));
+            page.extend(b"</body></html>");
+            ("books/rooms.html", page)
+        }
+        "format-markdown" => {
+            let mut text = b"# Rooms\n\n".to_vec();
+            text.extend(long("", "\n"));
+            ("books/rooms.md", text)
+        }
+        "format-fb2" => {
+            let mut text = b"<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
+                <FictionBook xmlns=\"http://www.gribuser.ru/xml/fictionbook/2.0\">\
+                <description><title-info><book-title>Rooms</book-title></title-info>\
+                </description><body><section>"
+                .to_vec();
+            text.extend(long("<p>", "</p>"));
+            text.extend(b"</section></body></FictionBook>");
+            ("books/rooms.fb2", text)
+        }
+        _ => return None,
+    };
+    Some(Book { path, bytes })
+}
+
+/// The flow for a format: its book opened while the format sleeps (first
+/// open from parked), paged and left; standby with the book closed (parked
+/// again); the book opened again (made again: the place kept) and paged.
+fn book_flow(run: &mut Run, plugin: &str, book: &Book) {
+    run.run(&actions::HOME);
+    run.book(book.path);
+    let parked = run.kernel.native_is_parked(plugin);
+    run.note(format!("{plugin} parked after the first open: {parked:?}"));
+    run.run(&actions::NEXT_PAGE);
+    run.run(&actions::NEXT_PAGE);
+    run.run(&actions::BACK);
+    run.run(&actions::HOME);
+    run.standby(plugin);
+    run.book(book.path);
+    let parked = run.kernel.native_is_parked(plugin);
+    run.note(format!("{plugin} parked after the second open: {parked:?}"));
+    run.run(&actions::NEXT_PAGE);
+    run.run(&actions::BACK);
+    run.run(&actions::HOME);
+    run.card_files();
 }
 
 /// The case for `plugin`: the flow awake and asleep, the same.
@@ -327,14 +486,15 @@ fn same_awake_and_asleep(plugin: &'static str) {
         paperpaw_app::sleeps(plugin),
         "{plugin} is not in paperpaw_app::SLEEPS"
     );
-    let mut awake = Run::start(none_sleeps);
+    let book = book_of(plugin);
+    let mut awake = Run::start(none_sleeps, book.as_ref());
     assert_eq!(
         awake.kernel.native_is_parked(plugin),
         Some(false),
         "{plugin}: registered and awake in the awake run"
     );
     SLEEPER.with(|sleeper| sleeper.set(plugin));
-    let mut asleep = Run::start(only_the_sleeper);
+    let mut asleep = Run::start(only_the_sleeper, book.as_ref());
     assert_eq!(
         asleep.kernel.native_is_parked(plugin),
         Some(true),
@@ -342,6 +502,8 @@ fn same_awake_and_asleep(plugin: &'static str) {
     );
     flow(&mut awake, plugin);
     flow(&mut asleep, plugin);
+    awake.dump(plugin, "awake");
+    asleep.dump(plugin, "asleep");
     assert!(
         awake.steps.len() > 2,
         "{plugin}: the flow did nothing: {:?}",
@@ -410,4 +572,34 @@ fn opds_is_the_same_asleep() {
 #[test]
 fn settings_is_the_same_asleep() {
     same_awake_and_asleep("settings");
+}
+
+#[test]
+#[ignore = "needs native activation (formats are native plugins with the flip, #243)"]
+fn format_epub_is_the_same_asleep() {
+    same_awake_and_asleep("format-epub");
+}
+
+#[test]
+#[ignore = "needs native activation (formats are native plugins with the flip, #243)"]
+fn format_fb2_is_the_same_asleep() {
+    same_awake_and_asleep("format-fb2");
+}
+
+#[test]
+#[ignore = "needs native activation (formats are native plugins with the flip, #243)"]
+fn format_html_is_the_same_asleep() {
+    same_awake_and_asleep("format-html");
+}
+
+#[test]
+#[ignore = "needs native activation (formats are native plugins with the flip, #243)"]
+fn format_markdown_is_the_same_asleep() {
+    same_awake_and_asleep("format-markdown");
+}
+
+#[test]
+#[ignore = "needs native activation (formats are native plugins with the flip, #243)"]
+fn format_txt_is_the_same_asleep() {
+    same_awake_and_asleep("format-txt");
 }
