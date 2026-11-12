@@ -201,9 +201,14 @@ fn callback(
 ) -> Result<Callback, i32> {
     let id = qualified(owner, name, source)?;
     let kept = source.titled(id.as_str(), title);
+    // A kept entry carries its title: no copy of it (Code Reviewer, #1372).
+    let title = match kept {
+        Some(entry) => Cow::Borrowed(entry.title),
+        None => source.text(title)?,
+    };
     Ok(Callback {
         id,
-        title: source.text(title)?,
+        title,
         token,
         flags,
         kept,

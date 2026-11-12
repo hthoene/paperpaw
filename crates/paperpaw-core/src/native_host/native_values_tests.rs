@@ -355,6 +355,8 @@ fn an_action_named_as_in_the_titles_table_keeps_its_entry() {
     };
     // The very entry: no row of its own (#248, B).
     assert!(core::ptr::eq(same.kept.unwrap(), &TITLES[0]));
+    // Its title is the entry's too, not a copy made and dropped (#1372).
+    assert!(matches!(&same.title, Cow::Borrowed(title) if core::ptr::eq(*title, TITLES[0].title)));
     assert_eq!((same.id.as_str(), same.token), ("battery.open", 4));
     // Another title: a copy, whatever the id.
     let Value::Action(other) = from_record(
