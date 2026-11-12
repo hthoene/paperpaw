@@ -44,7 +44,9 @@ pub fn set_wifi_online(on: bool) {
     WIFI_ONLINE.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// Whether devices start online (`--wifi online`).
+/// Whether devices start online (`--wifi online`); read by the native device
+/// host, which the web build does not have.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn wifi_online() -> bool {
     WIFI_ONLINE.load(std::sync::atomic::Ordering::Relaxed)
 }
