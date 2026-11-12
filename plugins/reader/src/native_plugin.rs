@@ -12,6 +12,7 @@ use crate::{
     },
     native_annotations_view::{AnnotationsView, Outcome as NotesOutcome},
     native_footnote::{Footnote, Pressed},
+    native_goto::{self, Asked},
     native_handsfree::{self, Due, Hands, Kind},
     native_index, native_pages,
     native_search::MAX_NEEDLE,
@@ -31,10 +32,11 @@ use paperpaw_sdk::{
         commands::RedrawMode,
         document::Documents,
         events::{AnswerOutcome, Answered, Event, Incoming, SpeechStatus, kinds},
+        formatting::Arg,
         library::Library,
         registrations,
         reply::Reply,
-        ui::{Instance, Question, RequestId as AskId, Ui, UiCursor},
+        ui::{Instance, Question, RequestId as AskId, TextMode, Ui, UiCursor},
         work::{Work, WorkSpec},
     },
 };
@@ -88,8 +90,9 @@ pub struct NativeReader {
     /// The annotations screens.
     annotations: Screens<AnnotationsView>,
     searches: Screens<SearchView>,
-    /// The question for the text to search for, while it is open.
-    asking: Option<AskId>,
+    /// The question on the keyboard (the text to search for, a page or a
+    /// percentage to go to), while it is open.
+    asking: Option<(AskId, Asked)>,
     /// The text answered, until the results screen it opened takes it.
     query: Option<String>,
     /// The notes over the pages.
@@ -485,13 +488,65 @@ impl NativeReader {
         let title = Messages::new()?.copy(host, "reader.search.prompt")?;
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let request = ui.ask(host, Question::text(&title, "")?, &mut input, &mut out)?;
-        self.asking = Some(request);
+        self.asking = Some((request, Asked::Search));
         Ok(Handled::Yes)
     }
 
-    /// An answer to the question for the text: the search screen opens for it.
+    /// Asks for the page or the percentage to go to (the keyboard answers, in
+    /// digits): the prompt says the pages counted so far, as Beta 3's did.
+    fn ask_go_to(&mut self, host: &Host<'_>, asked: Asked) -> Result<Handled, Error> {
+        let (Some(view), Some(ui)) = (self.screens.top(SCREEN), &self.ui) else {
+            return Ok(Handled::No);
+        };
+        let Some((pages, complete)) = view.pages_counted() else {
+            return Ok(Handled::No);
+        };
+        let mut messages = Messages::new()?;
+        let title = match asked {
+            Asked::Percent => messages.copy(host, "reader.go-to-percent.prompt")?,
+            Asked::Page | Asked::Search => {
+                let key = if complete {
+                    "reader.go-to-page.prompt"
+                } else {
+                    "reader.go-to-page.counting"
+                };
+                let pages = Arg::Int {
+                    name: "pages",
+                    value: i64::from(pages),
+                };
+                messages.format(host, key, &[pages])?
+            }
+        };
+        drop(messages);
+        let question = Question::text(&title, "")?.mode(TextMode::Number)?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let request = ui.ask(host, question, &mut input, &mut out)?;
+        self.asking = Some((request, asked));
+        Ok(Handled::Yes)
+    }
+
+    /// The page or percentage typed: the reading screen goes there.
+    fn go_to_typed(&mut self, host: &Host<'_>, asked: Asked, typed: &str) -> Result<(), Error> {
+        let (Some(view), Some(docs)) = (self.screens.top(SCREEN), &self.docs) else {
+            return Ok(());
+        };
+        let pages = view.pages_counted().map_or(0, |(pages, _)| pages);
+        let Some(jump) = native_goto::jump(asked, typed, pages) else {
+            return Ok(());
+        };
+        if view.jump(host, docs, jump)? && view.take_turned() {
+            self.start_quiet(host);
+        }
+        Ok(())
+    }
+
+    /// An answer to a question on the keyboard: the search screen opens for
+    /// the text, or the reading screen goes to the page or percentage.
     fn answered(&mut self, host: &Host<'_>, answer: &Answered) -> Result<(), Error> {
-        if answer.outcome() == AnswerOutcome::Typing || self.asking != Some(answer.request()) {
+        let Some((request, asked)) = self.asking else {
+            return Ok(());
+        };
+        if answer.outcome() == AnswerOutcome::Typing || request != answer.request() {
             return Ok(());
         }
         self.asking = None;
@@ -503,6 +558,9 @@ impl NativeReader {
         };
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let part = ui.text_read(host, answer.request().text(), 0, &mut input, &mut out)?;
+        if asked != Asked::Search {
+            return self.go_to_typed(host, asked, part.data());
+        }
         // What a query counts is its first characters: the screen shows the
         // text it searches for.
         let typed = part.data();
@@ -1074,6 +1132,12 @@ impl Plugin for NativeReader {
             )
         {
             return self.show_notes(host);
+        }
+        if token == SCREEN
+            && let Input::Action { action, .. } = input
+            && let Some(asked) = Asked::of(action)
+        {
+            return self.ask_go_to(host, asked);
         }
         if token == SKIM {
             return self.skim_input(host, &input);
