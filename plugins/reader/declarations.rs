@@ -565,6 +565,12 @@ pub const FILTER_MAX_INPUT: u32 = 160;
 pub const FILTER_MAX_REPLY: u32 = 3840;
 pub const FILTER_MAX_RECORDS: u32 = 4;
 
+/// The bounds of `reader.decorations`, as `stages/reader.decorations@1.def` says.
+pub const DECORATIONS_SCHEMA: u32 = 1;
+pub const DECORATIONS_MAX_INPUT: u32 = 3840;
+pub const DECORATIONS_MAX_REPLY: u32 = 3840;
+pub const DECORATIONS_MAX_RECORDS: u32 = 4;
+
 /// The stage the reader runs after it wrote a book's notes as Markdown
 /// (`core.notes-exported` of interface 6): a notes app or a sync subscribes
 /// (`registration.stage`) and answers each run with one `notes.done` record
@@ -597,6 +603,15 @@ pub fn stages<F: FnMut(&[u8]) -> Result<(), i32>>(
         FILTER_MAX_INPUT,
         FILTER_MAX_REPLY,
         FILTER_MAX_RECORDS,
+    ))?;
+    // The marks of a page (a vocabulary list's words): the reader asks each
+    // laid-out page and draws what the subscribers answer (`PORTING-7.md`).
+    d.stage(StageDecl::new(
+        "decorations",
+        DECORATIONS_SCHEMA,
+        DECORATIONS_MAX_INPUT,
+        DECORATIONS_MAX_REPLY,
+        DECORATIONS_MAX_RECORDS,
     ))?;
     d.submit()
 }

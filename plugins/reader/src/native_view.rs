@@ -156,6 +156,12 @@ struct Open {
     bookmarks: Vec<(u32, u32)>,
     /// The status lines chosen at the top and the bottom.
     status: native_status::State,
+    /// The marks plugins gave the page on show (`reader.decorations@1`).
+    decorations: Option<crate::native_decorations::Decorations>,
+    /// No plugin marks this book's pages (asked again once back on top).
+    undecorated: bool,
+    /// Pages are asked for marks: from the step after the first is shown.
+    ask_marks: bool,
 }
 
 /// One open reading screen.
@@ -392,6 +398,9 @@ impl View {
             chapter: None,
             bookmarks: Vec::new(),
             status: native_status::State::default(),
+            decorations: None,
+            undecorated: false,
+            ask_marks: false,
         };
         open.begin(host, root == Root::Library);
         open.load_bookmarks(host, library);
@@ -611,6 +620,9 @@ impl View {
     /// This screen is on top again: a jump made from a screen above is told to
     /// the host now.
     pub fn shown(&mut self, host: &Host<'_>, docs: &Documents) {
+        if let Body::Open(open) = &mut self.body {
+            open.decorate_again();
+        }
         if let Body::Open(open) = &mut self.body
             && core::mem::take(&mut open.report_due)
         {
@@ -765,6 +777,9 @@ impl View {
             return Ok(Handled::No);
         };
         if let Some(handled) = open.status_input(host, ui, input)? {
+            return Ok(handled);
+        }
+        if let Some(handled) = open.decoration_tap(host, input)? {
             return Ok(handled);
         }
         let marked = open.mark(host, (docs, Some(ui)), input)?;
@@ -1381,7 +1396,9 @@ impl Open {
         let page = self.page.as_ref().ok_or(Error::State)?;
         if self.words.is_empty() {
             self.words = native_wordbox::word_boxes(&faces, page, area)?;
+            self.decorate(host);
         }
+        let page = self.page.as_ref().ok_or(Error::State)?;
         let rect = frame.rect;
         let follow_up = pictures::follow_up(frame);
         let canvas = frame.draw_canvas()?;
@@ -1403,6 +1420,7 @@ impl Open {
             setup.display.display_is_colour(),
         );
         let painted = Painted::new(host, &self.marks, &self.words, hit, gauge).unwrap_or_default();
+        self.draw_behind(&canvas, gauge, (rect.x, rect.y)).ok();
         painted.behind(&mut CanvasPen(&canvas)).ok();
         let pictures = self.pictures.drawing(follow_up);
         draw_page(
@@ -1412,6 +1430,8 @@ impl Open {
             origin,
             (self.mark.clone(), pictures),
         )?;
+        // Other plugins' marks under the reader's own, as Beta 3 drew them.
+        self.draw_over(&canvas, gauge, (rect.x, rect.y)).ok();
         painted.over(&mut CanvasPen(&canvas)).ok();
         self.draw_ribbon(&canvas, rect, (&area, setup.display.display_dpi()))?;
         self.paint_status(host, ui, frame, (setup, &area))?;
@@ -1469,6 +1489,7 @@ fn say_with(
 
 mod aloud;
 mod count;
+mod decorations;
 mod goto;
 mod menu_bar;
 mod pictures;
