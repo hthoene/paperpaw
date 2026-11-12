@@ -440,71 +440,16 @@ struct StoredOwner {
     generation: u32,
     source: OwnerRef,
     batches: Batches,
-    /// Every indexed record of the owner in one list, grouped by kind, and
-    /// inside a kind in declaration order (empty for an image-only owner).
-    slots: Vec<Slot>,
     incarnation: u32,
 }
 
-/// Where an owner's batches are.
-enum Batches {
-    /// Each batch's reference: every owner while it is staged, and an owner
-    /// with a batch of its own bytes after.
-    Refs(Vec<DeclRef>),
-    /// Where each batch starts in the owner's read-only image (an image-only
-    /// owner: no slots either; its records of a kind are found by walking the
-    /// batches' frames, `declaration_scan.rs`), with the kinds they declare:
-    /// a batch without the kind looked for is not walked (#248, R1). Packed
-    /// where the batches allow it (`declaration_starts.rs`, #248, D5).
-    Starts(Starts),
-}
-
-impl Batches {
-    fn len(&self) -> usize {
-        match self {
-            Self::Refs(refs) => refs.len(),
-            Self::Starts(starts) => starts.len(),
-        }
-    }
-
-    /// The references (none once the batches are only starts).
-    #[cfg(test)]
-    fn refs(&self) -> &[DeclRef] {
-        match self {
-            Self::Refs(refs) => refs,
-            Self::Starts(..) => &[],
-        }
-    }
-
-    /// The references, while the owner is staged (`ERR_STATE` once its batches
-    /// are only starts).
-    fn refs_mut(&mut self) -> Result<&mut Vec<DeclRef>, i32> {
-        match self {
-            Self::Refs(refs) => Ok(refs),
-            Self::Starts(..) => Err(ERR_STATE),
-        }
-    }
-
-    /// The bytes of batch `batch`: in `image`, or its own.
-    fn bytes<'a>(&'a self, batch: usize, image: &'a [u8]) -> Result<&'a [u8], i32> {
-        match self {
-            Self::Refs(refs) => batch_bytes(refs.get(batch).ok_or(ERR_INVALID)?, image),
-            Self::Starts(starts) => {
-                let start = usize::try_from(starts.start(batch).ok_or(ERR_INVALID)?)
-                    .map_err(|_| ERR_INVALID)?;
-                scan::batch_at(image, start)
-            }
-        }
-    }
-}
 impl StoredOwner {
     fn new(id: Id, source: OwnerRef) -> Self {
         Self {
             id,
             generation: source.generation(),
             source,
-            batches: Batches::Refs(Vec::new()),
-            slots: Vec::new(),
+            batches: Batches::Refs(None),
             incarnation: 0,
         }
     }
@@ -517,10 +462,9 @@ impl StoredOwner {
     /// The slots of one kind, in declaration order (none for an `image_only`
     /// owner: see [`Self::places`]).
     fn of_kind(&self, kind: Kind) -> &[Slot] {
-        let from = self
-            .slots
-            .partition_point(|slot| slot.hash >> KIND_SHIFT < kind as u16);
-        let rest = &self.slots[from..];
+        let slots = self.batches.slots();
+        let from = slots.partition_point(|slot| slot.hash >> KIND_SHIFT < kind as u16);
+        let rest = &slots[from..];
         let len = rest.partition_point(|slot| slot.hash >> KIND_SHIFT == kind as u16);
         &rest[..len]
     }
@@ -538,12 +482,12 @@ impl StoredOwner {
     /// Adds `slot` after the slots of its kind: staged in declaration order,
     /// a kind's slots stay in it. The caller has reserved room: nothing here
     /// allocates.
-    fn add_slot(&mut self, slot: Slot) {
+    fn add_slot(&mut self, slot: Slot) -> Result<(), i32> {
         let kind = slot.hash >> KIND_SHIFT;
-        let at = self
-            .slots
-            .partition_point(|old| old.hash >> KIND_SHIFT <= kind);
-        self.slots.insert(at, slot);
+        let slots = &mut self.batches.indexed_mut()?.slots;
+        let at = slots.partition_point(|old| old.hash >> KIND_SHIFT <= kind);
+        slots.insert(at, slot);
+        Ok(())
     }
 
     /// The places (batch, record) of the records of `kind`, in declaration
@@ -597,9 +541,10 @@ impl StoredOwner {
     /// given back at commit (#248). Where there is no room for the starts,
     /// the owner keeps its index (nothing fails).
     fn drop_index_if_image_only(&mut self) {
-        let Batches::Refs(refs) = &self.batches else {
+        let Batches::Refs(Some(indexed)) = &self.batches else {
             return;
         };
+        let refs = &indexed.refs;
         if !self.source.read_only() || refs.is_empty() {
             return;
         }
@@ -615,7 +560,7 @@ impl StoredOwner {
         }
         // Every record is in a slot (staging indexes each one), so the slots'
         // kinds are the kinds each batch declares.
-        for slot in &self.slots {
+        for slot in &indexed.slots {
             let Some(batch) = starts.get_mut(usize::from(slot.batch())) else {
                 return;
             };
@@ -625,7 +570,6 @@ impl StoredOwner {
             return;
         };
         self.batches = Batches::Starts(starts);
-        self.slots = Vec::new();
     }
 }
 
@@ -684,8 +628,9 @@ impl PendingDeclarations {
         entries: usize,
         allocations: &mut Allocations,
     ) -> Result<(), i32> {
-        allocations.reserve(self.kept.batches.refs_mut()?, batches)?;
-        allocations.reserve(&mut self.kept.slots, entries)
+        let indexed = self.kept.batches.indexed_mut()?;
+        allocations.reserve(&mut indexed.refs, batches)?;
+        allocations.reserve(&mut indexed.slots, entries)
     }
 
     /// Stage one whole batch. Failed reservations may grow capacity but never
@@ -784,8 +729,9 @@ impl PendingDeclarations {
             Some(reference) => reference,
             None => input.own(allocations)?,
         };
-        allocations.reserve(self.kept.batches.refs_mut()?, 1)?;
-        allocations.reserve(&mut self.kept.slots, counts.iter().sum())?;
+        let indexed = self.kept.batches.indexed_mut()?;
+        allocations.reserve(&mut indexed.refs, 1)?;
+        allocations.reserve(&mut indexed.slots, counts.iter().sum())?;
         for (record, kind) in kinds.into_iter().enumerate() {
             if let Some((kind, hash)) = kind {
                 // The decoder bounds each batch to eight records
@@ -793,10 +739,10 @@ impl PendingDeclarations {
                 self.kept.add_slot(Slot {
                     hash: kind.slot_key(hash),
                     place: batch << RECORD_BITS | record as u16,
-                });
+                })?;
             }
         }
-        self.kept.batches.refs_mut()?.push(reference);
+        self.kept.batches.indexed_mut()?.refs.push(reference);
         self.resident = resident;
         self.index_bytes = index_bytes;
         self.image_entries = image_entries;
@@ -1382,10 +1328,13 @@ fn check_indexed_name(
 #[path = "declaration_books.rs"]
 mod books;
 
+#[path = "declaration_batches.rs"]
+mod batches;
 #[path = "declaration_formats.rs"]
 mod formats;
 #[path = "declaration_scan.rs"]
 mod scan;
+use batches::Batches;
 #[path = "declaration_starts.rs"]
 mod starts;
 #[allow(

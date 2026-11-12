@@ -112,7 +112,7 @@ impl Maker<'_> {
         match self {
             Maker::Added(made) => made.instances,
             Maker::Fixed(fixed) => fixed.how_many(),
-            Maker::Native(_, made) => made.instances,
+            Maker::Native(_, made) => made.instances(),
         }
     }
 }
@@ -1168,6 +1168,18 @@ mod tests {
     use super::*;
     use alloc::boxed::Box;
     use alloc::string::String;
+
+    #[test]
+    fn a_screen_row_is_three_words() {
+        // #248 B: a native screen's row keeps its token, flags and lease; how
+        // many instances it has is read from its flags. Three words here (was
+        // four), 16 bytes on the X4 (was 20).
+        assert!(
+            core::mem::size_of::<Made>() <= 3 * core::mem::size_of::<usize>(),
+            "{} bytes",
+            core::mem::size_of::<Made>()
+        );
+    }
 
     /// Subscriptions come back as they were added: in order, each with its
     /// event and plugin, a plugin's id kept once for its run of them, the

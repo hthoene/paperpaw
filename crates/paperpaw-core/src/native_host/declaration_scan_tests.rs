@@ -190,21 +190,31 @@ fn the_kind_of_a_frame_tag_is_the_kind_of_its_decoded_record() {
 }
 
 #[test]
+fn an_owner_row_keeps_no_room_for_an_index() {
+    // #248 B: the references and slots are one box an image-only owner (every
+    // linked plugin) does not keep; its row is eight words, not eleven.
+    assert!(
+        core::mem::size_of::<Option<StoredOwner>>() <= 8 * core::mem::size_of::<usize>(),
+        "{} bytes",
+        core::mem::size_of::<Option<StoredOwner>>()
+    );
+}
+
+#[test]
 fn an_image_only_owner_keeps_no_slots_and_answers_as_an_indexed_one() {
     let (scanned, _) = store(true, false);
     let (indexed, _) = store(false, false);
     let owner = scanned.owners[0].as_ref().unwrap();
     assert!(owner.image_only());
-    assert_eq!(
-        owner.slots.capacity(),
-        0,
+    assert!(
+        matches!(owner.batches, Batches::Starts(..)),
         "the index is given back at commit"
     );
     // And the batch references: only where each batch starts is kept.
     assert!(matches!(&owner.batches, Batches::Starts(starts) if starts.len() == 2));
     let other = indexed.owners[0].as_ref().unwrap();
     assert!(!other.image_only());
-    assert_eq!(other.slots.len(), 6);
+    assert_eq!(other.batches.slots().len(), 6);
     for kind in Kind::ALL {
         assert_eq!(places(&scanned, kind), places(&indexed, kind), "{kind:?}");
     }
@@ -303,8 +313,8 @@ fn a_mixed_owner_keeps_its_index_and_answers_as_an_indexed_one() {
     let (indexed, _) = store(false, false);
     let owner = mixed.owners[0].as_ref().unwrap();
     assert!(!owner.image_only(), "one batch of its own keeps the index");
-    assert_eq!(owner.slots.len(), 6);
-    assert!(matches!(&owner.batches, Batches::Refs(refs) if refs.len() == 2));
+    assert_eq!(owner.batches.slots().len(), 6);
+    assert_eq!(owner.batches.refs().len(), 2);
     for kind in Kind::ALL {
         assert_eq!(places(&mixed, kind), places(&indexed, kind), "{kind:?}");
     }
