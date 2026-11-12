@@ -301,6 +301,11 @@ impl Slot {
     /// longest (a real make failed each time). What waits for it is then
     /// dropped (Senior and Manager on #1337), and the wait starts again from
     /// the first, so a later use tries at once. `false` otherwise.
+    ///
+    /// Taken once, by whichever asks first: the queued action or event
+    /// (`event_call`) or a pending open (`format_gave_up`). The other then
+    /// waits a whole round of the wait again, about a minute, before it
+    /// gives up too (Senior on #1365: rare, and nothing is lost).
     pub(crate) fn give_up(&self) -> bool {
         let parked = self.parked.borrow();
         let Some(parked) = parked.as_ref().filter(|p| p.wait.get() >= RETRY_LAST_MS) else {
