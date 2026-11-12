@@ -20477,6 +20477,73 @@ impl<'a> WireRecord<'a> for EventLookupReady<'a> {
         Self::decode_fields(&mut Reader { remaining: body })
     }
 }
+/// Wire tag of the `event.screen_hidden` record.
+pub const EVENT_SCREEN_HIDDEN_TAG: u32 = 111;
+/// Maximum bytes of `event.screen_hidden.screen`.
+pub const EVENT_SCREEN_HIDDEN_SCREEN_MAX_BYTES: usize = 128;
+
+/// The `event.screen_hidden` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventScreenHidden<'a> {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// UTF-8 text of at most 128 bytes.
+    pub screen: &'a str,
+    /// Little-endian u32.
+    pub instance: u32,
+}
+
+impl<'a> EventScreenHidden<'a> {
+    fn decode(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        Self::decode_fields(body).map(Record::EventScreenHidden)
+    }
+
+    fn decode_fields(body: &mut Reader<'a>) -> Result<Self, i32> {
+        body.bitmap()?;
+        Ok(Self {
+            now_ms: u64::from_le_bytes(body.scalar()?),
+            screen: body.string(EVENT_SCREEN_HIDDEN_SCREEN_MAX_BYTES)?,
+            instance: u32::from_le_bytes(body.scalar()?),
+        })
+    }
+
+    fn body_len(&self) -> Result<usize, i32> {
+        let mut len = 1; // The initial bitmap is empty.
+        len += 8;
+        len += blob_len(self.screen.len(), EVENT_SCREEN_HIDDEN_SCREEN_MAX_BYTES)?;
+        len += 4;
+        Ok(len)
+    }
+
+    fn write(&self, out: &mut [u8], offset: &mut usize) {
+        write_bytes(&self.now_ms.to_le_bytes(), out, offset);
+        write_blob(self.screen.as_bytes(), out, offset);
+        write_bytes(&self.instance.to_le_bytes(), out, offset);
+    }
+}
+
+impl<'a> WireEncode for EventScreenHidden<'a> {
+    fn wire_tag(&self) -> u32 {
+        EVENT_SCREEN_HIDDEN_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        self.body_len()
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        write_varint(0, out, offset);
+        self.write(out, offset);
+    }
+}
+
+impl<'a> WireRecord<'a> for EventScreenHidden<'a> {
+    const TAG: u32 = EVENT_SCREEN_HIDDEN_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        Self::decode_fields(&mut Reader { remaining: body })
+    }
+}
 /// Wire tag of the `event.document_changed` record.
 pub const EVENT_DOCUMENT_CHANGED_TAG: u32 = 88;
 
@@ -21225,6 +21292,8 @@ pub enum Record<'a> {
     EventTextTyped(EventTextTyped<'a>),
     /// A `EventLookupReady` record.
     EventLookupReady(EventLookupReady<'a>),
+    /// A `EventScreenHidden` record.
+    EventScreenHidden(EventScreenHidden<'a>),
     /// A `EventDocumentChanged` record.
     EventDocumentChanged(EventDocumentChanged),
     /// A `ServiceDocReport` record.
@@ -21563,6 +21632,7 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         SERVICE_LIB_FIELD_PAGE_TAG => ServiceLibFieldPage::decode(body)?,
         EVENT_TEXT_TYPED_TAG => EventTextTyped::decode(body)?,
         EVENT_LOOKUP_READY_TAG => EventLookupReady::decode(body)?,
+        EVENT_SCREEN_HIDDEN_TAG => EventScreenHidden::decode(body)?,
         EVENT_DOCUMENT_CHANGED_TAG => EventDocumentChanged::decode(body)?,
         SERVICE_DOC_REPORT_TAG => ServiceDocReport::decode(body)?,
         _ => return Err(-1),
@@ -21921,6 +21991,7 @@ impl Record<'_> {
             Record::ServiceLibFieldPage(_) => SERVICE_LIB_FIELD_PAGE_TAG,
             Record::EventTextTyped(_) => EVENT_TEXT_TYPED_TAG,
             Record::EventLookupReady(_) => EVENT_LOOKUP_READY_TAG,
+            Record::EventScreenHidden(_) => EVENT_SCREEN_HIDDEN_TAG,
             Record::EventDocumentChanged(_) => EVENT_DOCUMENT_CHANGED_TAG,
             Record::ServiceDocReport(_) => SERVICE_DOC_REPORT_TAG,
         }
@@ -22195,6 +22266,7 @@ impl Record<'_> {
             Record::ServiceLibFieldPage(record) => record.body_len(),
             Record::EventTextTyped(record) => record.body_len(),
             Record::EventLookupReady(record) => record.body_len(),
+            Record::EventScreenHidden(record) => record.body_len(),
             Record::EventDocumentChanged(record) => record.body_len(),
             Record::ServiceDocReport(record) => record.body_len(),
         }
@@ -22474,6 +22546,7 @@ impl Record<'_> {
             Record::ServiceLibFieldPage(record) => record.write(out, offset),
             Record::EventTextTyped(record) => record.write(out, offset),
             Record::EventLookupReady(record) => record.write(out, offset),
+            Record::EventScreenHidden(record) => record.write(out, offset),
             Record::EventDocumentChanged(record) => record.write(out, offset),
             Record::ServiceDocReport(record) => record.write(out, offset),
         }
@@ -22782,22 +22855,22 @@ where
 }
 
 /// The tags of the declared records, ascending (registrations are named by their constants).
-const RECORD_TAGS: [u16; 267] = [
+const RECORD_TAGS: [u16; 268] = [
     5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
     30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 52, 64, 65,
     66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 85, 86, 87, 88, 89, 90,
-    91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 192,
-    193, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 512, 513, 1024, 1025, 1026, 1027, 1028,
-    1029, 1030, 1031, 1032, 1033, 1034, 1035, 1036, 1037, 1038, 1039, 1040, 1041, 1042, 1043, 1044,
-    1045, 1046, 1047, 1048, 1049, 1050, 1051, 1052, 1053, 1054, 1055, 1056, 1057, 1058, 1059, 1060,
-    1061, 1062, 1063, 1064, 1065, 1066, 1067, 1068, 1069, 1070, 1071, 1072, 1073, 1074, 1075, 1076,
-    1077, 1078, 1079, 1080, 1081, 1082, 1083, 1084, 1085, 1086, 1087, 1088, 1089, 1090, 1091, 1092,
-    1093, 1094, 1095, 1096, 1097, 1098, 1099, 1100, 1101, 1102, 1103, 1104, 1105, 1106, 1107, 1108,
-    1109, 1110, 1111, 1112, 1113, 1114, 1115, 1116, 1117, 1118, 1119, 1120, 1121, 1122, 1123, 1124,
-    1125, 1126, 1127, 1128, 1129, 1130, 1131, 1132, 1133, 1134, 1135, 1136, 1137, 1138, 1139, 1140,
-    1141, 1142, 1143, 1144, 1145, 1146, 1147, 1148, 1149, 1150, 1151, 1152, 1153, 1154, 1155, 1156,
-    1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169, 1170, 1171, 1172,
-    1173, 1174, 1175, 1176, 1177, 1178, 1179, 1180, 1181, 1182, 1183,
+    91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
+    192, 193, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 512, 513, 1024, 1025, 1026, 1027,
+    1028, 1029, 1030, 1031, 1032, 1033, 1034, 1035, 1036, 1037, 1038, 1039, 1040, 1041, 1042, 1043,
+    1044, 1045, 1046, 1047, 1048, 1049, 1050, 1051, 1052, 1053, 1054, 1055, 1056, 1057, 1058, 1059,
+    1060, 1061, 1062, 1063, 1064, 1065, 1066, 1067, 1068, 1069, 1070, 1071, 1072, 1073, 1074, 1075,
+    1076, 1077, 1078, 1079, 1080, 1081, 1082, 1083, 1084, 1085, 1086, 1087, 1088, 1089, 1090, 1091,
+    1092, 1093, 1094, 1095, 1096, 1097, 1098, 1099, 1100, 1101, 1102, 1103, 1104, 1105, 1106, 1107,
+    1108, 1109, 1110, 1111, 1112, 1113, 1114, 1115, 1116, 1117, 1118, 1119, 1120, 1121, 1122, 1123,
+    1124, 1125, 1126, 1127, 1128, 1129, 1130, 1131, 1132, 1133, 1134, 1135, 1136, 1137, 1138, 1139,
+    1140, 1141, 1142, 1143, 1144, 1145, 1146, 1147, 1148, 1149, 1150, 1151, 1152, 1153, 1154, 1155,
+    1156, 1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169, 1170, 1171,
+    1172, 1173, 1174, 1175, 1176, 1177, 1178, 1179, 1180, 1181, 1182, 1183,
 ];
 
 /// Whether `tag` names a record of this codec ([`Record`]), without decoding anything: a
@@ -23370,6 +23443,7 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         | EVENT_DOCUMENT_CLOSED_TAG
         | EVENT_TEXT_TYPED_TAG
         | EVENT_LOOKUP_READY_TAG
+        | EVENT_SCREEN_HIDDEN_TAG
         | EVENT_DOCUMENT_CHANGED_TAG => return Err(-2),
         _ => return Err(-1),
     })

@@ -1,9 +1,10 @@
 //! Every linked plugin the app lets sleep (`paperpaw_app::SLEEPS`) behaves
 //! the same parked as awake (#248, Decisions 165 and 166): one case for each,
 //! named, and each the same flow twice on a card of its own, once with every
-//! plugin awake and once with that plugin registered to sleep. The flow opens
-//! each of its screens from home, moves and confirms on it and leaves it,
-//! and runs each of its actions. After every step the screen, what it shows
+//! plugin awake and once with that plugin registered to sleep. The flow takes
+//! the kernel's own routes to it first (its slots, the core actions it
+//! serves), then opens each of its screens from home, moves and confirms on
+//! it and leaves it, and runs each of its actions. After every step the screen, what it shows
 //! (the described parts), the pixels drawn, the warnings and the effects are
 //! recorded; at the end every file on the card. The two records must be
 //! equal, and the sleeping run must really start with the plugin parked: a
@@ -33,7 +34,7 @@ use paperpaw_core::{Effects, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation, Storage,
 };
-use paperpaw_sdk::builtin::actions;
+use paperpaw_sdk::builtin::{actions, slots};
 use paperpaw_sdk::{Action, Id, Params};
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
@@ -153,6 +154,14 @@ impl Run {
         self.step(&format!("run {action}"), effects);
     }
 
+    fn open_slot(&mut self, slot: &Id) {
+        self.now += 100;
+        let effects = self
+            .kernel
+            .open_slot(Instant(self.now), slot.clone(), Params::new());
+        self.step(&format!("open slot {slot}"), effects);
+    }
+
     fn open(&mut self, screen: &Id) {
         self.now += 100;
         let effects = self
@@ -211,9 +220,48 @@ impl Fnv {
     }
 }
 
-/// The flow for `plugin`: each of its screens opened from home, moved on,
-/// confirmed and left; each of its actions run from home; the card at the end.
+/// The kernel's own routes that reach `plugin` (screens bound to it, core
+/// actions it serves): taken first in the flow, while the sleeping plugin is
+/// still parked, so that a route which fails to wake it differs from the
+/// awake run.
+fn kernel_routes(plugin: &str) -> (&'static [Id], &'static [Id]) {
+    static MENU_SLOT: [Id; 1] = [slots::MENU];
+    static MENU_ACTION: [Id; 1] = [actions::MENU];
+    static KEYBOARD_SLOT: [Id; 1] = [slots::KEYBOARD];
+    static SETTINGS_SLOT: [Id; 1] = [slots::SETTINGS];
+    static SETTINGS_ACTION: [Id; 1] = [actions::SETTINGS];
+    match plugin {
+        "menu" => (&MENU_SLOT, &MENU_ACTION),
+        "keyboard" => (&KEYBOARD_SLOT, &[]),
+        "settings" => (&SETTINGS_SLOT, &SETTINGS_ACTION),
+        _ => (&[], &[]),
+    }
+}
+
+/// The flow for `plugin`: the kernel's routes to it first (each recording
+/// whether the plugin is parked after it); then each of its screens opened
+/// from home, moved on, confirmed and left; each of its actions run from
+/// home; the card at the end.
 fn flow(run: &mut Run, plugin: &str) {
+    let (route_slots, route_actions) = kernel_routes(plugin);
+    for screen in route_slots {
+        run.run(&actions::HOME);
+        run.open_slot(screen);
+        let parked = run.kernel.native_is_parked(plugin);
+        run.steps
+            .push(format!("{plugin} parked after {screen}: {parked:?}"));
+        run.run(&actions::DOWN);
+        run.run(&actions::CONFIRM);
+        run.run(&actions::BACK);
+    }
+    for action in route_actions {
+        run.run(&actions::HOME);
+        run.run(action);
+        let parked = run.kernel.native_is_parked(plugin);
+        run.steps
+            .push(format!("{plugin} parked after {action}: {parked:?}"));
+        run.run(&actions::BACK);
+    }
     let mut screens: Vec<Id> = run
         .kernel
         .known_screens()

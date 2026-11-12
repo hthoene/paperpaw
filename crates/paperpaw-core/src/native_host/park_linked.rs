@@ -47,6 +47,9 @@ pub(crate) struct ShellParts<S> {
 
 impl<S> ParkShell<S> {
     /// The shell's part, kept once; `None` without room for it.
+    /// `services` is a plain `fn` (one services handle made for each
+    /// hosting, nothing captured): a closure that captures nothing, such as
+    /// `|| X4Services`, coerces to it; one that captures does not compile.
     ///
     /// # Safety
     /// `image` is as [`crate::Kernel::register_linked`] takes it: a read-only
