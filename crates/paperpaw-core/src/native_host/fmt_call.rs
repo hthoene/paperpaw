@@ -13,9 +13,11 @@
 //! second reply buffer, and never leaves a half stream: on an error `out` is
 //! unspecified and its length is not used.
 //!
-//! Memory: the encoded call (at most 1,600 bytes, 3,840 for `open` with
-//! options) and what [`format_call::call`] takes (the framed call and the
-//! reply, 3,840 bytes), all fallible, freed before return; nothing is kept.
+//! Memory: the call is encoded into a buffer of at most 1,600 bytes (3,840
+//! for `open` with options), then only the encoded bytes are copied and the
+//! buffer is freed before the format runs. While it runs, the exact call and
+//! what [`format_call::call`] takes (the framed call and the reply, 3,840
+//! bytes) are held, all fallible, freed before return; nothing is kept.
 //! The 7-9 KiB of an ordinary call and 12 KiB of `open` are above the 6 KiB
 //! X4 gate of the DOC host side and are measured at activation.
 //!
@@ -113,6 +115,15 @@ pub(crate) struct Opener<'a> {
     /// For a `siblings` format: the opened file's name within the book's
     /// folder, carried in `text` where the op uses no other text.
     pub(crate) sibling: &'a str,
+}
+
+/// `bytes` in a buffer of their own length.
+fn exact(bytes: &[u8]) -> Result<Vec<u8>, i32> {
+    let mut copy = Vec::new();
+    copy.try_reserve_exact(bytes.len())
+        .map_err(|_| ERR_NO_MEMORY)?;
+    copy.extend_from_slice(bytes);
+    Ok(copy)
 }
 
 fn buffer(capacity: usize) -> Result<Vec<u8>, i32> {
@@ -290,8 +301,11 @@ impl<'a> Stage<'a> {
         // HOOK (#385 `input_rows`): the batch encoder, see the module doc.
         let used = local::records_encode(&rows, &mut payload)?;
         drop(rows);
-        payload.truncate(used);
-        self.route.call(target, &payload, out)
+        // Only the encoded bytes stay while the format runs (the room for the
+        // longest call goes first: the call's peak is the format's, #248).
+        let encoded = exact(payload.get(..used).ok_or(ERR_INVALID)?)?;
+        drop(payload);
+        self.route.call(target, &encoded, out)
     }
 
     /// The format's batch in `out[..length]` as a bare stream in service tags.

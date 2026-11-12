@@ -842,7 +842,7 @@ mod native {
                 font_removals: Rc::clone(&kernel.shared.font_removals),
                 registry_generation: Rc::clone(&kernel.shared.registry_generation),
             },
-            |_, _, _| {},
+            |_, _, _, _| {},
             native_host::native_instances::test_identity("probe"),
         ))
         .unwrap()
