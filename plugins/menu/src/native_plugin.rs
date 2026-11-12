@@ -440,7 +440,7 @@ impl NativeMenu {
             let value = match (row.kind, info) {
                 (Kind::Submenu, _) => copy("›")?,
                 (Kind::Setting, Some(info)) => {
-                    let text = value_text(info, &on, &off)?;
+                    let text = value_text(info, &on, &off, &mut |key| messages.copy(host, key))?;
                     if editing == Some(index) {
                         concat(&["‹ ", &text, " ›"])?
                     } else {
@@ -650,12 +650,20 @@ impl NativeMenu {
     }
 }
 
-/// The value of a setting as its row shows it.
-pub(crate) fn value_text(info: &SettingInfo, on: &str, off: &str) -> Result<String, Error> {
+/// The value of a setting as its row shows it. A choice's value is a translation
+/// key (`Kind::Choice`): `translate` gives its text in the language of the
+/// display, so the row says *Auto*, not `power.mode.auto`.
+pub(crate) fn value_text(
+    info: &SettingInfo,
+    on: &str,
+    off: &str,
+    translate: &mut dyn FnMut(&str) -> Result<String, Error>,
+) -> Result<String, Error> {
     match &info.value {
         Some(Value::Bool(true)) => copy(on),
         Some(Value::Bool(false)) => copy(off),
         Some(Value::Int(v)) => with_unit(*v, &info.unit),
+        Some(Value::Text(v)) if info.kind == SettingKind::Choice && !v.is_empty() => translate(v),
         Some(Value::Text(v)) => copy(v),
         None => copy(""),
     }
