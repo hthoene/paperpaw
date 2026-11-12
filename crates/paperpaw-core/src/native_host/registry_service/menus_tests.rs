@@ -403,19 +403,21 @@ fn op_12_default_view_is_the_declared_rows_the_device_shows() {
     let rows = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", 0);
     // Placed first; the environment's in order (without the hidden save, the
     // faint-hidden late and the speech-only needy); the rest by order, a
-    // place this host does not know left out, placed last last.
+    // place this host does not know left out, placed last last. The native
+    // rows stand among the environment's by their order (Beta 3 sorted all
+    // rows by order: the native Edit home screen at 40 sat before Settings).
     assert_eq!(
         items(&rows),
         [
             "nat.first",
+            "nat.head",
             "demo.open",
+            "nat.go",
             "demo.part",
             "demo.switchy",
             "demo.flag",
             "demo.sub",
             "demo.long",
-            "nat.head",
-            "nat.go",
             "nat.last",
         ]
     );
@@ -454,6 +456,33 @@ fn op_12_default_view_is_the_declared_rows_the_device_shows() {
 }
 
 #[test]
+fn op_12_negative_orders_keep_their_groups() {
+    let kernel = kernel();
+    // Placed first, by order and placed last, each with a negative order.
+    let directory = declarations(&[
+        entry("nat.last", -5, 5),
+        entry("nat.go", -5, 0),
+        entry("nat.first", -5, 4),
+    ]);
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", 0);
+    assert_eq!(
+        items(&rows),
+        [
+            "nat.first",
+            "nat.go",
+            "demo.open",
+            "demo.save",
+            "demo.part",
+            "demo.switchy",
+            "demo.flag",
+            "demo.sub",
+            "demo.long",
+            "nat.last",
+        ]
+    );
+}
+
+#[test]
 fn op_12_all_adds_the_hidden_rows_and_flags_them() {
     let kernel = kernel();
     let directory = native_menus();
@@ -465,7 +494,9 @@ fn op_12_all_adds_the_hidden_rows_and_flags_them() {
         items(&rows),
         [
             "nat.first",
+            "nat.head",
             "demo.open",
+            "nat.go",
             "demo.save",
             "demo.part",
             "demo.switchy",
@@ -473,8 +504,6 @@ fn op_12_all_adds_the_hidden_rows_and_flags_them() {
             "demo.flag",
             "demo.sub",
             "demo.long",
-            "nat.head",
-            "nat.go",
             "nat.last",
             "demo.hide",
         ]
@@ -521,13 +550,13 @@ fn op_12_a_users_definition_replaces_the_declared_rows() {
             "demo.extra",
             "nat.go",
             "nat.first",
+            "nat.head",
             "demo.open",
             "demo.part",
             "demo.switchy",
             "demo.flag",
             "demo.sub",
             "demo.long",
-            "nat.head",
             "nat.last",
             "demo.hide",
         ]
