@@ -300,6 +300,11 @@ fn fixtures() -> Vec<Vec<u8>> {
                 screen: "fixture.screen",
                 instance: 71,
             }),
+            Record::EventScreenHidden(EventScreenHidden {
+                now_ms: 42,
+                screen: "fixture.screen",
+                instance: 71,
+            }),
             Record::EventStackChanged(EventStackChanged { now_ms: 42 }),
             Record::EventAnswered(EventAnswered {
                 now_ms: 42,
