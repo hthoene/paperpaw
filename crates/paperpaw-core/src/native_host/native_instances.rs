@@ -273,8 +273,8 @@ struct Entry {
     /// of its bytes, not a `String` (a word less in every row, #248 B).
     replacement: Option<Box<str>>,
     /// When a failed retirement is tried again (ms), with
-    /// [`FAILURE_REPORTED`]: one word for both (#248 B: the row is five
-    /// words on the X4, was six).
+    /// [`FAILURE_REPORTED`]: one field for both (#248 B: the row is 40
+    /// bytes on the X4, was 48).
     retry_at: u64,
     /// It declared `uses.install` (it may answer plugin requests).
     installer: bool,

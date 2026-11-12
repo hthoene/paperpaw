@@ -48,11 +48,12 @@ impl EventTags {
 }
 
 // Every event tag fits the set: a later event at or past the limit fails the
-// build here, not a subscription on the device. Tags far past it are not
-// event tags (the wire's own records).
+// build here, not a subscription on the device. Checked through every 16-bit
+// tag (the whole 32-bit range would cost the build minutes; the wire's tags
+// are far below 65,536).
 const _: () = {
     let mut tag = EventTags::LIMIT;
-    while tag < 4_096 {
+    while tag <= u16::MAX as u32 {
         assert!(
             !super::events::is_event_tag(tag),
             "an event tag past EventTags::LIMIT"

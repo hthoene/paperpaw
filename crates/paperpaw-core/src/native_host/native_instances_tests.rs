@@ -432,3 +432,58 @@ fn a_replacement_waits_for_the_retirement_and_comes_back_whole() {
     );
     assert!(!registry.replacement_pending(&id));
 }
+
+/// A row whose retirement has begun and whose cleanup fails (`ERR_IO`).
+fn retiring(registry: &mut NativeInstances, name: &'static str) -> u64 {
+    let lease = NativeLease::try_new(Fake {
+        active: Cell::new(true),
+        drops: Default::default(),
+        retired: Default::default(),
+        retire_error: Rc::new(Cell::new(Some(paperpaw_native::host_glue::ERR_IO))),
+        retire_calls: Default::default(),
+    })
+    .unwrap();
+    let key = registry
+        .test_insert(Id::new_static(name), Some(lease), true)
+        .unwrap();
+    assert!(registry.retire(key).is_err());
+    key
+}
+
+#[test]
+fn a_failed_retirement_waits_five_seconds_and_is_said_once() {
+    // #248 B (Code Reviewer, Senior on #1370): the retry time and the
+    // "said" flag share one field; neither may leak into the other.
+    use paperpaw_native::host_glue::{ERR_BUSY, ERR_IO};
+    let mut registry = NativeInstances::default();
+    let key = retiring(&mut registry, "probe");
+    assert!(registry.retirement_failed(key, ERR_IO, 1_000), "said first");
+    assert!(!registry.retirement_ready(key, 5_999));
+    assert!(registry.retirement_ready(key, 6_000));
+    assert_eq!(registry.retirement_due(1_000), Some(6_000));
+    assert!(!registry.retirement_failed(key, ERR_IO, 6_000), "said once");
+    assert_eq!(registry.retirement_due(6_000), Some(11_000));
+    // Busy: tried again at once, and the failure stays said.
+    assert!(!registry.retirement_failed(key, ERR_BUSY, 7_000));
+    assert!(registry.retirement_ready(key, 7_000));
+    assert_eq!(registry.retirement_due(7_000), Some(7_050));
+    assert!(
+        !registry.retirement_failed(key, ERR_IO, 8_000),
+        "busy, then failed"
+    );
+    assert_eq!(registry.retirement_due(8_000), Some(13_000));
+    // A busy first answer says nothing either; the failure after it does.
+    let mut registry = NativeInstances::default();
+    let key = retiring(&mut registry, "busy");
+    assert!(!registry.retirement_failed(key, ERR_BUSY, 0));
+    assert!(registry.retirement_failed(key, ERR_IO, 0));
+    // Times at the top of the clock neither overflow nor set the flag's bit.
+    for now in [1 << 63, u64::MAX - 1, u64::MAX] {
+        let mut registry = NativeInstances::default();
+        let key = retiring(&mut registry, "late");
+        assert!(registry.retirement_failed(key, ERR_IO, now), "{now}");
+        assert!(registry.retirement_ready(key, now), "{now}");
+        assert_eq!(registry.retirement_due(now), Some(now.saturating_add(50)));
+        assert!(!registry.retirement_failed(key, ERR_IO, now), "{now}");
+    }
+}
