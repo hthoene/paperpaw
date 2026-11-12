@@ -729,7 +729,8 @@ impl NativeReader {
         let Some(ui) = &self.ui else {
             return Ok(None);
         };
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        // The query is a cursor and an empty key: 256 B hold it (#248).
+        let (mut input, mut out) = (buffer(256)?, buffer(SERVICE_BUFFER)?);
         let rows = ui.stack(host, UiCursor::start(), &mut input, &mut out)?;
         match rows.into_iter().next() {
             Some(row) => Ok(Some(row?.instance())),
