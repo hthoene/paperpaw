@@ -609,9 +609,10 @@ Not declared or fired yet: the reader side follows once the schema is approved.
   `native_bookmark::text_of`), on one line and cut at 512 bytes at a character (Beta 3 ended a cut text in "…": the
   library cuts at its own limit), the progress in whole percent (rounded, as Beta 3), the book's clock and
   the conversion. At most 24 bookmarks of one page are removed in one go.
-- **Not yet (named):** the ribbon on a bookmarked page and the tap on the top right corner
-  (`reader.corner-bookmark`): both belong to the draw and the gesture code (`native_view.rs`, R2b's files) and
-  follow when that lands; until then a toggle shows no mark on the page (the annotations screen, R5, lists it).
+- The ribbon on a bookmarked page and the tap on the top right corner (`reader.corner-bookmark`) are
+  `native_view/ribbon.rs` (#257): Beta 3's ribbon (3 mm wide, a notch, four fifths of the room above the text)
+  and corner (12 mm, at most a quarter of the width). The book's bookmark starts are read once at the opening
+  (at most 256, 8 bytes each) and follow the toggles made here; a toggle redraws the page.
   Go to a page / percentage is `native_goto.rs` and `native_view/goto.rs` (#257): the number is asked on the keyboard
   (`core.ui` ask, number mode), a page goes to its start in the count (clamped to the pages counted so far), a
   percentage to the start of its page where the count is complete, else to the place that far into the text, as Beta 3
