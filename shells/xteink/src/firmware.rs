@@ -157,6 +157,11 @@ pub struct State {
     /// shortest seen, see [`Firmware::refresh`]): the processor sleeps
     /// about that long while the next one goes (on battery).
     refresh_ms: [u64; 3],
+    /// A restart the kernel asked for (`Effects::restart`, the firmware
+    /// command): carried out by the main loop at its top (`step`), not where
+    /// the effects are applied, so that `Kernel::stop` and the events it
+    /// delivers to plugins run on the loop's shallow stack (#2619).
+    restart_wanted: bool,
     /// An update was kept after its trial, which started without code
     /// plugins, and there are some to load: a start at a calm moment.
     restart_for_code: bool,
@@ -272,6 +277,11 @@ impl Firmware {
     /// so what it calls aside from the kernel (the USB lines, updates,
     /// sleeping) keeps frames of its own (`#[inline(never)]`).
     fn step(&mut self) {
+        // A restart asked for while effects were applied: from here, with the
+        // frames of this one function and the kernel under the stop.
+        if self.state.restart_wanted {
+            self.restart();
+        }
         // Power held 8 s (G12): out, whatever else is going on. The timer's
         // readings reset the processor if this is not reached in time.
         if input::escape_requested() {
@@ -353,6 +363,10 @@ impl Firmware {
         self.usb();
         self.tick();
         self.poll_frame();
+        // Restart at once (at the top of the next loop), not after the rest.
+        if self.state.restart_wanted {
+            return;
+        }
         self.rest(battery, installing);
     }
 
@@ -514,7 +528,7 @@ impl Firmware {
                 let effects = self.kernel.firmware_state(now(), state);
                 self.apply(effects);
             }
-            FirmwareCommand::Restart => self.restart(),
+            FirmwareCommand::Restart => self.state.restart_wanted = true,
             // A command this firmware does not know: nothing done.
             _ => {}
         }
@@ -530,6 +544,7 @@ impl Firmware {
             .is_some_and(|screen| screen.as_str() == "reader.screen")
     }
 
+    #[inline(never)]
     fn restart(&mut self) -> ! {
         info!("restarting");
         crate::safe_mode::clean_exit();
@@ -1033,7 +1048,9 @@ impl Firmware {
                 self.settle_frame();
             }
             if effects.restart() {
-                self.restart();
+                // At the top of the next loop (`step`): nothing more is shown.
+                self.state.restart_wanted = true;
+                return;
             }
             // Turned (the setting): the same screens, made anew for the
             // turned size and drawn whole, instead of what was asked.
