@@ -862,7 +862,15 @@ impl NativeReader {
     }
 
     /// One step of the count of the pages; the next is declared while pages remain.
+    /// The count waits while another screen covers the reading screen: its
+    /// layouts would add to that screen's peak (#248, Manager's decision 1).
+    /// `reading_shown` starts it again.
     fn count_step(&mut self, host: &Host<'_>) {
+        if self.ui.is_some()
+            && self.stack_top(host).ok().flatten() != self.screens.top_instance(SCREEN)
+        {
+            return;
+        }
         let more = match (self.screens.top(SCREEN), &self.docs) {
             (Some(view), Some(docs)) => {
                 // The first page's marks are asked here, after it is shown.

@@ -659,3 +659,72 @@ fn a_book_ready_at_once_has_its_pages_counted() {
         "no pages in the record: {record}"
     );
 }
+
+/// Whether the reader's page index of a book is on the card.
+fn page_index(run: &Run) -> bool {
+    let mut files = Vec::new();
+    list_files(&run.card, "", &mut files);
+    files
+        .iter()
+        .any(|path| path.starts_with(".paperpaw/plugins/reader/pages-"))
+}
+
+/// The book opens and, the moment its reading screen is on top, the
+/// settings cover it: the count waits while it is covered (its layouts would
+/// add to the settings' peak) and goes on when the book shows again (#248,
+/// Manager's decision 1).
+#[test]
+#[ignore = "needs native activation (the book's format is a native plugin with the flip, #243)"]
+fn the_page_count_waits_while_another_screen_covers_the_book() {
+    let book = book_of("format-txt").expect("a txt book");
+    let mut run = Run::start(none_sleeps, Some(&book));
+    run.run(&actions::HOME);
+    run.now += 100;
+    native_activation::set_clock(run.now);
+    let mut effects = run.kernel.open_book(Instant(run.now), book.path);
+    // Only the passes that bring the reading screen up: the count's first
+    // step is due later.
+    for _ in 0..1000 {
+        if run
+            .kernel
+            .active_screen()
+            .is_some_and(|screen| screen.as_str() == "reader.screen")
+        {
+            break;
+        }
+        let Some(at) = effects.wake_at() else {
+            break;
+        };
+        run.now = run.now.max(at.0);
+        native_activation::set_clock(run.now);
+        effects = run.kernel.tick(Instant(run.now));
+    }
+    assert_eq!(
+        run.kernel.active_screen().map(Id::as_str),
+        Some("reader.screen"),
+        "the book did not open"
+    );
+    let effects = run
+        .kernel
+        .open_slot(Instant(run.now), slots::SETTINGS, Params::new());
+    run.step("settings over the book", effects);
+    // Each step ticks whatever is due within a second, so a count going on
+    // would run to its end here.
+    for _ in 0..3 {
+        run.run(&actions::DOWN);
+        run.run(&actions::UP);
+    }
+    assert!(
+        !page_index(&run),
+        "the pages were counted under the settings"
+    );
+    run.run(&actions::BACK);
+    assert_eq!(
+        run.kernel.active_screen().map(Id::as_str),
+        Some("reader.screen")
+    );
+    assert!(
+        page_index(&run),
+        "the count did not go on with the book shown"
+    );
+}
