@@ -7,7 +7,7 @@ use crate::native_host::HostResources;
 use crate::native_host::resources::{FontKey, FontRole};
 use core::ffi::c_void;
 use core::ptr;
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 
 /// The fake hosted in `pool`: under a new owner key, or again under `owner`.
 /// A hosting that is refused takes `()` as its module: the fixture's
@@ -161,4 +161,68 @@ fn a_key_the_pool_never_gave_out_is_refused() {
             Some(Error::Status(ERR_INVALID))
         );
     }
+}
+
+#[test]
+fn a_key_whose_owner_still_lives_is_not_hosted_twice() {
+    reset(NORMAL);
+    let pool = HostResources::try_new().unwrap();
+    let first = fake_in(&pool, None, module()).unwrap();
+    let key = first.resource_identity().unwrap().owner_id();
+    // No handle, nothing queued: only its being alive keeps the key.
+    assert_eq!(
+        fake_in(&pool, Some(key), ()).err(),
+        Some(Error::Status(ERR_BUSY))
+    );
+    drop(first);
+    let again = fake_in(&pool, Some(key), ()).unwrap();
+    assert_eq!(
+        fake_in(&pool, Some(key), ()).err(),
+        Some(Error::Status(ERR_BUSY)),
+        "nor while the second lives"
+    );
+    drop(again);
+    assert!(fake_in(&pool, Some(key), ()).is_ok());
+}
+
+#[test]
+fn no_key_is_hosted_again_once_a_retirement_was_lost() {
+    reset(NORMAL);
+    let pool = HostResources::try_new().unwrap();
+    let key = fake_in(&pool, None, ())
+        .unwrap()
+        .resource_identity()
+        .unwrap()
+        .owner_id();
+    pool.hosts().lose_a_retirement();
+    assert_eq!(
+        fake_in(&pool, Some(key), ()).err(),
+        Some(Error::Status(ERR_STATE))
+    );
+}
+
+#[test]
+fn a_refused_re_admission_leaves_nothing_behind() {
+    reset(NORMAL);
+    let pool = HostResources::try_new().unwrap();
+    // Four owners: the heap's owner table is full (4 places), so admitting
+    // one more asks for memory; the retirement queue has room for four.
+    let owners: alloc::vec::Vec<_> = (0..4).map(|_| pool.try_owner().unwrap()).collect();
+    let key = owners[0].owner_id();
+    let mut owners = owners.into_iter();
+    drop(owners.next());
+    let alive = pool.hosts().alive_owners();
+    super::super::tests::arm_failure(1);
+    let refused = pool.try_owner_for(key).err();
+    super::super::tests::arm_failure(0);
+    assert_eq!(refused, Some(ERR_NO_MEMORY));
+    assert_eq!(
+        pool.hosts().alive_owners(),
+        alive,
+        "its retirement room is back"
+    );
+    // Not marked live: the next try takes it.
+    let again = pool.try_owner_for(key).unwrap();
+    assert_eq!(again.owner_id(), key);
+    drop(owners);
 }

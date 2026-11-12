@@ -188,6 +188,18 @@ impl HostServices {
         Ok(())
     }
 
+    /// Owners alive now (tests).
+    #[cfg(test)]
+    pub(crate) fn alive_owners(&self) -> usize {
+        self.alive.get()
+    }
+
+    /// A retirement that could not be queued (tests: the broken invariant).
+    #[cfg(test)]
+    pub(crate) fn lose_a_retirement(&self) {
+        self.lost.set(self.lost.get().saturating_add(1));
+    }
+
     /// Whether `owner` still waits for its retirement (queued).
     ///
     /// # Errors

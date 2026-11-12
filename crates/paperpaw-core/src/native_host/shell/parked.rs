@@ -82,6 +82,9 @@ impl<S: Services + 'static, M> Hosted<S, M> {
     /// other host resource (an open operation, file, socket, secret,
     /// document, request) needs a host call of its own, so none can be held
     /// then. The kernel adds its own tables (timers, work, queued events).
+    /// It does not see the plugin's own memory: sound for a plugin parked
+    /// before any callback ran (phase 1), not on its own for parking one
+    /// again after it ran (phase 2), whose state would be lost.
     ///
     /// # Errors
     /// `ERR_BUSY` while the handle table is in use.
