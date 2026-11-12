@@ -294,8 +294,12 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
                     fixed_tables(id),
                 )
             };
-            outcome.push((*id, status));
-            continue;
+            // No room for what sleeping keeps: the plugin is registered
+            // awake below instead of not at all.
+            if !matches!(status, Err(Error::Allocation)) {
+                outcome.push((*id, status));
+                continue;
+            }
         }
         let Some(share) = resources.try_clone() else {
             outcome.push((*id, Err(Error::Allocation)));
