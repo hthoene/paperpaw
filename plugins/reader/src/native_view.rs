@@ -151,6 +151,8 @@ struct Open {
     chapter: Option<Chapter>,
     /// The status lines chosen at the top and the bottom.
     status: native_status::State,
+    /// The packs of letters this book asked for while open (`native_script_hint`).
+    packs_asked: crate::native_script_hint::Asked,
 }
 
 /// One open reading screen.
@@ -379,6 +381,7 @@ impl View {
             class_asked: false,
             chapter: None,
             status: native_status::State::default(),
+            packs_asked: 0,
         };
         open.begin(host, root == Root::Library);
         // The packs of letters the reading font lacks, asked for once a book.
@@ -389,7 +392,7 @@ impl View {
             path: &open.path,
             script,
         };
-        crate::native_script_hint::ask(host, docs, &book);
+        open.packs_asked = crate::native_script_hint::ask(host, docs, &book);
         // The host's book events start here (`document.md` 2.4); a book whose
         // first page cannot be laid out is told with its first draw.
         open.announce(host, docs);
@@ -632,6 +635,14 @@ impl View {
                 path: &open.path,
                 script: crate::native_script_hint::declared(&open.language),
             }),
+            Body::Message(_) | Body::Preparing(_) => None,
+        }
+    }
+
+    /// The packs of letters the open book asked for, to take an answer off.
+    pub(crate) fn packs_asked(&mut self) -> Option<&mut crate::native_script_hint::Asked> {
+        match &mut self.body {
+            Body::Open(open) => Some(&mut open.packs_asked),
             Body::Message(_) | Body::Preparing(_) => None,
         }
     }

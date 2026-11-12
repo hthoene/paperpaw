@@ -326,6 +326,22 @@ fn what_was_asked_is_kept_a_few_lines_long() {
 }
 
 #[test]
+fn each_pack_has_its_own_bit_so_an_answer_reaches_only_the_book_that_asked() {
+    let all: Vec<Asked> = SCRIPTS
+        .iter()
+        .map(|(.., pack)| bit(pack))
+        .chain([bit(KOREAN_EXTRA)])
+        .collect();
+    assert_eq!(all.iter().fold(0, |set, b| set | b).count_ones(), 6);
+    assert!(all.iter().all(|b| b.count_ones() == 1));
+    assert_eq!(bit("dictionary"), 0);
+    assert!(!is_pack("dictionary") && is_pack(KOREAN_EXTRA));
+    let asked = bits(&["script-greek", "script-hebrew"]);
+    assert_ne!(asked & bit("script-greek"), 0);
+    assert_eq!(asked & bit("script-cyrillic"), 0);
+}
+
+#[test]
 fn an_answer_that_could_not_be_had_is_forgotten() {
     assert_eq!(effect(PluginOutcome::Failed), Effect::Forget);
     assert_eq!(effect(PluginOutcome::Installed), Effect::Relayout);

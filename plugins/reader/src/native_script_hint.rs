@@ -15,7 +15,8 @@
 //!
 //! The decisions ([`lacking`], [`needed`], [`with_asked`], [`without`],
 //! [`effect`]) hold no host and are tested without one; [`ask`] and
-//! [`answered`] are the host's side. Nothing is held after a decision.
+//! [`answered`] are the host's side. Nothing is held after a decision but
+//! the open book's [`Asked`] byte, the packs it asked for.
 use crate::native_document::HostDocument;
 use crate::native_view::View;
 use alloc::string::String;
@@ -423,7 +424,29 @@ pub const fn effect(outcome: PluginOutcome) -> Effect {
 /// Whether `id` is one of the packs the reader asks for.
 #[must_use]
 pub fn is_pack(id: &str) -> bool {
-    id == KOREAN_EXTRA || SCRIPTS.iter().any(|(.., pack)| *pack == id)
+    bit(id) != 0
+}
+
+/// The bit of pack `id` in a book's [`Asked`] set; 0 for no pack of ours.
+#[must_use]
+pub fn bit(id: &str) -> Asked {
+    if id == KOREAN_EXTRA {
+        return 1 << SCRIPTS.len();
+    }
+    SCRIPTS
+        .iter()
+        .position(|(.., pack)| *pack == id)
+        .map_or(0, |at| 1 << at)
+}
+
+/// The packs one open book asked for (a bit each, [`bit`]): an answer that
+/// could not be had is forgotten for the book that asked, as in Beta 3, not
+/// for other books on show that asked before.
+pub type Asked = u8;
+
+/// The set of `ids`.
+fn bits(ids: &[&str]) -> Asked {
+    ids.iter().fold(0, |set, id| set | bit(id))
 }
 
 /// The open book as the hint reads it.
@@ -443,27 +466,30 @@ pub struct Book<'a> {
 /// asked for are asked for, and kept as asked. A refusal on the way asks
 /// nothing (the next opening asks again); it never ends the caller's callback.
 /// Called from events only (the screen opened or shown, the document ready,
-/// an answer), never from a draw.
+/// an answer), never from a draw. The packs asked for now.
 #[inline(never)]
-pub fn ask(host: &Host<'_>, docs: &Documents, book: &Book<'_>) {
+pub fn ask(host: &Host<'_>, docs: &Documents, book: &Book<'_>) -> Asked {
     let Ok((wanted, kept)) = decide(host, docs, book) else {
-        return;
+        return 0;
     };
     if wanted.is_empty() {
-        return;
+        return 0;
     }
     let Ok(mut scratch) = buffer(COMMAND_BYTES) else {
-        return;
+        return 0;
     };
     // Kept only once the request was taken: a refused one (two of the
     // reader's own still open, `ERR_FULL`) is asked for at the next opening.
     if CommandSender::new(host, &mut scratch)
         .request_plugins(wanted.ids())
-        .is_ok()
-        && let Ok(text) = with_asked(&kept, wanted.ids())
+        .is_err()
     {
+        return 0;
+    }
+    if let Ok(text) = with_asked(&kept, wanted.ids()) {
         keep(host, book.path, &text);
     }
+    bits(wanted.ids())
 }
 
 /// The packs `book` needs, and the file of those asked for before.
@@ -569,6 +595,15 @@ pub fn answered<'v>(
         match effect(outcome) {
             Effect::Keep => {}
             Effect::Forget => {
+                // Only the book that asked for it (Beta 3 forgot it for its
+                // own book alone).
+                let Some(asked) = view.packs_asked() else {
+                    continue;
+                };
+                if *asked & bit(plugin) == 0 {
+                    continue;
+                }
+                *asked &= !bit(plugin);
                 let Some((path, _)) = view.book() else {
                     continue;
                 };
@@ -590,7 +625,10 @@ pub fn answered<'v>(
                 view.reflow(host, docs).ok();
                 laid = true;
                 if let Some(book) = view.hint_book() {
-                    ask(host, docs, &book);
+                    let now = ask(host, docs, &book);
+                    if let Some(asked) = view.packs_asked() {
+                        *asked |= now;
+                    }
                 }
             }
         }
