@@ -60,7 +60,7 @@ pub(crate) fn call(
                 ERR_NOT_FOUND
             }
         })?;
-    if lease.live()?.callback_depth() != 1 {
+    if lease.checked_depth()? != 1 {
         return Err(ERR_BUSY);
     }
     let input = input(payload)?;

@@ -1,0 +1,4 @@
+### Changed
+
+- **Parked native plugins, kernel side** (#248, #2638). A native plugin's lease holds its live instance or, for a parked plugin, the recipe that makes it again at a safe point (`ERR_BUSY` and a start on the next pass elsewhere, a back-off after no memory, withdrawal at the pass boundary on a refused batch). The setting and stack-event pumps make a parked subscriber before telling it and keep its event where they cannot. Nothing is parked yet.
+- **Linked plugins parked at their admission** (#248, #2638). `Kernel::register_linked_parked` parks a linked plugin right after its own `make` where that `make` only registered, it holds nothing of the host, its declarations lie in the program's image and no other plugin's callback can reach it; its declarations are published and its instance dropped. Its first use hosts it again under its old owner seat; another batch withdraws it. No shell calls it yet.

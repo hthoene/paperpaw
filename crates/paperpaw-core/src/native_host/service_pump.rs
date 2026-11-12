@@ -223,6 +223,7 @@ impl crate::Kernel {
         // clocks run: a plugin whose network was turned off loses what it
         // has open in this pass.
         self.sync_net_policy();
+        self.shared.native_instances.set_now(self.now.millis());
         self.shared
             .native_instances
             .retry_run_closes(self.now.millis());
@@ -294,6 +295,11 @@ impl crate::Kernel {
         );
         // Saved passwords that did not open here: said once per start.
         self.secrets_notice();
+        // Parked plugins asked to start in this pass are made now, and what
+        // waited for them goes in the next pass (#248).
+        if self.native_unpark_pending() {
+            self.shared.native_instances.set_service_more(true);
+        }
     }
 
     /// When the pump wants to run again: now while events remain, else at

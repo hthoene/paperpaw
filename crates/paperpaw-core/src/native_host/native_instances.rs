@@ -2,6 +2,7 @@
 //! Registrations retain leases from this registry, never a second plugin owner.
 use super::{
     event_tags::EventTags,
+    lease_slot::{Slot, Unpark},
     native_callbacks::{CallbackClock, CallbackRuntime, NativeCallbackEpoch},
     native_screen::Dispatch,
     owner_directory::OwnerDirectory,
@@ -10,7 +11,7 @@ use super::{
 };
 use alloc::{boxed::Box, string::String, vec::Vec};
 use core::cell::Cell;
-use paperpaw_native::host_glue::{ERR_CANCELLED, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_sdk::Id;
 
 pub(crate) trait NativeInstance: Dispatch {
@@ -78,23 +79,74 @@ pub(crate) trait NativeInstance: Dispatch {
     }
 }
 
-pub(crate) struct NativeLease(Shared<Box<dyn NativeInstance>>);
+pub(crate) struct NativeLease(Shared<Slot>);
 
 impl NativeLease {
     pub(crate) fn try_new(instance: impl NativeInstance + 'static) -> Result<Self, i32> {
         let instance: Box<dyn NativeInstance> = shared::try_box(instance).ok_or(ERR_NO_MEMORY)?;
-        Shared::try_new(instance)
+        Shared::try_new(Slot::live_now(instance))
             .map(Self)
             .map_err(|_| ERR_NO_MEMORY)
+    }
+    /// A parked plugin's lease: running for everyone, made by `recipe` at
+    /// the first call at a safe point of `clock` (`lease_slot`).
+    pub(crate) fn parked(recipe: Box<dyn Unpark>, clock: CallbackRuntime) -> Result<Self, i32> {
+        let slot = Slot::parked(recipe, clock).ok_or(ERR_NO_MEMORY)?;
+        Shared::try_new(slot).map(Self).map_err(|_| ERR_NO_MEMORY)
     }
     pub(crate) fn try_clone(&self) -> Result<Self, i32> {
         self.0.try_clone().map(Self).ok_or(ERR_NO_MEMORY)
     }
+    /// The one accessor of a call into the plugin: a parked plugin is made
+    /// here at a safe point, else `ERR_BUSY` (asked to start on the next
+    /// pass). `ERR_CANCELLED` for a stopped plugin.
     pub(crate) fn live(&self) -> Result<&dyn NativeInstance, i32> {
+        self.0.live()
+    }
+    /// Running, parked included: a parked plugin is running for everyone.
+    pub(crate) fn running(&self) -> bool {
+        self.0.running()
+    }
+    /// The live instance without making a parked one (state and metadata
+    /// only; `None` while parked).
+    pub(crate) fn peek(&self) -> Option<&dyn NativeInstance> {
+        self.0.peek()
+    }
+    pub(crate) fn is_parked(&self) -> bool {
+        self.0.is_parked()
+    }
+    /// Whether the plugin subscribed to `tag`, without making it.
+    pub(crate) fn subscribed(&self, tag: u32) -> bool {
+        self.0.running() && self.0.subscribed(tag)
+    }
+    /// The plugin's image, without making it.
+    pub(crate) fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
+        self.0.with_image(visit);
+    }
+    pub(crate) fn take_start(&self) -> bool {
+        self.0.take_start()
+    }
+    pub(crate) fn refused(&self) -> bool {
+        self.0.refused()
+    }
+    /// The callback depth of the live instance, without making a parked
+    /// one (0 while parked: a nested call into it answers `ERR_BUSY`).
+    ///
+    /// # Errors
+    /// `ERR_CANCELLED` for a stopped plugin.
+    pub(crate) fn checked_depth(&self) -> Result<u8, i32> {
+        if !self.0.running() {
+            return Err(paperpaw_native::host_glue::ERR_CANCELLED);
+        }
+        Ok(self.0.peek().map_or(0, NativeInstance::callback_depth))
+    }
+    /// `ERR_CANCELLED` for a stopped plugin, `Ok` for a running or parked
+    /// one: a check that makes nothing.
+    pub(crate) fn check_running(&self) -> Result<(), i32> {
         if self.0.running() {
-            Ok(&**self.0)
+            Ok(())
         } else {
-            Err(ERR_CANCELLED)
+            Err(paperpaw_native::host_glue::ERR_CANCELLED)
         }
     }
     pub(crate) fn stop(&self) {
@@ -190,7 +242,10 @@ impl Dispatch for NativeLease {
         self.live()?.stage(token, bytes, out, env)
     }
     fn dropped(&self, token: u32, status: i32) {
-        self.0.dropped(token, status);
+        // Told to the live instance only: a parked plugin was never called.
+        if let Some(instance) = self.0.peek() {
+            instance.dropped(token, status);
+        }
     }
 }
 
@@ -288,10 +343,12 @@ impl Drop for CallbackEpoch<'_> {
 
 /// The event tags an instance subscribed to.
 fn subscriptions(lease: &NativeLease) -> EventTags {
-    lease.live().map_or_else(
-        |_| EventTags::default(),
-        |instance| EventTags::collect(|tag| instance.subscribed(tag)),
-    )
+    // A parked plugin's subscriptions are its recipe's: nothing is made.
+    if lease.running() {
+        EventTags::collect(|tag| lease.subscribed(tag))
+    } else {
+        EventTags::default()
+    }
 }
 
 impl NativeInstances {
@@ -506,8 +563,7 @@ impl NativeInstances {
         self.entry(key)
             .filter(|entry| entry.enabled)
             .and_then(|entry| entry.instance.as_ref())
-            .and_then(|lease| lease.live().ok())
-            .is_some_and(|instance| instance.subscribed(tag))
+            .is_some_and(|lease| lease.subscribed(tag))
     }
 
     pub(crate) fn find(&self, id: &str) -> Option<u64> {
@@ -523,7 +579,7 @@ impl NativeInstances {
             return Ok(InstanceState::Stopped);
         }
         match &entry.instance {
-            Some(instance) if instance.live().is_ok() => {
+            Some(instance) if instance.running() => {
                 Ok(InstanceState::Running(instance.try_clone()?))
             }
             Some(_) => Ok(InstanceState::Stopped),
@@ -553,6 +609,34 @@ impl NativeInstances {
             entry.start.set(true);
         }
         Ok(())
+    }
+
+    /// A parked plugin whose start is due now (asked where it could not be
+    /// made, its wait over) and whether its batch was refused: at a safe
+    /// point only (`lease_slot`, #248).
+    pub(crate) fn take_parked_start(&self) -> Option<(u64, bool)> {
+        if !self.callbacks.safe_point() {
+            return None;
+        }
+        self.entries
+            .iter()
+            .filter(|entry| entry.enabled && !entry.retiring)
+            .find_map(|entry| {
+                let lease = entry.instance.as_ref()?;
+                lease.take_start().then(|| (entry.key, lease.refused()))
+            })
+    }
+    /// The kernel's time, for a parked plugin's wait after no memory.
+    pub(crate) fn set_now(&self, now_ms: u64) {
+        self.callbacks.set_now(now_ms);
+    }
+    /// No parked plugin is made while the guard lives (a registration).
+    pub(crate) fn hold_unparking(&self) -> Option<super::native_callbacks::Hold> {
+        self.callbacks.hold()
+    }
+    /// The clock a parked plugin's lease reads its safe points from.
+    pub(crate) fn unpark_clock(&mut self) -> Result<CallbackRuntime, i32> {
+        self.callbacks.runtime()
     }
 
     /// Zero allocation, deduplicated by entry; never flush inside a callback.
@@ -945,7 +1029,7 @@ impl NativeInstances {
             .iter()
             .filter(|entry| entry.enabled && !entry.retiring)
             .filter_map(|entry| Some((entry.key, entry.instance.as_ref()?)))
-            .filter(|(_, lease)| lease.live().is_ok())
+            .filter(|(_, lease)| lease.running())
             .nth(index)
     }
 }
@@ -957,6 +1041,18 @@ pub(crate) struct NativeIdentity {
     pool: Option<OwnerResourceView>,
 }
 impl NativeIdentity {
+    /// The same identity again: a parked plugin's recipe keeps one for each
+    /// time it makes the plugin's dispatch (#248).
+    pub(crate) fn try_clone(&self) -> Option<Self> {
+        Some(Self {
+            owner: self.owner,
+            callbacks: self.callbacks.try_clone()?,
+            pool: match &self.pool {
+                Some(pool) => Some(pool.try_clone()?),
+                None => None,
+            },
+        })
+    }
     pub(crate) fn owner(&self) -> u64 {
         self.owner
     }
@@ -1005,6 +1101,7 @@ mod tests {
     #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
     use super::*;
     use alloc::rc::Rc;
+    use paperpaw_native::host_glue::ERR_CANCELLED;
     use paperpaw_sdk::Env;
     struct Fake {
         active: Cell<bool>,

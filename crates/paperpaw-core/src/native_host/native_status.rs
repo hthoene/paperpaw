@@ -51,7 +51,7 @@ impl StatusAsk for StatusCalls<'_> {
             .try_borrow()
             .map_err(|_| ERR_BUSY)?
             .native_lease(owner)?;
-        if lease.live()?.callback_depth() != 1 {
+        if lease.checked_depth()? != 1 {
             return Err(ERR_BUSY);
         }
         let input = input(items, context)?;
