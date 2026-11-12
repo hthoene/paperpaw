@@ -45,6 +45,13 @@ impl crate::Kernel {
                 made |= lease.live().is_ok();
             }
         }
+        if made {
+            // What waited for it in the document loop (a pending open, a
+            // cover or details step) goes on at the next pass, not after the
+            // loop's back-off: it backed off only because the plugin was not
+            // made yet (#248, a parked format).
+            self.shared.native_instances.set_doc_retry(None);
+        }
         made
     }
 }
