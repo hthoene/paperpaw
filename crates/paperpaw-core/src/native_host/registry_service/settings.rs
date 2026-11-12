@@ -5,6 +5,7 @@
 use super::{
     Asker, Row,
     fixed::{Fixed, caps, clip, translated},
+    native_extra::{self, Shown},
     schema,
     sources::Sources,
 };
@@ -19,7 +20,7 @@ use alloc::vec::Vec;
 use core::{mem::MaybeUninit, ops::ControlFlow};
 use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_sdk::{
-    Editor, Level, SettingKind, SettingSpec, SettingValue, Settings,
+    Level, SettingKind, SettingSpec, SettingValue, Settings,
     builtin::{groups::OTHER, slots::SETTINGS},
 };
 
@@ -215,7 +216,10 @@ fn with_row<R>(
             GOVERNS,
         ),
         (
-            extra.slider && matches!(spec.kind, SettingKind::Int { .. }),
+            // A native plugin's declared extra is read from the store; while
+            // the store is being changed none shows (the list is asked again).
+            matches!(spec.kind, SettingKind::Int { .. })
+                && native_extra::with_extra(sources, spec, |shown| shown.slider).unwrap_or(false),
             SLIDER,
         ),
     ] {
@@ -361,48 +365,7 @@ pub(super) fn detail(
 ) -> Result<(), i32> {
     let spec = exact(sources, key).ok_or(ERR_NOT_FOUND)?;
     with_row(sources, asker, spec, None, |row| visit(row))?;
-    let extra = spec.extra();
-    let (min, max) = match &spec.kind {
-        SettingKind::Int { min, max } => (clamp32(*min), clamp32(*max)),
-        _ => (0, 0),
-    };
-    // The section's key of a setting made for each plugin is that plugin's
-    // name: built here, on the stack.
-    let plugin_section = if extra.section_of_plugin {
-        let plugin = spec.id.as_str().rsplit('.').next().unwrap_or_default();
-        Fixed::<{ caps::ID }>::of(&[plugin, ".plugin.name"])
-    } else {
-        None
-    };
-    let section = plugin_section
-        .as_ref()
-        .map(Fixed::as_str)
-        .or(extra.section.as_deref())
-        .unwrap_or("");
-    let (shown_id, shown_value) = extra
-        .shown_if
-        .as_ref()
-        .map_or(("", ""), |(id, value)| (id.as_str(), *value));
-    let (editor_kind, editor) = match &extra.editor {
-        Some(Editor::Screen(screen)) => (1, screen.as_str()),
-        Some(Editor::Slot(slot)) => (2, slot.as_str()),
-        _ => (0, ""),
-    };
-    visit(&Record::ServiceRegSettingExtra(
-        wire::ServiceRegSettingExtra {
-            min,
-            max,
-            step: clamp32(extra.step),
-            unit: clip(extra.unit.as_deref().unwrap_or(""), 96),
-            section: clip(section, caps::ID),
-            follows: extra.follows.as_ref().map_or("", paperpaw_sdk::Id::as_str),
-            shown_id,
-            shown_value: clip(shown_value, caps::ID),
-            editor_kind,
-            editor,
-            choices: choice_count(spec),
-        },
-    ))?;
+    native_extra::with_extra(sources, spec, |shown| extra_row(spec, shown, visit))??;
     let help = spec.description.as_deref().unwrap_or("");
     if help.is_empty() {
         return Ok(());
@@ -412,4 +375,40 @@ pub(super) fn detail(
         return Ok(());
     }
     visit(&Record::ServiceRegText(wire::ServiceRegText { text }))
+}
+
+/// Op 2's `reg_setting_extra` of `spec`, with what its extra says.
+fn extra_row(
+    spec: &SettingSpec,
+    shown: &Shown<'_>,
+    visit: &mut dyn FnMut(&dyn Row) -> Result<(), i32>,
+) -> Result<(), i32> {
+    let (min, max) = match &spec.kind {
+        SettingKind::Int { min, max } => (clamp32(*min), clamp32(*max)),
+        _ => (0, 0),
+    };
+    // The section's key of a setting made for each plugin is that plugin's
+    // name: built here, on the stack.
+    let plugin_section = if shown.section_of_plugin {
+        let plugin = spec.id.as_str().rsplit('.').next().unwrap_or_default();
+        Fixed::<{ caps::ID }>::of(&[plugin, ".plugin.name"])
+    } else {
+        None
+    };
+    let section = plugin_section.as_ref().map_or(shown.section, Fixed::as_str);
+    visit(&Record::ServiceRegSettingExtra(
+        wire::ServiceRegSettingExtra {
+            min,
+            max,
+            step: clamp32(shown.step),
+            unit: clip(shown.unit, 96),
+            section: clip(section, caps::ID),
+            follows: shown.follows,
+            shown_id: shown.shown_id,
+            shown_value: clip(shown.shown_value, caps::ID),
+            editor_kind: shown.editor_kind,
+            editor: shown.editor,
+            choices: choice_count(spec),
+        },
+    ))
 }
