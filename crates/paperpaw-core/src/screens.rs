@@ -101,9 +101,9 @@ fn next_screen_serial(next: u32, native: bool) -> Option<(u32, u32)> {
     serial.checked_add(1).map(|following| (serial, following))
 }
 
-/// Whether a failed native open is told to the user: not after a lack of
-/// memory, which the notice screen would meet as well (`notify` allocates
-/// without a check); the log diagnostic says it then.
+/// Whether a failed native open is told with the general notice: not after a
+/// lack of memory, which that notice would meet as well (`notify` allocates
+/// without a check); the one made ahead says it then (`memory_notice`).
 fn tells_the_user(status: i32) -> bool {
     status != paperpaw_native::host_glue::ERR_NO_MEMORY
 }
@@ -182,6 +182,8 @@ impl Kernel {
                 self.warn_native_open_failed();
                 if tells_the_user(status) {
                     self.notify_native_open_failed();
+                } else {
+                    self.show_memory_notice();
                 }
                 return;
             }
@@ -612,6 +614,7 @@ impl Kernel {
         };
         let env = self.shared.env(self.now);
         let region = notice_area(screen.as_ref(), &env);
+        self.waiting_notices.ended(screen);
         self.invalidate(region);
         self.output.request_refresh(RefreshMode::Fast);
         self.notice_cause();

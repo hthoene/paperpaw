@@ -486,6 +486,13 @@ impl Kernel {
         if *id == core_settings::UI_TEXT_CURVE || *id == core_settings::LANGUAGE {
             self.apply_ui_text_curve();
         }
+        if *id == core_settings::LANGUAGE
+            || *id == core_settings::UI_TEXT_CURVE
+            || *id == core_settings::UI_SIZE
+            || *id == core_settings::ROTATION
+        {
+            self.renew_memory_notice();
+        }
         if *id == core_settings::READING_FONT {
             self.apply_reading_font();
         }

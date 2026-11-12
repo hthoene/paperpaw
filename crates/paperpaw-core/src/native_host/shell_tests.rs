@@ -1466,6 +1466,8 @@ mod command_dispatch;
 #[path = "stage_broker_native_tests.rs"]
 mod stage_broker_native;
 
+#[path = "memory_notice_tests.rs"]
+mod memory_notice;
 #[path = "native_device_defaults_tests.rs"]
 mod native_device_defaults;
 #[path = "native_late_config_tests.rs"]
