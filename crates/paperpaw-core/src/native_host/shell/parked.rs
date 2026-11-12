@@ -35,10 +35,6 @@ impl<S: Services + 'static, M> Hosted<S, M> {
     /// # Safety
     /// As [`new`](Self::new).
     #[allow(clippy::too_many_arguments, reason = "as `new`, with the seat")]
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the kernel's unpark recipe calls it (#2638)")
-    )]
     pub(crate) unsafe fn new_for_owner(
         services: S,
         module: M,
@@ -68,10 +64,6 @@ impl<S: Services + 'static, M> Hosted<S, M> {
 
     /// The owner key and heap place to host the plugin again under
     /// ([`Self::new_for_owner`]), kept while it is parked.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the kernel's unpark recipe keeps it (#2638)")
-    )]
     pub(crate) fn seat(&self) -> OwnerSeat {
         self.owner.as_ref().context().resources.seat()
     }
@@ -80,10 +72,6 @@ impl<S: Services + 'static, M> Hosted<S, M> {
     /// heap): nothing it read can make a second `make` register differently
     /// (#248, parked plugins condition 1). `false` before `make` ran.
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the kernel's unpark recipe calls it (#2638)")
-    )]
     pub(crate) fn make_registered_only(&self) -> bool {
         let context = self.owner.as_ref().context();
         context.attempted.get() && !context.calls.make.get()
@@ -101,10 +89,6 @@ impl<S: Services + 'static, M> Hosted<S, M> {
     ///
     /// # Errors
     /// `ERR_BUSY` while the handle table is in use.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the kernel's unpark recipe calls it (#2638)")
-    )]
     pub(crate) fn owner_idle(&self) -> Result<bool, i32> {
         let context = self.owner.as_ref().context();
         if !self.make_registered_only() || context.calls.after_make.get() {

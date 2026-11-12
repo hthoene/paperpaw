@@ -103,6 +103,10 @@ impl NativeLease {
     pub(crate) fn live(&self) -> Result<&dyn NativeInstance, i32> {
         self.0.live()
     }
+    /// Its slot, for what only a parked plugin's lease does (`lease_slot`).
+    pub(crate) fn slot(&self) -> &Slot {
+        &self.0
+    }
     /// Running, parked included: a parked plugin is running for everyone.
     pub(crate) fn running(&self) -> bool {
         self.0.running()
@@ -1024,6 +1028,14 @@ impl NativeInstances {
 
     /// The `index`th running instance, in order of installation: its key and
     /// its lease. `None` past the last.
+    /// The first time a parked plugin asked to start may be made.
+    pub(crate) fn parked_start_at(&self) -> Option<u64> {
+        let leases = self
+            .entries
+            .iter()
+            .filter_map(|entry| entry.instance.as_ref());
+        leases.filter_map(|lease| lease.slot().start_at()).min()
+    }
     pub(crate) fn running_nth(&self, index: usize) -> Option<(u64, &NativeLease)> {
         self.entries
             .iter()
@@ -1041,6 +1053,18 @@ pub(crate) struct NativeIdentity {
     pool: Option<OwnerResourceView>,
 }
 impl NativeIdentity {
+    /// The same identity again: a parked plugin's recipe keeps one for each
+    /// time it makes the plugin's dispatch (#248).
+    pub(crate) fn try_clone(&self) -> Option<Self> {
+        Some(Self {
+            owner: self.owner,
+            callbacks: self.callbacks.try_clone()?,
+            pool: match &self.pool {
+                Some(pool) => Some(pool.try_clone()?),
+                None => None,
+            },
+        })
+    }
     pub(crate) fn owner(&self) -> u64 {
         self.owner
     }

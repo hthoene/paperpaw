@@ -35,8 +35,9 @@ open, its actions run. No `ERR_CANCELLED` and no missed event because of it.
 
 ## Which plugins are parked (M2, M3): checked in code
 
-Once, right after `Kernel::start` admitted all linked plugins (`native_hosted`), each linked plugin
-is parked only if all of these hold, checked by the host, not taken from an audit:
+Right after its own `make`, inside its admission (`Kernel::register_linked_parked`, before any
+callback or pump pass; #1337), a linked plugin is parked only if all of these hold, checked by the
+host, not taken from an audit (another plugin's later `make` only registers and cannot reach it):
 
 1. **`make` only registered.** While the start `make` runs, the host records every host call other
    than `registrations.submit` and the heap (Core, in the registration scope). One such call keeps
@@ -62,7 +63,11 @@ hand-overs, timers, work and every event pump). It answers `Parked` itself:
 
 - **At a safe point** (callback depth 0, no event batch being delivered, no registration transaction
   open) it unparks synchronously and goes on: a command applied in `run_commands`, an action run,
-  a screen or slot opened (also another plugin's staged open and the dialog pump).
+  a screen or slot opened (also another plugin's staged open and the dialog pump). The apply of
+  another plugin's staged batch (`native_outbox_run`) at depth 0 is a safe point too: the batch is
+  moved out of the outbox first, and a remake only builds the dispatch and checks the batch, it
+  touches neither the registry nor the stack (Senior on #1337). A screen is made as it opens; one
+  that cannot be made then (its wait after no memory) fails the open as without memory.
 - **Anywhere else** it marks `request_start` and answers `ERR_BUSY`. An event pump keeps the event
   and calls again after its pass ends (the pending starts are taken at the pass boundary and at the
   top of `run_commands`, both safe points). This is how `firmware_tell` works today.

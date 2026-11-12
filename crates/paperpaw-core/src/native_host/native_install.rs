@@ -16,7 +16,7 @@ use paperpaw_native::host_glue::{
 use paperpaw_sdk::{Contribution, Id, NativeAction, RegisterError};
 
 /// Owned mapping results; future declaration families extend this one dispatch.
-enum Owned {
+pub(super) enum Owned {
     Screen(Callback),
     Action(Callback),
     /// Boxed at once: a spec is large, and the list holds one place for each
@@ -189,8 +189,9 @@ impl crate::Kernel {
         depth: &FlatDepth,
         report: fn(&S, &str, u32, i32),
         fixed: super::FixedTables,
+        park: Option<super::park_linked::ParkArgs<S>>,
     ) -> Result<(), shell::Error> {
-        self.register_native_with(host, depth, None, report, fixed)
+        self.register_native_with(host, depth, None, report, fixed, park)
     }
 
     /// [`Self::register_native`] for a plugin that lives in `folder` (the loader
@@ -216,7 +217,7 @@ impl crate::Kernel {
         folder: Option<&str>,
         report: fn(&S, &str, u32, i32),
     ) -> Result<(), shell::Error> {
-        self.register_native_with(host, depth, folder, report, super::FixedTables::NONE)
+        self.register_native_with(host, depth, folder, report, super::FixedTables::NONE, None)
     }
 
     fn register_native_with<S: Services + 'static, M: 'static>(
@@ -226,11 +227,12 @@ impl crate::Kernel {
         folder: Option<&str>,
         report: fn(&S, &str, u32, i32),
         fixed: super::FixedTables,
+        park: Option<super::park_linked::ParkArgs<S>>,
     ) -> Result<(), shell::Error> {
         let fonts_before = self.shared.fonts.ids().count();
         let offers_before = self.shared.registry.offers();
         let keys_before = self.native_key_count();
-        self.admit_native_with(host, depth, folder, report, fixed)?;
+        self.admit_native_with(host, depth, folder, report, fixed, park)?;
         // `core.secrets` is the kernel's now: interface 6's passwords are
         // read through its sealer too (`secrets_i6.rs`).
         self.open_sealed_secrets();
@@ -265,30 +267,13 @@ impl crate::Kernel {
         folder: Option<&str>,
         report: fn(&S, &str, u32, i32),
     ) -> Result<(), shell::Error> {
-        self.admit_native_with(host, depth, folder, report, super::FixedTables::NONE)
+        self.admit_native_with(host, depth, folder, report, super::FixedTables::NONE, None)
     }
 
-    /// [`Self::admit_native`] for a plugin with a table of settings kept in the
-    /// program (`fixed`, empty for none).
-    fn admit_native_with<S: Services + 'static, M: 'static>(
-        &mut self,
-        host: shell::Hosted<S, M>,
-        depth: &FlatDepth,
-        folder: Option<&str>,
-        report: fn(&S, &str, u32, i32),
-        fixed: super::FixedTables,
-    ) -> Result<(), shell::Error> {
-        // A registration transaction: no parked plugin is made during it
-        // (#248, parked plugins M5).
-        let _hold = self.shared.native_instances.hold_unparking();
-        let (networked, installer) = declared_uses(&host);
-        self.shared
-            .native_instances
-            .adopt_pool(
-                host.resource_identity()
-                    .ok_or(shell::Error::Status(ERR_NO_MEMORY))?,
-            )
-            .map_err(shell::Error::Status)?;
+    /// The tables every native admission shares, made at the first; the
+    /// plugin's copy of the device-wide callback depth (refused where it
+    /// brings a counter of its own).
+    fn admission_tables(&mut self, depth: &FlatDepth) -> Result<FlatDepth, shell::Error> {
         self.attach_native_hosts();
         if self.shared.registry.native_declarations.is_none() {
             self.shared.registry.native_declarations = Some(
@@ -312,6 +297,32 @@ impl crate::Kernel {
             }
             Some(_) => {}
         }
+        Ok(depth)
+    }
+
+    /// [`Self::admit_native`] for a plugin with a table of settings kept in the
+    /// program (`fixed`, empty for none).
+    fn admit_native_with<S: Services + 'static, M: 'static>(
+        &mut self,
+        host: shell::Hosted<S, M>,
+        depth: &FlatDepth,
+        folder: Option<&str>,
+        report: fn(&S, &str, u32, i32),
+        fixed: super::FixedTables,
+        park: Option<super::park_linked::ParkArgs<S>>,
+    ) -> Result<(), shell::Error> {
+        // A registration transaction: no parked plugin is made during it
+        // (#248, parked plugins M5).
+        let _hold = self.shared.native_instances.hold_unparking();
+        let (networked, installer) = declared_uses(&host);
+        self.shared
+            .native_instances
+            .adopt_pool(
+                host.resource_identity()
+                    .ok_or(shell::Error::Status(ERR_NO_MEMORY))?,
+            )
+            .map_err(shell::Error::Status)?;
+        let depth = self.admission_tables(depth)?;
         let folder = folder
             .map(|folder| folder.trim_end_matches('/'))
             .filter(|folder| !folder.is_empty());
@@ -370,14 +381,31 @@ impl crate::Kernel {
                 true,
             )
             .map_err(shell::Error::Status)?;
-        let result = self.bind_native(
-            key,
-            retained,
-            depth,
-            (owned, raw, events, folder.unwrap_or_default()),
-            &owner,
-            report,
-        );
+        // A linked plugin that may be parked is, right after its own `make`
+        // (#248): its declarations are published, its instance dropped.
+        let recipe = match park {
+            Some(park) if !installer => {
+                self.park_recipe(key, &retained, &raw, &depth, events, report, park)
+            }
+            _ => None,
+        };
+        let result = match recipe {
+            Some(recipe) => self.bind_parked(
+                key,
+                retained,
+                recipe,
+                (owned, raw, folder.unwrap_or_default()),
+                &owner,
+            ),
+            None => self.bind_native(
+                key,
+                retained,
+                depth,
+                (owned, raw, events, folder.unwrap_or_default()),
+                &owner,
+                report,
+            ),
+        };
         if result.is_err() {
             self.shared
                 .native_instances
@@ -714,7 +742,7 @@ impl crate::Kernel {
     /// The plugin `instance` leases installed, its declarations staged and
     /// everything it contributed published at once (all or nothing).
     #[inline(never)]
-    fn bind_lease(
+    pub(super) fn bind_lease(
         &mut self,
         key: u64,
         instance: &NativeLease,
@@ -947,7 +975,7 @@ fn duplicate(id: &Id) -> RegisterError {
 /// the plugin declared and one entry for each token (`ERR_INVALID` otherwise). The registrations stay in
 /// the batch, which teardown drops before the owner stops. The admitted event
 /// tags are returned, for the instance to deliver by.
-fn check_registrations<S: Services + 'static, M: 'static>(
+pub(super) fn check_registrations<S: Services + 'static, M: 'static>(
     retained: &Retained<S, M>,
     depth: &FlatDepth,
     tokens: &[u32],
@@ -1150,7 +1178,9 @@ impl crate::Kernel {
     /// The one [`FlatHost`](super::FlatHost) every native plugin's dispatch
     /// shares, made with the first plugin. Its declaration directory is the
     /// registry's, which is set before the first plugin and never replaced.
-    fn shared_flat_host(&mut self) -> Result<super::shared::Shared<super::FlatHost>, shell::Error> {
+    pub(super) fn shared_flat_host(
+        &mut self,
+    ) -> Result<super::shared::Shared<super::FlatHost>, shell::Error> {
         if self.shared.native_instances.flat_host.is_none() {
             // `admit_native_with` makes the directory before the first plugin.
             debug_assert!(self.shared.registry.native_declarations.is_some());

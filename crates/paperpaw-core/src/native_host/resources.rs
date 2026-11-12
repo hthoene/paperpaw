@@ -101,10 +101,6 @@ impl Table {
     }
 
     /// Whether `owner` has a live [`OwnerResources`].
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the kernel's unpark recipe calls it (#2638)")
-    )]
     fn is_live(&self, owner: u64) -> Result<bool, i32> {
         let words = self
             .live
@@ -251,10 +247,6 @@ impl HostResources {
     /// owner still lives, holds a handle or its retirement is queued, or a
     /// table is in use; `ERR_STATE` once a retirement was lost; as
     /// [`Self::try_owner`] otherwise.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the kernel's unpark recipe calls it (#2638)")
-    )]
     pub(crate) fn try_owner_for(&self, seat: OwnerSeat) -> Result<OwnerResources, i32> {
         let OwnerSeat { owner, heap } = seat;
         if owner == 0 || owner >= self.0.next_owner.get() || !self.0.heap.has(heap) {
@@ -390,10 +382,6 @@ impl OwnerResources {
     }
 
     /// This owner's key and heap place, to host its plugin again under them.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the kernel's unpark recipe keeps it (#2638)")
-    )]
     pub(crate) fn seat(&self) -> OwnerSeat {
         OwnerSeat {
             owner: self.owner,
@@ -405,10 +393,6 @@ impl OwnerResources {
     ///
     /// # Errors
     /// `ERR_BUSY` while the handle table is in use.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the kernel's unpark recipe calls it (#2638)")
-    )]
     pub(crate) fn holds_handles(&self) -> Result<bool, i32> {
         self.table
             .handles
