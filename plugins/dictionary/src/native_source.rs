@@ -38,6 +38,8 @@ pub struct Dictionaries<'a, L: Listing> {
     storage: &'a dyn Storage,
     folder: String,
     opened: Option<Vec<Opened>>,
+    /// The caches of the dictionaries found but not opened: kept, not cleaned.
+    unopened: Vec<String>,
 }
 
 impl<L: Listing> core::fmt::Debug for Dictionaries<'_, L> {
@@ -59,12 +61,14 @@ impl<'a, L: Listing> Dictionaries<'a, L> {
             storage,
             folder: copy(folder.trim_matches('/'))?,
             opened: None,
+            unopened: Vec::new(),
         })
     }
 
     fn open(&mut self) -> Result<&[Opened], Error> {
         if self.opened.is_none() {
             let mut opened = Vec::new();
+            let mut unopened = Vec::new();
             for ifo in native_model::find_dictionaries(self.listing, &self.folder)? {
                 let cache = cache_of(&ifo)?;
                 // A dictionary that cannot be read is left out, a refused
@@ -74,7 +78,10 @@ impl<'a, L: Listing> Dictionaries<'a, L> {
                     Err(error) if model_error(&error) == Error::NoMemory => {
                         return Err(Error::NoMemory);
                     }
-                    Err(_) => continue,
+                    Err(_) => {
+                        push(&mut unopened, cache)?;
+                        continue;
+                    }
                 };
                 let ready = dictionary.builders(self.storage).is_empty();
                 push(
@@ -86,6 +93,7 @@ impl<'a, L: Listing> Dictionaries<'a, L> {
                     },
                 )?;
             }
+            self.unopened = unopened;
             self.opened = Some(opened);
         }
         Ok(self.opened.as_deref().unwrap_or_default())
@@ -128,7 +136,8 @@ impl<'a, L: Listing> Dictionaries<'a, L> {
         Ok(all)
     }
 
-    /// The folders of the indexes of all the dictionaries found.
+    /// The folders of the indexes of all the dictionaries found, also those
+    /// that could not be opened (their cache is not for cleaning away).
     ///
     /// # Errors
     /// The folder's, or `NoMemory`.
@@ -136,6 +145,9 @@ impl<'a, L: Listing> Dictionaries<'a, L> {
         let mut all = Vec::new();
         for opened in self.open()? {
             push(&mut all, copy(&opened.cache)?)?;
+        }
+        for cache in &self.unopened {
+            push(&mut all, copy(cache)?)?;
         }
         Ok(all)
     }
