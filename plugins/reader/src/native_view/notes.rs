@@ -8,16 +8,17 @@ use crate::native_marking::act::NoteAsk;
 use crate::native_marks::{Span, edit};
 
 impl Open {
-    /// The highlights read again from the library (a change was made). The old list is freed
-    /// first.
+    /// The highlights read again from the library (a change was made); whether
+    /// they differ from the ones held. The old list is freed first.
     pub(super) fn reload_marks(
         &mut self,
         host: &Host<'_>,
         library: Option<&Library>,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         let Some(library) = library else {
-            return Ok(());
+            return Ok(false);
         };
+        let before = self.marks.fingerprint();
         // The old list is freed before the new one is read, so the two are never
         // held at once (up to 12 KiB each); where the read fails the page has no
         // highlights until the next reading, not stale ones.
@@ -27,11 +28,30 @@ impl Open {
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(_) => {}
         }
-        Ok(())
+        Ok(self.marks.fingerprint() != before)
     }
 }
 
 impl View {
+    /// `event.library_changed` for the annotations of `path` (empty: several
+    /// books): where it is the open book's, the highlights are read again.
+    /// Whether the page is to be drawn again; a read that fails says yes (it
+    /// draws without highlights).
+    pub fn annotations_changed(
+        &mut self,
+        host: &Host<'_>,
+        library: Option<&Library>,
+        path: &str,
+    ) -> bool {
+        let Body::Open(open) = &mut self.body else {
+            return false;
+        };
+        if !path.is_empty() && open.path != path {
+            return false;
+        }
+        open.reload_marks(host, library).unwrap_or(true)
+    }
+
     /// The note *Note* started on the last input: where it goes and the note it
     /// has, to be asked for (taken: once).
     pub fn take_note(&mut self) -> Option<NoteAsk> {
