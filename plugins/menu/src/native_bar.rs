@@ -71,6 +71,36 @@ impl Handed {
     pub fn is_bar(&self) -> bool {
         self.mode == model::MODE_BAR
     }
+
+    /// Whether the menu may show as tiles (see [`model::tiles`]): not as the
+    /// reader's bar, and a menu of its own (no depth given: not a submenu).
+    #[must_use]
+    pub fn may_be_tiles(&self) -> bool {
+        !self.is_bar() && self.depth.is_none()
+    }
+
+    /// The hand-over of tiles: the menu and `hide` copied; no title, chapter,
+    /// page or action (Beta 3's tiles were the bar without its two lines).
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn tiles(&self) -> Result<Self, Error> {
+        Ok(Self {
+            menu: copy(&self.menu)?,
+            hide: copy(&self.hide)?,
+            ..Self::default()
+        })
+    }
+}
+
+/// Whether a menu opened with `handed` shows as tiles: the style read
+/// (`menu.style`, `None` where it could not be read) is Tiles, it is a menu of
+/// its own and every entry of `rows` (as the registry answers them) has an
+/// icon, as Beta 3 decided.
+#[must_use]
+pub fn shows_tiles(style: Option<&str>, handed: &Handed, rows: &[Row]) -> bool {
+    handed.may_be_tiles()
+        && style.is_some_and(|style| model::tiles(style, handed.depth.is_some(), rows))
 }
 
 /// Whether `action` names an action (an id): Beta 3 left the tap on the two

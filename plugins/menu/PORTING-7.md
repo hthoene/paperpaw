@@ -1,4 +1,4 @@
-# Interface-7 port (slices 1 to 3: the menu list, the quick panel, the reader's bar)
+# Interface-7 port (slices 1 to 4: the menu list, the quick panel, the reader's bar, tiles)
 
 Version 1.0.6. Native plugin: `src/native_plugin.rs` (`NativeMenu`: the menu as a sheet at the
 bottom of the screen), registry reads in `src/native_data.rs`, what a menu is made of without the
@@ -132,6 +132,31 @@ Differences from Beta 3, named:
 - The scripted host has no fonts: drawing and the taps on a drawn bar are tested through the model,
   not over a host; no allocation-refusal sweep of the host paths (H1/H4, as the list).
 
+## Slice 4: tiles (`native_bar::shows_tiles`, `BarView::tiles`)
+
+Ported (#257). With `menu.style` Tiles, `menu.list` opened as a menu of its own (no `depth` given,
+not `mode=bar`) whose every entry has an icon (headings need none; `native_model::tiles`, the rows as
+the registry answers them) is Beta 3's tiles: Beta 3 opened its `BarScreen` for them, so they are
+the reader's bar of slice 3 without its two lines: the entries as icons with short labels in even
+rows at the top of the screen, a line under them, the same keys (round the ends, mirrored right to
+left, the first press on a touch screen only shows the focus, *Select* chooses, the menu button and
+*Back* close), taps (an entry chooses, outside closes, the rest of the bar does nothing), the same
+choosing (an action closes the tiles and runs, a submenu opens as a list one deep, switches and
+choices of two change in place, the rest opens as from the bar) and the same following of changes.
+`hide` leaves entries out as in the bar. A submenu, a menu with an entry without an icon, an empty
+menu, the List style or a style the registry does not answer is the list. The style and the menu
+are read once, with one registry reader, when the menu opens (a list costs one setting read more);
+nothing more is held than the bar holds. Tests: `tests/tiles_mode.rs` (the rule, submenus and the
+bar are no tiles, the tiles' hand-over has no lines, the layout without them; over the scripted host
+the main menu opens as tiles and goes round, its submenu opens as a list one deep, the List style,
+an entry without an icon and an unreadable style are the list).
+
+Differences from Beta 3, named:
+- A title, chapter, page or action handed to a menu that shows as tiles is dropped (Beta 3 drew
+  them; nothing hands them to a menu but the reader, which opens its bar).
+- Changing the style while a menu is open does not change it (as Beta 3); it shows at the next open.
+- As the bar: no partial redraw of the tiles' area, no golden (H1, ICON).
+
 ## Moved to the host
 
 - The notice (`menu.notice`, slot `core.notice`): notices are `command.notify` drawn by the host
@@ -150,11 +175,30 @@ declaration, the events 64, 70 and 75 among them).
 
 ## Not ported yet (explicit; each is an ignored acceptance case)
 
-- Tiles (style *Tiles*): open as the list meanwhile. (The reader's bar is ported: slice 3.)
-- The quick panel: sliders (the kit has none), icons and the touch drag (slice 2b lists the rest).
+- The quick panel's sliders (#257 looked at them; not ported). Beta 3 drew a number marked
+  `slider` as a slider on touch screens (`panel.rs`, `track.rs`): a tap on the track sets the
+  value, `−` / `+` and, once *Select* starts it, left/right step it, a finger drags the knob, and
+  the text size's track has only the sizes the reading font draws differently. Blocked: the
+  registry does not say which numbers are marked (`setting.extra` bit 0 `slider` is in neither
+  `reg_setting.flags` nor `reg_setting_extra`: REG), the text size's track needs the sizes the
+  reading font draws alike (SDK/host), and the drag needs the touch pointer (H4). With the REG
+  flag: about 8 h in the plugin (the slider's model as Beta 3's `Slider`: `value_at`, `knob_x`,
+  `stepped`, `key_step`, mirrored; a slider line in `native_panel`'s layout; its drawing, the tap
+  on the track and the buttons in `native_panel_screen`; tests), the text size's track 2 h more
+  once the sizes are given, the drag 2 h once H4 is there. Icons in the panel: ICON (slice 2b).
 - A switch that is off: `reg_menu_row.flags` carry "checked" only, so a switch off looks like a
   plain action (shown with no value). Needs a flag for "is a switch" (REG).
-- Icons in rows, row sliders, switches as On/Off text: the kit draws none yet.
+- Icons in the list's rows (#257 looked at them; not ported). Beta 3 drew each entry's icon at
+  the start of its row (1.25 × the text, room for icons in every row of a menu where one has
+  one). The rows are the kit's `ItemList::draw_sheet`, whose `RowItem` has no icon and which lays
+  out the title from the margin; `draw_row` and `item_height` are the kit's own, so the plugin
+  cannot leave room for an icon beside a kit row (one drawn over it would cover the title) without
+  drawing the whole sheet and taking its taps itself. Needs the kit (KIT): an icon on `RowItem`
+  and the room for it in `draw_row`, `item_height` and the notes, drawn with the icon font as the
+  bar draws them; about 3 h in the kit and 1 h in the plugin (`Row.icon` is there).
+- Row sliders: Beta 3's list had none (a number is `−` / `+` there too); nothing to port.
+- Switches as On/Off text: a setting's switch shows On or Off; a switch its plugin shows (not a
+  setting) shows On while checked and nothing when off (REG, above).
 - New limit: submenus stop at a depth of 8 menus (`MAX_DEPTH`); interface 6 had no cap, so a
   loop of submenus ended only at the stack. Choosing a submenu at the cap does nothing.
 - `draw_sheet` (kit) and `send_open` / `Reader::open` (plugin) have no allocation-refusal sweep:

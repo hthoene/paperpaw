@@ -79,8 +79,9 @@ pub struct NativeMenu {
     screens: Screens<ListView>,
     /// The quick panels open.
     panels: Screens<PanelView>,
-    /// The reader's bars open (`menu.list` with `mode=bar`): the screen's
-    /// token, on top where the instance shown last is one.
+    /// The reader's bars and the tiles open (`menu.list` with `mode=bar`, or
+    /// style Tiles): the screen's token, on top where the instance shown last
+    /// is one.
     bars: Screens<BarView>,
 }
 
@@ -394,6 +395,10 @@ impl NativeMenu {
         let touch = paperpaw_sdk::native::snapshot::capture_snapshot(host)?.has_touch();
         if handed.is_bar() {
             let view = BarView::new(host, handed, touch)?;
+            return self.bars.open(instance, view);
+        }
+        // Tiles share the bar's screen (Beta 3's `BarScreen`).
+        if let Some(view) = BarView::tiles(host, &handed, touch)? {
             return self.bars.open(instance, view);
         }
         let mut view = ListView {

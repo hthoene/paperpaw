@@ -35,8 +35,9 @@ const CASES: [Case; 7] = [
         golden: None,
         blocked_by: &["REG"],
     },
-    // Tiles (the menu style) and the reader's bar draw icons. The bar is
-    // ported (tests/bar_mode.rs); its golden and tiles wait for the host.
+    // Tiles (the menu style) and the reader's bar draw icons. Both are
+    // ported (tests/bar_mode.rs, tests/tiles_mode.rs); their golden waits for
+    // the host.
     Case {
         name: "menu-tiles-and-bar",
         golden: Some("x4-reader-menu"),
