@@ -216,7 +216,9 @@ It stages nothing; the loader stages the returned records. Rules:
   bytes, with no empty, `.`, `..` or dot-leading segment.
 - `resource.hyphenation`: `language` is `[A-Za-z0-9-]`, 1 to 35 bytes.
 - `resource.font_face`: `path` ends in `.ppfp`, `.ttf`, `.otf` or `.ttc`
-  (compared without case), which selects the reader; `style` uses bits 0 (bold)
+  (compared without case), which selects the reader; an empty `family` puts the
+  face outside any family (bound by `role`, never offered for text, as interface
+  6's `FontSpec::new`), not the file's family; `style` uses bits 0 (bold)
   and 1 (italic); `weight` is 0 or 1 to 1000 and must be 0 for a `.ppfp` path;
   `role` is empty or a full id; `priority` is -100 to 100, and 0 when `role` is
   empty.

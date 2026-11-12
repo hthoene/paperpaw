@@ -326,9 +326,10 @@ pub struct FontFaceDecl<'a> {
     pub name: &'a str,
     /// Its file, relative to the plugin's folder.
     pub path: &'a str,
-    /// The family name; empty to take the file's.
+    /// The family name; empty for a face outside any family (bound by
+    /// `role`, never offered for text).
     pub family: &'a str,
-    /// Bit 0 italic, bit 1 oblique; others are refused by the host.
+    /// Bit 0 bold, bit 1 italic; others are refused by the host.
     pub style: u32,
     /// 1 to 1000, or 0 for the file's (and always 0 for a `.ppfp` pack).
     pub weight: u32,

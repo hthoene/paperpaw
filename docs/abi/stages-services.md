@@ -24,9 +24,11 @@ nesting. It never reads the payloads.
 | 513 | `stage.reply` (output of `stage.run`) | `subscriber: str 64` (plugin id), `index: u32`, `status: i32`, `flags: u32`, `signature: u64`, `payload: bytes 3840` |
 
 - [D] **`stage.spec`:**
-  - `name` is relative; the stage's full id is `<plugin>.<name>`, unique among the plugin's stages
-    (a second spec of the same name is `ERR_INVALID`). Specs count against the host's
-    declaration-index budget (`ERR_FULL` past it).
+  - `name` is relative and one segment: `[a-z0-9-]`, 1 to 64 bytes, no dot (the wire field holds
+    96 bytes; a longer or dotted name is `ERR_INVALID`). The stage's full id is `<plugin>.<name>`,
+    and a full id splits at its last dot into plugin and name. The name is unique among the
+    plugin's stages (a second spec of the same name is `ERR_INVALID`). Specs count against the
+    host's declaration-index budget (`ERR_NO_SPACE` past it).
   - `schema` is the stage's own payload schema version, set by its owner; subscribers see it in
     every `stage.call`.
   - `flags`: bit 0 `changes_layout`, bit 1 `draws`, bit 2 `takes_taps`. Other bits are

@@ -466,8 +466,9 @@ declaring plugin, as in `setting.spec`; names, titles and help have `setting.spe
   `flags` bit 0 of the declaration decides (set: applies; other bits than 0 and 1 are
   `ERR_INVALID`). This carries what only the plugin knows (the store: "offerings to install exist").
   Pushed state is kept per plugin version: an update clears it. A step name equal to an action,
-  screen, setting or menu item name of the same plugin is refused at admission (`ERR_INVALID`), so
-  one item-state push never sets two things. `key.bind`'s `when_*` is rule 1 for `add_keymap_when`.
+  screen, setting or menu section name of the same plugin is refused at admission (`ERR_INVALID`),
+  so one item-state push never sets two things. `key.bind`'s `when_*` is rule 1 for
+  `add_keymap_when`.
 - [D] **Foreign extensions** (`setting.default`, `setting.choice`) name another plugin's setting.
   Precedence is interface 6's: the owner's default, then extensions in plugin load order; the user's
   value always wins. An extension of a secret setting or a grant, of a guarded setting of another
