@@ -1098,7 +1098,7 @@ impl Kernel {
 
     /// The device's own key map, under all others.
     fn load_device_keymap(&mut self, source: Cow<'static, str>) {
-        for problem in self.shared.keymap.load(&source, Origin::Device, true) {
+        for problem in self.shared.keymap.load_kept(&source, Origin::Device, true) {
             self.warn(
                 WarningSource::DeviceKeymap,
                 Some(problem.line),

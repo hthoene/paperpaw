@@ -386,3 +386,38 @@ fn what_a_format_wrote_after_the_stamp_is_in_the_stamp_when_its_last_document_cl
         assert_eq!(bytes(w), "700");
     });
 }
+
+/// The library's cover (`doc_service::cover`, `doc_cover_make`) lends the
+/// format a small room (#248): one `fmt.image` at its caps fits it with the
+/// byte a tag may grow by in the host's translation, and so does the
+/// `doc_image` it becomes.
+#[test]
+fn a_cover_at_its_caps_fits_the_cover_reply_room() {
+    use crate::native_host::{codec, doc_service::cover::COVER_REPLY};
+    let path = "p".repeat(256);
+    let mut bytes = vec![0_u8; 3840];
+    let n = local::reply_encode(
+        &[local::Record::FmtImage(local::FmtImage::new(
+            &path,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+        ))],
+        &mut bytes,
+    )
+    .unwrap();
+    assert!(n < COVER_REPLY, "{n}");
+    let mut room = vec![0_u8; COVER_REPLY];
+    codec::encode_batch(
+        &[Record::ServiceDocImage(wire::ServiceDocImage {
+            image: u32::MAX,
+            index: u32::MAX,
+            width: u32::MAX,
+            height: u32::MAX,
+            flags: u32::MAX,
+        })],
+        &mut room,
+    )
+    .unwrap();
+}
