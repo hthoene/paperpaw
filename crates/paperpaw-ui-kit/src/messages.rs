@@ -40,15 +40,7 @@ impl Messages {
         Ok(&mut self.out)
     }
     pub fn copy(&mut self, host: &Host<'_>, key: &str) -> Result<String, Error> {
-        let small = self.out()?.len() < formatting::MAX_MESSAGE_BYTES;
-        match formatting::copy_message(host, key, &mut self.out) {
-            Ok(text) => return crate::text::copy(text),
-            // Longer than the buffer: once more with room for any message.
-            Err(Error::NoSpace) if small => {}
-            Err(error) => return Err(error),
-        }
-        fit(&mut self.out, formatting::MAX_MESSAGE_BYTES)?;
-        crate::text::copy(formatting::copy_message(host, key, &mut self.out)?)
+        self.copy_from(host, key)
     }
     pub fn format(
         &mut self,
@@ -56,32 +48,98 @@ impl Messages {
         key: &str,
         args: &[Arg<'_>],
     ) -> Result<String, Error> {
+        self.format_from(host, key, args)
+    }
+    /// The number `text` written in the language's digits.
+    ///
+    /// # Errors
+    /// Propagates host formatting errors.
+    pub fn digits(&mut self, host: &Host<'_>, text: &str) -> Result<String, Error> {
+        self.digits_from(host, text)
+    }
+
+    fn copy_from(&mut self, source: &impl Source, key: &str) -> Result<String, Error> {
+        let small = self.out()?.len() < formatting::MAX_MESSAGE_BYTES;
+        match source.copy(key, &mut self.out) {
+            Ok(text) => return crate::text::copy(text),
+            // Longer than the buffer: once more with room for any message.
+            Err(Error::NoSpace) if small => {}
+            Err(error) => return Err(error),
+        }
+        fit(&mut self.out, formatting::MAX_MESSAGE_BYTES)?;
+        crate::text::copy(source.copy(key, &mut self.out)?)
+    }
+    fn format_from(
+        &mut self,
+        source: &impl Source,
+        key: &str,
+        args: &[Arg<'_>],
+    ) -> Result<String, Error> {
         self.out()?;
         fit(&mut self.arguments, FIRST_ARGUMENTS)?;
-        let mut length = match self.format_once(host, key, args) {
+        let mut length = match source.format(key, args, &mut self.arguments, &mut self.out) {
             // The arguments did not fit their buffer: once more with all of it.
             Err(Error::NoSpace) if self.arguments.len() < formatting::MAX_ARGUMENT_BYTES => {
                 fit(&mut self.arguments, formatting::MAX_ARGUMENT_BYTES)?;
-                self.format_once(host, key, args)?
+                source.format(key, args, &mut self.arguments, &mut self.out)?
             }
             other => other?,
         };
         if length > self.out.len() && length <= formatting::MAX_MESSAGE_BYTES {
             // The host said how long the message is: once more with that room.
             fit(&mut self.out, length)?;
-            length = self.format_once(host, key, args)?;
+            length = source.format(key, args, &mut self.arguments, &mut self.out)?;
         }
-        let bytes = self.out.get(..length).ok_or(Error::NoSpace)?;
-        crate::text::copy(core::str::from_utf8(bytes).map_err(|_| Error::Utf8)?)
+        utf8(&self.out, length)
     }
-    fn format_once(
-        &mut self,
-        host: &Host<'_>,
+    fn digits_from(&mut self, source: &impl Source, text: &str) -> Result<String, Error> {
+        let mut length = source.digits(text, self.out()?)?;
+        if length > self.out.len() && length <= formatting::MAX_MESSAGE_BYTES {
+            fit(&mut self.out, length)?;
+            length = source.digits(text, &mut self.out)?;
+        }
+        utf8(&self.out, length)
+    }
+}
+
+/// The first `length` bytes of `out`, copied as text; `NoSpace` where the
+/// host's text is longer than any buffer may be.
+fn utf8(out: &[u8], length: usize) -> Result<String, Error> {
+    let bytes = out.get(..length).ok_or(Error::NoSpace)?;
+    crate::text::copy(core::str::from_utf8(bytes).map_err(|_| Error::Utf8)?)
+}
+
+/// Where the texts come from: the host's catalog (a stand-in in the tests).
+trait Source {
+    /// The message `key` into `out`; `NoSpace` where it is longer.
+    fn copy<'a>(&self, key: &str, out: &'a mut [u8]) -> Result<&'a str, Error>;
+    /// The message `key` with `args` into `out`; its whole length.
+    fn format(
+        &self,
         key: &str,
         args: &[Arg<'_>],
+        scratch: &mut [u8],
+        out: &mut [u8],
+    ) -> Result<usize, Error>;
+    /// `text` in the language's digits into `out`; its whole length.
+    fn digits(&self, text: &str, out: &mut [u8]) -> Result<usize, Error>;
+}
+
+impl Source for Host<'_> {
+    fn copy<'a>(&self, key: &str, out: &'a mut [u8]) -> Result<&'a str, Error> {
+        formatting::copy_message(self, key, out)
+    }
+    fn format(
+        &self,
+        key: &str,
+        args: &[Arg<'_>],
+        scratch: &mut [u8],
+        out: &mut [u8],
     ) -> Result<usize, Error> {
-        let mut buffers = FormatBuffers::new(&mut self.arguments, &mut self.out);
-        formatting::format_message(host, key, args, &mut buffers)
+        formatting::format_message(self, key, args, &mut FormatBuffers::new(scratch, out))
+    }
+    fn digits(&self, text: &str, out: &mut [u8]) -> Result<usize, Error> {
+        formatting::digits(self, text, out)
     }
 }
 
@@ -101,22 +159,6 @@ fn buffer(len: usize) -> Result<Vec<u8>, Error> {
     bytes.resize(len, 0);
     Ok(bytes)
 }
-impl Messages {
-    /// The number `text` written in the language's digits.
-    ///
-    /// # Errors
-    /// Propagates host formatting errors.
-    pub fn digits(&mut self, host: &Host<'_>, text: &str) -> Result<String, Error> {
-        let mut length = formatting::digits(host, text, self.out()?)?;
-        if length > self.out.len() && length <= formatting::MAX_MESSAGE_BYTES {
-            fit(&mut self.out, length)?;
-            length = formatting::digits(host, text, &mut self.out)?;
-        }
-        let bytes = self.out.get(..length).ok_or(Error::NoSpace)?;
-        crate::text::copy(core::str::from_utf8(bytes).map_err(|_| Error::Utf8)?)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,5 +187,118 @@ mod tests {
         // A shorter text later keeps the room it has.
         fit(&mut bytes, 100).unwrap();
         assert_eq!(bytes.len(), 1500);
+    }
+
+    /// A catalog whose every text is `len` bytes of `x` and whose arguments
+    /// take `args` bytes; it counts the calls and the buffer sizes it got.
+    struct Catalog {
+        len: usize,
+        args: usize,
+        calls: core::cell::RefCell<Vec<(usize, usize)>>,
+    }
+
+    impl Catalog {
+        fn new(len: usize, args: usize) -> Self {
+            Self {
+                len,
+                args,
+                calls: core::cell::RefCell::new(Vec::new()),
+            }
+        }
+        fn sizes(&self) -> Vec<(usize, usize)> {
+            self.calls.borrow().clone()
+        }
+        fn fill(&self, out: &mut [u8]) -> usize {
+            let n = self.len.min(out.len());
+            out[..n].fill(b'x');
+            self.len
+        }
+    }
+
+    impl Source for Catalog {
+        fn copy<'a>(&self, _: &str, out: &'a mut [u8]) -> Result<&'a str, Error> {
+            self.calls.borrow_mut().push((0, out.len()));
+            if self.len > out.len() {
+                return Err(Error::NoSpace);
+            }
+            self.fill(out);
+            core::str::from_utf8(&out[..self.len]).map_err(|_| Error::Utf8)
+        }
+        fn format(
+            &self,
+            _: &str,
+            _: &[Arg<'_>],
+            scratch: &mut [u8],
+            out: &mut [u8],
+        ) -> Result<usize, Error> {
+            self.calls.borrow_mut().push((scratch.len(), out.len()));
+            if self.args > scratch.len() {
+                return Err(Error::NoSpace);
+            }
+            Ok(self.fill(out))
+        }
+        fn digits(&self, _: &str, out: &mut [u8]) -> Result<usize, Error> {
+            self.calls.borrow_mut().push((0, out.len()));
+            Ok(self.fill(out))
+        }
+    }
+
+    const MAX: usize = formatting::MAX_MESSAGE_BYTES;
+
+    #[test]
+    fn a_short_text_is_copied_at_once_from_the_small_buffer() {
+        let (mut m, catalog) = (Messages::new().unwrap(), Catalog::new(40, 0));
+        assert_eq!(m.copy_from(&catalog, "k").unwrap().len(), 40);
+        assert_eq!(catalog.sizes(), [(0, FIRST_MESSAGE)]);
+    }
+
+    #[test]
+    fn a_long_copy_is_asked_again_with_4_kib_and_one_too_long_fails() {
+        let (mut m, catalog) = (Messages::new().unwrap(), Catalog::new(1000, 0));
+        assert_eq!(m.copy_from(&catalog, "k").unwrap().len(), 1000);
+        assert_eq!(catalog.sizes(), [(0, FIRST_MESSAGE), (0, MAX)]);
+        let (mut m, catalog) = (Messages::new().unwrap(), Catalog::new(MAX + 1, 0));
+        assert_eq!(m.copy_from(&catalog, "k"), Err(Error::NoSpace));
+        assert_eq!(catalog.sizes(), [(0, FIRST_MESSAGE), (0, MAX)]);
+    }
+
+    #[test]
+    fn a_long_format_is_asked_again_with_its_length_and_one_too_long_fails() {
+        let (mut m, catalog) = (Messages::new().unwrap(), Catalog::new(1500, 10));
+        assert_eq!(m.format_from(&catalog, "k", &[]).unwrap().len(), 1500);
+        assert_eq!(
+            catalog.sizes(),
+            [(FIRST_ARGUMENTS, FIRST_MESSAGE), (FIRST_ARGUMENTS, 1500)]
+        );
+        let (mut m, catalog) = (Messages::new().unwrap(), Catalog::new(MAX + 1, 10));
+        assert_eq!(m.format_from(&catalog, "k", &[]), Err(Error::NoSpace));
+        assert_eq!(catalog.sizes(), [(FIRST_ARGUMENTS, FIRST_MESSAGE)]);
+    }
+
+    #[test]
+    fn arguments_too_long_are_encoded_again_with_1_kib_and_then_fail() {
+        let args = formatting::MAX_ARGUMENT_BYTES;
+        let (mut m, catalog) = (Messages::new().unwrap(), Catalog::new(20, 600));
+        assert_eq!(m.format_from(&catalog, "k", &[]).unwrap().len(), 20);
+        assert_eq!(
+            catalog.sizes(),
+            [(FIRST_ARGUMENTS, FIRST_MESSAGE), (args, FIRST_MESSAGE)]
+        );
+        let (mut m, catalog) = (Messages::new().unwrap(), Catalog::new(20, args + 1));
+        assert_eq!(m.format_from(&catalog, "k", &[]), Err(Error::NoSpace));
+        assert_eq!(
+            catalog.sizes(),
+            [(FIRST_ARGUMENTS, FIRST_MESSAGE), (args, FIRST_MESSAGE)]
+        );
+    }
+
+    #[test]
+    fn long_digits_are_asked_again_with_their_length_and_too_long_fail() {
+        let (mut m, catalog) = (Messages::new().unwrap(), Catalog::new(700, 0));
+        assert_eq!(m.digits_from(&catalog, "12").unwrap().len(), 700);
+        assert_eq!(catalog.sizes(), [(0, FIRST_MESSAGE), (0, 700)]);
+        let (mut m, catalog) = (Messages::new().unwrap(), Catalog::new(MAX + 1, 0));
+        assert_eq!(m.digits_from(&catalog, "12"), Err(Error::NoSpace));
+        assert_eq!(catalog.sizes(), [(0, FIRST_MESSAGE)]);
     }
 }
