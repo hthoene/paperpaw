@@ -221,6 +221,10 @@ impl State {
             Event::ScreenShown {
                 instance: Some(instance),
                 ..
+            } if token == SD_CARD_TOKEN => self.sd_runs.shown(token, instance),
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
             } if token == DECKS_TOKEN || token == REVIEW_TOKEN || token == WORDS_TOKEN => {
                 self.shown(host, token, instance)
             }

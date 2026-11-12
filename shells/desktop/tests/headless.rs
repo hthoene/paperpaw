@@ -543,6 +543,34 @@ fn a_picture_follows_the_text_of_its_page_in_a_frame_of_its_own() {
     );
 }
 
+/// The flash cards' files on the card update the decks, and the screen that
+/// says what the update did is drawn (not blank): a line that is no card is
+/// told, and each deck says what it got.
+#[test]
+fn the_card_files_screen_says_what_the_update_did() {
+    let library = library("card-files");
+    let folder = library.join("Flashcards");
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(
+        folder.join("German.tsv"),
+        "front\tback\texample\nKatze\tcat\tDie Katze schläft.\nHund\tdog\n\tno front\nHaus\thouse\n",
+    )
+    .unwrap();
+    fs::write(folder.join("Spanish.csv"), "casa;house\ngato;cat\n").unwrap();
+    let shown = run_in(
+        &library,
+        "xteink-x4",
+        "run:vocabulary.flash-cards,wait:900,describe",
+        &["--set", "reader.open-last=false"],
+    );
+    let _ = fs::remove_dir_all(&library);
+    assert!(shown.ok, "{}", shown.stderr);
+    assert_eq!(shown.screen(), "vocabulary.sd-card", "{}", shown.stdout);
+    assert!(shown.stdout.contains("3 added"), "{}", shown.stdout);
+    assert!(shown.stdout.contains("2 added"), "{}", shown.stdout);
+    assert!(shown.stdout.contains("1 line left out"), "{}", shown.stdout);
+}
+
 /// A configuration file (`--config`) is read, and `--set` wins over it.
 #[test]
 fn the_configuration_file_is_read_and_set_wins_over_it() {
