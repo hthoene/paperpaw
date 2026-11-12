@@ -4,17 +4,17 @@
 use super::super::tests::{Heap, Module, NORMAL, READS_CLOCK, fake, module, parts, reset};
 use super::{DeclaredServices, Error, Hosted};
 use crate::native_host::HostResources;
-use crate::native_host::resources::{FontKey, FontRole};
+use crate::native_host::resources::{FontKey, FontRole, OwnerSeat};
 use core::ffi::c_void;
 use core::ptr;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 
-/// The fake hosted in `pool`: under a new owner key, or again under `owner`.
+/// The fake hosted in `pool`: under a new owner key, or again on `seat`.
 /// A hosting that is refused takes `()` as its module: the fixture's
 /// [`Module`] says "unloaded" when it drops, for every fake of the thread.
 fn fake_in<M>(
     pool: &HostResources,
-    owner: Option<u64>,
+    seat: Option<OwnerSeat>,
     module: M,
 ) -> Result<Hosted<Heap, M>, Error> {
     let (make, report) = parts();
@@ -22,10 +22,10 @@ fn fake_in<M>(
     let services = DeclaredServices::none();
     // SAFETY: `make` is the fixture's plugin, always callable; no image.
     unsafe {
-        match owner {
+        match seat {
             None => Hosted::new(Heap, module, make, "fake", image, report, pool, services),
-            Some(key) => Hosted::new_for_owner(
-                Heap, module, make, "fake", image, report, pool, key, services,
+            Some(seat) => Hosted::new_for_owner(
+                Heap, module, make, "fake", image, report, pool, seat, services,
             ),
         }
     }
@@ -128,19 +128,21 @@ fn a_plugin_is_hosted_again_under_its_owner_key_once_the_first_is_gone() {
     reset(NORMAL);
     let pool = HostResources::try_new().unwrap();
     let first = fake_in(&pool, None, module()).unwrap();
+    let seat = first.seat();
     let key = first.resource_identity().unwrap().owner_id();
     let batch = first.construct_registered(first.begin().unwrap()).unwrap();
     // While the first holds a handle its key is not given out again.
     let resources = &first.owner().context().get_ref().resources;
     resources.insert_font(FontKey::Role(FontRole::Ui)).unwrap();
     assert_eq!(
-        fake_in(&pool, Some(key), ()).err(),
+        fake_in(&pool, Some(seat), ()).err(),
         Some(Error::Status(ERR_BUSY))
     );
     drop(batch);
     drop(first);
-    let again = fake_in(&pool, Some(key), module()).unwrap();
+    let again = fake_in(&pool, Some(seat), module()).unwrap();
     assert_eq!(again.resource_identity().unwrap().owner_id(), key);
+    assert_eq!(again.seat(), seat);
     let batch = again.construct_registered(again.begin().unwrap()).unwrap();
     assert!(again.make_registered_only());
     assert_eq!(again.owner_idle(), Ok(true));
@@ -152,15 +154,61 @@ fn a_plugin_is_hosted_again_under_its_owner_key_once_the_first_is_gone() {
 }
 
 #[test]
-fn a_key_the_pool_never_gave_out_is_refused() {
+fn an_unparked_plugin_is_charged_on_its_old_heap_row() {
     reset(NORMAL);
     let pool = HostResources::try_new().unwrap();
-    for key in [0, 1, u64::MAX] {
-        assert_eq!(
-            fake_in(&pool, Some(key), ()).err(),
-            Some(Error::Status(ERR_INVALID))
-        );
-    }
+    let first = fake_in(&pool, None, module()).unwrap();
+    let seat = first.seat();
+    let batch = first.construct_registered(first.begin().unwrap()).unwrap();
+    // A block the plugin keeps past its instance (the row is never
+    // released at park: what it was charged goes on).
+    let kept = plugin_allocates(&first, 64);
+    let rows = pool.heap_rows();
+    drop(batch);
+    drop(first);
+    let charged = pool.heap_used(seat);
+    assert!(charged >= 64, "the kept block is still charged: {charged}");
+    let again = fake_in(&pool, Some(seat), module()).unwrap();
+    assert_eq!(pool.heap_rows(), rows, "no new row");
+    assert_eq!(pool.heap_used(again.seat()), charged, "the same row");
+    let batch = again.construct_registered(again.begin().unwrap()).unwrap();
+    assert!(pool.heap_used(seat) > charged, "make is charged on it too");
+    plugin_frees(&again, kept, 64);
+    drop(batch);
+    drop(again);
+    assert_eq!(pool.heap_rows(), rows);
+}
+
+/// The plugin's own code allocates `size` bytes on its heap.
+fn plugin_allocates(hosted: &Hosted<Heap, Module>, size: usize) -> *mut c_void {
+    let context = hosted.owner().context();
+    let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast::<c_void>();
+    let mut block = ptr::null_mut();
+    // SAFETY: the pinned context of a live owner, a writable output.
+    let status =
+        context.run_plugin(|| unsafe { (context.table.heap_alloc)(ctx, size, 8, &mut block) });
+    assert_eq!(status, 0);
+    block
+}
+
+/// The plugin's own code frees a block of `size` bytes.
+fn plugin_frees(hosted: &Hosted<Heap, Module>, block: *mut c_void, size: usize) {
+    let context = hosted.owner().context();
+    let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast::<c_void>();
+    // SAFETY: a block of this plugin's heap, with its size and alignment.
+    context.run_plugin(|| unsafe { (context.table.heap_dealloc)(ctx, block, size, 8) });
+}
+
+#[test]
+fn a_seat_of_a_key_the_pool_never_gave_out_is_refused() {
+    reset(NORMAL);
+    let other = HostResources::try_new().unwrap();
+    let seat = fake_in(&other, None, ()).unwrap().seat();
+    let pool = HostResources::try_new().unwrap();
+    assert_eq!(
+        fake_in(&pool, Some(seat), ()).err(),
+        Some(Error::Status(ERR_INVALID))
+    );
 }
 
 #[test]
@@ -168,61 +216,53 @@ fn a_key_whose_owner_still_lives_is_not_hosted_twice() {
     reset(NORMAL);
     let pool = HostResources::try_new().unwrap();
     let first = fake_in(&pool, None, module()).unwrap();
-    let key = first.resource_identity().unwrap().owner_id();
+    let seat = first.seat();
     // No handle, nothing queued: only its being alive keeps the key.
     assert_eq!(
-        fake_in(&pool, Some(key), ()).err(),
+        fake_in(&pool, Some(seat), ()).err(),
         Some(Error::Status(ERR_BUSY))
     );
     drop(first);
-    let again = fake_in(&pool, Some(key), ()).unwrap();
+    let again = fake_in(&pool, Some(seat), ()).unwrap();
     assert_eq!(
-        fake_in(&pool, Some(key), ()).err(),
+        fake_in(&pool, Some(seat), ()).err(),
         Some(Error::Status(ERR_BUSY)),
         "nor while the second lives"
     );
     drop(again);
-    assert!(fake_in(&pool, Some(key), ()).is_ok());
+    assert!(fake_in(&pool, Some(seat), ()).is_ok());
 }
 
 #[test]
 fn no_key_is_hosted_again_once_a_retirement_was_lost() {
     reset(NORMAL);
     let pool = HostResources::try_new().unwrap();
-    let key = fake_in(&pool, None, ())
-        .unwrap()
-        .resource_identity()
-        .unwrap()
-        .owner_id();
+    let seat = fake_in(&pool, None, ()).unwrap().seat();
     pool.hosts().lose_a_retirement();
     assert_eq!(
-        fake_in(&pool, Some(key), ()).err(),
+        fake_in(&pool, Some(seat), ()).err(),
         Some(Error::Status(ERR_STATE))
     );
 }
 
 #[test]
-fn a_refused_re_admission_leaves_nothing_behind() {
+fn an_owner_refused_its_heap_place_leaves_nothing_behind() {
     reset(NORMAL);
     let pool = HostResources::try_new().unwrap();
-    // Four owners: the heap's owner table is full (4 places), so admitting
-    // one more asks for memory; the retirement queue has room for four.
-    let owners: alloc::vec::Vec<_> = (0..4).map(|_| pool.try_owner().unwrap()).collect();
-    let key = owners[0].owner_id();
-    let mut owners = owners.into_iter();
-    drop(owners.next());
-    let alive = pool.hosts().alive_owners();
-    super::super::tests::arm_failure(1);
-    let refused = pool.try_owner_for(key).err();
+    let rows = pool.heap_rows();
+    // The 1st allocation is the owner's retirement room, the 2nd its heap
+    // place.
+    super::super::tests::arm_failure(2);
+    let refused = pool.try_owner().err();
     super::super::tests::arm_failure(0);
     assert_eq!(refused, Some(ERR_NO_MEMORY));
     assert_eq!(
         pool.hosts().alive_owners(),
-        alive,
+        0,
         "its retirement room is back"
     );
-    // Not marked live: the next try takes it.
-    let again = pool.try_owner_for(key).unwrap();
-    assert_eq!(again.owner_id(), key);
-    drop(owners);
+    assert!(!pool.owner_live(1), "its mark is gone");
+    assert_eq!(pool.heap_rows(), rows);
+    // The key was not used up: the next owner gets it.
+    assert_eq!(pool.try_owner().unwrap().owner_id(), 1);
 }

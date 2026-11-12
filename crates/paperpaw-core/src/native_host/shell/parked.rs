@@ -3,6 +3,7 @@
 //! had, and whether its `make` only registered.
 use super::{DeclaredServices, Error, Hosted, Make, Report};
 use crate::native_host::HostResources;
+use crate::native_host::resources::OwnerSeat;
 use core::cell::Cell;
 use paperpaw_native::host_glue::Services;
 
@@ -17,21 +18,23 @@ pub(super) struct HostCalls {
 }
 
 impl<S: Services + 'static, M> Hosted<S, M> {
-    /// As [`new`](Self::new), under the host owner key `owner` this pool
-    /// assigned before: a parked plugin made again (#248,
+    /// As [`new`](Self::new), under the owner key and heap place `seat` of
+    /// the plugin's earlier `Hosted` ([`Self::seat`], kept while it is
+    /// parked): a parked plugin made again (#248,
     /// `docs/measurements/parked-plugins.md`). No key is drawn, so the
-    /// instance row, the owner directory and what the kernel keys by `owner`
-    /// stay. The plugin's earlier `Hosted` must be dropped first.
+    /// instance row, the owner directory and what the kernel keys by the key
+    /// stay, and the plugin is charged on its old heap row. The earlier
+    /// `Hosted` must be dropped first.
     ///
     /// # Errors
     /// As [`new`](Self::new); `Status(ERR_BUSY)` while the earlier owner
-    /// still holds a handle or its retirement is queued, `Status(ERR_INVALID)`
-    /// for a key the pool never assigned, `Status(ERR_STATE)` once a
-    /// retirement was lost.
+    /// lives, holds a handle or its retirement is queued,
+    /// `Status(ERR_INVALID)` for a seat of another pool, `Status(ERR_STATE)`
+    /// once a retirement was lost.
     ///
     /// # Safety
     /// As [`new`](Self::new).
-    #[allow(clippy::too_many_arguments, reason = "as `new`, with the owner key")]
+    #[allow(clippy::too_many_arguments, reason = "as `new`, with the seat")]
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the kernel's unpark recipe calls it (#2638)")
@@ -44,10 +47,10 @@ impl<S: Services + 'static, M> Hosted<S, M> {
         image: (*const u8, usize),
         report: Report<S>,
         resources: HostResources,
-        owner: u64,
+        seat: OwnerSeat,
         declared_services: DeclaredServices,
     ) -> Result<Self, Error> {
-        let resources = resources.try_owner_for(owner).map_err(Error::Status)?;
+        let resources = resources.try_owner_for(seat).map_err(Error::Status)?;
         // SAFETY: the caller's contract, passed on.
         unsafe {
             Self::host(
@@ -61,6 +64,16 @@ impl<S: Services + 'static, M> Hosted<S, M> {
                 declared_services,
             )
         }
+    }
+
+    /// The owner key and heap place to host the plugin again under
+    /// ([`Self::new_for_owner`]), kept while it is parked.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the kernel's unpark recipe keeps it (#2638)")
+    )]
+    pub(crate) fn seat(&self) -> OwnerSeat {
+        self.owner.as_ref().context().resources.seat()
     }
 
     /// Whether `make` ran and called the host only to register (and for the

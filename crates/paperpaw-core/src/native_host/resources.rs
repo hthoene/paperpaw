@@ -85,9 +85,8 @@ impl Table {
             if !live {
                 return Ok(());
             }
-            words
-                .try_reserve_exact(word + 1 - words.len())
-                .map_err(|_| ERR_NO_MEMORY)?;
+            let more = word + 1 - words.len();
+            words.try_reserve_exact(more).map_err(|_| ERR_NO_MEMORY)?;
             words.resize(word + 1, 0);
         }
         let bit = 1_u64 << (owner % 64);
@@ -102,6 +101,10 @@ impl Table {
     }
 
     /// Whether `owner` has a live [`OwnerResources`].
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the kernel's unpark recipe calls it (#2638)")
+    )]
     fn is_live(&self, owner: u64) -> Result<bool, i32> {
         let words = self
             .live
@@ -200,22 +203,26 @@ impl HostResources {
     pub fn try_owner(&self) -> Result<OwnerResources, i32> {
         let owner = self.0.next_owner.get();
         let next = owner.checked_add(1).ok_or(ERR_NO_SPACE)?;
-        let resources = self.admit(owner)?;
+        let resources = self.admit(owner, None)?;
         self.0.next_owner.set(next);
         Ok(resources)
     }
 
     /// Admits the owner `owner`: marked live, room for its retirement
-    /// reserved (see the queue), its place in the heap's accounting. On a
-    /// refusal nothing of it is left.
-    fn admit(&self, owner: u64) -> Result<OwnerResources, i32> {
+    /// reserved (see the queue), and its place in the heap's accounting: the
+    /// one it had (`heap`), or a new one. On a refusal nothing of it is left.
+    fn admit(&self, owner: u64, heap: Option<u32>) -> Result<OwnerResources, i32> {
         let table = self.0.try_clone().ok_or(ERR_NO_MEMORY)?;
         self.0.mark_live(owner, true)?;
         if let Err(status) = self.0.hosts.admit_owner() {
             let _ = self.0.mark_live(owner, false);
             return Err(status);
         }
-        let Ok(heap_owner) = self.0.heap.admit() else {
+        let heap_owner = match heap {
+            Some(index) => Ok(index),
+            None => self.0.heap.admit(),
+        };
+        let Ok(heap_owner) = heap_owner else {
             // Its reserved retirement is given back, and its mark.
             self.0.hosts.owner_gone(owner, true);
             let _ = self.0.mark_live(owner, false);
@@ -235,9 +242,9 @@ impl HostResources {
     /// owner directory, timers, queued events) stays as it is. Only one
     /// `OwnerResources` of a key may live at a time: the caller dropped the
     /// earlier one (its handles are released, its retirement ran); a key
-    /// whose owner still lives is refused. Each hosting takes a new place in
-    /// the heap's accounting (that table only grows): phase 1 hosts a plugin
-    /// again once at most; parking again (phase 2) must reuse the old place.
+    /// whose owner still lives is refused. The owner takes its old place in
+    /// the heap's accounting again ([`OwnerSeat`]): what it was charged goes
+    /// on, and the heap's owner table does not grow with unparks.
     ///
     /// # Errors
     /// `ERR_INVALID` for a key this pool never assigned; `ERR_BUSY` while the
@@ -248,8 +255,9 @@ impl HostResources {
         not(test),
         expect(dead_code, reason = "the kernel's unpark recipe calls it (#2638)")
     )]
-    pub(crate) fn try_owner_for(&self, owner: u64) -> Result<OwnerResources, i32> {
-        if owner == 0 || owner >= self.0.next_owner.get() {
+    pub(crate) fn try_owner_for(&self, seat: OwnerSeat) -> Result<OwnerResources, i32> {
+        let OwnerSeat { owner, heap } = seat;
+        if owner == 0 || owner >= self.0.next_owner.get() || !self.0.heap.has(heap) {
             return Err(paperpaw_native::host_glue::ERR_INVALID);
         }
         if self.0.is_live(owner)? {
@@ -264,8 +272,37 @@ impl HostResources {
         if holds || self.0.hosts.retiring(owner)? {
             return Err(paperpaw_native::host_glue::ERR_BUSY);
         }
-        self.admit(owner)
+        self.admit(owner, Some(heap))
     }
+
+    /// The heap's owner rows (tests: they do not grow with unparks).
+    #[cfg(test)]
+    pub(crate) fn heap_rows(&self) -> usize {
+        self.0.heap.rows()
+    }
+
+    /// The bytes charged to `seat`'s heap row (tests).
+    #[cfg(test)]
+    pub(crate) fn heap_used(&self, seat: OwnerSeat) -> usize {
+        self.0.heap.used(seat.heap)
+    }
+
+    /// Whether `owner` is marked live (tests).
+    #[cfg(test)]
+    pub(crate) fn owner_live(&self, owner: u64) -> bool {
+        self.0.is_live(owner).unwrap_or(true)
+    }
+}
+
+/// An owner's key and its place in the heap's accounting, kept while its
+/// plugin is parked ([`HostResources::try_owner_for`]): the place is never
+/// released (the heap's owner table only grows), so the plugin is charged on
+/// the same row when it is made again. Only an owner hands one out
+/// ([`OwnerResources::seat`]), and only for its own pool.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct OwnerSeat {
+    owner: u64,
+    heap: u32,
 }
 
 /// Host-assigned ownership of one plugin's handles in the device-wide pool.
@@ -350,6 +387,18 @@ impl OwnerResources {
 
     pub(crate) fn owner_id(&self) -> u64 {
         self.owner
+    }
+
+    /// This owner's key and heap place, to host its plugin again under them.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the kernel's unpark recipe keeps it (#2638)")
+    )]
+    pub(crate) fn seat(&self) -> OwnerSeat {
+        OwnerSeat {
+            owner: self.owner,
+            heap: self.heap_owner,
+        }
     }
 
     /// Whether this owner holds any handle (a font, blob or service).
