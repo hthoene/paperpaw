@@ -12,7 +12,7 @@ fn a_native_plugin_named_like_the_host_is_denied_whole() {
     let result = kernel.register_native(
         host_named("core", 0),
         &FlatDepth::try_new().unwrap(),
-        |_, _, _| {},
+        |_, _, _, _| {},
     );
     assert!(
         matches!(

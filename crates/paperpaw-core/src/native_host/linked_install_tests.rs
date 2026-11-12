@@ -213,7 +213,7 @@ fn install_depth(
             resources,
             depth,
             |_, _, _, _| {},
-            |_, _, _| {},
+            |_, _, _, _| {},
             (core::ptr::null(), 0),
             crate::native_host::FixedTables::NONE,
         )

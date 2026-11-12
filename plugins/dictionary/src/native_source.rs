@@ -70,6 +70,14 @@ impl<'a, L: Listing> Dictionaries<'a, L> {
         Ok(self.opened.as_deref().unwrap_or_default())
     }
 
+    /// How many dictionaries were found, ready or not.
+    ///
+    /// # Errors
+    /// The folder's, or `NoMemory`.
+    pub fn found(&mut self) -> Result<usize, Error> {
+        Ok(self.open()?.len())
+    }
+
     /// The block indexes still to be made, over all the dictionaries.
     ///
     /// # Errors
@@ -101,15 +109,41 @@ impl<L: Listing> Source for Dictionaries<'_, L> {
             .dictionary
             .lookup(storage, word)
             .map_err(|error| model_error(&error))?;
-        let mut out = Vec::new();
-        out.try_reserve_exact(found.len())
-            .map_err(|_| Error::NoMemory)?;
-        for definition in found {
-            out.push(Found {
-                title: copy(&opened.dictionary.info.name)?,
-                text: definition.text,
-            });
-        }
-        Ok(out)
+        named(&opened.dictionary, found)
     }
+
+    fn definitions_within(
+        &mut self,
+        which: usize,
+        word: &str,
+        budget: &mut usize,
+    ) -> Result<Vec<Found>, Error> {
+        let storage = self.storage;
+        let opened = self.open()?.iter().filter(|o| o.ready).nth(which);
+        let Some(opened) = opened else {
+            return Ok(Vec::new());
+        };
+        let found = opened
+            .dictionary
+            .lookup_within(storage, word, budget)
+            .map_err(|error| model_error(&error))?;
+        named(&opened.dictionary, found)
+    }
+}
+
+/// `found`, each definition with the name of its dictionary.
+fn named(
+    dictionary: &Dictionary,
+    found: Vec<paperpaw_stardict::Definition>,
+) -> Result<Vec<Found>, Error> {
+    let mut out = Vec::new();
+    out.try_reserve_exact(found.len())
+        .map_err(|_| Error::NoMemory)?;
+    for definition in found {
+        out.push(Found {
+            title: copy(&dictionary.info.name)?,
+            text: definition.text,
+        });
+    }
+    Ok(out)
 }

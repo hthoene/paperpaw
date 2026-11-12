@@ -144,6 +144,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
     }
 
     /// The move [`JOURNAL`] records, if any.
+    #[inline(never)]
     pub(super) fn recorded(&self) -> Result<Option<(String, String)>, StorageError> {
         self.close(JOURNAL)?;
         let (mut file, len) = match find_file(&self.root(), JOURNAL, false) {
@@ -181,6 +182,14 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         if self.moves_settled.get() || self.settling.get() {
             return Ok(());
         }
+        self.settle_recorded()
+    }
+
+    /// [`Self::settle_moves`] where the record was not looked for yet: once
+    /// after the start, so apart from the call every folder makes, whose frame
+    /// is held while the card is read below it.
+    #[inline(never)]
+    fn settle_recorded(&self) -> Result<(), StorageError> {
         // No folder is settled meanwhile: a file's new content there may
         // be the file moved, which only the record tells.
         self.settling.set(true);
@@ -244,30 +253,14 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
 
     /// Settles the files of folder `path` (`dir`) that cuts left written
     /// through files beside them (see `settle_folder`): whether all are.
+    #[inline(never)]
     fn settle_files(&self, path: &str, dir: &FatDir<IO>) -> bool {
-        let mut temps = Vec::new();
-        for entry in entries(dir) {
-            let Ok(entry) = entry else {
-                return false;
-            };
-            let short = entry.short_file_name_as_bytes();
-            if entry.is_file() && core::str::from_utf8(short).is_ok_and(is_temp_name) {
-                temps.push(short.to_ascii_uppercase());
-            }
-        }
+        let Some(temps) = Self::temps_in(dir) else {
+            return false;
+        };
         let mut names = Vec::new();
-        if !temps.is_empty() {
-            for entry in entries(dir) {
-                let Ok(entry) = entry else {
-                    return false;
-                };
-                let name = entry.file_name();
-                let of = Temps::of(&name);
-                let has = |temp: &str| temps.iter().any(|t| t == temp.as_bytes());
-                if entry.is_file() && !is_temp_name(&name) && (has(of.tmp()) || has(of.ready())) {
-                    names.push(name);
-                }
-            }
+        if !temps.is_empty() && !Self::files_of_temps(dir, &temps, &mut names) {
+            return false;
         }
         let mut all = true;
         for name in names {
@@ -277,11 +270,46 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         all
     }
 
+    /// The short names of the files in `dir` that a write goes through
+    /// (see [`is_temp_name`]); `None` where `dir` cannot be read. A call of
+    /// its own, so that its entries do not add to the frame of its caller.
+    #[inline(never)]
+    fn temps_in(dir: &FatDir<IO>) -> Option<Vec<Vec<u8>>> {
+        let mut temps = Vec::new();
+        for entry in entries(dir) {
+            let entry = entry.ok()?;
+            let short = entry.short_file_name_as_bytes();
+            if entry.is_file() && core::str::from_utf8(short).is_ok_and(is_temp_name) {
+                temps.push(short.to_ascii_uppercase());
+            }
+        }
+        Some(temps)
+    }
+
+    /// The names of the files in `dir` that one of `temps` belongs to, into
+    /// `names`: whether `dir` could be read to its end.
+    #[inline(never)]
+    fn files_of_temps(dir: &FatDir<IO>, temps: &[Vec<u8>], names: &mut Vec<String>) -> bool {
+        for entry in entries(dir) {
+            let Ok(entry) = entry else {
+                return false;
+            };
+            let name = entry.file_name();
+            let of = Temps::of(&name);
+            let has = |temp: &str| temps.iter().any(|t| t == temp.as_bytes());
+            if entry.is_file() && !is_temp_name(&name) && (has(of.tmp()) || has(of.ready())) {
+                names.push(name);
+            }
+        }
+        true
+    }
+
     /// Finishes the move from `from` to `to` that [`JOURNAL`] records:
     /// where the file or folder is at both places, its old entry is taken
     /// away, its clusters left to the new one; where it is still under
     /// the name of its new content, it takes its place. Where it did not
     /// reach its new place, it stays where it was.
+    #[inline(never)]
     pub(super) fn finish_move(&self, from: &str, to: &str) -> Result<(), StorageError> {
         self.close(from)?;
         self.close(to)?;
