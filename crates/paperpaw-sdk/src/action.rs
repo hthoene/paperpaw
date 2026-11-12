@@ -280,24 +280,24 @@ impl FixedAction {
 /// 2): what it is called and which plugin's callback runs it, without a
 /// handler of its own. The kernel runs it by delivering `event.action_run`
 /// to `token` of plugin `owner` (`Action::native`, with the `kernel`
-/// feature); it takes some 40 bytes where an [`ActionSpec`] with a handler
-/// takes some 150 (#248).
+/// feature). Its id and title are a linked plugin's entry kept in the program
+/// ([`Titled::kept`](crate::Titled::kept)) or a copy: some 24 bytes on a
+/// 32-bit device where an [`ActionSpec`] with a handler takes some 100 (#248).
 #[derive(Debug)]
 pub struct NativeAction {
-    id: Id,
-    title: Cow<'static, str>,
+    titled: crate::Titled,
     owner: u64,
     token: u32,
 }
 
 impl NativeAction {
-    /// The action `id` called `title`, run by `token` of plugin `owner`.
+    /// The action named by `titled` (its id and title), run by `token` of
+    /// plugin `owner`.
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn new(id: Id, title: Cow<'static, str>, owner: u64, token: u32) -> Self {
+    pub fn new(titled: crate::Titled, owner: u64, token: u32) -> Self {
         Self {
-            id,
-            title,
+            titled,
             owner,
             token,
         }
@@ -323,7 +323,7 @@ impl<'a> Action<'a> {
         match self {
             Action::Spec(spec) => &spec.id,
             Action::Fixed(fixed) => &fixed.id,
-            Action::Native(native) => &native.id,
+            Action::Native(native) => native.titled.id(),
         }
     }
 
@@ -332,7 +332,7 @@ impl<'a> Action<'a> {
         match self {
             Action::Spec(spec) => &spec.title,
             Action::Fixed(fixed) => fixed.title,
-            Action::Native(native) => &native.title,
+            Action::Native(native) => native.titled.title(),
         }
     }
 
@@ -341,7 +341,7 @@ impl<'a> Action<'a> {
         match self {
             Action::Spec(spec) => spec.title.clone(),
             Action::Fixed(fixed) => Cow::Borrowed(fixed.title),
-            Action::Native(native) => native.title.clone(),
+            Action::Native(native) => native.titled.title_key(),
         }
     }
 
@@ -513,13 +513,14 @@ impl Actions {
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn insert_native(&mut self, action: NativeAction) {
-        if let Ok(at) = self.find(action.id.as_str()) {
+        let id = action.titled.id().as_str();
+        if let Ok(at) = self.find(id) {
             self.specs.remove(at);
         }
-        if let Ok(at) = self.find_fixed(action.id.as_str()) {
+        if let Ok(at) = self.find_fixed(id) {
             self.fixed.remove(at);
         }
-        match self.find_native(action.id.as_str()) {
+        match self.find_native(id) {
             Ok(at) => self.native[at] = action,
             Err(at) => self.native.insert(at, action),
         }
@@ -560,7 +561,8 @@ impl Actions {
     pub fn remove_plugin(&mut self, plugin: &str) {
         self.specs.retain(|spec| spec.id.namespace() != plugin);
         self.fixed.retain(|fixed| fixed.id.namespace() != plugin);
-        self.native.retain(|native| native.id.namespace() != plugin);
+        self.native
+            .retain(|native| native.titled.id().namespace() != plugin);
         self.overrides.retain(|(action, _, owner, _)| {
             action.namespace() != plugin && owner.as_str() != plugin
         });
@@ -577,7 +579,7 @@ impl Actions {
 
     fn find_native(&self, id: &str) -> Result<usize, usize> {
         self.native
-            .binary_search_by(|native| native.id.as_str().cmp(id))
+            .binary_search_by(|native| native.titled.id().as_str().cmp(id))
     }
 
     pub fn get(&self, id: &str) -> Option<Action<'_>> {
@@ -744,7 +746,10 @@ mod tests {
         static FIXED: [FixedAction; 1] = [FixedAction::new(Id::new_static("p.b"), "p.b")];
         let mut actions = Actions::new();
         actions.try_reserve_native(2).unwrap();
-        let native = |id, token| NativeAction::new(Id::new_static(id), Cow::Borrowed(id), 7, token);
+        let native = |id, token| {
+            let owned = alloc::boxed::Box::new((Id::new_static(id), Cow::Borrowed(id)));
+            NativeAction::new(crate::Titled::owned(owned), 7, token)
+        };
         actions.insert_native(native("p.c", 3));
         actions.insert_native(native("p.a", 1));
         actions.insert_fixed(&FIXED);
@@ -767,5 +772,32 @@ mod tests {
         actions.remove_plugin("p");
         let ids: Vec<&str> = actions.iter().map(|a| a.id().as_str()).collect();
         assert_eq!(ids, ["q.a"]);
+    }
+
+    /// A linked plugin's action: its id and title are the entry kept in the
+    /// program, and it reads as a copy of the same would (#248, B).
+    #[test]
+    fn a_native_action_kept_in_the_program_reads_as_a_copy() {
+        static KEPT: crate::TitleEntry =
+            crate::TitleEntry::new(Id::new_static("p.open"), "p.open-title");
+        let mut actions = Actions::new();
+        actions.try_reserve_native(2).unwrap();
+        actions.insert_native(NativeAction::new(crate::Titled::kept(&KEPT), 7, 3));
+        let owned =
+            alloc::boxed::Box::new((Id::new_static("q.open"), Cow::Borrowed("p.open-title")));
+        actions.insert_native(NativeAction::new(crate::Titled::owned(owned), 7, 4));
+        let kept = actions.get("p.open").unwrap();
+        let copy = actions.get("q.open").unwrap();
+        assert!(core::ptr::eq(kept.id(), &KEPT.id));
+        assert_eq!(kept.title(), copy.title());
+        assert!(matches!(kept.title_key(), Cow::Borrowed("p.open-title")));
+        assert_eq!((kept.native(), copy.native()), (Some((7, 3)), Some((7, 4))));
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn a_native_action_takes_32_bytes() {
+        // Its own id and title took 40 of 56 (#248, B).
+        assert!(core::mem::size_of::<NativeAction>() <= 32);
     }
 }

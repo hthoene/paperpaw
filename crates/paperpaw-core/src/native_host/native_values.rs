@@ -25,6 +25,9 @@ pub(crate) struct Callback {
     pub(crate) title: Cow<'static, str>,
     pub(crate) token: u32,
     pub(crate) flags: u32,
+    /// The entry of the plugin's titles table with the same id and title,
+    /// where it has one: the kernel keeps that, not a row of its own (#248).
+    pub(crate) kept: Option<&'static paperpaw_sdk::TitleEntry>,
 }
 
 #[derive(Debug)]
@@ -62,6 +65,13 @@ pub(crate) trait Source {
     fn text(&mut self, text: &str) -> Result<Cow<'static, str>, i32> {
         copy(text).map(Cow::Owned)
     }
+
+    /// The entry kept in the program with the id `id` and the title `title`
+    /// (a screen's, an action's); by default none.
+    fn titled(&self, id: &str, title: &str) -> Option<&'static paperpaw_sdk::TitleEntry> {
+        let _ = (id, title);
+        None
+    }
 }
 
 /// An id factory alone (tests, and every owner without tables): ids from
@@ -82,6 +92,8 @@ pub(crate) struct Kept {
     pub(crate) ids: &'static [Id],
     /// The program's read-only data; empty for none.
     pub(crate) image: &'static [u8],
+    /// Sorted by id ([`super::FixedTables::titles`]).
+    pub(crate) titles: &'static [paperpaw_sdk::TitleEntry],
 }
 
 impl Kept {
@@ -102,6 +114,16 @@ impl Source for Kept {
             Ok(at) => self.ids[at].try_clone().ok_or(ERR_NO_MEMORY),
             Err(_) => checked_id(text),
         }
+    }
+
+    fn titled(&self, id: &str, title: &str) -> Option<&'static paperpaw_sdk::TitleEntry> {
+        let at = self
+            .titles
+            .binary_search_by(|kept| kept.id.as_str().cmp(id))
+            .ok()?;
+        // Only the very same: a title that differs keeps a row of its own.
+        let entry = &self.titles[at];
+        (entry.title == title).then_some(entry)
     }
 
     fn text(&mut self, text: &str) -> Result<Cow<'static, str>, i32> {
@@ -136,22 +158,61 @@ pub(crate) fn normalize(
     match record {
         wire::Record::SettingSpec(spec) => setting(owner, spec, id).map(Value::Setting),
         wire::Record::SettingGroup(group) => group_value(owner, group, id).map(Value::Group),
-        wire::Record::ScreenSpec(screen) => Ok(Value::Screen(Callback {
-            id: qualified(owner, screen.name, id)?,
-            title: id.text(screen.title)?,
-            token: screen.token,
-            flags: screen.flags,
-        })),
-        wire::Record::ActionSpec(action) => Ok(Value::Action(Callback {
-            id: qualified(owner, action.name, id)?,
-            title: id.text(action.title)?,
-            token: action.token,
-            flags: action.flags,
-        })),
+        wire::Record::ScreenSpec(screen) => Ok(Value::Screen(callback(
+            owner,
+            (screen.name, screen.title),
+            (screen.token, screen.flags),
+            id,
+        )?)),
+        wire::Record::ActionSpec(action) => Ok(Value::Action(callback(
+            owner,
+            (action.name, action.title),
+            (action.token, action.flags),
+            id,
+        )?)),
         // Extras need fallible SDK construction before they can be mapped.
         // Resources need host file/provider resolution. Neither is dropped.
         _ => Err(ERR_UNSUPPORTED),
     }
+}
+
+/// A screen's or an action's id and title as the kernel keeps them: the
+/// entry of the plugin's titles table where the declaration has one (no heap,
+/// #248), else a copy of its own (`ERR_NO_MEMORY` where the heap refuses it).
+pub(crate) fn titled(
+    kept: Option<&'static paperpaw_sdk::TitleEntry>,
+    id: Id,
+    title: Cow<'static, str>,
+) -> Result<paperpaw_sdk::Titled, i32> {
+    match kept {
+        Some(entry) => Ok(paperpaw_sdk::Titled::kept(entry)),
+        None => super::shared::try_box((id, title))
+            .map(paperpaw_sdk::Titled::owned)
+            .ok_or(ERR_NO_MEMORY),
+    }
+}
+
+/// A screen's or an action's callback, named `name` and called `title`.
+fn callback(
+    owner: &str,
+    (name, title): (&str, &str),
+    (token, flags): (u32, u32),
+    source: &mut impl Source,
+) -> Result<Callback, i32> {
+    let id = qualified(owner, name, source)?;
+    let kept = source.titled(id.as_str(), title);
+    // A kept entry carries its title: no copy of it (Code Reviewer, #1372).
+    let title = match kept {
+        Some(entry) => Cow::Borrowed(entry.title),
+        None => source.text(title)?,
+    };
+    Ok(Callback {
+        id,
+        title,
+        token,
+        flags,
+        kept,
+    })
 }
 
 fn setting(

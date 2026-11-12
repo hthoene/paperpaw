@@ -22,22 +22,20 @@ struct SlotCandidate {
     priority: Priority,
 }
 
-/// The screens plugins added, sorted by id: each id with the translation
-/// key of its name, as [`Env::screens`](paperpaw_sdk::Env) hands them out
-/// (not copied for it), and apart from them what makes the screen.
+/// The screens plugins added: each id with the translation key of its name,
+/// as [`Env::screens`](paperpaw_sdk::Env) hands them out (not copied for it),
+/// and apart from them what makes the screen. Three lists, each sorted by id,
+/// no id in two of them: interface-6 plugins' screens, interface-7 plugins'
+/// (their id and title a linked plugin's entry kept in the program, #248 B)
+/// and those kept in the program.
 #[derive(Default)]
 pub(crate) struct Screens {
     titles: Vec<(Id, Cow<'static, str>)>,
-    made: Vec<Made>,
-    /// Those kept in the program, sorted by id; none of an id `titles`
-    /// has (the one added last stays).
+    made: Vec<AddedMade>,
+    native: Vec<paperpaw_sdk::Titled>,
+    native_made: Vec<crate::native_host::native_screen_factory::NativeMade>,
+    /// Those kept in the program; the one added last of an id stays.
     fixed: Vec<&'static paperpaw_sdk::FixedScreen>,
-}
-
-/// What makes a screen, of its [`ScreenSpec`].
-enum Made {
-    Added(AddedMade),
-    Native(crate::native_host::native_screen_factory::NativeMade),
 }
 
 pub(crate) struct AddedMade {
@@ -120,7 +118,7 @@ impl Maker<'_> {
 impl core::fmt::Debug for Screens {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_list()
-            .entries(self.titles.iter().map(|(id, _)| id))
+            .entries(self.list().iter().map(|(id, _)| id))
             .finish()
     }
 }
@@ -131,42 +129,44 @@ impl Screens {
             .binary_search_by(|(other, _)| other.as_str().cmp(id))
     }
 
+    fn find_native(&self, id: &str) -> Result<usize, usize> {
+        self.native
+            .binary_search_by(|other| other.id().as_str().cmp(id))
+    }
+
     fn find_fixed(&self, id: &str) -> Result<usize, usize> {
         self.fixed.binary_search_by(|f| f.id().as_str().cmp(id))
     }
 
     pub(crate) fn contains_key<Q: core::borrow::Borrow<str> + ?Sized>(&self, id: &Q) -> bool {
-        self.find(id.borrow()).is_ok() || self.find_fixed(id.borrow()).is_ok()
+        let id = id.borrow();
+        self.find(id).is_ok() || self.find_native(id).is_ok() || self.find_fixed(id).is_ok()
     }
 
     pub(crate) fn get<Q: core::borrow::Borrow<str> + ?Sized>(&self, id: &Q) -> Option<Maker<'_>> {
-        match self.find(id.borrow()) {
-            Ok(at) => Some(match &self.made[at] {
-                Made::Added(made) => Maker::Added(made),
-                Made::Native(made) => Maker::Native(&self.titles[at].0, made),
-            }),
-            Err(_) => self
-                .find_fixed(id.borrow())
-                .ok()
-                .map(|at| Maker::Fixed(self.fixed[at])),
+        let id = id.borrow();
+        if let Ok(at) = self.find(id) {
+            return Some(Maker::Added(&self.made[at]));
         }
+        if let Ok(at) = self.find_native(id) {
+            return Some(Maker::Native(self.native[at].id(), &self.native_made[at]));
+        }
+        self.find_fixed(id)
+            .ok()
+            .map(|at| Maker::Fixed(self.fixed[at]))
     }
 
     /// The id and title of every interface-7 plugin's screen.
-    pub(crate) fn native_titles(&self) -> impl Iterator<Item = &(Id, Cow<'static, str>)> {
-        self.titles
-            .iter()
-            .zip(&self.made)
-            .filter(|(_, made)| matches!(made, Made::Native(_)))
-            .map(|(title, _)| title)
+    pub(crate) fn native_titles(&self) -> impl Iterator<Item = &paperpaw_sdk::Titled> {
+        self.native.iter()
     }
 
     pub(crate) fn remove_native_owner(&mut self, owner: &str) {
         let mut at = 0;
-        while at < self.made.len() {
-            if self.titles[at].0.namespace() == owner && matches!(self.made[at], Made::Native(_)) {
-                self.titles.remove(at);
-                self.made.remove(at);
+        while at < self.native.len() {
+            if self.native[at].id().namespace() == owner {
+                self.native.remove(at);
+                self.native_made.remove(at);
             } else {
                 at += 1;
             }
@@ -174,19 +174,31 @@ impl Screens {
     }
 
     fn title(&self, id: &str) -> Option<&str> {
-        match self.find(id) {
-            Ok(at) => Some(self.titles[at].1.as_ref()),
-            Err(_) => self.find_fixed(id).ok().map(|at| self.fixed[at].title()),
+        if let Ok(at) = self.find(id) {
+            return Some(self.titles[at].1.as_ref());
+        }
+        if let Ok(at) = self.find_native(id) {
+            return Some(self.native[at].title());
+        }
+        self.find_fixed(id).ok().map(|at| self.fixed[at].title())
+    }
+
+    /// Forgets the added and the native screen `id` (one at most has it).
+    fn forget(&mut self, id: &str) {
+        if let Ok(at) = self.find(id) {
+            self.titles.remove(at);
+            self.made.remove(at);
+        }
+        if let Ok(at) = self.find_native(id) {
+            self.native.remove(at);
+            self.native_made.remove(at);
         }
     }
 
     /// Adds screens kept in the program, in place of those of their ids.
     fn insert_fixed(&mut self, screens: &'static [paperpaw_sdk::FixedScreen]) {
         for screen in screens {
-            if let Ok(at) = self.find(screen.id().as_str()) {
-                self.titles.remove(at);
-                self.made.remove(at);
-            }
+            self.forget(screen.id().as_str());
             match self.find_fixed(screen.id().as_str()) {
                 Ok(at) => self.fixed[at] = screen,
                 Err(at) => self.fixed.insert(at, screen),
@@ -206,24 +218,17 @@ impl Screens {
             instances,
             ..
         } = spec;
-        let made = Made::Added(AddedMade {
+        let made = AddedMade {
             factory,
             refresh_on_open,
             instances,
-        });
-        self.insert_made(id, title, made);
-    }
-
-    fn insert_native(
-        &mut self,
-        screen: crate::native_host::native_screen_factory::NativeScreenSpec,
-    ) {
-        self.insert_made(screen.id, screen.title, Made::Native(screen.made));
-    }
-
-    fn insert_made(&mut self, id: Id, title: Cow<'static, str>, made: Made) {
+        };
         if let Ok(at) = self.find_fixed(id.as_str()) {
             self.fixed.remove(at);
+        }
+        if let Ok(at) = self.find_native(id.as_str()) {
+            self.native.remove(at);
+            self.native_made.remove(at);
         }
         match self.find(id.as_str()) {
             Ok(at) => {
@@ -237,14 +242,53 @@ impl Screens {
         }
     }
 
+    fn insert_native(
+        &mut self,
+        screen: crate::native_host::native_screen_factory::NativeScreenSpec,
+    ) {
+        let id = screen.titled.id().as_str();
+        if let Ok(at) = self.find_fixed(id) {
+            self.fixed.remove(at);
+        }
+        if let Ok(at) = self.find(id) {
+            self.titles.remove(at);
+            self.made.remove(at);
+        }
+        match self.find_native(id) {
+            Ok(at) => {
+                self.native[at] = screen.titled;
+                self.native_made[at] = screen.made;
+            }
+            Err(at) => {
+                self.native.insert(at, screen.titled);
+                self.native_made.insert(at, screen.made);
+            }
+        }
+    }
+
+    /// Room for `added` more interface-6 and `native` more interface-7
+    /// screens, so that inserting them cannot fail for lack of memory.
+    fn try_reserve(
+        &mut self,
+        added: usize,
+        native: usize,
+    ) -> Result<(), alloc::collections::TryReserveError> {
+        self.titles.try_reserve(added)?;
+        self.made.try_reserve(added)?;
+        self.native.try_reserve(native)?;
+        self.native_made.try_reserve(native)
+    }
+
     /// Every screen with the translation key of its name.
     pub(crate) fn list(&self) -> paperpaw_sdk::ScreenList<'_> {
-        paperpaw_sdk::ScreenList::new(&self.titles, &self.fixed)
+        paperpaw_sdk::ScreenList::new(&self.titles, &self.native, &self.fixed)
     }
 
     fn shrink_to_fit(&mut self) {
         self.titles.shrink_to_fit();
         self.made.shrink_to_fit();
+        self.native.shrink_to_fit();
+        self.native_made.shrink_to_fit();
         self.fixed.shrink_to_fit();
     }
 }
@@ -721,18 +765,19 @@ impl Staging {
         owner: &Id,
         screen: crate::native_host::native_screen_factory::NativeScreenSpec,
     ) -> Result<(), i32> {
-        if screen.id.namespace() != owner.as_str() {
+        let id = screen.titled.id();
+        if id.namespace() != owner.as_str() {
             return Err(paperpaw_native::host_glue::ERR_INVALID);
         }
         if self
             .native_screens
             .iter()
-            .any(|other| other.id == screen.id)
-            || self.screens.iter().any(|other| other.id == screen.id)
+            .any(|other| other.titled.id() == id)
+            || self.screens.iter().any(|other| &other.id == id)
             || self
                 .fixed_screens
                 .iter()
-                .any(|list| list.iter().any(|other| other.id() == &screen.id))
+                .any(|list| list.iter().any(|other| other.id() == id))
         {
             return Err(paperpaw_native::host_glue::ERR_INVALID);
         }
@@ -890,7 +935,7 @@ impl Staging {
                 self.screens
                     .iter()
                     .map(|s| &s.id)
-                    .chain(self.native_screens.iter().map(|s| &s.id))
+                    .chain(self.native_screens.iter().map(|s| s.titled.id()))
                     .chain(
                         self.fixed_screens
                             .iter()
@@ -916,24 +961,9 @@ impl Staging {
             return Err(RegisterError::Duplicate { id });
         }
         if !self.native_screens.is_empty() {
-            let count = self
-                .screens
-                .len()
-                .checked_add(self.native_screens.len())
-                .ok_or(RegisterError::Invalid {
-                    message: NATIVE_CAPACITY_OVERFLOW.into(),
-                })?;
             registry
                 .screens
-                .titles
-                .try_reserve(count)
-                .map_err(|_| RegisterError::Invalid {
-                    message: NATIVE_CAPACITY_UNAVAILABLE.into(),
-                })?;
-            registry
-                .screens
-                .made
-                .try_reserve(count)
+                .try_reserve(self.screens.len(), self.native_screens.len())
                 .map_err(|_| RegisterError::Invalid {
                     message: NATIVE_CAPACITY_UNAVAILABLE.into(),
                 })?;
@@ -1174,11 +1204,21 @@ mod tests {
         // #248 B: a native screen's row keeps its token, flags and lease; how
         // many instances it has is read from its flags. Three words here (was
         // four), 16 bytes on the X4 (was 20).
+        type Made = crate::native_host::native_screen_factory::NativeMade;
         assert!(
             core::mem::size_of::<Made>() <= 3 * core::mem::size_of::<usize>(),
             "{} bytes",
             core::mem::size_of::<Made>()
         );
+    }
+
+    #[test]
+    fn a_native_screens_title_is_two_words() {
+        // #248 B: an interface-7 plugin's screen keeps its id and title as a
+        // linked plugin's entry kept in the program (or one box), not as an
+        // id and a title of its own (five words).
+        let words = core::mem::size_of::<usize>();
+        assert!(core::mem::size_of::<paperpaw_sdk::Titled>() <= 2 * words);
     }
 
     /// Subscriptions come back as they were added: in order, each with its

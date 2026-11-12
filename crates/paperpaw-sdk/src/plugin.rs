@@ -46,6 +46,31 @@ impl Manifest {
         }
     }
 
+    /// Made of what it needs and its description, usable in `const` and
+    /// `static` items with [`Manifest::uses`] and [`Manifest::how`]: a linked
+    /// plugin's manifest kept in the program, which the plugin list then
+    /// points to instead of holding a copy, where it equals the plugin's
+    /// ([`ManifestRef::try_new`]).
+    ///
+    /// [`ManifestRef::try_new`]: crate::plugins::ManifestRef::try_new
+    #[must_use]
+    pub const fn fixed(
+        id: Id,
+        name: &'static str,
+        description: &'static str,
+        version: Version,
+    ) -> Self {
+        Self {
+            id,
+            name: crate::Str::new_static(name),
+            version,
+            description: crate::Str::new_static(description),
+            uses: Uses::NOTHING,
+            how: &[],
+            spare: 0,
+        }
+    }
+
     pub fn description(mut self, description: impl Into<Cow<'static, str>>) -> Self {
         self.description = crate::Str::new(description);
         self
@@ -62,12 +87,14 @@ impl Manifest {
     /// let manifest = Manifest::new(Id::new_static("demo"), "Demo", Version::new(1, 0, 0)).how(&HOW);
     /// # assert_eq!(manifest.how.len(), 1);
     /// ```
-    pub fn how(mut self, how: &'static [(&'static str, &'static str)]) -> Self {
+    #[must_use]
+    pub const fn how(mut self, how: &'static [(&'static str, &'static str)]) -> Self {
         self.how = how;
         self
     }
 
-    pub fn uses(mut self, uses: Uses) -> Self {
+    #[must_use]
+    pub const fn uses(mut self, uses: Uses) -> Self {
         self.uses = uses;
         self
     }

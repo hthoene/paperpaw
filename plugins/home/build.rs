@@ -50,7 +50,8 @@ fn main() -> Result<(), String> {
     let batches: Vec<&[u8]> = all.iter().map(Vec::as_slice).collect();
     let table = paperpaw_sdk::native::declare::fixed_settings_source("home", "SETTINGS", &batches)?
         + &paperpaw_sdk::native::declare::fixed_groups_source("home", "GROUPS", &batches)?
-        + &paperpaw_sdk::native::declare::fixed_ids_source("home", "IDS", &batches)?;
+        + &paperpaw_sdk::native::declare::fixed_ids_source("home", "IDS", &batches)?
+        + &paperpaw_sdk::native::declare::fixed_titles_source("home", "TITLES", &batches)?;
     std::fs::write(out.join("home_settings.rs"), table)
         .map_err(|error| format!("write settings table: {error}"))?;
     std::fs::write(out.join("home_declarations.rs"), source)

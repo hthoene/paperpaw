@@ -11353,9 +11353,27 @@ pub paperpaw_sdk::Manifest::uses: paperpaw_sdk::Uses
 pub paperpaw_sdk::Manifest::version: paperpaw_sdk::Version
 impl paperpaw_sdk::Manifest
 pub fn paperpaw_sdk::Manifest::description(self, impl core::convert::Into<alloc::borrow::Cow<'static, str>>) -> Self
-pub fn paperpaw_sdk::Manifest::how(self, &'static [(&'static str, &'static str)]) -> Self
+pub const fn paperpaw_sdk::Manifest::fixed(paperpaw_sdk::Id, &'static str, &'static str, paperpaw_sdk::Version) -> Self
+pub const fn paperpaw_sdk::Manifest::how(self, &'static [(&'static str, &'static str)]) -> Self
 pub fn paperpaw_sdk::Manifest::new(paperpaw_sdk::Id, impl core::convert::Into<alloc::borrow::Cow<'static, str>>, paperpaw_sdk::Version) -> Self
-pub fn paperpaw_sdk::Manifest::uses(self, paperpaw_sdk::Uses) -> Self
+pub const fn paperpaw_sdk::Manifest::uses(self, paperpaw_sdk::Uses) -> Self
+impl core::convert::From<&'static paperpaw_sdk::Manifest> for paperpaw_sdk::ManifestRef
+pub fn paperpaw_sdk::ManifestRef::from(&'static paperpaw_sdk::Manifest) -> Self
+pub struct paperpaw_sdk::ManifestRef(_)
+impl paperpaw_sdk::ManifestRef
+pub const fn paperpaw_sdk::ManifestRef::fixed(&'static paperpaw_sdk::Manifest) -> Self
+pub const fn paperpaw_sdk::ManifestRef::is_fixed(&self) -> bool
+pub fn paperpaw_sdk::ManifestRef::try_new(paperpaw_sdk::Manifest, core::option::Option<&'static paperpaw_sdk::Manifest>) -> core::result::Result<Self, paperpaw_sdk::Manifest>
+impl core::cmp::Eq for paperpaw_sdk::ManifestRef
+impl core::cmp::PartialEq for paperpaw_sdk::ManifestRef
+pub fn paperpaw_sdk::ManifestRef::eq(&self, &Self) -> bool
+impl core::convert::From<&'static paperpaw_sdk::Manifest> for paperpaw_sdk::ManifestRef
+pub fn paperpaw_sdk::ManifestRef::from(&'static paperpaw_sdk::Manifest) -> Self
+impl core::fmt::Debug for paperpaw_sdk::ManifestRef
+pub fn paperpaw_sdk::ManifestRef::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::ops::deref::Deref for paperpaw_sdk::ManifestRef
+pub type paperpaw_sdk::ManifestRef::Target = paperpaw_sdk::Manifest
+pub fn paperpaw_sdk::ManifestRef::deref(&self) -> &paperpaw_sdk::Manifest
 pub struct paperpaw_sdk::MemoryStorage
 impl paperpaw_sdk::MemoryStorage
 pub fn paperpaw_sdk::MemoryStorage::get(&self, &str) -> core::option::Option<alloc::vec::Vec<u8>>
@@ -11508,7 +11526,7 @@ pub fn paperpaw_sdk::Params::to_params(&self) -> paperpaw_sdk::Params
 #[non_exhaustive] pub struct paperpaw_sdk::PluginInfo
 pub paperpaw_sdk::PluginInfo::enabled: bool
 pub paperpaw_sdk::PluginInfo::kind: paperpaw_sdk::PluginKind
-pub paperpaw_sdk::PluginInfo::manifest: paperpaw_sdk::Manifest
+pub paperpaw_sdk::PluginInfo::manifest: paperpaw_sdk::ManifestRef
 pub paperpaw_sdk::PluginInfo::problem: core::option::Option<paperpaw_sdk::PluginProblem>
 pub paperpaw_sdk::PluginInfo::required_for: paperpaw_sdk::RequiredFor
 pub paperpaw_sdk::PluginInfo::state: paperpaw_sdk::PluginState
@@ -11518,7 +11536,7 @@ pub fn paperpaw_sdk::PluginInfo::can_switch_off(&self) -> bool
 pub fn paperpaw_sdk::PluginInfo::description<'a>(&'a self, &'a paperpaw_i18n::Translator) -> &'a str
 pub fn paperpaw_sdk::PluginInfo::how<'a>(&'a self, &'a paperpaw_i18n::Translator) -> core::option::Option<&'a str>
 pub fn paperpaw_sdk::PluginInfo::name<'a>(&'a self, &'a paperpaw_i18n::Translator) -> &'a str
-pub const fn paperpaw_sdk::PluginInfo::new(paperpaw_sdk::Manifest, paperpaw_sdk::PluginState, bool, paperpaw_sdk::RequiredFor, paperpaw_sdk::PluginKind, core::option::Option<paperpaw_sdk::PluginProblem>, core::option::Option<paperpaw_sdk::Version>) -> paperpaw_sdk::PluginInfo
+pub fn paperpaw_sdk::PluginInfo::new(impl core::convert::Into<paperpaw_sdk::ManifestRef>, paperpaw_sdk::PluginState, bool, paperpaw_sdk::RequiredFor, paperpaw_sdk::PluginKind, core::option::Option<paperpaw_sdk::PluginProblem>, core::option::Option<paperpaw_sdk::Version>) -> paperpaw_sdk::PluginInfo
 pub fn paperpaw_sdk::PluginInfo::restart_needed(&self) -> bool
 pub struct paperpaw_sdk::Plugins
 impl paperpaw_sdk::Plugins
@@ -11914,6 +11932,24 @@ pub fn paperpaw_sdk::Str::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt
 impl core::ops::deref::Deref for paperpaw_sdk::Str
 pub type paperpaw_sdk::Str::Target = str
 pub fn paperpaw_sdk::Str::deref(&self) -> &str
+#[non_exhaustive] pub struct paperpaw_sdk::TitleEntry
+pub paperpaw_sdk::TitleEntry::id: paperpaw_sdk::Id
+pub paperpaw_sdk::TitleEntry::title: &'static str
+impl paperpaw_sdk::TitleEntry
+pub const fn paperpaw_sdk::TitleEntry::new(paperpaw_sdk::Id, &'static str) -> Self
+pub struct paperpaw_sdk::Titled(_)
+impl paperpaw_sdk::Titled
+pub fn paperpaw_sdk::Titled::id(&self) -> &paperpaw_sdk::Id
+pub const fn paperpaw_sdk::Titled::is_kept(&self) -> bool
+pub const fn paperpaw_sdk::Titled::kept(&'static paperpaw_sdk::TitleEntry) -> Self
+pub fn paperpaw_sdk::Titled::owned(alloc::boxed::Box<(paperpaw_sdk::Id, alloc::borrow::Cow<'static, str>)>) -> Self
+pub fn paperpaw_sdk::Titled::title(&self) -> &str
+pub fn paperpaw_sdk::Titled::title_key(&self) -> alloc::borrow::Cow<'static, str>
+impl core::cmp::Eq for paperpaw_sdk::Titled
+impl core::cmp::PartialEq for paperpaw_sdk::Titled
+pub fn paperpaw_sdk::Titled::eq(&self, &Self) -> bool
+impl core::fmt::Debug for paperpaw_sdk::Titled
+pub fn paperpaw_sdk::Titled::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 #[non_exhaustive] pub struct paperpaw_sdk::Tls
 pub paperpaw_sdk::Tls::idle_ms: u32
 pub paperpaw_sdk::Tls::server_name: core::option::Option<alloc::string::String>
