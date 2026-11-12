@@ -2,11 +2,15 @@
 //! from the service pump and never inside a callback, one look at the job. A
 //! job whose preparation is over is ended there (the format gets its `close`
 //! through the pump's route, as a preparing step's call goes) and the library
-//! is told, which raises `event.library_changed` bit 6 for the screens.
+//! is told, which raises `event.library_changed` bit 6 for the screens. The
+//! slot is the one of either job's kind: a details job's book is read before
+//! it is closed and kept here (`library::keep_native_details`), and its end
+//! goes to the details job's own end (`details_job_pump`).
 use super::{doc_service::JobStep, native_host_call::HostRoute};
 
 impl crate::Kernel {
-    /// One look at the cover job; nothing to do for a pass that finds none.
+    /// One look at the background job; nothing to do for a pass that finds
+    /// none.
     #[inline(never)]
     pub(crate) fn native_cover_job_pump(&mut self) {
         let instances = &self.shared.native_instances;
@@ -41,23 +45,58 @@ impl crate::Kernel {
                 env: &env,
                 meter: &self.shared.meter,
             };
-            documents.0.cover_job_step(hosts, &route)
+            // What a details job read is kept as the book's details.
+            let mut keep = |path: &str, metadata: &paperpaw_sdk::document::Metadata| {
+                paperpaw_sdk::library::keep_native_details(&env, path, metadata).is_ok()
+            };
+            documents.0.cover_job_step(hosts, &route, &mut keep)
         };
         // What the format staged runs now, outside any callback.
         self.native_outbox_run();
-        if let JobStep::Ended { ready, key } = step
-            && let Some(library) = self
-                .shared
-                .native_instances
-                .hosts()
-                .and_then(|h| h.library())
-        {
-            library.0.cover_job_ended(ready, key);
+        match step {
+            JobStep::Ended { ready, key } => {
+                if let Some(library) = self
+                    .shared
+                    .native_instances
+                    .hosts()
+                    .and_then(|h| h.library())
+                {
+                    library.0.cover_job_ended(ready, key);
+                }
+            }
+            JobStep::DetailsEnded { filled, key } => self.native_details_job_ended(filled, key),
+            JobStep::None | JobStep::Wait => {}
         }
     }
 }
 
+/// The plugin whose screens are the library's lists: the job takes no step
+/// while one of them is on the stack.
+const LIST_PLUGIN: &str = "files";
+
 impl crate::Kernel {
+    /// Tells the document host whether a library list screen is up, before the
+    /// pass steps any preparation (the cover job holds back while one is: the
+    /// conversion's peak must not come beside the list's buffers).
+    #[inline(never)]
+    pub(crate) fn native_cover_list(&mut self) {
+        let instances = &self.shared.native_instances;
+        let Some(documents) = instances.hosts().and_then(|hosts| hosts.documents()) else {
+            return;
+        };
+        let due = documents
+            .0
+            .cover_job_list(instances.plugin_has_screen(LIST_PLUGIN));
+        // The list left: nothing prepares until the quiet moment is over, and
+        // an idle device would not look again before the next tick. A timed
+        // wake, as for the job's own gap (`doc_pump`); other steps keep theirs.
+        if let Some(at) = due
+            && !documents.0.preparing()
+        {
+            instances.set_doc_retry(Some(instances.doc_retry().map_or(at, |old| old.min(at))));
+        }
+    }
+
     /// The end of `Kernel::start`: its effects, then cover jobs of the library
     /// may begin (a format's crash inside start would count as a failed start,
     /// `doc_cover_job`).
@@ -88,9 +127,9 @@ impl crate::Kernel {
 }
 
 impl crate::Kernel {
-    /// The device goes to sleep or stops: the cover job ends first, before
-    /// anything else of the sleep, and nothing restarts it after the wake until
-    /// a new `cover` asks (`doc_cover_job`).
+    /// The device goes to sleep or stops: the job ends first, before anything
+    /// else of the sleep, and nothing restarts it after the wake until a new
+    /// `cover` asks, or (a details job) a walk arms it again (`doc_cover_job`).
     pub(crate) fn native_cover_job_suspend(&mut self) {
         let instances = &self.shared.native_instances;
         let Some(hosts) = instances.hosts() else {
@@ -99,6 +138,9 @@ impl crate::Kernel {
         let Some(documents) = hosts.documents() else {
             return;
         };
+        if let Some(details) = documents.0.details_job() {
+            details.run().suspend();
+        }
         if !documents.0.cover_job_active() {
             return;
         }

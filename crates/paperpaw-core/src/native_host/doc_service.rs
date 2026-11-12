@@ -31,34 +31,20 @@ use paperpaw_native::host_glue::{
 mod args;
 mod check;
 pub(crate) mod cover;
+pub(crate) mod details;
 mod report;
+mod steps;
 mod table;
 #[allow(unused_imports, reason = "the shell builds the table with its limits")]
 pub(crate) use args::ROOT_HANDED;
+pub(crate) use steps::{JobStep, PrepareStep};
 pub(crate) use table::{
-    Document, DocumentTable, FAILED, FormatRef, HOST_JOB, Limits, PREPARING, READY,
+    BACKGROUND, DETAILS, Document, DocumentTable, FAILED, FormatRef, HOST_JOB, JobKind, Limits,
+    PREPARING, READY,
 };
 
 /// Operations of `core.format` the host calls (`document.md` 3).
-pub(crate) mod fmt {
-    pub(crate) const OPEN: u32 = 2;
-    pub(crate) const PREPARE: u32 = 3;
-    pub(crate) const META: u32 = 5;
-    pub(crate) const META_TEXT: u32 = 6;
-    pub(crate) const SECTIONS: u32 = 7;
-    pub(crate) const BLOCK: u32 = 8;
-    pub(crate) const TOC: u32 = 9;
-    pub(crate) const TOC_TARGET: u32 = 10;
-    pub(crate) const PAGE_LABEL: u32 = 11;
-    pub(crate) const XPOINTER: u32 = 12;
-    pub(crate) const LOCATE: u32 = 13;
-    pub(crate) const LINKS: u32 = 14;
-    pub(crate) const LINK_TARGET: u32 = 15;
-    pub(crate) const FONTS: u32 = 16;
-    pub(crate) const COVER: u32 = 17;
-    pub(crate) const IMAGE: u32 = 18;
-    pub(crate) const PROGRESS: u32 = 19;
-}
+pub(crate) mod fmt;
 
 /// The `doc_option` rows of an `open`, still in the caller's batch.
 #[derive(Clone, Copy)]
@@ -247,18 +233,25 @@ pub(crate) trait DocHost {
     ) -> PrepareStep {
         PrepareStep::Idle
     }
-    /// One look at the library's cover job (`doc_cover_job`): ended when its
-    /// preparation is over. Run by the kernel's pump, never inside a callback.
+    /// One look at the background job (`doc_cover_job`): ended when its
+    /// preparation is over; a details job's book is read first and `keep`
+    /// keeps what was read. Run by the kernel's pump, never inside a callback.
     fn cover_job_step(
         &self,
         _hosts: &super::host_services::HostServices,
         _route: &dyn super::fmt_call::Route,
+        _keep: &mut details::Keep<'_>,
     ) -> JobStep {
         JobStep::None
     }
-    /// Whether the cover job is the document of the book at `path`.
-    fn cover_job_path_is(&self, _path: &str) -> bool {
-        false
+    /// The host's details job (`doc_details_job`), where the host has one.
+    fn details_job(&self) -> Option<&dyn details::DetailsJob> {
+        None
+    }
+    /// Where the cover of the book at `path` stands (`doc_cover_make`): a
+    /// host without the cover job answers every cover inline.
+    fn cover_at(&self, _path: &str) -> super::doc_host::CoverAt {
+        super::doc_host::CoverAt::Made
     }
     /// Whether the only document that prepares is the cover job: the pump's
     /// "more" then does not hold the device awake.
@@ -291,11 +284,21 @@ pub(crate) trait DocHost {
     /// it is remembered, and [`DocHost::cover_jobs_released`] says when to ask
     /// again.
     fn cover_job_held_back(&self) {}
-    /// The cover job was displaced by an open (its place was needed): held
-    /// back as above, and for a quiet moment longer, so that what displaced it
-    /// is done before it starts again from the beginning (a cache is whole or
-    /// not used: nothing of the job's work is kept).
-    fn cover_job_displaced(&self) {}
+    /// The job (of `kind`) was displaced by an open (its place was needed):
+    /// a cover job is held back as above; either waits a quiet moment, so that
+    /// what displaced it is done before it starts again from the beginning (a
+    /// cache is whole or not used: nothing of the job's work is kept).
+    fn cover_job_displaced(&self, _kind: JobKind) {}
+    /// A library list screen is up (`up`) or is not: the cover job takes no
+    /// *preparing* step (a conversion) while one is up and for a quiet moment
+    /// after it closes, so that no conversion peaks beside the list's
+    /// buffers. A job whose book is ready is not held (its cover is made). The time held does not
+    /// count toward the job's awake time. Said by the pump before it steps.
+    /// Answers when the quiet moment of a waiting job ends (kernel clock, ms),
+    /// if that is what holds it: the pump wakes then.
+    fn cover_job_list(&self, _up: bool) -> Option<u64> {
+        None
+    }
     /// The key of a book whose job was displaced too often in a row (0: none):
     /// the library counts it as failed (no cover until the next start).
     fn cover_job_given_up(&self) -> u64 {
@@ -322,6 +325,11 @@ pub(crate) trait DocHost {
     /// The call is the library's own `cover`: it does not displace the cover
     /// job.
     fn library_call(&self) -> bool {
+        false
+    }
+    /// Whether `format`'s `format.spec` has bit 0 `prepared` (a conversion
+    /// before reading): only its books are opened with bit 3 `details`.
+    fn format_prepared(&self, _format: FormatRef) -> bool {
         false
     }
     /// An `open` is about to read the card path `path` of root `root`
@@ -410,30 +418,6 @@ pub(crate) trait DocHost {
         sniff: bool,
         visit: &mut dyn FnMut(Record<'_>),
     ) -> Result<(), i32>;
-}
-
-/// What one look at the library's cover job found.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum JobStep {
-    /// There is no cover job (or it was closed by the host: its row is freed).
-    None,
-    /// It is still preparing.
-    Wait,
-    /// Its preparation is over and it is closed: `ready` (else failed), and the
-    /// key of its book's path (`lib_cover::path_key`).
-    Ended { ready: bool, key: u64 },
-}
-
-/// What one step of the preparing loop did.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PrepareStep {
-    /// No document is preparing.
-    Idle,
-    /// A step was made; the next may be made at once (the next pass).
-    More,
-    /// The step could not be made now (the format is not started, a table or
-    /// the card is busy): the loop tries again later, not at once.
-    Later,
 }
 
 /// The format's answer to a `prepare` of `document`, checked and recorded:
@@ -526,7 +510,7 @@ pub(crate) fn end_by_host(host: &dyn DocHost, id: u32, reason: u32) -> Result<()
 /// its opener hears reason 4 `needed`.
 fn taken(host: &dyn DocHost, document: &Document) {
     if document.cover_job {
-        host.cover_job_displaced();
+        host.cover_job_displaced(document.job_kind);
     }
     host.end_images(document);
     if !document.format_gone {
@@ -632,8 +616,11 @@ impl DocHost for Cx<'_> {
     fn reader_opened(&self, document: u32, root: u32, path: &str) -> Result<(), i32> {
         self.host.reader_opened(document, root, path)
     }
-    fn cover_job_path_is(&self, path: &str) -> bool {
-        self.host.cover_job_path_is(path)
+    fn details_job(&self) -> Option<&dyn details::DetailsJob> {
+        self.host.details_job()
+    }
+    fn cover_at(&self, path: &str) -> super::doc_host::CoverAt {
+        self.host.cover_at(path)
     }
     fn cover_jobs_allowed(&self) -> bool {
         self.host.cover_jobs_allowed()
@@ -641,8 +628,8 @@ impl DocHost for Cx<'_> {
     fn cover_job_held_back(&self) {
         self.host.cover_job_held_back();
     }
-    fn cover_job_displaced(&self) {
-        self.host.cover_job_displaced();
+    fn cover_job_displaced(&self, kind: JobKind) {
+        self.host.cover_job_displaced(kind);
     }
     fn cover_job_guard(&self, path: &str) -> Result<(), i32> {
         self.host.cover_job_guard(path)
@@ -652,6 +639,9 @@ impl DocHost for Cx<'_> {
     }
     fn library_call(&self) -> bool {
         self.library
+    }
+    fn format_prepared(&self, format: FormatRef) -> bool {
+        self.host.format_prepared(format)
     }
     fn document_ready(&self, document: u32) {
         self.host.document_ready(document);
@@ -822,7 +812,7 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
     let parsed = args::parse_open(input)?;
     let mut request = parsed.open;
     let long_side = host.screen_long_side();
-    args::check_open(&request, long_side)?;
+    args::check_open(&request, long_side, host.library_call())?;
     // Root 5 names a file of another plugin: the host resolves it to its card
     // path (the format is chosen by it, the book is held under it).
     let handed = if request.root == args::ROOT_HANDED {
@@ -839,6 +829,11 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
         Some(card) => host.select_format(1, card, request.format)?,
         None => host.select_format(request.root, request.path, request.format)?,
     };
+    // Bit 3 `details` is for a `prepared` format's book only; any other
+    // opens as before (`document.md` 2.1).
+    if !host.format_prepared(format) {
+        request.flags &= !table::DETAILS;
+    }
     let options = Options { batch: input };
     // The host resolves the sides, a format never asks the screen and never
     // sees 0; before the conversion key, so an open with 0 and an explicit
@@ -858,10 +853,15 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
     let table = host.table();
     // Any open that is not the library's own cover takes the cover job's
     // place at once, before its own work (`doc_cover_job`).
-    if !host.library_call()
-        && let Some(job) = table.take_cover_job()
-    {
-        taken(host, &job);
+    if !host.library_call() {
+        if let Some(job) = table.take_cover_job() {
+            taken(host, &job);
+        }
+        // The host's cover to make too (`doc_cover_make`): a `details`
+        // document is the job's alone, never handed to another open.
+        if let Some(row) = table.take_cover_make() {
+            taken(host, &row);
+        }
     }
     let caller_shows = host.shows_screen(host.owner());
     let (id, took) = table.open(
@@ -1154,12 +1154,12 @@ fn prepare<'a>(
                 // The cover is index `u32::MAX` (`document.md` 5): its own
                 // size, larger when asked.
                 call.op = fmt::COVER;
-                call.cover_side = args::image_side(r.side, document.cover_side)?;
+                call.cover_side = args::image_side(r.side, document.cover_side);
                 call.image_side = document.image_side;
             } else {
                 call.op = fmt::IMAGE;
                 call.index = r.index;
-                call.image_side = args::image_side(r.side, document.image_side)?;
+                call.image_side = args::image_side(r.side, document.image_side);
                 call.cover_side = document.cover_side;
             }
             Check::Image

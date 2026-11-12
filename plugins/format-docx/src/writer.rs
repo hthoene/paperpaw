@@ -27,8 +27,9 @@ use crate::{
 };
 
 /// A paragraph is cut at the next space after this many bytes of text.
-const HARD: usize = 8000;
-/// Text with no space is cut here.
+const SOFT: usize = 3000;
+/// Text with no space is cut here (above `SOFT`: else the cut at a space never
+/// came, and every long paragraph was cut at this many bytes, in a word).
 const HARDEST: usize = 4000;
 /// A paragraph with more runs of its own style is cut here.
 const MOST_RUNS: usize = 512;
@@ -268,18 +269,22 @@ impl<'a> Writer<'a> {
                 }
             }
             let runs = core::mem::take(&mut self.runs);
-            self.out.block(&Block {
-                kind: self.kind,
-                align: self.block_align,
-                continues: split,
-                continued: self.continued,
-                start: self.pos,
-                end,
-                text: &self.text,
-                runs: &runs,
-                checks: &[],
-                image: None,
-            });
+            self.out.block(
+                self.storage,
+                self.dir,
+                &Block {
+                    kind: self.kind,
+                    align: self.block_align,
+                    continues: split,
+                    continued: self.continued,
+                    start: self.pos,
+                    end,
+                    text: &self.text,
+                    runs: &runs,
+                    checks: &[],
+                    image: None,
+                },
+            );
             self.continued = split;
             self.pos = end;
             self.out.flush(self.storage, self.dir, false);
@@ -315,7 +320,7 @@ impl<'a> Writer<'a> {
                 return;
             }
             let len = self.text.len();
-            if (len >= HARD && c == ' ') || len >= HARDEST {
+            if (len >= SOFT && c == ' ') || len >= HARDEST {
                 self.flush(true);
                 self.run_style = style;
             }
@@ -431,18 +436,22 @@ impl<'a> Writer<'a> {
         let continued = self.continued || !self.text.is_empty();
         self.flush(true);
         let end = self.pos.wrapping_add(1);
-        self.out.block(&Block {
-            kind: Kind::Image,
-            align: Align::Center,
-            continues: false,
-            continued: false,
-            start: self.pos,
-            end,
-            text: &alt,
-            runs: &[],
-            checks: &[],
-            image: Some((index as u32, 0, 0)),
-        });
+        self.out.block(
+            self.storage,
+            self.dir,
+            &Block {
+                kind: Kind::Image,
+                align: Align::Center,
+                continues: false,
+                continued: false,
+                start: self.pos,
+                end,
+                text: &alt,
+                runs: &[],
+                checks: &[],
+                image: Some((index as u32, 0, 0)),
+            },
+        );
         self.pos = end;
         // What follows the picture goes on with the paragraph.
         self.continued = continued;

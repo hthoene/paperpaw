@@ -60,6 +60,8 @@ const END_MORE: u32 = 2;
 /// The `generation` of a paged list (`document.md` section 3: the format's own for the
 /// document, never 0): the lists of a document do not change, so one value serves.
 const LIST_GENERATION: u32 = 1;
+/// `fmt.call.flags` of an open: bit 2, a background open (document.md 2).
+const OPEN_BACKGROUND: u32 = 1 << 2;
 const FLAG_WHOLE_PAGES: u32 = 1;
 const FLAG_TOC: u32 = 1 << 1;
 const FLAG_XPOINTERS: u32 = 1 << 2;
@@ -290,14 +292,21 @@ impl FormatProvider {
                 if d.whole_pages() {
                     flags |= FLAG_WHOLE_PAGES;
                 }
-                if d.toc_len(io) > 0 {
-                    flags |= FLAG_TOC;
-                }
-                if d.xpointer(io, Locator::START).is_some() {
-                    flags |= FLAG_XPOINTERS;
-                }
-                if d.page_label(io, Locator::START).is_some() {
-                    flags |= FLAG_LABELS;
+                // A background open (a book's cover for the library, an
+                // index build) is not for showing: the contents, positions
+                // and page labels cost the package and the first chapter
+                // converted, and nobody reads these flags then. A normal open
+                // finds them out, whatever an earlier background one left.
+                if call.flags & OPEN_BACKGROUND == 0 {
+                    if d.toc_len(io) > 0 {
+                        flags |= FLAG_TOC;
+                    }
+                    if d.xpointer(io, Locator::START).is_some() {
+                        flags |= FLAG_XPOINTERS;
+                    }
+                    if d.page_label(io, Locator::START).is_some() {
+                        flags |= FLAG_LABELS;
+                    }
                 }
                 if matches!(d.metadata().direction, PageProgression::RightToLeft) {
                     flags |= FLAG_RTL;

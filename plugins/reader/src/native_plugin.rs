@@ -565,6 +565,45 @@ impl NativeReader {
         }
     }
 
+    /// *Read aloud* kept while a book was prepared starts on its reading screen
+    /// now open, only where that screen is on top of the stack; a screen covered
+    /// keeps it until it is shown again (`reading_shown`).
+    fn aloud_when_on_top(&mut self, host: &Host<'_>) {
+        // The stack is asked only for a screen that kept it (its buffers would
+        // add to the peak of opening a book).
+        if !self.screens.all().any(|view| view.aloud_kept()) {
+            return;
+        }
+        let Some(docs) = &self.docs else {
+            return;
+        };
+        let Ok(Some(top)) = self.stack_top(host) else {
+            return;
+        };
+        let library = self.library.as_ref();
+        if let Some(view) = self.screens.get(top)
+            && view.take_aloud_kept()
+        {
+            view.start_aloud(host, (docs, library));
+        }
+    }
+
+    /// The instance on top of the whole screen stack (any plugin's).
+    fn stack_top(
+        &self,
+        host: &Host<'_>,
+    ) -> Result<Option<paperpaw_sdk::native::ui::Instance>, Error> {
+        let Some(ui) = &self.ui else {
+            return Ok(None);
+        };
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let rows = ui.stack(host, UiCursor::start(), &mut input, &mut out)?;
+        match rows.into_iter().next() {
+            Some(row) => Ok(Some(row?.instance())),
+            None => Ok(None),
+        }
+    }
+
     /// The screen stack changed: where the reading screen is no longer on top,
     /// nothing is read aloud (the table of contents, a menu, another plugin's
     /// screen, the library). Asked only while something is read aloud.
@@ -575,15 +614,10 @@ impl NativeReader {
         if !kept && !self.screens.all().any(|view| view.reading_aloud()) {
             return Ok(());
         }
-        let Some(ui) = &self.ui else {
+        if self.ui.is_none() {
             return Ok(());
-        };
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-        let rows = ui.stack(host, UiCursor::start(), &mut input, &mut out)?;
-        let top = match rows.into_iter().next() {
-            Some(row) => Some(row?.instance()),
-            None => None,
-        };
+        }
+        let top = self.stack_top(host)?;
         if top.is_none() || top != self.screens.top_instance(SCREEN) {
             self.aloud_asked = None;
             self.stop_speech(host);
@@ -726,7 +760,11 @@ impl NativeReader {
         let (asked, reopened) = (self.aloud_asked.take(), self.reopening.take());
         if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
             view.shown(host, docs);
-            if crate::native_start::reads_aloud(asked, reopened, now_ms, view.book_key()) {
+            // Read aloud kept at the start for the book reopened, or kept while
+            // the book was prepared and covered since it opened.
+            if crate::native_start::reads_aloud(asked, reopened, now_ms, view.book_key())
+                || view.take_aloud_kept()
+            {
                 view.start_aloud(host, (docs, self.library.as_ref()));
             }
         }
@@ -745,12 +783,15 @@ impl NativeReader {
     /// An action of the reader that reached the plugin, not a screen:
     /// `reader.auto-turn` starts or stops the timer and any other stops it; *Read
     /// aloud* before the book read last is on show is kept for it, and any other
-    /// action drops that.
+    /// action drops that. The action may come before the start is told (and the
+    /// book read last asked to open): it is kept while no screen shows a book,
+    /// and read only for the book reopened, soon (`native_start::reads_aloud`).
     fn action_run(&mut self, host: &Host<'_>, token: u32, now_ms: u64) {
         if token == native_handsfree::action_token() {
             return self.auto_turn_toggle(host);
         }
-        if token == READ_ALOUD_TOKEN && self.reopening.is_some() {
+        let no_book = !self.screens.all().any(|view| view.book().is_some());
+        if token == READ_ALOUD_TOKEN && (self.reopening.is_some() || no_book) {
             self.aloud_asked = Some(now_ms);
             return;
         }
@@ -798,6 +839,7 @@ impl NativeReader {
             redraw |= view.prepared(host, (docs, library)).unwrap_or(true);
         }
         if redraw {
+            self.aloud_when_on_top(host);
             let mut scratch = [0; 64];
             CommandSender::new(host, &mut scratch)
                 .queue_redraw(RedrawMode::Partial)

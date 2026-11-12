@@ -29,7 +29,7 @@ use super::{
     doc_service::{
         Document, DocumentTable, FormatCall, FormatRef, Limits, Options, format_stopped,
     },
-    fmt_call::{FrameRoute, ImageMap, Opener, Stage},
+    fmt_call::{FrameRoute, ImageMap, Opener, Route, Stage},
     format_index::FormatIndex,
     format_scope::BookKind,
     host_services::Caller,
@@ -57,6 +57,9 @@ const SIBLINGS: u32 = 1 << 4;
 
 /// `format.spec.flags` bit 2: the book is a folder.
 const FOLDER: u32 = 1 << 2;
+/// `format.spec.flags` bit 0 `prepared`: its books are converted before they
+/// are read (DOCX, MOBI); only these are opened with `details`.
+const PREPARED: u32 = 1;
 
 /// What an open document's reader hold needs to be given back.
 struct Book {
@@ -92,6 +95,9 @@ struct Cache {
     finished: bool,
     /// The bytes the stamp says the cache holds.
     stamped: u64,
+    /// Opened with bit 3 `details`: never stamped by this document, an
+    /// unstamped folder never removed for it (`document.md` 2.1).
+    details: bool,
     /// The card path of the user's CSS file the open named (root 4 of the
     /// format's calls that may read it); `""` for none.
     css: String,
@@ -147,9 +153,15 @@ pub(crate) struct DocState {
     /// book open for reading), or the job was displaced: it begins again when
     /// released (`cover_jobs_released`).
     job_held_back: Cell<bool>,
+    /// The details job's run (`doc_details_job`).
+    details: super::doc_service::details::DetailsRun,
     /// Not before this time (the kernel's clock, ms): what displaced the job
     /// is done by then.
     job_resume_at: Cell<u64>,
+    /// A library list screen was up until this time (the kernel's clock, ms)
+    /// at the latest: the job takes no step before the quiet moment after it
+    /// is over (`cover_job_list`).
+    list_quiet_until: Cell<u64>,
     /// The key of the book of the job that runs (or ran last).
     job_key: Cell<u64>,
     /// The book the job was displaced for last, and how many times in a row;
@@ -165,6 +177,12 @@ pub(crate) struct DocState {
     /// The job is to end at the next pump pass (a suspend that came inside a
     /// callback).
     job_suspend: Cell<bool>,
+    /// The books whose cover the cover job made (or found none of) since the
+    /// start, by path key, the oldest written over (`doc_cover_make`).
+    covers_made: Cell<[u64; cover_make::COVERS_MADE]>,
+    /// Which of `covers_made` were asked for since the last cover was made
+    /// (bit `n` for entry `n`): the books on screen.
+    covers_shown: Cell<u32>,
     /// The card, for the first bytes a file is told by (`with_storage`).
     storage: Option<Rc<dyn Storage>>,
     /// The most bytes one document's cache may hold.
@@ -200,9 +218,9 @@ const RESUME_AFTER_MS: u64 = 2_000;
 /// A job displaced this many times in a row for the same book is not started
 /// again until the next start.
 const DISPLACED_MAX: u8 = 3;
-/// The most one book's cover job may run in all (awake time, ms) between two
-/// starts of the device, wherever it was displaced and began again; then the
-/// book counts as failed (no cover until the next start).
+/// The most one book's job (its cover or its details) may run in all (awake
+/// time, ms) between two starts of the device, wherever it was displaced and
+/// began again; then the book counts as failed (no cover until the next start).
 const JOB_AWAKE_MAX_MS: u64 = 10 * 60 * 1_000;
 
 /// Nothing is drawn from a format's picture yet: it is left out.
@@ -285,13 +303,17 @@ impl DocState {
             jobs_allowed: Cell::new(false),
             job_guarded: Cell::new(false),
             job_held_back: Cell::new(false),
+            details: super::doc_service::details::DetailsRun::default(),
             job_resume_at: Cell::new(0),
+            list_quiet_until: Cell::new(0),
             job_key: Cell::new(0),
             job_displaced: Cell::new((0, 0)),
             job_given_up: Cell::new(0),
             job_started: Cell::new(0),
             job_used: Cell::new((0, 0)),
             job_suspend: Cell::new(false),
+            covers_made: Cell::new([0; cover_make::COVERS_MADE]),
+            covers_shown: Cell::new(0),
             storage: None,
             cache_cap: limits.cache_bytes(),
             last_prepared: Cell::new(0),
@@ -495,7 +517,16 @@ impl DocState {
         put(&open.root.to_le_bytes());
         put(open.path.as_bytes());
         self.index()?.id(format, &mut |id| put(id.as_bytes()))?;
-        put(&open.flags.to_le_bytes());
+        // Bit 3 `details` reads the book's own conversion, a reader's
+        // (`document.md` 2.1): it and the background bit with it are not part
+        // of the key.
+        let details = super::doc_service::DETAILS;
+        let flags = if open.flags & details == 0 {
+            open.flags
+        } else {
+            open.flags & !(details | super::doc_service::BACKGROUND)
+        };
+        put(&flags.to_le_bytes());
         put(&open.image_side.to_le_bytes());
         put(&open.cover_side.to_le_bytes());
         put(&open.css_root.to_le_bytes());
@@ -541,6 +572,11 @@ impl DocState {
 
 macro_rules! frameless {
     () => {
+        fn format_prepared(&self, format: FormatRef) -> bool {
+            self.state()
+                .index()
+                .is_ok_and(|index| index.has_flag(format, PREPARED))
+        }
         fn table(&self) -> &DocumentTable {
             &self.state().table
         }
@@ -586,8 +622,14 @@ macro_rules! frameless {
         fn cover_job_held_back(&self) {
             self.state().job_held_back.set(true);
         }
-        fn cover_job_displaced(&self) {
-            self.state().displaced();
+        fn cover_job_displaced(&self, kind: super::doc_service::JobKind) {
+            self.state().displaced(kind);
+        }
+        fn details_job(&self) -> Option<&dyn super::doc_service::details::DetailsJob> {
+            Some(self.state())
+        }
+        fn cover_job_list(&self, up: bool) -> Option<u64> {
+            self.state().list_hold(up)
         }
         fn cover_job_guard(&self, path: &str) -> Result<(), i32> {
             self.state().guard(path)
@@ -647,6 +689,7 @@ impl super::doc_service::DocHost for DocState {
             state: self,
             frame,
             who,
+            route: None,
         });
     }
     frameless!();
@@ -685,15 +728,18 @@ impl super::doc_service::DocHost for DocState {
         &self,
         hosts: &super::host_services::HostServices,
         route: &dyn super::fmt_call::Route,
+        keep: &mut super::doc_service::details::Keep<'_>,
     ) -> super::doc_service::JobStep {
-        self.cover_job_next(hosts, route)
+        self.cover_job_next(hosts, route, keep)
     }
-    fn cover_job_path_is(&self, path: &str) -> bool {
-        self.cover_job_path_is(path)
+    fn cover_at(&self, path: &str) -> super::doc_host::CoverAt {
+        self.cover_at(path)
     }
     fn cover_job_active(&self) -> bool {
         // A marker with no job: the pump's look removes it.
-        self.table.cover_job().is_some() || self.job_guarded.get()
+        self.table.cover_job().is_some()
+            || self.table.cover_make().is_some()
+            || self.job_guarded.get()
     }
     fn only_cover_job_preparing(&self) -> bool {
         self.table.only_cover_job_preparing()
@@ -705,15 +751,13 @@ impl super::doc_service::DocHost for DocState {
         self.job_given_up.replace(0)
     }
     fn cover_jobs_released(&self) -> bool {
-        if !self.job_held_back.get()
-            || !self.jobs_allowed.get()
-            || self.now.get() < self.job_resume_at.get()
-            || self.table.cover_job().is_some()
-            || self.table.reading_besides(0)
-        {
+        if !self.job_held_back.get() || self.job_may_begin().is_err() {
             return false;
         }
         self.job_held_back.set(false);
+        // The screens ask for their covers first: no details job meanwhile.
+        self.job_resume_at
+            .set(self.now.get().saturating_add(RESUME_AFTER_MS));
         true
     }
     fn allow_cover_jobs(&self) -> u64 {
@@ -764,11 +808,14 @@ impl super::doc_service::DocHost for DocState {
     }
 }
 
-/// The host of one call: the state, the caller's frame and the caller.
+/// The host of one call: the state, the caller's frame and the caller; the
+/// details job's open (`doc_details_job`) calls the format through the pump's
+/// `route` instead of the frame.
 struct Bound<'a> {
     state: &'a DocState,
     frame: &'a dyn Frame,
     who: &'a Caller<'a>,
+    route: Option<&'a dyn Route>,
 }
 
 impl Bound<'_> {
@@ -796,6 +843,7 @@ impl Bound<'_> {
         let Some(storage) = self.state.storage.as_deref() else {
             return Ok(());
         };
+        let details = call.flags & super::doc_service::DETAILS != 0;
         let mut plugin = Err(ERR_STATE);
         self.state.index()?.plugin_id(call.format, &mut |id| {
             plugin = copy(id);
@@ -821,11 +869,33 @@ impl Bound<'_> {
                 conversion: call.conversion,
                 content: &content,
             };
-            let made = super::doc_cache::prepare(storage, &id, &|folder| {
-                books
-                    .iter()
-                    .any(|b| b.cache.as_ref().is_some_and(|c| c.folder == folder))
-            })?;
+            let made = if details {
+                // A `details` open reads what is there: no removal of its own
+                // or of another conversion (no room made), no stamp
+                // (`document.md` 2.1); not while another document of the book
+                // and its format plugin prepares, whatever its conversion.
+                let making = books.iter().any(|b| {
+                    b.document != call.document
+                        && b.path == book.path
+                        && b.cache.as_ref().is_some_and(|c| c.plugin == plugin)
+                        && self.state.table.is_preparing(b.document)
+                });
+                if making {
+                    return Err(ERR_BUSY);
+                }
+                let folder = id.folder()?;
+                super::doc_cache::Prepared {
+                    bytes: super::doc_cache::current(storage, &id)?,
+                    folder,
+                    fresh: false,
+                }
+            } else {
+                super::doc_cache::prepare(storage, &id, &|folder| {
+                    books
+                        .iter()
+                        .any(|b| b.cache.as_ref().is_some_and(|c| c.folder == folder))
+                })?
+            };
             (made, content)
         };
         // What the cache holds is counted per folder: new, it starts at 0; a
@@ -847,6 +917,7 @@ impl Bound<'_> {
                 content,
                 finished: made.bytes.is_some(),
                 stamped: made.bytes.unwrap_or(0),
+                details,
                 css: copy(css)?,
             });
         }
@@ -1028,9 +1099,9 @@ impl Bound<'_> {
             .read_at(&joined, 0, &mut first)
             .map_err(super::storage::status)?;
         first.truncate(read);
-        let route = FrameRoute(self.frame);
+        let frame_route = FrameRoute(self.frame);
         let stage = Stage {
-            route: &route,
+            route: self.route.unwrap_or(&frame_route),
             images: &NoImages,
         };
         for format in candidates.iter().take(count) {
@@ -1195,14 +1266,15 @@ impl super::doc_service::DocHost for Bound<'_> {
             self.prepare_cache(call, &css)?;
         }
         let _scope = self.enter_scope(target.plugin, call, kind, &css)?;
-        let route = FrameRoute(self.frame);
+        let frame_route = FrameRoute(self.frame);
+        let route = self.route.unwrap_or(&frame_route);
         let pictures = self.state.storage.as_deref().map(|storage| DocImages {
             table: self.who.hosts.images(),
             storage,
             state: self.state,
         });
         let stage = Stage {
-            route: &route,
+            route,
             images: match &pictures {
                 Some(pictures) => pictures,
                 None => &NoImages,
@@ -1245,9 +1317,9 @@ impl super::doc_service::DocHost for Bound<'_> {
             return;
         }
         scratch.resize(4096, 0);
-        let route = FrameRoute(self.frame);
+        let frame_route = FrameRoute(self.frame);
         Stage {
-            route: &route,
+            route: self.route.unwrap_or(&frame_route),
             images: &NoImages,
         }
         .close(target, document.id, &mut scratch);
@@ -1336,6 +1408,11 @@ impl super::doc_service::DocHost for Bound<'_> {
 
 #[path = "doc_cover_job.rs"]
 mod cover_job;
+#[path = "doc_cover_make.rs"]
+mod cover_make;
+#[path = "doc_details_job.rs"]
+mod details_job;
+pub(crate) use cover_make::CoverAt;
 #[path = "doc_prepare.rs"]
 mod prepare;
 

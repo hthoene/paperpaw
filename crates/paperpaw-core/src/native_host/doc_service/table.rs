@@ -24,6 +24,10 @@ pub(crate) const STALL_CAP: u8 = 32;
 const EVICTED: usize = 4;
 /// `doc_open.flags` bit 2: an open for an index build, never for a book to show.
 pub(crate) const BACKGROUND: u32 = 1 << 2;
+/// `doc_open.flags` bit 3 `details`: the host job's own open of a `prepared`
+/// format's book for its details and cover only (`document.md` 2.1): never
+/// prepared, never stamped, an unstamped cache is not removed.
+pub(crate) const DETAILS: u32 = 1 << 3;
 /// The owner of the host's own background job (the library's covers, book
 /// details): no opener, so it takes no opener's cap and hears no
 /// `event.document_closed`. No plugin has this key (`ui_store` checks it
@@ -31,6 +35,15 @@ pub(crate) const BACKGROUND: u32 = 1 << 2;
 pub(crate) const HOST_JOB: u64 = u64::MAX - 2;
 /// `event.document_closed.reason` 4 `needed`: its place went to a book to show.
 pub(crate) const NEEDED: u32 = 4;
+
+/// What the one background job of the device does (`doc_cover_job`): the
+/// library's cover of a preparing book, or the host's read of a native book's
+/// details (`doc_details_job`). One slot, one marker, whichever kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum JobKind {
+    Cover,
+    Details,
+}
 
 /// How many `event.document_closed` records the table keeps for each place it
 /// has: a document that closes while its last one is still undelivered. An
@@ -119,13 +132,21 @@ pub(crate) struct Document {
     /// 0 while open for use, else `event.document_closed.reason`: the host
     /// closed it and every call but `close` is `ERR_CANCELLED`.
     pub(crate) closed_by_host: u32,
-    /// Opened with `BACKGROUND` (an index build): its place may be taken for
-    /// a book to show. `flags` is the format's state, so this is kept apart.
+    /// Opened with `BACKGROUND` (an index build, or the library's cover open,
+    /// `doc_service::cover`): its place may be taken for a book to show, and
+    /// the format leaves out what only a shown book needs (its state's contents,
+    /// XPointers and page labels flags). `flags` is the format's state, so this
+    /// is kept apart.
     pub(crate) background: bool,
+    /// Opened with bit 3 `details` (the host job's, `document.md` 2.1): never
+    /// prepared, whatever the format answered.
+    pub(crate) details: bool,
     /// The library's cover job (`lib_cover`): a preparing book kept open so
     /// that the preparing loop converts it, ended by the host when it is
     /// ready or failed. One per device; always `background` as well.
     pub(crate) cover_job: bool,
+    /// What the job does, where `cover_job` (the slot is the same for both).
+    pub(crate) job_kind: JobKind,
     /// The host's `reader_opened` accepted this document and `reader_closed`
     /// has not been called yet: the one record of whether the book is still
     /// held, whichever path ends the document.
@@ -184,6 +205,9 @@ pub(crate) struct DocumentTable {
     /// grows: its room is reserved once, and an open leaves room for the close
     /// of every document that is live (see `open`).
     closed: RefCell<Vec<Closed>>,
+    /// A library list screen is up (or was a moment ago): the cover job takes
+    /// no step, as with a book open for reading (`DocHost::cover_job_list`).
+    list_hold: Cell<bool>,
 }
 
 impl DocumentTable {
@@ -198,6 +222,7 @@ impl DocumentTable {
             next_id: Cell::new(1),
             documents: RefCell::new(Vec::new()),
             evicted: Cell::new([(0, 0); EVICTED]),
+            list_hold: Cell::new(false),
             evicted_next: Cell::new(0),
         })
     }
@@ -300,7 +325,9 @@ impl DocumentTable {
             cover_side: 0,
             closed_by_host: 0,
             background: flags & BACKGROUND != 0,
+            details: flags & DETAILS != 0,
             cover_job: false,
+            job_kind: JobKind::Cover,
             reader_held: false,
             format_gone: false,
             block: None,
@@ -319,6 +346,11 @@ impl DocumentTable {
     /// `false` (the document stays as it was) where a job runs already, or the
     /// table is held.
     pub(crate) fn start_cover_job(&self, owner: u64, id: u32) -> bool {
+        self.start_job(owner, id, JobKind::Cover)
+    }
+
+    /// [`Self::start_cover_job`] for a job of `kind`: the one slot, whichever.
+    pub(crate) fn start_job(&self, owner: u64, id: u32, kind: JobKind) -> bool {
         let Ok(mut rows) = self.rows() else {
             return false;
         };
@@ -328,6 +360,7 @@ impl DocumentTable {
         match rows.iter_mut().find(|d| d.id == id && d.owner == owner) {
             Some(document) if document.closed_by_host == 0 => {
                 document.cover_job = true;
+                document.job_kind = kind;
                 document.background = true;
                 // The host's own job: no opener's cap, no close event.
                 document.owner = HOST_JOB;
@@ -346,6 +379,54 @@ impl DocumentTable {
             .iter()
             .find(|d| d.cover_job)
             .copied()
+    }
+
+    /// Makes the open, ready document `id` of `owner` the host's **cover to
+    /// make** (`doc_cover_make`): kept open past the asking call, beside the
+    /// cover job, until the pump's next look asks its format for the cover and
+    /// closes it. A background row of the host's (`HOST_JOB`, no opener's
+    /// cap, no close event; a book to show takes its place first after the
+    /// job's). `false` (the document stays as it was) where one waits already,
+    /// or the table is held.
+    pub(crate) fn start_cover_make(&self, owner: u64, id: u32) -> bool {
+        let Ok(mut rows) = self.rows() else {
+            return false;
+        };
+        if rows.iter().any(|d| d.owner == HOST_JOB && !d.cover_job) {
+            return false;
+        }
+        match rows.iter_mut().find(|d| d.id == id && d.owner == owner) {
+            Some(document) if document.closed_by_host == 0 && document.state == READY => {
+                document.background = true;
+                document.owner = HOST_JOB;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The cover to make's document ([`Self::start_cover_make`]), wherever it
+    /// stands.
+    pub(crate) fn cover_make(&self) -> Option<Document> {
+        self.documents
+            .try_borrow()
+            .ok()?
+            .iter()
+            .find(|d| d.owner == HOST_JOB && !d.cover_job)
+            .copied()
+    }
+
+    /// The live cover to make, taken out of the table for sleep (as
+    /// [`Self::take_cover_job`]).
+    pub(crate) fn take_cover_make(&self) -> Option<Document> {
+        let mut rows = self.rows().ok()?;
+        let at = rows
+            .iter()
+            .position(|d| d.owner == HOST_JOB && !d.cover_job && d.closed_by_host == 0)?;
+        let mut row = rows.remove(at);
+        row.closed_by_host = NEEDED;
+        self.remember(&row);
+        Some(row)
     }
 
     /// The live cover job, taken out of the table for a book to show or for
@@ -448,9 +529,10 @@ impl DocumentTable {
     pub(crate) fn next_preparing(&self, after: u32) -> Option<Document> {
         let rows = self.documents.try_borrow().ok()?;
         // The cover job waits while a book is open for reading.
-        let held = Self::reading(&rows);
-        let preparing =
-            |d: &&Document| d.state == PREPARING && d.closed_by_host == 0 && !(d.cover_job && held);
+        let held = self.list_hold.get() || Self::reading(&rows);
+        let preparing = |d: &&Document| {
+            d.state == PREPARING && d.closed_by_host == 0 && !d.details && !(d.cover_job && held)
+        };
         let oldest = rows.iter().find(preparing);
         if self.limits.one_preparation() {
             return oldest.copied();
@@ -465,10 +547,25 @@ impl DocumentTable {
     /// step will find out).
     pub(crate) fn any_preparing(&self) -> bool {
         self.documents.try_borrow().map_or(true, |rows| {
-            let held = Self::reading(&rows);
-            rows.iter()
-                .any(|d| d.state == PREPARING && d.closed_by_host == 0 && !(d.cover_job && held))
+            let held = self.list_hold.get() || Self::reading(&rows);
+            rows.iter().any(|d| {
+                d.state == PREPARING
+                    && d.closed_by_host == 0
+                    && !d.details
+                    && !(d.cover_job && held)
+            })
         })
+    }
+
+    /// Whether the cover job is held back for a list screen.
+    pub(crate) fn list_held(&self) -> bool {
+        self.list_hold.get()
+    }
+
+    /// Sets whether the cover job is held back for a list screen; `true` when
+    /// that changed (the caller moves the job's clock).
+    pub(crate) fn set_list_hold(&self, hold: bool) -> bool {
+        self.list_hold.replace(hold) != hold
     }
 
     /// Whether a book is open for reading or showing: a live document that is
@@ -488,6 +585,14 @@ impl DocumentTable {
         })
     }
 
+    /// Whether every place is taken (a held table counts as full): an open
+    /// takes one then, or is refused.
+    pub(crate) fn full(&self) -> bool {
+        self.documents
+            .try_borrow()
+            .map_or(true, |rows| rows.len() >= self.limits.device)
+    }
+
     /// Whether every preparing document is the cover job (and one is): the
     /// preparing loop's "more work" then does not hold the device awake.
     pub(crate) fn only_cover_job_preparing(&self) -> bool {
@@ -495,7 +600,7 @@ impl DocumentTable {
             let mut any = false;
             for d in rows
                 .iter()
-                .filter(|d| d.state == PREPARING && d.closed_by_host == 0)
+                .filter(|d| d.state == PREPARING && d.closed_by_host == 0 && !d.details)
             {
                 if !d.cover_job {
                     return false;
@@ -648,6 +753,15 @@ impl DocumentTable {
     }
 
     /// `reader_opened` accepted `id`: its book is held until `release_reader`.
+    /// Whether document `id` is live and preparing (a held table counts as
+    /// one that is).
+    pub(crate) fn is_preparing(&self, id: u32) -> bool {
+        self.documents.try_borrow().map_or(true, |rows| {
+            rows.iter()
+                .any(|d| d.id == id && d.state == PREPARING && d.closed_by_host == 0)
+        })
+    }
+
     pub(crate) fn hold_reader(&self, id: u32) {
         if let Ok(mut rows) = self.documents.try_borrow_mut()
             && let Some(document) = rows.iter_mut().find(|d| d.id == id)

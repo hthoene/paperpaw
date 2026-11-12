@@ -14,6 +14,8 @@ const GRAYS: Id = Id::new_static("r.grays");
 const TURN: Id = Id::new_static("r.turn");
 const LOCK: Id = Id::new_static("r.lock");
 const OPEN: Id = Id::new_static("r.open");
+const ITEM: Id = Id::new_static("r.item");
+const READING: Id = Id::new_static("r.reading");
 
 type Seen = Rc<RefCell<Vec<Refresh>>>;
 
@@ -49,6 +51,9 @@ impl Screen for Page {
             cx.set_refresh(RefreshMode::Fast);
         } else if *action == GRAYS {
             cx.request_redraw_area(Rect::new(0, 40, 10, 5));
+        } else if *action == ITEM {
+            // A line of the screen, as a clock or a focus moved.
+            cx.request_redraw_area(Rect::new(0, 60, 10, 5));
         } else if *action == TURN {
             // A page turned: the whole screen.
             cx.request_redraw();
@@ -86,7 +91,13 @@ impl Plugin for Refreshing {
             "lock",
             Box::new(|_, _| Box::new(Lock)),
         ))?;
+        r.add_screen(ScreenSpec::new(
+            READING,
+            "reading",
+            Box::new(|_, _| Box::new(Page)),
+        ))?;
         r.bind_slot(slots::HOME, PAGE, Priority::DEFAULT)?;
+        r.bind_slot(slots::READER, READING, Priority::DEFAULT)?;
         let seen = self.0.clone();
         r.add_refresh_filter(RefreshFilterSpec::new(
             Id::new_static("r.filter"),
@@ -173,10 +184,12 @@ fn the_periodic_full_refresh_says_so() {
         .unwrap();
     render(&mut kernel);
     let screen = kernel.framebuffer.bounds();
-    kernel
-        .frame
-        .refresh
-        .done(RefreshMode::Clear, screen, screen);
+    kernel.frame.refresh.done(
+        RefreshMode::Clear,
+        screen,
+        screen,
+        crate::refresh::Intervals::default(),
+    );
     seen.borrow_mut().clear();
     for at in [10, 20] {
         kernel.run_action(Instant(at), TURN);
@@ -187,6 +200,49 @@ fn the_periodic_full_refresh_says_so() {
     assert!(!seen[0].periodic);
     assert!(seen[1].periodic, "{:?}", seen[1]);
     assert_eq!(seen[1].mode, RefreshMode::Full);
+}
+
+/// Where the menus' full refresh is set (#255), small refreshes in a menu
+/// count and the third flashes the whole screen; on the reading screen
+/// (the reader's slot) they neither count nor flash.
+#[test]
+fn small_refreshes_flash_in_menus_but_never_while_reading() {
+    let (mut kernel, seen) = refreshing();
+    kernel
+        .set_setting(Instant(1), crate::refresh::UI_FULL_REFRESH_INTERVAL, "3")
+        .unwrap();
+    // Screens open without a flash, as on the X4: what reading counted
+    // would show in the menu.
+    kernel
+        .set_setting(Instant(1), settings::FLASH_SCREENS.as_str(), "false")
+        .unwrap();
+    kernel.open_slot(Instant(2), slots::READER, Params::new());
+    render(&mut kernel);
+    assert_eq!(kernel.active_screen(), Some(&READING));
+    let screen = kernel.framebuffer.bounds();
+    let modes = |kernel: &mut Kernel, start: u64| {
+        seen.borrow_mut().clear();
+        for at in 0..5 {
+            kernel.run_action(Instant(start + at * 10), ITEM);
+            render(kernel);
+        }
+        seen.borrow()
+            .iter()
+            .map(|r| (r.mode, r.region == screen))
+            .collect::<Vec<_>>()
+    };
+    let small = (RefreshMode::Partial, false);
+    let flash = (RefreshMode::Full, true);
+    assert_eq!(modes(&mut kernel, 10), [small; 5], "reading");
+    kernel.open_screen(Instant(100), PAGE, Params::new());
+    render(&mut kernel);
+    assert_eq!(kernel.active_screen(), Some(&PAGE));
+    // Reading counted nothing: the third in the menu flashes, not the first.
+    assert_eq!(
+        modes(&mut kernel, 200),
+        [small, small, flash, small, small],
+        "in a menu"
+    );
 }
 
 /// Refreshes are deferred at most three times in a row, and never while
@@ -389,4 +445,35 @@ fn two_small_items_far_apart_are_no_page_and_keep_a_picture_in_place() {
     *shown.borrow_mut() = false;
     kernel.apply(Command::Redraw(RefreshMode::Partial));
     assert_eq!(mode(kernel.finish()).map(|m| m.1), Some(RefreshMode::Full));
+}
+
+/// A follow-up of `command.redraw_area` held back by a filter is drawn as
+/// the follow-up when it is drawn at last: its screen's draws are marked.
+#[test]
+fn a_deferred_followup_is_still_drawn_as_the_followup() {
+    let (mut kernel, _) = refreshing();
+    let key = kernel.shared.stack.last().unwrap().key;
+    let area = crate::native_host::commands::Area::new(0, 0, 10, 5).unwrap();
+    kernel.frame.followup = Some(crate::native_host::commands::Followup {
+        screen: key,
+        mode: Some(RefreshMode::Partial),
+        areas: alloc::vec![area],
+    });
+    // The filter holds its refresh back (said to be a status line's).
+    kernel.output.refresh_cause = Some(RefreshCause::Status);
+    assert_eq!(kernel.tick(Instant(10)).refresh(), None);
+    assert!(kernel.frame.followup.is_none());
+    // Calls before it is drawn keep the frame the follow-up's.
+    kernel.tick(Instant(20));
+    assert_eq!(kernel.frame.followup_frame, Some(key));
+    // A page turn takes it along: drawn with the marker.
+    assert!(kernel.run_action(Instant(30), TURN).refresh().is_some());
+    let rows = Rc::clone(&kernel.shared.stack_rows);
+    let mut marked = false;
+    kernel.render(&mut |_, _| marked |= rows.is_followup(key));
+    assert!(marked, "the deferred follow-up drawn unmarked");
+    assert!(!kernel.shared.stack_rows.is_followup(key));
+    // Drawn: the next call ends it.
+    kernel.tick(Instant(40));
+    assert_eq!(kernel.frame.followup_frame, None);
 }
