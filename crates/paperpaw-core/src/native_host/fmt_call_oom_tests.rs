@@ -75,10 +75,11 @@ fn a_stage_call_allocation_failure_never_enters_the_format() {
         sibling: "",
     };
     let target = Target { plugin, token: 7 };
-    // The call's rows, its encoded payload, the framed call and the reply
-    // buffer: the 1st to 4th allocations, all before the format is entered
-    // (the fake format allocates infallibly from the 5th on).
-    for nth in 1..=4 {
+    // The call's rows, its encoded payload, the payload's exact copy, the
+    // framed call and the reply buffer: the 1st to 5th allocations, all before
+    // the format is entered (the fake format allocates infallibly from the 6th
+    // on).
+    for nth in 1..=5 {
         let mut out = [0_u8; 4096];
         arm_failure(nth);
         let r = stage.call(who, target, &call, &mut out);
@@ -89,4 +90,57 @@ fn a_stage_call_allocation_failure_never_enters_the_format() {
     }
     let mut out = [0_u8; 4096];
     assert!(stage.call(who, target, &call, &mut out).is_ok());
+}
+
+/// What the stage holds while the format runs: the encoded call alone, never
+/// the room for the longest call (#248: the format's own peak comes on top).
+#[test]
+fn while_the_format_runs_the_stage_holds_only_the_encoded_call() {
+    use crate::native_host::fmt_call::Route;
+    use core::cell::Cell;
+    struct Measure {
+        before: Cell<usize>,
+        held: Cell<usize>,
+        payload: Cell<usize>,
+    }
+    impl Route for Measure {
+        fn call(&self, _: Target, payload: &[u8], _: &mut [u8]) -> Result<usize, i32> {
+            let live = super::HEAP_LIVE.with(Cell::get);
+            self.held.set(live.saturating_sub(self.before.get()));
+            self.payload.set(payload.len());
+            Err(ERR_NO_MEMORY)
+        }
+    }
+    reset(NORMAL);
+    let route = Measure {
+        before: Cell::new(0),
+        held: Cell::new(0),
+        payload: Cell::new(0),
+    };
+    let stage = Stage {
+        route: &route,
+        images: &None_,
+    };
+    let call = FormatCall::new(FormatRef(1), 8, 9);
+    let who = Opener {
+        owner: 5,
+        sibling: "",
+    };
+    let mut out = [0_u8; 64];
+    route.before.set(super::HEAP_LIVE.with(Cell::get));
+    let _ = stage.call(
+        who,
+        Target {
+            plugin: 1,
+            token: 7,
+        },
+        &call,
+        &mut out,
+    );
+    assert!(route.payload.get() > 0);
+    assert_eq!(
+        route.held.get(),
+        route.payload.get(),
+        "only the encoded call is held"
+    );
 }

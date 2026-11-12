@@ -136,10 +136,12 @@ pub fn settle(storage: &dyn Storage, id: &str, folder: &str) -> bool {
                 }),
                 _ => super::forget_store_install(storage, id),
             },
-            "code" => match bytes32(value) {
-                Some(sha256) if code_is(storage, folder, &sha256, author) => {
-                    native::remember_code(storage, id, &sha256)
-                }
+            "code" => match bytes32(value)
+                .map(|sha256| (sha256, code_is(storage, folder, &sha256, author)))
+            {
+                Some((sha256, Some(true))) => native::remember_code(storage, id, &sha256),
+                // No memory to check it now: not judged, the next start does.
+                Some((_, None)) => false,
                 _ => true,
             },
             "author" => bytes32(value).is_none_or(|key| match (pinned, recovery) {
@@ -161,21 +163,29 @@ pub fn settle(storage: &dyn Storage, id: &str, folder: &str) -> bool {
 
 /// Whether the code file in `folder` is the code named `sha256` and,
 /// where an `author` is known, signed by that author's key (checked
-/// whole, as the signature is over all of it).
+/// whole, as the signature is over all of it). `None` where the author's
+/// check had no memory: neither said, so a good plugin is not taken for a
+/// badly signed one (#250).
 fn code_is(
     storage: &dyn Storage,
     folder: &str,
     sha256: &[u8; 32],
     author: Option<[u8; 32]>,
-) -> bool {
-    native::CODE_FILES.iter().any(|name| {
+) -> Option<bool> {
+    let mut unjudged = false;
+    let is = native::CODE_FILES.iter().any(|name| {
         let path = format!("{}/{name}", folder.trim_end_matches('/'));
         native::read_header(storage, &path).is_some_and(|header| header.sha256 == *sha256)
-            && author.is_none_or(|author| {
-                native::checked_file(storage, &path)
-                    .is_ok_and(|(_, signature)| signature.is_some_and(|s| s.key == author))
+            && author.is_none_or(|author| match native::checked_file(storage, &path) {
+                Ok((_, signature)) => signature.is_some_and(|s| s.key == author),
+                Err(native::Problem::Other(native::NO_MEMORY)) => {
+                    unjudged = true;
+                    false
+                }
+                Err(_) => false,
             })
-    })
+    });
+    (is || !unjudged).then_some(is)
 }
 
 #[cfg(test)]

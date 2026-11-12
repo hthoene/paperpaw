@@ -117,24 +117,11 @@ impl crate::Kernel {
                 let Some(delivery) = store.take_delivery(owner) else {
                     break;
                 };
-                let record = wire::EventAnswered {
-                    now_ms: self.now.millis(),
-                    request: delivery.request,
-                    kind: delivery.kind,
-                    outcome: delivery.outcome,
-                    choice: delivery.choice,
-                    length: delivery.length,
-                    flags: delivery.flags,
-                };
-                let mut bytes = [0u8; 64];
-                let Ok(len) =
-                    codec::encode_batch(&[wire::Record::EventAnswered(record)], &mut bytes)
-                else {
+                let Some(called) = self.answer_call(owner, &lease, &delivery) else {
                     // Never: the record is fixed size. Freed all the same.
                     let _ = store.delivered(delivery.request);
                     continue;
                 };
-                let called = self.native_event_call(owner, &lease, &bytes[..len]);
                 if called == Err(ERR_BUSY) {
                     // A batch waits: no callback ran, so the answer is kept for
                     // the next pass, not freed.
@@ -149,6 +136,30 @@ impl crate::Kernel {
             more |= store.has_delivery(owner);
         }
         more
+    }
+
+    /// One answer to the plugin that asked: `event.answered` encoded and its
+    /// callback called; `None` where the record could not be encoded. Its own
+    /// frame, gone before the batch the callback staged runs (#250).
+    #[inline(never)]
+    fn answer_call(
+        &self,
+        owner: u64,
+        lease: &super::native_instances::NativeLease,
+        delivery: &super::ui_requests::Delivery,
+    ) -> Option<Result<i32, i32>> {
+        let record = wire::EventAnswered {
+            now_ms: self.now.millis(),
+            request: delivery.request,
+            kind: delivery.kind,
+            outcome: delivery.outcome,
+            choice: delivery.choice,
+            length: delivery.length,
+            flags: delivery.flags,
+        };
+        let mut bytes = [0u8; 64];
+        let len = codec::encode_batch(&[wire::Record::EventAnswered(record)], &mut bytes).ok()?;
+        Some(self.native_event_call(owner, lease, &bytes[..len]))
     }
 
     /// Asks a text question as a plugin's `ui.ask` does, for the tools and
