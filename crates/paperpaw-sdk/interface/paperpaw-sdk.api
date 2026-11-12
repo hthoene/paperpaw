@@ -11353,25 +11353,22 @@ pub paperpaw_sdk::Manifest::uses: paperpaw_sdk::Uses
 pub paperpaw_sdk::Manifest::version: paperpaw_sdk::Version
 impl paperpaw_sdk::Manifest
 pub fn paperpaw_sdk::Manifest::description(self, impl core::convert::Into<alloc::borrow::Cow<'static, str>>) -> Self
-pub const fn paperpaw_sdk::Manifest::fixed(paperpaw_sdk::Id, &'static str, paperpaw_sdk::Version) -> Self
-pub fn paperpaw_sdk::Manifest::how(self, &'static [(&'static str, &'static str)]) -> Self
+pub const fn paperpaw_sdk::Manifest::fixed(paperpaw_sdk::Id, &'static str, &'static str, paperpaw_sdk::Version) -> Self
+pub const fn paperpaw_sdk::Manifest::how(self, &'static [(&'static str, &'static str)]) -> Self
 pub fn paperpaw_sdk::Manifest::new(paperpaw_sdk::Id, impl core::convert::Into<alloc::borrow::Cow<'static, str>>, paperpaw_sdk::Version) -> Self
-pub fn paperpaw_sdk::Manifest::uses(self, paperpaw_sdk::Uses) -> Self
+pub const fn paperpaw_sdk::Manifest::uses(self, paperpaw_sdk::Uses) -> Self
 impl core::convert::From<&'static paperpaw_sdk::Manifest> for paperpaw_sdk::ManifestRef
 pub fn paperpaw_sdk::ManifestRef::from(&'static paperpaw_sdk::Manifest) -> Self
-impl core::convert::From<paperpaw_sdk::Manifest> for paperpaw_sdk::ManifestRef
-pub fn paperpaw_sdk::ManifestRef::from(paperpaw_sdk::Manifest) -> Self
 pub struct paperpaw_sdk::ManifestRef(_)
 impl paperpaw_sdk::ManifestRef
 pub const fn paperpaw_sdk::ManifestRef::fixed(&'static paperpaw_sdk::Manifest) -> Self
 pub const fn paperpaw_sdk::ManifestRef::is_fixed(&self) -> bool
+pub fn paperpaw_sdk::ManifestRef::try_new(paperpaw_sdk::Manifest, core::option::Option<&'static paperpaw_sdk::Manifest>) -> core::result::Result<Self, paperpaw_sdk::Manifest>
 impl core::cmp::Eq for paperpaw_sdk::ManifestRef
 impl core::cmp::PartialEq for paperpaw_sdk::ManifestRef
 pub fn paperpaw_sdk::ManifestRef::eq(&self, &Self) -> bool
 impl core::convert::From<&'static paperpaw_sdk::Manifest> for paperpaw_sdk::ManifestRef
 pub fn paperpaw_sdk::ManifestRef::from(&'static paperpaw_sdk::Manifest) -> Self
-impl core::convert::From<paperpaw_sdk::Manifest> for paperpaw_sdk::ManifestRef
-pub fn paperpaw_sdk::ManifestRef::from(paperpaw_sdk::Manifest) -> Self
 impl core::fmt::Debug for paperpaw_sdk::ManifestRef
 pub fn paperpaw_sdk::ManifestRef::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::ops::deref::Deref for paperpaw_sdk::ManifestRef
@@ -11935,11 +11932,16 @@ pub fn paperpaw_sdk::Str::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt
 impl core::ops::deref::Deref for paperpaw_sdk::Str
 pub type paperpaw_sdk::Str::Target = str
 pub fn paperpaw_sdk::Str::deref(&self) -> &str
+#[non_exhaustive] pub struct paperpaw_sdk::TitleEntry
+pub paperpaw_sdk::TitleEntry::id: paperpaw_sdk::Id
+pub paperpaw_sdk::TitleEntry::title: &'static str
+impl paperpaw_sdk::TitleEntry
+pub const fn paperpaw_sdk::TitleEntry::new(paperpaw_sdk::Id, &'static str) -> Self
 pub struct paperpaw_sdk::Titled(_)
 impl paperpaw_sdk::Titled
 pub fn paperpaw_sdk::Titled::id(&self) -> &paperpaw_sdk::Id
 pub const fn paperpaw_sdk::Titled::is_kept(&self) -> bool
-pub const fn paperpaw_sdk::Titled::kept(&'static (paperpaw_sdk::Id, &'static str)) -> Self
+pub const fn paperpaw_sdk::Titled::kept(&'static paperpaw_sdk::TitleEntry) -> Self
 pub fn paperpaw_sdk::Titled::owned(alloc::boxed::Box<(paperpaw_sdk::Id, alloc::borrow::Cow<'static, str>)>) -> Self
 pub fn paperpaw_sdk::Titled::title(&self) -> &str
 pub fn paperpaw_sdk::Titled::title_key(&self) -> alloc::borrow::Cow<'static, str>

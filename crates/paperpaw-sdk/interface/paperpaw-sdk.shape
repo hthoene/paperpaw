@@ -2547,7 +2547,7 @@ enum paperpaw_sdk::sockets::SocketError { NoNetwork, NotAllowed, Dns, Refused, T
 enum paperpaw_sdk::sockets::Trust { Authorities, Pinned(0: alloc::vec::Vec<paperpaw_sdk::sockets::CertificateHash>), PinnedKeys(0: alloc::vec::Vec<paperpaw_sdk::sockets::KeyHash>) }
 enum paperpaw_sdk::status::StatusValue { Text(0: alloc::string::String), Level { percent: u8, charging: bool }, Icon(0: alloc::borrow::Cow<'static, str>), Bar { permille: u16 }, Labelled { icon: alloc::borrow::Cow<'static, str>, text: alloc::string::String }, Extended { key: paperpaw_sdk::id::Id, params: paperpaw_sdk::params::Params } }
 enum paperpaw_sdk::time::Day { Weekday { month: u8, week: u8, weekday: u8 }, Julian(0: u16), Ordinal(0: u16) }
-enum paperpaw_sdk::titled::Held { Kept(0: &'static (paperpaw_sdk::id::Id, &'static str)), Owned(0: alloc::boxed::Box<(paperpaw_sdk::id::Id, alloc::borrow::Cow<'static, str>)>) }
+enum paperpaw_sdk::titled::Held { Kept(0: &'static paperpaw_sdk::titled::TitleEntry), Owned(0: alloc::boxed::Box<(paperpaw_sdk::id::Id, alloc::borrow::Cow<'static, str>)>) }
 enum paperpaw_sdk::ui::image::PictureKind { Gray, Color, Alpha }
 enum paperpaw_sdk::ui::image::Tones { Panel, Dots, Grays }
 enum paperpaw_sdk::ui::label::Paint { Ink(0: paperpaw_sdk::ui::style::Ink), Color(0: paperpaw_platform::pixel::Color) }
@@ -3575,6 +3575,7 @@ struct paperpaw_sdk::time::Summer { offset: i32, start: paperpaw_sdk::time::Rule
 struct paperpaw_sdk::time::Time { hour: u8, minute: u8, second: u8 }
 struct paperpaw_sdk::time::TimeZone { standard: i32, summer: core::option::Option<paperpaw_sdk::time::Summer> }
 struct paperpaw_sdk::time::UnixTime(0: i64)
+struct paperpaw_sdk::titled::TitleEntry { id: paperpaw_sdk::id::Id, title: &'static str }
 struct paperpaw_sdk::titled::Titled(0: paperpaw_sdk::titled::Held)
 struct paperpaw_sdk::ui::chips::Chips { cells: alloc::vec::Vec<paperpaw_platform::geometry::Rect>, labels: alloc::vec::Vec<alloc::borrow::Cow<'static, str>> }
 struct paperpaw_sdk::ui::choice::Choice { style: paperpaw_sdk::ui::style::UiStyle, region: paperpaw_platform::geometry::Rect, title: paperpaw_platform::geometry::Rect, list: paperpaw_sdk::ui::list::ListView, pager: core::option::Option<paperpaw_sdk::ui::header::Pager>, title_text: alloc::string::String, path: alloc::string::String, reply: core::option::Option<paperpaw_sdk::id::Id>, labels: alloc::string::String, options: alloc::vec::Vec<alloc::string::String> }
