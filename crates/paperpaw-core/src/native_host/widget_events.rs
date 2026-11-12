@@ -40,7 +40,9 @@ impl crate::Kernel {
         self.widget_changed_pump() || inputs
     }
 
-    /// The marks of changed instances, told to their makers.
+    /// The marks of changed instances, told to their makers. Its own frame
+    /// (ppn5 frame limit), apart from the taps'.
+    #[inline(never)]
     fn widget_changed_pump(&mut self) -> bool {
         let instances = &self.shared.native_instances;
         let Some(ui) = instances.ui_services() else {
@@ -75,7 +77,9 @@ impl crate::Kernel {
     }
 
     /// Tells `maker` that instance `instance` changed; nothing when it cannot
-    /// be called or did not subscribe.
+    /// be called or did not subscribe. Its own frame: the record and the
+    /// call are not in the pump's (ppn5 frame limit).
+    #[inline(never)]
     fn widget_changed_tell(&self, maker: u64, instance: u32) {
         let instances = &self.shared.native_instances;
         if !instances.subscribed(maker, wire::EVENT_WIDGET_CHANGED_TAG) {
