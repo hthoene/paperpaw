@@ -503,6 +503,17 @@ fn only_the_small_memory_class_gets_the_x4_profile() {
     assert!(!is_x4(MemoryClass::Large));
 }
 
+/// The nested-callback gate is closed on the X4 profile only, and only
+/// without the feature `x4-nested` (#250); a large device never has it.
+#[test]
+fn the_nested_gate_is_the_x4_profiles_until_the_feature_opens_it() {
+    assert_eq!(
+        nested_closed(MemoryClass::Small),
+        !cfg!(feature = "x4-nested")
+    );
+    assert!(!nested_closed(MemoryClass::Large));
+}
+
 /// What `handed_file` shows for `instance`: the maker, the root and the path.
 fn handed(s: &UiStore, instance: u32) -> Result<(u64, u32, String), i32> {
     let mut seen = None;

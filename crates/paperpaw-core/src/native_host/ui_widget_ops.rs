@@ -386,7 +386,7 @@ fn nested_gate(frame: &dyn Frame) -> Result<u64, i32> {
     if frame.callback_depth()? != 1 {
         return Err(ERR_BUSY);
     }
-    if frame.ui_x4()? {
+    if frame.nested_closed()? {
         return Err(ERR_UNSUPPORTED);
     }
     Ok(epoch)

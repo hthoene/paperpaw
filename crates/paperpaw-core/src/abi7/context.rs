@@ -119,6 +119,12 @@ pub(crate) trait Frame {
     fn ui_x4(&self) -> Result<bool, i32> {
         Err(ERR_STATE)
     }
+    /// Whether the X4's nested-callback stack gate is closed for this frame
+    /// (`ui_store::nested_closed`): [`Self::ui_x4`] unless the feature
+    /// `x4-nested` opened it.
+    fn nested_closed(&self) -> Result<bool, i32> {
+        Ok(self.ui_x4()? && !cfg!(feature = "x4-nested"))
+    }
     fn close_dialog(&self, _instance: u32) -> Result<(), i32> {
         Err(ERR_STATE)
     }
