@@ -162,13 +162,14 @@ native screens replace these callers.
   (fallible allocation, sorted 32-bit hashes of the folded entries, binary search; no `WordSet`, which allocates infallibly).
 - **Memory (#248):** nothing is kept between two calls of the stage (Beta 3 kept the set by the list's change count). The set
   is 4 bytes an entry (and 4 for each start of a phrase) in a side file of the language (`marks[-<language>].idx` in the data
-  folder: magic, the list's size, the number of hashes, the hashes; a file shorter than its count says is not read), read in 512-byte pieces; it is made again from the list (one pass, by the same
-  code) when the list's size is not the one it was made from, and is not read where it is cut short. Measured on the host
-  (in-memory storage, a list of the most, 2,000 words of 250-byte sentences = 562,890 bytes): a page turn reads 8,008 bytes and
+  folder: magic, the list's size, a hash of the list's last 512 bytes, the number of hashes, the hashes; a file shorter than its count
+  says is not read), read in 512-byte pieces; it is made again from the list (one pass, by the same code) when the list's size or
+  its end is not what it was made from (a word replaced by one as long at the 2,000 cap changes the end). Measured on the host
+  (in-memory storage, a list of the most, 2,000 words of 250-byte sentences = 562,890 bytes): a page turn reads 8,016 bytes of the side file and the list's last 512 and
   takes 4 µs, where the previous version read the whole list each page (562,890 bytes, 785 µs, a set of about 32 KiB on the
   heap); the heap held for the call is 8,000 bytes (4 bytes a hash), released at its end. Not measured on an X4. **A hash
   shared** by an entry and a word of the page (about one in 2^32 for each pair) marks a word that is not in the list: a tap
-  looks it up, nothing else. A list changed to the same size (a word replaced by one as long) is seen at its next change.
+  looks it up, nothing else.
 - **The look** is read from the role's seven settings each call (`vocabulary.learning.background`, `.ink`, `.line`, `.line-tone`,
   `.thickness`, `.frame`, `.struck`: group `core.group.marks`, section `vocabulary.role.learning`, Beta 3's defaults: a dotted line,
   four tenths of a millimetre; declared in `declarations.rs`, held to the interface-6 registration by `tests/settings_parity.rs`,

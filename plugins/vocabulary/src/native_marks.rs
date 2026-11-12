@@ -207,11 +207,15 @@ fn fold_into(text: &str, out: &mut String, base: usize) -> Result<usize, Error> 
 const ENTRY: u8 = 0;
 const PREFIX: u8 = 1;
 /// The side file of a language: its magic, then the words file's size (little-endian
-/// u32) it was made from, then how many hashes it holds (u32), then the hashes
+/// u32) it was made from, then a hash of the list's last bytes (its newest
+/// words: a word replaced by one as long, as at the cap, changes it), then
+/// how many hashes it holds (u32), then the hashes
 /// (little-endian u32 each). A file cut short by a power cut or a refused write
 /// is not as long as its count says, and is not read.
 const MAGIC: &[u8; 4] = b"VM01";
-const HEADER: usize = 12;
+const HEADER: usize = 16;
+/// How many bytes at the end of the list the second key is of.
+const TAIL: usize = 512;
 /// Bytes of the side file read or written at a time.
 const CHUNK: usize = 512;
 /// Where the side files are; the language is in the name.
@@ -220,9 +224,13 @@ const SIDE: &str = ".paperpaw/plugins/vocabulary/marks";
 /// A 32-bit hash of a folded entry (FNV-1a with a final mix), the same in every
 /// build: the side file keeps it.
 fn hash(kind: u8, text: &str) -> u32 {
+    hash_bytes(kind, text.as_bytes())
+}
+
+fn hash_bytes(kind: u8, bytes: &[u8]) -> u32 {
     let mut h = 0x811c_9dc5_u32 ^ u32::from(kind);
     h = h.wrapping_mul(0x0100_0193);
-    for byte in text.bytes() {
+    for byte in bytes.iter().copied() {
         h ^= u32::from(byte);
         h = h.wrapping_mul(0x0100_0193);
     }
@@ -231,6 +239,19 @@ fn hash(kind: u8, text: &str) -> u32 {
     h ^= h >> 13;
     h = h.wrapping_mul(0xc2b2_ae35);
     h ^ (h >> 16)
+}
+
+/// The two keys a side file is made for: the list's size, and a hash of its last
+/// bytes. `None` where the list cannot be read there.
+fn list_keys(storage: &dyn Storage, size: u32) -> Option<(u32, u32)> {
+    let take = TAIL.min(size as usize);
+    let mut tail = [0u8; TAIL];
+    let part = tail.get_mut(..take)?;
+    let at = u64::from(size) - take as u64;
+    if !matches!(storage.read_at(store::file(), at, part), Ok(n) if n == take) {
+        return None;
+    }
+    Some((size, hash_bytes(2, part)))
 }
 
 /// The side file of a language, or none where its name is no plain code.
@@ -273,16 +294,19 @@ impl Entries {
         let Ok(size) = storage.size(store::file()) else {
             return Ok(Self::default());
         };
-        let (Ok(size), Some(side)) = (u32::try_from(size), side_file(language)?) else {
+        let keys = u32::try_from(size)
+            .ok()
+            .and_then(|size| list_keys(storage, size));
+        let (Some(keys), Some(side)) = (keys, side_file(language)?) else {
             return Ok(Self::build(storage, language)?.0);
         };
-        if let Some(set) = Self::load(storage, &side, size)? {
+        if let Some(set) = Self::load(storage, &side, keys)? {
             return Ok(set);
         }
         let (set, whole) = Self::build(storage, language)?;
         if whole {
             // Best effort: a side file that is not kept is made again.
-            set.save(storage, &side, size).ok();
+            set.save(storage, &side, keys).ok();
         }
         Ok(set)
     }
@@ -313,8 +337,8 @@ impl Entries {
     }
 
     /// The entries of the side file, if it is there and was made from a list
-    /// of `size` bytes.
-    fn load(storage: &dyn Storage, side: &str, size: u32) -> Result<Option<Self>, Error> {
+    /// of the `keys` (its size, the hash of its end).
+    fn load(storage: &dyn Storage, side: &str, keys: (u32, u32)) -> Result<Option<Self>, Error> {
         let Ok(length) = storage.size(side) else {
             return Ok(None);
         };
@@ -326,11 +350,14 @@ impl Entries {
         if length < HEADER || !read(0, &mut head) {
             return Ok(None);
         }
-        if head.get(..4) != Some(MAGIC.as_slice()) || head.get(4..8) != Some(&size.to_le_bytes()) {
+        if head.get(..4) != Some(MAGIC.as_slice())
+            || head.get(4..8) != Some(&keys.0.to_le_bytes())
+            || head.get(8..12) != Some(&keys.1.to_le_bytes())
+        {
             return Ok(None);
         }
         let count = head
-            .get(8..)
+            .get(12..)
             .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
             .map_or(usize::MAX, |bytes| u32::from_le_bytes(bytes) as usize);
         if count
@@ -371,14 +398,15 @@ impl Entries {
         &self,
         storage: &dyn Storage,
         side: &str,
-        size: u32,
+        keys: (u32, u32),
     ) -> Result<(), paperpaw_sdk::StorageError> {
         let mut head = [0u8; HEADER];
         head[..4].copy_from_slice(MAGIC);
-        head[4..8].copy_from_slice(&size.to_le_bytes());
+        head[4..8].copy_from_slice(&keys.0.to_le_bytes());
+        head[8..12].copy_from_slice(&keys.1.to_le_bytes());
         let count =
             u32::try_from(self.hashes.len()).map_err(|_| paperpaw_sdk::StorageError::TooLarge)?;
-        head[8..].copy_from_slice(&count.to_le_bytes());
+        head[12..].copy_from_slice(&count.to_le_bytes());
         storage.write(side, &head)?;
         let mut chunk = [0u8; CHUNK];
         for part in self.hashes.chunks(CHUNK / 4) {

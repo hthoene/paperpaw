@@ -267,8 +267,9 @@ fn a_page_turn_reads_the_side_file_and_not_the_list_until_the_list_changes() {
     storage.side.set(0);
     let again = Entries::read(&storage, "en").unwrap();
     assert_eq!(again.len(), 2000);
-    assert_eq!(storage.list.get(), 0, "the list is not read again");
-    assert_eq!(storage.side.get(), 12 + 4 * 2000);
+    // Only its end, for the second key (`TAIL` bytes).
+    assert_eq!(storage.list.get(), TAIL, "the list is not read again");
+    assert_eq!(storage.side.get(), 16 + 4 * 2000);
     assert!(marks(&again, "so word7 and word1999 are", 0).len() == 2);
     // A word more: the list's size changed, so it is read again and the side file made anew.
     storage
@@ -303,7 +304,8 @@ fn a_side_file_that_is_cut_short_or_foreign_is_made_again_and_languages_have_the
         // Made whole again: the next read is from the side file.
         storage.list.set(0);
         assert_eq!(Entries::read(&storage, "de").unwrap().len(), de.len());
-        assert_eq!(storage.list.get(), 0, "cut by {cut}");
+        // The list's end only (the second key; the whole list is 209 bytes here).
+        assert!(storage.list.get() <= TAIL, "cut by {cut}");
     }
     // Not a side file at all.
     storage.write(side, b"hello world, not hashes").unwrap();
@@ -312,4 +314,21 @@ fn a_side_file_that_is_cut_short_or_foreign_is_made_again_and_languages_have_the
     storage.list.set(0);
     assert!(Entries::read(&storage, "en\u{e9}!").is_ok());
     assert!(storage.list.get() > 0);
+}
+
+#[test]
+fn a_word_replaced_by_one_as_long_at_the_end_of_the_list_is_seen() {
+    // At the cap the oldest word goes and the newest is appended: the size can stay.
+    let long = long_list(100);
+    let storage = Counting::new(MemoryStorage::new().with(store::file(), long.as_str()));
+    let before = Entries::read(&storage, "en").unwrap();
+    assert_eq!(marks(&before, "last word99 here", 0).len(), 1);
+    let replaced = long.replace("word99\t", "wurd99\t");
+    assert_eq!(replaced.len(), long.len());
+    storage.write(store::file(), replaced.as_bytes()).unwrap();
+    storage.list.set(0);
+    let after = Entries::read(&storage, "en").unwrap();
+    assert!(storage.list.get() > 0, "the list was read again");
+    assert!(marks(&after, "last word99 here", 0).is_empty());
+    assert_eq!(marks(&after, "last wurd99 here", 0).len(), 1);
 }
