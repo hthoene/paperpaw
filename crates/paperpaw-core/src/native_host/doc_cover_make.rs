@@ -36,7 +36,7 @@
 //! book, so after the library's cap of those in a row no more is raised.
 use super::{BookKind, DocState};
 use crate::native_host::{
-    doc_service::{Document, JobStep, fmt},
+    doc_service::{Document, JobKind, JobStep, fmt},
     fmt_call::Route,
     host_services::HostServices,
     lib_cover::path_key,
@@ -115,16 +115,18 @@ fn to_front(mask: u32, at: usize) -> u32 {
 
 impl DocState {
     /// Whether the cover job or the cover to make is the book at `path`.
+    /// (A details job's book is not the cover's: a cover that needs the slot
+    /// takes it, `doc_service::cover`.)
     fn host_row_path_is(&self, path: &str) -> bool {
-        let ids = [
-            self.table.cover_job().map(|d| d.id),
-            self.table.cover_make().map(|d| d.id),
-        ];
-        self.books.try_borrow().is_ok_and(|books| {
-            books
-                .iter()
-                .any(|b| b.path == path && ids.contains(&Some(b.document)))
-        })
+        if self.job_book_is(path, JobKind::Cover) {
+            return true;
+        }
+        let Some(row) = self.table.cover_make() else {
+            return false;
+        };
+        self.books
+            .try_borrow()
+            .is_ok_and(|books| books.iter().any(|b| b.path == path && b.document == row.id))
     }
 
     /// Where the cover of the book at `path` stands; a book found made moves

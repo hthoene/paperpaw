@@ -11,6 +11,9 @@ pub(crate) enum JobStep {
     /// Its preparation is over and it is closed: `ready` (else failed), and the
     /// key of its book's path (`lib_cover::path_key`).
     Ended { ready: bool, key: u64 },
+    /// A details job ended (closed): whether its book's details were kept, and
+    /// the key of a book that failed (0: none).
+    DetailsEnded { filled: bool, key: u64 },
 }
 
 /// What one step of the preparing loop did.

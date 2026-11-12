@@ -345,6 +345,17 @@ pub(crate) fn prepare(
 struct Found {
     folder: String,
     changed: i64,
+    /// It has its stamp (a finished conversion).
+    stamped: bool,
+}
+
+/// Whether `folder` holds its stamp.
+fn has_stamp(storage: &dyn Storage, folder: &str) -> Result<bool, i32> {
+    let mut path = made(folder.len() + 1 + STAMP.len())?;
+    path.push_str(folder);
+    path.push('/');
+    path.push_str(STAMP);
+    Ok(storage.size(&path).is_ok())
 }
 
 /// The book's conversions but `own`, oldest first.
@@ -393,7 +404,12 @@ fn others(storage: &dyn Storage, id: &Identity<'_>, own: &str) -> Result<Vec<Fou
             folder.push('/');
             folder.push_str(&name);
             if folder != own {
-                found.push(Found { folder, changed });
+                let stamped = has_stamp(storage, &folder)?;
+                found.push(Found {
+                    folder,
+                    changed,
+                    stamped,
+                });
             }
         }
     }
@@ -447,10 +463,13 @@ fn make_room(
 ) -> Result<(), i32> {
     let mut found = others(storage, id, own)?;
     while found.len() + 1 > MAX_CONVERSIONS {
-        // Oldest first; a conversion an open document uses stays.
+        // Oldest first, unstamped ones (a `details` open's cover file, a
+        // half-made conversion) before finished ones; a conversion an open
+        // document uses stays.
         let at = found
             .iter()
-            .position(|f| !pinned(&f.folder))
+            .position(|f| !f.stamped && !pinned(&f.folder))
+            .or_else(|| found.iter().position(|f| !pinned(&f.folder)))
             .ok_or(ERR_BUSY)?;
         clear(storage, &found[at].folder)?;
         found.remove(at);
