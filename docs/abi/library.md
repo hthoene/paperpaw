@@ -340,7 +340,8 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   open for reading or showing, not within 1 s of the start or of any input, and not while a first
   walk is under way (looked at again after 1 s, doubling up to 32 s): never at the start's peak
   nor while the user is busy. A device in steady use (an input at least every second) reads no
-  details until it is left alone; a book the format failed (or whose job a reset ended) joins the cover
+  details until it is left alone; a book the format failed (or whose job a reset ended) joins
+  the cover
   job's failed books and is skipped until the next start. A `cover` never waits for the details job:
   a ready cover is made beside it, and one that needs the slot makes the details job give way (it
   ends, and its book is looked at again later, counted neither as failed nor as displaced). The
