@@ -652,7 +652,7 @@ impl NativeMenu {
 
 /// The value of a setting as its row shows it. A choice's value is a translation
 /// key (`Kind::Choice`): `translate` gives its text in the language of the
-/// display, so the row says *Auto*, not `power.mode.auto`.
+/// display, so the row says *Auto*, not `power.mode.auto`. A value that has no text says itself.
 pub(crate) fn value_text(
     info: &SettingInfo,
     on: &str,
@@ -663,7 +663,13 @@ pub(crate) fn value_text(
         Some(Value::Bool(true)) => copy(on),
         Some(Value::Bool(false)) => copy(off),
         Some(Value::Int(v)) => with_unit(*v, &info.unit),
-        Some(Value::Text(v)) if info.kind == SettingKind::Choice && !v.is_empty() => translate(v),
+        Some(Value::Text(v)) if info.kind == SettingKind::Choice && !v.is_empty() => {
+            // A value that is no key of the catalogs is said as it is (as `tr` does).
+            match translate(v) {
+                Err(Error::NotFound | Error::Invalid) => copy(v),
+                said => said,
+            }
+        }
         Some(Value::Text(v)) => copy(v),
         None => copy(""),
     }

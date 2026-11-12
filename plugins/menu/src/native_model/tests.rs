@@ -297,3 +297,19 @@ fn a_switch_a_number_and_a_text_are_said_as_before() {
     // A text (not a choice) is shown as it is, even where it looks like a key.
     assert_eq!(say(SettingKind::Text, Value::Text("a.b".into())), "a.b");
 }
+
+#[test]
+fn a_choice_with_no_text_in_the_catalogs_is_said_as_it_is_and_a_real_failure_fails() {
+    use paperpaw_sdk::native::Error;
+    let choice = info(
+        SettingKind::Choice,
+        Some(Value::Text("Literal".to_string())),
+    );
+    for refused in [Error::NotFound, Error::Invalid] {
+        let said = crate::native_plugin::value_text(&choice, "On", "Off", &mut |_| Err(refused));
+        assert_eq!(said.unwrap(), "Literal", "{refused:?}");
+    }
+    let failed =
+        crate::native_plugin::value_text(&choice, "On", "Off", &mut |_| Err(Error::NoMemory));
+    assert_eq!(failed, Err(Error::NoMemory));
+}
