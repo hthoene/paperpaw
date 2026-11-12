@@ -289,30 +289,23 @@ pub(crate) trait DocHost {
     /// what displaced it is done before it starts again from the beginning (a
     /// cache is whole or not used: nothing of the job's work is kept).
     fn cover_job_displaced(&self, _kind: JobKind) {}
-    /// A library list screen is up (`up`) or is not: the cover job takes no
-    /// *preparing* step (a conversion) while one is up and for a quiet moment
-    /// after it closes, so that no conversion peaks beside the list's
-    /// buffers. The time held does not count toward the job's awake time.
-    /// Said by the pump before it steps, with the end of the quiet time after
-    /// the user's last input and the start (`quiet_until`, kernel clock, ms):
-    /// before it, no conversion step is made, no cover is made and none is
-    /// started (the heap's peaks never come beside what the user works in,
-    /// #248). Answers when the wait of a waiting job ends, if only time holds
-    /// it: the pump wakes then.
+    /// A library list screen is up (`up`) or not: no *preparing* step (a
+    /// conversion) is taken while one is up and for a quiet moment after it
+    /// closes. Said by the pump, with the end of the quiet time after the
+    /// user's last input and the start (`quiet_until`, kernel ms): before it,
+    /// no step, no cover and no start (#248). Held time does not count toward
+    /// the awake time. Answers when a waiting job's wait ends: the pump wakes.
     fn cover_job_list(&self, _up: bool, _quiet_until: u64) -> Option<u64> {
         None
     }
-    /// An input came: the quiet time begins anew, at once (the pump's pass
-    /// that says it in [`DocHost::cover_job_list`] comes after the input's
-    /// callbacks, which may already ask for covers).
+    /// An input came: the quiet time begins anew, before its callbacks run.
     fn cover_job_input(&self, _quiet_until: u64) {}
-    /// Whether the user's quiet time is over (see [`DocHost::cover_job_list`]).
+    /// Whether the user's quiet time is over.
     fn cover_quiet(&self) -> bool {
         true
     }
-    /// Whether a `cover` of a book not made yet waits: nothing is opened for
-    /// it in the list's frame (the open of a book reads its zip and XML),
-    /// and the library is told when it may ask again.
+    /// Whether a `cover` of an unmade book waits: nothing is opened for it in
+    /// the list's frame; the library is told when to ask again.
     fn cover_must_wait(&self) -> bool {
         !self.cover_jobs_allowed() || !self.cover_quiet() || self.table().reading_besides(0)
     }

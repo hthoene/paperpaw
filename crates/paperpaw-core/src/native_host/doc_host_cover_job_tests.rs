@@ -665,7 +665,7 @@ fn a_ready_book_beside_a_job_the_list_holds_gets_its_cover_made_at_once() {
         let document = w.open(1, "books/a.epub").unwrap();
         // A long book prepares as the job, and a library list is up: held.
         job(w, "books/long.epub");
-        w.state.list_hold(true);
+        w.state.list_hold(true, 0);
         assert!(w.state.table.list_held());
         // The ready book's document becomes the cover to make beside it.
         assert!(w.state.table.start_cover_make(OPENER, document));
