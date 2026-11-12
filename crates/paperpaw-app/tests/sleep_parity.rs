@@ -632,6 +632,7 @@ fn format_xtc_is_the_same_asleep() {
 /// has the pages. The count used to start only for a book prepared first
 /// (#248: the open path asked before the screen was on top).
 #[test]
+#[ignore = "needs native activation (the book's format is a native plugin with the flip, #243)"]
 fn a_book_ready_at_once_has_its_pages_counted() {
     let book = book_of("format-txt").expect("a txt book");
     let mut run = Run::start(none_sleeps, Some(&book));

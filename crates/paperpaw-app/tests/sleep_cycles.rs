@@ -145,8 +145,11 @@ const BOOKS: [(&str, &str, &[u8]); 5] = [
     ),
 ];
 
+/// Builds a book's bytes.
+type Make = fn() -> Vec<u8>;
+
 /// The books built in memory (comic, pre-rendered pages).
-const BUILT: [(&str, &str, fn() -> Vec<u8>); 2] = [
+const BUILT: [(&str, &str, Make); 2] = [
     ("format-cbz", "books/rooms.cbz", books::cbz),
     ("format-xtc", "books/rooms.xtc", books::xtc),
 ];
