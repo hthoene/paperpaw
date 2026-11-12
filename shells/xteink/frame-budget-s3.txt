@@ -816,3 +816,4 @@ allow call paperpaw_fat::settle::temps_in -> memcpy the chip's ROM `memcpy`: not
 allow indirect paperpaw_fat::settle::files_of_temps 1 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow call paperpaw_fat::settle::files_of_temps -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_fat::settle::files_of_temps -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow indirect paperpaw_core::abi7::settings_visibility::SettingIdentity::definition 2 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4. CI's x4-pro build leaves these two calls unfollowed where the local scan follows them (same difference as the one in tools/check-s3-budget.sh); only the x4-pro budget has the line.
