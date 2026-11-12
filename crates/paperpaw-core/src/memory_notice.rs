@@ -1,6 +1,7 @@
-//! "Not enough memory to open this" (#248): the notice shown when a screen
+//! "Not enough memory for this" (#248): the notice shown when a screen
 //! cannot open for a lack of memory, such as a parked plugin's that could
-//! not be made again. A notice made then would meet the same lack (`notify`
+//! not be made again (and, with parking, when its waiting actions are
+//! dropped for the lack). A notice made then would meet the same lack (`notify`
 //! allocates without a check), so this one is made ahead, at start and again
 //! when the language or the size of the interface changes, and kept: showing
 //! it allocates nothing, and it comes back when it ends.
