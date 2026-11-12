@@ -60,7 +60,11 @@ impl View {
 
     /// Sets or removes the bookmark of the page on show; a refused change is said
     /// (the bookmarks could not be kept), nothing changes then.
-    fn toggle_bookmark(&mut self, host: &Host<'_>, library: Option<&Library>) -> Result<(), Error> {
+    pub(super) fn toggle_bookmark(
+        &mut self,
+        host: &Host<'_>,
+        library: Option<&Library>,
+    ) -> Result<(), Error> {
         let (Body::Open(open), Some(library)) = (&mut self.body, library) else {
             return Ok(());
         };
@@ -108,6 +112,11 @@ impl Open {
             conversion: self.conversion,
             now: native_place::wall_seconds(host),
         };
-        native_bookmark::toggle(host, library, &self.path, &shown).map(|_| ())
+        let done = native_bookmark::toggle(host, library, &self.path, &shown)?;
+        self.bookmarks_toggled(shown.range, done);
+        // The ribbon comes or goes; a refused redraw is no lost bookmark (the
+        // next draw shows it).
+        self.redraw_ribbon(host).ok();
+        Ok(())
     }
 }

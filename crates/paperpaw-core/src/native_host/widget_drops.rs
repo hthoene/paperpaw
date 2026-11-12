@@ -23,6 +23,8 @@ impl crate::Kernel {
     /// Tells the owners of dropped widget instances, oldest first, outside of
     /// any native callback. `true` when a plugin was called (what it staged is
     /// for the next round of commands).
+    // Its own frame: not inlined into `run_commands` (#250).
+    #[inline(never)]
     pub(crate) fn deliver_widget_drops(&mut self) -> bool {
         let mut called = false;
         for _ in 0..PER_PASS {

@@ -55,8 +55,9 @@ pub enum Outcome {
     Ignored,
     /// Handled; the screen stays.
     Handled,
-    /// Go to this place and close the screen.
-    Go(Place),
+    /// Go to where a match begins and close the screen; the match ends at this
+    /// offset of the same section, and the page marks it.
+    Go(Place, u32),
 }
 
 /// What a step of the scan asks of the plugin.
@@ -78,9 +79,10 @@ pub struct SearchView {
     progress: Option<Progress>,
     search: Option<Search>,
     list: ItemList,
-    /// Where each row of the list leads (its hit's start): the snippets are in
-    /// the rows only, not in the hits as well.
-    places: Vec<Place>,
+    /// Where each row of the list leads (its hit's start, and the offset where
+    /// it ends in the same section): the snippets are in the rows only, not in
+    /// the hits as well.
+    places: Vec<(Place, u32)>,
     /// The size of the text and the room of a snippet in a row, read from the
     /// display once.
     metrics: Option<(f32, f32)>,
@@ -327,7 +329,11 @@ impl SearchView {
         };
         while self.places.len() < search.hits().len() {
             let index = self.places.len();
-            let Some(start) = search.hits().get(index).map(|hit| (hit.start, hit.percent)) else {
+            let Some(start) = search
+                .hits()
+                .get(index)
+                .map(|hit| ((hit.start, hit.end.offset), hit.percent))
+            else {
                 break;
             };
             let Some(snippet) = search.take_snippet(index) else {
@@ -357,7 +363,7 @@ impl SearchView {
             ItemStep::Chosen(index) => self
                 .places
                 .get(index)
-                .map_or(Outcome::Handled, |start| Outcome::Go(*start)),
+                .map_or(Outcome::Handled, |(start, end)| Outcome::Go(*start, *end)),
             ItemStep::Ignored => Outcome::Ignored,
             _ => Outcome::Handled,
         };

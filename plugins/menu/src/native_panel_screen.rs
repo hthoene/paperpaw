@@ -340,7 +340,15 @@ impl PanelView {
             }
             for (control, rect) in &row.controls {
                 let focused = shown && self.focus == Some(index);
-                self.draw_control(body, font, style, (&on, &off), *control, *rect, focused)?;
+                self.draw_control(
+                    body,
+                    font,
+                    style,
+                    (host, &mut messages, (&on, &off)),
+                    *control,
+                    *rect,
+                    focused,
+                )?;
                 index += 1;
             }
         }
@@ -419,7 +427,7 @@ impl PanelView {
         body: &mut Vec<Paint>,
         font: &Font<'_>,
         style: &Style,
-        (on_text, off_text): (&str, &str),
+        (host, messages, (on_text, off_text)): (&Host<'_>, &mut Messages, (&str, &str)),
         control: Control,
         rect: Rect,
         focused: bool,
@@ -477,7 +485,11 @@ impl PanelView {
             }
             Control::Open(_) => {
                 let value = match &part.info {
-                    Some(info) => crate::native_plugin::value_text(info, on_text, off_text)?,
+                    Some(info) => {
+                        crate::native_plugin::value_text(info, on_text, off_text, &mut |key| {
+                            messages.copy(host, key)
+                        })?
+                    }
                     None => String::new(),
                 };
                 let shown = text::concat(&[&value, " \u{203a}"])?;

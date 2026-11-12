@@ -46,6 +46,7 @@ fn main() -> Result<(), String> {
     emit!(source, all, "HOLD_KEYS", declarations::hold_keys);
     emit!(source, all, "EVENTS", declarations::events);
     emit!(source, all, "STAGES", declarations::stages);
+    emit!(source, all, "FIRST_RUN", declarations::first_run);
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
     // The settings as a table the kernel keeps in the program (a linked
     // build only), made of the very records declared above.
