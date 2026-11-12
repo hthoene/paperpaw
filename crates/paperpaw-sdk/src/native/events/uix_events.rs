@@ -107,6 +107,14 @@ event_fn!(screen_closed, wire::EventScreenClosed<'_>, |r| {
     }
 });
 
+event_fn!(screen_hidden, wire::EventScreenHidden<'_>, |r| {
+    Event::ScreenHidden {
+        now_ms: r.now_ms,
+        screen: r.screen,
+        instance: Instance::new(r.instance).ok_or(Error::Invalid)?,
+    }
+});
+
 event_fn!(stack_changed, wire::EventStackChanged, |r| {
     Event::StackChanged { now_ms: r.now_ms }
 });

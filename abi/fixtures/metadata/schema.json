@@ -15374,6 +15374,40 @@
       "fields": [
         {
           "default": null,
+          "max_bytes": 0,
+          "name": "now_ms",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u64"
+        },
+        {
+          "default": null,
+          "max_bytes": 128,
+          "name": "screen",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "str"
+        },
+        {
+          "default": null,
+          "max_bytes": 0,
+          "name": "instance",
+          "optional": false,
+          "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        }
+      ],
+      "id": 111,
+      "name": "event.screen_hidden",
+      "since": 1
+    },
+    {
+      "fields": [
+        {
+          "default": null,
           "max_bytes": 1024,
           "name": "text",
           "optional": false,

@@ -11,10 +11,12 @@ use paperpaw_sdk::document::{
 };
 use paperpaw_sdk::{Env, Storage, read_file};
 
+mod head;
+
 /// Bytes inspected to detect encoding, paragraph style and metadata.
 const SNIFF: u32 = 16 * 1024;
 /// Chunk size and range for finding the end of a Project Gutenberg text.
-const TAIL_CHUNK: u32 = 8 * 1024;
+const TAIL_CHUNK: u32 = head::CHUNK;
 const TAIL_RANGE: u32 = 64 * 1024;
 /// Paragraphs longer than this (in bytes) are split into several blocks.
 const LIMIT: u32 = 4096;
@@ -112,24 +114,20 @@ impl TxtDocument {
         converted: Option<&str>,
     ) -> Result<Self, DocumentError> {
         let mut size = file_size(storage, path)?;
-        let mut head = read(storage, path, 0, size.min(SNIFF))?;
+        // The head is read a piece at a time (`head`), never held whole.
+        let mut scan = head::scan(storage, path, size.min(SNIFF), size <= SNIFF, true)?;
         // UTF-16 is read from a copy in UTF-8, made when it is first opened.
         let mut text = copy_text(path)?;
-        let big_endian = match head.get(..2) {
-            Some([0xff, 0xfe]) => Some(false),
-            Some([0xfe, 0xff]) => Some(true),
-            _ => None,
-        };
-        if let Some(big_endian) = big_endian {
+        if let Some(big_endian) = scan.utf16 {
             text = match converted {
                 Some(copy) => copy_text(copy)?,
                 None => utf8_copy(storage, path, size, big_endian)?,
             };
             size = file_size(storage, &text)?;
-            head = read(storage, &text, 0, size.min(SNIFF))?;
+            scan = head::scan(storage, &text, size.min(SNIFF), size <= SNIFF, false)?;
         }
-        let bom = head.starts_with(&[0xef, 0xbb, 0xbf]);
-        let encoding = if bom || is_utf8(&head, size <= SNIFF) {
+        let sampled = size.min(SNIFF);
+        let encoding = if scan.bom || scan.utf8 {
             Encoding::Utf8
         } else {
             Encoding::Windows1252
@@ -137,37 +135,28 @@ impl TxtDocument {
 
         let mut document = TxtDocument {
             path: text,
-            start: if bom { 3 } else { 0 },
+            start: if scan.bom { 3 } else { 0 },
             end: size,
             encoding,
-            breaks: Breaks::Lines,
-            wrap_width: 0,
+            breaks: scan.look.0,
+            wrap_width: scan.look.1,
             metadata: Metadata::default(),
             window: RefCell::default(),
         };
 
         // Project Gutenberg: metadata in the header, licence around the text.
-        if let Some(marker) = find(&head, b"*** START OF") {
-            document.read_header(&head[..marker])?;
-            document.start = line_after(&head, marker) as u32;
+        if let Some((marker, line)) = scan.marker {
+            document.read_header(storage, marker)?;
+            document.start = line;
         }
-        // The text's look from the head, which is let go before the end is
-        // looked for: the two reads are not held at once.
-        let sampled = head.len() as u32;
-        document.sample(head.get(document.start as usize..).unwrap_or_default())?;
-        drop(head);
         if let Some(end) = find_end_marker(storage, &document.path, document.start, size)? {
             document.end = end;
         }
         if document.end < sampled {
             // The text ends inside the head: its look from the text alone.
-            let text = read(
-                storage,
-                &document.path,
-                document.start,
-                document.end.max(document.start),
-            )?;
-            document.sample(&text)?;
+            let to = document.end.max(document.start);
+            (document.breaks, document.wrap_width) =
+                head::look(storage, &document.path, document.start, to)?;
         }
 
         if document.metadata.title.is_none() {
@@ -182,30 +171,31 @@ impl TxtDocument {
         Ok(document)
     }
 
-    /// How paragraphs break and how long lines are, from `sample` of the
-    /// text.
-    fn sample(&mut self, sample: &[u8]) -> Result<(), DocumentError> {
-        self.breaks = detect_breaks(sample);
-        self.wrap_width = typical_line_length(sample)?;
-        Ok(())
+    /// The Project Gutenberg header's title, authors and language, from
+    /// the lines before `marker`.
+    fn read_header(&mut self, storage: &dyn Storage, marker: u32) -> Result<(), DocumentError> {
+        let path = core::mem::take(&mut self.path);
+        let read = head::lines(storage, &path, marker, &mut |line| self.header_line(line));
+        self.path = path;
+        read
     }
 
-    fn read_header(&mut self, header: &[u8]) -> Result<(), DocumentError> {
-        for line in header.split(|&b| b == b'\n') {
-            let (text, _) = self.decode(line, 0)?;
-            let text = text.trim();
-            if let Some(title) = text.strip_prefix("Title:") {
-                self.metadata.title = Some(copy_text(title.trim())?);
-            } else if let Some(author) = text.strip_prefix("Author:") {
-                self.metadata
-                    .authors
-                    .try_reserve(1)
-                    .map_err(|_| DocumentError::OutOfMemory)?;
-                self.metadata.authors.push(copy_text(author.trim())?);
-            } else if let Some(language) = text.strip_prefix("Language:") {
-                self.metadata.language =
-                    language_tag(language.trim()).map(copy_text).transpose()?;
-            }
+    /// One header line's title, author or language. It must not read
+    /// `self.path`: [`Self::read_header`] has taken it out while the lines
+    /// are read.
+    fn header_line(&mut self, line: &[u8]) -> Result<(), DocumentError> {
+        let (text, _) = self.decode(line, 0)?;
+        let text = text.trim();
+        if let Some(title) = text.strip_prefix("Title:") {
+            self.metadata.title = Some(copy_text(title.trim())?);
+        } else if let Some(author) = text.strip_prefix("Author:") {
+            self.metadata
+                .authors
+                .try_reserve(1)
+                .map_err(|_| DocumentError::OutOfMemory)?;
+            self.metadata.authors.push(copy_text(author.trim())?);
+        } else if let Some(language) = text.strip_prefix("Language:") {
+            self.metadata.language = language_tag(language.trim()).map(copy_text).transpose()?;
         }
         Ok(())
     }
@@ -734,7 +724,8 @@ fn read_onto(
 }
 
 /// Whether `bytes` is valid UTF-8; a sequence cut off at the end counts as
-/// valid unless `complete`.
+/// valid unless `complete` (the tests' reference for [`head::scan`]).
+#[cfg(test)]
 fn is_utf8(bytes: &[u8], complete: bool) -> bool {
     match core::str::from_utf8(bytes) {
         Ok(_) => true,
@@ -774,7 +765,9 @@ fn cp1252(byte: u8) -> char {
 }
 
 /// The length most hard-wrapped lines reach (75th percentile), or 0 if
-/// lines are too short to tell.
+/// lines are too short to tell: what [`head::look`] gives, from the whole
+/// sample at once (the tests' reference).
+#[cfg(test)]
 fn typical_line_length(sample: &[u8]) -> Result<usize, DocumentError> {
     let values = sample
         .split(|&b| b == b'\n')
@@ -799,6 +792,9 @@ fn typical_line_length(sample: &[u8]) -> Result<usize, DocumentError> {
     Ok(if typical >= 40 { typical } else { 0 })
 }
 
+/// How paragraphs break in a sample held whole (the tests' reference for
+/// [`head::look`]).
+#[cfg(test)]
 fn detect_breaks(sample: &[u8]) -> Breaks {
     let mut lines = 0usize;
     let mut blank = 0usize;
@@ -844,7 +840,8 @@ fn rfind(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).rposition(|w| w == needle)
 }
 
-/// Index just after the line containing `index`.
+/// Index just after the line containing `index` (the tests' reference).
+#[cfg(test)]
 fn line_after(bytes: &[u8], index: usize) -> usize {
     bytes[index..]
         .iter()

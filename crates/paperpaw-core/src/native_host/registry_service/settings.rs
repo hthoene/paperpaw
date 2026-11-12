@@ -5,6 +5,7 @@
 use super::{
     Asker, Row,
     fixed::{Fixed, caps, clip, translated},
+    native_extra::{self, Shown},
     schema,
     sources::Sources,
 };
@@ -19,7 +20,7 @@ use alloc::vec::Vec;
 use core::{mem::MaybeUninit, ops::ControlFlow};
 use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_sdk::{
-    Editor, Level, SettingKind, SettingSpec, SettingValue, Settings,
+    Level, SettingKind, SettingSpec, SettingValue, Settings,
     builtin::{groups::OTHER, slots::SETTINGS},
 };
 
@@ -35,6 +36,8 @@ const LONG: u32 = 1 << 7;
 const PREVIEW: u32 = 1 << 8;
 const SHOWN: u32 = 1 << 9;
 const GOVERNS: u32 = 1 << 10;
+/// An int setting set with a slider (`SettingExtra::slider`), #257.
+const SLIDER: u32 = 1 << 11;
 
 /// `reg_setting.source`.
 const FROM_DEFAULT: u32 = 0;
@@ -162,22 +165,32 @@ fn source(sources: &Sources<'_>, spec: &SettingSpec) -> u32 {
 }
 
 /// The ids of the settings whose value another setting's showing depends on
-/// ([`Settings::governs`]), sorted and each once: one pass over the specs
+/// ([`Settings::governs`], and a native plugin's declared `shown_if`), sorted
+/// and each once: one pass over the specs
 /// for a whole list instead of one per row (a list of every setting was
 /// quadratic, #248). Freed when the list ends; `None` where there is no room
 /// for it, and each row then asks `governs` itself.
-pub(super) fn governing(all: &Settings) -> Option<Vec<&str>> {
+pub(super) fn governing<'s>(sources: &Sources<'_>, all: &'s Settings) -> Option<Vec<&'s str>> {
+    let mut declared = 0_usize;
+    native_extra::each_governing(sources, all, &mut |_| declared += 1);
     let count = all
         .specs()
         .filter(|spec| spec.extra().shown_if.is_some())
         .count();
     let mut ids = Vec::new();
-    ids.try_reserve_exact(count).ok()?;
+    ids.try_reserve_exact(count.checked_add(declared)?).ok()?;
     ids.extend(
         all.specs()
             .filter_map(|spec| spec.extra().shown_if.as_ref())
             .map(|(of, _)| of.as_str()),
     );
+    // Within the room counted: the store is changed by the kernel alone,
+    // never during a call.
+    native_extra::each_governing(sources, all, &mut |of| {
+        if ids.len() < ids.capacity() {
+            ids.push(of);
+        }
+    });
     ids.sort_unstable();
     ids.dedup();
     Some(ids)
@@ -197,6 +210,12 @@ fn with_row<R>(
     let settings = env.settings();
     let id = spec.id.as_str();
     let extra = spec.extra();
+    // A native plugin's declared extra is read from the store, never busy
+    // here: the op checked it first ([`native_extra::ready`]).
+    let (slider, shown) = native_extra::with_extra(sources, spec, |shown| {
+        (shown.slider, native_extra::shows(settings, shown))
+    })
+    .unwrap_or_else(|_| (extra.slider, settings.shows(spec)));
     let mut flags = 0;
     for (on, bit) in [
         (spec.guarded, GUARDED),
@@ -204,13 +223,17 @@ fn with_row<R>(
         (spec.scoped, SCOPED),
         (spec.is_kept_on_reset(), KEPT_ON_RESET),
         (spec.level == Level::Advanced, ADVANCED),
-        (settings.shows(spec), SHOWN),
+        (shown, SHOWN),
         (
             governing.map_or_else(
-                || settings.governs(id),
+                || settings.governs(id) || native_extra::governs(sources, settings, id),
                 |ids| ids.binary_search(&id).is_ok(),
             ),
             GOVERNS,
+        ),
+        (
+            slider && matches!(spec.kind, SettingKind::Int { .. }),
+            SLIDER,
         ),
     ] {
         if on {
@@ -282,9 +305,10 @@ fn settings(
     asker: &Asker<'_>,
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> Result<(), i32> {
+    native_extra::ready(sources)?;
     let all = sources.env.settings();
     let is_group = scope == OTHER.static_str() || all.groups().any(|g| g.id.as_str() == scope);
-    let governing = governing(all);
+    let governing = governing(sources, all);
     for spec in all.specs() {
         let hit = scope.is_empty()
             || if is_group {
@@ -354,49 +378,9 @@ pub(super) fn detail(
     visit: &mut dyn FnMut(&dyn Row) -> Result<(), i32>,
 ) -> Result<(), i32> {
     let spec = exact(sources, key).ok_or(ERR_NOT_FOUND)?;
+    native_extra::ready(sources)?;
     with_row(sources, asker, spec, None, |row| visit(row))?;
-    let extra = spec.extra();
-    let (min, max) = match &spec.kind {
-        SettingKind::Int { min, max } => (clamp32(*min), clamp32(*max)),
-        _ => (0, 0),
-    };
-    // The section's key of a setting made for each plugin is that plugin's
-    // name: built here, on the stack.
-    let plugin_section = if extra.section_of_plugin {
-        let plugin = spec.id.as_str().rsplit('.').next().unwrap_or_default();
-        Fixed::<{ caps::ID }>::of(&[plugin, ".plugin.name"])
-    } else {
-        None
-    };
-    let section = plugin_section
-        .as_ref()
-        .map(Fixed::as_str)
-        .or(extra.section.as_deref())
-        .unwrap_or("");
-    let (shown_id, shown_value) = extra
-        .shown_if
-        .as_ref()
-        .map_or(("", ""), |(id, value)| (id.as_str(), *value));
-    let (editor_kind, editor) = match &extra.editor {
-        Some(Editor::Screen(screen)) => (1, screen.as_str()),
-        Some(Editor::Slot(slot)) => (2, slot.as_str()),
-        _ => (0, ""),
-    };
-    visit(&Record::ServiceRegSettingExtra(
-        wire::ServiceRegSettingExtra {
-            min,
-            max,
-            step: clamp32(extra.step),
-            unit: clip(extra.unit.as_deref().unwrap_or(""), 96),
-            section: clip(section, caps::ID),
-            follows: extra.follows.as_ref().map_or("", paperpaw_sdk::Id::as_str),
-            shown_id,
-            shown_value: clip(shown_value, caps::ID),
-            editor_kind,
-            editor,
-            choices: choice_count(spec),
-        },
-    ))?;
+    native_extra::with_extra(sources, spec, |shown| extra_row(spec, shown, visit))??;
     let help = spec.description.as_deref().unwrap_or("");
     if help.is_empty() {
         return Ok(());
@@ -406,4 +390,40 @@ pub(super) fn detail(
         return Ok(());
     }
     visit(&Record::ServiceRegText(wire::ServiceRegText { text }))
+}
+
+/// Op 2's `reg_setting_extra` of `spec`, with what its extra says.
+fn extra_row(
+    spec: &SettingSpec,
+    shown: &Shown<'_>,
+    visit: &mut dyn FnMut(&dyn Row) -> Result<(), i32>,
+) -> Result<(), i32> {
+    let (min, max) = match &spec.kind {
+        SettingKind::Int { min, max } => (clamp32(*min), clamp32(*max)),
+        _ => (0, 0),
+    };
+    // The section's key of a setting made for each plugin is that plugin's
+    // name: built here, on the stack.
+    let plugin_section = if shown.section_of_plugin {
+        let plugin = spec.id.as_str().rsplit('.').next().unwrap_or_default();
+        Fixed::<{ caps::ID }>::of(&[plugin, ".plugin.name"])
+    } else {
+        None
+    };
+    let section = plugin_section.as_ref().map_or(shown.section, Fixed::as_str);
+    visit(&Record::ServiceRegSettingExtra(
+        wire::ServiceRegSettingExtra {
+            min,
+            max,
+            step: clamp32(shown.step),
+            unit: clip(shown.unit, 96),
+            section: clip(section, caps::ID),
+            follows: shown.follows,
+            shown_id: shown.shown_id,
+            shown_value: clip(shown.shown_value, caps::ID),
+            editor_kind: shown.editor_kind,
+            editor: shown.editor,
+            choices: choice_count(spec),
+        },
+    ))
 }

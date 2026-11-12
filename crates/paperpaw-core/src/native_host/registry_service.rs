@@ -38,11 +38,14 @@ mod menu_native;
 mod menus;
 #[cfg(test)]
 mod menus_tests;
+mod native_extra;
 mod ordered;
 mod plugins;
 mod presets;
 pub(in crate::native_host) mod rules;
 mod settings;
+#[cfg(test)]
+mod settings_native_tests;
 #[cfg(test)]
 mod settings_tests;
 mod setup;

@@ -338,8 +338,10 @@ fn stage(
         .map(|_| ())
 }
 
-/// Says that a bookmark, highlight or note could not be kept (the memory may be
-/// full); a message that cannot be made or shown is dropped.
+/// Says that a bookmark, highlight or note could not be kept (a lack of memory
+/// is the host's to hear, never this; a full card and an over-long note both
+/// answer `NoSpace`, so nothing more is said); a message that cannot be made
+/// or shown is dropped.
 pub fn say_not_saved(host: &Host<'_>) {
     let Ok(text) = Messages::new().and_then(|mut m| m.copy(host, "reader.marks-not-saved")) else {
         return;

@@ -279,8 +279,9 @@ impl FixedAction {
 /// An action of an interface-7 plugin (`docs/abi/screens-input.md` section
 /// 2): what it is called and which plugin's callback runs it, without a
 /// handler of its own. The kernel runs it by delivering `event.action_run`
-/// to `token` of plugin `owner` ([`Action::native`]); it takes some 40 bytes
-/// where an [`ActionSpec`] with a handler takes some 150 (#248).
+/// to `token` of plugin `owner` (`Action::native`, with the `kernel`
+/// feature); it takes some 40 bytes where an [`ActionSpec`] with a handler
+/// takes some 150 (#248).
 #[derive(Debug)]
 pub struct NativeAction {
     id: Id,
@@ -309,7 +310,8 @@ impl NativeAction {
 pub enum Action<'a> {
     Spec(&'a ActionSpec),
     Fixed(&'static FixedAction),
-    /// An interface-7 plugin's: the kernel runs it ([`Action::native`]).
+    /// An interface-7 plugin's: the kernel runs it (`Action::native`, with
+    /// the `kernel` feature).
     Native(&'a NativeAction),
 }
 
@@ -401,7 +403,8 @@ impl<'a> Action<'a> {
     }
 
     /// Runs its own handler with `params` into `out`; whether it has one
-    /// (a native action has none: see [`Action::native`]).
+    /// (a native action has none: see `Action::native`, with the `kernel`
+    /// feature).
     pub fn run(self, env: &Env<'_>, params: &Params, out: &mut crate::Commands) -> bool {
         match self {
             Action::Spec(ActionSpec {
