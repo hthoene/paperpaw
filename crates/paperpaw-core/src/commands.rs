@@ -326,6 +326,8 @@ impl Kernel {
     pub(crate) fn run_commands(&mut self) {
         self.drain_deferred_ui_closes();
         self.retry_native_unloads();
+        // Parked plugins asked to start where they could not be made (#248).
+        self.native_unpark_pending();
         for _ in 0..MAX_COMMAND_ROUNDS {
             // Callbacks from the previous round have returned their borrowed
             // messages. Make room before on_show or another command translates.

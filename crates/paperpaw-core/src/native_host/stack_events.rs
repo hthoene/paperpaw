@@ -64,10 +64,11 @@ impl crate::Kernel {
         let instances = &self.shared.native_instances;
         let rows = &self.shared.stack_rows;
         let now = rows.changes();
-        let Ok(mut told) = rows.told.try_borrow_mut() else {
+        if let Ok(mut told) = rows.told.try_borrow_mut() {
+            told.retain(|(owner, _)| instances.subscribed(*owner, wire::EVENT_STACK_CHANGED_TAG));
+        } else {
             return None;
-        };
-        told.retain(|(owner, _)| instances.subscribed(*owner, wire::EVENT_STACK_CHANGED_TAG));
+        }
         let mut index = 0;
         let mut next = None;
         while let Some((owner, _)) = instances.running_nth(index) {
@@ -75,18 +76,37 @@ impl crate::Kernel {
             if !instances.subscribed(owner, wire::EVENT_STACK_CHANGED_TAG) {
                 continue;
             }
-            match told.iter_mut().find(|(known, _)| *known == owner) {
-                None => {
-                    // First sight: the count is recorded, nothing is said.
-                    if told.try_reserve(1).is_ok() {
-                        told.push((owner, now));
+            // Looked at in a short borrow: no borrow of the table is held
+            // while a parked plugin is made below (#248).
+            let due = {
+                let Ok(mut told) = rows.told.try_borrow_mut() else {
+                    return next;
+                };
+                match told.iter().find(|(known, _)| *known == owner) {
+                    // First sight: the count is recorded, nothing is said (a
+                    // parked plugin is not made for it).
+                    None => {
+                        if told.try_reserve(1).is_ok() {
+                            told.push((owner, now));
+                        }
+                        false
+                    }
+                    Some((_, count)) => *count != now && next.is_none(),
+                }
+            };
+            // A parked plugin is made first; one that cannot be made now
+            // keeps its count and is told on a later pass.
+            debug_assert!(
+                rows.told.try_borrow_mut().is_ok(),
+                "no borrow across an unpark"
+            );
+            if due && self.native_ready(owner) {
+                if let Ok(mut told) = rows.told.try_borrow_mut() {
+                    if let Some((_, count)) = told.iter_mut().find(|(known, _)| *known == owner) {
+                        *count = now;
                     }
                 }
-                Some((_, count)) if *count != now && next.is_none() => {
-                    *count = now;
-                    next = Some(owner);
-                }
-                Some(_) => {}
+                next = Some(owner);
             }
         }
         next
@@ -103,6 +123,7 @@ impl crate::Kernel {
                         .shared
                         .native_instances
                         .subscribed(*owner, wire::EVENT_STACK_CHANGED_TAG)
+                    && !self.native_parked(*owner)
             })
         })
     }

@@ -278,6 +278,9 @@ impl crate::Kernel {
         report: fn(&S, u32, i32),
         fixed: super::FixedTables,
     ) -> Result<(), shell::Error> {
+        // A registration transaction: no parked plugin is made during it
+        // (#248, parked plugins M5).
+        let _hold = self.shared.native_instances.hold_unparking();
         let (networked, installer) = declared_uses(&host);
         self.shared
             .native_instances

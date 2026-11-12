@@ -612,6 +612,34 @@ impl NativeInstances {
         Ok(())
     }
 
+    /// A parked plugin whose start is due now (asked where it could not be
+    /// made, its wait over) and whether its batch was refused: at a safe
+    /// point only (`lease_slot`, #248).
+    pub(crate) fn take_parked_start(&self) -> Option<(u64, bool)> {
+        if !self.callbacks.safe_point() {
+            return None;
+        }
+        self.entries
+            .iter()
+            .filter(|entry| entry.enabled && !entry.retiring)
+            .find_map(|entry| {
+                let lease = entry.instance.as_ref()?;
+                lease.take_start().then(|| (entry.key, lease.refused()))
+            })
+    }
+    /// The kernel's time, for a parked plugin's wait after no memory.
+    pub(crate) fn set_now(&self, now_ms: u64) {
+        self.callbacks.set_now(now_ms);
+    }
+    /// No parked plugin is made while the guard lives (a registration).
+    pub(crate) fn hold_unparking(&self) -> Option<super::native_callbacks::Hold> {
+        self.callbacks.hold()
+    }
+    /// The clock a parked plugin's lease reads its safe points from.
+    pub(crate) fn unpark_clock(&mut self) -> Result<CallbackRuntime, i32> {
+        self.callbacks.runtime()
+    }
+
     /// Zero allocation, deduplicated by entry; never flush inside a callback.
     pub(crate) fn take_start(&self) -> Option<u64> {
         if self.callbacks.depth() != 0 {

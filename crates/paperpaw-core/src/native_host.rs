@@ -551,6 +551,8 @@ mod native_dispatch;
 mod lease_slot;
 #[path = "native_host/native_callbacks.rs"]
 mod native_callbacks;
+#[path = "native_host/parked.rs"]
+mod parked;
 
 #[allow(
     dead_code,
