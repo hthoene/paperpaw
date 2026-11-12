@@ -13,7 +13,7 @@ mod native_activation;
 
 use std::fmt::Write as _;
 
-use paperpaw_core::{Effects, Kernel};
+use paperpaw_core::Effects;
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
 };
@@ -60,8 +60,8 @@ fn started_with_state(state: Option<&str>, config: &str) -> (String, Option<Stri
     if let Some(state) = state {
         storage = storage.with(STATE, state);
     }
-    let builder = Kernel::builder(DEVICE).storage(storage).user_config(config);
-    let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
+    let (builder, card) = native_activation::quiet_on(DEVICE, storage, config);
+    let mut kernel = native_activation::build_on(paperpaw_app::install(builder, fonts()), card);
     let mut now = 0;
     let mut effects: Effects = kernel.start(Instant(now));
     for _ in 0..10_000 {

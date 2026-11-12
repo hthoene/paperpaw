@@ -98,6 +98,32 @@ pub(super) fn on_off(messages: &mut Messages, host: &Host<'_>, on: bool) -> Resu
     messages.copy(host, if on { "core.on" } else { "core.off" })
 }
 
+/// `value` with the setting's unit as Beta 3 showed it (`i18n.plural`): the
+/// unit is a catalog key (`core.unit.pages`), its plural forms
+/// (`core.unit.pages.one`, `.other`) hold `{count}` and the host picks the form
+/// for `value` (`i18n.format` with `i18n.count`). A key with no plural forms is
+/// its plain text, a unit no catalog has the text given, each placed as
+/// [`model::with_unit`] says.
+fn with_unit(
+    messages: &mut Messages,
+    host: &Host<'_>,
+    value: i64,
+    unit: &str,
+) -> Result<String, Error> {
+    if unit.is_empty() {
+        return model::with_unit(value, unit);
+    }
+    match messages.format(host, unit, &[Arg::Count(value)]) {
+        Err(Error::NotFound | Error::Invalid) => {}
+        found => return found,
+    }
+    match messages.copy(host, unit) {
+        Ok(text) => model::with_unit(value, &text),
+        Err(Error::NotFound | Error::Invalid) => model::with_unit(value, unit),
+        Err(error) => Err(error),
+    }
+}
+
 /// The value of a setting as its row shows it.
 pub(super) fn value_text(
     messages: &mut Messages,
@@ -107,9 +133,9 @@ pub(super) fn value_text(
 ) -> Result<String, Error> {
     let setting = &entry.setting;
     let text = match (&setting.value, editing) {
-        (_, Some(now)) => model::with_unit(now, &entry.detail.unit)?,
+        (_, Some(now)) => with_unit(messages, host, now, &entry.detail.unit)?,
         (Some(Val::Bool(on)), _) => on_off(messages, host, *on)?,
-        (Some(Val::Int(v)), _) => model::with_unit(*v, &entry.detail.unit)?,
+        (Some(Val::Int(v)), _) => with_unit(messages, host, *v, &entry.detail.unit)?,
         (Some(Val::Text(v)), _) => match entry.options.iter().find(|(value, _)| value == v) {
             Some((_, name)) => copy(name)?,
             None => copy(v)?,

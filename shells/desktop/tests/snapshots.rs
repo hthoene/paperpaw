@@ -941,9 +941,11 @@ fn screens_say_what_they_show() {
 /// native plugins yet.)
 #[test]
 fn headers_are_centred_by_their_capitals() {
+    // The settings, and a group's page: the first row focused is *Search* in the
+    // native settings, so the second row (a group) is chosen.
     let screens = [
         "run:core.settings,wait:300",
-        "run:core.settings,wait:300,run:core.confirm,wait:300",
+        "run:core.settings,wait:300,run:core.down,run:core.confirm,wait:300",
     ];
     let mut failures = Vec::new();
     for profile in ["xteink-x4", "xteink-x4-pro", "boox-go-7"] {
