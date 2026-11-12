@@ -5,10 +5,11 @@
 //! the focus round the entries, *Select* chooses, the menu button and *Back*
 //! close, a tap chooses an entry or, on the two lines, runs the action it was
 //! opened with, a tap outside closes. Drawn in the status lines' font, as the
-//! lines it opens over.
+//! lines it opens over. Tiles (`menu.style` Tiles) are the same screen without
+//! the two lines, as in Beta 3 (see [`BarView::tiles`]).
 use crate::native_bar::{self as bar, Does, Handed, Hit, Key, Layout, Metrics};
 use crate::native_data::Reader;
-use crate::native_model::{self as model, Act, Kind, Row, SettingInfo};
+use crate::native_model::{self as model, Act, Kind, Row, SettingInfo, Value};
 use crate::native_panel::button_text;
 use crate::native_plugin::{next_value, set_value};
 use alloc::{string::String, vec::Vec};
@@ -74,6 +75,9 @@ struct Entry<'a> {
     glyph: Option<IconGlyph>,
 }
 
+/// A menu's entries as read, with the settings among them.
+type Made = (Vec<Row>, Vec<SettingInfo>);
+
 /// The fonts the bar is drawn with: the status lines' and the icons' (where
 /// one is bound).
 type Fonts<'a, 'f> = (&'a Font<'f>, Option<&'a Font<'f>>);
@@ -112,7 +116,67 @@ impl BarView {
     pub(crate) fn read(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let mut reader = Reader::open(host)?;
         let made = Self::rows_from(&mut reader, &self.menu, &self.hide);
-        let (mut rows, infos) = reader.finish(made)?;
+        let made = reader.finish(made)?;
+        self.adopt(host, made)
+    }
+
+    /// Tiles (`menu.style` Tiles), as Beta 3 showed them: the bar without its
+    /// two lines, for a menu of its own whose every entry has an icon; `None`
+    /// where the menu shows as a list. A style that cannot be read is a list.
+    /// The menu is read once, for the rule and the tiles.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] and the host's refusals of the menu's rows.
+    #[inline(never)]
+    pub(crate) fn tiles(
+        host: &Host<'_>,
+        handed: &Handed,
+        touch: bool,
+    ) -> Result<Option<Self>, Error> {
+        if !handed.may_be_tiles() {
+            return Ok(None);
+        }
+        let mut reader = Reader::open(host)?;
+        let made = Self::tiles_from(&mut reader, handed);
+        let Some(made) = reader.finish(made)? else {
+            return Ok(None);
+        };
+        let tiles = handed.tiles()?;
+        let mut view = Self {
+            menu: tiles.menu,
+            hide: tiles.hide,
+            keys: !touch,
+            ..Self::default()
+        };
+        view.adopt(host, made)?;
+        Ok(Some(view))
+    }
+
+    /// The tiles' entries and settings, `None` where the menu is a list.
+    fn tiles_from(reader: &mut Reader<'_, '_>, handed: &Handed) -> Result<Option<Made>, Error> {
+        let style = match reader.setting(model::STYLE) {
+            Ok(Some(info)) => info.value,
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Ok(None) | Err(_) => None,
+        };
+        let style = match &style {
+            Some(Value::Text(style)) => Some(style.as_str()),
+            _ => None,
+        };
+        if style != Some(model::STYLE_TILES) {
+            return Ok(None);
+        }
+        let rows = reader.menu(&handed.menu)?;
+        if !bar::shows_tiles(style, handed, &rows) {
+            return Ok(None);
+        }
+        Self::entries_from(reader, rows, &handed.hide).map(Some)
+    }
+
+    /// `made` (rows and settings) taken as the entries, their titles short,
+    /// the focus kept on the entry it was on (else on the first that can be
+    /// chosen).
+    fn adopt(&mut self, host: &Host<'_>, (mut rows, infos): Made) -> Result<(), Error> {
         shorten(host, &mut rows)?;
         let focused = self.rows.get(self.focus).map(|r| r.item.as_str());
         let focus = focused
@@ -131,6 +195,15 @@ impl BarView {
         hide: &str,
     ) -> Result<(Vec<Row>, Vec<SettingInfo>), Error> {
         let rows = reader.menu(menu)?;
+        Self::entries_from(reader, rows, hide)
+    }
+
+    /// The entries of `rows` with the settings among them.
+    fn entries_from(
+        reader: &mut Reader<'_, '_>,
+        rows: Vec<Row>,
+        hide: &str,
+    ) -> Result<(Vec<Row>, Vec<SettingInfo>), Error> {
         let mut infos: Vec<SettingInfo> = Vec::new();
         for row in rows.iter().filter(|r| r.kind == Kind::Setting) {
             if let Some(info) = reader.setting(&row.item)? {
