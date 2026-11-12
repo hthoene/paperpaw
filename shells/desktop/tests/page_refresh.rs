@@ -43,7 +43,10 @@ fn reading(profile: &str, settings: &str) -> Device {
     let profile = profiles::find(profile).unwrap();
     let mut device = Device::in_memory(profile, None, Rc::new(files), true, None).unwrap();
     device.start();
-    device.advance(3_000);
+    // Time passes as on a device: the kernel runs when it asks to. The native
+    // reader hears `event.started` from the pump, on the first wake after the
+    // start (Beta 3's reader opened the book inside the start itself).
+    paperpaw_emulator::headless::run_script(&mut device, "wait:3000").unwrap();
     let mut screen = None;
     device.call(|kernel, _| {
         screen = kernel.active_screen().map(ToString::to_string);
