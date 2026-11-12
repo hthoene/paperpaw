@@ -251,25 +251,36 @@ fn text_column(
 }
 
 /// What the card says where nothing was read yet: an icon, a title and a text,
-/// together a little above the middle, in the widget's own ink.
+/// together a little above the middle, in the widget's own ink. Laid out as
+/// interface 6's empty state (`Ui::empty`): the words keep a margin on each
+/// side, the icon shows only with a gap above and below it, and the text shows
+/// whole or not at all.
 fn empty(
     cx: &mut Cx<'_>,
     out: &mut Vec<Paint>,
     icons: Option<&Font<'_>>,
     look: &paperpaw_ui_kit::widget::look::Look,
 ) -> Result<(), Error> {
-    let (text_size, small, title_size, gap) = {
+    let (text_size, small, title_size, gap, margin) = {
         let style = cx.style();
-        (style.text, style.small, style.title, style.gap)
+        (
+            style.text,
+            style.small,
+            style.title,
+            style.gap,
+            style.margin,
+        )
     };
     let area = look.area;
+    let width = empty_width(text_size, gap, margin, area.width);
     let title = cx.tr("home.start.title")?;
     let message = cx.tr("home.start.text")?;
+    // As large as it fits on a line, down to the text's size.
     let words = Wrapped::fitting(
         &cx.font,
         &title,
-        (title_size, small),
-        (area.width, area.height),
+        (title_size, text_size),
+        (width, area.height),
         true,
     )?;
     let title_h = words.height(&cx.font)?;
@@ -278,10 +289,15 @@ fn empty(
         &cx.font,
         &message,
         (text_size, small),
-        (area.width, below),
+        (width, below),
         false,
     )?;
-    let text_h = text.height(&cx.font)?;
+    // The text whole, or not at all (a small cell): no explanation shows cut.
+    let text_h = if text.whole() {
+        text.height(&cx.font)?
+    } else {
+        0
+    };
     let icon_size = title_size * 2.4;
     let icon_h = icon_size as u16;
     let lines = title_h.saturating_add(if text_h > 0 {
@@ -290,21 +306,25 @@ fn empty(
         0
     });
     let glyph = icons::glyph(cx.host, "books")?.filter(|_| icons.is_some());
-    // The icon where there is room for it too.
-    let with_icon =
-        glyph.is_some() && lines.saturating_add(gap).saturating_add(icon_h) <= area.height;
-    let total = lines.saturating_add(if with_icon {
-        gap.saturating_add(icon_h)
+    let icon_room = icon_h.saturating_add(gap.saturating_mul(2));
+    // The icon where the title, a gap and the text fit below it as well.
+    let needs = icon_room
+        .saturating_add(title_h)
+        .saturating_add(gap)
+        .saturating_add(text_h);
+    let with_icon = glyph.is_some() && needs <= area.height;
+    let total = if with_icon {
+        icon_room.saturating_add(lines)
     } else {
-        0
-    });
+        lines
+    };
     let mut y = area
         .y
-        .saturating_add(area.height.saturating_sub(total).saturating_mul(2) / 5);
+        .saturating_add(above_middle(area.height.saturating_sub(total)));
     if let (true, Some(glyph), Some(font)) = (with_icon, glyph.as_ref(), icons) {
         let row = Rect::new(area.x, y, area.width, icon_h);
         icons::draw_centred(out, font, glyph, icon_size, row, look.faint)?;
-        y = y.saturating_add(icon_h).saturating_add(gap);
+        y = y.saturating_add(icon_room);
     }
     let row = |y: u16, height: u16| Rect::new(area.x, y, area.width, height);
     words.draw(out, &cx.font, row(y, title_h), Align::Center, look.ink)?;
@@ -315,6 +335,22 @@ fn empty(
     Ok(())
 }
 
+/// How wide an empty state's words are in an area `width` wide: twice the
+/// margin off each side, less where that leaves under eight text sizes, half a
+/// gap at least (interface 6's `empty_width`).
+fn empty_width(text: f32, gap: u16, margin: u16, width: u16) -> u16 {
+    let least = text * 8.0;
+    let pad = f32::from(gap) / 2.0;
+    let side = (f32::from(margin) * 2.0).min(((f32::from(width) - least) / 2.0).max(pad));
+    (f32::from(width) - 2.0 * side).max(1.0) as u16
+}
+
+/// How far down the free room an empty state starts: a little above the
+/// middle (42 %), where the eye looks first.
+fn above_middle(free: u16) -> u16 {
+    u16::try_from(u32::from(free) * 21 / 50).unwrap_or(free)
+}
+
 /// What the card shows, to tell when it changed.
 ///
 /// # Errors
@@ -323,4 +359,20 @@ pub fn shows(host: &paperpaw_sdk::native::Host<'_>) -> Result<u64, Error> {
     Ok(native_recent::signature(&native_recent::read_listed(
         host, 0, 1,
     )?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{above_middle, empty_width};
+
+    #[test]
+    fn an_empty_card_keeps_interface_6_margins_and_place() {
+        // X4 card 408 wide, text 20, gap 12, margin 16: 32 off each side.
+        assert_eq!(empty_width(20.0, 12, 16, 408), 344);
+        // Narrow: no less than eight text sizes wide, half a gap off at least.
+        assert_eq!(empty_width(20.0, 12, 16, 180), 160);
+        assert_eq!(empty_width(20.0, 12, 16, 0), 1);
+        assert_eq!(above_middle(100), 42);
+        assert_eq!(above_middle(0), 0);
+    }
 }

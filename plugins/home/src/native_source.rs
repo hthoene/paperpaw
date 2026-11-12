@@ -34,6 +34,9 @@ const TOOL_MENUS: [&str; 3] = ["home.actions", "core.tools", "core.apps"];
 const SCREENSHOT: &str = "core.screenshot";
 /// The settings is always a tool.
 const SETTINGS: &str = "core.settings";
+/// The icon the core gives Settings in its menus (`core_plugin.rs`), as the tool
+/// home adds where no menu lists it.
+const SETTINGS_ICON: &str = "settings";
 /// The settings the pages are laid out by.
 const STATUS_BAR: &str = "home.status-bar";
 const COLUMNS: &str = "home.columns";
@@ -67,14 +70,13 @@ pub struct Look {
 }
 
 impl Look {
-    /// No icon, enabled: a tool the menu does not describe.
-    #[must_use]
-    pub fn plain() -> Self {
-        Self {
-            icon: String::new(),
+    /// The icon `name`, enabled: a tool home adds itself.
+    fn icon(name: &str) -> Result<Self, Error> {
+        Ok(Self {
+            icon: copy(name)?,
             checked: false,
             enabled: true,
-        }
+        })
     }
 
     fn of(row: &paperpaw_sdk::native::registry::RegistryMenuRow<'_>) -> Result<Self, Error> {
@@ -238,7 +240,7 @@ impl HostSource {
         if !tools.iter().any(|(t, _)| t == SETTINGS) {
             // Named as the core names it, in the reader's language.
             let title = Self::settings_title(host, registry, &mut input, &mut out)?;
-            push(&mut looks, Look::plain())?;
+            push(&mut looks, Look::icon(SETTINGS_ICON)?)?;
             push(&mut tools, (copy(SETTINGS)?, title))?;
         }
         let mut footer = Vec::new();
