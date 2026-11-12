@@ -151,11 +151,11 @@ fn catalogue() -> String {
 
 impl App {
     fn new() -> Self {
-        let builder = Kernel::builder(DEVICE)
-            .storage(storage())
-            .network(true)
-            .catalog_device("x4")
-            .user_config("[core]\nlanguage = en\n");
+        // The help's hints off; built without the X4's Wi-Fi (`build`, not
+        // `build_on`): the store's partial redraws are measured without it.
+        let (builder, _card) =
+            native_activation::quiet_on(DEVICE, storage(), "[core]\nlanguage = en\n");
+        let builder = builder.network(true).catalog_device("x4");
         let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
         let effects = kernel.start(Instant(0));
         let pixels = usize::from(DEVICE.display.width) * usize::from(DEVICE.display.height);

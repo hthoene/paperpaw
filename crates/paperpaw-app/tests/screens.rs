@@ -78,11 +78,10 @@ impl App {
             )
             // The first-run setup was done.
             .with(".paperpaw/plugins/setup/done", "");
-        let builder = Kernel::builder(device)
-            .storage(storage)
-            // On touch screens without the hints over it all.
-            .user_config("[core]\nlanguage = en\n");
-        let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
+        // On touch screens without the hints over it all; the linked plugins on the same card.
+        let (builder, card) =
+            native_activation::quiet_on(device, storage, "[core]\nlanguage = en\n");
+        let mut kernel = native_activation::build_on(paperpaw_app::install(builder, fonts()), card);
         let effects = kernel.start(Instant(0));
         let mut app = Self { kernel, now: 0 };
         app.settle(effects);
