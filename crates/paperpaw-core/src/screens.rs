@@ -750,6 +750,8 @@ impl Kernel {
         }
     }
 
+    // Its own frame: not inlined into `run_commands` (#250).
+    #[inline(never)]
     pub(crate) fn drain_deferred_ui_closes(&mut self) {
         debug_assert_eq!(self.shared.native_instances.depth(), 0);
         if self.shared.stack_rows.take_close_error() != 0 {
