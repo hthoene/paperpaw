@@ -60,6 +60,7 @@ const KEYS: &[&str] = &[
     "core.host-library.name-taken",
     "core.host-library.replace-denied",
     "core.host-safe-mode.power-escape",
+    "core.notice-box",
     "core.screen.open-failed",
     "core.plugin.title",
     "core.plugin.title.remove",
