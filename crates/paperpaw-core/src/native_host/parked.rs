@@ -92,6 +92,14 @@ impl crate::Kernel {
             || instances
                 .screen_stage()
                 .is_some_and(super::screen_stage::ScreenStage::waiting);
+        // The screen queue's room goes back too where nothing waits and no
+        // callback runs (#248, lever 6).
+        if !staged
+            && instances.depth() == 0
+            && let Some(stage) = instances.screen_stage()
+        {
+            stage.release();
+        }
         if at_most == 0
             || staged
             || instances.depth() != 0
