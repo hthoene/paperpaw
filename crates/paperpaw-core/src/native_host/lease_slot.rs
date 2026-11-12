@@ -36,6 +36,10 @@ pub(crate) trait Unpark {
 
 /// Why an unpark made no instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(
+    dead_code,
+    reason = "made by the linked-plugin recipe (Core's part of #2638); tests do today"
+)]
 pub(crate) enum Unparked {
     NoMemory,
     Refused,
@@ -57,10 +61,11 @@ struct Parked {
     stopped: Cell<bool>,
 }
 
-/// The inside of a lease.
+/// The inside of a lease. The parked part is boxed: a live plugin's lease
+/// pays one pointer for it, not its fields (Senior M2 on #1308).
 pub(crate) struct Slot {
     live: OnceCell<Box<dyn NativeInstance>>,
-    parked: RefCell<Option<Parked>>,
+    parked: RefCell<Option<Box<Parked>>>,
 }
 
 impl Slot {
@@ -73,19 +78,21 @@ impl Slot {
         }
     }
 
-    pub(crate) fn parked(recipe: Box<dyn Unpark>, clock: CallbackRuntime) -> Self {
-        Self {
+    /// `None` where the heap has no room for the parked part.
+    pub(crate) fn parked(recipe: Box<dyn Unpark>, clock: CallbackRuntime) -> Option<Self> {
+        let parked = super::shared::try_box(Parked {
+            recipe,
+            clock,
+            start: Cell::new(false),
+            retry_at: Cell::new(0),
+            wait: Cell::new(0),
+            refused: Cell::new(false),
+            stopped: Cell::new(false),
+        })?;
+        Some(Self {
             live: OnceCell::new(),
-            parked: RefCell::new(Some(Parked {
-                recipe,
-                clock,
-                start: Cell::new(false),
-                retry_at: Cell::new(0),
-                wait: Cell::new(0),
-                refused: Cell::new(false),
-                stopped: Cell::new(false),
-            })),
-        }
+            parked: RefCell::new(Some(parked)),
+        })
     }
 
     /// The live instance without making it: `None` while parked.

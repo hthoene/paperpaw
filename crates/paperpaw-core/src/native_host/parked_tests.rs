@@ -139,10 +139,7 @@ impl World {
     fn change_stack(&mut self) {
         self.kernel.native_stack_pump();
         let changes = self.kernel.shared.stack_rows.changes();
-        self.kernel
-            .shared
-            .stack_rows
-            .update([row(u32::try_from(changes % 7).unwrap() + 1)]);
+        self.kernel.shared.stack_rows.update([row(changes % 7 + 1)]);
     }
 }
 

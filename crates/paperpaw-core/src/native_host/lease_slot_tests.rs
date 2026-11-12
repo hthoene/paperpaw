@@ -85,7 +85,8 @@ fn world(outcomes: &[Result<(), Unparked>]) -> World {
             calls: Rc::new(Cell::new(0)),
         }),
         runtime,
-    );
+    )
+    .unwrap();
     World {
         clock,
         slot,
@@ -210,4 +211,14 @@ fn a_live_slot_behaves_as_the_lease_did() {
     slot.stop();
     assert_eq!(slot.live().err(), Some(ERR_CANCELLED));
     assert!(!slot.take_start());
+}
+
+#[test]
+fn a_lease_pays_one_pointer_for_the_parked_part() {
+    // Pinned (Senior M2 on #1308): the live instance and a boxed parked part
+    // behind a `RefCell`; the parked fields never sit in every lease.
+    let pinned =
+        size_of::<OnceCell<Box<dyn NativeInstance>>>() + size_of::<RefCell<Option<Box<u8>>>>();
+    assert_eq!(size_of::<Slot>(), pinned);
+    assert!(size_of::<Parked>() > size_of::<Box<u8>>());
 }
