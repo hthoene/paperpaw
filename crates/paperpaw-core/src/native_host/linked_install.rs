@@ -86,6 +86,16 @@ impl crate::Kernel {
         Some(lease.is_parked())
     }
 
+    /// How many handles all native plugins hold now, `None` without a pool
+    /// or while its table is in use: for the tests that park a plugin again
+    /// and again and must see no handle left behind (#248, D3). Not part of
+    /// any interface: the `testing` feature only.
+    #[cfg(any(test, feature = "testing"))]
+    #[must_use]
+    pub fn native_handle_count(&self) -> Option<usize> {
+        self.shared.native_instances.handle_count()
+    }
+
     /// [`register_linked`](Self::register_linked) for a plugin the kernel may
     /// park (#248, `docs/measurements/parked-plugins.md`): where its `make`
     /// only registers, it holds nothing of the host, its declarations all lie

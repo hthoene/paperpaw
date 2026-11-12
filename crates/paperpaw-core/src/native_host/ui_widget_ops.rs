@@ -351,6 +351,12 @@ impl UiServices {
 
     /// A plugin stopped: what it made or owns goes (widgets, status handles);
     /// the owners of what it made are told.
+    pub(crate) fn plugin_holds(&self, plugin: u64) -> Result<bool, i32> {
+        let handles = self.widgets.handles.try_borrow().map_err(|_| ERR_BUSY)?;
+        let inputs = self.widgets.inputs.try_borrow().map_err(|_| ERR_BUSY)?;
+        Ok(handles.plugin_holds(plugin) || inputs.owner_holds(plugin))
+    }
+
     pub(crate) fn plugin_stopped(&self, plugin: u64) -> Result<(), i32> {
         self.widgets
             .handles

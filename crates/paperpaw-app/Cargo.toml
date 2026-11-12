@@ -165,5 +165,12 @@ paperpaw-core = { workspace = true, features = ["testing"] }
 paperpaw-platform.workspace = true
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
 
+# One check in its own process, no test harness: its allocator counts every
+# allocation, and libtest's captured output would grow the heap it measures.
+[[test]]
+name = "sleep_cycles"
+harness = false
+required-features = ["native-linked"]
+
 [lints]
 workspace = true

@@ -607,6 +607,22 @@ impl DocumentTable {
             .map_or(true, |rows| rows.iter().any(|d| of(d.format)))
     }
 
+    /// Whether `owner` opened a document still in the table (any state, a
+    /// pending open too) or has a `document_closed` event waiting (#248, D3).
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the table is borrowed.
+    pub(crate) fn owner_holds(&self, owner: u64) -> Result<bool, i32> {
+        let waiting = self
+            .closed
+            .try_borrow()
+            .map_err(|_| ERR_BUSY)?
+            .iter()
+            .any(|event| event.owner == owner);
+        let rows = self.documents.try_borrow().map_err(|_| ERR_BUSY)?;
+        Ok(waiting || rows.iter().any(|d| d.owner == owner))
+    }
+
     /// Whether the cover job is held back for a list screen.
     pub(crate) fn list_held(&self) -> bool {
         self.list_hold.get()

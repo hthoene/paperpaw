@@ -311,6 +311,12 @@ fn the_stop_hook_sequence_for_openers_and_format_plugins() {
         let reply = call(&scope, &opener, handle, op("core.document", 1), &input).unwrap();
         state_of(&reply).document
     });
+    // Both hold something (D3: neither is parked again): the opener its
+    // document, the format plugin the document its format reads.
+    let format_key = fake.format_owner.get();
+    assert_eq!(pool.hosts().owner_holds(key), Ok(true));
+    assert_eq!(pool.hosts().owner_holds(format_key), Ok(true));
+    assert_eq!(pool.hosts().owner_holds(u64::MAX - 7), Ok(false));
     // The format plugin stops first: the host closes the document (reason 1),
     // the opener hears it, and the stopped format is never called.
     format.release_all().unwrap();
@@ -322,6 +328,8 @@ fn the_stop_hook_sequence_for_openers_and_format_plugins() {
     assert!(fake.ended.borrow().is_empty());
     assert_eq!(*fake.closed.borrow(), [(id, 1)]);
     assert!(fake.table().lease(key, id).is_err(), "the id is gone");
+    assert_eq!(pool.hosts().owner_holds(key), Ok(false));
+    assert_eq!(pool.hosts().owner_holds(format_key), Ok(false));
 }
 
 pub(crate) struct Lib {
@@ -402,7 +410,14 @@ fn the_library_needs_the_feature_per_instance_and_its_transactions_end_with_the_
     // A transaction of the owner ends with it, after the table was released.
     let t = lib.transactions.begin_for_test(who, 0);
     let other = lib.transactions.begin_for_test(who + 1, 0);
+    assert_eq!(
+        pool.hosts().owner_holds(who),
+        Ok(true),
+        "D3: a transaction holds"
+    );
     owner.release_all().unwrap();
+    assert_eq!(pool.hosts().owner_holds(who), Ok(false));
+    assert_eq!(pool.hosts().owner_holds(who + 1), Ok(true));
     assert_eq!(*lib.aborted.borrow(), [t]);
     assert_eq!(lib.transactions.open_count(), 1, "another owner's stays");
     let _ = other;

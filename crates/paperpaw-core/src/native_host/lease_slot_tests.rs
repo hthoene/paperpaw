@@ -9,10 +9,20 @@ use paperpaw_sdk::Env;
 struct Made {
     calls: Rc<Cell<u32>>,
     active: Cell<bool>,
+    depth: Rc<Cell<u8>>,
+    dropped: Rc<Cell<u32>>,
+}
+impl Drop for Made {
+    fn drop(&mut self) {
+        self.dropped.set(self.dropped.get() + 1);
+    }
 }
 impl NativeInstance for Made {
     fn running(&self) -> bool {
         self.active.get()
+    }
+    fn callback_depth(&self) -> u8 {
+        self.depth.get()
     }
     fn stop(&self) {
         self.active.set(false);
@@ -46,6 +56,8 @@ struct Recipe {
     outcomes: Rc<core::cell::RefCell<alloc::vec::Vec<Result<(), Unparked>>>>,
     made: Rc<Cell<u32>>,
     calls: Rc<Cell<u32>>,
+    dropped: Rc<Cell<u32>>,
+    depth: Rc<Cell<u8>>,
 }
 impl Unpark for Recipe {
     fn unpark(&self) -> Result<Box<dyn NativeInstance>, Unparked> {
@@ -55,6 +67,8 @@ impl Unpark for Recipe {
             Box::new(Made {
                 calls: self.calls.clone(),
                 active: Cell::new(true),
+                depth: self.depth.clone(),
+                dropped: self.dropped.clone(),
             }) as Box<dyn NativeInstance>
         })
     }
@@ -71,6 +85,8 @@ struct World {
     slot: Slot,
     outcomes: Rc<core::cell::RefCell<alloc::vec::Vec<Result<(), Unparked>>>>,
     made: Rc<Cell<u32>>,
+    dropped: Rc<Cell<u32>>,
+    depth: Rc<Cell<u8>>,
 }
 
 fn world(outcomes: &[Result<(), Unparked>]) -> World {
@@ -78,11 +94,15 @@ fn world(outcomes: &[Result<(), Unparked>]) -> World {
     let runtime = clock.runtime().unwrap();
     let outcomes = Rc::new(core::cell::RefCell::new(outcomes.to_vec()));
     let made = Rc::new(Cell::new(0));
+    let dropped = Rc::new(Cell::new(0));
+    let depth = Rc::new(Cell::new(0));
     let slot = Slot::parked(
         Box::new(Recipe {
             outcomes: outcomes.clone(),
             made: made.clone(),
             calls: Rc::new(Cell::new(0)),
+            dropped: dropped.clone(),
+            depth: depth.clone(),
         }),
         runtime,
     )
@@ -92,6 +112,8 @@ fn world(outcomes: &[Result<(), Unparked>]) -> World {
         slot,
         outcomes,
         made,
+        dropped,
+        depth,
     }
 }
 
@@ -110,15 +132,15 @@ fn a_parked_plugin_is_running_and_answers_from_its_recipe_without_being_made() {
 }
 
 #[test]
-fn the_accessor_makes_it_at_a_safe_point_once_and_the_recipe_is_gone() {
+fn the_accessor_makes_it_at_a_safe_point_once_and_the_recipe_stays() {
     let w = world(&[Ok(())]);
     assert!(w.slot.live().is_ok());
     assert!(w.slot.live().is_ok());
     assert_eq!(w.made.get(), 1);
     assert!(!w.slot.is_parked());
     assert!(
-        w.slot.parked.borrow().is_none(),
-        "the recipe gave its heap back"
+        w.slot.parked.borrow().is_some(),
+        "the recipe stays, to park it again (D3)"
     );
     assert!(w.slot.subscribed(7), "the made instance answers now");
 }
@@ -206,7 +228,10 @@ fn a_live_slot_behaves_as_the_lease_did() {
     let slot = Slot::live_now(Box::new(Made {
         calls,
         active: Cell::new(true),
+        depth: Rc::new(Cell::new(0)),
+        dropped: Rc::new(Cell::new(0)),
     }));
+    assert!(!slot.repark(), "a plugin registered awake never parks");
     assert!(slot.live().is_ok() && slot.running() && !slot.is_parked());
     slot.stop();
     assert_eq!(slot.live().err(), Some(ERR_CANCELLED));
@@ -217,8 +242,63 @@ fn a_live_slot_behaves_as_the_lease_did() {
 fn a_lease_pays_one_pointer_for_the_parked_part() {
     // Pinned (Senior M2 on #1308): the live instance and a boxed parked part
     // behind a `RefCell`; the parked fields never sit in every lease.
-    let pinned =
-        size_of::<OnceCell<Box<dyn NativeInstance>>>() + size_of::<RefCell<Option<Box<u8>>>>();
+    let pinned = size_of::<RefCell<Option<Box<dyn NativeInstance>>>>()
+        + size_of::<RefCell<Option<Box<u8>>>>();
     assert_eq!(size_of::<Slot>(), pinned);
     assert!(size_of::<Parked>() > size_of::<Box<u8>>());
+}
+
+#[test]
+fn parked_again_it_is_dropped_and_made_again_at_its_next_use() {
+    let w = world(&[Ok(()), Ok(())]);
+    assert!(w.slot.live().is_ok());
+    assert!(w.slot.repark());
+    assert_eq!(w.dropped.get(), 1, "its instance (and `destroy`) is gone");
+    assert!(w.slot.is_parked() && w.slot.running() && w.slot.peek().is_none());
+    assert!(!w.slot.repark(), "parked already");
+    assert!(w.slot.live().is_ok());
+    assert_eq!(w.made.get(), 2);
+}
+
+#[test]
+fn while_a_call_holds_it_or_inside_a_callback_it_stays_running() {
+    let w = world(&[Ok(())]);
+    let held = w.slot.live().unwrap();
+    assert!(!w.slot.repark(), "a held instance is never taken");
+    assert!(w.slot.live().is_ok(), "shared borrows nest (re-entry)");
+    drop(held);
+    w.depth.set(1);
+    assert!(!w.slot.repark(), "inside one of its callbacks");
+    w.depth.set(0);
+    assert_eq!(w.dropped.get(), 0);
+    assert!(w.slot.repark(), "free again");
+}
+
+#[test]
+fn a_stopped_or_refused_plugin_is_never_parked_again() {
+    let w = world(&[Ok(())]);
+    assert!(w.slot.live().is_ok());
+    w.slot.stop();
+    assert!(!w.slot.repark());
+    let w = world(&[Err(Unparked::Refused)]);
+    assert_eq!(w.slot.live().err(), Some(ERR_CANCELLED));
+    assert!(!w.slot.repark());
+}
+
+#[test]
+fn every_borrow_of_the_live_instance_is_checked() {
+    // Senior's condition (b) on #1358: a failed borrow is `ERR_BUSY` or
+    // "not now", never a panic.
+    let source = include_str!("lease_slot.rs");
+    for unchecked in [
+        "live.borrow()",
+        "live.borrow_mut()",
+        "live.replace(",
+        "live.take()",
+    ] {
+        assert!(
+            !source.contains(unchecked),
+            "`{unchecked}` in lease_slot.rs: use try_borrow / try_borrow_mut"
+        );
+    }
 }

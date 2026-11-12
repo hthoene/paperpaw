@@ -844,6 +844,58 @@ impl HostServices {
         }
         result
     }
+
+    /// Whether any service holds something of `owner` that
+    /// [`Self::owner_retired`] would end (#248, D3: a plugin is parked again
+    /// only when this is `false`): a document it opened (a pending open too)
+    /// or one of its formats reads (any opener's), a book of its folders
+    /// open, an annotation transaction, an image id or prepare, a request it
+    /// asked or an entry it made for the screen stack, a widget, status
+    /// handle or tap, a network request or server, a socket or cast, declared
+    /// work or a run. Library receipts are files with their own time and do
+    /// not count.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when a table is borrowed (the caller treats it as held).
+    pub(crate) fn owner_holds(&self, owner: u64) -> Result<bool, i32> {
+        if let Some(documents) = self.documents.get() {
+            let host = &*documents.0;
+            let mut used = false;
+            host.formats_of_owner(owner, &mut |format| {
+                used = used || host.table().uses_format(&|f| f == format);
+            });
+            if used || host.table().owner_holds(owner)? || host.document_of_maker(owner).is_some() {
+                return Ok(true);
+            }
+        }
+        if let Some(transactions) = self.library.get().and_then(|l| l.0.transactions())
+            && transactions.owner_holds(owner)?
+        {
+            return Ok(true);
+        }
+        if self.images.owner_holds(owner)? {
+            return Ok(true);
+        }
+        if let Some(ui) = self.ui.get()
+            && (ui.store.owner_holds(owner)? || ui.plugin_holds(owner)?)
+        {
+            return Ok(true);
+        }
+        if let Some(net) = self.net.get()
+            && net_service::owner_holds(&*net.0, owner)?
+        {
+            return Ok(true);
+        }
+        if let Some(sockets) = self.sockets.get()
+            && sock_service::owner_holds(&*sockets.0, owner)?
+        {
+            return Ok(true);
+        }
+        match self.work.get() {
+            Some(work) => work.sched.owner_holds(owner),
+            None => Ok(false),
+        }
+    }
 }
 
 #[cfg(test)]

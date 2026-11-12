@@ -104,6 +104,11 @@ impl WidgetInputs {
     }
 
     /// The owner stopped: what waits for it is gone.
+    /// Whether a tap waits for `owner` (#248, D3).
+    pub(crate) fn owner_holds(&self, owner: u64) -> bool {
+        self.queue.iter().any(|input| input.owner == owner)
+    }
+
     pub(crate) fn drop_owner(&mut self, owner: u64) {
         self.queue.retain(|input| input.owner != owner);
     }

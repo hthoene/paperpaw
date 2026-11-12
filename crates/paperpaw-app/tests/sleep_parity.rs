@@ -11,9 +11,11 @@
 //! flagged plugin that runs awake fails, so no case passes by doing nothing.
 //!
 //! The plugin sleeps from its admission and the flow's first input to it
-//! wakes it. Sleeping again on standby or under memory pressure, and a
-//! plugin that loses what it kept in memory then, are the next step's cases
-//! (D3, `docs/measurements/dormant-plugins.md`).
+//! wakes it. In the middle of the flow the device goes to standby and back:
+//! the sleeping run must really park the plugin again there (D3, Decision
+//! 166), and the next input makes it again. A plugin that kept something
+//! only in its own memory then differs from the awake run (the counter
+//! fixture in the kernel's `parked_tests.rs` shows the comparison catches it).
 #![cfg(feature = "native-linked")]
 #![allow(
     clippy::unwrap_used,
@@ -77,6 +79,8 @@ struct Run {
     card: Card,
     now: u64,
     steps: Vec<String>,
+    /// Whether the plugin was parked right after the standby in the flow.
+    reparked: Option<bool>,
 }
 
 impl Run {
@@ -96,6 +100,7 @@ impl Run {
             card,
             now: 0,
             steps: Vec::new(),
+            reparked: None,
         };
         run.step("start", effects);
         run
@@ -152,6 +157,18 @@ impl Run {
         self.now += 100;
         let effects = self.kernel.run_action(Instant(self.now), action.clone());
         self.step(&format!("run {action}"), effects);
+    }
+
+    /// Standby and back (D3): a plugin that may sleep and runs idle is
+    /// parked again on standby, and made again by the next input.
+    fn standby(&mut self, plugin: &str) {
+        self.now += 100;
+        let effects = self.kernel.suspend(Instant(self.now));
+        self.reparked = self.kernel.native_is_parked(plugin);
+        self.step("suspend", effects);
+        self.now += 100;
+        let effects = self.kernel.resume(Instant(self.now));
+        self.step("resume", effects);
     }
 
     fn open_slot(&mut self, slot: &Id) {
@@ -262,6 +279,9 @@ fn flow(run: &mut Run, plugin: &str) {
             .push(format!("{plugin} parked after {action}: {parked:?}"));
         run.run(&actions::BACK);
     }
+    // Mid-flow: home, standby, and the next input wakes it (D3).
+    run.run(&actions::HOME);
+    run.standby(plugin);
     let mut screens: Vec<Id> = run
         .kernel
         .known_screens()
@@ -334,6 +354,11 @@ fn same_awake_and_asleep(plugin: &'static str) {
         awake.steps.len(),
         asleep.steps.len(),
         "{plugin}: the runs took a different number of steps"
+    );
+    assert_eq!(
+        asleep.reparked,
+        Some(true),
+        "{plugin} did not sleep again on standby: the re-park was not tested"
     );
 }
 
