@@ -246,6 +246,13 @@ impl FormatIndex {
         self.find(reference).is_some_and(|f| f.flags & bit != 0)
     }
 
+    /// Each format reference of the plugin `owner`; nothing changes.
+    pub(crate) fn formats_of(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
+        for format in self.formats.iter().filter(|f| f.plugin == owner) {
+            visit(format.reference);
+        }
+    }
+
     /// The formats of the plugin `owner` go (it is retiring); `gone` hears
     /// each reference. Its readers are the next sync's.
     pub(crate) fn remove_formats_of(&mut self, owner: u64, mut gone: impl FnMut(FormatRef)) {

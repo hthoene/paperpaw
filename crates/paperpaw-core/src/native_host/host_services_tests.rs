@@ -279,6 +279,27 @@ fn many_owners_dropped_under_a_busy_table_are_all_kept_and_retired_once() {
 }
 
 #[test]
+fn a_format_plugin_parked_again_keeps_its_formats_listed() {
+    // #248, D3: an idle format parked on standby is made again by the next
+    // open of one of its books, which must still find the format.
+    let pool = HostResources::try_new().unwrap();
+    let fake = Fake::new(Limits::LARGE);
+    let host: Rc<dyn DocHost> = fake.clone();
+    pool.hosts().wire_documents(host).unwrap();
+    let format = pool.try_owner().unwrap();
+    let key = format.caller("format", AdmittedFeatures::NONE).owner;
+    fake.format_owner.set(key);
+    assert_eq!(pool.hosts().owner_holds(key), Ok(false));
+    pool.hosts()
+        .parking_again(key, || format.release_all())
+        .unwrap();
+    assert_eq!(fake.formats_removed.get(), 0, "parked: still listed");
+    // Stopped for good: they go.
+    format.release_all().unwrap();
+    assert_eq!(fake.formats_removed.get(), 1);
+}
+
+#[test]
 fn a_retirement_that_cannot_be_queued_is_reported_to_every_retry() {
     let hosts = crate::native_host::host_services::HostServices::new();
     // An owner that was never admitted has no room reserved: the broken
@@ -311,10 +332,18 @@ fn the_stop_hook_sequence_for_openers_and_format_plugins() {
         let reply = call(&scope, &opener, handle, op("core.document", 1), &input).unwrap();
         state_of(&reply).document
     });
+    // Both hold something (D3: neither is parked again): the opener its
+    // document, the format plugin the document its format reads.
+    let format_key = fake.format_owner.get();
+    assert_eq!(pool.hosts().owner_holds(key), Ok(true));
+    assert_eq!(pool.hosts().owner_holds(format_key), Ok(true));
+    assert_eq!(pool.hosts().owner_holds(u64::MAX - 7), Ok(false));
+    assert_eq!(fake.formats_removed.get(), 0, "asking takes no format away");
     // The format plugin stops first: the host closes the document (reason 1),
     // the opener hears it, and the stopped format is never called.
     format.release_all().unwrap();
     assert_eq!(*fake.closed.borrow(), [(id, 1)]);
+    assert_eq!(fake.formats_removed.get(), 1);
     assert!(fake.images_ended.borrow().contains(&id));
     // The opener stops afterwards: still no call into the stopped format, and
     // no second event.
@@ -322,11 +351,15 @@ fn the_stop_hook_sequence_for_openers_and_format_plugins() {
     assert!(fake.ended.borrow().is_empty());
     assert_eq!(*fake.closed.borrow(), [(id, 1)]);
     assert!(fake.table().lease(key, id).is_err(), "the id is gone");
+    assert_eq!(pool.hosts().owner_holds(key), Ok(false));
+    assert_eq!(pool.hosts().owner_holds(format_key), Ok(false));
 }
 
 pub(crate) struct Lib {
     pub(crate) transactions: Transactions,
     pub(crate) aborted: core::cell::RefCell<Vec<u32>>,
+    /// The owners whose receipts ended.
+    pub(crate) receipts_ended: core::cell::RefCell<Vec<u64>>,
     /// Calls that reached the host's `state`.
     hits: core::cell::Cell<u32>,
 }
@@ -335,6 +368,7 @@ impl Lib {
         Self {
             transactions: Transactions::try_new().unwrap(),
             aborted: core::cell::RefCell::new(Vec::new()),
+            receipts_ended: core::cell::RefCell::new(Vec::new()),
             hits: core::cell::Cell::new(0),
         }
     }
@@ -363,6 +397,28 @@ impl LibWrite for Lib {
     fn abort_staged(&self, transaction: u32) {
         self.aborted.borrow_mut().push(transaction);
     }
+    fn receipts_ended(&self, owner: u64) {
+        self.receipts_ended.borrow_mut().push(owner);
+    }
+}
+
+#[test]
+fn a_plugin_parked_again_keeps_its_library_receipts() {
+    // Senior, R1 on #1365: its owner key lives on, so do its receipts.
+    let pool = HostResources::try_new().unwrap();
+    let lib = Rc::new(Lib::new());
+    pool.hosts().wire_library(lib.clone()).unwrap();
+    let owner = pool.try_owner().unwrap();
+    let who = owner.caller("books", AdmittedFeatures::NONE).owner;
+    let t = lib.transactions.begin_for_test(who, 0);
+    pool.hosts()
+        .parking_again(who, || owner.release_all())
+        .unwrap();
+    assert!(lib.receipts_ended.borrow().is_empty(), "kept");
+    assert_eq!(*lib.aborted.borrow(), [t], "its transaction still ends");
+    // Stopped for good: they end.
+    owner.release_all().unwrap();
+    assert_eq!(*lib.receipts_ended.borrow(), [who]);
 }
 
 #[test]
@@ -402,7 +458,14 @@ fn the_library_needs_the_feature_per_instance_and_its_transactions_end_with_the_
     // A transaction of the owner ends with it, after the table was released.
     let t = lib.transactions.begin_for_test(who, 0);
     let other = lib.transactions.begin_for_test(who + 1, 0);
+    assert_eq!(
+        pool.hosts().owner_holds(who),
+        Ok(true),
+        "D3: a transaction holds"
+    );
     owner.release_all().unwrap();
+    assert_eq!(pool.hosts().owner_holds(who), Ok(false));
+    assert_eq!(pool.hosts().owner_holds(who + 1), Ok(true));
     assert_eq!(*lib.aborted.borrow(), [t]);
     assert_eq!(lib.transactions.open_count(), 1, "another owner's stays");
     let _ = other;

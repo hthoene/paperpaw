@@ -447,8 +447,11 @@ fn texts_are_capped_24576_and_8192_for_a_secret_one_and_freed_with_the_asker() {
         Err(ERR_NO_SPACE)
     );
     s.question(1, secret, |_| ()).ok();
+    // An open request keeps its asker from sleeping again (#248, D3).
+    assert_eq!(s.owner_holds(2), Ok(true));
     s.owner_stopped(1).unwrap();
     s.owner_stopped(2).unwrap();
+    assert_eq!(s.owner_holds(2), Ok(false));
     assert_eq!(s.request_count(), 0);
     assert_eq!(s.held().1, 0);
 }

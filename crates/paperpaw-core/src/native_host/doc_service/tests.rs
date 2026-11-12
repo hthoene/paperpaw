@@ -65,6 +65,9 @@ pub(crate) struct Fake {
     /// Answers (or statuses) to give, oldest first, before `answer` is used.
     pub(crate) queue: RefCell<Vec<Result<Vec<u8>, i32>>>,
     pub(crate) fails: Cell<Option<i32>>,
+    /// What an open's cache step answers (`DocHost::open_cache`): a busy
+    /// cache, not a busy format.
+    pub(crate) cache_fails: Cell<Option<i32>>,
     /// (op, document, cursor, generation, flags, index, image_side, cover_side)
     pub(crate) calls: RefCell<Vec<[u32; 8]>>,
     pub(crate) texts: RefCell<Vec<std::string::String>>,
@@ -88,6 +91,8 @@ pub(crate) struct Fake {
     pub(crate) owner: Cell<u64>,
     /// The owner of the fake format plugin.
     pub(crate) format_owner: Cell<u64>,
+    /// How often the format plugin's formats left the index.
+    pub(crate) formats_removed: Cell<u32>,
     /// (document, root, path) of each `reader_opened`, and the documents
     /// `reader_closed` was called for.
     pub(crate) readers: RefCell<Vec<(u32, u32, std::string::String)>>,
@@ -116,6 +121,7 @@ impl Fake {
             answer: RefCell::new(Vec::new()),
             queue: RefCell::new(Vec::new()),
             fails: Cell::new(None),
+            cache_fails: Cell::new(None),
             calls: RefCell::new(Vec::new()),
             texts: RefCell::new(Vec::new()),
             options_seen: Cell::new(0),
@@ -132,6 +138,7 @@ impl Fake {
             keyed: RefCell::new(Vec::new()),
             owner: Cell::new(OWNER),
             format_owner: Cell::new(FORMAT_OWNER),
+            formats_removed: Cell::new(0),
             readers: RefCell::new(Vec::new()),
             released: RefCell::new(Vec::new()),
             reader_refuses: Cell::new(None),
@@ -181,6 +188,9 @@ impl DocHost for Fake {
             .borrow_mut()
             .push((open.image_side, open.cover_side));
         Ok(0xc0de)
+    }
+    fn open_cache(&self, _call: &FormatCall<'_>) -> Result<(), i32> {
+        self.cache_fails.get().map_or(Ok(()), Err)
     }
     fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32> {
         let mut options = 0;
@@ -283,7 +293,13 @@ impl DocHost for Fake {
         }
     }
     fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
-        // The fake's format plugin is owner 99.
+        // The fake's format plugin is owner 99; what left the index is counted.
+        if owner == self.format_owner.get() {
+            self.formats_removed.set(self.formats_removed.get() + 1);
+            visit(FORMAT);
+        }
+    }
+    fn formats_owned(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
         if owner == self.format_owner.get() {
             visit(FORMAT);
         }

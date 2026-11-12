@@ -973,6 +973,19 @@ impl WorkSched {
         }
     }
 
+    /// Whether `owner` declared work or has a run (#248, D3).
+    ///
+    /// # Errors
+    /// `ERR_BUSY` while the table is borrowed.
+    pub(crate) fn owner_holds(&self, owner: u64) -> Result<bool, i32> {
+        let state = self
+            .state
+            .try_borrow()
+            .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
+        Ok(state.entries.iter().any(|e| e.owner == owner)
+            || state.runs.iter().any(|r| r.owner == owner))
+    }
+
     /// The plugin stopped: its work and its runs are gone (no events).
     ///
     /// # Errors

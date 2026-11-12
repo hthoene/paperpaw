@@ -128,6 +128,20 @@ impl<S: Services + 'static, M> Hosted<S, M> {
         }
         context.resources.holds_handles().map(|holds| !holds)
     }
+
+    /// Whether the owner holds nothing now (#248, D3: parking a plugin again
+    /// after it ran): no blob (its font and service handles are released and
+    /// opened again by the remade plugin), and nothing any host service would
+    /// end with it (`HostServices::owner_holds`). What the plugin kept in its own
+    /// memory is not seen here: only plugins whose shell lets them sleep,
+    /// each with its parity case, are parked again. `false` where a table is
+    /// in use.
+    #[must_use]
+    pub(crate) fn holds_nothing(&self) -> bool {
+        let resources = &self.owner.as_ref().context().resources;
+        resources.holds_blobs() == Ok(false)
+            && resources.hosts().owner_holds(resources.owner_id()) == Ok(false)
+    }
 }
 
 #[cfg(test)]

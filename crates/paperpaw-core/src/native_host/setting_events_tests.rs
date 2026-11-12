@@ -337,8 +337,11 @@ fn a_plugin_that_stopped_loses_what_waited() {
             .is_empty()
     );
     let (owner, _) = &w.a;
+    // A waiting event keeps its plugin from sleeping again (#248, D3).
+    assert!(w.kernel.shared.native_instances.waits_for(*owner));
     w.kernel.shared.native_instances.stop(*owner).unwrap();
     run(&mut w);
+    assert!(!w.kernel.shared.native_instances.waits_for(w.a.0));
     assert!(w.a.1.borrow().is_empty());
     assert!(
         w.kernel

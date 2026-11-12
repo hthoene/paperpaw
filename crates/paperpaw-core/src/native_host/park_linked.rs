@@ -286,12 +286,14 @@ impl crate::Kernel {
 }
 
 /// Why a hosting failed, as an unpark, read as a call's status
-/// (`native_dispatch::status`): no room or busy (the old owner not gone yet,
-/// a depth or lifecycle in use, the plugin's own `make` out of memory) waits
-/// and tries again; anything else withdraws the plugin.
+/// (`native_dispatch::status`): no room (the plugin's own `make` out of
+/// memory too) or busy (the old owner not gone yet, a depth or lifecycle in
+/// use) waits and tries again, only no room being memory pressure; anything
+/// else withdraws the plugin.
 fn unparked(error: shell::Error) -> Unparked {
     match super::native_dispatch::status(error) {
-        ERR_NO_MEMORY | ERR_BUSY => Unparked::NoMemory,
+        ERR_NO_MEMORY => Unparked::NoMemory,
+        ERR_BUSY => Unparked::Busy,
         _ => Unparked::Refused,
     }
 }
@@ -369,10 +371,13 @@ impl Fnv {
 /// the host's drawing or a format call reaches it by (condition 4): such a
 /// plugin is never parked (a nested call cannot make it).
 pub(crate) fn nested_role(record: &Record<'_>) -> bool {
+    // A format is no nested role (D2, #248): every route into it answers
+    // `ERR_BUSY` while it is parked and keeps its request (an open stays
+    // preparing, the details and cover jobs try again), and it is made at
+    // the next safe point. A format sleeps only where its shell flags it.
     matches!(
         record,
         Record::RegistrationStage(_)
-            | Record::FormatSpec(_)
             | Record::LookupSpec(_)
             | Record::WidgetSpec(_)
             | Record::WidgetPlace(_)

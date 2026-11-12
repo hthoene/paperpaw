@@ -71,6 +71,14 @@ pub(crate) trait Route {
     /// # Errors
     /// What [`format_call::call`] says.
     fn call(&self, target: Target, payload: &[u8], out: &mut [u8]) -> Result<usize, i32>;
+
+    /// Whether the parked format plugin `plugin` gave up being made (its
+    /// longest wait without memory, #248): what waits for it fails then
+    /// rather than waiting on. Taken once (the wait starts over). `false`
+    /// where the route cannot tell.
+    fn gave_up(&self, _plugin: u64) -> bool {
+        false
+    }
 }
 
 /// Through the retained instance registry (the shell's own loop).
@@ -81,6 +89,9 @@ pub(crate) struct Registry<'a> {
 impl Route for Registry<'_> {
     fn call(&self, target: Target, payload: &[u8], out: &mut [u8]) -> Result<usize, i32> {
         format_call::call(self.registry, target, payload, out, self.env)
+    }
+    fn gave_up(&self, plugin: u64) -> bool {
+        self.registry.format_gave_up(plugin)
     }
 }
 

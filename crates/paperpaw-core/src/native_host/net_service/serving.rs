@@ -90,6 +90,12 @@ pub(super) struct Tables {
 }
 
 impl Tables {
+    /// Whether `owner` has a server, a served request or an event waiting.
+    pub(super) fn owner_holds(&self, owner: u64) -> bool {
+        self.servers.iter().any(|s| s.owner == owner)
+            || self.served.iter().any(|s| s.owner == owner)
+            || self.events.iter().any(|e| e.owner == owner)
+    }
     pub(super) fn any(&self) -> bool {
         !self.servers.is_empty()
     }

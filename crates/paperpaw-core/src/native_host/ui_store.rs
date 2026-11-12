@@ -985,6 +985,20 @@ impl UiStore {
         Ok(())
     }
 
+    /// Whether `owner` asked a request still open, or made or claimed an
+    /// entry (#248, D3).
+    ///
+    /// # Errors
+    /// `ERR_BUSY` while the store is borrowed.
+    pub(crate) fn owner_holds(&self, owner: u64) -> Result<bool, i32> {
+        let inner = self.inner.try_borrow().map_err(|_| ERR_BUSY)?;
+        Ok(Self::requests_owner_holds(&inner, owner)
+            || inner.entries.iter().any(|e| match e.state {
+                State::Made { owner: o, .. } | State::Claimed { owner: o, .. } => o == owner,
+                State::Owned { .. } => false,
+            }))
+    }
+
     /// A plugin stopped: what it made or has claimed is freed; what it handed
     /// to another live instance stays with that instance. No plugin is called.
     ///

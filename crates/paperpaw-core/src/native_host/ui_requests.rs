@@ -854,6 +854,11 @@ impl UiStore {
         Ok(())
     }
 
+    /// Whether `owner` asked a request still open (#248, D3).
+    pub(super) fn requests_owner_holds(inner: &Inner, owner: u64) -> bool {
+        inner.requests.iter().any(|r| r.asker == owner)
+    }
+
     pub(super) fn requests_owner_stopped(inner: &mut Inner, owner: u64) {
         // Each row the stopped plugin asked goes with the nested rows that hang
         // under it (asked by the keyboard, not by the stopped plugin). Rows of

@@ -78,6 +78,9 @@ struct Book {
     /// The cache the format reads and writes as root 6, once the open began
     /// to make it.
     cache: Option<Cache>,
+    /// The open's batch (its CSS file and options) while its `open` waits
+    /// for the format plugin to be made (`doc_service::pending`); empty else.
+    open: Vec<u8>,
 }
 
 /// What a document's cache is: its identity and its folder.
@@ -470,6 +473,7 @@ impl DocState {
             held,
             maker: 0,
             cache: None,
+            open: Vec::new(),
         });
         Ok(())
     }
@@ -571,6 +575,13 @@ impl DocState {
     fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
         if let Ok(mut index) = self.index() {
             index.remove_formats_of(owner, visit);
+        }
+    }
+
+    /// The formats of `owner`, left in the index (a busy index lists none).
+    fn formats_owned(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
+        if let Ok(index) = self.index() {
+            index.formats_of(owner, visit);
         }
     }
 }
@@ -676,6 +687,9 @@ macro_rules! frameless {
         }
         fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
             self.state().formats_of_owner(owner, visit);
+        }
+        fn formats_owned(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
+            self.state().formats_owned(owner, visit);
         }
     };
 }
@@ -1273,9 +1287,6 @@ impl super::doc_service::DocHost for Bound<'_> {
         // The format's roots 3 and 4 are this call's book and CSS file for as
         // long as the guard lives.
         let css = self.css_card_path(call)?;
-        if call.op == super::doc_service::fmt::OPEN {
-            self.prepare_cache(call, &css)?;
-        }
         let _scope = self.enter_scope(target.plugin, call, kind, &css)?;
         let frame_route = FrameRoute(self.frame);
         let route = self.route.unwrap_or(&frame_route);
@@ -1312,6 +1323,15 @@ impl super::doc_service::DocHost for Bound<'_> {
             self.discard_cache(call.document);
         }
         result
+    }
+
+    fn open_cache(&self, call: &FormatCall<'_>) -> Result<(), i32> {
+        let css = self.css_card_path(call)?;
+        self.prepare_cache(call, &css)
+    }
+
+    fn keep_open(&self, document: u32, batch: &[u8]) -> Result<(), i32> {
+        self.state.keep_open(document, batch)
     }
 
     fn close_format(&self, document: &Document) {

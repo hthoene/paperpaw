@@ -69,11 +69,14 @@ pub(crate) struct LibServices(pub(crate) Rc<dyn LibHost>);
 ///
 /// # Errors
 /// `ERR_BUSY` when the table is borrowed; a retry ends them.
-pub(crate) fn owner_stopped(host: &dyn LibHost, owner: u64) -> Result<(), i32> {
+pub(crate) fn owner_stopped(host: &dyn LibHost, owner: u64, parking: bool) -> Result<(), i32> {
     let closed = host
         .transactions()
         .map_or(Ok(()), |t| t.close_owner(owner, |id| host.abort_staged(id)));
-    host.receipts_ended(owner);
+    // A plugin parked again keeps its receipts: its owner key lives on.
+    if !parking {
+        host.receipts_ended(owner);
+    }
     closed
 }
 
