@@ -719,3 +719,61 @@ fn a_finger_held_in_the_corner_leaves_a_full_screen() {
     render(&mut kernel);
     assert_eq!(kernel.active_screen().map(Id::as_str), Some("game.page"));
 }
+
+/// A screen of raw keys that is not native is still a real-time screen
+/// (#2671, beside `back_held_leaves_a_screen_of_raw_keys`): the way out is
+/// hinted, a finger held in the corner leaves it, and it holds background
+/// work without a fixed time.
+#[test]
+fn a_screen_of_raw_keys_not_native_is_still_real_time() {
+    use crate::native_host::work_sched::{Power, WorkEnv};
+    /// Records whether the kernel said a real-time screen holds the device.
+    struct Held(core::cell::Cell<Option<bool>>);
+    impl WorkEnv for Held {
+        fn now_ms(&self) -> u64 {
+            0
+        }
+        fn power(&self) -> Power {
+            Power {
+                level: 0,
+                stretch: 1,
+                radio_on: true,
+            }
+        }
+        fn screen_hold(&self) -> bool {
+            false
+        }
+        fn network_up(&self) -> bool {
+            true
+        }
+        fn network_allowed(&self, _: u64) -> bool {
+            true
+        }
+        fn saving_manual(&self, _: u64) -> bool {
+            false
+        }
+        fn subscribed(&self, _: u64, _: u32) -> bool {
+            false
+        }
+        fn kernel_state(&self, _: u32, _: u32, screen_hold: bool) {
+            self.0.set(Some(screen_hold));
+        }
+    }
+    let log = log();
+    let mut kernel = kernel(Kernel::builder(DEVICE), ScreenMode::new().raw_keys(), &log);
+    assert!(kernel.top_realtime());
+    kernel.hint_escape();
+    assert!(kernel.notice.is_some() || !kernel.waiting_notices.is_empty());
+    let env = Held(core::cell::Cell::new(None));
+    kernel.tell_work_env(&env);
+    assert_eq!(env.0.get(), Some(true));
+    let finger = paperpaw_platform::PointerEvent::new(
+        0,
+        PointerPhase::Down,
+        paperpaw_platform::Point::new(4, 5),
+        paperpaw_platform::PointerTool::Finger,
+        1000,
+    );
+    kernel.handle(Instant(3000), InputEvent::Pointer(finger));
+    assert_eq!(kernel.escape_due(), Some(Instant(5000)));
+}

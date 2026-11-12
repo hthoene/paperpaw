@@ -15,10 +15,11 @@ use crate::{
     },
     native_host::registrations::{self as wire, Record},
 };
+use alloc::vec::Vec;
 use core::{mem::MaybeUninit, ops::ControlFlow};
 use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_sdk::{
-    Editor, Level, SettingKind, SettingSpec, SettingValue,
+    Editor, Level, SettingKind, SettingSpec, SettingValue, Settings,
     builtin::{groups::OTHER, slots::SETTINGS},
 };
 
@@ -160,12 +161,36 @@ fn source(sources: &Sources<'_>, spec: &SettingSpec) -> u32 {
     }
 }
 
+/// The ids of the settings whose value another setting's showing depends on
+/// ([`Settings::governs`]), sorted and each once: one pass over the specs
+/// for a whole list instead of one per row (a list of every setting was
+/// quadratic, #248). Freed when the list ends; `None` where there is no room
+/// for it, and each row then asks `governs` itself.
+pub(super) fn governing(all: &Settings) -> Option<Vec<&str>> {
+    let count = all
+        .specs()
+        .filter(|spec| spec.extra().shown_if.is_some())
+        .count();
+    let mut ids = Vec::new();
+    ids.try_reserve_exact(count).ok()?;
+    ids.extend(
+        all.specs()
+            .filter_map(|spec| spec.extra().shown_if.as_ref())
+            .map(|(of, _)| of.as_str()),
+    );
+    ids.sort_unstable();
+    ids.dedup();
+    Some(ids)
+}
+
 /// The `reg_setting` row of `spec`, handed to `f` (its strings live on this
-/// stack).
+/// stack). `governing` is what [`governing`] found for a list, `None` for one
+/// row alone.
 fn with_row<R>(
     sources: &Sources<'_>,
     asker: &Asker<'_>,
     spec: &SettingSpec,
+    governing: Option<&[&str]>,
     f: impl FnOnce(&Record<'_>) -> R,
 ) -> R {
     let env = sources.env;
@@ -180,7 +205,13 @@ fn with_row<R>(
         (spec.is_kept_on_reset(), KEPT_ON_RESET),
         (spec.level == Level::Advanced, ADVANCED),
         (settings.shows(spec), SHOWN),
-        (settings.governs(id), GOVERNS),
+        (
+            governing.map_or_else(
+                || settings.governs(id),
+                |ids| ids.binary_search(&id).is_ok(),
+            ),
+            GOVERNS,
+        ),
     ] {
         if on {
             flags |= bit;
@@ -253,6 +284,7 @@ fn settings(
 ) -> Result<(), i32> {
     let all = sources.env.settings();
     let is_group = scope == OTHER.static_str() || all.groups().any(|g| g.id.as_str() == scope);
+    let governing = governing(all);
     for spec in all.specs() {
         let hit = scope.is_empty()
             || if is_group {
@@ -260,7 +292,8 @@ fn settings(
             } else {
                 spec.id.namespace() == scope
             };
-        if hit && with_row(sources, asker, spec, |row| visit(row)).is_break() {
+        if hit && with_row(sources, asker, spec, governing.as_deref(), |row| visit(row)).is_break()
+        {
             break;
         }
     }
@@ -321,7 +354,7 @@ pub(super) fn detail(
     visit: &mut dyn FnMut(&dyn Row) -> Result<(), i32>,
 ) -> Result<(), i32> {
     let spec = exact(sources, key).ok_or(ERR_NOT_FOUND)?;
-    with_row(sources, asker, spec, |row| visit(row))?;
+    with_row(sources, asker, spec, None, |row| visit(row))?;
     let extra = spec.extra();
     let (min, max) = match &spec.kind {
         SettingKind::Int { min, max } => (clamp32(*min), clamp32(*max)),

@@ -253,6 +253,16 @@ impl<'a> CommandStage<'a> {
         Ok(top.key)
     }
 
+    /// The submitting plugin's screen of this callback, for a `redraw`: it has
+    /// only overlays above it (`native_screen::redrawable`), not just the top.
+    pub(super) fn own_redrawable(&self) -> Result<ScreenKey, i32> {
+        let ui = self.ui.as_ref().ok_or(ERR_UNSUPPORTED)?;
+        let key = ui.screen.ok_or(ERR_STATE)?;
+        super::super::native_screen::redrawable(ui.env.stack(), key, Some(self.owner.as_str()))
+            .map(|_| key)
+            .ok_or(ERR_STATE)
+    }
+
     pub(super) fn validate_ui(&self, command: WireCommand<'_>) -> Result<usize, i32> {
         let ui = self.ui.as_ref().ok_or(ERR_UNSUPPORTED)?;
         match command {
@@ -279,7 +289,8 @@ impl<'a> CommandStage<'a> {
                 }
                 Ok(action.len())
             }
-            WireCommand::Redraw { .. } | WireCommand::CloseScreen => self.own_top().map(|_| 0),
+            WireCommand::Redraw { .. } => self.own_redrawable().map(|_| 0),
+            WireCommand::CloseScreen => self.own_top().map(|_| 0),
             WireCommand::RedrawArea { mode, .. } => self.validate_redraw_area(mode),
             command if super::nav::is_nav(&command) => self.validate_nav(command),
             WireCommand::SetHint {
@@ -318,6 +329,15 @@ impl<'a> CommandStage<'a> {
                 Ok(text.len() + language.len())
             }
             WireCommand::StopSpeaking {} => Ok(0),
+            // A book scope (`book_scope.rs`): from the submitter's own top
+            // screen only, a path that may name a book or empty (the end).
+            WireCommand::SetScope { path } => {
+                self.own_top()?;
+                if !path.is_empty() && !crate::native_host::book_scope::book_path_ok(path) {
+                    return Err(ERR_INVALID);
+                }
+                Ok(path.len())
+            }
             // Plugin requests (`plugin_requests.rs`): every id valid here, the
             // room for the request in `validate_plugin_requests`.
             WireCommand::RequestPlugins { plugins } => {
@@ -425,6 +445,11 @@ impl<'a> CommandStage<'a> {
                 (rate, flags),
             ),
             WireCommand::StopSpeaking {} => crate::native_host::speech::stop(self.owner),
+            WireCommand::SetScope { path: "" } => Ok(Command::SetScope(None)),
+            WireCommand::SetScope { path } => {
+                let file = crate::native_host::book_scope::file(self.owner.as_str(), path)?;
+                Ok(Command::SetScope(Some(file)))
+            }
             WireCommand::RequestPlugins { plugins } => {
                 let mut ids = alloc::vec::Vec::new();
                 ids.try_reserve_exact(plugins.split('\n').count())
@@ -653,22 +678,25 @@ impl crate::Kernel {
         }
     }
 
-    /// The deferred redraw, if its screen is still on top.
+    /// The deferred redraw, if its screen still has only overlays above it
+    /// (`native_screen::redrawable`, as at submit): in its own region, not the
+    /// top's; the overlays over it are drawn again after it.
     pub(crate) fn finish_native_redraw(&mut self, owner: &Id, redraw: Option<Redraw>) {
         if let Some(redraw) = redraw {
-            if !self.native_top(owner, redraw.screen) {
-                self.warn_runtime("native redraw dropped: its screen is no longer on top");
+            let Some(at) = super::super::native_screen::redrawable(
+                &self.shared.stack,
+                redraw.screen,
+                Some(owner.as_str()),
+            ) else {
+                self.warn_runtime("native redraw dropped: its screen is covered");
                 return;
-            }
+            };
             if !redraw.whole {
                 // Each area on its own, now.
-                self.redraw_areas(&redraw.areas, redraw.mode);
+                self.redraw_areas(redraw.screen, &redraw.areas, redraw.mode);
                 return;
             }
-            match redraw.mode {
-                Some(mode) => self.apply(Command::Redraw(mode)),
-                None => self.output.redraw = true,
-            }
+            self.redraw_screen(at, redraw.mode);
             // Areas asked for with it: in the frame after (a newer one
             // replaces a follow-up still waiting).
             if !redraw.areas.is_empty() {
@@ -678,6 +706,27 @@ impl crate::Kernel {
                     areas: redraw.areas,
                 });
             }
+        }
+    }
+
+    /// The whole of the screen at `at` drawn again: the top as `command.redraw`
+    /// does, one with overlays above it in its own region.
+    fn redraw_screen(&mut self, at: usize, mode: Option<RefreshMode>) {
+        if at + 1 == self.shared.stack.len() {
+            match mode {
+                Some(mode) => self.apply(Command::Redraw(mode)),
+                None => self.output.redraw = true,
+            }
+            return;
+        }
+        let region = self.region_of(at);
+        self.invalidate(region);
+        if let Some(mode) = mode {
+            if mode == RefreshMode::Full {
+                let bounds = self.framebuffer.bounds();
+                self.invalidate(bounds);
+            }
+            self.output.request_refresh(mode);
         }
     }
 

@@ -14,7 +14,9 @@ Records: `abi/services/core.files@1.def`.
 - [D] **Slots 20-26 stay the file calls.** `storage.size`, `read_at`, `write`, `append`,
   `rename`, `remove` and `sync` keep their contract: path based, no handles, a root argument,
   synchronous, 4 KiB per call. FS adds what plugins do with **folders** and **file information**,
-  as one versioned service, `core.files` (D4: no new one-off slots).
+  as one versioned service, `core.files` (D4: no new one-off slots). On an error of `read_at`,
+  `out`'s contents are unspecified; only the status counts. After a successful read the
+  bytes past `count` are zeros. An `out` that overlaps the path is `ERR_INVALID`.
 - [D] **Only what first-party plugins use.** Every op below is used by at least two plugins today
   (section 6 lists who). Not offered: copying (plugins copy with `read_at` and `append`, as
   interface 6's `files::copy` does; the SDK keeps that helper), `write_at`, `truncate`, local paths,

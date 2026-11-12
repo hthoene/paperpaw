@@ -74,19 +74,25 @@ impl crate::Kernel {
 /// while one of them is on the stack.
 const LIST_PLUGIN: &str = "files";
 
+/// How long the device is left alone after the start or an input before a
+/// cover is made, converted or started: the zip and XML of a book (some
+/// 20 KiB) never come beside the user's screen or the start's peak (#248).
+pub(crate) const COVER_QUIET_MS: u64 = 1_000;
+
 impl crate::Kernel {
     /// Tells the document host whether a library list screen is up, before the
     /// pass steps any preparation (the cover job holds back while one is: the
     /// conversion's peak must not come beside the list's buffers).
     #[inline(never)]
     pub(crate) fn native_cover_list(&mut self) {
+        let quiet_until = self.cover_quiet_until();
         let instances = &self.shared.native_instances;
         let Some(documents) = instances.hosts().and_then(|hosts| hosts.documents()) else {
             return;
         };
         let due = documents
             .0
-            .cover_job_list(instances.plugin_has_screen(LIST_PLUGIN));
+            .cover_job_list(instances.plugin_has_screen(LIST_PLUGIN), quiet_until);
         // The list left: nothing prepares until the quiet moment is over, and
         // an idle device would not look again before the next tick. A timed
         // wake, as for the job's own gap (`doc_pump`); other steps keep theirs.
@@ -97,11 +103,33 @@ impl crate::Kernel {
         }
     }
 
+    /// The end of the quiet time after the user's last input (or the start):
+    /// no cover is made, converted or started before it.
+    fn cover_quiet_until(&self) -> u64 {
+        self.last_activity.millis().saturating_add(COVER_QUIET_MS)
+    }
+
+    /// An input came (`Kernel::handle`): the quiet time begins anew before
+    /// its callbacks run, which may ask for covers.
+    pub(crate) fn native_cover_input(&self) {
+        let until = self.cover_quiet_until();
+        if let Some(documents) = self
+            .shared
+            .native_instances
+            .hosts()
+            .and_then(|hosts| hosts.documents())
+        {
+            documents.0.cover_job_input(until);
+        }
+    }
+
     /// The end of `Kernel::start`: its effects, then cover jobs of the library
     /// may begin (a format's crash inside start would count as a failed start,
     /// `doc_cover_job`).
     pub(crate) fn finish_started(&mut self) -> crate::Effects {
         let effects = self.finish();
+        // The quiet second counts from the start as from an input.
+        self.native_cover_input();
         self.native_cover_jobs_allowed();
         effects
     }

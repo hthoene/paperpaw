@@ -327,3 +327,47 @@ fn the_dashboards_help_hints_are_declared_and_worded_in_both_languages() {
         }
     }
 }
+
+/// The pickers of the status line widget's settings are interface 6's: its
+/// three parts had the host's items screen (`core.status-items`) and its line
+/// the host's lines screen (`core.status-lines`, the items screen in its lines
+/// mode). Natively all four name home's own screen `status-items` (Kernel's
+/// ruling, todo 121), which lists lines for the line: the editor's name is the
+/// only difference.
+#[test]
+fn the_status_line_widgets_pickers_are_those_of_interface_6() {
+    let native = declared::native("home", &batches(|d| declarations::widgets(d).unwrap()));
+    let old = declared::legacy("home", "home.status", legacy());
+    let status = |extras: &[String]| -> Vec<String> {
+        extras
+            .iter()
+            .filter(|e| e.starts_with("status."))
+            .cloned()
+            .collect()
+    };
+    let old_status = status(&old.extras);
+    assert!(
+        old_status.contains(&"status.line||||=|1:core.status-lines|0|0".to_string()),
+        "{old_status:?}"
+    );
+    let native_status = status(&native.extras);
+    assert!(
+        native_status.contains(&"status.line||||=|1:status-items|0|0".to_string()),
+        "{native_status:?}"
+    );
+    let renamed: Vec<String> = old_status
+        .iter()
+        .map(|e| {
+            e.replace("|1:core.status-items|", "|1:status-items|")
+                .replace("|1:core.status-lines|", "|1:status-items|")
+        })
+        .collect();
+    assert_eq!(native_status, renamed);
+    // The line and its three parts name the screen; the look's extras (paper
+    // and ink kept on reset) are as they were.
+    let pickers = native_status
+        .iter()
+        .filter(|e| e.contains("|1:status-items|"))
+        .count();
+    assert_eq!(pickers, 4, "{native_status:?}");
+}

@@ -72,7 +72,9 @@ Records: `abi/services/core.library@1.def` and `core.lookup@1.def`.
   removed when the book is no longer found, at the walk's clean-up). The host moves and removes
   these folders; the plugin only writes inside them. At most 4 per plugin. `name` is one folder
   name: 1-96 bytes of lowercase ASCII letters, digits and `-` (no `.`, no `/`), unique within the
-  plugin; anything else is refused at admission (`ERR_INVALID`, the declaration dropped).
+  plugin, and not 16 hex digits, the form of a book key (`books/<key>/` holds a book's own
+  settings, `registry.md` 4.1); anything else is refused at admission (`ERR_INVALID`, the
+  declaration dropped).
 
 ## 2. The service `core.library` (major 1)
 
@@ -303,7 +305,10 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   failed book). A job takes **no preparing step (no conversion) while the library's list screen (the
   files plugin's) is on the screen stack**, shown or covered, and for 2 s after it left it: a
   conversion's peak must not come beside the list's buffers. A book that is ready (its cover only
-  to be made) is not held. The row stays open meanwhile; the time held is no awake time of the
+  to be made) is not held by the list. **Nothing is opened, made or converted within 1 s of the
+  user's last input or of the start** (#248): a `cover` of a book not made yet then answers
+  `ERR_BUSY` without opening the book, and bit 6 follows once it is quiet. The row stays open
+  meanwhile; the time held is no awake time of the
   book. A job never holds the device awake
   and does not restart after a sleep until a new `cover` asks. Between two of its steps the pump waits 100 ms (1 s in the power modes Saving and Offline), a
   timed wake, so the job goes on on an idle device. A book's job may run 10 minutes in all per
@@ -539,6 +544,12 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   them with the storage slots 20-26 as any Data file. Op 25 gives the book key; the folder path is
   `books/<name>/<key>/`. On a move the host renames them (journalled, section 6), on a delete or an
   uninstall it removes them (an uninstall asks first about the whole Data folder, decision 124).
+- [D] **A book's own settings** (`command.set_scope`, `registry.md` 4.1): in the same steps the host
+  moves `books/<key>/settings.ini` to the new key and removes it with the book, in the Data of
+  every plugin that has one on the card (found there, so also after a restart; none is no error;
+  one whose new name is taken stays). The folder `books/<key>/` goes when it is left empty.
+  The first 64 plugin folders on the card are looked into (more than a device installs); a file
+  in one past them, or one that stays, is left under the old key (orphaned, never read again).
 - [D] **Fields** (`lib_field`: `id`, `title` translated, `value: str 1024`): op 22 lists a book's
   fields of every plugin, paged (a book holds up to 64 fields, and only about 3 rows at their caps
   fit a reply): input `lib_ref` and `lib_field_page` (`cursor` the index of the page's first row,

@@ -401,6 +401,9 @@ g_firmware-build() {
     run "firmware-build: the plugins' host frames fit under the band (ppn5)" '
         (cd shells/xteink && env -u RUSTFLAGS cargo +'"$x4_toolchain"' build --release --target riscv32imc-unknown-none-elf --no-default-features --features x4,ppn5 --target-dir target/ppn5)
         cargo run -q --release -p paperpaw-sign -- frames shells/xteink/target/ppn5/riscv32imc-unknown-none-elf/release/paperpaw-xteink --budget shells/xteink/frame-budget-ppn5.txt'
+    run "firmware-build: the linked plugins' entry frames fit under the band (static-native)" '
+        (cd shells/xteink && env -u RUSTFLAGS cargo +'"$x4_toolchain"' build --release --target riscv32imc-unknown-none-elf --no-default-features --features x4,static-native,flash-gate-measure --target-dir target/static-native)
+        cargo run -q --release -p paperpaw-sign -- frames shells/xteink/target/static-native/riscv32imc-unknown-none-elf/release/paperpaw-xteink --budget shells/xteink/frame-budget-linked.txt'
     run "firmware-build: the interface-7 sample packs to the committed file" '
         env -u RUSTFLAGS CARGO_TARGET_DIR="$PWD/target/ci-local/abi7-x4-min" samples/abi7-x4-min/build.sh --check'
     run "firmware-build: SDK interface-7 entry packs and rejects misalignment" '

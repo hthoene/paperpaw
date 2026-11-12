@@ -154,8 +154,9 @@ pub(crate) const BOOK_DATA_NAME_MAX_BYTES: usize = 96;
 /// The syntax of one `book_data.spec` (`library.md` section 1): the name is
 /// one folder name of 1 to 96 bytes of `a-z`, `0-9` and `-` (the folder is
 /// `books/<name>/<book key>/` in the plugin's Data, so no separator and no
-/// `.` can be in it). That a plugin names a folder once is the commit's
-/// (`declaration_index`).
+/// `.` can be in it), and not 16 hex digits: `books/<book key>/` is a book's
+/// scope (`book_scope.rs`, #257). That a plugin names a folder once is the
+/// commit's (`declaration_index`).
 pub(crate) fn book_data_check(_plugin_id: &str, spec: &BookDataSpec<'_>) -> Check {
     let BookDataSpec { name, kind } = spec;
     ensure(
@@ -163,6 +164,7 @@ pub(crate) fn book_data_check(_plugin_id: &str, spec: &BookDataSpec<'_>) -> Chec
             && name
                 .bytes()
                 .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            && !crate::native_host::book_scope::could_be_key(name)
             && *kind <= DATA_KIND_MAX,
     )
 }

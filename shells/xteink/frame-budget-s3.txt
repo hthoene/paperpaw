@@ -311,8 +311,6 @@ allow call _ZN63_$LT$paperpaw_sdk..id..Text$u20$as$u20$core..cmp..PartialEq$GT$2
 allow call _ZN5alloc3vec16Vec$LT$T$C$A$GT$4push -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_core::keymap::Zone::from_id -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call core::slice::cmp::cmp -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::firmware_install::Job::make -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::firmware_driver::Driver::accept -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call _ZN80_$LT$paperpaw_image..alpha..AlphaWriter$u20$as$u20$paperpaw_image..ImageSink$GT$3row -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call _ZN80_$LT$paperpaw_image..alpha..AlphaWriter$u20$as$u20$paperpaw_image..ImageSink$GT$9row_alpha -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call _ZN114_$LT$paperpaw_core..native_host..image_service..recipe..ToneSink$LT$S$GT$$u20$as$u20$paperpaw_image..ImageSink$GT$9row_alpha -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
@@ -331,8 +329,9 @@ allow call paperpaw_core::native_host::commands::open::validate_handovers -> mem
 allow call paperpaw_core::native_host::commands::items::validate_item_states -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::commands::ui::reserve_hints -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::commands::open::claim_handovers -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::commands::CommandStage::push_batch -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::commands::CommandStage::push_batch -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow call paperpaw_core::native_host::commands::dev::dev_commit -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call paperpaw_core::native_host::commands::dev::dev_commit -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::storage_slots::size -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::storage_slots::read_at -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call _ZN13paperpaw_core11native_host13storage_slots3put -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
@@ -341,12 +340,7 @@ allow call paperpaw_core::native_host::storage_slots::remove -> memset the chip'
 allow call paperpaw_xteink::safe_mode::reset -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::commands::CommandStage::stage_image -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::commands::CommandStage::stage_owned -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::firmware_driver::Driver::submit_plugin -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN17paperpaw_platform8firmware13Text$LT$_$GT$3new -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call _ZN17paperpaw_platform8firmware13Text$LT$_$GT$3new -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call _ZN13paperpaw_core11native_host6shared7try_box -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call _ZN13paperpaw_core11native_host7storage14StorageAdapter14resolve_format -> memset the chip's ROM `memset`: not scanned here (device test S4)
-allow call __rustc::__rust_alloc_zeroed -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call _ZN13paperpaw_core11native_host7storage14StorageAdapter6rename28_$u7b$$u7b$closure$u7d$$u7d$ -> memset the chip's ROM `memset`: not scanned here (device test S4)
 allow call _ZN15paperpaw_xteink5crash6handle -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::formatting::format_into -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
@@ -401,7 +395,6 @@ allow call paperpaw_core::native_host::shell::text_draw_inked -> memcpy the chip
 allow call paperpaw_core::native_host::fonts::draw_inked -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_sdk::action::Actions::find_native -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
 allow call paperpaw_core::native_host::commands::dev::dev_reserve -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow call paperpaw_core::native_host::firmware_driver::Driver::take_slot -> memmove the chip's ROM `memmove`: not scanned here (device test S4)
 
 # Privileged forms of the critical-section code (esp-hal's `critical_section`/`esp_sync`).
 # `rsil aN, 5` raises the interrupt level and saves PS in aN; `wsr.scompare1` sets the compare
@@ -775,16 +768,13 @@ allow indirect paperpaw_core::native_host::fonts_data::Stamp::of 3 vtable calls 
 allow indirect _ZN4core3ptr64drop_glue$LT$paperpaw_core..native_host..resources..Resource$GT$ 1 new in train 10: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect _ZN4core3ptr65drop_glue$LT$paperpaw_core..native_host..fonts_data..DataFont$GT$ 1 new in train 10: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect release 1 new in train 10: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect paperpaw_core::native_host::commands::CommandStage::push_batch 7 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_core::native_host::commands::CommandStage::push_batch 3 new in train 9 (more until #1289 (#248) gave the DEV commit its own frame): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_core::native_host::commands::dev::dev_commit 4 new with #1289 (#248) (the DEV commit out of `push_batch`'s frame): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect core::str::pattern::Searcher::next_match 2 2 call(s) through a register reloaded from this function's own stack at core/str/pattern.rs:648, core/str/pattern.rs:696: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect paperpaw_text::stored::read_records 1 vtable call at paperpaw_text/stored.rs:308: `source.read_at` on the `&dyn PackSource` of a font pack's records (the card's storage)
-allow indirect paperpaw_core::native_host::firmware_driver::Driver::submit_plugin 1 new in train 10: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_text::stored::index::IndexBuilder::grow_to 2 new in train 10: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect _ZN4core3ptr68drop_glue$LT$paperpaw_core..native_host..plugin_jobs..PluginJobs$GT$ 2 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect stage_run 4 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::declaration_store::DeclarationStore::native_lease 1 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect paperpaw_core::native_host::commands::CommandStage::validate_each 5 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect paperpaw_core::native_host::declaration_store::DeclarationStore::keys 2 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::declaration_store::OwnerRef::generation 1 vtable calls at core/native_host/declaration_store.rs: `owner.source.owner_id()`/`.generation()`/`.native_lease()` on the owner's declaration source (small accessors of the plugin's owner record)
 allow indirect paperpaw_core::native_host::commands::answers::validate_answers 2 new in train 12: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::commands::ui::owned_ui 3 new in train 9: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
@@ -798,7 +788,6 @@ allow indirect _ZN4core3ptr65drop_glue$LT$paperpaw_core..native_host..commands..
 allow indirect paperpaw_fat::fnv 1 vtable or fn-pointer call at core/char/methods.rs:1540, core/char/mod.rs:398: a `char` predicate closure of a `str` method in the caller; 1 call(s) through a register reloaded from this function's own stack at core/char/methods.rs:1540: the callee address was spilled to the stack and reloaded; whether it came from an `l32r` literal (a direct call) or from a loaded pointer is not tracked through the spill (not a trait object by itself)
 allow indirect _ZN91_$LT$core..str..iter..SplitN$LT$P$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$4next 1 new in train 15: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_core::native_host::radio_requests::RadioRequests::discard_reserved 1 new in train 15: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
-allow indirect paperpaw_core::native_host::firmware_driver::Driver::take_slot 1 new in train 15: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$13remove_listed 3 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow call paperpaw_fat::settle::settle_recorded -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow indirect paperpaw_fat::found::lookup_with 2 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
@@ -816,4 +805,12 @@ allow call paperpaw_fat::settle::temps_in -> memcpy the chip's ROM `memcpy`: not
 allow indirect paperpaw_fat::settle::files_of_temps 1 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow call paperpaw_fat::settle::files_of_temps -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_fat::settle::files_of_temps -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
-allow indirect paperpaw_core::abi7::settings_visibility::SettingIdentity::definition 2 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4. CI's x4-pro build leaves these two calls unfollowed where the local scan follows them (same difference as the one in tools/check-s3-budget.sh); only the x4-pro budget has the line.
+allow indirect stage_run 3 new in train 21: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_core::native_host::commands::CommandStage::validate_each 6 new in train 21: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect paperpaw_core::native_host::declaration_store::StoredOwner::places 4 new in train 21: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect _ZN4core3ptr103drop_glue$LT$core..option..Option$LT$paperpaw_core..native_host..declaration_store..StoredOwner$GT$$GT$ 1 new in train 21: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow call paperpaw_core::native_host::firmware_cell::FirmwareCell::make -> memset the chip's ROM `memset`: not scanned here (device test S4)
+allow call paperpaw_core::native_host::firmware_cell::FirmwareCell::make -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
+allow indirect paperpaw_core::native_host::firmware_cell::FirmwareCell::make 2 new in train 22 (#1318 lazy firmware driver): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect _ZN4core3ptr65drop_glue$LT$paperpaw_core..native_host..firmware_cell..State$GT$ 1 new in train 22 (#1318 lazy firmware driver): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
+allow indirect _ZN4core3ptr131drop_glue$LT$core..option..Option$LT$alloc..boxed..Box$LT$dyn$u20$paperpaw_core..native_host..plugin_job..InstallGrants$GT$$GT$$GT$ 1 new in train 22 (#1318 lazy firmware driver): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
