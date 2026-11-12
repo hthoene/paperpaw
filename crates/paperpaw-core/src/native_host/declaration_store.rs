@@ -562,42 +562,7 @@ impl StoredOwner {
                 return ControlFlow::Continue(());
             }
         };
-        let bit = 1_u64 << kind as u32;
-        for (at, (start, batch_kinds)) in starts.iter().zip(kinds.iter()).enumerate() {
-            if batch_kinds & bit == 0 {
-                continue;
-            }
-            // Below `BATCHES_MAX`: checked when the batch was staged.
-            let Ok(batch) = u16::try_from(at) else {
-                break;
-            };
-            let mut found = Ok(0);
-            self.source.with_image(&mut |image| {
-                // The frames are walked once: from the start to the batch's
-                // last record of any kind, each checked to stay in the image.
-                found = image
-                    .ok_or(ERR_STATE)
-                    .and_then(|image| {
-                        let start = usize::try_from(*start).map_err(|_| ERR_INVALID)?;
-                        image.get(start..).ok_or(ERR_INVALID)
-                    })
-                    .and_then(|bytes| scan::places_of(bytes, kind));
-            });
-            let places = match found {
-                Ok(places) => places,
-                Err(ERR_STATE) => return ControlFlow::Continue(()),
-                Err(error) => {
-                    self.source.invalid_declaration(error);
-                    continue;
-                }
-            };
-            for record in 0..u8::BITS as u16 {
-                if places & 1 << record != 0 {
-                    visit(batch, record)?;
-                }
-            }
-        }
-        ControlFlow::Continue(())
+        scan::image_places(self, starts, kinds, kind, visit)
     }
 
     /// How many records of `kind` the owner declares.

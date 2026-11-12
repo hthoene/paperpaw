@@ -27,7 +27,7 @@ use super::super::registrations::{
 };
 use super::Kind;
 use core::ops::ControlFlow;
-use paperpaw_native::host_glue::ERR_INVALID;
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_STATE};
 
 const _: () = assert!(REGISTRATION_MAX_RECORDS <= u8::BITS as usize);
 
@@ -129,6 +129,55 @@ pub(super) fn batch_at(image: &[u8], start: usize) -> Result<&[u8], i32> {
             .ok_or(ERR_INVALID)?;
     }
     rest.get(..cursor).ok_or(ERR_INVALID)
+}
+
+/// The places of the records of `kind` of an image-only `owner` whose
+/// batches start at `starts` and declare the kinds `kinds` (one mask a
+/// batch), for [`StoredOwner::places`](super::StoredOwner): a batch without
+/// the kind is not walked, and one with it is walked once.
+pub(super) fn image_places(
+    owner: &super::StoredOwner,
+    starts: &[u32],
+    kinds: &[u64],
+    kind: Kind,
+    visit: &mut dyn FnMut(u16, u16) -> ControlFlow<()>,
+) -> ControlFlow<()> {
+    let bit = 1_u64 << kind as u32;
+    for (at, (start, batch_kinds)) in starts.iter().zip(kinds.iter()).enumerate() {
+        if batch_kinds & bit == 0 {
+            continue;
+        }
+        // Below `BATCHES_MAX`: checked when the batch was staged.
+        let Ok(batch) = u16::try_from(at) else {
+            break;
+        };
+        let mut found = Ok(0);
+        owner.source.with_image(&mut |image| {
+            // The frames are walked once: from the start to the batch's
+            // last record of any kind, each checked to stay in the image.
+            found = image
+                .ok_or(ERR_STATE)
+                .and_then(|image| {
+                    let start = usize::try_from(*start).map_err(|_| ERR_INVALID)?;
+                    image.get(start..).ok_or(ERR_INVALID)
+                })
+                .and_then(|bytes| places_of(bytes, kind));
+        });
+        let places = match found {
+            Ok(places) => places,
+            Err(ERR_STATE) => return ControlFlow::Continue(()),
+            Err(error) => {
+                owner.source.invalid_declaration(error);
+                continue;
+            }
+        };
+        for record in 0..u8::BITS as u16 {
+            if places & 1 << record != 0 {
+                visit(batch, record)?;
+            }
+        }
+    }
+    ControlFlow::Continue(())
 }
 
 /// The first record of `kind` of the image-only `owner` whose key fields are
