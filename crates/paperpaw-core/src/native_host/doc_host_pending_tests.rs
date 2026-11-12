@@ -144,6 +144,55 @@ fn a_format_that_cannot_be_made_fails_the_document_and_the_opener_hears_it() {
     });
 }
 
+#[test]
+fn a_pending_open_its_format_answers_without_memory_fails_at_once() {
+    // Manager's decision 2 on #248: the format was made and its open found
+    // no memory. Awake, the open fails then; pending, it did not end (the
+    // loop tried it again each time).
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        parked(w);
+        let id = w.open(1, "books/a.epub").unwrap();
+        *w.reply.borrow_mut() = Err(ERR_NO_MEMORY);
+        assert_eq!(step(w), PrepareStep::More);
+        let failed = document(w, id);
+        assert_eq!((failed.state, failed.status), (FAILED, ERR_NO_MEMORY));
+        assert_eq!(changed_event(w), Some((id, FAILED)));
+        assert_eq!(step(w), PrepareStep::Idle, "not tried again");
+    });
+}
+
+#[test]
+fn a_pending_open_the_host_had_no_room_to_send_gets_no_close() {
+    // Senior, R1 on #1368: the host's own no-memory before the format is
+    // called (the open or the CSS copied, the scope) fails the open, and the
+    // format, which never saw it, gets no `close`. Each allocation of the
+    // step fails in turn; those before the call must not mark it sent.
+    let before_the_call = core::cell::Cell::new(0);
+    for nth in 1..64 {
+        world(|w| {
+            w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+            parked(w);
+            let id = w.open(1, "books/a.epub").unwrap();
+            made(w, READY);
+            let sent = ops(w).len();
+            let fail = &crate::native_host::shell::tests::FAIL_NTH;
+            fail.with(|n| n.set(nth));
+            let _ = step(w);
+            fail.with(|n| n.set(0));
+            let failed = document(w, id);
+            if ops(w).len() != sent || failed.state != FAILED {
+                return; // the format was called, or the step is tried later
+            }
+            before_the_call.set(before_the_call.get() + 1);
+            assert_eq!(failed.status, ERR_NO_MEMORY);
+            close(w, id);
+            assert_eq!(ops(w).len(), sent, "a close for an open never sent");
+        });
+    }
+    assert!(before_the_call.get() > 0, "no refusal before the call");
+}
+
 /// A route whose format plugin gave up being made (Senior, R2 on #1365).
 struct GaveUp<'a>(FrameRoute<'a>);
 impl crate::native_host::fmt_call::Route for GaveUp<'_> {
@@ -250,5 +299,57 @@ fn the_details_job_of_a_parked_prepared_format_waits_for_its_open_not_failed() {
         let job = w.state.table.cover_job().unwrap();
         assert_eq!((job.state, job.open_pending), (READY, false));
         assert_eq!(w.open_flags.borrow().last(), Some(&(BACKGROUND | DETAILS)));
+    });
+}
+
+/// The `doc_state` flags of `document` as the opener reads them (op 2).
+fn state_flags(w: &World<'_>, document: u32) -> u32 {
+    let reply = w
+        .call(
+            AdmittedFeatures::NONE,
+            2,
+            &[Record::ServiceDocRef(wire::ServiceDocRef { document })],
+        )
+        .unwrap();
+    match wire::record_decode_one(&reply).unwrap() {
+        Record::ServiceDocState(state) => state.flags,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_pending_open_reports_no_book_flags_until_its_format_answers() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        parked(w);
+        // An open that asks with flags: they are the request's, not the book's.
+        let reply = w
+            .call(
+                AdmittedFeatures::test(1, FEATURES),
+                1,
+                &[Record::ServiceDocOpen(wire::ServiceDocOpen {
+                    root: 1,
+                    path: "books/a.epub",
+                    format: "",
+                    flags: 1,
+                    image_side: 0,
+                    cover_side: 0,
+                    css_root: 0,
+                    css_path: "",
+                })],
+            )
+            .unwrap();
+        let Record::ServiceDocState(opened) = wire::record_decode_one(&reply).unwrap() else {
+            panic!("a state");
+        };
+        let id = opened.document;
+        assert!(document(w, id).open_pending);
+        // Bit 0 would read as "whole pages" (#248): nothing is claimed yet.
+        assert_eq!(opened.flags, 0);
+        assert_eq!(state_flags(w, id), 0);
+        // The format answers: its flags are the book's from now on.
+        made(w, READY);
+        assert_eq!(step(w), PrepareStep::More);
+        assert_eq!(state_flags(w, id), document(w, id).flags);
     });
 }

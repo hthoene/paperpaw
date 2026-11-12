@@ -191,7 +191,8 @@ impl DocState {
         }
         out.resize(REPLY_BYTES, 0);
         let found: (_, BookKind) = found;
-        match self.call_in_scope(hosts, route, document, found, fmt::COVER, &mut out) {
+        let call = (fmt::COVER, &core::cell::Cell::new(false));
+        match self.call_in_scope(hosts, route, document, found, call, &mut out) {
             Ok(_) | Err(ERR_NOT_FOUND) => Cover::Noted {
                 crowded: self.note_cover_made(self.book_key(document.id)),
             },

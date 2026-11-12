@@ -609,6 +609,10 @@ fn register_library(r: &mut Registrar) -> Result<(), RegisterError> {
                 library::catalog::state(env.storage()) == library::catalog::State::Missing;
             if !env.formats().is_empty() && (wanted.anew || missing || !catalog.walked.get()) {
                 catalog.want_walk(true, wanted.anew, out);
+            } else if library::catalog::log_is_long(env.storage()) {
+                // The library service's status notes made the log long: it
+                // is folded in at a calm moment, as after a book closed.
+                catalog.want_catch_up(None, false, out);
             } else if library::emptiness::is_empty(env.storage()) {
                 // Walked since the start and listing nothing: not again
                 // (a walk costs a wake's time and battery on the X4), but

@@ -677,3 +677,32 @@ fn a_format_that_stays_without_room_is_seen_to_give_up_once() {
     assert!(!instances.format_gave_up(key), "taken once");
     assert!(lease(&kernel, key).is_parked());
 }
+
+#[test]
+fn a_format_without_room_gives_up_at_once_when_nothing_can_be_parked_again() {
+    // Manager's decision 2 on #248: no memory to make a parked format, and
+    // no idle plugin to park again for room: the pending open fails at the
+    // next pass, as with the format awake, not after about two minutes of
+    // waits. What a queued action asks (`give_up`) keeps its wait.
+    let mut kernel = kernel(Mode::Parkable);
+    let key = admit(&mut kernel);
+    MODE.with(|cell| cell.set(Mode::NoRoom));
+    kernel.shared.native_instances.set_now(kernel.now.millis());
+    assert!(lease(&kernel, key).live().is_err());
+    assert!(
+        !kernel.shared.native_instances.format_gave_up(key),
+        "not before parking again was tried"
+    );
+    assert!(!kernel.native_unpark_pending(), "nothing made");
+    assert!(
+        !lease(&kernel, key).slot().give_up(),
+        "a queued action keeps its wait"
+    );
+    let instances = &kernel.shared.native_instances;
+    assert!(instances.format_gave_up(key), "the open fails at once");
+    assert!(!instances.format_gave_up(key), "taken once");
+    assert!(lease(&kernel, key).is_parked());
+    // Tried again at once by a later open (the wait started over).
+    MODE.with(|cell| cell.set(Mode::Parkable));
+    assert!(lease(&kernel, key).live().is_ok());
+}

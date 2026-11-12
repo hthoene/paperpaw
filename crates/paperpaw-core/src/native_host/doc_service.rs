@@ -754,7 +754,13 @@ fn state_reply(host: &dyn DocHost, document: &Document, out: &mut [u8]) -> Resul
                 state: document.state,
                 progress_ppm: document.progress_ppm,
                 status: document.status,
-                flags: document.flags,
+                // Until the format answers a pending open, the row holds the
+                // opener's request flags: no book flag is claimed (#248).
+                flags: if document.open_pending {
+                    0
+                } else {
+                    document.flags
+                },
                 conversion: document.conversion,
                 format,
             }),
