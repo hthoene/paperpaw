@@ -18,7 +18,8 @@ use paperpaw_sdk::{
     keys::InputMode,
     native::{
         Error, Host,
-        callbacks::{DrawFrame, Input, InputGestureKind},
+        callbacks::{DrawFrame, FrameRect, Input, InputGestureKind},
+        canvas::PartRole,
         commands::{CommandSender, RedrawMode},
         fonts::{Font, FontRole},
         snapshot::{self, Snapshot},
@@ -142,6 +143,9 @@ pub struct Dashboard {
     moving: Option<arrange::Moving>,
     /// An item a finger has taken along.
     drag: Option<arrange::Drag>,
+    /// The top left of the screen's region at the last draw: where the
+    /// cells' places are counted from when a part of it is drawn again.
+    origin: (i32, i32),
 }
 
 impl Dashboard {
@@ -611,6 +615,7 @@ impl Dashboard {
     ) -> Result<(), Error> {
         self.ensure(host, ui)?;
         self.ensure_dialog(host)?;
+        self.origin = (frame.rect.x, frame.rect.y);
         let Some(laid) = self.laid.as_ref() else {
             return Ok(());
         };
@@ -645,6 +650,29 @@ impl Dashboard {
         Ok(lines)
     }
 
+    /// What each target is and which has the focus, for whoever asks what
+    /// shows (`canvas.describe`: automation, reading aloud, the tests), as
+    /// interface 6 told its cells.
+    fn describe_targets(
+        &self,
+        below: &mut Vec<Paint>,
+        describing: bool,
+        laid: &Laid,
+    ) -> Result<(), Error> {
+        for (at, target) in laid.targets.iter().enumerate() {
+            let focused = self.focus.shown() && self.focus.at() == at;
+            paint::describe(
+                below,
+                describing,
+                PartRole::Button,
+                target.rect,
+                focused,
+                false,
+            )?;
+        }
+        Ok(())
+    }
+
     fn paint(
         &self,
         host: &Host<'_>,
@@ -657,6 +685,7 @@ impl Dashboard {
         let style = Style::read(host, display, font)?;
         let mut below = Vec::new();
         let mut above = Vec::new();
+        self.describe_targets(&mut below, paint::asking(frame), laid)?;
         let icon_font = paperpaw_ui_kit::icons::font(host)?;
         let circle = paperpaw_ui_kit::icons::glyph(host, "circle")?;
         let fonts = Fonts {
@@ -800,11 +829,12 @@ impl Dashboard {
         let Some(laid) = self.laid.as_ref() else {
             return Ok(Handled::No);
         };
+        let left = self.focus.shown().then(|| self.focus.at());
         match self.focus.press(press, &laid.targets, laid.arrows_stay) {
             Step::Ignored => Ok(Handled::No),
             Step::Held => Ok(Handled::Yes),
-            Step::Shown(_) | Step::Moved(_) => {
-                redraw(host)?;
+            Step::Shown(at) | Step::Moved(at) => {
+                self.redraw_focus(host, laid, [left, Some(at)])?;
                 Ok(Handled::Yes)
             }
             Step::Run(at) => {
@@ -814,6 +844,38 @@ impl Dashboard {
                 Ok(Handled::Yes)
             }
         }
+    }
+
+    /// Only the targets the focus left and came to are drawn again, each with
+    /// the room of its ring, not the page (as interface 6 drew only those
+    /// cells): a step takes a small part of a frame on the X4. A host that
+    /// refuses a part draws the page.
+    fn redraw_focus(
+        &self,
+        host: &Host<'_>,
+        laid: &Laid,
+        ats: [Option<usize>; 2],
+    ) -> Result<(), Error> {
+        let display = snapshot::capture_snapshot(host)?;
+        let font = Font::acquire_role(host, FontRole::Ui)?;
+        let style = Style::read(host, &display, &font);
+        let released = font.release();
+        let style = style?;
+        released?;
+        let room = i32::from(style.gap / 2).saturating_add(i32::from(style.line.max(2)));
+        let mut scratch = [0; 64];
+        let mut sender = CommandSender::new(host, &mut scratch);
+        for target in ats
+            .into_iter()
+            .flatten()
+            .filter_map(|at| laid.targets.get(at))
+        {
+            let area = focus_area(target.rect, room, self.origin);
+            if sender.queue_redraw_area(RedrawMode::Partial, area).is_err() {
+                return redraw(host);
+            }
+        }
+        Ok(())
     }
 
     fn turn(&mut self, host: &Host<'_>, ui: &Ui, forward: bool) -> Result<Handled, Error> {
@@ -1143,6 +1205,24 @@ fn focus_at_show(at_once: bool, last_input: Option<InputMode>) -> bool {
 
 fn paintpush(paint: &mut Vec<Paint>, op: Paint) -> Result<(), Error> {
     paint::push(paint, op)
+}
+
+/// Where target `rect` and its ring (`room` round it) are, from the top left
+/// of the screen's region at `origin`.
+fn focus_area(rect: Rect, room: i32, origin: (i32, i32)) -> FrameRect {
+    let grown = |size: u16| {
+        u32::from(size).saturating_add(u32::try_from(room).unwrap_or(0).saturating_mul(2))
+    };
+    FrameRect::new(
+        i32::from(rect.x)
+            .saturating_sub(room)
+            .saturating_sub(origin.0),
+        i32::from(rect.y)
+            .saturating_sub(room)
+            .saturating_sub(origin.1),
+        grown(rect.width),
+        grown(rect.height),
+    )
 }
 
 pub(crate) fn redraw(host: &Host<'_>) -> Result<(), Error> {
