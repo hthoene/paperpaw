@@ -32,7 +32,7 @@ use paperpaw_sdk::firmware::{
 };
 
 use super::{PIECE, Partition, Updates, owned, zeroed};
-use crate::ota::{Flash, Image, State};
+use crate::ota::{Flash, Image, OtaData, State};
 
 /// Pieces a check or a read-back handles in one step.
 const STEP_PIECES: usize = 4;
@@ -211,6 +211,16 @@ impl<F: Flash> Updates<F> {
     /// return on a device.
     pub fn set_restarter(&mut self, restarter: fn() -> Result<(), Reason>) {
         self.restarter = Some(restarter);
+    }
+
+    /// Whether the OTA data chooses an image that is not the running one (or
+    /// cannot be read: then it counts as waiting).
+    fn image_waits(&mut self) -> bool {
+        let running = self.running;
+        match OtaData::read(&mut self.data_partition()) {
+            Ok(data) => data.chosen().is_some_and(|chosen| chosen != running),
+            Err(_) => true,
+        }
     }
 
     /// Whether another job may begin.
@@ -699,5 +709,30 @@ impl<F: Flash> FirmwareHost for Updates<F> {
             Some(restart) => restart(),
             None => Err(Reason::NOT_HERE),
         }
+    }
+
+    /// The X4 always has two app partitions (`ota::SLOTS`), the one another
+    /// firmware can share (`docs/dual-boot.md`).
+    fn dual_boot_capable(&self) -> bool {
+        true
+    }
+
+    /// The setup as last settled (`Updates::settle`, which an install's
+    /// `declare` may change again): the marker in the bootloader or
+    /// `paperpaw.ini`. The driver asks once, at its build, after the settle.
+    fn dual_boot_declared(&self) -> bool {
+        self.dual.is_some()
+    }
+
+    /// Restarts the image running, and only that: `restart` starts whatever
+    /// the OTA data chooses, so it is refused (the restart of a waiting image
+    /// is the reader's own to confirm) while a job or an install is open, while
+    /// the OTA data chooses another partition than the running one, and where
+    /// it cannot be read.
+    fn restart_running(&mut self) -> Result<(), Reason> {
+        if !self.free_for_a_job() || self.installing() || self.image_waits() {
+            return Err(Reason::STOPPED);
+        }
+        self.restart()
     }
 }

@@ -412,6 +412,61 @@ fn restart_is_the_firmwares_and_says_so_where_there_is_none() {
     assert_eq!(device.updates.restart(), Ok(()));
 }
 
+/// The X4 has two app partitions, so it is dual-boot capable; it is declared
+/// only once `settle` says so, and `restart_running` is the same restart.
+#[test]
+fn dual_boot_facts_are_the_devices() {
+    let mut device = Device::started(Vec::new());
+    assert!(device.updates.dual_boot_capable());
+    assert!(!device.updates.dual_boot_declared());
+    assert_eq!(device.updates.restart_running(), Err(Reason::NOT_HERE));
+    device.updates.set_restarter(|| Ok(()));
+    assert_eq!(device.updates.restart_running(), Ok(()));
+    device.updates.settle(Some(Source::Ini));
+    assert!(device.updates.dual_boot_declared());
+    device.updates.settle(None);
+    assert!(!device.updates.dual_boot_declared());
+}
+
+/// `restart_running` starts the image running and nothing else: where an
+/// image waits (committed, chosen) it is refused and the restarter is not
+/// called; the waiting image's restart is the reader's to confirm.
+#[test]
+fn restart_running_never_starts_a_waiting_image() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static RESTARTED: AtomicBool = AtomicBool::new(false);
+    let mut device = Device::started(Vec::new());
+    device.updates.set_restarter(|| {
+        RESTARTED.store(true, Ordering::SeqCst);
+        Ok(())
+    });
+    // Nothing waits: the running image restarts.
+    assert_eq!(device.updates.restart_running(), Ok(()));
+    assert!(RESTARTED.swap(false, Ordering::SeqCst));
+    // Another firmware's image committed: the OTA data now chooses it.
+    let image = app_image(
+        CHIP_ESP32_C3,
+        "crosspoint",
+        "1.2.3",
+        Some(&["paperpaw-plugin-stats"]),
+        b"CROSSPOINT-BOARD-V1:x4;",
+        300_000,
+    );
+    let card = Card::with(UPDATE, &image);
+    let (_, facts, _) = check(&mut device.updates, &card, UPDATE);
+    let facts = facts.unwrap();
+    write(&mut device.updates, &card, UPDATE, facts.sha256, None, true).unwrap();
+    // Open (written, not committed): refused too.
+    assert_eq!(device.updates.restart_running(), Err(Reason::STOPPED));
+    device.updates.commit().unwrap();
+    assert_eq!(device.data().booted(), 1);
+    assert_eq!(device.updates.restart_running(), Err(Reason::STOPPED));
+    assert!(
+        !RESTARTED.load(Ordering::SeqCst),
+        "the restarter is not called"
+    );
+}
+
 /// A key that is not PaperPaw's installs only where the user accepted that
 /// very key; the check says whose it is and decides nothing.
 #[test]
