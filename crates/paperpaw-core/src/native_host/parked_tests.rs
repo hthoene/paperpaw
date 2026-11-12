@@ -355,3 +355,45 @@ fn a_plugin_that_keeps_state_in_memory_is_caught_by_comparing_runs() {
     assert_eq!(counter_flow(false), [1, 2]);
     assert_eq!(counter_flow(true), [1, 1]);
 }
+
+/// The screen queue's room and whether a batch waits after the safe point
+/// that parks again ([`crate::Kernel::native_repark_idle`]), which standby
+/// and memory pressure reach; a screen callback reserved the room before
+/// (#248, lever 6). On standby the kernel runs a waiting batch first, so a
+/// batch still waits only where the safe point is reached directly.
+fn screen_room_after(batch_waits: bool, standby: bool) -> (usize, bool) {
+    let mut w = world(&[Ok(())]);
+    let key = w.key;
+    {
+        let stage = w.kernel.shared.native_instances.screen_stage().unwrap();
+        let slot = stage.reserve().unwrap();
+        if batch_waits {
+            let staged =
+                crate::native_host::event_call::Staged::new(key, Vec::new(), None, Vec::new());
+            slot.put(staged).unwrap();
+        }
+    }
+    if standby {
+        let now = w.kernel.now;
+        let _ = w.kernel.suspend(now);
+    } else {
+        let _ = w.kernel.native_repark_idle(usize::MAX);
+    }
+    let stage = w.kernel.shared.native_instances.screen_stage().unwrap();
+    (stage.capacity(), stage.waiting())
+}
+
+#[test]
+fn on_standby_an_idle_screen_queue_gives_its_room_back() {
+    assert_eq!(screen_room_after(false, true), (0, false));
+}
+
+#[test]
+fn on_standby_a_waiting_screen_batch_runs_and_the_room_goes_back() {
+    assert_eq!(screen_room_after(true, true), (0, false));
+}
+
+#[test]
+fn a_waiting_screen_batch_keeps_the_queues_room() {
+    assert_eq!(screen_room_after(true, false), (1, true));
+}

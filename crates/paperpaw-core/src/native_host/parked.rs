@@ -113,6 +113,21 @@ impl crate::Kernel {
     // Its own frame: off the command loop's route (#250).
     #[inline(never)]
     pub(crate) fn native_repark_idle(&mut self, at_most: usize) -> usize {
+        {
+            let instances = &self.shared.native_instances;
+            // The screen queue's room goes back too where nothing waits and
+            // no callback runs (#248, lever 6).
+            let staged = instances.outbox.full()
+                || instances
+                    .screen_stage()
+                    .is_some_and(super::screen_stage::ScreenStage::waiting);
+            if !staged
+                && instances.depth() == 0
+                && let Some(stage) = instances.screen_stage()
+            {
+                stage.release();
+            }
+        }
         if at_most == 0 || self.native_repark_blocked() {
             return 0;
         }
