@@ -35,6 +35,8 @@ const LONG: u32 = 1 << 7;
 const PREVIEW: u32 = 1 << 8;
 const SHOWN: u32 = 1 << 9;
 const GOVERNS: u32 = 1 << 10;
+/// An int setting set with a slider (`SettingExtra::slider`), #257.
+const SLIDER: u32 = 1 << 11;
 
 /// `reg_setting.source`.
 const FROM_DEFAULT: u32 = 0;
@@ -211,6 +213,10 @@ fn with_row<R>(
                 |ids| ids.binary_search(&id).is_ok(),
             ),
             GOVERNS,
+        ),
+        (
+            extra.slider && matches!(spec.kind, SettingKind::Int { .. }),
+            SLIDER,
         ),
     ] {
         if on {
