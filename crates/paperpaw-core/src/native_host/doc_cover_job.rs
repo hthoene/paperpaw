@@ -35,8 +35,9 @@ use paperpaw_native::host_glue::{ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_TIMEO
 /// that book, nothing else, whatever the cause (`ERR_NO_MEMORY`).
 const LATER_MAX: u8 = 8;
 
-/// The reply buffer of the format's close (as a step's).
-const SCRATCH: usize = 4096;
+/// The reply room of the format's close: op 4 answers nothing; the open's
+/// room all the same, so a stray `fmt.state` is still whole frames (#248).
+const SCRATCH: usize = crate::native_host::doc_service::details::OPEN_REPLY;
 
 impl DocState {
     /// Whether the job is a job of `kind` and the document of the book at

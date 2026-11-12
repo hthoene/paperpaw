@@ -1312,11 +1312,14 @@ impl super::doc_service::DocHost for Bound<'_> {
         else {
             return;
         };
+        // Op 4 answers nothing: the open's room, as the cover job's close
+        // (`doc_cover_job`), not 4 KiB (#248).
+        let room = super::doc_service::details::OPEN_REPLY;
         let mut scratch = Vec::new();
-        if scratch.try_reserve_exact(4096).is_err() {
+        if scratch.try_reserve_exact(room).is_err() {
             return;
         }
-        scratch.resize(4096, 0);
+        scratch.resize(room, 0);
         let frame_route = FrameRoute(self.frame);
         Stage {
             route: self.route.unwrap_or(&frame_route),

@@ -34,8 +34,10 @@ use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_CANCELLED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_TIMEOUT,
 };
 
-/// The reply buffer of one step (the stage's answer, `PAYLOAD_MAX` bytes).
-const REPLY_BYTES: usize = 4096;
+/// The reply room of one step: op 3 answers one `fmt.state`, as the open
+/// does, so the open's room (not the stage's 3,840 bytes: it is held while the
+/// format prepares, #248).
+const REPLY_BYTES: usize = crate::native_host::doc_service::details::OPEN_REPLY;
 
 impl DocState {
     /// Where the format of `format` is called, and how it reads its book.

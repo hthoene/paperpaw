@@ -47,8 +47,8 @@ use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, ERR_NOT_FOUND};
 /// How many books' covers are noted as made (a page of a list, twice over).
 pub(super) const COVERS_MADE: usize = 32;
 
-/// The reply buffer of the cover call (as a preparing step's).
-const REPLY_BYTES: usize = 4096;
+/// The reply room of the cover call: one `fmt.image` at its caps (#248).
+const REPLY_BYTES: usize = crate::native_host::doc_service::cover::COVER_REPLY;
 
 /// Where a book's cover stands for the library's `cover`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

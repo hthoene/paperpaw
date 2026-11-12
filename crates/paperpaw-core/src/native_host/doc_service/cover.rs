@@ -9,9 +9,11 @@
 //! document that made it ([`ImageTable::adopt_cover`]); the same book's cover
 //! has one id, however often it is asked for.
 //!
-//! Memory: one scratch of 4,096 bytes (what the dispatcher lends the
-//! document service), taken fallibly and freed on return, and the encoded
-//! `doc_open` (the path and a few bytes). Nothing is kept between calls. The
+//! Memory: one reply room of [`COVER_REPLY`] bytes (a `doc_state`, then the
+//! format's `fmt.image` at its caps; not the 4 KiB the dispatcher lends a
+//! plugin's call: it is held while the format opens the book, #248), taken
+//! fallibly and freed on return, and the encoded `doc_open` (the path and a
+//! few bytes). Nothing is kept between calls. The
 //! format call is the document service's own, through the caller's frame
 //! (a nested callback like the reader's own `doc_open`).
 use super::{
@@ -23,8 +25,12 @@ use crate::native_host::doc_host::CoverAt;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE};
 
-/// The scratch a document call needs (the dispatcher's own).
-const SCRATCH: usize = 4_096;
+/// The reply room of a cover: the open's `doc_state` (under
+/// [`OPEN_REPLY`](super::details::OPEN_REPLY)), then op 17's one `fmt.image`
+/// (`path` 256 bytes and four `u32`) with the byte a tag may grow by when the
+/// host translates it to a `doc_image` (tested). The library's cover make
+/// takes the same (`doc_cover_make`).
+pub(crate) const COVER_REPLY: usize = 384;
 
 fn bytes(size: usize) -> Result<Vec<u8>, i32> {
     let mut bytes = Vec::new();
@@ -69,7 +75,7 @@ pub(crate) fn make(
         CoverAt::Made => true,
         CoverAt::Unmade => false,
     };
-    let mut scratch = bytes(SCRATCH)?;
+    let mut scratch = bytes(COVER_REPLY)?;
     let mut result = Err(ERR_STATE);
     services.0.serve(frame, caller, &mut |bound| {
         let host = Cx {
