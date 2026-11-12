@@ -20,6 +20,10 @@ default = []
 # `panes` feature (on by default in its defaults) asks for it; the SDK is
 # the same either way. In the kernel's own tests: `--features panes`.
 panes = []
+# The reader is the linked native plugin (the app's `native-linked-reading`):
+# the book menu's *Open with…* is not registered, as its resolver is
+# interface 6's, not carried by interface 7 (`docs/abi/document.md` 1).
+native-reading = []
 # Colour framebuffers for colour e-ink panels.
 color = ["paperpaw-graphics/color"]
 # Scalable OpenType/TrueType fonts; not available on the ESP32-C3.

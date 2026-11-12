@@ -3284,6 +3284,7 @@ mod library_catalog;
 mod library_catalog_native;
 mod net_demand;
 mod net_policy_wiring;
+mod open_with;
 mod panes;
 mod pictures_in_grays;
 mod plugins_loaded;
