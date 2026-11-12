@@ -657,3 +657,149 @@ fn a_cache_that_is_cut_down_in_the_middle_has_no_stamp() {
     follow_removal(&card, &data(), BOOK);
     assert!(!stamped(&card, BOOK));
 }
+
+fn all_pages(card: &MemoryStorage, book: &str) -> usize {
+    let mut n = 0;
+    let mut stack = std::vec![format!(".paperpaw/cache/{}", at(book))];
+    while let Some(dir) = stack.pop() {
+        let mut names: Vec<(String, bool)> = Vec::new();
+        let _ = card.list(&dir, &mut |e| names.push((String::from(e.name), e.is_dir)));
+        for (name, is_dir) in names {
+            if is_dir {
+                stack.push(format!("{dir}/{name}"));
+            } else if name.starts_with('p') {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+/// N3: a stamp the card refuses to remove for good leaves the cache whole:
+/// no page is taken from under a stamp that stays.
+#[test]
+fn a_stamp_the_card_refuses_leaves_the_cache_whole() {
+    let card = card();
+    doc_cache(&card, BOOK, 150);
+    let refusing = Refuse {
+        card: &card,
+        name: ".complete",
+        error: StorageError::InvalidPath,
+    };
+    let mut budget = 100;
+    assert_eq!(
+        remove_doc_cache(&refusing, BOOK, &mut budget).unwrap(),
+        Progress::Done
+    );
+    assert!(stamped(&card, BOOK) && pages_left(&card, BOOK) == 150);
+    // A transient refusal is an error to repeat, and takes no page either.
+    let flaky = Refuse {
+        card: &card,
+        name: ".complete",
+        error: StorageError::Io,
+    };
+    assert!(remove_doc_cache(&flaky, BOOK, &mut budget).is_err());
+    assert!(pages_left(&card, BOOK) == 150);
+}
+
+/// N4: a level with more folders than `unstamp` looks into leaves the cache
+/// whole (no stamp is missed and no page is taken under one).
+#[test]
+fn a_cache_wider_than_unstamp_looks_into_is_left_whole() {
+    let card = card();
+    let key = at(BOOK);
+    for n in 0..=STAMPS_LISTED {
+        card.write(
+            &format!(".paperpaw/cache/{key}/epub/c{n}/pages/p0.bin"),
+            b"x",
+        )
+        .unwrap();
+        card.write(
+            &format!(".paperpaw/cache/{key}/epub/c{n}/.host/.complete"),
+            b"k",
+        )
+        .unwrap();
+    }
+    let mut budget = 100;
+    assert_eq!(
+        remove_doc_cache(&card, BOOK, &mut budget).unwrap(),
+        Progress::Done
+    );
+    assert_eq!(all_pages(&card, BOOK), STAMPS_LISTED + 1);
+}
+
+/// N5: a step that took nothing but moved on does not end the removal; one
+/// that took nothing and did not move on does.
+#[test]
+fn a_tree_step_that_moves_on_without_removing_goes_on() {
+    struct Skips<'a> {
+        card: &'a MemoryStorage,
+        calls: Cell<u64>,
+        stuck: bool,
+    }
+    impl Storage for Skips<'_> {
+        fn read_at(&self, p: &str, at: u64, b: &mut [u8]) -> Result<usize, StorageError> {
+            self.card.read_at(p, at, b)
+        }
+        fn size(&self, p: &str) -> Result<u64, StorageError> {
+            self.card.size(p)
+        }
+        fn write(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+            self.card.write(p, d)
+        }
+        fn append(&self, p: &str, d: &[u8]) -> Result<(), StorageError> {
+            self.card.append(p, d)
+        }
+        fn list(&self, d: &str, v: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            self.card.list(d, v)
+        }
+        fn remove(&self, p: &str) -> Result<(), StorageError> {
+            self.card.remove(p)
+        }
+        fn remove_tree_step(
+            &self,
+            root: &str,
+            keep_root: bool,
+            place: u64,
+        ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+            let n = self.calls.get();
+            self.calls.set(n + 1);
+            if self.stuck {
+                return Ok(paperpaw_platform::tree::TreeStep::new(0, false, place));
+            }
+            // Two steps that skip on, then the real one.
+            if n < 2 {
+                return Ok(paperpaw_platform::tree::TreeStep::new(0, false, place + 1));
+            }
+            self.card.remove_tree_step(root, keep_root, 0)
+        }
+    }
+    let card = card();
+    doc_cache(&card, BOOK, 3);
+    let skips = Skips {
+        card: &card,
+        calls: Cell::new(0),
+        stuck: false,
+    };
+    let mut budget = 10;
+    assert_eq!(
+        remove_doc_cache(&skips, BOOK, &mut budget).unwrap(),
+        Progress::Done
+    );
+    assert_eq!(skips.calls.get(), 3);
+    assert_eq!(pages_left(&card, BOOK), 0);
+    // Nothing taken and no way on: the removal ends (a refusing card).
+    let card = self::card();
+    doc_cache(&card, BOOK, 3);
+    let stuck = Skips {
+        card: &card,
+        calls: Cell::new(0),
+        stuck: true,
+    };
+    let mut budget = 10;
+    assert_eq!(
+        remove_doc_cache(&stuck, BOOK, &mut budget).unwrap(),
+        Progress::Done
+    );
+    assert_eq!(stuck.calls.get(), 1);
+}
