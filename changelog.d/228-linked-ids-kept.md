@@ -1,3 +1,4 @@
 ### Changed
 
 - **A built-in plugin's id takes no heap** (#248, D4). `Kernel::register_linked` takes the id as the firmware keeps it (`&'static str`), and its context, the owner directory and the linked set borrow that text instead of copying it, and a command or a callback's stage takes its owner id without a copy. The declaration store keeps an image-only owner's batch starts and kinds in one allocation. Loaded (card) plugins are unchanged.
+- **A built-in plugin's declarations take its id from the firmware too** (#248, D4). The owner of a linked plugin's declarations is the checked `&'static str`, not a copy parsed per plugin (four heap copies of the id before), and the id is no longer copied once more just to check it, so a full heap no longer reports a valid id as invalid. Shells that built ids at run time must now keep them for the whole run (`&'static str`); every shell in the tree links its plugins at build time.

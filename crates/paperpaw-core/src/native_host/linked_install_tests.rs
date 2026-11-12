@@ -658,3 +658,78 @@ fn a_kept_value_is_read_once_and_never_over_what_the_reader_set_since() {
     kernel.admit_native_network(&paperpaw_sdk::Id::new_static("linked"), true);
     assert_eq!(network_on(&kernel, "linked"), Some(true));
 }
+
+/// What a linked plugin keeps of the kernel's heap does not grow with its
+/// id: the id stays in the program, and so do its declarations' ids, given
+/// in its fixed id table as the firmware gives them (#248, D4; CR remark 1
+/// on PR #1360).
+#[test]
+fn a_linked_plugin_keeps_no_byte_of_its_id() {
+    use crate::native_host::{FixedTables, shell::tests::HEAP_LIVE};
+    use paperpaw_sdk::Id;
+    const LONG: &str = "abcdefghijklmnopqrstuvwxyzabcdefghijklmn";
+    static SHORT_IDS: [Id; 1] = [Id::new_static("a.screen")];
+    static LONG_IDS: [Id; 1] = [Id::new_static(
+        "abcdefghijklmnopqrstuvwxyzabcdefghijklmn.screen",
+    )];
+    fn kept(id: &'static str, ids: &'static [Id]) -> usize {
+        let mut kernel = kernel();
+        let before = HEAP_LIVE.with(Cell::get);
+        // SAFETY: the test factory obeys the contract and its code is static.
+        let registered = unsafe {
+            kernel.register_linked(
+                entry(|_| {}),
+                METADATA,
+                &shell_host(&[]),
+                id,
+                Heap,
+                HostResources::try_new().unwrap(),
+                &FlatDepth::try_new().unwrap(),
+                |_, _, _, _| {},
+                |_, _, _, _| {},
+                (ptr::null(), 0),
+                FixedTables::NONE.with_ids(ids),
+            )
+        };
+        registered.unwrap();
+        let kept = HEAP_LIVE.with(Cell::get) - before;
+        drop(kernel);
+        kept
+    }
+    assert_eq!(kept(LONG, &LONG_IDS), kept("a", &SHORT_IDS));
+}
+
+/// Every plugin id is a valid `Id`, so `register_linked` keeps it with
+/// `Id::new_static` without checking it again (#248, D4): at the edges where
+/// the two checks could differ, whatever the plugin-id check takes, `Id`
+/// takes too.
+#[test]
+fn every_plugin_id_is_an_id() {
+    let forty = "abcdefghijklmnopqrstuvwxyzabcdefghijklmn";
+    let forty_one = "abcdefghijklmnopqrstuvwxyzabcdefghijklmno";
+    let cases: [(&str, bool); 17] = [
+        ("", false),
+        (forty, true),
+        (forty_one, false),
+        ("a", true),
+        ("-a", false),
+        ("a-", true),
+        ("-", false),
+        ("a--b", true),
+        ("--", false),
+        ("0", true),
+        ("123", true),
+        ("x4", true),
+        ("a.b", false),
+        (".a", false),
+        ("a@1", false),
+        ("A", false),
+        ("a b", false),
+    ];
+    for (id, plugin) in cases {
+        assert_eq!(bundle::is_plugin_id(id), plugin, "{id:?}");
+        if plugin {
+            assert!(paperpaw_sdk::Id::parse(id).is_ok(), "{id:?}");
+        }
+    }
+}

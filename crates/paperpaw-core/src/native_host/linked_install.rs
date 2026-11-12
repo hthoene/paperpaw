@@ -164,14 +164,12 @@ impl crate::Kernel {
         if id == crate::RESERVED_PLUGIN_ID {
             return Err(shell::Error::Status(ERR_DENIED));
         }
-        if !bundle::is_plugin_id(id)
-            || Id::try_parse(id).is_err()
-            || self.shared.native_instances.find(id).is_some()
-        {
+        if !bundle::is_plugin_id(id) || self.shared.native_instances.find(id).is_some() {
             return Err(shell::Error::Status(ERR_INVALID));
         }
-        // Checked above: every copy of the id is the firmware's text, none
-        // takes heap (#248, D4).
+        // A plugin id (one segment of `[a-z0-9-]`) is a valid `Id`, so this
+        // cannot panic, and no copy of it is made, not even to check it:
+        // every copy is the firmware's text, none takes heap (#248, D4).
         let caller = Id::new_static(id);
         let admitted = linked_entry::check(entry, metadata, host).map_err(|refusal| {
             shell::Error::Status(match refusal {
@@ -192,6 +190,7 @@ impl crate::Kernel {
             }
         };
         let mut fixed = fixed;
+        fixed.owner = id;
         if !image.0.is_null() && image.1 > 0 {
             // SAFETY: this function's contract: `image` is a read-only mapping
             // of `image.1` bytes that stays mapped, unchanged, for the whole
