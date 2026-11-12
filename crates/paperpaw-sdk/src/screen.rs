@@ -199,30 +199,54 @@ impl FixedScreen {
 }
 
 /// Every screen plugins added, with the translation key of its name
-/// ([`Env::screens`](crate::Env::screens)): those kept in the program
-/// and the others.
+/// ([`Env::screens`](crate::Env::screens)): interface-6 plugins', interface-7
+/// plugins' ([`Titled`](crate::Titled)) and those kept in the program.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ScreenList<'a> {
     added: &'a [(Id, Cow<'static, str>)],
+    native: &'a [crate::Titled],
     fixed: &'a [&'static FixedScreen],
 }
 
 impl<'a> ScreenList<'a> {
-    /// The screens of `added` and `fixed`, each by id.
+    /// The screens of `added`, `native` and `fixed`, each sorted by id.
     #[cfg(feature = "kernel")]
-    pub fn new(added: &'a [(Id, Cow<'static, str>)], fixed: &'a [&'static FixedScreen]) -> Self {
-        Self { added, fixed }
+    pub fn new(
+        added: &'a [(Id, Cow<'static, str>)],
+        native: &'a [crate::Titled],
+        fixed: &'a [&'static FixedScreen],
+    ) -> Self {
+        Self {
+            added,
+            native,
+            fixed,
+        }
     }
 
-    /// Each screen's id and the translation key of its name.
+    /// Each screen's id and the translation key of its name: those plugins
+    /// added in the order of their ids, then those kept in the program.
     pub fn iter(self) -> impl Iterator<Item = (&'a Id, &'a str)> + 'a {
-        let added = self.added.iter().map(|(id, title)| (id, title.as_ref()));
+        let mut added = self
+            .added
+            .iter()
+            .map(|(id, title)| (id, title.as_ref()))
+            .peekable();
+        let mut native = self
+            .native
+            .iter()
+            .map(|titled| (titled.id(), titled.title()))
+            .peekable();
+        let merged = core::iter::from_fn(move || match (added.peek(), native.peek()) {
+            (Some(a), Some(n)) if n.0 < a.0 => native.next(),
+            (Some(_), _) => added.next(),
+            (None, _) => native.next(),
+        });
         let fixed = self.fixed.iter().map(|f| (f.id(), f.title()));
-        added.chain(fixed)
+        merged.chain(fixed)
     }
 
     pub fn len(&self) -> usize {
-        self.added.len() + self.fixed.len()
+        self.added.len() + self.native.len() + self.fixed.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -1148,5 +1172,43 @@ mod tests {
         assert_eq!(Pane::DETAIL.known(), Pane::DETAIL);
         assert_eq!(Pane::FULL.known(), Pane::FULL);
         assert_eq!(Pane::default(), Pane::FULL);
+    }
+
+    /// Interface-6 and interface-7 plugins' screens come in the order of their
+    /// ids, as when they were one list (#248, B), each with its title.
+    #[cfg(feature = "kernel")]
+    #[test]
+    fn a_screen_list_reads_both_kinds_in_the_order_of_their_ids() {
+        static KEPT: [(Id, &str); 2] = [
+            (Id::new_static("b.screen"), "b.title"),
+            (Id::new_static("d.screen"), "d.title"),
+        ];
+        let added = [
+            (Id::new_static("a.screen"), Cow::Borrowed("a.title")),
+            (Id::new_static("c.screen"), Cow::Borrowed("c.title")),
+        ];
+        let owned = alloc::boxed::Box::new((Id::new_static("e.screen"), Cow::Borrowed("e.title")));
+        let native = [
+            crate::Titled::kept(&KEPT[0]),
+            crate::Titled::kept(&KEPT[1]),
+            crate::Titled::owned(owned),
+        ];
+        let list = ScreenList::new(&added, &native, &[]);
+        let read: alloc::vec::Vec<(&str, &str)> = list
+            .iter()
+            .map(|(id, title)| (id.as_str(), title))
+            .collect();
+        assert_eq!(
+            read,
+            [
+                ("a.screen", "a.title"),
+                ("b.screen", "b.title"),
+                ("c.screen", "c.title"),
+                ("d.screen", "d.title"),
+                ("e.screen", "e.title"),
+            ]
+        );
+        assert_eq!(list.len(), 5);
+        assert!(core::ptr::eq(list.iter().nth(1).unwrap().0, &KEPT[0].0));
     }
 }

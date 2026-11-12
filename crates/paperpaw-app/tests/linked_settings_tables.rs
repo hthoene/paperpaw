@@ -153,3 +153,26 @@ fn every_linked_plugins_action_keeps_the_entry_of_its_titles_table() {
     }
     assert!(native > 10, "{native} native actions");
 }
+
+#[test]
+fn every_linked_plugins_screen_keeps_the_entry_of_its_titles_table() {
+    let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
+    let builder = Kernel::builder(DEVICE).storage(storage);
+    let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
+    let _ = kernel.start(Instant(0));
+    // Each linked plugin's screen keeps the id of its plugin's titles table,
+    // not a row of its own (#248, B).
+    let mut kept = 0;
+    for id in kernel.known_screens() {
+        let titles = paperpaw_app::fixed_tables(id.namespace()).titles;
+        if titles.iter().any(|(entry, _)| entry == id) {
+            assert!(
+                titles.iter().any(|(entry, _)| core::ptr::eq(entry, id)),
+                "{} keeps a row of its own",
+                id.as_str()
+            );
+            kept += 1;
+        }
+    }
+    assert!(kept > 10, "{kept} screens kept");
+}

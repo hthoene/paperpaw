@@ -176,6 +176,22 @@ pub(crate) fn normalize(
     }
 }
 
+/// A screen's or an action's id and title as the kernel keeps them: the
+/// entry of the plugin's titles table where the declaration has one (no heap,
+/// #248), else a copy of its own (`ERR_NO_MEMORY` where the heap refuses it).
+pub(crate) fn titled(
+    kept: Option<&'static (Id, &'static str)>,
+    id: Id,
+    title: Cow<'static, str>,
+) -> Result<paperpaw_sdk::Titled, i32> {
+    match kept {
+        Some(entry) => Ok(paperpaw_sdk::Titled::kept(entry)),
+        None => super::shared::try_box((id, title))
+            .map(paperpaw_sdk::Titled::owned)
+            .ok_or(ERR_NO_MEMORY),
+    }
+}
+
 /// A screen's or an action's callback, named `name` and called `title`.
 fn callback(
     owner: &str,
