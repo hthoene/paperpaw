@@ -9,8 +9,10 @@ use alloc::vec::Vec;
 use super::{Breaks, DocumentError, is_space, read_onto};
 use paperpaw_sdk::Storage;
 
-/// The most of the file held at once while opening.
-pub(super) const CHUNK: u32 = 4096;
+/// The most of the file held at once while opening: half the head, below
+/// what an EPUB's details open holds (zip state and window, #248), and few
+/// reads (a Project Gutenberg book in about seven).
+pub(super) const CHUNK: u32 = 8 * 1024;
 
 /// The Project Gutenberg start marker.
 const START: &[u8] = b"*** START OF";
@@ -19,14 +21,22 @@ const START: &[u8] = b"*** START OF";
 /// longer ones (at most a few in a head) are kept in a list.
 const SHORT: usize = 512;
 
-/// What the head says before its encoding is known.
+/// What the head says, from one pass over it.
 pub(super) struct Scan {
+    /// A UTF-16 byte order mark, big-endian or not (where looked for): the
+    /// rest is then not read.
+    pub(super) utf16: Option<bool>,
+    /// A UTF-8 byte order mark.
+    pub(super) bom: bool,
     /// Whether `0..to` is UTF-8 (a sequence cut off at `to` counts unless
     /// the head is the whole file).
     pub(super) utf8: bool,
     /// Where the Project Gutenberg start marker is, and where the line
     /// after it starts (`to` where none does in the head).
     pub(super) marker: Option<(u32, u32)>,
+    /// How paragraphs break and the typical line length in the text's part
+    /// of the head: from the line after the marker, else after the mark.
+    pub(super) look: (Breaks, usize),
 }
 
 /// Reads `from..to` of `path` into `buf`, replacing what it held.
@@ -41,20 +51,33 @@ fn piece(
     read_onto(storage, path, from, to, buf)
 }
 
-/// Tells `0..to` of `path`'s encoding and finds its start marker, a piece at
-/// a time. Pieces overlap by the marker's length less one, so a marker on a
-/// border is found; the UTF-8 check goes on where the last whole character
-/// ended (at most three bytes before a piece's end, inside the overlap).
+/// Tells `0..to` of `path`'s encoding, finds its start marker and takes the
+/// look of the text after it, in one pass a piece at a time. Pieces overlap
+/// by the marker's length less one, so a marker on a border is found; the
+/// UTF-8 check goes on where the last whole character ended (at most three
+/// bytes before a piece's end, inside the overlap); each byte is counted
+/// for the look once, the count started again at the marker's next line.
+/// With `utf16` a UTF-16 mark ends the pass at its first piece.
 pub(super) fn scan(
     storage: &dyn Storage,
     path: &str,
     to: u32,
     complete: bool,
+    utf16: bool,
 ) -> Result<Scan, DocumentError> {
     let mut buf = Vec::new();
-    let mut utf8 = true;
-    // The first byte the UTF-8 check has not read (a character's first).
+    let mut scan = Scan {
+        utf16: None,
+        bom: false,
+        utf8: true,
+        marker: None,
+        look: (Breaks::Lines, 0),
+    };
+    let mut look = Look::new()?;
+    // The first byte the UTF-8 check has not read (a character's first),
+    // and the first the look has not counted.
     let mut checked = 0u32;
+    let mut counted = 0u32;
     // The marker, and where the newline ending its line is looked for from.
     let mut marker: Option<(u32, u32)> = None;
     let mut line = None;
@@ -63,12 +86,24 @@ pub(super) fn scan(
         let end = pos.saturating_add(CHUNK).min(to);
         piece(storage, path, pos, end, &mut buf)?;
         let last = end == to;
-        if utf8 {
+        if pos == 0 {
+            scan.utf16 = match buf.get(..2) {
+                Some([0xff, 0xfe]) if utf16 => Some(false),
+                Some([0xfe, 0xff]) if utf16 => Some(true),
+                _ => None,
+            };
+            if scan.utf16.is_some() {
+                return Ok(scan);
+            }
+            scan.bom = buf.starts_with(&[0xef, 0xbb, 0xbf]);
+            counted = if scan.bom { 3 } else { 0 };
+        }
+        if scan.utf8 {
             let rest = buf.get((checked - pos) as usize..).unwrap_or_default();
             match core::str::from_utf8(rest) {
                 Ok(_) => checked = end,
-                Err(error) if error.error_len().is_some() => utf8 = false,
-                Err(_) if last => utf8 = !complete,
+                Err(error) if error.error_len().is_some() => scan.utf8 = false,
+                Err(_) if last => scan.utf8 = !complete,
                 Err(error) => checked += error.valid_up_to() as u32,
             }
         }
@@ -78,20 +113,36 @@ pub(super) fn scan(
         if let (Some((at, from)), None) = (marker, line) {
             let rest = buf.get((from - pos) as usize..).unwrap_or_default();
             match rest.iter().position(|&b| b == b'\n') {
-                Some(i) => line = Some(from + i as u32 + 1),
+                Some(i) => {
+                    let next = from + i as u32 + 1;
+                    line = Some(next);
+                    // The text starts there: what came before is not its look.
+                    look = Look::new()?;
+                    counted = next;
+                }
                 None => marker = Some((at, end)),
             }
         }
+        for &byte in buf
+            .get((counted.max(pos) - pos) as usize..)
+            .unwrap_or_default()
+        {
+            look.byte(byte)?;
+        }
+        counted = counted.max(end);
         if last {
             break;
         }
         // `checked` is at least `end - 3` while the check goes on.
         pos = end - (START.len() as u32 - 1);
     }
-    Ok(Scan {
-        utf8,
-        marker: marker.map(|(at, _)| (at, line.unwrap_or(to))),
-    })
+    // A marker whose line does not end in the head leaves no text in it.
+    if marker.is_some() && line.is_none() {
+        look = Look::new()?;
+    }
+    scan.marker = marker.map(|(at, _)| (at, line.unwrap_or(to)));
+    scan.look = look.end()?;
+    Ok(scan)
 }
 
 /// Gives `visit` each line of `0..to` (split at `\n`, the last one cut at
@@ -313,7 +364,8 @@ mod tests {
                 .map(|(_, line)| line.to_vec())
                 .collect()
         });
-        let from = marker.map_or(0, |(_, line)| line as usize);
+        let bom = usize::from(head.starts_with(&[0xef, 0xbb, 0xbf])) * 3;
+        let from = marker.map_or(bom, |(_, line)| line as usize);
         let sample = &head[from..];
         let look = (detect_breaks(sample), typical_line_length(sample).unwrap());
         (is_utf8(head, complete), marker, lines, look.0, look.1)
@@ -321,7 +373,7 @@ mod tests {
 
     fn pieces(bytes: &[u8], to: u32) -> Told {
         let storage = MemoryStorage::new().with(PATH, bytes.to_vec());
-        let scan = scan(&storage, PATH, to, to as usize == bytes.len()).unwrap();
+        let scan = scan(&storage, PATH, to, to as usize == bytes.len(), false).unwrap();
         let mut seen = Vec::new();
         if let Some((at, _)) = scan.marker {
             lines(&storage, PATH, at, &mut |line| {
@@ -330,9 +382,12 @@ mod tests {
             })
             .unwrap();
         }
-        let from = scan.marker.map_or(0, |(_, line)| line);
-        let (breaks, typical) = look(&storage, PATH, from, to).unwrap();
-        (scan.utf8, scan.marker, seen, breaks, typical)
+        // The look again on its own, as a text ending in the head takes it.
+        let from = scan
+            .marker
+            .map_or(u32::from(scan.bom) * 3, |(_, line)| line);
+        assert_eq!(look(&storage, PATH, from, to).unwrap(), scan.look);
+        (scan.utf8, scan.marker, seen, scan.look.0, scan.look.1)
     }
 
     fn same(bytes: &[u8]) {
@@ -353,9 +408,20 @@ mod tests {
     /// character of several bytes, a line break, long and short lines.
     fn texts() -> Vec<Vec<u8>> {
         let mut texts: Vec<Vec<u8>> = Vec::new();
-        for cut in [
-            0usize, 1, 5, 11, 12, 13, 2000, 4084, 4090, 4093, 4094, 4095, 4096, 4097,
-        ] {
+        let c = CHUNK as usize;
+        // The second piece starts at `c - 11`, so it ends at `2c - 11`.
+        let borders = [
+            c - 12,
+            c - 6,
+            c - 3,
+            c - 2,
+            c - 1,
+            c,
+            c + 1,
+            2 * c - 25,
+            2 * c - 13,
+        ];
+        for cut in [0usize, 1, 5, 11, 12, 13, 2000].into_iter().chain(borders) {
             let pad = "x".repeat(cut);
             texts.push(format!("{pad}*** START OF THE BOOK ***\r\nText.\n").into_bytes());
             texts.push(format!("{pad}é is two bytes, € three, 𝄞 four.\n").into_bytes());
@@ -372,11 +438,17 @@ mod tests {
             texts.push(latin);
         }
         texts.push(Vec::new());
+        texts.push(
+            "\u{feff}A marked text\nwith lines\n\nand breaks.\n"
+                .repeat(400)
+                .into_bytes(),
+        );
+        texts.push("\u{feff}Title: É\r\n*** START OF\r\nText.\r\n".into());
         texts.push(b"\n".to_vec());
         texts.push(b"\n\n".to_vec());
         texts.push(b"one\n\ntwo\n\nthree".to_vec());
         texts.push(format!("{}\n", "y".repeat(9000)).repeat(3).into_bytes());
-        texts.push(format!("Title: {}\n*** START OF\n", "t".repeat(5000)).into_bytes());
+        texts.push(format!("Title: {}\n*** START OF\n", "t".repeat(9000)).into_bytes());
         texts.push("Para one\nline two\n\n".repeat(3000).into_bytes());
         texts.push("a\n".repeat(9000).into_bytes());
         texts.push(" \r\n".repeat(7000).into_bytes());
@@ -396,9 +468,9 @@ mod tests {
 
     #[test]
     fn a_header_line_longer_than_a_piece_is_left_out() {
-        let text = format!("Title: {}\nAuthor: A\n*** START OF\n", "t".repeat(5000));
+        let text = format!("Title: {}\nAuthor: A\n*** START OF\n", "t".repeat(9000));
         let (_, marker, lines, ..) = pieces(text.as_bytes(), text.len() as u32);
-        assert_eq!(marker, Some((5018, text.len() as u32)));
+        assert_eq!(marker, Some((9018, text.len() as u32)));
         assert_eq!(lines, [b"Author: A".to_vec(), Vec::new()]);
     }
 

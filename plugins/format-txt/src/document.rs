@@ -114,28 +114,20 @@ impl TxtDocument {
         converted: Option<&str>,
     ) -> Result<Self, DocumentError> {
         let mut size = file_size(storage, path)?;
-        let mut lead = read(storage, path, 0, size.min(3))?;
+        // The head is read a piece at a time (`head`), never held whole.
+        let mut scan = head::scan(storage, path, size.min(SNIFF), size <= SNIFF, true)?;
         // UTF-16 is read from a copy in UTF-8, made when it is first opened.
         let mut text = copy_text(path)?;
-        let big_endian = match lead.get(..2) {
-            Some([0xff, 0xfe]) => Some(false),
-            Some([0xfe, 0xff]) => Some(true),
-            _ => None,
-        };
-        if let Some(big_endian) = big_endian {
+        if let Some(big_endian) = scan.utf16 {
             text = match converted {
                 Some(copy) => copy_text(copy)?,
                 None => utf8_copy(storage, path, size, big_endian)?,
             };
             size = file_size(storage, &text)?;
-            lead = read(storage, &text, 0, size.min(3))?;
+            scan = head::scan(storage, &text, size.min(SNIFF), size <= SNIFF, false)?;
         }
-        // The head is read a piece at a time (`head`), never held whole.
         let sampled = size.min(SNIFF);
-        let bom = lead.starts_with(&[0xef, 0xbb, 0xbf]);
-        drop(lead);
-        let scan = head::scan(storage, &text, sampled, size <= SNIFF)?;
-        let encoding = if bom || scan.utf8 {
+        let encoding = if scan.bom || scan.utf8 {
             Encoding::Utf8
         } else {
             Encoding::Windows1252
@@ -143,11 +135,11 @@ impl TxtDocument {
 
         let mut document = TxtDocument {
             path: text,
-            start: if bom { 3 } else { 0 },
+            start: if scan.bom { 3 } else { 0 },
             end: size,
             encoding,
-            breaks: Breaks::Lines,
-            wrap_width: 0,
+            breaks: scan.look.0,
+            wrap_width: scan.look.1,
             metadata: Metadata::default(),
             window: RefCell::default(),
         };
@@ -160,11 +152,12 @@ impl TxtDocument {
         if let Some(end) = find_end_marker(storage, &document.path, document.start, size)? {
             document.end = end;
         }
-        // The text's look from the head, the licence after a text that ends
-        // inside it left out.
-        let to = document.end.min(sampled).max(document.start);
-        (document.breaks, document.wrap_width) =
-            head::look(storage, &document.path, document.start, to)?;
+        if document.end < sampled {
+            // The text ends inside the head: its look from the text alone.
+            let to = document.end.max(document.start);
+            (document.breaks, document.wrap_width) =
+                head::look(storage, &document.path, document.start, to)?;
+        }
 
         if document.metadata.title.is_none() {
             let name = path.rsplit('/').next().unwrap_or(path);
