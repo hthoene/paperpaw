@@ -7,6 +7,7 @@
 //! picture over the page) are [`images`]'s: asked for from the events, since a
 //! draw can send no command; until one is there the screen shows the message.
 use crate::{
+    native_pick::Failure,
     native_sleep::{self as model, Content, Facts},
     native_stack::{self as stack, Entry},
 };
@@ -61,6 +62,15 @@ struct OverSetup {
     opacity: u8,
 }
 
+/// Why the picture over the page did not show, for the picker, once known.
+#[derive(Debug, Default)]
+struct OverNote {
+    /// `None` until known; `Some(None)`: it showed.
+    known: Option<Option<Failure>>,
+    /// What is known is kept in the data folder.
+    kept: bool,
+}
+
 /// A widget made for the screen and where it goes.
 #[derive(Debug)]
 struct Placed {
@@ -95,6 +105,8 @@ pub struct Sleeping {
     facts: Facts,
     /// The pictures asked for and held.
     pics: images::Pics,
+    /// Why the picture over the page did not show (`native_picker::remember`).
+    over_note: OverNote,
 }
 
 impl Sleeping {
@@ -117,7 +129,32 @@ impl Sleeping {
                 ..facts_before(off)
             },
             pics: images::Pics::default(),
+            over_note: OverNote::default(),
         }
+    }
+
+    /// Notes why the picture over the page did not show (`None`: it showed).
+    fn note(&mut self, why: Option<Failure>) {
+        self.over_note = OverNote {
+            known: Some(why),
+            kept: false,
+        };
+    }
+
+    /// Keeps what is known of the picture over the page for the picker, once:
+    /// called from the events (a draw writes no file).
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn note_over(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let Some(why) = &self.over_note.known else {
+            return Ok(());
+        };
+        if self.over_note.kept {
+            return Ok(());
+        }
+        self.over_note.kept = true;
+        crate::native_picker::remember(host, why.as_ref())
     }
 
     /// Reads the parameters of the open, the settings and, for the picture
@@ -369,7 +406,7 @@ impl Sleeping {
         style: &Style,
     ) -> Result<Laid, Error> {
         let screen = Rect::new(0, 0, display.display_width(), display.display_height());
-        let mut over = None;
+        let (mut over, mut noted) = (None, None);
         // A widget over the page is made here; the picture over it was asked
         // for when the screen opened (`images`), and stands as it was found.
         let widget = self
@@ -380,9 +417,21 @@ impl Sleeping {
             && let Some(setup) = widget
         {
             over = self.make_over(host, ui, display, font, style, setup)?;
+            // Kept when the screen closes; a name that cannot be copied
+            // leaves it unknown.
+            let why = match over {
+                Some(_) => Some(None),
+                None => paperpaw_ui_kit::text::copy(setup.widget.trim())
+                    .ok()
+                    .map(|name| Some(Failure::NoWidget(name))),
+            };
+            noted = why;
         }
         if widget.is_some() || self.over.is_none() {
             self.facts.over_page = over.is_some();
+        }
+        if let Some(why) = noted {
+            self.note(why);
         }
         let mut widgets = Vec::new();
         if model::effective(&self.setting, self.facts) == model::WIDGETS {

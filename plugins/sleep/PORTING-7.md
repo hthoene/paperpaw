@@ -1,9 +1,10 @@
-# Interface-7 port (slices 1 to 3: the decisions, the declarations, the native entry and screen, the pictures)
+# Interface-7 port (slices 1 to 4: the decisions, the declarations, the native entry and screen, the pictures, the picker)
 
 Version 1.0.4 (already above its Beta 3 version, 1.0.3; no further bump). Status: **not complete**: the native
 entry (`NativeSleep`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin) shows the screen and, since
-slice 3, its pictures (`src/native_screen/images.rs`); the picker (item 4) and the steps named below are open, so it
-is not in `tools/plugin-files7/complete.txt`. The interface-6 `Sleep` and everything of it stays until the host activates native
+slice 3, its pictures (`src/native_screen/images.rs`); since slice 4 (#257) the picker (item 4,
+`src/native_pick.rs`, `src/native_picker.rs`); the steps named below are open, so it is not in
+`tools/plugin-files7/complete.txt`. The interface-6 `Sleep` and everything of it stays until the host activates native
 plugins (then it goes together, no shim; see the removal step).
 
 ## Native entry and screen (slice 2)
@@ -28,17 +29,15 @@ time it shows (not for `page`).
   by position inside the margins and clear of the status lines, `box_size`, `fit` equal to the
   SDK's `fit_image`, `opacity`). Allocation is fallible and swept; sizes saturate.
 - `declarations.rs`: the group (order 62, moon icon), the nine settings with their editors (the
-  folder and widget choosers by slot, the picker by screen), units, steps and sliders, the screens,
+  folder and widget choosers by slot, the picker by screen, `pick-overlay`, for both the picture and
+  the widget over the page), units, steps and sliders, the screens (the picker and the sleep screen),
   the `core.sleep` offer, the `Sleep` need of the group and every setting, and the two places of
   widgets with their conditions. `tests/abi7_declarations.rs` compares each with the interface-6
-  registration.
+  registration: they are equal, the picker's two extras and its screen included.
+- The picker (`pick-overlay`, slice 4): see item 4 below.
 
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
-- **The picker (`pick-overlay`):** interface 6 picks the picture and the widget over the page on a screen of its own.
-  It is not ported (over ~150 lines: a list of the picture folder's files and of the widgets): the two settings have
-  **no editor** until then (a text row), and the screen is not declared, so that no row opens a screen nobody answers.
-  `tests/abi7_declarations.rs` pins the difference to interface 6 (two extras, one screen).
 - **Hidden hints:** no declaration of a screen's hint visibility.
 - **Another plugin's mode:** the declarations carry the plugin's own seven; another plugin's mode is a foreign
   `setting.choice` it declares itself, and sleep binds the slot for it (item 5 below).
@@ -80,7 +79,7 @@ back; at most 8 prepared and 4 waiting per plugin. With it the items below becom
    - *a picture a preset names under another plugin's folder* (`plugins/<id>/owl.png`): the card root (1) excludes
      `plugins/` and `.paperpaw/` and root 2 is the plugin's own install folder only; needs a root for another plugin's
      files (Host); a path there fails and the fallback shows;
-   - *why the picture over the page failed, for the picker* (`overlay-failed.txt`): with the picker (item 4).
+   - *why the picture over the page failed, for the picker* (`overlay-failed.txt`): done with the picker (item 4).
 3. **The cover: done (slice 3).** `Library::cover` (op 7) for the first book of `Query::new().sort(RecentlyOpened)
    .descending(true)` that is `opened`, at the screen's longer side, held as the cover's `ImageId` (no prepare), released
    at close; also looked for as the spare of a picture over the page. No book read, a book without a cover, or a cover
@@ -93,9 +92,34 @@ back; at most 8 prepared and 4 waiting per plugin. With it the items below becom
    **Not ported with the images:** the custom logo picture of `core.logo` (a card file named in `settings.ini`; the
    contracts allow it through `PrepareRoot::Library`, a small slice of its own), the image description for
    accessibility (`Canvas::describe`: the native canvas has none) and the gray-levels hint of `Screen::grays`.
-4. **The picker (`pick-overlay`):** not an image matter: a list screen of the picture folder (`core.files` listing,
-   as `picture-home`'s chooser) and of the widgets (`core.registry`): a slice of its own; the two settings have no
-   editor until then.
+4. **The picker (`pick-overlay`): done (slice 4, #257).** The screen `sleep.pick-overlay` (token `PICK`) is declared
+   and is the editor (`EditorDecl::Screen`) of both `sleep.overlay-picture` and `sleep.overlay-widget`, as in
+   interface 6. Its rows are Beta 3's, in its order (`overlay::Picker`; the model is `src/native_pick.rs`, the screen
+   `src/native_picker.rs`, the kit's `ItemList`): *From the pictures folder* (both settings empty), the presets of
+   kind `sleep.overlay` (`core.registry` op presets, in the host's order, names as the host translates them), then
+   every widget (*Widget: name*, `core.registry` op widgets). The row of what is chosen says *On* (`core.state.on`):
+   a widget set marks only its row; else the folder where no picture is set, a preset whose values the settings hold
+   (`core.registry` op values, compared with `settings.read`; a value the registry withholds is not compared).
+   Choosing sets `sleep.overlay-widget` (empty but for a widget), then `sleep.overlay-picture` to empty (the folder)
+   or applies the preset (`command.apply_preset`, `Apply`; one gone since is left), and closes the screen in the same
+   callback; Back is the host's and closes. The rows are read when it opens, each registry list one page at a time
+   with 4 KiB buffers freed before the screen shows; only the rows are held, and they go when it closes. A registry
+   that refuses a list leaves its rows out (the folder row is always there); only a memory shortage fails the open.
+   **Why the picture over the page did not show at the last sleep** is noted below the rows (*Not shown at the last
+   sleep: …*, `Footer::Note`), from `overlay-failed.txt` in the data folder, which the sleep screen now keeps as
+   interface 6 did (`native_picker::remember`, written only when it changed, removed when the picture showed): *There
+   is no picture in the pictures folder* (no file of the folder, also a folder the reader gave no consent for),
+   *{name} is not there* (`ImageStatus::NotFound`, or a prepare the host refused), *{name} cannot be shown
+   ({reason})* (the other statuses, the reason in English as interface 6 gave its decoder's), *There is no widget
+   {name}*. Picture failures are kept from the events they are known in (the open, `event.image_ready`); a widget
+   that cannot be made is known only at the first draw, which writes no file, so it is kept when the screen closes
+   (a device switched off with the screen up keeps the note of the sleep before). Pinned by `tests/native_pick.rs`
+   (rows, order, the mark, choosing, a picker of the folder alone, the failures, refused allocations) and
+   `tests/abi7_declarations.rs`.
+   **Differences to Beta 3:** the reason of an unreadable picture comes from the host's status (Beta 3 gave its
+   decoder's own words); a folder the reader gave no consent for reads as empty; the widget's note is kept at close,
+   not at open; the widgets are those `core.registry` lists (it leaves out the widgets that only preview a settings
+   group); the mark is decided when the picker opens (Beta 3 at each draw; a choice closes it either way).
 5. **Another plugin's mode (reading-goal's `reading-goal.sleep`): settled (Kernel's ruling), done in sleep.** Nothing is
    embedded or opened by sleep: the sleep screen stays the slot `core.sleep`, shown by the host with its device-state
    rules. The offering plugin (reading-goal) declares a `slot.offer` of its screen `reading-goal.sleep` to the slot
@@ -143,7 +167,13 @@ back; at most 8 prepared and 4 waiting per plugin. With it the items below becom
 6. **Hidden hints:** no declaration of a screen's hint visibility (kernel's).
 
 The order that makes the plugin native-only: #692 → 1 and 2 (one decode at a time, four waiting at most) → 3 with the
-cover facade → 4 (5 is done); 1 to 3 are in slice 3.
+cover facade → 4 (5 is done); 1 to 3 are in slice 3, 4 in slice 4.
+
+**Remaining gaps** (after slice 4): the hidden hints of the sleep screen (item 6, no declaration); the clear parts of a
+PNG or GIF over the page (alpha, item 2); a picture under another plugin's folder (item 2); the custom logo of
+`core.logo`, the image description and the gray-levels hint (item 3); a pre-asked cat and logo or a command allowed in a
+draw for the fallbacks decided at draw time (item 3); the production loader and the qualification of screen commands,
+composition and input (the acceptance cases in `tests/acceptance_pending.rs`, H1, H3, H4).
 
 ## Removal step (one sweep, with the reader port and Core #944)
 
