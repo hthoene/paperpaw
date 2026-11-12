@@ -1,0 +1,3 @@
+### Changed
+
+- **The book formats sleep** (#248, Decision 165). The seven linked formats (TXT, EPUB, HTML, Markdown, FB2, CBZ, XTC) are flagged to sleep: each is parked until a book of it opens and again on standby, where the kernel's checks allow it. They are native plugins only where the build activates them (#243). A parked format a document needs is made in the same pass (the service pump runs up to three rounds); a call to a parked plugin asks it to start; a pending open reports no book flags until its format answers; a re-park whose retirement was refused at first keeps the formats listed on its retry; no cover job starts on the way into standby. The reader now counts the pages of a book that opens ready at once.

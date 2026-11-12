@@ -23,6 +23,8 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+#[path = "support/books.rs"]
+mod books;
 #[path = "support/card.rs"]
 mod card;
 mod native_activation;
@@ -453,6 +455,8 @@ fn book_of(plugin: &str) -> Option<Book> {
             text.extend(b"</section></body></FictionBook>");
             ("books/rooms.fb2", text)
         }
+        "format-cbz" => ("books/rooms.cbz", books::cbz()),
+        "format-xtc" => ("books/rooms.xtc", books::xtc()),
         _ => return None,
     };
     Some(Book { path, bytes })
@@ -531,6 +535,13 @@ fn every_plugin_that_may_sleep_has_a_case() {
         "about",
         "file-manager",
         "files",
+        "format-cbz",
+        "format-epub",
+        "format-fb2",
+        "format-html",
+        "format-markdown",
+        "format-txt",
+        "format-xtc",
         "keyboard",
         "menu",
         "opds",
@@ -576,6 +587,12 @@ fn settings_is_the_same_asleep() {
 
 #[test]
 #[ignore = "needs native activation (formats are native plugins with the flip, #243)"]
+fn format_cbz_is_the_same_asleep() {
+    same_awake_and_asleep("format-cbz");
+}
+
+#[test]
+#[ignore = "needs native activation (formats are native plugins with the flip, #243)"]
 fn format_epub_is_the_same_asleep() {
     same_awake_and_asleep("format-epub");
 }
@@ -602,6 +619,12 @@ fn format_markdown_is_the_same_asleep() {
 #[ignore = "needs native activation (formats are native plugins with the flip, #243)"]
 fn format_txt_is_the_same_asleep() {
     same_awake_and_asleep("format-txt");
+}
+
+#[test]
+#[ignore = "needs native activation (formats are native plugins with the flip, #243)"]
+fn format_xtc_is_the_same_asleep() {
+    same_awake_and_asleep("format-xtc");
 }
 
 /// A book whose document is ready at once (every plugin awake): the reader

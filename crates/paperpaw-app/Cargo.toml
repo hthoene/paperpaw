@@ -164,6 +164,8 @@ paperpaw-plugin-settings.workspace = true
 paperpaw-core = { workspace = true, features = ["testing"] }
 paperpaw-platform.workspace = true
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
+# Comic books for the sleep tests (#248).
+paperpaw-zip = { workspace = true, features = ["testing"] }
 
 # One check in its own process, no test harness: its allocator counts every
 # allocation, and libtest's captured output would grow the heap it measures.

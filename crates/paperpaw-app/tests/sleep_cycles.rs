@@ -22,6 +22,8 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+#[path = "support/books.rs"]
+mod books;
 #[path = "support/card.rs"]
 mod card;
 mod native_activation;
@@ -143,6 +145,12 @@ const BOOKS: [(&str, &str, &[u8]); 5] = [
     ),
 ];
 
+/// The books built in memory (comic, pre-rendered pages).
+const BUILT: [(&str, &str, fn() -> Vec<u8>); 2] = [
+    ("format-cbz", "books/rooms.cbz", books::cbz),
+    ("format-xtc", "books/rooms.xtc", books::xtc),
+];
+
 struct Run {
     kernel: Kernel,
     now: u64,
@@ -216,7 +224,12 @@ impl Run {
             "settings" => return Use::Slot(slots::SETTINGS),
             _ => {}
         }
-        if let Some((_, path, _)) = BOOKS.iter().find(|(format, ..)| *format == plugin) {
+        let built = BUILT.iter().map(|(format, path, _)| (*format, *path));
+        let mut known = BOOKS
+            .iter()
+            .map(|(format, path, _)| (*format, *path))
+            .chain(built);
+        if let Some((_, path)) = known.find(|(format, _)| *format == plugin) {
             return Use::Book(path);
         }
         let mut screens: Vec<Id> = self
@@ -305,6 +318,9 @@ fn main() {
         if !bytes.is_empty() {
             card.write(path, bytes).unwrap();
         }
+    }
+    for (_, path, make) in BUILT {
+        card.write(path, &make()).unwrap();
     }
     let builder = Kernel::builder(BUTTONS)
         .storage(card.clone())
