@@ -250,8 +250,8 @@ impl crate::Kernel {
 
     /// Tells the device's view what the kernel holds: the power level and
     /// stretch of the user's mode, and whether a real-time screen (one that
-    /// takes raw keys or runs at a pace) is on top.
-    fn tell_work_env(&self, env: &dyn super::work_sched::WorkEnv) {
+    /// takes raw keys or runs at a pace, not a native one) is on top.
+    pub(super) fn tell_work_env(&self, env: &dyn super::work_sched::WorkEnv) {
         use paperpaw_sdk::power::PowerLevel;
         let power = &self.shared.power;
         let level = match power.level {
@@ -260,11 +260,10 @@ impl crate::Kernel {
             // Normal, and any level to come: counts as normal.
             _ => 0,
         };
-        let mode = self.top_mode();
         env.kernel_state(
             level,
             power.stretch,
-            mode.takes_raw_keys() || mode.is_paced(),
+            self.top_realtime() || self.top_mode().is_paced(),
         );
     }
 }
