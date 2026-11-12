@@ -1,0 +1,334 @@
+#![allow(clippy::unwrap_used, reason = "fixtures")]
+use super::*;
+use alloc::{format, vec};
+use paperpaw_sdk::MemoryStorage;
+
+const WORDS: &str = "Rabbit\ten\t1\t10\tbooks/alice.txt\tAlice\tThe White Rabbit.\n\
+                     white rabbit\ten-GB\t1\t10\tbooks/alice.txt\tAlice\t\n\
+                     Hase\tde\t1\t10\tbooks/hase.txt\tHase\t\n\
+                     Hatter\t\t1\t10\tbooks/alice.txt\tAlice\t\n\
+                     Straße\tde\t1\t10\tbooks/hase.txt\tHase\t\n";
+
+fn entries(language: &str) -> Entries {
+    let storage = MemoryStorage::new().with(store::file(), WORDS);
+    Entries::read(&storage, language).unwrap()
+}
+
+/// The marks of one run as (run, from, to).
+fn marks(entries: &Entries, run: &str, number: u16) -> Vec<(u16, u16, u16)> {
+    let mut out = Vec::new();
+    entries.find(run, number, &mut out).unwrap();
+    out.chunks(MARK)
+        .map(|m| {
+            let part = |at: usize| u16::from_le_bytes([m[at], m[at + 1]]);
+            (part(0), part(2), part(4))
+        })
+        .collect()
+}
+
+#[test]
+fn the_words_of_the_list_are_marked_as_beta_3_marked_them() {
+    let run = "The White Rabbit, the rabbit and (Hatter). Alice";
+    let found = marks(&entries("en"), run, 3);
+    let seen: Vec<&str> = found
+        .iter()
+        .map(|&(n, from, to)| {
+            assert_eq!(n, 3);
+            &run[usize::from(from)..usize::from(to)]
+        })
+        .collect();
+    // The phrase is one mark, a word and the punctuation the page shows with it too.
+    assert_eq!(seen, ["White Rabbit,", "rabbit", "(Hatter)."]);
+}
+
+#[test]
+fn only_the_words_of_the_books_language_are_marked_and_unknown_ones_count_for_every_book() {
+    let de = entries("de");
+    let found = marks(&de, "Der Hase und das Rabbit sind Hatter", 0);
+    // Hase (de) and Hatter (any language); Rabbit is English.
+    assert_eq!(found.len(), 2);
+    assert!(entries("").len() > de.len(), "no language: every word");
+    // A region does not matter, nor the case: the list says en-GB and EN.
+    assert_eq!(
+        marks(&entries(primary("EN-gb")), "white rabbit", 0).len(),
+        1
+    );
+}
+
+#[test]
+fn case_sharp_s_accents_and_apostrophes_are_folded_as_the_sdk_folds_them() {
+    let de = entries("de");
+    assert_eq!(marks(&de, "die STRASSE", 0), [(0, 4, 11)]);
+    let mut set = Entries::default();
+    set.add("don\u{2019}t").unwrap();
+    set.add("  (..)  ").unwrap();
+    set.finish();
+    assert_eq!(set.len(), 1, "text with no word is no entry");
+    assert_eq!(marks(&set, "Don't stop", 0), [(0, 0, 5)]);
+    // The same entry twice is one.
+    set.add("DON'T").unwrap();
+    set.finish();
+    assert_eq!(set.len(), 1);
+}
+
+#[test]
+fn the_longest_entry_wins_and_no_entry_goes_across_punctuation_alone() {
+    let mut set = Entries::default();
+    for word in ["white", "white rabbit", "rabbit hole"] {
+        set.add(word).unwrap();
+    }
+    set.finish();
+    // `white rabbit` beats `white`; `rabbit hole` is not started on, the words went.
+    assert_eq!(marks(&set, "a white rabbit hole", 1), [(1, 2, 14)]);
+    assert_eq!(marks(&set, "white - rabbit", 1), [(1, 0, 5)]);
+}
+
+#[test]
+fn a_reply_holds_at_most_what_the_stage_allows_and_says_so() {
+    let mut set = Entries::default();
+    set.add("go").unwrap();
+    set.finish();
+    let run = "go ".repeat(700);
+    let mut out = Vec::new();
+    assert!(!set.find(&run, 0, &mut out).unwrap(), "the reply filled up");
+    assert_eq!(out.len(), MAX_RANGES);
+    assert_eq!(out.len() / MARK, 600);
+}
+
+#[test]
+fn an_empty_list_and_an_empty_run_mark_nothing() {
+    assert!(marks(&Entries::default(), "any text", 0).is_empty());
+    assert!(marks(&entries("en"), "", 0).is_empty());
+    assert!(marks(&entries("en"), "   ", 0).is_empty());
+}
+
+#[test]
+fn the_look_is_the_roles_settings_in_the_stages_codes() {
+    // Beta 3's default for the words being learnt: a dotted line, four tenths thick.
+    let look = Look::default();
+    assert_eq!(
+        look,
+        Look {
+            background: 0,
+            ink: 0,
+            line: 2,
+            line_tone: 0,
+            thickness: 4,
+            flags: TAPS,
+        }
+    );
+    let set = Settings {
+        background: Tone::Yellow.id(),
+        ink: Tone::Black.id(),
+        line: LineKind::Wavy.id(),
+        line_tone: Tone::Red.id(),
+        thickness: 99,
+        frame: true,
+        struck: true,
+    };
+    let look = Look::from_settings(&set);
+    assert_eq!(
+        (look.background, look.ink, look.line, look.line_tone),
+        (6, 4, 4, 11)
+    );
+    assert_eq!((look.thickness, look.flags), (20, TAPS | FRAME | STRUCK));
+    // A value that is no tone or line is none; a thickness under 1 is 1.
+    let odd = Look::from_settings(&Settings {
+        background: "x",
+        line: "x",
+        thickness: -5,
+        ..Settings::default()
+    });
+    assert_eq!((odd.background, odd.line, odd.thickness), (0, 0, 1));
+}
+
+#[test]
+fn the_codes_are_those_of_the_sdks_tones_and_lines() {
+    for (code, tone) in TONES {
+        assert_eq!(
+            Look::from_settings(&Settings {
+                background: tone.id(),
+                ..Settings::default()
+            })
+            .background,
+            code
+        );
+    }
+    assert_eq!(
+        TONES.len(),
+        Tone::ALL.len(),
+        "a tone added to the SDK needs a code"
+    );
+    for (code, kind) in LINES {
+        assert_eq!(
+            Look::from_settings(&Settings {
+                line: kind.id(),
+                ..Settings::default()
+            })
+            .line,
+            code
+        );
+    }
+    assert_eq!(LINES.len(), LineKind::ALL.len());
+}
+
+#[test]
+fn a_tapped_word_loses_its_punctuation_and_keeps_the_language_it_was_kept_in() {
+    assert_eq!(tapped_word("(Hatter)."), "Hatter");
+    assert_eq!(tapped_word("..."), "");
+    let storage = MemoryStorage::new().with(store::file(), WORDS);
+    assert_eq!(language_of(&storage, "RABBIT").unwrap(), "en");
+    assert_eq!(language_of(&storage, "white  rabbit").unwrap(), "en-GB");
+    assert_eq!(language_of(&storage, "nothing").unwrap(), "");
+}
+
+/// A storage that counts the bytes read of the list and of the side files.
+struct Counting {
+    inner: MemoryStorage,
+    list: core::cell::Cell<usize>,
+    side: core::cell::Cell<usize>,
+}
+
+impl Counting {
+    fn new(inner: MemoryStorage) -> Self {
+        Self {
+            inner,
+            list: Default::default(),
+            side: Default::default(),
+        }
+    }
+}
+
+impl Storage for Counting {
+    fn read_at(
+        &self,
+        path: &str,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> Result<usize, paperpaw_sdk::StorageError> {
+        let n = self.inner.read_at(path, offset, buf)?;
+        let which = if path == store::file() {
+            &self.list
+        } else {
+            &self.side
+        };
+        which.set(which.get() + n);
+        Ok(n)
+    }
+    fn size(&self, path: &str) -> Result<u64, paperpaw_sdk::StorageError> {
+        self.inner.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_sdk::StorageError> {
+        self.inner.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_sdk::StorageError> {
+        self.inner.append(path, data)
+    }
+    fn list(
+        &self,
+        dir: &str,
+        visit: &mut dyn FnMut(paperpaw_sdk::DirEntry<'_>),
+    ) -> Result<(), paperpaw_sdk::StorageError> {
+        self.inner.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), paperpaw_sdk::StorageError> {
+        self.inner.remove(path)
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), paperpaw_sdk::StorageError> {
+        self.inner.rename(from, to)
+    }
+    fn sync(&self) -> Result<(), paperpaw_sdk::StorageError> {
+        self.inner.sync()
+    }
+}
+
+/// A list of `n` words (a sentence of about 300 bytes each, the most the list keeps).
+fn long_list(n: usize) -> String {
+    let sentence = "x".repeat(250);
+    let mut text = String::new();
+    for i in 0..n {
+        text.push_str(&format!("word{i}\ten\t1\t10\tbooks/a.txt\tA\t{sentence}\n"));
+    }
+    text
+}
+
+#[test]
+fn a_page_turn_reads_the_side_file_and_not_the_list_until_the_list_changes() {
+    let storage = Counting::new(MemoryStorage::new().with(store::file(), long_list(2000).as_str()));
+    let first = Entries::read(&storage, "en").unwrap();
+    assert_eq!(first.len(), 2000);
+    let list_once = storage.list.get();
+    assert!(
+        list_once > 500_000,
+        "the first page reads the list: {list_once}"
+    );
+    // The next pages read the side file: 4 bytes an entry.
+    storage.list.set(0);
+    storage.side.set(0);
+    let again = Entries::read(&storage, "en").unwrap();
+    assert_eq!(again.len(), 2000);
+    // Only its end, for the second key (`TAIL` bytes).
+    assert_eq!(storage.list.get(), TAIL, "the list is not read again");
+    assert_eq!(storage.side.get(), 16 + 4 * 2000);
+    assert!(marks(&again, "so word7 and word1999 are", 0).len() == 2);
+    // A word more: the list's size changed, so it is read again and the side file made anew.
+    storage
+        .append(store::file(), b"newword\ten\t1\t10\tbooks/a.txt\tA\t\n")
+        .unwrap();
+    let changed = Entries::read(&storage, "en").unwrap();
+    assert_eq!(changed.len(), 2001);
+    assert!(storage.list.get() > 0);
+    assert_eq!(marks(&changed, "a newword", 0).len(), 1);
+}
+
+#[test]
+fn a_side_file_that_is_cut_short_or_foreign_is_made_again_and_languages_have_their_own() {
+    let storage = Counting::new(MemoryStorage::new().with(store::file(), WORDS));
+    let de = Entries::read(&storage, "de").unwrap();
+    let en = Entries::read(&storage, "en").unwrap();
+    assert_ne!(de.len(), en.len());
+    // The side file of `de` cut: after a hash (a power cut between two writes),
+    // and in the middle of one. Neither is read, both are made again.
+    let side = ".paperpaw/plugins/vocabulary/marks-de.idx";
+    let mut whole = vec![0; 64];
+    let n = storage.read_at(side, 0, &mut whole).unwrap();
+    for cut in [4, 1] {
+        storage.write(side, &whole[..n - cut]).unwrap();
+        storage.list.set(0);
+        let again = Entries::read(&storage, "de").unwrap();
+        assert_eq!(again.len(), de.len(), "cut by {cut}");
+        assert!(
+            storage.list.get() > 0,
+            "the list was read again (cut by {cut})"
+        );
+        // Made whole again: the next read is from the side file.
+        storage.list.set(0);
+        assert_eq!(Entries::read(&storage, "de").unwrap().len(), de.len());
+        // The list's end only (the second key; the whole list is 209 bytes here).
+        assert!(storage.list.get() <= TAIL, "cut by {cut}");
+    }
+    // Not a side file at all.
+    storage.write(side, b"hello world, not hashes").unwrap();
+    assert_eq!(Entries::read(&storage, "de").unwrap().len(), de.len());
+    // A language that is no plain code has no side file and is read from the list.
+    storage.list.set(0);
+    assert!(Entries::read(&storage, "en\u{e9}!").is_ok());
+    assert!(storage.list.get() > 0);
+}
+
+#[test]
+fn a_word_replaced_by_one_as_long_at_the_end_of_the_list_is_seen() {
+    // At the cap the oldest word goes and the newest is appended: the size can stay.
+    let long = long_list(100);
+    let storage = Counting::new(MemoryStorage::new().with(store::file(), long.as_str()));
+    let before = Entries::read(&storage, "en").unwrap();
+    assert_eq!(marks(&before, "last word99 here", 0).len(), 1);
+    let replaced = long.replace("word99\t", "wurd99\t");
+    assert_eq!(replaced.len(), long.len());
+    storage.write(store::file(), replaced.as_bytes()).unwrap();
+    storage.list.set(0);
+    let after = Entries::read(&storage, "en").unwrap();
+    assert!(storage.list.get() > 0, "the list was read again");
+    assert!(marks(&after, "last word99 here", 0).is_empty());
+    assert_eq!(marks(&after, "last wurd99 here", 0).len(), 1);
+}

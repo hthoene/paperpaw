@@ -34,6 +34,9 @@ pub const WORK_TOKEN: u32 = 5;
 /// The stage of the words looked up, and its token.
 pub const WORD_TOKEN: u32 = 6;
 pub const WORD_STAGE: &str = "reader.word-looked-up";
+/// The stage the reader asks for marks, and its token.
+pub const DECORATE_TOKEN: u32 = 8;
+pub const DECORATE_STAGE: &str = "reader.decorations";
 
 /// The sleep card's screen, and the waking (the review may open).
 pub const SLEEP_TOKEN: u32 = 15;
@@ -128,6 +131,130 @@ const TEXTS: [(&str, &str); 8] = [
     ),
 ];
 
+/// The tones a mark can have (the SDK's `Tone::ALL` ids), the background's and
+/// the ink's choices add `core.tone.none` and `core.tone.as-is` before them.
+const TONE_IDS: [&str; 11] = [
+    "core.tone.light-gray",
+    "core.tone.gray",
+    "core.tone.dark-gray",
+    "core.tone.black",
+    "core.tone.white",
+    "core.tone.yellow",
+    "core.tone.green",
+    "core.tone.blue",
+    "core.tone.pink",
+    "core.tone.orange",
+    "core.tone.red",
+];
+const BACKGROUNDS: [&str; 12] = tones("core.tone.none");
+const INKS: [&str; 12] = tones("core.tone.as-is");
+const LINES: [&str; 6] = [
+    "core.tone.none",
+    "core.line.solid",
+    "core.line.dotted",
+    "core.line.dashed",
+    "core.line.wavy",
+    "core.line.double",
+];
+
+/// `none`, then every tone.
+const fn tones(none: &'static str) -> [&'static str; 12] {
+    let mut all = [none; 12];
+    let mut at = 0;
+    while at < TONE_IDS.len() {
+        all[at + 1] = TONE_IDS[at];
+        at += 1;
+    }
+    all
+}
+
+/// The role of the words being learnt, marked in books: how they look, as the
+/// SDK's `role_settings!` made it (`vocabulary.learning.<aspect>`, section
+/// `vocabulary.role.learning`, the marks' group), with Beta 3's defaults: a dotted
+/// line, four tenths of a millimetre thick.
+pub const ROLE_ASPECTS: [&str; 7] = [
+    "background",
+    "ink",
+    "line",
+    "line-tone",
+    "thickness",
+    "frame",
+    "struck",
+];
+
+/// Declares the role's seven settings.
+fn role_settings<F: FnMut(&[u8]) -> Result<(), i32>>(
+    declarations: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    const TITLES: [&str; 7] = [
+        "core.mark.background",
+        "core.mark.ink",
+        "core.mark.line",
+        "core.mark.line-tone",
+        "core.mark.thickness",
+        "core.mark.frame",
+        "core.mark.struck",
+    ];
+    const HELPS: [&str; 7] = [
+        "core.mark.background.help",
+        "core.mark.ink.help",
+        "core.mark.line.help",
+        "core.mark.line-tone.help",
+        "core.mark.thickness.help",
+        "core.mark.frame.help",
+        "core.mark.struck.help",
+    ];
+    const NAMES: [&str; 7] = [
+        "learning.background",
+        "learning.ink",
+        "learning.line",
+        "learning.line-tone",
+        "learning.thickness",
+        "learning.frame",
+        "learning.struck",
+    ];
+    let kinds: [Kind<'static>; 7] = [
+        Kind::Choice {
+            default: "core.tone.none",
+            choices: &BACKGROUNDS,
+        },
+        Kind::Choice {
+            default: "core.tone.as-is",
+            choices: &INKS,
+        },
+        Kind::Choice {
+            default: "core.line.dotted",
+            choices: &LINES,
+        },
+        Kind::Choice {
+            default: "core.tone.as-is",
+            choices: &INKS,
+        },
+        Kind::Int {
+            default: 4,
+            min: 1,
+            max: 20,
+        },
+        Kind::Bool(false),
+        Kind::Bool(false),
+    ];
+    for at in 0..NAMES.len() {
+        let mut spec = SpecDecl::new(NAMES[at], kinds[at].clone(), MARKS_GROUP, TITLES[at]);
+        spec.help = HELPS[at];
+        declarations.spec(spec)?;
+        let mut extra = ExtraDecl::new(NAMES[at]);
+        extra.section = "vocabulary.role.learning";
+        if ROLE_ASPECTS[at] == "thickness" {
+            extra.unit = "core.unit.tenth-mm";
+        }
+        declarations.extra(extra)?;
+    }
+    Ok(())
+}
+
+/// The group the marks' looks are in (`core.group.marks`).
+pub const MARKS_GROUP: &str = "core.group.marks";
+
 /// Keeping the words, marking them, and how the flash cards are reviewed.
 pub fn settings(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
     let mut declarations = Declarations::new(sink);
@@ -141,6 +268,7 @@ pub fn settings(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), Declar
         extra.unit = unit;
         declarations.extra(extra)?;
     }
+    role_settings(&mut declarations)?;
     declarations.submit()
 }
 
@@ -164,6 +292,9 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
 pub fn stages(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
     let mut declarations = Declarations::new(sink);
     declarations.subscribe(SubscribeDecl::new(WORD_STAGE, WORD_TOKEN))?;
+    // The words being learnt, marked in books, and a tap on one
+    // (`reader.decorations`, schema 1: `stages/decorations/`).
+    declarations.subscribe(SubscribeDecl::new(DECORATE_STAGE, DECORATE_TOKEN))?;
     declarations.submit()
 }
 
