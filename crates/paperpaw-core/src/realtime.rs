@@ -39,9 +39,7 @@ impl Kernel {
             .len()
             .checked_sub(1)
             .is_some_and(|top| self.is_native_at(top));
-        if native
-            || !self.top_mode().takes_raw_keys()
-            || self.shared.storage.exists(ESCAPE_HINTED)
+        if native || !self.top_mode().takes_raw_keys() || self.shared.storage.exists(ESCAPE_HINTED)
         {
             return;
         }
