@@ -256,3 +256,58 @@ fn a_page_redrawn_under_a_dimming_overlay_stays_dimmed() {
         assert_eq!(kernel.frame().pixel(5, 60), Color::BLACK, "the bar again");
     }
 }
+
+#[test]
+fn the_areas_asked_with_a_whole_redraw_follow_in_the_pages_own_region() {
+    let (mut kernel, _) = stacked(&["probe.page", "probe.bar"]);
+    let owner = Id::new_static("probe");
+    let content = kernel.content();
+    let area = super::Area::new(3, 2, 10, 10).unwrap();
+    kernel.drain_native_ui(
+        &owner,
+        Vec::new(),
+        Some(Redraw {
+            screen: page_key(&kernel),
+            mode: Some(RefreshMode::Partial),
+            whole: true,
+            areas: alloc::vec![area],
+        }),
+    );
+    assert!(kernel.frame.followup.is_some(), "kept for the next frame");
+    // The page was drawn: the follow-up draws its area from the page's corner.
+    kernel.output.redraw = false;
+    kernel.frame.pending = None;
+    kernel.frame.unrendered = None;
+    kernel.run_followup();
+    assert_eq!(
+        kernel.frame.pending,
+        Some(Rect::new(content.x + 3, content.y + 2, 10, 10))
+    );
+    // A follow-up of a page a full screen has covered since is dropped.
+    let (mut kernel, _) = stacked(&["probe.page", "probe.full"]);
+    kernel.frame.followup = Some(super::Followup {
+        screen: page_key(&kernel),
+        mode: Some(RefreshMode::Partial),
+        areas: alloc::vec![area],
+    });
+    kernel.output.redraw = false;
+    kernel.frame.pending = None;
+    kernel.frame.unrendered = None;
+    kernel.run_followup();
+    assert_eq!(kernel.frame.pending, None);
+    assert!(kernel.frame.followup.is_none());
+}
+
+#[test]
+fn areas_of_a_screen_that_is_gone_are_placed_against_the_top() {
+    let (mut kernel, _) = stacked(&["probe.page", "probe.bar"]);
+    let content = kernel.content();
+    kernel.frame.pending = None;
+    // Not on the stack: the region of the top (the bar, 45 rows down), as before.
+    let area = super::Area::new(3, 2, 10, 10).unwrap();
+    kernel.redraw_areas(ScreenKey::new(9999), &[area], None);
+    assert_eq!(
+        kernel.frame.pending,
+        Some(Rect::new(content.x + 3, content.y + 45 + 2, 10, 10))
+    );
+}

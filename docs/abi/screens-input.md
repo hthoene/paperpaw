@@ -207,13 +207,15 @@ input(state: pointer, token: u32, input: bytes) -> i32
   corner, follow-ups too), and the overlays that cross it are drawn again after it, a dimming
   scrim included.
 - [D] `redraw_area` (interface 6 `Cx::request_redraw_area`, #252) draws again only a rectangle of
-  the plugin's screen (the top, or one with only overlays above it, as `redraw`). `x` and `y` count from the top-left corner of the screen's region,
-  the `x`/`y` of its `draw.frame` (section 6): (0, 0) is that corner, whatever bars are shown. The
+  the plugin's screen (the top, or one with only overlays above it, as `redraw`). `x` and `y`
+  count from the top-left corner of the screen's region, the `x`/`y` of its `draw.frame`
+  (section 6): (0, 0) is that corner, whatever bars are shown. The
   host places the rectangle where the region is when it draws it, so it stays right when bars
   showed or hid since, and a screen knows enough before its first draw (its size comes with
   `event.screen_shown`). What lies outside the region draws nothing (an empty rectangle draws
   nothing and is `OK`).
-  The rules of `redraw` hold: `mode` above 3 `ERR_INVALID`, outside its own screen, or under a full screen or a guard, `ERR_STATE`,
+  The rules of `redraw` hold: `mode` above 3 `ERR_INVALID`, outside its own screen, or under a full
+  screen or a guard, `ERR_STATE`,
   in a work run's callback as `redraw`. Each rectangle is drawn on its own and the refresh weighs
   what they cover, not the rectangle around them, so a few pictures filled in after a page's text
   are no page turn: they count towards the periodic full refresh only when they cover half the
