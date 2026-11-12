@@ -870,7 +870,10 @@ fn a_job_of_the_install_queue_holds_the_job_until_it_ends() {
         .unwrap();
     w.kernel.firmware = Some(Rc::new(FirmwareCell::running(driver.try_clone().unwrap())));
     // The details job's own pump alone: the queue's pump would run the check.
+    // The documents' clock as the service pump sets it (the quiet second
+    // after the start, `job_may_begin`).
     w.kernel.now = Instant(2_000);
+    w.docs.set_now(2_000);
     w.kernel.native_details_job_pump();
     assert_eq!(w.format.opens(), 0, "a check waits in the queue");
     assert_eq!(w.kernel.native_details_due(), Some(3_000));
@@ -878,6 +881,7 @@ fn a_job_of_the_install_queue_holds_the_job_until_it_ends() {
     {
         let _held = driver.borrow_mut();
         w.kernel.now = Instant(3_000);
+        w.docs.set_now(3_000);
         w.kernel.native_details_job_pump();
         assert_eq!(w.format.opens(), 0, "the queue is borrowed");
         assert_eq!(w.kernel.native_details_due(), Some(5_000));
@@ -885,6 +889,7 @@ fn a_job_of_the_install_queue_holds_the_job_until_it_ends() {
     driver.borrow_mut().cancel(9, 1);
     w.kernel.shared.recall.clear();
     w.kernel.now = Instant(5_000);
+    w.docs.set_now(5_000);
     w.kernel.native_details_job_pump();
     assert_eq!(w.format.opens(), 1, "the queue is empty");
 }
