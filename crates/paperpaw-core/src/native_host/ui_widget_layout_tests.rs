@@ -200,6 +200,7 @@ fn malformed_input_is_invalid_before_anything_happens() {
 }
 
 #[test]
+#[cfg_attr(feature = "x4-nested", ignore = "x4-nested opens the X4 gate (#250)")]
 fn the_nested_gates_come_first_and_a_tap_needs_only_a_callback() {
     world(|w| {
         let id = w.made("a.w");

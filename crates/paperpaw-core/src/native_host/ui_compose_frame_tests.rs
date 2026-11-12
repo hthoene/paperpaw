@@ -341,6 +341,7 @@ fn a_stopped_owner_is_the_childs_failure_not_the_callers() {
 }
 
 #[test]
+#[cfg_attr(feature = "x4-nested", ignore = "x4-nested opens the X4 gate (#250)")]
 fn a_small_device_blocks_compose_until_its_stack_gate_passes() {
     // Every memory class but `Large` is the small one (`ui_store::is_x4`: a
     // class added later fails closed), and the small one answers slot 35

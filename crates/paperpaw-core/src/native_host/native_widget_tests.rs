@@ -231,6 +231,7 @@ fn the_gates_refuse_before_the_owner_is_called() {
 }
 
 #[test]
+#[cfg_attr(feature = "x4-nested", ignore = "x4-nested opens the X4 gate (#250)")]
 fn a_small_device_is_unsupported_until_its_stack_gate_passes() {
     let w = world(crate::tests::DEVICE.with_memory(MemoryClass::Small));
     w.size_reply();
