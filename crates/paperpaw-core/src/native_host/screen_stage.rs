@@ -122,6 +122,12 @@ impl ScreenStage {
         Ok(Slot { stage: self })
     }
 
+    /// The room the queue keeps, for the tests of who gives it back.
+    #[cfg(test)]
+    pub(crate) fn capacity(&self) -> usize {
+        self.queue.try_borrow().map_or(0, |queue| queue.capacity())
+    }
+
     /// Gives back the queue's room where nothing waits and no callback runs:
     /// on standby and under memory pressure, not after every batch (a room
     /// made again for each callback would split the heap).
