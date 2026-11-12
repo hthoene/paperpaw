@@ -154,10 +154,11 @@ fn presets(host: &Host<'_>, registry: &Registry, rows: &mut Rows) -> Result<(), 
             None => break,
         }
     }
-    drop((input, out));
+    // One set of buffers for every preset's values, not one a preset.
+    let mut now = buffer(VALUE_BUFFER)?;
     for (id, title) in &found {
         // A preset whose values cannot be read is not marked.
-        let applied = match applied(host, registry, id) {
+        let applied = match applied(host, registry, id, [&mut input, &mut out, &mut now]) {
             Ok(applied) => applied,
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(_) => false,
@@ -170,19 +171,25 @@ fn presets(host: &Host<'_>, registry: &Registry, rows: &mut Rows) -> Result<(), 
 /// Whether the settings hold every value preset `id` names (interface 6's
 /// `presets::applied` of a kind that covers only what it names). A value
 /// the registry does not give (withheld, too long, a reset) is not compared.
+/// `buffers`: the query's input and reply, and a setting's value, lent by the
+/// caller for all its presets.
 #[inline(never)]
-fn applied(host: &Host<'_>, registry: &Registry, id: &str) -> Result<bool, Error> {
-    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-    let mut now = buffer(VALUE_BUFFER)?;
+fn applied(
+    host: &Host<'_>,
+    registry: &Registry,
+    id: &str,
+    buffers: [&mut [u8]; 3],
+) -> Result<bool, Error> {
+    let [input, out, now] = buffers;
     let mut cursor = PageCursor::start();
     for _ in 0..MOST_PAGES {
-        let page = registry.values(host, ValuesQuery::Preset(id), cursor, &mut input, &mut out)?;
+        let page = registry.values(host, ValuesQuery::Preset(id), cursor, input, out)?;
         for row in page.rows() {
             let Some(value) = row.value() else {
                 continue;
             };
             // A setting this plugin may not read is not the preset's.
-            match settings::read_setting(host, row.key(), &mut now) {
+            match settings::read_setting(host, row.key(), now) {
                 Ok(held) if held == value => {}
                 Err(Error::NoMemory) => return Err(Error::NoMemory),
                 Ok(_) | Err(_) => return Ok(false),
