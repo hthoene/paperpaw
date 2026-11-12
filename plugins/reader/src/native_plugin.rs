@@ -464,9 +464,10 @@ impl NativeReader {
             return Ok(Handled::No);
         };
         let (handled, outcome) = view.input(host, input)?;
-        if let SearchOutcome::Go(place) = outcome {
+        if let SearchOutcome::Go(place, end) = outcome {
             if let Some(reading) = self.screens.top(SCREEN) {
-                reading.go_to((place.section, place.offset))?;
+                // The page that shows the match marks it.
+                reading.go_to_match((place.section, place.offset), (place.section, end))?;
                 if reading.take_turned() {
                     self.start_quiet(host);
                 }

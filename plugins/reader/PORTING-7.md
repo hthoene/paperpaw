@@ -858,3 +858,30 @@ Not declared or fired yet: the reader side follows once the schema is approved.
   `handovers: None`; `with_handovers` is only used by tests), so the open with the book's hand-over is
   refused `ERR_INVALID` until it is wired, in event callbacks as in input callbacks.
 - Not covered by a test: the host path (no scripted host); `state.ini`'s reading is the tested `native_state`.
+
+## Marks on the page: highlights and the search hit (`native_marks.rs`, #257)
+
+- The page draws the book's **highlights** (library annotations of kind highlight, read with `core.library` op 15 when the book
+  opens: rows of another conversion are left out, one with none is taken, a highlight of no length marks nothing) and the
+  **match of a search hit** gone to, in the looks of the roles `core.highlight` and `core.search-hit` (settings
+  `<role>.background|ink|line|line-tone|thickness|frame|struck`, read on the pages that have a mark, as Beta 3's
+  `Decoration::of_role`). Backgrounds go behind the words (`Painted::behind`, before `draw_lines_marked`), lines under, frames
+  and strikes over them (`Painted::over`); a box is one for each line of covered words (`native_selection::line_boxes`).
+- **Memory.** Only the highlights are held: 16 bytes each, at most 512 (`MAX_HIGHLIGHTS`; Beta 3 held every note with its
+  text). The cap is 8 KiB at most, kept for the whole reading, and a page rarely has more than a few; a book with more draws
+  the first ones the library gives. The list grows by exactly one entry (`try_reserve_exact`) and is shrunk to fit after the
+  read. No room for it (or a refusal of the library) at the open: the book opens without highlights.
+- **Marks never fail a page.** `Painted::new`, `behind` and `over` run on the page's draw: any error (no memory, a host
+  refusal) leaves the page drawn without the marks (or with those drawn so far), as the text is drawn after.
+- **Few grays.** On a panel of two or four grays (not colour) a background is not filled with the tone, which would turn
+  white (light gray 210) or black behind black text: it is rows of black by the tone's darkness (one in four for light gray,
+  three in four for dark gray), counted from the top of the screen so boxes of two lines meet without a seam; Beta 3's
+  `fill_shaded`. The looks are read on each draw that has a mark on the band (a handful of small host reads), not kept, so a
+  look changed in the settings shows at once. The read is one pass of at most 8,192 rows through a 256 B
+  and a 4 KiB buffer at the open. The search results keep 4 bytes more a row (where the match ends, 100 rows at most).
+- **The hit.** Choosing a search hit goes to the page that starts at the match (`View::go_to_match`) and marks it there; the next
+  page drops the mark (it is kept with the page it was set for).
+- **Not here (named):** the highlights are read at the open and after the reader's own edits (the creation, next slice); the
+  event 91 (`annotations-changed`) has no SDK decoder yet, so an edit by another plugin shows at the next open. The `ink` aspect
+  (a tone for the words' letters) is not drawn: the text is one colour. Words a text filter inserted have no places and are not
+  marked.
