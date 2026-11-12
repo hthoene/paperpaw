@@ -207,3 +207,46 @@ pub fn fixed_ids_source(plugin: &str, name: &str, batches: &[&[u8]]) -> Result<S
         ids.len()
     ))
 }
+
+/// Rust source of `pub static <name>: [(paperpaw_sdk::Id, &str); N]`: the id
+/// and title of every screen and action the `batches` of `plugin` declare,
+/// sorted by the id's text, each id once. The kernel keeps a native screen's
+/// or action's id and title as the entry it finds here, where both are the
+/// same, instead of in a row of its own ([`Titled::kept`](crate::Titled::kept),
+/// #248). Meant for a build script; the generated code names
+/// `paperpaw_sdk::Id` in full. An id that is not valid is left out (the kernel
+/// refuses its record anyway).
+///
+/// # Errors
+/// A batch that does not decode.
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+pub fn fixed_titles_source(plugin: &str, name: &str, batches: &[&[u8]]) -> Result<String, String> {
+    let mut titles: Vec<(String, String)> = Vec::new();
+    for bytes in batches {
+        let batch = records_decode(bytes).map_err(|code| format!("batch: error {code}"))?;
+        for record in batch.iter() {
+            let (own, title) = match record {
+                Record::ScreenSpec(screen) => (screen.name, screen.title),
+                Record::ActionSpec(action) => (action.name, action.title),
+                _ => continue,
+            };
+            titles.push((format!("{plugin}.{own}"), String::from(title)));
+        }
+    }
+    titles.retain(|(id, _)| crate::id::is_valid(id));
+    // Sorted by id; of an id declared twice the first stays (the kernel
+    // refuses the second's record).
+    titles.sort_by(|a, b| a.0.cmp(&b.0));
+    titles.dedup_by(|later, first| later.0 == first.0);
+    let mut rows = String::new();
+    for (id, title) in &titles {
+        let _ = writeln!(
+            rows,
+            "    (paperpaw_sdk::Id::new_static({id:?}), {title:?}),"
+        );
+    }
+    Ok(format!(
+        "pub static {name}: [(paperpaw_sdk::Id, &str); {}] = [\n{rows}];\n",
+        titles.len()
+    ))
+}

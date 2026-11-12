@@ -111,6 +111,7 @@ pub mod semantics;
 pub mod served;
 pub mod services;
 pub mod setting;
+mod titled;
 /// One shared, stable sorter: use it instead of `slice::sort_by` and its
 /// kin, which compile a copy per element type (see `paperpaw_sort`).
 pub use paperpaw_sort as sort;
@@ -209,6 +210,7 @@ pub use sockets::{
     CertificateHash, Distrust, KeyHash, MAX_PINS, MAX_TLS_IDLE_MS, MAX_TLS_TIMEOUT_MS, SocketError,
     Tls, Trust,
 };
+pub use titled::Titled;
 pub use version::{DATA_FORMATS, SDK_VERSION, Version};
 
 /// Round shapes' geometry: angles as on a clock face, points around a

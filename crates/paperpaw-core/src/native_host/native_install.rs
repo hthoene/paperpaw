@@ -7,8 +7,9 @@ use super::{
     native_values::{self, Callback, Value},
     registrations::{self as wire, Record, Registration},
     retained::Retained,
-    shell,
+    shared, shell,
 };
+use alloc::borrow::Cow;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED, Services,
@@ -663,12 +664,12 @@ impl crate::Kernel {
                     .map_err(shell::Error::Status)?,
                 // Kept without a handler: the kernel runs it by the plugin's
                 // key and token (`native_action::queue_run`, #248).
-                Owned::Action(callback) => staging
-                    .native_action(
-                        owner,
-                        NativeAction::new(callback.id, callback.title, key, callback.token),
-                    )
-                    .map_err(shell::Error::Status)?,
+                Owned::Action(callback) => {
+                    let titled = titled(callback.kept, callback.id, callback.title)?;
+                    staging
+                        .native_action(owner, NativeAction::new(titled, key, callback.token))
+                        .map_err(shell::Error::Status)?;
+                }
                 Owned::Choice { setting, value } => staging
                     .native_choice(setting, value)
                     .map_err(shell::Error::Status)?,
@@ -1124,6 +1125,22 @@ fn map_declarations(
     // registers callbacks (an event, a tick) is admitted too; one with neither
     // is refused where the registrations are known ([`Kernel::admit_native`]).
     Ok((owner, owned, tokens, any))
+}
+
+/// A screen's or an action's id and title as the kernel keeps them: the
+/// entry of the plugin's titles table where the declaration has one (no heap,
+/// #248), else a copy of its own (`ERR_NO_MEMORY` where the heap refuses it).
+pub(super) fn titled(
+    kept: Option<&'static (Id, &'static str)>,
+    id: Id,
+    title: Cow<'static, str>,
+) -> Result<paperpaw_sdk::Titled, shell::Error> {
+    match kept {
+        Some(entry) => Ok(paperpaw_sdk::Titled::kept(entry)),
+        None => shared::try_box((id, title))
+            .map(paperpaw_sdk::Titled::owned)
+            .ok_or(shell::Error::Status(ERR_NO_MEMORY)),
+    }
 }
 
 fn merge_status(error: &RegisterError) -> i32 {

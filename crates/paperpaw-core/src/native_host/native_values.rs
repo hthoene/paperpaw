@@ -25,6 +25,9 @@ pub(crate) struct Callback {
     pub(crate) title: Cow<'static, str>,
     pub(crate) token: u32,
     pub(crate) flags: u32,
+    /// The entry of the plugin's titles table with the same id and title,
+    /// where it has one: the kernel keeps that, not a row of its own (#248).
+    pub(crate) kept: Option<&'static (Id, &'static str)>,
 }
 
 #[derive(Debug)]
@@ -62,6 +65,13 @@ pub(crate) trait Source {
     fn text(&mut self, text: &str) -> Result<Cow<'static, str>, i32> {
         copy(text).map(Cow::Owned)
     }
+
+    /// The entry kept in the program with the id `id` and the title `title`
+    /// (a screen's, an action's); by default none.
+    fn titled(&self, id: &str, title: &str) -> Option<&'static (Id, &'static str)> {
+        let _ = (id, title);
+        None
+    }
 }
 
 /// An id factory alone (tests, and every owner without tables): ids from
@@ -82,6 +92,8 @@ pub(crate) struct Kept {
     pub(crate) ids: &'static [Id],
     /// The program's read-only data; empty for none.
     pub(crate) image: &'static [u8],
+    /// Sorted by id ([`super::FixedTables::titles`]).
+    pub(crate) titles: &'static [(Id, &'static str)],
 }
 
 impl Kept {
@@ -102,6 +114,16 @@ impl Source for Kept {
             Ok(at) => self.ids[at].try_clone().ok_or(ERR_NO_MEMORY),
             Err(_) => checked_id(text),
         }
+    }
+
+    fn titled(&self, id: &str, title: &str) -> Option<&'static (Id, &'static str)> {
+        let at = self
+            .titles
+            .binary_search_by(|(kept, _)| kept.as_str().cmp(id))
+            .ok()?;
+        // Only the very same: a title that differs keeps a row of its own.
+        let entry = &self.titles[at];
+        (entry.1 == title).then_some(entry)
     }
 
     fn text(&mut self, text: &str) -> Result<Cow<'static, str>, i32> {
@@ -136,22 +158,40 @@ pub(crate) fn normalize(
     match record {
         wire::Record::SettingSpec(spec) => setting(owner, spec, id).map(Value::Setting),
         wire::Record::SettingGroup(group) => group_value(owner, group, id).map(Value::Group),
-        wire::Record::ScreenSpec(screen) => Ok(Value::Screen(Callback {
-            id: qualified(owner, screen.name, id)?,
-            title: id.text(screen.title)?,
-            token: screen.token,
-            flags: screen.flags,
-        })),
-        wire::Record::ActionSpec(action) => Ok(Value::Action(Callback {
-            id: qualified(owner, action.name, id)?,
-            title: id.text(action.title)?,
-            token: action.token,
-            flags: action.flags,
-        })),
+        wire::Record::ScreenSpec(screen) => Ok(Value::Screen(callback(
+            owner,
+            (screen.name, screen.title),
+            (screen.token, screen.flags),
+            id,
+        )?)),
+        wire::Record::ActionSpec(action) => Ok(Value::Action(callback(
+            owner,
+            (action.name, action.title),
+            (action.token, action.flags),
+            id,
+        )?)),
         // Extras need fallible SDK construction before they can be mapped.
         // Resources need host file/provider resolution. Neither is dropped.
         _ => Err(ERR_UNSUPPORTED),
     }
+}
+
+/// A screen's or an action's callback, named `name` and called `title`.
+fn callback(
+    owner: &str,
+    (name, title): (&str, &str),
+    (token, flags): (u32, u32),
+    source: &mut impl Source,
+) -> Result<Callback, i32> {
+    let id = qualified(owner, name, source)?;
+    let kept = source.titled(id.as_str(), title);
+    Ok(Callback {
+        id,
+        title: source.text(title)?,
+        token,
+        flags,
+        kept,
+    })
 }
 
 fn setting(

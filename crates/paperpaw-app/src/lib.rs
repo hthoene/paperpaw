@@ -186,6 +186,7 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
         ($plugin:ident) => {
             FixedTables::new($plugin::NATIVE_SETTINGS, $plugin::NATIVE_GROUPS)
                 .with_ids($plugin::NATIVE_IDS)
+                .with_titles($plugin::NATIVE_TITLES)
         };
     }
     match id {

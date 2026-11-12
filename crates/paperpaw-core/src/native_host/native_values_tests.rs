@@ -266,6 +266,7 @@ fn kept_ids_and_texts_in_the_image_are_not_copied() {
     let mut kept = Kept {
         ids: &IDS,
         image: &IMAGE,
+        titles: &[],
     };
     let Value::Setting(value) =
         from_record("battery", wire::Record::SettingSpec(record), &mut kept).unwrap()
@@ -293,6 +294,7 @@ fn ids_and_texts_kept_nowhere_are_copied() {
     let mut kept = Kept {
         ids: &IDS,
         image: &IMAGE,
+        titles: &[],
     };
     let Value::Setting(value) =
         from_record("battery", wire::Record::SettingSpec(record), &mut kept).unwrap()
@@ -319,4 +321,47 @@ fn ids_and_texts_kept_nowhere_are_copied() {
     assert!(matches!(kept.text("").unwrap(), Cow::Borrowed("")));
     // An id the table does not hold is still checked.
     assert_eq!(kept.id("Not/An/Id").unwrap_err(), ERR_INVALID);
+}
+
+/// The titles table of a linked plugin: one action of it.
+static TITLES: [(Id, &str); 1] = [(Id::new_static("battery.open"), "battery.open-title")];
+
+fn action(title: &str) -> wire::ActionSpec<'_> {
+    wire::ActionSpec {
+        name: "open",
+        title,
+        token: 4,
+        flags: 0,
+    }
+}
+
+#[test]
+fn an_action_named_as_in_the_titles_table_keeps_its_entry() {
+    let mut kept = Kept {
+        ids: &IDS,
+        image: &IMAGE,
+        titles: &TITLES,
+    };
+    let Value::Action(same) = from_record(
+        "battery",
+        wire::Record::ActionSpec(action("battery.open-title")),
+        &mut kept,
+    )
+    .unwrap() else {
+        panic!("expected an action")
+    };
+    // The very entry: no row of its own (#248, B).
+    assert!(core::ptr::eq(same.kept.unwrap(), &TITLES[0]));
+    assert_eq!((same.id.as_str(), same.token), ("battery.open", 4));
+    // Another title: a copy, whatever the id.
+    let Value::Action(other) = from_record(
+        "battery",
+        wire::Record::ActionSpec(action("battery.other-title")),
+        &mut kept,
+    )
+    .unwrap() else {
+        panic!("expected an action")
+    };
+    assert!(other.kept.is_none());
+    assert_eq!(other.title, "battery.other-title");
 }

@@ -125,3 +125,31 @@ fn no_linked_plugin_keeps_a_copy_of_its_ids_or_titles() {
     let owned = kernel.owned_native_texts();
     assert!(owned.is_empty(), "{} copies: {owned:#?}", owned.len());
 }
+
+#[test]
+fn every_linked_plugins_action_keeps_the_entry_of_its_titles_table() {
+    let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
+    let builder = Kernel::builder(DEVICE).storage(storage);
+    let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
+    let _ = kernel.start(Instant(0));
+    // Each native action's id is the one of its plugin's titles table, not a
+    // row of its own (#248, B): one that is not costs the memory it should
+    // save.
+    let mut native = 0;
+    for action in kernel.actions().iter() {
+        if action.native().is_none() {
+            continue;
+        }
+        native += 1;
+        let id = action.id();
+        let titles = paperpaw_app::fixed_tables(id.namespace()).titles;
+        assert!(
+            titles
+                .iter()
+                .any(|(kept, title)| core::ptr::eq(kept, id) && *title == action.title()),
+            "{} keeps a row of its own",
+            id.as_str()
+        );
+    }
+    assert!(native > 10, "{native} native actions");
+}

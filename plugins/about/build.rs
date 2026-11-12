@@ -48,7 +48,8 @@ fn main() -> Result<(), String> {
     let table =
         paperpaw_sdk::native::declare::fixed_settings_source("about", "SETTINGS", &batches)?
             + &paperpaw_sdk::native::declare::fixed_groups_source("about", "GROUPS", &batches)?
-            + &paperpaw_sdk::native::declare::fixed_ids_source("about", "IDS", &batches)?;
+            + &paperpaw_sdk::native::declare::fixed_ids_source("about", "IDS", &batches)?
+            + &paperpaw_sdk::native::declare::fixed_titles_source("about", "TITLES", &batches)?;
     std::fs::write(out.join("about_settings.rs"), table)
         .map_err(|error| format!("write settings table: {error}"))?;
     std::fs::write(out.join("about_declarations.rs"), source)
