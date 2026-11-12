@@ -353,3 +353,70 @@ fn an_image_only_owner_answers_nothing_once_stale_unloading_or_removed() {
         "nothing of this is the plugin's fault"
     );
 }
+
+#[test]
+fn each_batch_keeps_the_kinds_it_declares_and_only_those_are_walked() {
+    // Actions only in the first batch, a group only in the second.
+    let first = encode(&[action("a", 1), action("b", 2)]);
+    let second = encode(&[group("g", 7)]);
+    let mut bytes = first.clone();
+    bytes.extend_from_slice(&second);
+    let source = Rc::new(Image {
+        bytes: RefCell::new(bytes),
+        read_only: true,
+        errors: Cell::new(0),
+        generation: Cell::new(1),
+        gone: Cell::new(false),
+    });
+    let mut allocations = Allocations::default();
+    let mut pending = PendingDeclarations::new(Id::new_static("fixture"), source.clone());
+    {
+        let image = source.bytes.borrow();
+        let split = first.len();
+        for range in [0..split, split..image.len()] {
+            pending
+                .stage_batch(&image[range], &mut allocations)
+                .unwrap();
+        }
+    }
+    let mut store = DeclarationStore::default();
+    store.prepare(pending, &mut allocations).unwrap().commit();
+    let owner = store.owners[0].as_ref().unwrap();
+    let Batches::Starts(_, kinds) = &owner.batches else {
+        panic!("an image-only owner");
+    };
+    let bit = |kind: Kind| 1_u64 << kind as u32;
+    assert_eq!(kinds[..], [bit(Kind::Action), bit(Kind::Group)]);
+    assert_eq!(places(&store, Kind::Action), [(0, 0), (0, 1)]);
+    assert_eq!(places(&store, Kind::Group), [(1, 0)]);
+    assert!(places(&store, Kind::Screen).is_empty());
+    assert_eq!(order_of(&store, Kind::Group, "g"), Some(7));
+    assert_eq!(order_of(&store, Kind::Action, "b"), Some(2));
+    // A batch the mask leaves out is not read: its broken frame goes unsaid.
+    source.bytes.borrow_mut()[0] = 9;
+    assert_eq!(places(&store, Kind::Group), [(1, 0)]);
+    assert_eq!(source.errors.get(), 0);
+    assert!(places(&store, Kind::Action).is_empty());
+    assert!(source.errors.get() > 0);
+}
+
+#[test]
+fn a_matching_record_that_does_not_validate_is_said_and_no_match() {
+    let (store, source) = store(true, false);
+    {
+        // "gamma" becomes a name no id may have, same length.
+        let mut bytes = source.bytes.borrow_mut();
+        let at = bytes
+            .windows(5)
+            .position(|window| window == b"gamma")
+            .unwrap();
+        bytes[at..at + 5].copy_from_slice(b"gam!a");
+    }
+    assert_eq!(order_of(&store, Kind::Group, "gam!a"), None);
+    assert_eq!(source.errors.get(), 1);
+    // Records that do not match are not validated: a lookup that walks past
+    // it says nothing more.
+    assert_eq!(order_of(&store, Kind::Group, "missing"), None);
+    assert_eq!(order_of(&store, Kind::Group, "alpha"), Some(2));
+    assert_eq!(source.errors.get(), 1);
+}
