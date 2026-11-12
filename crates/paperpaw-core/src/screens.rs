@@ -101,9 +101,9 @@ fn next_screen_serial(next: u32, native: bool) -> Option<(u32, u32)> {
     serial.checked_add(1).map(|following| (serial, following))
 }
 
-/// Whether a failed native open is told to the user: not after a lack of
-/// memory, which the notice screen would meet as well (`notify` allocates
-/// without a check); the log diagnostic says it then.
+/// Whether a failed native open is told with the general notice: not after a
+/// lack of memory, which that notice would meet as well (`notify` allocates
+/// without a check); the one made ahead says it then (`memory_notice`).
 fn tells_the_user(status: i32) -> bool {
     status != paperpaw_native::host_glue::ERR_NO_MEMORY
 }
@@ -182,6 +182,8 @@ impl Kernel {
                 self.warn_native_open_failed();
                 if tells_the_user(status) {
                     self.notify_native_open_failed();
+                } else {
+                    self.show_memory_notice();
                 }
                 return;
             }
@@ -571,13 +573,19 @@ impl Kernel {
             return;
         };
         drop(running);
+        self.end_notice();
+        self.place_notice(screen);
+    }
+
+    /// Puts `screen` on as the notice, for `core.notice-seconds`; the one
+    /// before has ended.
+    pub(crate) fn place_notice(&mut self, screen: Box<dyn Screen>) {
         let seconds = self
             .shared
             .settings
             .int(core_settings::NOTICE_SECONDS.as_str())
             .clamp(1, 60) as u32;
-        let region = notice_area(screen.as_ref(), &env);
-        self.end_notice();
+        let region = notice_area(screen.as_ref(), &self.shared.env(self.now));
         self.notice = Some((screen, self.now.add_millis(u64::from(seconds) * 1000)));
         self.invalidate(region);
         self.output.request_refresh(RefreshMode::Fast);
@@ -612,6 +620,7 @@ impl Kernel {
         };
         let env = self.shared.env(self.now);
         let region = notice_area(screen.as_ref(), &env);
+        self.waiting_notices.ended(screen);
         self.invalidate(region);
         self.output.request_refresh(RefreshMode::Fast);
         self.notice_cause();

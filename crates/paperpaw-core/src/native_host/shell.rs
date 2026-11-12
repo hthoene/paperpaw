@@ -135,6 +135,8 @@ pub struct Context<S: 'static> {
     pub services: S,
     instance: Cell<Option<PluginOutput>>,
     attempted: Cell<bool>,
+    /// What the plugin's own code called the host for (#248, [`parked`]).
+    calls: parked::HostCalls,
     /// The scope in which `make`'s registrations are staged.
     pub registrations: RegistrationScope<Registration>,
     pub(crate) commands: super::commands::CommandScope,
@@ -236,9 +238,9 @@ pub const fn host_table<S: Services + 'static>() -> PpHost {
     table.env_snapshot = env_snapshot::<S>;
     table.settings_read = settings_read::<S>;
     table.canvas_fill_rect = canvas_fill_rect::<S>;
-    table.i18n_copy = i18n_copy::<S>;
-    table.i18n_format = i18n_format::<S>;
-    table.i18n_digits = i18n_digits::<S>;
+    table.i18n_copy = i18n::copy::<S>;
+    table.i18n_format = i18n::format::<S>;
+    table.i18n_digits = i18n::digits::<S>;
     table.canvas_draw_line = canvas_draw_line::<S>;
     table.canvas_fill_round = canvas_fill_round::<S>;
     table.canvas_stroke_round = canvas_stroke_round::<S>;
@@ -301,7 +303,40 @@ impl<S: Services + 'static, M> Hosted<S, M> {
         resources: super::HostResources,
         declared_services: DeclaredServices,
     ) -> Result<Self, Error> {
-        let mut resources = resources.try_owner().map_err(Error::Status)?;
+        let resources = resources.try_owner().map_err(Error::Status)?;
+        // SAFETY: the caller's contract, passed on.
+        unsafe {
+            Self::host(
+                services,
+                module,
+                make,
+                id,
+                image,
+                report,
+                resources,
+                declared_services,
+            )
+        }
+    }
+
+    /// Hosts the plugin under `resources`, an owner of its own.
+    ///
+    /// # Safety
+    /// As [`new`](Self::new).
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "admission supplies the owner resources and checked requirements"
+    )]
+    unsafe fn host(
+        services: S,
+        module: M,
+        make: Make,
+        id: &str,
+        image: (*const u8, usize),
+        report: Report<S>,
+        mut resources: super::resources::OwnerResources,
+        declared_services: DeclaredServices,
+    ) -> Result<Self, Error> {
         resources.bind_caller(id).map_err(|status| {
             if status == host_glue::ERR_NO_MEMORY {
                 Error::Allocation
@@ -320,6 +355,7 @@ impl<S: Services + 'static, M> Hosted<S, M> {
             services,
             instance: Cell::new(None),
             attempted: Cell::new(false),
+            calls: parked::HostCalls::default(),
             registrations: RegistrationScope::new(),
             commands: super::commands::CommandScope::new(),
             environment: EnvironmentScope::with_resources(scoped_resources),
@@ -433,7 +469,7 @@ impl<S: Services + 'static, M> Hosted<S, M> {
         let mut out = ptr::null();
         let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast();
         // SAFETY: the owner is pinned, owns services and module, and `out` is writable.
-        let status = context.run_plugin(|| unsafe { (self.make)(context.table, ctx, &mut out) });
+        let status = context.run_make(|| unsafe { (self.make)(context.table, ctx, &mut out) });
         (status, out)
     }
 
@@ -733,6 +769,9 @@ unsafe extern "C" fn heap_realloc<S: Services + 'static>(
 }
 
 unsafe extern "C" fn clock_micros<S: Services + 'static>(ctx: *mut c_void, out: *mut u64) -> i32 {
+    // No host slot (it never waits), but a `make` that reads the clock may
+    // register differently when made again (#248).
+    super::frame_owner::note_host_call();
     // SAFETY: typed context and the generated clock.micros output contract.
     unsafe { with_shell::<S>(ctx, |shell| host_glue::clock_micros(shell, out)) }
 }
@@ -745,8 +784,9 @@ unsafe extern "C" fn registrations_submit<S: Services + 'static>(
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return host_glue::ERR_INVALID;
     };
-    // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
+    // The plugin waits for the host from here to the return; the one call
+    // `make` is meant to make, so it is not noted as another (#248).
+    let _slot = super::host_slot::enter_registration();
     // SAFETY: the foreign caller supplies stable readable batch bytes for this
     // synchronous call. Core copies callback records, owns its snapshots of
     // declarations, and borrows image storage only through the image range
@@ -1012,47 +1052,8 @@ pub mod admission;
 #[path = "shell_inflight.rs"]
 pub mod inflight;
 
-unsafe extern "C" fn i18n_copy<S: 'static>(ctx: *mut c_void, key: PpBytes, out: PpBuffer) -> i32 {
-    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
-    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
-        return host_glue::ERR_INVALID;
-    };
-    // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
-    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
-    unsafe { super::formatting::copy(&context.environment, key, out) }
-}
-
-unsafe extern "C" fn i18n_format<S: 'static>(
-    ctx: *mut c_void,
-    key: PpBytes,
-    args: PpBytes,
-    out: PpBuffer,
-) -> i32 {
-    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
-    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
-        return host_glue::ERR_INVALID;
-    };
-    // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
-    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
-    unsafe { super::formatting::format(&context.environment, key, args, out) }
-}
-
-unsafe extern "C" fn i18n_digits<S: 'static>(
-    ctx: *mut c_void,
-    text: PpBytes,
-    out: PpBuffer,
-) -> i32 {
-    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
-    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
-        return host_glue::ERR_INVALID;
-    };
-    // The plugin waits for the host from here to the return.
-    let _slot = super::host_slot::enter();
-    // SAFETY: generated slot contracts supply live, disjoint input/output pairs.
-    unsafe { super::formatting::digits(&context.environment, text, out) }
-}
+#[path = "shell_i18n.rs"]
+mod i18n;
 
 unsafe extern "C" fn canvas_draw_line<S: 'static>(
     ctx: *mut c_void,
@@ -1490,6 +1491,8 @@ pub(crate) use stage::dispatch_stage;
 mod heap_table;
 #[path = "shell/native_commit.rs"]
 mod native_commit;
+#[path = "shell/parked.rs"]
+mod parked;
 #[path = "shell/shared_table.rs"]
 mod shared_table;
 pub use heap_table::{handed_heap, heap_table};

@@ -67,6 +67,45 @@ impl Admitted {
             )
         }
     }
+
+    /// As [`hosted`](Self::hosted), under the owner key and heap row `seat`
+    /// of the plugin's earlier host: a parked plugin made again (#248).
+    ///
+    /// # Safety
+    /// As [`hosted`](Self::hosted).
+    pub(crate) unsafe fn hosted_for_owner<S: Services + 'static>(
+        self,
+        services: S,
+        id: &str,
+        report: shell::Report<S>,
+        resources: super::HostResources,
+        image: (*const u8, usize),
+        seat: super::resources::OwnerSeat,
+    ) -> Result<shell::Hosted<S, ()>, shell::Error> {
+        let declared =
+            shell::DeclaredServices::try_from_iter(self.metadata.services()).map_err(|error| {
+                match error {
+                    shell::DeclaredServicesError::Invalid => {
+                        shell::Error::Status(paperpaw_native::host_glue::ERR_INVALID)
+                    }
+                    shell::DeclaredServicesError::NoMemory => shell::Error::Allocation,
+                }
+            })?;
+        // SAFETY: as `hosted`, passed on.
+        unsafe {
+            shell::Hosted::new_for_owner(
+                services,
+                (),
+                self.make,
+                id,
+                image,
+                report,
+                resources,
+                seat,
+                declared.with_features(self.features),
+            )
+        }
+    }
 }
 
 /// Admit the immutable entry/metadata pair linked by the app or shell.

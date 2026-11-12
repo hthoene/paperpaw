@@ -464,3 +464,32 @@ fn the_details_job_has_the_cover_jobs_awake_cap_its_time_before_giving_way_count
         assert_eq!(marker(w), None);
     });
 }
+
+#[test]
+fn the_reads_room_holds_meta_and_text_at_their_caps() {
+    use crate::native_host::doc_host::details_job::READ_REPLY;
+    let (title, series, text) = ("t".repeat(512), "s".repeat(512), "x".repeat(1_024));
+    let (language, number) = ("l".repeat(35), "9".repeat(32));
+    let meta = encoded(local::Record::FmtMeta(local::FmtMeta::new(
+        &title,
+        &language,
+        &series,
+        &number,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+    )));
+    let piece = fmt_text(
+        u32::MAX,
+        u32::MAX,
+        usize::try_from(u32::MAX).unwrap(),
+        &text,
+    );
+    // A tag grows by one byte as the host translates the record.
+    assert!(meta.len() < READ_REPLY, "{}", meta.len());
+    assert!(piece.len() < READ_REPLY, "{}", piece.len());
+}
