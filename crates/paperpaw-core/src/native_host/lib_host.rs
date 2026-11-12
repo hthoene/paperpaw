@@ -401,6 +401,12 @@ impl LibWrite for LibraryHost {
         self.reads
             .set_status_unless(book, set, clear, &|path| self.in_use(path))?;
         self.raise_changed(lib_changed::STATUS, "");
+        // The status went to the log beside the catalog: a long log is folded
+        // in, as the kernel's own status notes ask (`core_plugin`), so that a
+        // catalog read never reserves for more than its lines (#248).
+        if paperpaw_sdk::library::catalog::log_is_long(&*self.storage) {
+            self.catalog_wanted.set(true);
+        }
         Ok(())
     }
 

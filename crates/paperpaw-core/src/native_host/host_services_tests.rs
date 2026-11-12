@@ -570,3 +570,26 @@ fn a_plugin_that_is_opener_and_format_never_closes_into_itself_and_others_hear_o
     assert!(fake.ended.borrow().is_empty());
     assert_eq!(*fake.closed.borrow(), [(elsewhere, 1)]);
 }
+
+#[test]
+fn a_reparking_retirement_refused_first_keeps_the_formats_on_its_retry() {
+    // Senior, R4 on #1365: the plugin was parked again, but a busy table
+    // refused its retirement; the main loop's retry must keep what the
+    // re-park keeps (its formats listed, its receipts), not end them.
+    let pool = HostResources::try_new().unwrap();
+    let fake = Fake::new(Limits::LARGE);
+    let host: Rc<dyn DocHost> = fake.clone();
+    pool.hosts().wire_documents(host).unwrap();
+    let format = pool.try_owner().unwrap();
+    let key = format.caller("format", AdmittedFeatures::NONE).owner;
+    fake.format_owner.set(key);
+    {
+        // A call holds the document table while the plugin is parked again.
+        let _busy = fake.table().hold().unwrap();
+        pool.hosts().parking_again(key, || drop(format));
+        assert!(pool.hosts().retirements_pending(), "queued");
+    }
+    assert_eq!(pool.retry_retirements(), Ok(false));
+    assert!(!pool.hosts().retirements_pending());
+    assert_eq!(fake.formats_removed.get(), 0, "parked again: still listed");
+}

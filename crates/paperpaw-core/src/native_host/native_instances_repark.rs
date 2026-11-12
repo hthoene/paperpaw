@@ -27,11 +27,29 @@ impl super::NativeInstances {
     }
 
     /// Whether the parked plugin `key` gave up being made (see
-    /// [`Slot::give_up`](super::super::lease_slot::Slot::give_up)); taken
-    /// once. For the document loop's pending opens (Senior, R2 on #1365).
+    /// [`Slot::give_up`](super::super::lease_slot::Slot::give_up)), or was
+    /// starved (no memory, and nothing could be parked again to make room:
+    /// [`Slot::take_starved`](super::super::lease_slot::Slot::take_starved));
+    /// taken once. For the document loop's pending opens (Senior, R2 on #1365;
+    /// Manager's decision 2).
     pub(crate) fn format_gave_up(&self, key: u64) -> bool {
-        self.lease(key)
-            .is_some_and(|lease| lease.is_parked() && lease.slot().give_up())
+        self.lease(key).is_some_and(|lease| {
+            lease.is_parked() && (lease.slot().take_starved() || lease.slot().give_up())
+        })
+    }
+
+    /// Parking an idle plugin again freed nothing: every parked plugin whose
+    /// last make found no memory is starved
+    /// ([`Slot::starve`](super::super::lease_slot::Slot::starve)). Whether one
+    /// was.
+    pub(crate) fn starve_waiting(&self) -> bool {
+        let mut any = false;
+        for entry in self.entries.iter().filter(|entry| entry.enabled) {
+            if let Some(lease) = entry.instance.as_ref() {
+                any |= lease.slot().starve();
+            }
+        }
+        any
     }
 
     /// How many handles the pool holds, all owners together; `None` without
