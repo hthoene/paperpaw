@@ -552,8 +552,14 @@ mod native_values;
 #[path = "native_host/native_dispatch.rs"]
 mod native_dispatch;
 
+#[path = "native_host/lease_slot.rs"]
+mod lease_slot;
 #[path = "native_host/native_callbacks.rs"]
 mod native_callbacks;
+#[path = "native_host/park_linked.rs"]
+pub(crate) mod park_linked;
+#[path = "native_host/parked.rs"]
+mod parked;
 
 #[allow(
     dead_code,

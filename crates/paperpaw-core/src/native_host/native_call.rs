@@ -46,7 +46,7 @@ pub(crate) fn call(
         .try_borrow()
         .map_err(|_| ERR_BUSY)?
         .native_lease(owner)?;
-    if lease.live()?.callback_depth() != 1 {
+    if lease.checked_depth()? != 1 {
         return Err(ERR_BUSY);
     }
     // The callee's own negative status passes through: it is not a

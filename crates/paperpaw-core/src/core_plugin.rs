@@ -137,31 +137,14 @@ const ALWAYS: &str = "core.reading-app.always";
 /// Choosing the reading app of a book or a folder (see
 /// `paperpaw_sdk::readers::ask`): the readers that fit are listed; the
 /// one chosen is kept, and a book opens with it; *Standard* forgets the
-/// choice. *Open with…* in the book menu (`readers::ask_once`) lists the
-/// readers of the book, the other ways to open it plugins add
-/// (`menus::OPEN_WITH`) and *Always open it with…*: the one chosen opens
-/// it this time.
+/// choice. *Open with…* (the book menu's, [`register_open_with`], or the
+/// file manager's) lists the readers of the book, the other ways to open it
+/// plugins add (`menus::OPEN_WITH`) and *Always open it with…*: the one
+/// chosen opens it this time.
 fn register_reading_apps(r: &mut Registrar) -> Result<(), RegisterError> {
     use paperpaw_sdk::readers::{self, Choice};
-    // What it does is asked once the book is known (`BOOK_CHOSEN` below).
-    static OPEN_WITH: [FixedAction; 1] =
-        [FixedAction::new(actions::OPEN_WITH, "core.action.open-with").handler(|_, _, _| {})];
-    static OPEN_WITH_ENTRY: [MenuEntry; 1] = [MenuEntry::new(menus::BOOK, actions::OPEN_WITH)];
-    static OPEN_WITH_ICON: [(Id, &str); 1] = [(actions::OPEN_WITH, "apps")];
-    r.add_actions(&OPEN_WITH)?;
-    r.add_menu_entries(&OPEN_WITH_ENTRY)?;
-    r.add_icons(&OPEN_WITH_ICON)?;
-    // Where there is something to choose: another reading app, or another
-    // way to open books.
-    r.set_item_state(actions::OPEN_WITH, |env| {
-        let others = !env.menus().items(menus::OPEN_WITH.as_str()).is_empty();
-        paperpaw_sdk::ItemState::new().shown(others || env.readers().len() > 1)
-    })?;
-    r.on(events::BOOK_CHOSEN, |_, chosen, out| {
-        if chosen.action == actions::OPEN_WITH {
-            out.push(readers::ask_once(&chosen.path));
-        }
-    })?;
+    #[cfg(not(feature = "native-reading"))]
+    register_open_with(r)?;
     r.on(events::READING_APP_WANTED, |env, wanted, out| {
         let path = wanted.path.trim_matches('/');
         let name = paperpaw_sdk::files::name(path);
@@ -236,6 +219,35 @@ fn register_reading_apps(r: &mut Registrar) -> Result<(), RegisterError> {
             out.push(readers::open(path));
         }
     })
+}
+
+/// *Open with…* in the book menu (`readers::ask_once`), where a book has
+/// another reader or another way to open it. Not with the linked native
+/// reader (`native-reading`): the one-time choice there is the file
+/// manager's, and this one's resolver is interface 6's.
+#[cfg(not(feature = "native-reading"))]
+fn register_open_with(r: &mut Registrar) -> Result<(), RegisterError> {
+    use paperpaw_sdk::readers;
+    // What it does is asked once the book is known (`BOOK_CHOSEN` below).
+    static OPEN_WITH: [FixedAction; 1] =
+        [FixedAction::new(actions::OPEN_WITH, "core.action.open-with").handler(|_, _, _| {})];
+    static OPEN_WITH_ENTRY: [MenuEntry; 1] = [MenuEntry::new(menus::BOOK, actions::OPEN_WITH)];
+    static OPEN_WITH_ICON: [(Id, &str); 1] = [(actions::OPEN_WITH, "apps")];
+    r.add_actions(&OPEN_WITH)?;
+    r.add_menu_entries(&OPEN_WITH_ENTRY)?;
+    r.add_icons(&OPEN_WITH_ICON)?;
+    // Where there is something to choose: another reading app, or another
+    // way to open books.
+    r.set_item_state(actions::OPEN_WITH, |env| {
+        let others = !env.menus().items(menus::OPEN_WITH.as_str()).is_empty();
+        paperpaw_sdk::ItemState::new().shown(others || env.readers().len() > 1)
+    })?;
+    r.on(events::BOOK_CHOSEN, |_, chosen, out| {
+        if chosen.action == actions::OPEN_WITH {
+            out.push(readers::ask_once(&chosen.path));
+        }
+    })?;
+    Ok(())
 }
 
 /// The actions screens give a meaning of their own (with their hints in

@@ -198,6 +198,31 @@ impl HostServices {
         Ok(())
     }
 
+    /// Owners alive now (tests).
+    #[cfg(test)]
+    pub(crate) fn alive_owners(&self) -> usize {
+        self.alive.get()
+    }
+
+    /// A retirement that could not be queued (tests: the broken invariant).
+    #[cfg(test)]
+    pub(crate) fn lose_a_retirement(&self) {
+        self.lost.set(self.lost.get().saturating_add(1));
+    }
+
+    /// Whether `owner` still waits for its retirement (queued).
+    ///
+    /// # Errors
+    /// `ERR_BUSY` while the queue is in use; `ERR_STATE` once a retirement
+    /// was lost (which owner's is not known, so none is sure to be done).
+    pub(crate) fn retiring(&self, owner: u64) -> Result<bool, i32> {
+        if self.lost.get() != 0 {
+            return Err(ERR_STATE);
+        }
+        let queue = self.retiring.try_borrow().map_err(|_| ERR_BUSY)?;
+        Ok(queue.contains(&owner))
+    }
+
     /// An owner is gone; `retired` says its retirement ran to the end. If not,
     /// it is queued for [`Self::retry_retirements`] (in the room reserved at
     /// admission).

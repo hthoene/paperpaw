@@ -45,6 +45,16 @@ pub(crate) fn is_x4(memory: MemoryClass) -> bool {
     !matches!(memory, MemoryClass::Large)
 }
 
+/// Whether the X4's nested-callback stack gate keeps another plugin's
+/// callback inside a caller's closed (`stage.run`, `ui.compose`, the widget
+/// ops 7 and 12-15, op 14): on the small memory class until the device
+/// measurement passes (#250); the feature `x4-nested` opens it there (the
+/// owner's test image first, the release once measured). The one switch for
+/// all of them.
+pub(crate) fn nested_closed(memory: MemoryClass) -> bool {
+    is_x4(memory) && !cfg!(feature = "x4-nested")
+}
+
 /// Largest text of a hand-over or a request.
 pub(crate) const TEXT_MAX: usize = 24_576;
 /// Largest part one write brings.

@@ -37,8 +37,11 @@ use paperpaw_native::host_glue::{
 };
 use paperpaw_sdk::document::Metadata;
 
-/// The reply buffer of the reads (a stage answer).
-const REPLY_BYTES: usize = 4096;
+/// The reply room of the reads: one `doc_meta` (1,133 bytes at its caps) or
+/// one `doc_text` (1,044), with the byte a tag may grow by when the host
+/// translates the format's record (tested; `document.md` 8.1). Not the 4 KiB
+/// of a plugin's call (#248).
+pub(super) const READ_REPLY: usize = 1_152;
 /// The most of a title, an author or a series kept: a value of the book's
 /// details (the SDK's `MAX_VALUE`).
 const TEXT_CAP: usize = 1024;
@@ -271,9 +274,9 @@ impl DocState {
         // The format's roots 3, 4 and 6 are this book's, as in a preparing step.
         let _scope = self.enter_scope(hosts, target.plugin, document.id, kind, "")?;
         let mut out = Vec::new();
-        out.try_reserve_exact(REPLY_BYTES)
+        out.try_reserve_exact(READ_REPLY)
             .map_err(|_| ERR_NO_MEMORY)?;
-        out.resize(REPLY_BYTES, 0);
+        out.resize(READ_REPLY, 0);
         Reader {
             state: self,
             stage: Stage {

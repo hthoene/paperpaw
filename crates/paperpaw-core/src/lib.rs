@@ -63,6 +63,7 @@ mod input_filters;
 mod io;
 mod key_guard;
 mod keymap;
+mod memory_notice;
 mod meter;
 pub mod native_host;
 mod network;
@@ -439,6 +440,8 @@ impl Kernel {
         // The shell hosted its native plugins before this call: what their
         // admission kept in reserve is given back.
         self.native_hosted();
+        // Made while there is room: shown when a screen cannot open for a lack.
+        self.reserve_memory_notice();
         // The passwords the sealer of `core.secrets` keeps are read before
         // any plugin runs, whether or not a native plugin was admitted since
         // the services were wired (`secrets_i6.rs`).

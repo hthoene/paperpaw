@@ -22,8 +22,12 @@ use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY};
 /// where they were kept (`library::keep_native_details`).
 pub(crate) type Keep<'a> = dyn FnMut(&str, &paperpaw_sdk::document::Metadata) -> bool + 'a;
 
-/// The reply buffer of the open (the dispatcher's own scratch).
-const SCRATCH: usize = 4_096;
+/// The reply room of the open: one `doc_state`, the format's and then the
+/// service's (`document.md` 2.1), under 200 bytes at its caps with the batch's
+/// count and the byte a tag may grow by when the host translates the format's
+/// record (tested). Not the 4 KiB of a plugin's call: the room is held while
+/// the format reads the book (#248).
+pub(crate) const OPEN_REPLY: usize = 256;
 
 /// Opens of the same book in a row that could not be made (the format not
 /// started, no place, no memory) before the job goes on to the next book.
@@ -126,7 +130,7 @@ pub(crate) fn open_book(host: &dyn DocHost, path: &str) -> Result<u32, i32> {
         })],
         &mut input,
     )?;
-    let mut out = buffer(SCRATCH)?;
+    let mut out = buffer(OPEN_REPLY)?;
     let length = open(&cx, &input[..used], &mut out)?;
     let (state, _): (wire::ServiceDocState<'_>, usize) =
         codec::prefix(out.get(..length).ok_or(ERR_INVALID)?)?;

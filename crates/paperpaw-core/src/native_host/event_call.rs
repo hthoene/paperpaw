@@ -284,6 +284,20 @@ impl crate::Kernel {
             let Some(pending) = queue.take() else {
                 break;
             };
+            // A parked plugin is made first; one that cannot be made now
+            // keeps its action, behind those waiting, until it gave up after
+            // its longest wait without memory (#248).
+            if pending.lease.is_parked() && pending.lease.live().err() == Some(ERR_BUSY) {
+                if pending.lease.slot().give_up() {
+                    // This one and every other of its plugin, each said once.
+                    for _ in 0..=queue.drop_owner(pending.owner) {
+                        self.warn_runtime("a native plugin's action was not run: no memory");
+                    }
+                } else if queue.put_back(pending).is_err() {
+                    self.warn_runtime("a native plugin's action was not run: too many wait");
+                }
+                continue;
+            }
             if self.shared.native_instances.outbox.full() {
                 self.native_outbox_run();
             }

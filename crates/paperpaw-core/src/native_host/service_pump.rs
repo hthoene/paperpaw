@@ -147,6 +147,12 @@ fn drain(
         call,
         now,
     } = *delivery;
+    // A parked plugin has called no service since its `make` (it would not
+    // have been parked), so none has an event for it; it is not made here,
+    // where the pump's buffer is borrowed (#248).
+    if lease.is_parked() {
+        return false;
+    }
     let mut taken = 0;
     while taken < PER_OWNER {
         match service.next_event(owner, buffer) {
@@ -223,6 +229,7 @@ impl crate::Kernel {
         // clocks run: a plugin whose network was turned off loses what it
         // has open in this pass.
         self.sync_net_policy();
+        self.shared.native_instances.set_now(self.now.millis());
         self.shared
             .native_instances
             .retry_run_closes(self.now.millis());
@@ -294,6 +301,11 @@ impl crate::Kernel {
         );
         // Saved passwords that did not open here: said once per start.
         self.secrets_notice();
+        // Parked plugins asked to start in this pass are made now, and what
+        // waited for them goes in the next pass (#248).
+        if self.native_unpark_pending() {
+            self.shared.native_instances.set_service_more(true);
+        }
     }
 
     /// When the pump wants to run again: now while events remain, else at
@@ -314,6 +326,7 @@ impl crate::Kernel {
             .flatten()
             .filter_map(|service| service.next_deadline())
             .chain(instances.service_retry())
+            .chain(instances.parked_start_at())
             .chain(instances.image_pump.retry_at())
             .chain(instances.moves_retry())
             .chain(instances.doc_retry())

@@ -41,7 +41,7 @@ pub(crate) fn call(
     out: &mut [u8],
 ) -> Result<usize, i32> {
     frame.callback_epoch()?;
-    if super::ui_store::is_x4(frame.env.device().memory) {
+    if super::ui_store::nested_closed(frame.env.device().memory) {
         return Err(ERR_UNSUPPORTED);
     }
     if frame.callback_depth()? != 1 || frame.caller()? == owner {
@@ -60,7 +60,7 @@ pub(crate) fn call(
                 ERR_NOT_FOUND
             }
         })?;
-    if lease.live()?.callback_depth() != 1 {
+    if lease.checked_depth()? != 1 {
         return Err(ERR_BUSY);
     }
     let input = input(payload)?;
