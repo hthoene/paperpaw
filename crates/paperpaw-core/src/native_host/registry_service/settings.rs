@@ -166,7 +166,7 @@ fn source(sources: &Sources<'_>, spec: &SettingSpec) -> u32 {
 /// for a whole list instead of one per row (a list of every setting was
 /// quadratic, #248). Freed when the list ends; `None` where there is no room
 /// for it, and each row then asks `governs` itself.
-fn governing(all: &Settings) -> Option<Vec<&str>> {
+pub(super) fn governing(all: &Settings) -> Option<Vec<&str>> {
     let count = all
         .specs()
         .filter(|spec| spec.extra().shown_if.is_some())
@@ -292,8 +292,7 @@ fn settings(
             } else {
                 spec.id.namespace() == scope
             };
-        if hit
-            && with_row(sources, asker, spec, governing.as_deref(), |row| visit(row)).is_break()
+        if hit && with_row(sources, asker, spec, governing.as_deref(), |row| visit(row)).is_break()
         {
             break;
         }
