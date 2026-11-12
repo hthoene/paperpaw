@@ -65,6 +65,9 @@ pub(crate) struct Fake {
     /// Answers (or statuses) to give, oldest first, before `answer` is used.
     pub(crate) queue: RefCell<Vec<Result<Vec<u8>, i32>>>,
     pub(crate) fails: Cell<Option<i32>>,
+    /// What an open's cache step answers (`DocHost::open_cache`): a busy
+    /// cache, not a busy format.
+    pub(crate) cache_fails: Cell<Option<i32>>,
     /// (op, document, cursor, generation, flags, index, image_side, cover_side)
     pub(crate) calls: RefCell<Vec<[u32; 8]>>,
     pub(crate) texts: RefCell<Vec<std::string::String>>,
@@ -116,6 +119,7 @@ impl Fake {
             answer: RefCell::new(Vec::new()),
             queue: RefCell::new(Vec::new()),
             fails: Cell::new(None),
+            cache_fails: Cell::new(None),
             calls: RefCell::new(Vec::new()),
             texts: RefCell::new(Vec::new()),
             options_seen: Cell::new(0),
@@ -181,6 +185,9 @@ impl DocHost for Fake {
             .borrow_mut()
             .push((open.image_side, open.cover_side));
         Ok(0xc0de)
+    }
+    fn open_cache(&self, _call: &FormatCall<'_>) -> Result<(), i32> {
+        self.cache_fails.get().map_or(Ok(()), Err)
     }
     fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32> {
         let mut options = 0;

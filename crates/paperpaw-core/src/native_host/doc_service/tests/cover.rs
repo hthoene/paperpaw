@@ -361,21 +361,23 @@ fn the_library_host_makes_the_cover_of_a_catalog_book() {
             .unwrap();
         assert_eq!(got, Some(id));
         assert_eq!(fake.readers.borrow()[0], (1, 1, BOOK.into()));
-        // A format that is not running yet is busy and the caller is told to
-        // ask again (bit 6, one change for that book).
-        fake.fails.set(Some(ERR_BUSY));
+        // An open that is busy (its cache: another document of the book
+        // prepares it) is busy and the caller is told to ask again (bit 6,
+        // one change for that book). A parked format is no busy: its open
+        // waits in the cover job (`doc_service::pending`).
+        fake.cache_fails.set(Some(ERR_BUSY));
         let busy = library.cover(&who, BookRef::Path(BOOK), 0, &cx, &mut |_| {});
         assert_eq!(busy, Err(ERR_BUSY));
-        fake.fails.set(None);
+        fake.cache_fails.set(None);
         let mut told = None;
         assert!(library.take_changed(&mut |what, _, path| {
             told = Some((what, std::string::String::from(path)));
         }));
         assert_eq!(told, Some((1 << 6, std::string::String::from(BOOK))));
-        // Asked again while the format is still not running: busy again, and
+        // Asked again while the open is still busy: busy again, and
         // the one change for the book is raised again (a format that starts
         // ends it; a caller is not looped by anything else).
-        fake.fails.set(Some(ERR_BUSY));
+        fake.cache_fails.set(Some(ERR_BUSY));
         // (The first busy above raised once already.)
         let mut raised = 1;
         for _ in 0..12 {
@@ -385,21 +387,21 @@ fn the_library_host_makes_the_cover_of_a_catalog_book() {
                 raised += 1;
             }
         }
-        // A start that never ends does not loop a caller that redraws on it.
+        // A busy open that never ends does not loop a caller that redraws on it.
         assert_eq!(raised, 6);
         // A cover made starts the count again.
-        fake.fails.set(None);
+        fake.cache_fails.set(None);
         fake.queue
             .borrow_mut()
             .extend([Ok(state_answer(0, 0)), Ok(picture(100))]);
         library
             .cover(&who, BookRef::Path(BOOK), 0, &cx, &mut |_| {})
             .unwrap();
-        fake.fails.set(Some(ERR_BUSY));
+        fake.cache_fails.set(Some(ERR_BUSY));
         let busy = library.cover(&who, BookRef::Path(BOOK), 0, &cx, &mut |_| {});
         assert_eq!(busy, Err(ERR_BUSY));
         assert!(library.take_changed(&mut |_, _, _| {}));
-        fake.fails.set(None);
+        fake.cache_fails.set(None);
         // No place in the caller's table is busy too, but raises nothing: it
         // does not clear by itself, and a plugin that redraws on the event
         // would ask for ever.

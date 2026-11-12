@@ -29,14 +29,17 @@ use paperpaw_native::host_glue::{
 };
 
 mod args;
+mod call;
 mod check;
 pub(crate) mod cover;
 pub(crate) mod details;
+pub(crate) mod pending;
 mod report;
 mod steps;
 mod table;
 #[allow(unused_imports, reason = "the shell builds the table with its limits")]
 pub(crate) use args::ROOT_HANDED;
+pub(crate) use call::{FormatCall, Options};
 pub(crate) use steps::{JobStep, PrepareStep};
 pub(crate) use table::{
     BACKGROUND, DETAILS, Document, DocumentTable, FAILED, FormatRef, HOST_JOB, JobKind, Limits,
@@ -45,74 +48,6 @@ pub(crate) use table::{
 
 /// Operations of `core.format` the host calls (`document.md` 3).
 pub(crate) mod fmt;
-
-/// The `doc_option` rows of an `open`, still in the caller's batch.
-#[derive(Clone, Copy)]
-pub(crate) struct Options<'a> {
-    batch: &'a [u8],
-}
-impl<'a> Options<'a> {
-    pub(crate) const NONE: Options<'static> = Options { batch: &[0] };
-    /// The options of a counted batch of `doc_option` rows (tests).
-    #[cfg(test)]
-    pub(crate) const fn from_batch(batch: &'a [u8]) -> Self {
-        Options { batch }
-    }
-    /// Each option in order, `key` a full setting id. The host forwards the
-    /// ones of the format's own plugin whole; none is cut, none is dropped.
-    pub(crate) fn each(&self, visit: impl FnMut(&wire::ServiceDocOption<'a>)) {
-        args::each_option(self.batch, visit);
-    }
-}
-
-/// One call of the format plugin: the typed `fmt.call` of `document.md` 3.
-/// The reply is the op's records in the **service** tags, a bare stream; the
-/// adapter translates the format's stage-local tags to them. For a `siblings`
-/// format the adapter adds the opened file's name as `text`.
-pub(crate) struct FormatCall<'a> {
-    pub(crate) format: FormatRef,
-    pub(crate) op: u32,
-    pub(crate) document: u32,
-    pub(crate) section: u32,
-    pub(crate) offset: u32,
-    pub(crate) index: u32,
-    pub(crate) cursor: u32,
-    pub(crate) generation: u32,
-    pub(crate) flags: u32,
-    pub(crate) image_side: u32,
-    pub(crate) cover_side: u32,
-    pub(crate) conversion: u64,
-    /// Op 13 and 15: the XPointer or href.
-    pub(crate) text: &'a str,
-    /// Op 2 only.
-    pub(crate) options: Options<'a>,
-    /// Op 2 only: the user's CSS file (`doc_open.css_root`, `css_path`;
-    /// `""` for none), which the format reads as root 4.
-    pub(crate) css_root: u32,
-    pub(crate) css_path: &'a str,
-}
-impl FormatCall<'_> {
-    pub(crate) fn new(format: FormatRef, op: u32, document: u32) -> Self {
-        Self {
-            format,
-            op,
-            document,
-            section: 0,
-            offset: 0,
-            index: 0,
-            cursor: 0,
-            generation: 0,
-            flags: 0,
-            image_side: 0,
-            cover_side: 0,
-            conversion: 0,
-            text: "",
-            options: Options::NONE,
-            css_root: 0,
-            css_path: "",
-        }
-    }
-}
 
 /// The file a hand-over names, resolved (`doc_open` root 5).
 pub(crate) struct HandedBook {
@@ -178,6 +113,17 @@ pub(crate) trait DocHost {
     /// Call the format plugin. On success the answer (service-tag records)
     /// is at the start of `out`; the count is at most `out.len()`.
     fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32>;
+    /// Before an open's `call_format`: the book's cache (root 6) is made
+    /// ready (`document.md` 3). Its own step, so that a busy format is told
+    /// apart from a busy cache (`pending`).
+    fn open_cache(&self, _call: &FormatCall<'_>) -> Result<(), i32> {
+        Ok(())
+    }
+    /// Keeps the open's batch (its CSS file and options) for the document
+    /// whose open waits for its format plugin (`pending`).
+    fn keep_open(&self, _document: u32, _batch: &[u8]) -> Result<(), i32> {
+        Ok(())
+    }
     /// Tell the format plugin to close a document (op 4 `close`). Best
     /// effort; nothing the format says can fail it. The service never calls
     /// it for a document whose format stopped (`format_gone`). The host
@@ -471,7 +417,7 @@ pub(crate) fn opener_stopped(host: &dyn DocHost, owner: u64) -> Result<usize, i3
 /// format is gone. One place for every path, so no path calls a stopped format.
 fn end(host: &dyn DocHost, document: &Document) {
     host.end_images(document);
-    if !document.format_gone {
+    if !document.format_gone && !document.open_pending {
         host.close_format(document);
     }
     // One that the host closed earlier released its reader then; one whose
@@ -520,7 +466,7 @@ fn taken(host: &dyn DocHost, document: &Document) {
         host.cover_job_displaced(document.job_kind);
     }
     host.end_images(document);
-    if !document.format_gone {
+    if !document.format_gone && !document.open_pending {
         host.close_format(document);
     }
     if document.reader_held {
@@ -557,6 +503,13 @@ pub(crate) fn format_retired(
 
 /// What the shell hands the frame under the key `core.document`.
 pub(crate) struct DocServices(pub(crate) alloc::rc::Rc<dyn DocHost>);
+impl DocServices {
+    /// Whether any document, in any state (a pending open too), names a
+    /// format of which `of` says yes: its plugin may not park again (#248 D3).
+    pub(crate) fn uses_format(&self, of: &dyn Fn(FormatRef) -> bool) -> bool {
+        self.0.table().uses_format(of)
+    }
+}
 
 /// The host of this call with its caller: forwards everything but `owner`.
 struct Cx<'a> {
@@ -610,6 +563,12 @@ impl DocHost for Cx<'_> {
     }
     fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32> {
         self.host.call_format(call, out)
+    }
+    fn open_cache(&self, call: &FormatCall<'_>) -> Result<(), i32> {
+        self.host.open_cache(call)
+    }
+    fn keep_open(&self, document: u32, batch: &[u8]) -> Result<(), i32> {
+        self.host.keep_open(document, batch)
     }
     fn close_format(&self, document: &Document) {
         self.host.close_format(document);
@@ -906,21 +865,7 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
         call.options = options;
         call.css_root = request.css_root;
         call.css_path = request.css_path;
-        let length = run(host, &call, out)?;
-        let answer: wire::ServiceDocState<'_> = check::only(&out[..length])?;
-        check::state(&answer)?;
-        table.set_state(
-            id,
-            answer.state,
-            answer.progress_ppm,
-            answer.status,
-            answer.flags,
-            conversion,
-        )?;
-        if answer.state == READY {
-            host.document_ready(id);
-        }
-        Ok(())
+        pending::open(host, &call, input, out)
     })();
     if let Err(error) = answered {
         // The id never reached the opener; the format may hold state for it.
