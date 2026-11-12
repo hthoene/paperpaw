@@ -198,16 +198,22 @@ input(state: pointer, token: u32, input: bytes) -> i32
   registered screen or action, own or foreign. A malformed id is `ERR_INVALID`, an id that is not
   registered `ERR_NOT_FOUND`; the whole batch is refused and nothing is queued. The owner is
   stamped by the host, never read from the record.
-- [D] `redraw` and `close_screen` act on the submitting plugin's screen on top; outside its own
-  screen they are `ERR_STATE` (whole batch refused).
+- [D] `close_screen` acts on the submitting plugin's screen on top; outside its own screen it is
+  `ERR_STATE` (whole batch refused). `redraw` and `redraw_area` act on the submitting plugin's
+  screen that no non-overlay screen covers: the top one, or one with only overlays above it (the
+  page under a menu bar, `ui.md` 1.2). A full screen above it, or a guard above it (an overlay or
+  not, `ui.md` 4.3), is `ERR_STATE` (whole batch refused), and a redraw queued before that
+  happened is dropped with a warning. It draws in that screen's own region (areas from its
+  corner, follow-ups too), and the overlays that cross it are drawn again after it, a dimming
+  scrim included.
 - [D] `redraw_area` (interface 6 `Cx::request_redraw_area`, #252) draws again only a rectangle of
-  the plugin's screen on top. `x` and `y` count from the top-left corner of the screen's region,
+  the plugin's screen (the top, or one with only overlays above it, as `redraw`). `x` and `y` count from the top-left corner of the screen's region,
   the `x`/`y` of its `draw.frame` (section 6): (0, 0) is that corner, whatever bars are shown. The
   host places the rectangle where the region is when it draws it, so it stays right when bars
   showed or hid since, and a screen knows enough before its first draw (its size comes with
   `event.screen_shown`). What lies outside the region draws nothing (an empty rectangle draws
   nothing and is `OK`).
-  The rules of `redraw` hold: `mode` above 3 `ERR_INVALID`, outside its own screen `ERR_STATE`,
+  The rules of `redraw` hold: `mode` above 3 `ERR_INVALID`, outside its own screen, or under a full screen or a guard, `ERR_STATE`,
   in a work run's callback as `redraw`. Each rectangle is drawn on its own and the refresh weighs
   what they cover, not the rectangle around them, so a few pictures filled in after a page's text
   are no page turn: they count towards the periodic full refresh only when they cover half the

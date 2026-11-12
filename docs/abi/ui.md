@@ -667,7 +667,7 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   (a maker that did not subscribe is not told). The host delivers it between callbacks, never
   inside one, once per instance however often the owner said `command.widget_changed`, and only
   while the instance lives. A guard does not hold it (a hint); what the maker then does to its
-  screen follows the stack's rules (`redraw` of a screen not on top is `ERR_STATE`).
+  screen follows the stack's rules (`redraw` of a screen with a non-overlay or a guard above it is `ERR_STATE`).
   `command.widget_changed` names only the submitter's own instances: an unknown or dropped one is
   `ERR_NOT_FOUND`, another plugin's `ERR_DENIED`, and a shell without a widget table answers
   `ERR_UNSUPPORTED` (todo 361, #845).
