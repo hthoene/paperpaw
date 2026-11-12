@@ -45,8 +45,8 @@ const MOST_STACK_PAGES: usize = 8;
 const VALUE_BUFFER: usize = 4096;
 /// Most lines the message takes.
 const MOST_LINES: usize = 4;
-/// The input of `core.ui` ops `stack` and `params`: at most 256 bytes (their
-/// `max_input`); replies keep a full service buffer (`max_reply`).
+/// The input of `core.ui` ops `stack`, `params` and `widget_drop`: at most 256
+/// bytes (their `max_input`); replies keep what each op answers (`max_reply`).
 const QUERY_INPUT: usize = 256;
 
 mod images;
@@ -594,7 +594,7 @@ fn facts_before(off: bool) -> Facts {
 /// Lets widgets go; a refusal is of no matter (the host drops them when the
 /// screen closes).
 fn drop_all(host: &Host<'_>, ui: &Ui, widgets: impl IntoIterator<Item = WidgetHandle>) {
-    if let (Ok(mut input), Ok(mut out)) = (buffer(SERVICE_BUFFER), buffer(64)) {
+    if let (Ok(mut input), Ok(mut out)) = (buffer(QUERY_INPUT), buffer(64)) {
         for widget in widgets {
             // A refusal to let one go leaves it to the host.
             if ui.widget_drop(host, widget, &mut input, &mut out).is_err() {
