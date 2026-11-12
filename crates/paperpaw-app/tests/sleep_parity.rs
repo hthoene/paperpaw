@@ -81,7 +81,7 @@ struct Run {
     card: Card,
     now: u64,
     steps: Vec<String>,
-    /// Debug only, never compared: every pass of every step, unfolded,
+    /// Compared as well (CR on #1368): every pass of every step, unfolded,
     /// as `@instant effects`.
     raw: Vec<String>,
     /// Debug only, never compared: `(step, passes folded)` for each step
@@ -205,8 +205,8 @@ impl Run {
         self.steps.push(text);
     }
 
-    /// With `PARITY_RAW_DIR` set, writes `raw` and `repeats` there, for a
-    /// diff of the unfolded runs (debug only).
+    /// With `PARITY_RAW_DIR` set, writes `raw` and `repeats` there, to read
+    /// a difference of the unfolded runs (the case asserts them equal).
     fn dump(&self, plugin: &str, name: &str) {
         let Some(dir) = std::env::var_os("PARITY_RAW_DIR") else {
             return;
@@ -520,6 +520,19 @@ fn same_awake_and_asleep(plugin: &'static str) {
         awake.steps.len(),
         asleep.steps.len(),
         "{plugin}: the runs took a different number of steps"
+    );
+    // The unfolded passes too: asleep, no pass may be added or differ, not
+    // even one the fold above would take (CR on #1368).
+    for (index, (a, b)) in awake.raw.iter().zip(&asleep.raw).enumerate() {
+        assert_eq!(
+            a, b,
+            "{plugin} differs asleep in its unfolded passes at step {index}"
+        );
+    }
+    assert_eq!(
+        awake.raw.len(),
+        asleep.raw.len(),
+        "{plugin}: the unfolded runs took a different number of steps"
     );
     assert_eq!(
         asleep.reparked,
