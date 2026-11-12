@@ -115,8 +115,9 @@ pub(crate) struct HostServices {
     /// Owner ids are never 0. The vector's room is reserved when an owner is
     /// admitted ([`Self::admit_owner`]): its capacity is never below the owners
     /// alive plus the owners queued, so a drop never allocates and never finds
-    /// the queue full.
-    retiring: RefCell<Vec<u64>>,
+    /// the queue full. Each owner is queued with whether it was being parked
+    /// again: its retry keeps what that retirement keeps (Senior, R4).
+    retiring: RefCell<Vec<(u64, bool)>>,
     /// The owner being parked again (#248, D3), 0 for none: its retirement
     /// keeps its library receipts and its formats listed, since its owner
     /// key lives on and the remade plugin may still use them.
@@ -225,7 +226,7 @@ impl HostServices {
             return Err(ERR_STATE);
         }
         let queue = self.retiring.try_borrow().map_err(|_| ERR_BUSY)?;
-        Ok(queue.contains(&owner))
+        Ok(queue.iter().any(|(queued, _)| *queued == owner))
     }
 
     /// An owner is gone; `retired` says its retirement ran to the end. If not,
@@ -236,12 +237,16 @@ impl HostServices {
         if retired {
             return;
         }
+        // Parked again (D3): the retry keeps its receipts and formats too.
+        let parking = self.parking.get() == owner;
         let queued = self.retiring.try_borrow_mut().is_ok_and(|mut queue| {
-            if queue.contains(&owner) {
+            if let Some(entry) = queue.iter_mut().find(|(queued, _)| *queued == owner) {
+                // A stop for good among the drops ends everything.
+                entry.1 &= parking;
                 return true;
             }
             if queue.len() < queue.capacity() {
-                queue.push(owner);
+                queue.push((owner, parking));
                 true
             } else {
                 false
@@ -258,7 +263,7 @@ impl HostServices {
             || self
                 .retiring
                 .try_borrow()
-                .map_or(true, |queue| queue.iter().any(|owner| *owner != 0))
+                .map_or(true, |queue| queue.iter().any(|(owner, _)| *owner != 0))
     }
 
     /// The main loop's retry: finish the retirement of every queued owner. An
@@ -277,10 +282,10 @@ impl HostServices {
         let mut index = 0;
         loop {
             // No borrow is held across the retirement: it calls into hosts.
-            let owner = {
+            let (owner, parking) = {
                 let queue = self.retiring.try_borrow().map_err(|_| ERR_BUSY)?;
                 match queue.get(index) {
-                    Some(owner) => *owner,
+                    Some(entry) => *entry,
                     None => break,
                 }
             };
@@ -288,19 +293,24 @@ impl HostServices {
             if owner == 0 {
                 continue;
             }
-            match self.owner_retired(owner) {
+            let retired = if parking {
+                self.parking_again(owner, || self.owner_retired(owner))
+            } else {
+                self.owner_retired(owner)
+            };
+            match retired {
                 Ok(()) => {
                     if let Ok(mut queue) = self.retiring.try_borrow_mut()
                         && let Some(slot) = queue.get_mut(index - 1)
                     {
-                        *slot = 0;
+                        slot.0 = 0;
                     }
                 }
                 Err(error) => result = result.and(Err(error)),
             }
         }
         if let Ok(mut queue) = self.retiring.try_borrow_mut() {
-            queue.retain(|owner| *owner != 0);
+            queue.retain(|(owner, _)| *owner != 0);
         }
         result.map(|()| self.retirements_pending())
     }

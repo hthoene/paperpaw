@@ -63,6 +63,12 @@ struct Parked {
     /// Its batch was refused, or it was stopped while parked: never made.
     refused: Cell<bool>,
     stopped: Cell<bool>,
+    /// Its last make found no memory (until it is made or given up).
+    no_memory: Cell<bool>,
+    /// That, and parking an idle plugin again freed nothing: a pending open
+    /// waiting for it fails now, as with the format awake (#248, Manager's
+    /// decision 2). Cleared by the next make tried.
+    starved: Cell<bool>,
 }
 
 /// The inside of a lease. The parked part is boxed: a live plugin's lease
@@ -94,6 +100,8 @@ impl Slot {
             wait: Cell::new(0),
             refused: Cell::new(false),
             stopped: Cell::new(false),
+            no_memory: Cell::new(false),
+            starved: Cell::new(false),
         })?;
         Some(Self {
             live: RefCell::new(None),
@@ -192,10 +200,13 @@ impl Slot {
                 Ok(instance) => instance,
                 Err(why @ (Unparked::NoMemory | Unparked::Busy)) => {
                     // Memory pressure: an idle plugin is parked again at the
-                    // next safe point (D3, Decision 166).
+                    // next safe point (D3, Decision 166), and only where that
+                    // frees nothing is it starved (`starve`).
                     if why == Unparked::NoMemory {
                         parked.clock.note_pressure();
                     }
+                    parked.no_memory.set(why == Unparked::NoMemory);
+                    parked.starved.set(false);
                     let wait = parked
                         .wait
                         .get()
@@ -228,6 +239,8 @@ impl Slot {
             parked.start.set(false);
             parked.wait.set(0);
             parked.retry_at.set(0);
+            parked.no_memory.set(false);
+            parked.starved.set(false);
         }
         Ok(())
     }
@@ -301,15 +314,51 @@ impl Slot {
     /// longest (a real make failed each time). What waits for it is then
     /// dropped (Senior and Manager on #1337), and the wait starts again from
     /// the first, so a later use tries at once. `false` otherwise.
+    ///
+    /// Taken once, by whichever asks first: the queued action or event
+    /// (`event_call`) or a pending open (`format_gave_up`). The other then
+    /// waits a whole round of the wait again, about a minute, before it
+    /// gives up too (Senior on #1365: rare, and nothing is lost).
     pub(crate) fn give_up(&self) -> bool {
         let parked = self.parked.borrow();
         let Some(parked) = parked.as_ref().filter(|p| p.wait.get() >= RETRY_LAST_MS) else {
             return false;
         };
+        Self::start_over(parked);
+        true
+    }
+
+    /// Marks the plugin starved where its last make found no memory: parking
+    /// an idle plugin again freed nothing (`native_unpark_pending`). Whether
+    /// it was marked.
+    pub(crate) fn starve(&self) -> bool {
+        let parked = self.parked.borrow();
+        let Some(parked) = parked.as_ref().filter(|p| p.no_memory.get()) else {
+            return false;
+        };
+        parked.starved.set(true);
+        true
+    }
+
+    /// Whether a pending open waiting for the plugin is to fail now: it was
+    /// starved ([`Self::starve`]). Taken once, as [`Self::give_up`], which
+    /// queued actions and events keep using: they wait (Manager's decision 2).
+    pub(crate) fn take_starved(&self) -> bool {
+        let parked = self.parked.borrow();
+        let Some(parked) = parked.as_ref().filter(|p| p.starved.get()) else {
+            return false;
+        };
+        Self::start_over(parked);
+        true
+    }
+
+    /// The wait starts again from the first: a later use tries at once.
+    fn start_over(parked: &Parked) {
         parked.wait.set(0);
         parked.retry_at.set(0);
         parked.start.set(false);
-        true
+        parked.no_memory.set(false);
+        parked.starved.set(false);
     }
 
     /// Whether the batch was refused at an unpark (the row withdraws it).

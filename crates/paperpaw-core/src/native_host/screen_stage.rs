@@ -95,24 +95,51 @@ impl ScreenStage {
         self.inputs.get()
     }
 
-    /// Holds one slot for a callback before it runs, and reserves the queue's
-    /// whole capacity (`SCREEN_BATCHES`) at once: a batch the callback
-    /// believes went through is never dropped, neither for want of memory nor
-    /// because a nested screen call took the last slot of the queue.
+    /// Holds one slot for a callback before it runs, and makes room in the
+    /// queue for the batch of every slot held, this one's too: a batch the
+    /// callback believes went through is never dropped, neither for want of
+    /// memory nor because a nested screen call took the last slot of the
+    /// queue. The room is reserved as it is first needed, not the whole
+    /// `SCREEN_BATCHES` at once, and kept until standby or memory pressure
+    /// ([`Self::release`]): one batch's room for the common, unnested call
+    /// (#248).
     ///
     /// # Errors
     /// `ERR_BUSY` when the queued batches and the slots held leave no room (or
-    /// the queue is borrowed), `ERR_NO_MEMORY` when its capacity cannot be
-    /// reserved.
+    /// the queue is borrowed), `ERR_NO_MEMORY` when the room cannot be
+    /// reserved (nothing is held then).
     pub(crate) fn reserve(&self) -> Result<Slot<'_>, i32> {
         let mut queue = self.queue.try_borrow_mut().map_err(|_| ERR_BUSY)?;
-        if queue.len().saturating_add(self.held.get()) >= SCREEN_BATCHES {
+        let held = self.held.get();
+        if queue.len().saturating_add(held) >= SCREEN_BATCHES {
             return Err(ERR_BUSY);
         }
-        let more = SCREEN_BATCHES - queue.len();
-        queue.try_reserve_exact(more).map_err(|_| ERR_NO_MEMORY)?;
-        self.held.set(self.held.get() + 1);
+        // Below `SCREEN_BATCHES`: checked above.
+        queue
+            .try_reserve_exact(held + 1)
+            .map_err(|_| ERR_NO_MEMORY)?;
+        self.held.set(held + 1);
         Ok(Slot { stage: self })
+    }
+
+    /// The room the queue keeps, for the tests of who gives it back.
+    #[cfg(test)]
+    pub(crate) fn capacity(&self) -> usize {
+        self.queue.try_borrow().map_or(0, |queue| queue.capacity())
+    }
+
+    /// Gives back the queue's room where nothing waits and no callback runs:
+    /// on standby and under memory pressure, not after every batch (a room
+    /// made again for each callback would split the heap).
+    pub(crate) fn release(&self) {
+        if self.held.get() != 0 {
+            return;
+        }
+        if let Ok(mut queue) = self.queue.try_borrow_mut()
+            && queue.is_empty()
+        {
+            *queue = Vec::new();
+        }
     }
 
     /// Keeps a batch for the kernel.
@@ -124,8 +151,8 @@ impl ScreenStage {
         if queue.len() >= SCREEN_BATCHES {
             return Err(ERR_BUSY);
         }
-        // `reserve` made the room before the callback ran; nested callbacks
-        // each reserved the whole capacity, so this never grows the queue.
+        // `reserve` made room for every held slot's batch before the
+        // callback ran, so this never grows the queue for a slot's batch.
         queue.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         queue.push(staged);
         Ok(())
@@ -248,13 +275,63 @@ mod tests {
     #[test]
     fn a_batch_is_put_without_growing_the_queue_after_it_was_reserved() {
         let queue = ScreenStage::new();
-        let slot = queue.reserve().unwrap();
-        let capacity = queue.queue.borrow().capacity();
-        assert!(capacity >= SCREEN_BATCHES);
-        for owner in 1..=4 {
-            slot.put(batch(owner)).unwrap();
+        // Two batches wait; an outer and a nested call each hold a slot.
+        for owner in 1..=2 {
+            queue.reserve().unwrap().put(batch(owner)).unwrap();
         }
+        let outer = queue.reserve().unwrap();
+        let inner = queue.reserve().unwrap();
+        let capacity = queue.queue.borrow().capacity();
+        let at = queue.queue.borrow().as_ptr();
+        inner.put(batch(3)).unwrap();
+        drop(inner);
+        outer.put(batch(4)).unwrap();
         assert_eq!(queue.queue.borrow().capacity(), capacity);
+        assert_eq!(queue.queue.borrow().as_ptr(), at, "not moved");
+    }
+
+    #[test]
+    fn a_call_reserves_room_for_one_batch_not_for_four() {
+        let queue = ScreenStage::new();
+        assert_eq!(queue.queue.borrow().capacity(), 0, "nothing before a call");
+        let slot = queue.reserve().unwrap();
+        assert_eq!(queue.queue.borrow().capacity(), 1);
+        slot.put(batch(1)).unwrap();
+        drop(slot);
+        assert_eq!(queue.take().map(|staged| staged.owner), Some(1));
+        // Kept for the next call: no allocation for each callback.
+        let at = queue.queue.borrow().as_ptr();
+        let slot = queue.reserve().unwrap();
+        assert_eq!(queue.queue.borrow().as_ptr(), at);
+        drop(slot);
+    }
+
+    #[test]
+    fn the_room_goes_back_only_where_nothing_waits_and_no_call_runs() {
+        let queue = ScreenStage::new();
+        let slot = queue.reserve().unwrap();
+        queue.release();
+        assert_eq!(queue.queue.borrow().capacity(), 1, "a call runs");
+        slot.put(batch(1)).unwrap();
+        drop(slot);
+        queue.release();
+        assert_eq!(queue.queue.borrow().len(), 1, "a batch waits");
+        assert!(queue.take().is_some());
+        queue.release();
+        assert_eq!(queue.queue.borrow().capacity(), 0);
+    }
+
+    #[test]
+    fn a_call_without_room_is_refused_cleanly_and_holds_nothing() {
+        use crate::native_host::shell::tests::FAIL_NTH;
+        let queue = ScreenStage::new();
+        FAIL_NTH.with(|n| n.set(1));
+        let refused = queue.reserve().err();
+        FAIL_NTH.with(|n| n.set(0));
+        assert_eq!(refused, Some(ERR_NO_MEMORY));
+        assert_eq!(queue.held.get(), 0);
+        assert!(!queue.waiting());
+        assert!(queue.reserve().is_ok(), "room later: called again");
     }
 
     #[test]

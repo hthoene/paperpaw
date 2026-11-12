@@ -150,7 +150,10 @@ fn run(h: &Harness, plugin: u64, payload: &[u8], out: &mut [u8]) -> Result<usize
         Target { plugin, token: 7 },
         payload,
         out,
-        &kernel.shared.env(paperpaw_platform::Instant(0)),
+        (
+            &kernel.shared.env(paperpaw_platform::Instant(0)),
+            &core::cell::Cell::new(false),
+        ),
     )
 }
 
@@ -276,7 +279,16 @@ fn the_format_answers_into_the_callers_buffer_and_no_copy_of_it_is_held() {
     let mut out = vec![0_u8; 4096];
     let before = crate::native_host::shell::tests::HEAP_LIVE.with(Cell::get);
     let target = Target { plugin, token: 7 };
-    assert_eq!(call(&h.registry, target, &[1, 2, 3], &mut out, &env), Ok(5));
+    assert_eq!(
+        call(
+            &h.registry,
+            target,
+            &[1, 2, 3],
+            &mut out,
+            (&env, &core::cell::Cell::new(false))
+        ),
+        Ok(5)
+    );
     assert_eq!(out[..5], [1, 5, 2, 0xaa, 0xbb]);
     let held = HELD_AT_STAGE.with(Cell::get).saturating_sub(before);
     // The framed call and the fixture's note of it; never 3,840 bytes of reply.
