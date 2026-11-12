@@ -6,25 +6,51 @@
 impl crate::Kernel {
     /// Makes the parked plugins asked to start whose turn is now; withdraws
     /// those whose batch was refused. `true` where one was made (what waited
-    /// for it is delivered on the next pass); one starved asks for that pass
-    /// itself (a pending open waiting for it fails). At safe points only: the top of
+    /// for it is delivered on the next pass). At safe points only: the top of
     /// `run_commands` and the end of a service pump pass.
     // Its own frame: off the command loop's route (#250).
     #[inline(never)]
     pub(crate) fn native_unpark_pending(&mut self) -> bool {
         self.shared.native_instances.set_now(self.now.millis());
-        // Memory pressure (an unpark found no memory): one idle plugin is
-        // parked again first, so the start waiting may find room (D3). Where
-        // none could be (none idle, not only not now), what found no memory
-        // is starved: a pending open waiting for it fails at the next pass, as
-        // with the format awake (#248, Manager's decision 2).
-        let mut starved = false;
-        if self.shared.native_instances.take_pressure() {
-            let blocked = self.native_repark_blocked();
-            if self.native_repark_idle(1) == 0 && !blocked {
-                starved = self.shared.native_instances.starve_waiting();
+        // Memory pressure (an unpark found no memory): an idle plugin is
+        // parked again, and what found no memory is tried again at once, one
+        // plugin after the other while that frees one (D3). Where none could
+        // be parked (none idle, not only not now), what found no memory is
+        // starved: a pending open waiting for it fails at the next pass, as
+        // with the format awake, not after about two minutes of waits (#248,
+        // Manager's decision 2).
+        let (mut made, mut starved) = (false, false);
+        for _ in 0..MAX_STARTS_A_PASS {
+            if !self.shared.native_instances.take_pressure() {
+                break;
             }
+            let blocked = self.native_repark_blocked();
+            if self.native_repark_idle(1) == 0 {
+                starved = !blocked && self.shared.native_instances.starve_waiting();
+                break;
+            }
+            self.shared.native_instances.retry_no_memory_now();
+            made |= self.native_make_started();
         }
+        made |= self.native_make_started();
+        let instances = &self.shared.native_instances;
+        if made {
+            // What waited for it in the document loop (a pending open, a
+            // cover or details step) goes on at the next pass, not after the
+            // loop's back-off: it backed off only because the plugin was not
+            // made yet (#248, a parked format).
+            instances.set_doc_retry(None);
+        } else if starved && instances.doc_retry().is_some() {
+            // The document loop waits: due now, so its pending open fails.
+            instances.set_doc_retry(Some(self.now.millis()));
+        }
+        made
+    }
+
+    /// Makes the parked plugins asked to start whose turn is now (each
+    /// start taken once); withdraws those whose batch was refused. Whether
+    /// one was made.
+    fn native_make_started(&mut self) -> bool {
         let mut made = false;
         // Each start is taken once; a bound all the same.
         for _ in 0..MAX_STARTS_A_PASS {
@@ -52,16 +78,6 @@ impl crate::Kernel {
                 // refused (withdrawn on the next pass).
                 made |= lease.live().is_ok();
             }
-        }
-        if made || starved {
-            // What waited for it in the document loop (a pending open, a
-            // cover or details step) goes on at the next pass, not after the
-            // loop's back-off: it backed off only because the plugin was not
-            // made yet (#248, a parked format); a starved one's open fails.
-            self.shared.native_instances.set_doc_retry(None);
-        }
-        if starved {
-            self.shared.native_instances.set_service_more(true);
         }
         made
     }

@@ -340,6 +340,14 @@ impl Slot {
         true
     }
 
+    /// Its last make found no memory and an idle plugin was parked again for
+    /// room since: tried again at once (its wait still doubles).
+    pub(crate) fn retry_now(&self) {
+        if let Some(parked) = self.parked.borrow().as_ref().filter(|p| p.no_memory.get()) {
+            parked.retry_at.set(0);
+        }
+    }
+
     /// Whether a pending open waiting for the plugin is to fail now: it was
     /// starved ([`Self::starve`]). Taken once, as [`Self::give_up`], which
     /// queued actions and events keep using: they wait (Manager's decision 2).
