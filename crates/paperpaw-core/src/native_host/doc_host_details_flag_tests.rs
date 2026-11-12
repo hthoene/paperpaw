@@ -168,27 +168,15 @@ fn a_details_open_neither_stamps_nor_removes_and_a_normal_open_then_prepares_afr
 
 #[test]
 fn a_details_open_beside_a_conversion_of_the_same_cache_is_busy() {
-    use crate::native_host::doc_service::cover;
     world(|w| {
         install_docx(w);
         // A reader converts the book.
         *w.reply.borrow_mut() = Ok(state(PREPARING));
         let reading = w.open(1, "books/a.docx").unwrap();
-        // The library's cover of it (bit 3): the same cache, half made.
-        let opener = Caller {
-            owner: OPENER,
-            plugin: "opener",
-            features: AdmittedFeatures::NONE,
-            hosts: &w.hosts,
-        };
+        // The host's open with bit 3 (the same cache, half made): busy, and
+        // it reaches no format.
         let opens = w.open_flags.borrow().len();
-        let made = cover::make(w, &opener, "books/a.docx", 0);
-        // A reader is open: the cover waits, and nothing is opened for it.
-        assert!(
-            matches!(made, Ok(cover::Made::Queued)),
-            "{:?}",
-            made.as_ref().err()
-        );
+        assert_eq!(start(w, "books/a.docx", READY), Err(ERR_BUSY));
         assert_eq!(
             w.open_flags.borrow().len(),
             opens,
@@ -198,6 +186,50 @@ fn a_details_open_beside_a_conversion_of_the_same_cache_is_busy() {
             w.state.table.lease(OPENER, reading).is_ok(),
             "the reader's is kept"
         );
+    });
+}
+
+#[test]
+fn a_cover_waits_while_a_reader_is_open_and_opens_nothing() {
+    use crate::native_host::doc_service::cover;
+    world(|w| {
+        install_docx(w);
+        *w.reply.borrow_mut() = Ok(state(PREPARING));
+        let reading = w.open(1, "books/a.docx").unwrap();
+        let opener = Caller {
+            owner: OPENER,
+            plugin: "opener",
+            features: AdmittedFeatures::NONE,
+            hosts: &w.hosts,
+        };
+        let opens = w.open_flags.borrow().len();
+        let made = cover::make(w, &opener, "books/a.docx", 0);
+        assert!(matches!(made, Ok(cover::Made::Queued)));
+        assert_eq!(w.open_flags.borrow().len(), opens, "nothing was opened");
+        assert!(w.state.table.lease(OPENER, reading).is_ok());
+    });
+}
+
+#[test]
+fn a_cover_made_before_is_asked_inline_within_the_quiet_time() {
+    use crate::native_host::doc_service::cover;
+    world(|w| {
+        install_docx(w);
+        w.state.note_cover_made(path_key("books/a.docx"));
+        w.state.cover_job_input(10_000);
+        assert!(!w.state.cover_quiet(), "the user's quiet time runs");
+        let opener = Caller {
+            owner: OPENER,
+            plugin: "opener",
+            features: AdmittedFeatures::NONE,
+            hosts: &w.hosts,
+        };
+        *w.reply.borrow_mut() = Ok(state(READY));
+        let opens = w.open_flags.borrow().len();
+        // Made: the picture comes from its cache at once, not "not now".
+        let made = cover::make(w, &opener, "books/a.docx", 0);
+        assert!(!matches!(made, Ok(cover::Made::Queued)), "not held");
+        assert!(w.open_flags.borrow().len() > opens, "the book was opened");
     });
 }
 

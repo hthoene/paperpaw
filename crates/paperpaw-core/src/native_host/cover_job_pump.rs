@@ -128,6 +128,8 @@ impl crate::Kernel {
     /// `doc_cover_job`).
     pub(crate) fn finish_started(&mut self) -> crate::Effects {
         let effects = self.finish();
+        // The quiet second counts from the start as from an input.
+        self.native_cover_input();
         self.native_cover_jobs_allowed();
         effects
     }

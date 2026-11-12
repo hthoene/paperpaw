@@ -303,7 +303,10 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   failed book). A job takes **no preparing step (no conversion) while the library's list screen (the
   files plugin's) is on the screen stack**, shown or covered, and for 2 s after it left it: a
   conversion's peak must not come beside the list's buffers. A book that is ready (its cover only
-  to be made) is not held by the list. **Nothing is opened, made or converted within 1 s of the user's last input or of the start** (#248): a `cover` of a book not made yet then answers `ERR_BUSY` without opening the book, and bit 6 follows once it is quiet. The row stays open meanwhile; the time held is no awake time of the
+  to be made) is not held by the list. **Nothing is opened, made or converted within 1 s of the
+  user's last input or of the start** (#248): a `cover` of a book not made yet then answers
+  `ERR_BUSY` without opening the book, and bit 6 follows once it is quiet. The row stays open
+  meanwhile; the time held is no awake time of the
   book. A job never holds the device awake
   and does not restart after a sleep until a new `cover` asks. Between two of its steps the pump waits 100 ms (1 s in the power modes Saving and Offline), a
   timed wake, so the job goes on on an idle device. A book's job may run 10 minutes in all per
