@@ -4,6 +4,10 @@ use crate::native_host::codec;
 use crate::native_host::ui_store::Info;
 #[cfg(test)]
 use alloc::rc::Rc;
+
+/// The kernel's name for "a full screen opened above": passed to a native
+/// screen's `Screen::on_event` by `Kernel::tell_hidden`, never emitted.
+pub(crate) const HIDDEN: &str = "kernel.screen-hidden";
 use alloc::vec::Vec;
 use paperpaw_graphics::Canvas;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY};
@@ -367,6 +371,24 @@ impl<D: Dispatch> NativeScreen<D> {
         }
     }
 
+    /// A full screen opened above this one (the kernel's own call, `ui.md` 1.1):
+    /// `event.screen_hidden` to its token, once it is open and only while it is
+    /// not on top, so an event of that name emitted by a plugin does nothing.
+    /// A refused callback drops nothing more than the hint.
+    fn hidden(&self, cx: &Cx<'_, '_>) {
+        let Some(key) = self.key.filter(|_| self.opened && !self.is_top(cx)) else {
+            return;
+        };
+        self.event(
+            Record::EventScreenHidden(wire::EventScreenHidden {
+                now_ms: cx.env().now().millis(),
+                screen: self.id.as_str(),
+                instance: key.serial(),
+            }),
+            cx.env(),
+        );
+    }
+
     fn is_top(&self, cx: &Cx<'_, '_>) -> bool {
         self.key.is_some() && self.key == cx.key() && cx.is_on_top()
     }
@@ -536,6 +558,10 @@ impl<D: Dispatch> Screen for NativeScreen<D> {
     /// `core.keyboard`; no other event is passed on (`screens-input.md`
     /// section 2).
     fn on_event(&mut self, event: &Id, params: &paperpaw_sdk::Params, cx: &mut Cx<'_, '_>) {
+        if event.as_str() == HIDDEN {
+            self.hidden(cx);
+            return;
+        }
         if *event != events::TYPE_TEXT
             || !self.is_top(cx)
             || cx.env().slot_screen(slots::KEYBOARD.as_str()) != Some(&self.id)

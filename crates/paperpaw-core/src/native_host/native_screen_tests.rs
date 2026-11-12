@@ -655,3 +655,56 @@ fn a_shown_top_screen_not_offered_on_the_keyboard_slot_gets_no_typed_text() {
     screen.on_event(events::TYPE_TEXT.id(), &typed, &mut cx);
     assert!(dispatch.calls.borrow().is_empty());
 }
+
+/// What `event.screen_hidden` the plugin was sent, as (screen, instance, time).
+fn hidden_sent(dispatch: &Recorder) -> Vec<(alloc::string::String, u32, u64)> {
+    dispatch
+        .calls
+        .borrow()
+        .iter()
+        .map(|(token, bytes)| {
+            assert_eq!(*token, 10);
+            let Record::EventScreenHidden(event) = wire::records_decode_single(bytes).unwrap()
+            else {
+                panic!("wrong screen event")
+            };
+            (event.screen.into(), event.instance, event.now_ms)
+        })
+        .collect()
+}
+
+/// The kernel tells the screen at `mine` it is covered, as `Kernel::tell_hidden` does.
+fn told_hidden(kernel: &crate::Kernel, screen: &mut NativeScreen<Rc<Recorder>>, mine: u32) {
+    let env = kernel.shared.env(Instant(5));
+    let mut output = paperpaw_sdk::Output::default();
+    let mut cx = Cx::new(&env, &mut output).for_screen(ScreenKey::new(mine));
+    screen.on_event(
+        &Id::new_static(HIDDEN),
+        &paperpaw_sdk::Params::new(),
+        &mut cx,
+    );
+}
+
+#[test]
+fn a_covered_open_native_screen_is_sent_screen_hidden_and_nothing_else_is() {
+    let below = [
+        ("home.screen", false, false),
+        ("files.screen", false, false),
+    ];
+    let (kernel, mut screen, dispatch) = stacked(&below, 0);
+    // Not announced (`screen_opened` not sent yet): nothing.
+    told_hidden(&kernel, &mut screen, 1);
+    assert!(hidden_sent(&dispatch).is_empty());
+    screen.opened = true;
+    told_hidden(&kernel, &mut screen, 1);
+    assert_eq!(hidden_sent(&dispatch), [("home.screen".into(), 1, 5)]);
+    // On top (nothing above): an event of that name emitted by a plugin does nothing.
+    let (kernel, mut top, dispatch) = stacked(&below[..1], 0);
+    top.opened = true;
+    told_hidden(&kernel, &mut top, 1);
+    assert!(hidden_sent(&dispatch).is_empty());
+    // A screen that is closed is not told.
+    screen.opened = false;
+    told_hidden(&kernel, &mut screen, 1);
+    assert_eq!(hidden_sent(&dispatch).len(), 0);
+}

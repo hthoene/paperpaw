@@ -9,8 +9,7 @@ std::thread_local! {
     /// The host table each `make` was handed, in order.
     static TABLES: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
     static INSTALL_FAIL_NTH: Cell<u32> = const { Cell::new(0) };
-    /// 1: the batch also declares a group, a setting, its extra and an action;
-    /// 2: and a secret setting the host does not map (the batch is refused).
+    /// 1: also a group, a setting, its extra and an action; 2: and a secret one (refused).
     pub(super) static ARMS: Cell<u8> = const { Cell::new(0) };
     /// Another drawable the batch declares: 1 a status item of token 93; 2 a
     /// status line of token 94; 3 a status item of the screen's token 91.
@@ -34,8 +33,7 @@ std::thread_local! {
     static REPORTS: Cell<u32> = const { Cell::new(0) };
     static STAMPS: RefCell<Vec<(u64, u64)>> = const { RefCell::new(Vec::new()) };
     static EVENTS: RefCell<Vec<(u32, u32, u32, u32)>> = const { RefCell::new(Vec::new()) };
-    /// What each `screen_opened` said of the hand-over: instance, hand-over,
-    /// params, text bytes.
+    /// What each `screen_opened` said of the hand-over (instance, hand-over, params, text).
     static OPENED: RefCell<Vec<(u32, u32, u32, u32)>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -397,6 +395,7 @@ unsafe extern "C" fn screen_event(
         }
         wire::Record::EventScreenShown(event) => (38, event.instance.unwrap_or(0), 0, 0),
         wire::Record::EventScreenClosed(event) => (80, event.instance, 0, 0),
+        wire::Record::EventScreenHidden(event) => (111, event.instance, 0, 0),
         _ => return ERR_INVALID,
     };
     let instance = context
@@ -1493,6 +1492,8 @@ mod key_records;
 #[path = "native_widget_install_tests.rs"]
 mod widget_registered;
 
+#[path = "native_screen_hidden_tests.rs"]
+mod hidden;
 #[path = "native_reserved_id_tests.rs"]
 mod reserved_id;
 #[path = "native_stage_install_tests.rs"]
