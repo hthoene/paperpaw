@@ -956,8 +956,11 @@ reader's own highlights' drawing, so they look as Beta 3's decorations did) and 
   and a 4 KiB buffer at the open. The search results keep 4 bytes more a row (where the match ends, 100 rows at most).
 - **The hit.** Choosing a search hit goes to the page that starts at the match (`View::go_to_match`) and marks it there; the next
   page drops the mark (it is kept with the page it was set for).
-- **Not here (named):** the highlights are read at the open and after the reader's own edits (the creation, next slice); the
-  event 91 (`annotations-changed`) has no SDK decoder yet, so an edit by another plugin shows at the next open. The `ink` aspect
+- **Other plugins' edits.** The reader subscribes to `event.library_changed` (91, token `LIBRARY_CHANGED`): where the annotations
+  of the open book changed (its path, or an empty one for several books), the highlights are read again (`View::annotations_changed`,
+  the old list freed first) and the page is drawn again only if the list differs (`Marks::fingerprint`: the reader's own edits
+  come back as this event too, after the reload they made, and draw nothing more).
+- **Not here (named):** the highlights are read at the open, after the reader's own edits and on event 91. The `ink` aspect
   (a tone for the words' letters) is not drawn: the text is one colour. Words a text filter inserted have no places and are not
   marked.
 

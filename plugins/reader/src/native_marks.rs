@@ -92,6 +92,26 @@ impl Marks {
         &self.highlights
     }
 
+    /// A number that tells one list of highlights from another (a fold of the
+    /// places and the notes flags): equal lists have the same one.
+    #[must_use]
+    pub fn fingerprint(&self) -> u64 {
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut mix = |value: u32| {
+            for byte in value.to_le_bytes() {
+                hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+            }
+        };
+        for span in &self.highlights {
+            mix(span.start.0);
+            mix(span.start.1);
+            mix(span.end.0);
+            mix(span.end.1);
+            mix(u32::from(span.noted));
+        }
+        hash ^ (self.highlights.len() as u64)
+    }
+
     /// Gives up the highlights held (to free them before a new reading of the
     /// library: the old list and the new one are not held at once).
     pub fn take(&mut self) -> Vec<Span> {
