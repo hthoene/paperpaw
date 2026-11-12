@@ -1,7 +1,7 @@
 //! What a parked plugin needs of its host (#248,
 //! `docs/measurements/parked-plugins.md`): hosted again under the owner key it
 //! had, and whether its `make` only registered.
-use super::{DeclaredServices, Error, Hosted, Make, Report};
+use super::{Context, DeclaredServices, Error, Hosted, Make, Report};
 use crate::native_host::HostResources;
 use crate::native_host::resources::OwnerSeat;
 use core::cell::Cell;
@@ -18,6 +18,38 @@ pub(super) struct HostCalls {
 }
 
 impl<S: Services + 'static, M> Hosted<S, M> {
+    /// As [`new`](Self::new), with the id already checked: a linked plugin's
+    /// is the firmware's text, so no copy of it takes heap (#248, D4).
+    ///
+    /// # Safety
+    /// As [`new`](Self::new).
+    #[allow(clippy::too_many_arguments, reason = "as `new`")]
+    pub(crate) unsafe fn with_caller(
+        services: S,
+        module: M,
+        make: Make,
+        id: paperpaw_sdk::Id,
+        image: (*const u8, usize),
+        report: Report<S>,
+        resources: HostResources,
+        declared_services: DeclaredServices,
+    ) -> Result<Self, Error> {
+        let resources = resources.try_owner().map_err(Error::Status)?;
+        // SAFETY: the caller's contract, passed on.
+        unsafe {
+            Self::host(
+                services,
+                module,
+                make,
+                id,
+                image,
+                report,
+                resources,
+                declared_services,
+            )
+        }
+    }
+
     /// As [`new`](Self::new), under the owner key and heap place `seat` of
     /// the plugin's earlier `Hosted` ([`Self::seat`], kept while it is
     /// parked): a parked plugin made again (#248,
@@ -39,7 +71,7 @@ impl<S: Services + 'static, M> Hosted<S, M> {
         services: S,
         module: M,
         make: Make,
-        id: &str,
+        id: paperpaw_sdk::Id,
         image: (*const u8, usize),
         report: Report<S>,
         resources: HostResources,
@@ -101,3 +133,17 @@ impl<S: Services + 'static, M> Hosted<S, M> {
 #[cfg(test)]
 #[path = "parked_tests.rs"]
 mod tests;
+
+impl<S: 'static> Context<S> {
+    /// A copy of the plugin's id: a linked plugin's is the shell's text and
+    /// copies without allocating (#248, D4).
+    ///
+    /// # Errors
+    /// `ERR_NO_MEMORY` when a loaded plugin's id cannot be copied.
+    pub(crate) fn plugin(&self) -> Result<paperpaw_sdk::Id, i32> {
+        self.resources
+            .bound_caller()?
+            .try_clone()
+            .ok_or(paperpaw_native::host_glue::ERR_NO_MEMORY)
+    }
+}

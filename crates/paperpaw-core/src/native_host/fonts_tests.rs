@@ -488,7 +488,9 @@ mod data_fonts {
         let resources = HostResources::try_new().unwrap();
         resources.hosts().wire_font_card(card.clone()).unwrap();
         let mut owner = resources.try_owner().unwrap();
-        owner.bind_caller("fonts-browser").unwrap();
+        owner
+            .bind_caller(paperpaw_sdk::Id::new_static("fonts-browser"))
+            .unwrap();
         (resources, owner, card)
     }
 
@@ -640,7 +642,9 @@ mod data_fonts {
             // No plugin bound to the owner.
             assert_eq!(data(scope, &owner, "fonts/a.ppfp"), Err(ERR_DENIED));
         });
-        owner.bind_caller("fonts-browser").unwrap();
+        owner
+            .bind_caller(paperpaw_sdk::Id::new_static("fonts-browser"))
+            .unwrap();
         scoped(&kernel, |scope| {
             // No card wired.
             assert_eq!(data(scope, &owner, "fonts/a.ppfp"), Err(ERR_UNSUPPORTED));
@@ -652,7 +656,9 @@ mod data_fonts {
         let kernel = kernel();
         let (resources, _first, _card) = world();
         let mut other = resources.try_owner().unwrap();
-        other.bind_caller("other").unwrap();
+        other
+            .bind_caller(paperpaw_sdk::Id::new_static("other"))
+            .unwrap();
         scoped(&kernel, |scope| {
             assert_eq!(data(scope, &other, "fonts/a.ppfp"), Err(ERR_NOT_FOUND));
             data(scope, &other, "fonts/b.ppfp").unwrap();

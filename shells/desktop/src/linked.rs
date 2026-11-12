@@ -543,6 +543,7 @@ pub fn register(
             teardown_report,
             linked_report,
             rodata_image(),
+            paperpaw_app::sleeps,
         )
     };
     let mut registered = 0;

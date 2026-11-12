@@ -27,6 +27,10 @@ pub struct FixedTables {
     /// The program's read-only data (`Kernel::register_linked`'s `image`):
     /// the titles and texts its declarations hold there are read from there.
     pub(crate) image: &'static [u8],
+    /// A linked plugin's id, kept in the program (`Kernel::register_linked`,
+    /// checked there): its declarations' owner is this text, not a copy
+    /// (#248, D4); empty for none.
+    pub(crate) owner: &'static str,
 }
 
 impl FixedTables {
@@ -36,6 +40,7 @@ impl FixedTables {
         groups: &[],
         ids: &[],
         image: &[],
+        owner: "",
     };
 
     /// The tables `settings` and `groups`.
@@ -49,6 +54,7 @@ impl FixedTables {
             groups,
             ids: &[],
             image: &[],
+            owner: "",
         }
     }
 

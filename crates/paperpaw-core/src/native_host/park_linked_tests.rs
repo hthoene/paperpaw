@@ -260,19 +260,17 @@ fn admit_as(kernel: &mut crate::Kernel, id: &'static str, resources: HostResourc
     // SAFETY: the fixture obeys the factory contract, its code is static and
     // `image` is leaked and never written after it was made.
     unsafe {
-        kernel.register_linked_parked(
-            entry(),
-            METADATA,
+        let shell = crate::native_host::ParkShell::try_new(
             &shell_host(),
-            id,
             || Heap,
-            resources,
+            &resources,
             &depth,
             |_, _, _, _| {},
             |_, _, _, _| {},
             (image.as_ptr(), image.len()),
-            FixedTables::NONE,
         )
+        .unwrap();
+        kernel.register_linked_parked(entry(), METADATA, id, &shell, FixedTables::NONE)
     }
     .unwrap();
     kernel.shared.native_instances.find(id).unwrap()
