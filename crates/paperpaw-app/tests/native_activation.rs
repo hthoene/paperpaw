@@ -85,7 +85,7 @@ impl BuildNative for KernelBuilder {
 /// test cannot go on then). A plugin the host refuses is named on stderr and
 /// its screens are missing, which the test that needs them reports.
 pub fn build(builder: KernelBuilder) -> Kernel {
-    build_with(builder, Rc::new(MemoryStorage::new()), false)
+    build_with(builder, Rc::new(MemoryStorage::new()), false, app_sleeps)
 }
 
 /// [`build`] where the linked plugins' files, library and documents are on
@@ -95,21 +95,50 @@ pub fn build(builder: KernelBuilder) -> Kernel {
 /// # Panics
 /// As [`build`].
 pub fn build_on(builder: KernelBuilder, card: Rc<dyn Storage>) -> Kernel {
-    build_with(builder, card, true)
+    build_with(builder, card, true, app_sleeps)
+}
+
+/// [`build_on`] with the linked plugins `sleep` says yes for registered to
+/// sleep, every other one awake (the sleep tests, #248).
+///
+/// # Panics
+/// As [`build`].
+pub fn build_on_sleeping(
+    builder: KernelBuilder,
+    card: Rc<dyn Storage>,
+    sleep: fn(&str) -> bool,
+) -> Kernel {
+    build_with(builder, card, true, sleep)
+}
+
+/// The plugins the app lets sleep (`paperpaw_app::sleeps`).
+fn app_sleeps(id: &str) -> bool {
+    #[cfg(feature = "native-linked")]
+    return paperpaw_app::sleeps(id);
+    #[cfg(not(feature = "native-linked"))]
+    {
+        let _ = id;
+        false
+    }
 }
 
 /// [`build_on`], with the X4's Wi-Fi (managed by PaperPaw and on) where `wifi`
 /// says so: the native Wi-Fi plugin's list of networks closes itself where
 /// there is no radio to choose with. The screens measured without it (the
 /// store's partial redraws) stay as they were.
-fn build_with(builder: KernelBuilder, card: Rc<dyn Storage>, wifi: bool) -> Kernel {
+fn build_with(
+    builder: KernelBuilder,
+    card: Rc<dyn Storage>,
+    wifi: bool,
+    sleep: fn(&str) -> bool,
+) -> Kernel {
     #[cfg(feature = "native-linked")]
     let builder = if wifi { builder.wifi(true) } else { builder };
     #[allow(unused_mut, reason = "only the native-linked build registers plugins")]
     let mut kernel = builder.build().unwrap();
     #[cfg(feature = "native-linked")]
     {
-        linked::register(&mut kernel, card);
+        linked::register_with(&mut kernel, card, sleep);
         if wifi {
             let _ = kernel.wifi_event(
                 paperpaw_platform::Instant(0),
@@ -118,7 +147,7 @@ fn build_with(builder: KernelBuilder, card: Rc<dyn Storage>, wifi: bool) -> Kern
         }
     }
     #[cfg(not(feature = "native-linked"))]
-    let _ = (card, wifi);
+    let _ = (card, wifi, sleep);
     kernel
 }
 
@@ -335,6 +364,16 @@ mod linked {
     }
 
     pub fn register(kernel: &mut Kernel, card: Rc<dyn paperpaw_platform::Storage>) {
+        register_with(kernel, card, paperpaw_app::sleeps);
+    }
+
+    /// [`register`] with the plugins `sleep` says yes for registered to
+    /// sleep (the shells pass `paperpaw_app::sleeps`).
+    pub fn register_with(
+        kernel: &mut Kernel,
+        card: Rc<dyn paperpaw_platform::Storage>,
+        sleep: fn(&str) -> bool,
+    ) {
         let resources = HostResources::try_new().expect("the table of handles");
         let device: Rc<dyn DeviceHost> = Rc::new(NoParts);
         resources
@@ -370,6 +409,7 @@ mod linked {
                 teardown,
                 report,
                 rodata_image(),
+                sleep,
             )
         };
         for (id, status) in outcome {

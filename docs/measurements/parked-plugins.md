@@ -55,6 +55,18 @@ host, not taken from an audit (another plugin's later `make` only registers and 
 Phase 1 never parks a plugin again after it ran; dropping idle plugins again is phase 2 (after
 beta.1). The `make` audit below says what to expect, but the checks decide.
 
+**The `sleeps` flag (D1).** The checks above are the kernel's; on top, a linked plugin is
+registered to park only if its shell says it may sleep (`paperpaw_app::SLEEPS`, default awake,
+not part of interface 7). A plugin joins the list only with a case in
+`crates/paperpaw-app/tests/sleep_parity.rs` that runs the same flow (each of its screens and
+actions, the screens, replies and saved files after every step) with only that plugin asleep and
+with every plugin awake, and fails where the plugin is still awake at the start. Flagged now:
+about, file-manager, files, keyboard, menu, opds, settings. Not flagged: `help` (told of every
+screen change, so made again at the first one) and `transfer` (an installer, which check 4 never
+parks). What all sleeping plugins keep of the shell is one `ParkShell`, shared by reference.
+Parking again after a plugin ran waits for D3: only on device standby or under memory pressure,
+never on an idle timer (Decision 166).
+
 ## Unparking (M1, M5): one accessor
 
 Every route that wants a plugin's runtime handle goes through one lease accessor

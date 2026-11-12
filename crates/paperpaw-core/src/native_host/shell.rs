@@ -304,6 +304,10 @@ impl<S: Services + 'static, M> Hosted<S, M> {
         declared_services: DeclaredServices,
     ) -> Result<Self, Error> {
         let resources = resources.try_owner().map_err(Error::Status)?;
+        let id = paperpaw_sdk::Id::try_parse(id).map_err(|error| match error {
+            paperpaw_sdk::IdError::NoMemory => Error::Allocation,
+            _ => Error::Status(host_glue::ERR_INVALID),
+        })?;
         // SAFETY: the caller's contract, passed on.
         unsafe {
             Self::host(
@@ -331,19 +335,13 @@ impl<S: Services + 'static, M> Hosted<S, M> {
         services: S,
         module: M,
         make: Make,
-        id: &str,
+        id: paperpaw_sdk::Id,
         image: (*const u8, usize),
         report: Report<S>,
         mut resources: super::resources::OwnerResources,
         declared_services: DeclaredServices,
     ) -> Result<Self, Error> {
-        resources.bind_caller(id).map_err(|status| {
-            if status == host_glue::ERR_NO_MEMORY {
-                Error::Allocation
-            } else {
-                Error::Status(status)
-            }
-        })?;
+        resources.bind_caller(id).map_err(Error::Status)?;
         let scoped_resources = resources
             .try_view()
             .ok_or(Error::Status(host_glue::ERR_NO_MEMORY))?;

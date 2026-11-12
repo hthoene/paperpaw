@@ -160,6 +160,8 @@ paperpaw-plugin-reader.workspace = true
 paperpaw-plugin-settings.workspace = true
 
 [dev-dependencies]
+# `Kernel::native_is_parked` for the sleep tests (never in a firmware build).
+paperpaw-core = { workspace = true, features = ["testing"] }
 paperpaw-platform.workspace = true
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
 

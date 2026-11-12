@@ -9,13 +9,15 @@
 //! stops. Nothing here runs plugin code, and a read never allocates.
 
 use super::{event_tags::EventTags, stack_rows::StackRows, work_sched::WorkSched};
-use alloc::{rc::Rc, string::String, vec::Vec};
+use alloc::{rc::Rc, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
+use paperpaw_sdk::Id;
 
 struct Row {
     key: u64,
-    id: String,
+    /// A linked plugin's id is kept in the firmware: no heap (#248, D4).
+    id: Id,
     tags: EventTags,
 }
 
@@ -109,7 +111,7 @@ impl OwnerDirectory {
             return true;
         };
         rows.iter()
-            .filter(|row| row.id == id)
+            .filter(|row| row.id.as_str() == id)
             .any(|row| screens.has_screen(row.key).unwrap_or(true))
     }
 
@@ -196,15 +198,12 @@ impl OwnerDirectory {
     ///
     /// # Errors
     /// `ERR_NO_MEMORY` (nothing is added), `ERR_BUSY` (a reader is visiting).
-    pub(crate) fn admit(&self, key: u64, id: &str) -> Result<(), i32> {
+    pub(crate) fn admit(&self, key: u64, id: &Id) -> Result<(), i32> {
         super::net_service::gate()?;
         let mut rows = self.rows.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         rows.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         super::net_service::gate()?;
-        let mut copy = String::new();
-        copy.try_reserve_exact(id.len())
-            .map_err(|_| ERR_NO_MEMORY)?;
-        copy.push_str(id);
+        let copy = id.try_clone().ok_or(ERR_NO_MEMORY)?;
         rows.retain(|row| row.key != key);
         rows.push(Row {
             key,
@@ -253,7 +252,7 @@ impl OwnerDirectory {
     pub(crate) fn with_id(&self, key: u64, visit: &mut dyn FnMut(&str)) -> Result<(), i32> {
         let rows = self.rows.try_borrow().map_err(|_| ERR_STATE)?;
         let row = rows.iter().find(|row| row.key == key).ok_or(ERR_STATE)?;
-        visit(&row.id);
+        visit(row.id.as_str());
         Ok(())
     }
 
@@ -271,6 +270,7 @@ impl OwnerDirectory {
 mod tests {
     use super::*;
     use crate::native_host::net_service::fail_nth;
+    use alloc::string::String;
 
     fn tags(of: &[u32]) -> EventTags {
         let mut set = EventTags::default();
@@ -290,7 +290,7 @@ mod tests {
     fn an_admitted_owner_has_its_id_and_a_stopped_one_has_none() {
         let dir = OwnerDirectory::new();
         assert_eq!(id_of(&dir, 7), Err(ERR_STATE));
-        dir.admit(7, "net.probe").unwrap();
+        dir.admit(7, &Id::new_static("net.probe")).unwrap();
         assert_eq!(id_of(&dir, 7).as_deref(), Ok("net.probe"));
         assert_eq!(id_of(&dir, 8), Err(ERR_STATE));
         dir.withdraw(7);
@@ -334,8 +334,8 @@ mod tests {
             flags,
         };
         let dir = OwnerDirectory::new();
-        dir.admit(5, "files").unwrap();
-        dir.admit(6, "home").unwrap();
+        dir.admit(5, &Id::new_static("files")).unwrap();
+        dir.admit(6, &Id::new_static("home")).unwrap();
         assert!(!dir.plugin_has_screen("files"), "no stack, no screens");
         let rows = Rc::new(StackRows::default());
         dir.attach_screens(&rows);
@@ -357,8 +357,8 @@ mod tests {
     #[test]
     fn subscriptions_belong_to_their_owner_only() {
         let dir = OwnerDirectory::new();
-        dir.admit(1, "a").unwrap();
-        dir.admit(2, "b").unwrap();
+        dir.admit(1, &Id::new_static("a")).unwrap();
+        dir.admit(2, &Id::new_static("b")).unwrap();
         assert!(!dir.subscribed(1, 99), "nothing before the install");
         dir.subscribe(1, tags(&[99]));
         dir.subscribe(3, tags(&[99]));
@@ -372,11 +372,11 @@ mod tests {
     #[test]
     fn a_busy_table_answers_state_and_never_panics() {
         let dir = OwnerDirectory::new();
-        dir.admit(1, "a").unwrap();
+        dir.admit(1, &Id::new_static("a")).unwrap();
         let mut inner = Ok(());
         dir.with_id(1, &mut |_| {
             inner = dir.with_id(1, &mut |_| {});
-            assert_eq!(dir.admit(2, "b"), Err(ERR_BUSY));
+            assert_eq!(dir.admit(2, &Id::new_static("b")), Err(ERR_BUSY));
             dir.withdraw(1);
         })
         .unwrap();
@@ -397,11 +397,15 @@ mod tests {
         let dir = OwnerDirectory::new();
         for nth in [1, 2] {
             fail_nth(nth);
-            assert_eq!(dir.admit(1, "a"), Err(ERR_NO_MEMORY), "failure {nth}");
+            assert_eq!(
+                dir.admit(1, &Id::new_static("a")),
+                Err(ERR_NO_MEMORY),
+                "failure {nth}"
+            );
             fail_nth(0);
             assert_eq!(id_of(&dir, 1), Err(ERR_STATE), "no half row after {nth}");
         }
-        dir.admit(1, "a").unwrap();
+        dir.admit(1, &Id::new_static("a")).unwrap();
         assert_eq!(id_of(&dir, 1).as_deref(), Ok("a"));
     }
 }
@@ -415,7 +419,7 @@ mod shrink_tests {
     fn the_rows_give_back_what_doubling_kept() {
         let directory = OwnerDirectory::new();
         for key in 1..=13_u64 {
-            directory.admit(key, "plugin").unwrap();
+            directory.admit(key, &Id::new_static("plugin")).unwrap();
         }
         let capacity = |d: &OwnerDirectory| d.rows.borrow().capacity();
         assert!(capacity(&directory) >= 16);

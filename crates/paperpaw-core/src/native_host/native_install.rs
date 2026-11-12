@@ -385,7 +385,7 @@ impl crate::Kernel {
         // (#248): its declarations are published, its instance dropped.
         let recipe = match park {
             Some(park) if !installer => {
-                self.park_recipe(key, &retained, &raw, &depth, events, report, park)
+                self.park_recipe(key, &retained, &raw, &depth, events, park)
             }
             _ => None,
         };
@@ -1035,7 +1035,12 @@ fn map_declarations(
     }
     // Ids and texts the plugin keeps in the program are taken from there.
     let mut kept = tables.kept();
-    let owner = native_values::Source::id(&mut kept, view.plugin)?;
+    // A linked plugin's id was checked as a plugin id where it was given.
+    let owner = if !tables.owner.is_empty() && view.plugin == tables.owner {
+        Id::new_static(tables.owner)
+    } else {
+        native_values::Source::id(&mut kept, view.plugin)?
+    };
     let mut owned = Vec::new();
     // Room for what will be listed, once: growing by doubling held both
     // the old and the new list at the registration peak. A setting that a

@@ -34,6 +34,9 @@ outline = ["paperpaw-sdk/outline"]
 # owner's X4 test image until the device measurement passes (#250), then the
 # X4 release; off by default.
 x4-nested = []
+# What the app's and the shells' tests ask the kernel and a shell never does
+# (`Kernel::native_is_parked`): never in a firmware build (#248, D1).
+testing = []
 
 [dependencies]
 paperpaw-native = { workspace = true, features = ["kernel"] }

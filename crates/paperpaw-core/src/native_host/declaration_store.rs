@@ -456,15 +456,40 @@ enum Batches {
     /// batches' frames, `declaration_scan.rs`). Beside each start, one bit
     /// for each kind the batch declares (`1 << kind`): a batch without the
     /// kind looked for is not walked (#248, R1). Twelve bytes a batch, what a
-    /// reference takes on the X4, where the index took a slot a record.
-    Starts(Box<[u32]>, Box<[u64]>),
+    /// reference takes on the X4, where the index took a slot a record; all
+    /// of an owner's in one allocation (#248, D4).
+    Starts(Box<[BatchStart]>),
+}
+
+/// Where an image-only owner's batch starts in its image, and the kinds it
+/// declares (`1 << kind`), as two words: twelve bytes a batch.
+#[derive(Clone, Copy)]
+pub(super) struct BatchStart {
+    start: u32,
+    kinds: [u32; 2],
+}
+
+impl BatchStart {
+    pub(super) fn start(self) -> u32 {
+        self.start
+    }
+
+    pub(super) fn kinds(self) -> u64 {
+        u64::from(self.kinds[0]) | u64::from(self.kinds[1]) << 32
+    }
+
+    fn add_kind(&mut self, kind: u32) {
+        let mask = self.kinds() | 1_u64 << kind;
+        // The halves of the mask: the casts keep the low 32 bits of each.
+        self.kinds = [mask as u32, (mask >> 32) as u32];
+    }
 }
 
 impl Batches {
     fn len(&self) -> usize {
         match self {
             Self::Refs(refs) => refs.len(),
-            Self::Starts(starts, _) => starts.len(),
+            Self::Starts(starts) => starts.len(),
         }
     }
 
@@ -490,8 +515,8 @@ impl Batches {
     fn bytes<'a>(&'a self, batch: usize, image: &'a [u8]) -> Result<&'a [u8], i32> {
         match self {
             Self::Refs(refs) => batch_bytes(refs.get(batch).ok_or(ERR_INVALID)?, image),
-            Self::Starts(starts, _) => {
-                let start = usize::try_from(*starts.get(batch).ok_or(ERR_INVALID)?)
+            Self::Starts(starts) => {
+                let start = usize::try_from(starts.get(batch).ok_or(ERR_INVALID)?.start())
                     .map_err(|_| ERR_INVALID)?;
                 scan::batch_at(image, start)
             }
@@ -557,8 +582,8 @@ impl StoredOwner {
         kind: Kind,
         visit: &mut dyn FnMut(u16, u16) -> ControlFlow<()>,
     ) -> ControlFlow<()> {
-        let (starts, kinds) = match &self.batches {
-            Batches::Starts(starts, kinds) => (starts, kinds),
+        let starts = match &self.batches {
+            Batches::Starts(starts) => starts,
             Batches::Refs(_) => {
                 for slot in self.of_kind(kind) {
                     visit(slot.batch(), slot.record())?;
@@ -566,7 +591,7 @@ impl StoredOwner {
                 return ControlFlow::Continue(());
             }
         };
-        scan::image_places(self, starts, kinds, kind, visit)
+        scan::image_places(self, starts, kind, visit)
     }
 
     /// How many records of `kind` the owner declares.
@@ -605,28 +630,27 @@ impl StoredOwner {
             return;
         }
         let mut starts = Vec::new();
-        let mut kinds = Vec::new();
-        if starts.try_reserve_exact(refs.len()).is_err()
-            || kinds.try_reserve_exact(refs.len()).is_err()
-        {
+        if starts.try_reserve_exact(refs.len()).is_err() {
             return;
         }
-        kinds.resize(refs.len(), 0_u64);
         for reference in refs {
             match reference {
-                DeclRef::Image { offset, .. } => starts.push(*offset),
+                DeclRef::Image { offset, .. } => starts.push(BatchStart {
+                    start: *offset,
+                    kinds: [0; 2],
+                }),
                 DeclRef::Owned(_) => return,
             }
         }
         // Every record is in a slot (staging indexes each one), so the slots'
         // kinds are the kinds each batch declares.
         for slot in &self.slots {
-            let Some(batch) = kinds.get_mut(usize::from(slot.batch())) else {
+            let Some(batch) = starts.get_mut(usize::from(slot.batch())) else {
                 return;
             };
-            *batch |= 1 << (slot.hash >> KIND_SHIFT);
+            batch.add_kind(u32::from(slot.hash >> KIND_SHIFT));
         }
-        self.batches = Batches::Starts(starts.into_boxed_slice(), kinds.into_boxed_slice());
+        self.batches = Batches::Starts(starts.into_boxed_slice());
         self.slots = Vec::new();
     }
 }
