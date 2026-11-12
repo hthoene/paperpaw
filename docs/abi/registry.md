@@ -166,7 +166,13 @@ Field meanings:
   kept on reset, 4 advanced, 5 hidden (value withheld), 6 has value, 7 long (value over 64 bytes:
   read it with slot 5), 8 preview (the value shown is a preview, section 4.4), 9 shown (its
   `shown_if` holds now), 10 governs (another setting's `shown_if` names it: re-read the list when it
-  changes). `source`: 0 default, 1 preset, 2 profile, 3 user, 4 book scope.
+  changes), 11 slider (an int setting whose `setting.extra` flag bit 0 asks for a slider, interface
+  6 `SettingExtra::slider`; its range and step are `reg_setting_extra`'s `min`/`max`/`step`; never
+  set for other kinds). `source`: 0 default, 1 preset, 2 profile, 3 user, 4 book scope.
+- [D] **How a row shows** (Beta 3 parity, #257): a Boolean setting (kind 0) shows as an on/off
+  switch wherever it is listed, its state in `reg_setting.value`; in a menu its `reg_menu_row` has
+  flag 6 `switch` with bit 0 whether it is on (section 3). An int setting with flag 11 shows as a
+  slider over `min..=max` in steps of `step` (1 where 0); one without it as a number to step.
 - `reg_setting.value` is the `settings_value` encoding, empty when hidden or long.
 - `reg_setting_extra` repeats `setting.spec`/`setting.extra` fields the editor needs, with their
   types (`min`/`max`/`step` are `i32` there; `shown_id`/`shown_value` are `setting.extra`'s);
