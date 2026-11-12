@@ -54,7 +54,8 @@ at a safe point when all hold:
 3. no screen, slot or dialog of it on the stack, and no confirm or plugin request under way;
 4. no open document and no format scope of it (a format re-parked under an open book would turn
    page reads inside the reader's callbacks into `ERR_BUSY`);
-5. it has not been called for `IDLE_PARK_MS` (proposed 30 s; at most one plugin per tick).
+5. the device goes to standby, or the heap is under pressure (Decision 166: no idle timer; at
+   most one plugin per safe point).
 
 **Soundness:** `Slot::live` hands out `&dyn NativeInstance` from a `OnceCell`, which can never be
 emptied. D3 changes the slot to `RefCell<Option<Box<dyn NativeInstance>>>` and `live` returns a
@@ -78,6 +79,14 @@ owner directory and the store.
 kind bits, `declaration_scan.rs`). The starts can be found by walking the image's batch frames
 once per lookup; the kind bits stay only for the large owners. Kept as its own pull request after
 D4; it saves up to 2.8 KiB, minus what the kind bits that stay cost.
+
+**D6 (parked lever, not built).** A running plugin's host context (280 B on the 64-bit emulator)
+holds four scopes only a call uses (registrations 16, commands 16, environment 56, canvas 32 B).
+One set per call depth instead of one per plugin saves ~112 B per running plugin: ~2.5 KiB on the
+emulator, ~1.8 KiB on the X4 with ~23 plugins running. Cost: ~240 call sites, pinned scopes with
+raw pointers, a per-call resource view, an owner check per depth set and changed re-entry rules
+(`unsafe`, medium risk). Dropped from PR 1 (Manager, 2026-11-12); use it only if the end gap to
+Beta 3 needs it.
 
 ## Which plugins (of 32)
 
