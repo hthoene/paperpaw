@@ -26,7 +26,7 @@ impl StatusAsk for StatusCalls<'_> {
         context: &[u8],
         out: &mut [u8],
     ) -> Result<usize, i32> {
-        if super::ui_store::is_x4(self.frame.env.device().memory) {
+        if super::ui_store::nested_closed(self.frame.env.device().memory) {
             return Err(ERR_UNSUPPORTED);
         }
         self.frame.callback_epoch()?;

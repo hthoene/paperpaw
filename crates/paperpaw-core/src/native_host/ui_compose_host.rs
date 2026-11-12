@@ -163,7 +163,7 @@ pub(crate) fn compose_in(
         (Some(ui), Some(directory), Some(depth)) => (ui, directory, depth),
         _ => return Err(ERR_UNSUPPORTED),
     };
-    let gate_open = !frame.ui_x4()?;
+    let gate_open = !frame.nested_closed()?;
     ComposeHost {
         handles: &ui.widgets.handles,
         guard: &StackGuard(frame),
