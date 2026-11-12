@@ -155,3 +155,16 @@ fn op_two_shows_what_a_native_plugin_declared() {
     let _held = store.store.borrow_mut();
     assert_eq!(detail(Some(&store), "nat.size"), Err(ERR_BUSY));
 }
+
+#[test]
+fn a_list_asked_while_the_store_is_being_changed_is_busy() {
+    let store = store();
+    let kernel = kernel();
+    let _held = store.store.borrow_mut();
+    let query = query_flags("nat", 0, 0, 0);
+    assert_eq!(
+        call_in(&kernel, Some(&store), schema::OP_SETTINGS, &query, 4096),
+        Err(ERR_BUSY),
+        "not a list without its sliders"
+    );
+}

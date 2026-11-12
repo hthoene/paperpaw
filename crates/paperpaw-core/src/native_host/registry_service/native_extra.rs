@@ -88,9 +88,21 @@ impl<'a> Shown<'a> {
     }
 }
 
+/// `ERR_BUSY` while the store is being changed: checked once by an op
+/// before its rows (the kernel changes the store between calls alone).
+pub(super) fn ready(sources: &Sources<'_>) -> Result<(), i32> {
+    match sources.directory {
+        Some(directory) => directory.store.try_borrow().map(drop).map_err(|_| ERR_BUSY),
+        None => Ok(()),
+    }
+}
+
 /// Hands `f` the extra of `spec`: its own where it has one, else the one
 /// its native plugin declared, else none. `ERR_BUSY` while the store is
-/// being changed.
+/// being changed. The cost is one name lookup: an indexed owner's is a
+/// binary search; an image-only owner walks only the batches that declare
+/// extras (their kind mask), so a plugin with none costs a mask test a
+/// batch.
 pub(super) fn with_extra<R>(
     sources: &Sources<'_>,
     spec: &SettingSpec,
