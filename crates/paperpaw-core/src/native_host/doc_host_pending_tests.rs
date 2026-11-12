@@ -252,3 +252,55 @@ fn the_details_job_of_a_parked_prepared_format_waits_for_its_open_not_failed() {
         assert_eq!(w.open_flags.borrow().last(), Some(&(BACKGROUND | DETAILS)));
     });
 }
+
+/// The `doc_state` flags of `document` as the opener reads them (op 2).
+fn state_flags(w: &World<'_>, document: u32) -> u32 {
+    let reply = w
+        .call(
+            AdmittedFeatures::NONE,
+            2,
+            &[Record::ServiceDocRef(wire::ServiceDocRef { document })],
+        )
+        .unwrap();
+    match wire::record_decode_one(&reply).unwrap() {
+        Record::ServiceDocState(state) => state.flags,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_pending_open_reports_no_book_flags_until_its_format_answers() {
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        parked(w);
+        // An open that asks with flags: they are the request's, not the book's.
+        let reply = w
+            .call(
+                AdmittedFeatures::test(1, FEATURES),
+                1,
+                &[Record::ServiceDocOpen(wire::ServiceDocOpen {
+                    root: 1,
+                    path: "books/a.epub",
+                    format: "",
+                    flags: 1,
+                    image_side: 0,
+                    cover_side: 0,
+                    css_root: 0,
+                    css_path: "",
+                })],
+            )
+            .unwrap();
+        let Record::ServiceDocState(opened) = wire::record_decode_one(&reply).unwrap() else {
+            panic!("a state");
+        };
+        let id = opened.document;
+        assert!(document(w, id).open_pending);
+        // Bit 0 would read as "whole pages" (#248): nothing is claimed yet.
+        assert_eq!(opened.flags, 0);
+        assert_eq!(state_flags(w, id), 0);
+        // The format answers: its flags are the book's from now on.
+        made(w, READY);
+        assert_eq!(step(w), PrepareStep::More);
+        assert_eq!(state_flags(w, id), document(w, id).flags);
+    });
+}
