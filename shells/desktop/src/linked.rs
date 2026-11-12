@@ -550,6 +550,7 @@ pub fn register(
             linked_report,
             |id| paperpaw_app::native_default_on(id, paperpaw_app::default_store()),
             rodata_image(),
+            paperpaw_app::sleeps,
         )
     };
     let mut registered = 0;

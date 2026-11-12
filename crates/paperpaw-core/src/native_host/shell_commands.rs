@@ -6,9 +6,9 @@ use crate::{
     native_host::screen_stage::{StageParts, build_stage, staged_of},
 };
 use core::pin::Pin;
-use paperpaw_native::host_glue::ERR_INVALID;
+use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY};
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Id, IdError, ScreenKey};
+use paperpaw_sdk::ScreenKey;
 
 /// Valid result values for the callback family lent this command stage.
 pub(crate) enum CommandResult {
@@ -63,9 +63,9 @@ impl Kernel {
             let env = self.shared.env(now);
             let frame = self.shared.command_frame(&env);
             batch.dispatch_owner(depth, |context| {
-                let owner = Id::try_parse(context.plugin_id()).map_err(|error| match error {
-                    IdError::NoMemory => Error::Allocation,
-                    _ => Error::Status(ERR_INVALID),
+                let owner = context.plugin().map_err(|status| match status {
+                    ERR_NO_MEMORY => Error::Allocation,
+                    status => Error::Status(status),
                 })?;
                 let owner_key = context.owner_key();
                 let inputs = self.stage_inputs(owner.as_str(), owner_key);

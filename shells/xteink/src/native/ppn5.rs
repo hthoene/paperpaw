@@ -541,6 +541,8 @@ mod x4 {
                 linked_report,
                 |id| paperpaw_app::native_default_on(id, paperpaw_app::StorePlugins::Left),
                 flash_rodata(),
+                // The plugins that may sleep are registered parked (#248, D1).
+                paperpaw_app::sleeps,
             )
         };
         CREATING.store(false, core::sync::atomic::Ordering::Relaxed);

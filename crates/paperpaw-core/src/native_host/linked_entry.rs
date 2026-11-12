@@ -38,7 +38,7 @@ impl Admitted {
     pub(crate) unsafe fn hosted<S: Services>(
         self,
         services: S,
-        id: &str,
+        id: paperpaw_sdk::Id,
         report: shell::Report<S>,
         resources: super::HostResources,
         image: (*const u8, usize),
@@ -55,7 +55,7 @@ impl Admitted {
         // SAFETY: the caller guarantees the factory contract, the static code
         // lifetime and the image; a linked entry retains no unloadable module.
         unsafe {
-            shell::Hosted::new(
+            shell::Hosted::with_caller(
                 services,
                 (),
                 self.make,
@@ -76,7 +76,7 @@ impl Admitted {
     pub(crate) unsafe fn hosted_for_owner<S: Services + 'static>(
         self,
         services: S,
-        id: &str,
+        id: paperpaw_sdk::Id,
         report: shell::Report<S>,
         resources: super::HostResources,
         image: (*const u8, usize),

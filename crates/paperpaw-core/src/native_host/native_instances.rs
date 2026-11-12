@@ -487,7 +487,7 @@ impl NativeInstances {
         }
         self.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
         if enabled {
-            directory.admit(key, id.as_str())?;
+            directory.admit(key, &id)?;
             if let Some(lease) = &instance {
                 directory.subscribe(key, subscriptions(lease));
             }

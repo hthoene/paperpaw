@@ -201,7 +201,7 @@ fn an_image_only_owner_keeps_no_slots_and_answers_as_an_indexed_one() {
         "the index is given back at commit"
     );
     // And the batch references: only where each batch starts is kept.
-    assert!(matches!(&owner.batches, Batches::Starts(starts, _) if starts.len() == 2));
+    assert!(matches!(&owner.batches, Batches::Starts(starts) if starts.len() == 2));
     let other = indexed.owners[0].as_ref().unwrap();
     assert!(!other.image_only());
     assert_eq!(other.slots.len(), 6);
@@ -382,11 +382,12 @@ fn each_batch_keeps_the_kinds_it_declares_and_only_those_are_walked() {
     let mut store = DeclarationStore::default();
     store.prepare(pending, &mut allocations).unwrap().commit();
     let owner = store.owners[0].as_ref().unwrap();
-    let Batches::Starts(_, kinds) = &owner.batches else {
+    let Batches::Starts(starts) = &owner.batches else {
         panic!("an image-only owner");
     };
     let bit = |kind: Kind| 1_u64 << kind as u32;
-    assert_eq!(kinds[..], [bit(Kind::Action), bit(Kind::Group)]);
+    let kinds: Vec<u64> = starts.iter().map(|start| start.kinds()).collect();
+    assert_eq!(kinds, [bit(Kind::Action), bit(Kind::Group)]);
     assert_eq!(places(&store, Kind::Action), [(0, 0), (0, 1)]);
     assert_eq!(places(&store, Kind::Group), [(1, 0)]);
     assert!(places(&store, Kind::Screen).is_empty());

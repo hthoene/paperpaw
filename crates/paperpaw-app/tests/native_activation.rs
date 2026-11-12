@@ -90,6 +90,7 @@ pub fn build(builder: KernelBuilder) -> Kernel {
         paperpaw_app::default_store(),
         Rc::new(MemoryStorage::new()),
         false,
+        app_sleeps,
     )
 }
 
@@ -98,7 +99,13 @@ pub fn build(builder: KernelBuilder) -> Kernel {
 /// # Panics
 /// As [`build`].
 pub fn build_with(builder: KernelBuilder, store: paperpaw_app::StorePlugins<'static>) -> Kernel {
-    build_full(builder, store, Rc::new(MemoryStorage::new()), false)
+    build_full(
+        builder,
+        store,
+        Rc::new(MemoryStorage::new()),
+        false,
+        app_sleeps,
+    )
 }
 
 /// [`build`] where the linked plugins' files, library and documents are on
@@ -108,7 +115,37 @@ pub fn build_with(builder: KernelBuilder, store: paperpaw_app::StorePlugins<'sta
 /// # Panics
 /// As [`build`].
 pub fn build_on(builder: KernelBuilder, card: Rc<dyn Storage>) -> Kernel {
-    build_full(builder, paperpaw_app::default_store(), card, true)
+    build_full(
+        builder,
+        paperpaw_app::default_store(),
+        card,
+        true,
+        app_sleeps,
+    )
+}
+
+/// [`build_on`] with the linked plugins `sleep` says yes for registered to
+/// sleep, every other one awake (the sleep tests, #248).
+///
+/// # Panics
+/// As [`build`].
+pub fn build_on_sleeping(
+    builder: KernelBuilder,
+    card: Rc<dyn Storage>,
+    sleep: fn(&str) -> bool,
+) -> Kernel {
+    build_full(builder, paperpaw_app::default_store(), card, true, sleep)
+}
+
+/// The plugins the app lets sleep (`paperpaw_app::sleeps`).
+fn app_sleeps(id: &str) -> bool {
+    #[cfg(feature = "native-linked")]
+    return paperpaw_app::sleeps(id);
+    #[cfg(not(feature = "native-linked"))]
+    {
+        let _ = id;
+        false
+    }
 }
 
 /// [`build_on`], with the X4's Wi-Fi (managed by PaperPaw and on) where `wifi`
@@ -121,6 +158,7 @@ fn build_full(
     store: paperpaw_app::StorePlugins<'static>,
     card: Rc<dyn Storage>,
     wifi: bool,
+    sleep: fn(&str) -> bool,
 ) -> Kernel {
     #[cfg(feature = "native-linked")]
     let builder = if wifi { builder.wifi(true) } else { builder };
@@ -128,7 +166,7 @@ fn build_full(
     let mut kernel = builder.build().unwrap();
     #[cfg(feature = "native-linked")]
     {
-        linked::register(&mut kernel, card, store);
+        linked::register_with(&mut kernel, card, store, sleep);
         if wifi {
             let _ = kernel.wifi_event(
                 paperpaw_platform::Instant(0),
@@ -137,7 +175,7 @@ fn build_full(
         }
     }
     #[cfg(not(feature = "native-linked"))]
-    let _ = (card, wifi, store);
+    let _ = (card, wifi, store, sleep);
     kernel
 }
 
@@ -358,6 +396,17 @@ mod linked {
         card: Rc<dyn paperpaw_platform::Storage>,
         store: paperpaw_app::StorePlugins<'static>,
     ) {
+        register_with(kernel, card, store, paperpaw_app::sleeps);
+    }
+
+    /// [`register`] with the plugins `sleep` says yes for registered to
+    /// sleep (the shells pass `paperpaw_app::sleeps`).
+    pub fn register_with(
+        kernel: &mut Kernel,
+        card: Rc<dyn paperpaw_platform::Storage>,
+        store: paperpaw_app::StorePlugins<'static>,
+        sleep: fn(&str) -> bool,
+    ) {
         let resources = HostResources::try_new().expect("the table of handles");
         let device: Rc<dyn DeviceHost> = Rc::new(NoParts);
         resources
@@ -394,6 +443,7 @@ mod linked {
                 report,
                 |id| paperpaw_app::native_default_on(id, store),
                 rodata_image(),
+                sleep,
             )
         };
         for (id, status) in outcome {

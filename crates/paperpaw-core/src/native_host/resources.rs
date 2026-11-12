@@ -360,14 +360,11 @@ impl OwnerResourceView {
 impl OwnerResources {
     /// Bind the host-admitted identity once, before plugin construction.
     /// Preflight resource owners remain unbound and cannot call a service.
-    pub(crate) fn bind_caller(&mut self, id: &str) -> Result<(), i32> {
+    pub(crate) fn bind_caller(&mut self, id: Id) -> Result<(), i32> {
         if self.caller.is_some() {
             return Err(paperpaw_native::host_glue::ERR_STATE);
         }
-        self.caller = Some(Id::try_parse(id).map_err(|error| match error {
-            paperpaw_sdk::IdError::NoMemory => ERR_NO_MEMORY,
-            _ => paperpaw_native::host_glue::ERR_INVALID,
-        })?);
+        self.caller = Some(id);
         Ok(())
     }
 
