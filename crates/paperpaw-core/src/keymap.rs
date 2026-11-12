@@ -574,9 +574,10 @@ impl Keymap {
         self.load_in(source, origin, strict, |_| None)
     }
 
-    /// [`Self::load`] of a source that may be kept for the whole run (a
-    /// preset's, a plugin's or the device's key map, built in): its layers,
-    /// button names and action ids are then borrowed, not copied (#248).
+    /// [`Self::load`] of a preset's, a plugin's or the device's key map: where
+    /// the source is `Cow::Borrowed` (kept for the whole run), its layers,
+    /// button names and action ids are borrowed, not copied (#248); an owned
+    /// source is copied as by [`Self::load`].
     #[allow(
         clippy::ptr_arg,
         reason = "whether it is borrowed for the whole run is what is asked"
