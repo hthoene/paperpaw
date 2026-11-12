@@ -84,7 +84,19 @@
     },
     {
       "kind": "host",
+      "name": "icon.glyph"
+    },
+    {
+      "kind": "host",
       "name": "canvas.clip"
+    },
+    {
+      "kind": "host",
+      "name": "canvas.draw_image"
+    },
+    {
+      "kind": "host",
+      "name": "ui.compose"
     },
     {
       "kind": "callback",
