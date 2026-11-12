@@ -412,10 +412,15 @@ impl crate::Kernel {
                 .native_instances
                 .net_demand()
                 .is_some_and(|(pool, _)| pool.wants() || pool.live());
-        let installing = self.firmware.as_ref().is_some_and(|driver| {
-            driver
-                .try_borrow()
-                .map_or(true, |driver| driver.waiting() > 0)
+        // A resting cell has no driver and so nothing to run: the driver
+        // rests only at rest (`FirmwareCell::rest`, `Driver::at_rest`: no
+        // queue, nothing running). A driver lent out counts as busy.
+        let installing = self.firmware.as_ref().is_some_and(|cell| {
+            cell.driver().is_some_and(|driver| {
+                driver
+                    .try_borrow()
+                    .map_or(true, |driver| driver.waiting() > 0)
+            })
         });
         network || installing
     }

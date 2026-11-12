@@ -857,9 +857,10 @@ fn a_job_of_the_install_queue_holds_the_job_until_it_ends() {
         5,
         paperpaw_facts("0.6.0", "paperpaw-x4", 2 * WRITE_BLOCK),
     );
-    let driver = Rc::new(RefCell::new(Driver::new(
+    use crate::native_host::firmware_cell::{FirmwareCell, test_shared};
+    let driver = test_shared(RefCell::new(Driver::new(
         alloc::boxed::Box::new(fake),
-        Rc::new(RefCell::new(
+        test_shared(RefCell::new(
             crate::native_host::firmware_install::FirmwareInstall::new(),
         )),
     )));
@@ -867,7 +868,7 @@ fn a_job_of_the_install_queue_holds_the_job_until_it_ends() {
         .borrow_mut()
         .submit_check(9, 1, "update.bin")
         .unwrap();
-    w.kernel.firmware = Some(driver.clone());
+    w.kernel.firmware = Some(Rc::new(FirmwareCell::running(driver.try_clone().unwrap())));
     // The details job's own pump alone: the queue's pump would run the check.
     w.kernel.now = Instant(2_000);
     w.kernel.native_details_job_pump();
