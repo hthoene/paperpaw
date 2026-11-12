@@ -76,10 +76,16 @@ events 83, 88 and 90 are free).
   hidden is kept or asked again, never drawn from freed state. It is sent only for a full screen
   above (never for an overlay, which draws the page below), only after `screen_opened` of the
   instance and never after its `screen_closed`; it may come before its first `screen_shown` (a
-  screen opened below a guard waits hidden). It goes **synchronously** to the instance's token
-  before the covering screen's own `screen_opened` and first `draw`, so what it frees is free
-  before the cover builds; it is one frame of the size of 80 (no allocation, no other call). It is
-  not registrable (as 79 and 80), a plugin that does not read it loses nothing, and **dropping it is
+  screen opened below a guard waits hidden). It comes **once per cover**: a second full screen
+  opened above the first sends nothing to the instance below it, and a cover opened after the
+  instance's next `screen_shown` sends it again. A task switch closes the instance
+  (`screen_closed`) and opens it anew, so it sends none.
+- [D] **Delivery of `screen_hidden`.** The host calls the instance's token synchronously while it
+  applies the open of the covering screen, at depth 0 (never inside the opener's callback), before
+  the cover's own `screen_opened` and first `draw`, so that what it frees is free before the cover
+  builds. The callback gets **no command stage**, as `draw` gets none: a command submitted in it
+  is `ERR_STATE`. The host sends it in a frame of 80's size, allocating nothing. It is not
+  registrable (as 79 and 80), a plugin that does not read it loses nothing, and **dropping it is
   harmless** (the host may drop it when memory is short, or when the callback is refused); a
   plugin that frees on it must keep the screen drawable by `screen_shown` alone.
 - [D] **Params are lossless** (interface 6 `Params`, Senior's answer to [Q] 3): an opener makes a
