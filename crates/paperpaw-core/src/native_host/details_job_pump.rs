@@ -12,7 +12,10 @@
 //! kernel's start has returned, when no background job of either kind runs (it
 //! is the device's one slot, `doc_cover_job`), when no book is open for
 //! reading or showing, and not in the quiet moment after a displacement: the
-//! cover job's rules. A reader's open takes its place at once (a displacement:
+//! cover job's rules. Also never at the start's peak nor beside the user
+//! (#2670): not before [`QUIET_MS`] after the start or the last input, nor
+//! while a first walk is under way (its books published so far arm the job
+//! while it goes on); a timed wake looks again. A reader's open takes its place at once (a displacement:
 //! the book is looked at again later, and given up, as a failed book, after
 //! three in a row); a cover that needs the slot makes it give way (`cover`:
 //! looked at again later, counted as nothing); the device's sleep ends it, and
@@ -56,6 +59,10 @@ use paperpaw_sdk::library::{self, catalog};
 const LINES_PER_PASS: usize = 32;
 /// The bytes read at once when a line's end is looked for.
 const CHUNK: usize = 256;
+/// How long the device is left alone after the start or an input before a
+/// book's job begins: an EPUB's open (its zip and XML, some 30 KiB) is never
+/// added to the start's peak or to a screen the user works in (#2670).
+pub(crate) const QUIET_MS: u64 = 1_000;
 
 /// The pump's frame for the details job's open: the kernel's settings,
 /// declarations and registry, no callback (the format is called through the
@@ -286,12 +293,20 @@ impl crate::Kernel {
             Err(Some(at)) => return Pass::Wait(at),
             Err(None) => return Pass::Nothing,
         }
+        let now = self.now.millis();
+        let quiet = self.last_activity.millis().saturating_add(QUIET_MS);
+        if now < quiet {
+            return Pass::Wait(quiet);
+        }
         let natives = &self.shared.registry.native_book_formats;
         if natives.is_empty() {
             run.disarm();
             return Pass::Nothing;
         }
         let env = self.shared.env(self.now);
+        if catalog::is_growing(env.storage()) {
+            return Pass::Wait(now.saturating_add(QUIET_MS));
+        }
         let formats = &self.shared.formats;
         let wanted = |path: &str| {
             formats

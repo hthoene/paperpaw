@@ -337,7 +337,8 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   whole title and series by offsets where `meta` cut them, the first author and at most 16 subjects
   (op 6, each cut at the details' caps), keeps them as the book's details marked as read (never where
   nothing was read), and closes it. It begins only when no job of either kind runs and no book is
-  open for reading or showing; a book the format failed (or whose job a reset ended) joins the cover
+  open for reading or showing, not within 1 s of the start or the last input, and not while a first
+  walk is under way (never beside the start's peak or the user); a book the format failed (or whose job a reset ended) joins the cover
   job's failed books and is skipped until the next start. A `cover` never waits for the details job:
   a ready cover is made beside it, and one that needs the slot makes the details job give way (it
   ends, and its book is looked at again later, counted neither as failed nor as displaced). The

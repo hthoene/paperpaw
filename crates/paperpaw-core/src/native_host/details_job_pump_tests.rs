@@ -640,3 +640,49 @@ fn a_displaced_job_waits_the_quiet_moment_by_a_timed_wake() {
     assert_eq!(w.format.opens(), 2);
     assert_eq!(kept_title(&w, "books/a.epub").as_deref(), Some("Dune"));
 }
+
+#[test]
+fn no_book_begins_within_the_quiet_time_after_the_start_or_an_input() {
+    let mut w = world(&["books/a.epub", "books/b.epub"]);
+    catalog(&w, &[("books/a.epub", false), ("books/b.epub", false)]);
+    // The start at 0 (`Kernel::start` sets the last activity).
+    started(&mut w);
+    w.kernel.native_details_arm();
+    pump(&mut w, QUIET_MS / 2);
+    assert_eq!(w.format.opens(), 0, "beside the start's peak");
+    assert_eq!(w.kernel.service_due(), Some(Instant(QUIET_MS)));
+    pump(&mut w, QUIET_MS);
+    assert_eq!(w.format.opens(), 1);
+    // An input (`Kernel::handle`): the next book waits again.
+    w.kernel.last_activity = Instant(QUIET_MS + 50);
+    pump(&mut w, QUIET_MS + 200);
+    assert_eq!(w.format.opens(), 1, "beside the user");
+    assert_eq!(w.kernel.service_due(), Some(Instant(2 * QUIET_MS + 50)));
+    pump(&mut w, 2 * QUIET_MS + 50);
+    assert_eq!(w.format.opens(), 2);
+    assert_eq!(kept_title(&w, "books/b.epub").as_deref(), Some("Dune"));
+}
+
+#[test]
+fn no_book_begins_while_a_first_walk_is_under_way() {
+    let mut w = world(&["books/a.epub"]);
+    catalog(&w, &[("books/a.epub", false)]);
+    // A first walk published the books it found so far and goes on
+    // (`catalog::is_growing`: its new catalog and its first-walk mark).
+    let building = alloc::format!("{}/catalog.tmp", library::DIR);
+    let first = alloc::format!("{}/walk.first", library::DIR);
+    w.card.write(&building, b"").unwrap();
+    w.card.write(&first, b"").unwrap();
+    assert!(catalog::is_growing(&*w.card));
+    started(&mut w);
+    w.kernel.native_details_arm();
+    pump(&mut w, 2_000);
+    assert_eq!(w.format.opens(), 0, "beside the walk");
+    assert_eq!(w.kernel.service_due(), Some(Instant(2_000 + QUIET_MS)));
+    // The walk ended.
+    w.card.remove(&building).unwrap();
+    w.card.remove(&first).unwrap();
+    pump(&mut w, 2_000 + QUIET_MS);
+    assert_eq!(w.format.opens(), 1);
+    assert_eq!(kept_title(&w, "books/a.epub").as_deref(), Some("Dune"));
+}
