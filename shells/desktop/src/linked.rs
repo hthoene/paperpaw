@@ -537,22 +537,7 @@ pub fn register(
         services: offered(on),
         features: features(on),
     };
-    // SAFETY: the offered services are the ones wired above (`offered`), and
-    // the plugins are the app's linked ones, as the helper's contract says.
-    let outcome = unsafe {
-        paperpaw_app::register_native_plugins(
-            kernel,
-            &host,
-            &resources,
-            &depth,
-            DesktopServices::new,
-            teardown_report,
-            linked_report,
-            |id| paperpaw_app::native_default_on(id, paperpaw_app::default_store()),
-            rodata_image(),
-            paperpaw_app::sleeps,
-        )
-    };
+    let outcome = register_linked(kernel, &host, &resources, &depth);
     let mut registered = 0;
     for (id, status) in outcome {
         match status {
@@ -561,6 +546,36 @@ pub fn register(
         }
     }
     Ok(registered)
+}
+
+/// Registers the app's linked plugins: the ones `paperpaw_app::sleeps` names
+/// parked, every other one awake (#248, D1).
+fn register_linked(
+    kernel: &mut Kernel,
+    host: &metadata::Host<'static>,
+    resources: &HostResources,
+    depth: &FlatDepth,
+) -> Vec<(
+    &'static str,
+    Result<(), paperpaw_core::native_host::shell::Error>,
+)> {
+    // SAFETY: the offered services are the ones wired by the caller
+    // (`offered`), and the plugins are the app's linked ones, as the helper's
+    // contract says.
+    unsafe {
+        paperpaw_app::register_native_plugins(
+            kernel,
+            host,
+            resources,
+            depth,
+            DesktopServices::new,
+            teardown_report,
+            linked_report,
+            |id| paperpaw_app::native_default_on(id, paperpaw_app::default_store()),
+            rodata_image(),
+            paperpaw_app::sleeps,
+        )
+    }
 }
 
 #[cfg(test)]

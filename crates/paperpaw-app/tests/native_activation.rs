@@ -244,7 +244,7 @@ pub fn build_on_sleeping(
     card: Rc<dyn Storage>,
     sleep: fn(&str) -> bool,
 ) -> Kernel {
-    build_with(builder, card, true, sleep)
+    build_full(builder, paperpaw_app::default_store(), card, true, sleep)
 }
 
 thread_local! {
