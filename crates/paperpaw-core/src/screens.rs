@@ -758,6 +758,8 @@ impl Kernel {
         }
     }
 
+    // Its own frame: not inlined into `run_commands` (#250).
+    #[inline(never)]
     pub(crate) fn drain_deferred_ui_closes(&mut self) {
         debug_assert_eq!(self.shared.native_instances.depth(), 0);
         if self.shared.stack_rows.take_close_error() != 0 {
@@ -988,6 +990,8 @@ impl Kernel {
     /// and a task with none left goes; so switching back never opens a
     /// file that is gone. A book moved (`BOOK_MOVED`): its screens open
     /// it where it is now.
+    // Its own frame: not inlined into `emit_from` (#250).
+    #[inline(never)]
     pub(crate) fn tasks_follow_books(&mut self, event: &Id, params: &Params) {
         let path = builtin_params::PATH;
         if let Some(removed) = events::BOOK_REMOVED.read(event, params) {

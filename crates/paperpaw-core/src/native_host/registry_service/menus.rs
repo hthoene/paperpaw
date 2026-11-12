@@ -8,15 +8,15 @@
 //! Op 12 lists the rows the host would show now. Its sources are the same two:
 //! the rows `Menus` holds and the rows natively declared plugins put in the
 //! declaration store (`menu_native`). Without a user definition the rows are
-//! the declared ones in declared order (`Menus` order, then the native rows in
-//! theirs, those placed first before and those placed last after the
+//! the declared ones in declared order (`Menus` order with the native rows by
+//! order among them, those placed first before and those placed last after the
 //! others); with one, the user's list. Query `flags` bit 0 (`all`) adds the
 //! rows that could be in the menu and are not (hidden, removed); bit 1
 //! (`declared`) reads the declared rows whatever the user chose.
 use super::{
     Row,
     fixed::{Fixed, caps, clip, translated},
-    menu_native::{BY_ORDER, Entry, Native},
+    menu_native::{BY_ORDER_END, Entry, FIRST_END, Native},
     ordered::Sort,
     sources::Sources,
 };
@@ -305,17 +305,44 @@ fn declared(
             hidden_by: hider.as_ref().map(Fixed::as_str),
         })
     };
-    // Those placed first, then `Menus`' rows, then the other native ones.
+    // Those placed first, then `Menus`' rows with the native ones by order
+    // among them (a native row of the same order after), then those placed
+    // last.
     let mut after: Option<Sort> = None;
+    // The row read and not yet due: `next` scans the store, so it is kept.
+    let mut pending: Option<(Sort, Entry)> = None;
     if let Some(native) = native {
         while let Some((sort, entry)) = native.next(call.menu, after) {
-            if sort.0 >= BY_ORDER {
+            if sort.0 >= FIRST_END {
+                pending = Some((sort, entry));
                 break;
             }
             after = Some(sort);
             native_row(&entry, &mut *visit)?;
         }
     }
+    // The native rows by order that come before `limit` (all with `None`).
+    let mut by_order = |limit: Option<i32>,
+                        visit: &mut dyn FnMut(&Item<'_>) -> ControlFlow<()>|
+     -> ControlFlow<()> {
+        let Some(native) = native else {
+            return ControlFlow::Continue(());
+        };
+        while let Some((sort, entry)) = pending.take().or_else(|| native.next(call.menu, after)) {
+            let due = sort.0 < BY_ORDER_END && limit.is_none_or(|limit| entry.order < limit);
+            if !due {
+                pending = Some((sort, entry));
+                break;
+            }
+            after = Some(sort);
+            native_row(&entry, &mut *visit)?;
+        }
+        ControlFlow::Continue(())
+    };
+    // `contributed` lists the rows by order, sorted, then those placed
+    // beside others: an order that falls marks where those begin, and the
+    // native rows by order all come before them.
+    let mut reached = i32::MIN;
     for id in &call.contributed {
         if !usable(id.as_str()) {
             continue;
@@ -324,17 +351,21 @@ fn declared(
         if by.is_some() && !hidden {
             continue;
         }
+        let here = order_of(call, id.as_str());
+        let limit = (here >= reached).then_some(here);
+        reached = if limit.is_some() { here } else { i32::MAX };
+        by_order(limit, &mut *visit)?;
         visit(&Item {
             id: id.as_str(),
             by: id.namespace(),
-            order: order_of(call, id.as_str()),
+            order: here,
             title: None,
             section: menus.is_section(id.as_str()),
             hidden_by: by.as_ref().map(Fixed::as_str),
         })?;
     }
     if let Some(native) = native {
-        while let Some((sort, entry)) = native.next(call.menu, after) {
+        while let Some((sort, entry)) = pending.take().or_else(|| native.next(call.menu, after)) {
             after = Some(sort);
             native_row(&entry, &mut *visit)?;
         }

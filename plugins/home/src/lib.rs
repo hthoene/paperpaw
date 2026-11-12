@@ -89,6 +89,7 @@ pub mod native_gallery;
 pub use paperpaw_ui_kit::dashboard::grid as native_grid;
 pub mod native_icons;
 pub mod native_item_settings;
+pub mod native_lines;
 pub mod native_made;
 pub mod native_measure;
 pub mod native_pages;

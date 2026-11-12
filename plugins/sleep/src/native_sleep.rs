@@ -6,7 +6,7 @@
 //! environment. Decoding, drawing and the host's files are the native
 //! screen's (see `PORTING-7.md`).
 use alloc::{string::String, vec::Vec};
-use paperpaw_sdk::native::Error;
+use paperpaw_sdk::native::{Error, image::PrepareRoot};
 
 /// The modes the plugin has itself.
 pub const CAT: &str = "sleep.show.cat";
@@ -373,6 +373,50 @@ pub fn placed(screen: Screen, w: u16, h: u16, fill: bool, position: &str) -> (u1
 pub fn opacity(see_through: i64) -> u8 {
     let through = see_through.clamp(0, 100) as u32;
     (255 * (100 - through) / 100) as u8
+}
+
+/// The core setting that names a picture shown in place of PaperPaw's logo
+/// (a JPEG, PNG or GIF on the card, e.g. a data plugin's
+/// `plugins/mine/logo.png`); empty for the plugin's own.
+pub const LOGO_SETTING: &str = "core.logo";
+/// The plugin's own logo, as written into its data folder.
+pub const OWN_LOGO: &str = "logo.png";
+/// The longest path a picture is asked for with (`command.image_prepare`).
+pub const LOGO_PATH_MAX: usize = 512;
+
+/// The logo picture the message asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LogoFile<'a> {
+    /// The plugin's own ([`OWN_LOGO`] in its data folder).
+    Own,
+    /// The card file [`LOGO_SETTING`] names, from the card's root.
+    Card(&'a str),
+}
+
+impl<'a> LogoFile<'a> {
+    /// Where the host reads it and its path there: the data folder for the
+    /// plugin's own, the card (the library root) for the one set.
+    #[must_use]
+    pub fn request(self) -> (PrepareRoot, &'a str) {
+        match self {
+            LogoFile::Own => (PrepareRoot::Data, OWN_LOGO),
+            LogoFile::Card(path) => (PrepareRoot::Library, path),
+        }
+    }
+}
+
+/// The logo to ask for: the picture `setting` (the value of
+/// [`LOGO_SETTING`]) names, without spaces and slashes at its ends as
+/// interface 6 read it, unless that one could not be had (`card_failed`: the
+/// host refused it or could not decode it); the plugin's own where none is
+/// set, it failed or its path is too long for a request.
+#[must_use]
+pub fn logo_file(setting: &str, card_failed: bool) -> LogoFile<'_> {
+    let path = setting.trim().trim_matches('/');
+    if card_failed || path.is_empty() || path.len() > LOGO_PATH_MAX {
+        return LogoFile::Own;
+    }
+    LogoFile::Card(path)
 }
 
 #[cfg(test)]

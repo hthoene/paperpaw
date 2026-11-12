@@ -502,6 +502,15 @@ pub enum Event<'a> {
         screen: &'a str,
         instance: super::ui::Instance,
     },
+    /// A full screen opened above an open instance: it may let go of what it
+    /// keeps only to draw itself, and builds it again on its next
+    /// `ScreenShown` (`ui.md` 1.1). Dropping it is harmless.
+    #[non_exhaustive]
+    ScreenHidden {
+        now_ms: u64,
+        screen: &'a str,
+        instance: super::ui::Instance,
+    },
     /// Read the current stack through core.ui.
     #[non_exhaustive]
     StackChanged { now_ms: u64 },

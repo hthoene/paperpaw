@@ -1,6 +1,6 @@
 //! The bar of the chosen text: what can be done with it, as buttons over the
-//! bottom of the page. The items are fixed (look up, copy, then *Extend* on a
-//! device with buttons, *Cancel* on a touch screen); the interface-6 bar was the
+//! bottom of the page. The items are fixed (look up, highlight, note, copy, then
+//! *Extend* on a device with buttons, *Cancel* on a touch screen); the interface-6 bar was the
 //! menu `reader.selection`, which a plugin could add items to (a named gap in
 //! `PORTING-7.md`: the stage that passes the chosen text on is not defined).
 use alloc::{string::String, vec::Vec};
@@ -11,7 +11,7 @@ use paperpaw_sdk::{
 use paperpaw_ui_kit::{Chips, Messages, Style, paint::Paint};
 
 /// Most items a bar holds.
-pub const MAX_ITEMS: usize = 4;
+pub const MAX_ITEMS: usize = 6;
 
 /// What a button of the bar does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,6 +19,14 @@ pub const MAX_ITEMS: usize = 4;
 pub enum Item {
     /// Looks the words up (the slot `core.lookup`).
     LookUp,
+    /// Highlights the words.
+    Highlight,
+    /// Takes the highlight of the words away (they have one).
+    Unhighlight,
+    /// Writes a note on the words (making the highlight they lack).
+    Note,
+    /// Edits the note of the highlight the words are in.
+    EditNote,
     /// Copies the words to the clipboard.
     Copy,
     /// Moves the end of the selection with the buttons.
@@ -33,6 +41,10 @@ impl Item {
     pub const fn key(self) -> &'static str {
         match self {
             Self::LookUp => "reader.select.look-up",
+            Self::Highlight => "reader.select.highlight",
+            Self::Unhighlight => "reader.select.unhighlight",
+            Self::Note => "reader.select.note",
+            Self::EditNote => "reader.select.edit-note",
             Self::Copy => "reader.select.copy",
             Self::Extend => "reader.select.extend",
             Self::Cancel => "reader.select.cancel",
@@ -41,11 +53,24 @@ impl Item {
 }
 
 /// The items of the bar, in order: a touch screen taps words to extend and has a
-/// *Cancel*; buttons have *Extend* and Back cancels.
+/// *Cancel*; buttons have *Extend* and Back cancels. `highlight` is how the
+/// chosen words stand with the highlights: `None` where none overlaps (*Highlight*,
+/// *Note*), `Some(false)` where one does (*Remove highlight*, *Note*) and
+/// `Some(true)` where it has a note (*Remove highlight*, *Edit note*).
 #[must_use]
-pub fn items(touch: bool) -> [Item; 3] {
+pub fn items(touch: bool, highlight: Option<bool>) -> [Item; 5] {
     [
         Item::LookUp,
+        if highlight.is_some() {
+            Item::Unhighlight
+        } else {
+            Item::Highlight
+        },
+        if highlight == Some(true) {
+            Item::EditNote
+        } else {
+            Item::Note
+        },
         Item::Copy,
         if touch { Item::Cancel } else { Item::Extend },
     ]
@@ -72,16 +97,7 @@ impl Bar {
         items: &[Item],
     ) -> Result<Self, Error> {
         let finger = Chips::finger(display);
-        let height = Chips::height(style, finger).saturating_add(2 * style.margin);
         let (width, tall) = (display.display_width(), display.display_height());
-        let top = tall.saturating_sub(height);
-        let area = Rect::new(0, top, width, height);
-        let inner = Rect::new(
-            style.margin,
-            top.saturating_add(style.margin),
-            width.saturating_sub(2 * style.margin),
-            height.saturating_sub(2 * style.margin),
-        );
         if items.len() > MAX_ITEMS {
             return Err(Error::NoSpace);
         }
@@ -97,6 +113,25 @@ impl Bar {
         for (slot, label) in shown.iter_mut().zip(&labels) {
             *slot = label.as_str();
         }
+        // Chips that do not fit one row go on the next: the bar is as high as
+        // its rows.
+        let rows = Chips::height_for(
+            font,
+            style,
+            finger,
+            width.saturating_sub(2 * style.margin),
+            &shown[..labels.len()],
+        )?
+        .max(Chips::height(style, finger));
+        let height = rows.saturating_add(2 * style.margin);
+        let top = tall.saturating_sub(height);
+        let area = Rect::new(0, top, width, height);
+        let inner = Rect::new(
+            style.margin,
+            top.saturating_add(style.margin),
+            width.saturating_sub(2 * style.margin),
+            height.saturating_sub(2 * style.margin),
+        );
         let chips = Chips::new(font, style, finger, inner, &shown[..labels.len()])?;
         let mut kept = Vec::new();
         kept.try_reserve_exact(items.len())

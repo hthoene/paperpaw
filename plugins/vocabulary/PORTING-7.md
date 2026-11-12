@@ -143,9 +143,44 @@ native screens replace these callers.
 - The sleep card: done, see *Ported: the sleep card* below.
 - The widgets: done, see *Ported: the home widgets* below.
 - The dictionary hand-off (tap a word) on `core.lookup` (#352, draft 23).
-- Marks in books (`marks.rs`): **waits for the reader's decorations stage** (`reader.decorations@1`, to be defined with the reader port by Plugin Engineer; Kernel ruling, todo 334: parity stays, nothing is lost). The mark logic (which words, which role) stays ready behind it; Vocabulary subscribes when the stage exists.
+- Marks in books: done on the stage, see *Ported: the marks in books* below (the reader's side asks the stage per page: Plugin Engineer, after #1275).
 - Phone page (`phone.rs`): `core.net`/sockets, secrets (Services todo 79).
 - Card-folder files: done, see *Ported: the card files* below.
+
+## Ported: the marks in books (`native_marks.rs`, `native_marks_stage.rs`, `stages/decorations/`; #257)
+
+- Vocabulary subscribes to the reader's stage `reader.decorations@1` (`reader.decorations@1.def` is a copy of the reader's,
+  held to it by `tests/stages.rs`; the codec is `src/stages_decorations.rs`, `tools/stage-codec.py stages/decorations
+  src/stages_decorations.rs`) with the token 8. The reader sends a page as `decorate.page` (path, language, number of runs)
+  and `decorate.run` rows (the page's text of a section, words apart by one space); the plugin answers one `decorate.look` (number 0,
+  role `vocabulary.learning`) and one `decorate.marks` (`run`, `from`, `to` as little-endian u16 each, at most 3,600 bytes: 600 marks
+  a fire).
+- **What is marked** is what Beta 3 marked (`marks.rs`, the SDK's `WordSet`): the words and phrases of the list that belong to the
+  book's language (primary subtag, any language where either side says none), found as whole words without regard to case
+  (`ß` as `ss`, apostrophes inside words kept, accents counted), the longest entry winning, a mark covering the words as the page
+  shows them (punctuation around them too), no entry across a token with no word. The search is `native_marks::Entries`
+  (fallible allocation, sorted 32-bit hashes of the folded entries, binary search; no `WordSet`, which allocates infallibly).
+- **Memory (#248):** nothing is kept between two calls of the stage (Beta 3 kept the set by the list's change count). The set
+  is 4 bytes an entry (and 4 for each start of a phrase) in a side file of the language (`marks[-<language>].idx` in the data
+  folder: magic, the list's size, a hash of the list's last 512 bytes, the number of hashes, the hashes; a file shorter than its count
+  says is not read), read in 512-byte pieces; it is made again from the list (one pass, by the same code) when the list's size or
+  its end is not what it was made from (a word replaced by one as long at the 2,000 cap changes the end). Measured on the host
+  (in-memory storage, a list of the most, 2,000 words of 250-byte sentences = 562,890 bytes): a page turn reads 8,016 bytes of the side file and the list's last 512 and
+  takes 4 µs, where the previous version read the whole list each page (562,890 bytes, 785 µs, a set of about 32 KiB on the
+  heap); the heap held for the call is 8,000 bytes (4 bytes a hash), released at its end. Not measured on an X4. **A hash
+  shared** by an entry and a word of the page (about one in 2^32 for each pair) marks a word that is not in the list: a tap
+  looks it up, nothing else.
+- **The look** is read from the role's seven settings each call (`vocabulary.learning.background`, `.ink`, `.line`, `.line-tone`,
+  `.thickness`, `.frame`, `.struck`: group `core.group.marks`, section `vocabulary.role.learning`, Beta 3's defaults: a dotted line,
+  four tenths of a millimetre; declared in `declarations.rs`, held to the interface-6 registration by `tests/settings_parity.rs`,
+  the declarations golden blessed for them) and sent in the stage's fixed codes; taps are always taken. The switch is
+  `vocabulary.mark` (off: no marks).
+- **A tap** on a mark of the role (`decorate.tapped`) opens the lookup slot `core.lookup` with the word (the punctuation around
+  it cut) and the language it was kept in, and answers `decorate.taken` 1; a mark of another role is not ours.
+- Remarks: the reply's marks are up to 600 a fire; the reader keeps at most 256 a page. **Not run on a host:** the reader does not
+  ask the stage yet (`tests/acceptance_pending.rs`); the scripted host lends events no reply buffer, so the reply is tested as
+  records (`native_marks_stage`) and the search on a list (`native_marks`). The interface-6 `marks.rs` and its decorator go with
+  the interface-6 removal.
 
 ## Ported: the flash cards' first screen as a view (`native_decks.rs`, `native_words.rs`)
 

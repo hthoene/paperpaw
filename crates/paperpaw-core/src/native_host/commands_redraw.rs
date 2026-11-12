@@ -124,14 +124,20 @@ pub(crate) struct Followup {
 }
 
 impl crate::Kernel {
-    /// Draws each of `areas` again, as much of it as the screen on top has,
-    /// and asks for `mode`.
-    pub(crate) fn redraw_areas(&mut self, areas: &[Area], mode: Option<RefreshMode>) {
+    /// Draws each of `areas` again, as much of it as the region of the screen
+    /// `screen` has (the top's when it is not on the stack), and asks for `mode`.
+    pub(crate) fn redraw_areas(
+        &mut self,
+        screen: ScreenKey,
+        areas: &[Area],
+        mode: Option<RefreshMode>,
+    ) {
         let region = self
             .stack
-            .len()
-            .checked_sub(1)
-            .map_or(self.content(), |top| self.region_of(top));
+            .iter()
+            .rposition(|active| active.serial == screen.serial())
+            .or_else(|| self.stack.len().checked_sub(1))
+            .map_or(self.content(), |at| self.region_of(at));
         let mut drawn = false;
         for area in areas {
             if let Some(part) = area.within(region) {
@@ -158,13 +164,10 @@ impl crate::Kernel {
         let Some(followup) = self.frame.followup.take() else {
             return;
         };
-        if self
-            .shared
-            .stack
-            .last()
-            .is_some_and(|top| top.key == followup.screen)
+        if super::super::native_screen::redrawable(&self.shared.stack, followup.screen, None)
+            .is_some()
         {
-            self.redraw_areas(&followup.areas, followup.mode);
+            self.redraw_areas(followup.screen, &followup.areas, followup.mode);
             self.frame.followup_frame = Some(followup.screen);
         }
     }
@@ -185,12 +188,13 @@ pub(super) fn is_area(command: &WireCommand<'_>) -> bool {
 }
 
 impl CommandStage<'_> {
-    /// A mode as `command.redraw`'s, on the plugin's own top screen.
+    /// A mode as `command.redraw`'s, on the plugin's own screen that has only
+    /// overlays above it.
     pub(super) fn validate_redraw_area(&self, mode: u32) -> Result<usize, i32> {
         if mode > 3 {
             return Err(ERR_INVALID);
         }
-        self.own_top().map(|_| 0)
+        self.own_redrawable().map(|_| 0)
     }
 
     /// Room for the callback's areas, taken once (`MAX_AREAS`), before the

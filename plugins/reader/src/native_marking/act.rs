@@ -12,6 +12,9 @@ use paperpaw_sdk::{
 use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 
 use super::Ctx;
+use crate::native_bookmark::{percent_of, say_not_saved};
+use crate::native_marks::{Span, edit};
+use crate::native_place::wall_seconds;
 use crate::native_words::{self, Looked};
 
 /// Most words of a sentence on either side of a looked-up word.
@@ -132,4 +135,96 @@ pub fn look_up(
     )
     .ok();
     Ok(())
+}
+
+/// The note *Note* starts: where it goes, and the note there is to edit.
+pub type NoteAsk = edit::Target;
+
+/// The stretch of the book the words `lo..=hi` of the page are.
+fn span_of(ctx: &Ctx<'_>, (lo, hi): (usize, usize)) -> Option<Span> {
+    let (first, last) = (ctx.words.get(lo)?, ctx.words.get(hi)?);
+    Some(Span {
+        start: (first.start.section, first.start.offset),
+        end: (last.end.section, last.end.offset),
+        noted: false,
+    })
+}
+
+/// How the chosen words `lo..=hi` stand with the highlights the bar names its
+/// items by: `None` where none overlaps, else whether the first has a note.
+#[must_use]
+pub fn standing(ctx: &Ctx<'_>, range: (usize, usize)) -> Option<bool> {
+    let span = span_of(ctx, range)?;
+    ctx.book?
+        .highlights
+        .iter()
+        .find(|h| edit::overlaps(h, &span))
+        .map(|h| h.noted)
+}
+
+/// What a refused change is: said (the memory may be full), the page goes on.
+/// Only a lack of memory is the host's to hear.
+fn said<T>(host: &Host<'_>, done: Result<T, Error>) -> Result<Option<T>, Error> {
+    match done {
+        Ok(value) => Ok(Some(value)),
+        Err(Error::NoMemory) => Err(Error::NoMemory),
+        Err(_) => {
+            say_not_saved(host);
+            Ok(None)
+        }
+    }
+}
+
+/// *Highlight* / *Remove highlight* on the words `lo..=hi`.
+///
+/// # Errors
+/// `NoMemory`; a change the library refuses is said.
+pub fn highlight(host: &Host<'_>, ctx: &Ctx<'_>, range: (usize, usize)) -> Result<(), Error> {
+    let done = with_new(host, ctx, range, |library, new| {
+        edit::toggle(host, library, ctx.path, new)
+    });
+    said(host, done).map(|_| ())
+}
+
+/// *Note* / *Edit note* on the words `lo..=hi`: the highlight there is made if
+/// there is none, and the note it has is given back to be edited.
+///
+/// # Errors
+/// `NoMemory`; a change the library refuses is said.
+pub fn note(
+    host: &Host<'_>,
+    ctx: &Ctx<'_>,
+    range: (usize, usize),
+) -> Result<Option<NoteAsk>, Error> {
+    let done = with_new(host, ctx, range, |library, new| {
+        edit::begin_note(host, library, ctx.path, new)
+    });
+    said(host, done)
+}
+
+/// `change` with the library and the highlight the words `lo..=hi` would be.
+fn with_new<T>(
+    host: &Host<'_>,
+    ctx: &Ctx<'_>,
+    range: (usize, usize),
+    change: impl FnOnce(&paperpaw_sdk::native::library::Library, &edit::New<'_>) -> Result<T, Error>,
+) -> Result<T, Error> {
+    let (Some(book), Some(span)) = (ctx.book, span_of(ctx, range)) else {
+        return Err(Error::State);
+    };
+    let library = book.library.ok_or(Error::State)?;
+    let text = edit::snippet(&text_of(ctx.words, range.0, range.1)?)?;
+    let ppm = book
+        .progress
+        .map_or(book.stored_ppm, |p| p.ppm(span.start.0, span.start.1));
+    change(
+        library,
+        &edit::New {
+            span,
+            percent: percent_of(ppm),
+            conversion: book.conversion,
+            now: wall_seconds(host),
+            text: &text,
+        },
+    )
 }

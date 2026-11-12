@@ -252,6 +252,25 @@ fn a_screen_that_becomes_secret_at_run_time_goes_blank_under_another_plugins_ove
 }
 
 #[test]
+fn a_secret_page_stays_blank_under_a_foreign_overlay_however_often_it_is_drawn() {
+    // A redraw asked for the secret page (a whole one, then an area) reaches the
+    // kernel's draw again and again: the plugin is never called while the sleep
+    // screen of another plugin covers it.
+    let (kernel, mut page, calls) = stacked(
+        &[("keys.entry", false, false), ("sleep.screen", true, false)],
+        0,
+    );
+    calls.secret_now.set(Some(true));
+    for _ in 0..3 {
+        assert_eq!(drawn(&kernel, &mut page, &calls), 0);
+    }
+    // The sleep screen gone, it is the top again and draws.
+    let (kernel, mut page, calls) = stacked(&[("keys.entry", false, false)], 0);
+    calls.secret_now.set(Some(true));
+    assert_eq!(drawn(&kernel, &mut page, &calls), 1);
+}
+
+#[test]
 fn a_dialog_above_a_guard_stays_blank_under_the_sleep_screen() {
     // The lock guards; its PIN dialog (an overlay of the lock, so secret as it
     // lies above a guard) must not show through the sleep screen of another

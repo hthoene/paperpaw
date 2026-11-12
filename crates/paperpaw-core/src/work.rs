@@ -371,6 +371,8 @@ impl Queue {
 
     /// An event was emitted: a moment, what a job waited for, or a
     /// setting of a plugin's network changed.
+    // Its own frame: not inlined into `Kernel::emit_from` (#250).
+    #[inline(never)]
     pub(crate) fn saw(&mut self, event: &Id, params: &Params) {
         if *event == events::SETTING_CHANGED
             && params

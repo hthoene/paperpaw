@@ -9,9 +9,11 @@ use pending::Case;
 
 const CASES: [Case; 8] = [
     // The dashboard through the production loader: the pages of widgets and
-    // tools on their plates (the model and the screen are ported and tested
-    // without the host), the picture behind them (`picture-home-picture`), the
-    // bars and the press that shows a hidden bar (`picture-home-bars`).
+    // tools on their plates, the tools' and the footer's icons (`icon.glyph`),
+    // a widget's cell drawn anew at `event.widget_changed` (the model and the
+    // screen are ported and tested without the host), the picture behind them
+    // (`picture-home-picture`), the bars and the press that shows a hidden bar
+    // (`picture-home-bars`).
     Case {
         name: "picture-home-dashboard",
         golden: None,
@@ -29,8 +31,10 @@ const CASES: [Case; 8] = [
     // of the host (`image_prepare`), the notice while it is made, drawn first
     // and not while editing, given back when the screen closes. The decisions
     // and the drawing's places are ported and tested without the host
-    // (`native_backdrop`); the turn of a phone's picture, brightness and
-    // contrast, dots by force and stretching are not the host's (`PORTING-7.md`).
+    // (`native_backdrop`: up to 256 tiles, only those in the rows a draw may
+    // change; a file replaced under the same name asked for anew by its size
+    // and time); the turn, the tone, the render and stretching are written
+    // against the host's fields and unseen on a device (`PORTING-7.md`).
     Case {
         name: "picture-home-picture",
         golden: None,
@@ -61,11 +65,13 @@ const CASES: [Case; 8] = [
     // The screen `add` through the production loader: the tools and widgets to
     // put on a page, *Add a page*, *Remove this page*, and the *Add* button of
     // the editing footer. The rows, the choices' writes and the screen are
-    // ported (unit-tested without the host); the rows have no icons yet (#517).
+    // ported (unit-tested without the host). The rows have no icons yet: icons
+    // are admitted (`icon.glyph`, #517 closed for the dashboard), but the kit's
+    // list renderer the screen draws with has none (`PORTING-7.md`).
     Case {
         name: "picture-home-add",
         golden: None,
-        blocked_by: &["H1", "H4", "517"],
+        blocked_by: &["H1", "H4", "KIT-list-icons"],
     },
     // The grip of a shown item dragged with a finger (down, move, up), as on
     // interface 6: the kit's view takes a hold and a tap instead.
@@ -129,7 +135,7 @@ fn picture_home_bar_items_editor_grip_drag() {
 }
 
 #[test]
-#[ignore = "BLOCKED H1/H4: the native screen's commands and input are not qualified; the rows' icons (#517) are not ported"]
+#[ignore = "BLOCKED H1/H4: the native screen's commands and input are not qualified; the rows' icons are not drawn (the kit's list renderer has none)"]
 fn picture_home_add() {
     CASES[6].refuse().unwrap();
 }

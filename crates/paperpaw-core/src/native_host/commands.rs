@@ -818,6 +818,10 @@ impl fmt::Debug for CommandScope {
 mod limit_tests;
 
 #[cfg(test)]
+#[path = "commands_redraw_below_tests.rs"]
+mod redraw_below_tests;
+
+#[cfg(test)]
 #[path = "commands_hint_tests.rs"]
 mod hint_tests;
 

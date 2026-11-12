@@ -378,3 +378,12 @@ fn the_header_size_is_pinned() {
     assert_eq!(block_cost(LARGE_BLOCK, 4096), 4096 + LARGE_BLOCK);
     assert_eq!(LARGE_BLOCK, 256);
 }
+
+#[test]
+fn the_owner_table_holds_exactly_the_owners_admitted() {
+    let state = HeapState::new();
+    for admitted in 1..=33 {
+        assert_eq!(state.admit(), Ok(admitted - 1));
+        assert_eq!(state.owners_room(), (admitted as usize, admitted as usize));
+    }
+}

@@ -26,6 +26,8 @@ mod fail_alloc;
 #[cfg(test)]
 #[global_allocator]
 static ALLOC: fail_alloc::Failing = fail_alloc::Failing;
+pub mod native_bar;
+mod native_bar_screen;
 mod native_data;
 mod native_entry;
 pub mod native_model;

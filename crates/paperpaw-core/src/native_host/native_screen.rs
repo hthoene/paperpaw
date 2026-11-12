@@ -184,6 +184,34 @@ impl<T: Dispatch> Dispatch for super::shared::Shared<T> {
     }
 }
 
+/// Where the screen `key` is on `stack` when nothing but overlays lies above it
+/// (none, for the top one): the one rule by which such a screen is drawn as if on
+/// top (`ui.md` 1.2) and may redraw (`redraw_screen`), so the two never differ.
+pub(crate) fn only_overlays_above(
+    stack: &[paperpaw_sdk::StackEntry],
+    key: ScreenKey,
+) -> Option<usize> {
+    let at = stack.iter().rposition(|entry| entry.key == key)?;
+    stack[at + 1..]
+        .iter()
+        .all(|entry| entry.overlay)
+        .then_some(at)
+}
+
+/// Where the screen `key` of `owner` is on `stack` when it may redraw: only
+/// overlays above it, and none of them guards (a guard hides what is below it,
+/// `ui.md` 4.3, an overlay or not). `None` otherwise: a full screen or a guard
+/// above, or not the owner's.
+pub(crate) fn redrawable(
+    stack: &[paperpaw_sdk::StackEntry],
+    key: ScreenKey,
+    owner: Option<&str>,
+) -> Option<usize> {
+    let at = only_overlays_above(stack, key)?;
+    let mine = owner.is_none_or(|owner| stack[at].screen.namespace() == owner);
+    (mine && !stack[at + 1..].iter().any(|entry| entry.guards)).then_some(at)
+}
+
 pub(crate) struct NativeScreen<D> {
     id: Id,
     token: u32,
@@ -372,13 +400,10 @@ impl<D: Dispatch> NativeScreen<D> {
             return false;
         };
         let stack = env.stack();
-        let Some(at) = stack.iter().rposition(|entry| entry.key == key) else {
+        let Some(at) = only_overlays_above(stack, key) else {
             return false;
         };
         let above = &stack[at + 1..];
-        if !above.iter().all(|entry| entry.overlay) {
-            return false;
-        }
         let secret = self
             .dispatch
             .secret_now(self.key)

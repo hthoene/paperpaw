@@ -6,7 +6,10 @@
 //! reference until it goes at activation. Everything is allocation-free
 //! or fallible.
 use alloc::vec::Vec;
-use paperpaw_sdk::native::{Error, callbacks::Input};
+use paperpaw_sdk::{
+    layout::{BookStyles, Style},
+    native::{Error, callbacks::Input},
+};
 
 /// The reading settings a page is set with, in the units the settings use.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -27,6 +30,19 @@ pub struct Reading {
     /// The room the status line at the top and the one at the bottom keep,
     /// from the display's edge, in pixels (0: none, `native_status`).
     pub status: (u16, u16),
+    /// How paragraphs are set apart: an indent of so many percent of the size
+    /// (`core.indent`, `core.indent-size`; 0: none), a space of so many percent
+    /// of a line (`core.paragraph-spacing`, `core.paragraph-space`; 0: none).
+    pub paragraphs: (u16, u16),
+    /// The fewest lines of a paragraph kept at the top and at the bottom of a
+    /// page (`core.widows`, `core.orphans`), 1 to 4.
+    pub lines_kept: (u8, u8),
+    /// Paragraphs broken over all their lines (`core.line-breaking`), not line
+    /// by line.
+    pub balanced: bool,
+    /// Which of the book's own styles are followed (`core.book-…`, the bits of
+    /// `paperpaw_layout::BookStyles`).
+    pub book: u16,
 }
 
 impl Reading {
@@ -58,7 +74,66 @@ impl Reading {
             margin_ends: kept(margin_ends, 0, 30, 4),
             justify,
             status: (0, 0),
+            // Until the settings say: paragraphs not set apart, line by line,
+            // all of the book's styles (`with_paragraphs`, `with_lines`).
+            paragraphs: (0, 0),
+            lines_kept: (1, 1),
+            balanced: false,
+            book: u16::MAX,
         }
+    }
+
+    /// The same with paragraphs set apart as the settings say: the indent
+    /// (`indent` on, `indent_size` percent of the size, 50 to 400) and the
+    /// space between them (`spaced` on, `space` percent of a line, 20 to 150).
+    #[must_use]
+    pub fn with_paragraphs(
+        mut self,
+        (indent, indent_size): (bool, i64),
+        (spaced, space): (bool, i64),
+    ) -> Self {
+        let kept =
+            |v: i64, low: i64, high: i64| u16::try_from(v.clamp(low, high)).unwrap_or(low as u16);
+        self.paragraphs = (
+            if indent {
+                kept(indent_size, 50, 400)
+            } else {
+                0
+            },
+            if spaced { kept(space, 20, 150) } else { 0 },
+        );
+        self
+    }
+
+    /// The same keeping `widows` and `orphans` lines (1 to 4), breaking
+    /// paragraphs `balanced` or line by line, following the book's own
+    /// styles `book`.
+    #[must_use]
+    pub fn with_lines(mut self, (widows, orphans): (i64, i64), balanced: bool, book: u16) -> Self {
+        let kept = |v: i64| u8::try_from(v.clamp(1, 4)).unwrap_or(1);
+        self.lines_kept = (kept(widows), kept(orphans));
+        self.balanced = balanced;
+        self.book = book;
+        self
+    }
+
+    /// How the text is set, as Beta 3 set it: body text of `size` pixels,
+    /// paragraphs indented by a part of the size and spaced by a part of the
+    /// body's `line` height (the size times the line spacing, at least the
+    /// font's own distance), the lines kept together, the line breaking and
+    /// the book's own styles.
+    #[must_use]
+    pub fn style(&self, size: f32, line: f32) -> Style {
+        let (indent, space) = self.paragraphs;
+        Style::new(
+            line * f32::from(space) / 100.0,
+            size * f32::from(indent) / 100.0,
+            size,
+            self.justify,
+        )
+        .lines_kept(self.lines_kept.0, self.lines_kept.1)
+        .balanced(self.balanced)
+        .book(BookStyles::from_bits(self.book))
     }
 
     /// The same with room for status lines `top` and `bottom` pixels from the
@@ -170,6 +245,20 @@ pub fn affects_layout(key: &str) -> bool {
                 | "core.hyphenate"
                 | "core.hyphen-min-left"
                 | "core.hyphen-min-right"
+                | "core.indent"
+                | "core.indent-size"
+                | "core.paragraph-spacing"
+                | "core.paragraph-space"
+                | "core.widows"
+                | "core.orphans"
+                | "core.line-breaking"
+                | "core.book-align"
+                | "core.book-indent"
+                | "core.book-sizes"
+                | "core.book-spacing"
+                | "core.book-fonts"
+                | "core.book-margins"
+                | "core.book-line-height"
                 | "reader.status.size"
                 | "reader.status.edge"
                 | "reader.status.top-lines"
