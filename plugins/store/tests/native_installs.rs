@@ -98,7 +98,7 @@ fn the_activity_is_what_the_screens_read() {
     activity.no_room.push("beta".to_owned());
     activity.restart_needed.push("beta".to_owned());
     activity.actions.push("fonts-browser.open".to_owned());
-    activity.other_job = Some(("alpha".to_owned(), "Alpha".to_owned()));
+    activity.other_job = Some(Box::new(("alpha".to_owned(), "Alpha".to_owned())));
     activity.flash_hint = true;
     activity.can_install = true;
     activity.takes_betas = true;

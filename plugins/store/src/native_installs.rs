@@ -289,7 +289,7 @@ pub struct Activity {
     /// Plugins a check said there is no room for.
     pub no_room: Vec<String>,
     /// The plugin whose install goes on, as its id and its name.
-    pub other_job: Option<(String, String)>,
+    pub other_job: Option<alloc::boxed::Box<(String, String)>>,
     /// The device runs the stock layout of the code flash.
     pub flash_hint: bool,
     /// Plugins installed that work only after a restart.
@@ -413,7 +413,7 @@ impl Activity {
     /// `NoMemory`; the job is none then.
     pub fn set_other_job(&mut self, id: &str, name: &str) -> Result<(), Error> {
         self.other_job = None;
-        self.other_job = Some((copy(id)?, copy(name)?));
+        self.other_job = Some(paperpaw_ui_kit::mem::boxed((copy(id)?, copy(name)?))?);
         Ok(())
     }
 
@@ -584,7 +584,7 @@ impl Installs for HostInstalls<'_> {
 
     fn other_job(&self, id: &str) -> Option<&str> {
         match &self.activity.other_job {
-            Some((job, name)) if job != id => Some(name.as_str()),
+            Some(job) if job.0 != id => Some(job.1.as_str()),
             _ => None,
         }
     }

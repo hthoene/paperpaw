@@ -14,7 +14,7 @@ use paperpaw_sdk::native::{
     events::{Answered, PluginRequestId, RequestedPlugins},
     ui::RequestId as AskId,
 };
-use paperpaw_ui_kit::mem::{copy_strings, push};
+use paperpaw_ui_kit::mem::{boxed, copy_strings, push};
 
 use crate::native_ask::{self, Decision, Reply, Words};
 use crate::native_glue;
@@ -23,6 +23,15 @@ use crate::native_installs::Snapshot;
 use crate::native_plugin::NativeStore;
 use crate::native_queue::Queue;
 use crate::native_request::{self, Finished, Last, Request};
+
+/// What is kept from ask to ask, made at the first ask (#248: the store keeps
+/// only a pointer until another plugin asks).
+fn asks(slot: &mut Option<alloc::boxed::Box<Asks>>) -> Result<&mut Asks, Error> {
+    if slot.is_none() {
+        *slot = Some(boxed(Asks::default())?);
+    }
+    slot.as_deref_mut().ok_or(Error::NoMemory)
+}
 
 /// What the store keeps from ask to ask.
 #[derive(Debug, Default)]
@@ -84,7 +93,7 @@ impl NativeStore {
                 &storage,
                 &mut words,
                 index.as_ref(),
-                &mut self.asks.last,
+                &mut asks(&mut self.asks)?.last,
                 (by, &wanted),
                 now_ms,
                 // The network is found out when the download starts.
@@ -149,7 +158,10 @@ impl NativeStore {
         if stale.is_empty() {
             return;
         }
-        self.asks.waiting.retain(|(request, ids)| {
+        let Some(asks) = self.asks.as_deref_mut() else {
+            return;
+        };
+        asks.waiting.retain(|(request, ids)| {
             if !ids.iter().any(|id| stale.contains(id)) {
                 return true;
             }
@@ -209,7 +221,7 @@ impl NativeStore {
                 };
                 match asked {
                     Ok(id) => {
-                        self.asks.dialog = Some(id);
+                        asks(&mut self.asks)?.dialog = Some(id);
                         Ok(())
                     }
                     // The dialog could not be shown: *Not now*.
@@ -243,7 +255,10 @@ impl NativeStore {
     }
 
     fn keep_waiting(&mut self, request: PluginRequestId, ids: &[String]) -> Result<(), Error> {
-        push(&mut self.asks.waiting, (request, copy_strings(ids)?))
+        push(
+            &mut asks(&mut self.asks)?.waiting,
+            (request, copy_strings(ids)?),
+        )
     }
 
     /// The reader answered the dialog of an ask.
@@ -257,14 +272,17 @@ impl NativeStore {
         if answer.outcome() == AnswerOutcome::Typing {
             return Ok(());
         }
-        self.asks.dialog = None;
+        if let Some(asks) = self.asks.as_deref_mut() {
+            asks.dialog = None;
+        }
         let decision = native_ask::decision(answer.outcome(), answer.choice(), false);
         self.decided(host, now_ms, decision)
     }
 
     fn decided(&mut self, host: &Host<'_>, now_ms: u64, decision: Decision) -> Result<(), Error> {
         let storage = crate::native_folders::StoreStorage::new(host);
-        let reply = native_ask::answered(&storage, &mut self.asks.last, now_ms, true, decision)?;
+        let last = &mut asks(&mut self.asks)?.last;
+        let reply = native_ask::answered(&storage, last, now_ms, true, decision)?;
         match reply {
             Reply::Answer { ids, outcome } => {
                 self.answer_waiting(host, ids.iter().map(String::as_str), outcome)
@@ -295,7 +313,11 @@ impl NativeStore {
         ids: impl Iterator<Item = &'a str> + Clone,
         outcome: PluginOutcome,
     ) -> Result<(), Error> {
-        let waiting = core::mem::take(&mut self.asks.waiting);
+        let waiting = self
+            .asks
+            .as_deref_mut()
+            .map(|asks| core::mem::take(&mut asks.waiting))
+            .unwrap_or_default();
         for (request, asked) in &waiting {
             let mine = ids.clone().filter(|id| asked.iter().any(|a| a == id));
             answer_ids(host, *request, mine, outcome)?;
@@ -310,7 +332,11 @@ impl NativeStore {
         done: &Finished,
     ) -> Result<(), Error> {
         let answers = native_ask::finished_answers(done)?;
-        let waiting = core::mem::take(&mut self.asks.waiting);
+        let waiting = self
+            .asks
+            .as_deref_mut()
+            .map(|asks| core::mem::take(&mut asks.waiting))
+            .unwrap_or_default();
         for (request, asked) in &waiting {
             for (id, outcome) in &answers {
                 if asked.iter().any(|a| a == id) {

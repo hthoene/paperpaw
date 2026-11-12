@@ -81,17 +81,18 @@ pub struct NativeStore {
     /// Whether the page the queue waits for was asked for again.
     pub(crate) want_retried: bool,
     /// The removal the host was asked for: its request and the plugin's name.
-    pub(crate) removing: Option<(u32, String)>,
+    pub(crate) removing: Option<alloc::boxed::Box<(u32, String)>>,
     /// What the install under way needs of the page it comes from.
-    pub(crate) installing: Option<crate::native_list::Page>,
+    /// Boxed: the plugin keeps only a pointer while nothing installs (#248).
+    pub(crate) installing: Option<alloc::boxed::Box<crate::native_list::Page>>,
     pub(crate) installing_version: Option<String>,
     /// Counts the removals asked.
     pub(crate) remove_count: u32,
     /// A value a screen handed to the one below it, which is not on top yet.
-    pub(crate) returned: Option<(String, String)>,
+    pub(crate) returned: Option<alloc::boxed::Box<(String, String)>>,
     asking: Option<Asking>,
     /// What is kept from ask to ask of plugins other plugins want.
-    pub(crate) asks: crate::native_asks::Asks,
+    pub(crate) asks: Option<alloc::boxed::Box<crate::native_asks::Asks>>,
 }
 
 impl Plugin for NativeStore {
@@ -146,7 +147,12 @@ impl Plugin for NativeStore {
             } if token == PLUGINS_TOKEN => {
                 self.plugins_requested(host, *now_ms, *request, by, *plugins)
             }
-            Event::Answered { now_ms, answer, .. } if self.asks.is_dialog(answer.request()) => {
+            Event::Answered { now_ms, answer, .. }
+                if self
+                    .asks
+                    .as_ref()
+                    .is_some_and(|asks| asks.is_dialog(answer.request())) =>
+            {
                 self.dialog_answered(host, *now_ms, answer)
             }
             Event::Answered { answer, .. } => self.answered(host, answer),
@@ -326,7 +332,7 @@ impl NativeStore {
             None => return Ok(()),
         };
         // A screen above closed with a value for this one.
-        if let Some((key, value)) = self.returned.take() {
+        if let Some((key, value)) = self.returned.take().map(|kept| *kept) {
             let next = self.call(host, instance, |view, ctx| view.returned(ctx, &key, &value))?;
             self.carry(host, instance, next)?;
         }

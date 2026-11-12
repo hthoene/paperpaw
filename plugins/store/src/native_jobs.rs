@@ -215,7 +215,7 @@ impl NativeStore {
             return self.want_page(host, id);
         };
         // What the install needs of the page outlives it.
-        let kept = lean(page)?;
+        let kept = paperpaw_ui_kit::mem::boxed(lean(page)?)?;
         let name = crate::native_glue::own(&page.entry.name)?;
         let storage = crate::native_folders::StoreStorage::new(host);
         let started = {
@@ -630,7 +630,7 @@ impl NativeStore {
             Some(page) => crate::native_glue::own(&page.entry.name)?,
             None => crate::native_glue::own(id)?,
         };
-        self.removing = Some((request, name));
+        self.removing = Some(paperpaw_ui_kit::mem::boxed((request, name))?);
         self.forget_snapshot();
         Ok(())
     }
@@ -641,7 +641,7 @@ impl NativeStore {
     fn removed(&mut self, host: &Host<'_>, done: &InstallDone<'_>) -> Result<(), Error> {
         use crate::native_refusal::{Outcome as Said, outcome};
         let name = match self.removing.take() {
-            Some((_, name)) => name,
+            Some(removing) => removing.1,
             None => crate::native_glue::own(done.id())?,
         };
         self.forget_snapshot();
@@ -691,10 +691,10 @@ impl NativeStore {
 
     /// Keeps the value a screen hands to the one below it.
     fn keep_return(&mut self, key: &str, value: &str) -> Result<(), Error> {
-        self.returned = Some((
+        self.returned = Some(paperpaw_ui_kit::mem::boxed((
             crate::native_glue::own(key)?,
             crate::native_glue::own(value)?,
-        ));
+        ))?);
         Ok(())
     }
 
