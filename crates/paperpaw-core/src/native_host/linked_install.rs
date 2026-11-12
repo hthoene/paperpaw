@@ -74,13 +74,26 @@ impl crate::Kernel {
         }
     }
 
+    /// Whether the native plugin `id` is parked now (its instance dropped
+    /// until first use), `None` for no such plugin: for the tests that run
+    /// a flagged plugin parked and must not pass with it awake (#248, D1).
+    /// Not part of any interface: the `testing` feature only.
+    #[cfg(any(test, feature = "testing"))]
+    #[must_use]
+    pub fn native_is_parked(&self, id: &str) -> Option<bool> {
+        let key = self.shared.native_instances.find(id)?;
+        let lease = self.shared.native_instances.lease(key)?;
+        Some(lease.is_parked())
+    }
+
     /// [`register_linked`](Self::register_linked) for a plugin the kernel may
     /// park (#248, `docs/measurements/parked-plugins.md`): where its `make`
     /// only registers, it holds nothing of the host, its declarations all lie
-    /// in `image` and no other plugin's callback can reach it, its instance is
-    /// dropped right after its declarations are published and made again on
-    /// first use. `services` makes the shell's services handle for each
-    /// hosting; `id` and `host` are kept for them.
+    /// in the shell's image and no other plugin's callback can reach it, its
+    /// instance is dropped right after its declarations are published and
+    /// made again on first use. What `register_linked` takes besides the
+    /// plugin is `park_shell`'s, made once for all the plugins a shell parks and
+    /// kept by each parked plugin by reference (#248, D1).
     ///
     /// # Errors
     /// As [`register_linked`](Self::register_linked).
@@ -88,51 +101,35 @@ impl crate::Kernel {
     /// # Safety
     /// As [`register_linked`](Self::register_linked), for every hosting of the
     /// plugin, not only the first.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "as `register_linked`, with the services' maker"
-    )]
     pub unsafe fn register_linked_parked<S: Services + 'static>(
         &mut self,
         entry: &'static PpEntry,
         metadata: &'static [u8],
-        host: &metadata::Host<'static>,
         id: &'static str,
-        services: fn() -> S,
-        resources: super::HostResources,
-        depth: &FlatDepth,
-        teardown: shell::Report<S>,
-        report: fn(&S, &str, u32, i32),
-        image: (*const u8, usize),
+        park_shell: &super::park_linked::ParkShell<S>,
         fixed: super::FixedTables,
     ) -> Result<(), shell::Error> {
-        let Some(kept) = resources.try_clone() else {
-            return Err(shell::Error::Allocation);
-        };
-        let park = super::park_linked::ParkArgs {
-            entry,
-            metadata,
-            host: *host,
-            id,
-            services,
-            resources: kept,
-            teardown,
-            image,
-            fixed,
-        };
-        // SAFETY: this function's contract, passed on.
+        let park = super::park_linked::ParkArgs::new(park_shell, entry, metadata, id)
+            .ok_or(shell::Error::Allocation)?;
+        let parts = park_shell.parts();
+        let resources = parts
+            .resources
+            .try_clone()
+            .ok_or(shell::Error::Allocation)?;
+        // SAFETY: this function's contract, passed on; the image is the one
+        // `ParkShell::try_new` took under the same contract.
         unsafe {
             self.register_linked_with(
                 entry,
                 metadata,
-                host,
+                &parts.host,
                 id,
-                services(),
+                (parts.services)(),
                 resources,
-                depth,
-                teardown,
-                report,
-                image,
+                &parts.depth,
+                parts.teardown,
+                parts.report,
+                parts.image,
                 fixed,
                 Some(park),
             )
@@ -198,11 +195,6 @@ impl crate::Kernel {
             // texts read from it are checked as UTF-8 once more where they
             // are taken (`native_values::Kept`).
             fixed.image = unsafe { core::slice::from_raw_parts(image.0, image.1) };
-        }
-        let mut park = park;
-        if let Some(park) = park.as_mut() {
-            // The image as the declarations are kept against.
-            park.fixed = fixed;
         }
         let registered = self.register_native_fixed(host, depth, report, fixed, park);
         if registered.is_err() {

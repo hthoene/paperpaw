@@ -8,39 +8,118 @@
 //! instance is dropped and its lease keeps a [`Recipe`] that makes it again
 //! on first use (`lease_slot`). It is never parked again once made.
 use super::{
-    FixedTables, FlatHost, HostResources, flat::FlatDepth, lease_slot::Unpark,
-    lease_slot::Unparked, linked_entry, native_dispatch::NativeDispatch,
-    native_instances::NativeIdentity, native_instances::NativeInstance,
-    raw_declarations::RawDeclarations, registrations::Record, registrations::Registration,
-    resources::OwnerSeat, retained::Retained, shared::Shared, shell,
+    FlatHost, HostResources, flat::FlatDepth, lease_slot::Unpark, lease_slot::Unparked,
+    linked_entry, native_dispatch::NativeDispatch, native_instances::NativeIdentity,
+    native_instances::NativeInstance, raw_declarations::RawDeclarations, registrations::Record,
+    registrations::Registration, resources::OwnerSeat, retained::Retained, shared::Shared, shell,
 };
 use alloc::boxed::Box;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, PpEntry, Services};
 use paperpaw_native::metadata;
 
-/// What a shell gives for a linked plugin it lets the kernel park: what
-/// [`crate::Kernel::register_linked`] takes, kept to host the plugin again.
-pub struct ParkArgs<S> {
-    pub(crate) entry: &'static PpEntry,
-    pub(crate) metadata: &'static [u8],
+/// What a shell gives once for all the linked plugins it lets the kernel
+/// park ([`crate::Kernel::register_linked_parked`]): what
+/// [`crate::Kernel::register_linked`] takes besides the plugin itself, kept
+/// once and shared by every parked plugin's recipe instead of copied into
+/// each (#248, D1).
+pub struct ParkShell<S> {
+    parts: Shared<ShellParts<S>>,
+}
+
+impl<S> core::fmt::Debug for ParkShell<S> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ParkShell").finish_non_exhaustive()
+    }
+}
+
+pub(crate) struct ShellParts<S> {
     pub(crate) host: metadata::Host<'static>,
-    pub(crate) id: &'static str,
     /// Makes the shell's services handle anew for each hosting.
     pub(crate) services: fn() -> S,
     pub(crate) resources: HostResources,
+    pub(crate) depth: FlatDepth,
     pub(crate) teardown: shell::Report<S>,
+    pub(crate) report: fn(&S, &str, u32, i32),
     pub(crate) image: (*const u8, usize),
-    pub(crate) fixed: FixedTables,
+    /// `image` as bytes (empty for none).
+    pub(crate) bytes: &'static [u8],
+}
+
+impl<S> ParkShell<S> {
+    /// The shell's part, kept once; `None` without room for it.
+    ///
+    /// # Safety
+    /// `image` is as [`crate::Kernel::register_linked`] takes it: a read-only
+    /// mapping that stays mapped, unchanged, for the whole run, or a null
+    /// pointer with zero length.
+    #[allow(clippy::too_many_arguments, reason = "what `register_linked` takes")]
+    pub unsafe fn try_new(
+        host: &metadata::Host<'static>,
+        services: fn() -> S,
+        resources: &HostResources,
+        depth: &FlatDepth,
+        teardown: shell::Report<S>,
+        report: fn(&S, &str, u32, i32),
+        image: (*const u8, usize),
+    ) -> Option<Self> {
+        let bytes = if image.0.is_null() || image.1 == 0 {
+            &[][..]
+        } else {
+            // SAFETY: this function's contract: the program's read-only data.
+            unsafe { core::slice::from_raw_parts(image.0, image.1) }
+        };
+        let parts = ShellParts {
+            host: *host,
+            services,
+            resources: resources.try_clone()?,
+            depth: depth.try_clone()?,
+            teardown,
+            report,
+            image,
+            bytes,
+        };
+        Some(Self {
+            parts: Shared::try_new(parts).ok()?,
+        })
+    }
+
+    pub(crate) fn parts(&self) -> &ShellParts<S> {
+        &self.parts
+    }
+}
+
+/// What the kernel keeps to park one linked plugin: the shell's shared part
+/// and the plugin's static entry.
+pub(crate) struct ParkArgs<S> {
+    pub(crate) shell: Shared<ShellParts<S>>,
+    pub(crate) entry: &'static PpEntry,
+    pub(crate) metadata: &'static [u8],
+    pub(crate) id: &'static str,
+}
+
+impl<S> ParkArgs<S> {
+    pub(crate) fn new(
+        shell: &ParkShell<S>,
+        entry: &'static PpEntry,
+        metadata: &'static [u8],
+        id: &'static str,
+    ) -> Option<Self> {
+        Some(Self {
+            shell: shell.parts.try_clone()?,
+            entry,
+            metadata,
+            id,
+        })
+    }
 }
 
 /// Makes a parked linked plugin again: hosted under its old owner key and
 /// heap row, `make` run once more, its batch checked against the one of its
-/// admission, its dispatch built as at the admission.
+/// admission, its dispatch built as at the admission. What every plugin's
+/// recipe has alike is the shell's, shared (#248, D1).
 pub(crate) struct Recipe<S: Services + 'static> {
     args: ParkArgs<S>,
     seat: OwnerSeat,
-    report: fn(&S, &str, u32, i32),
-    depth: FlatDepth,
     flat_host: Shared<FlatHost>,
     identity: NativeIdentity,
     events: super::event_tags::EventTags,
@@ -49,12 +128,9 @@ pub(crate) struct Recipe<S: Services + 'static> {
 }
 
 impl<S: Services + 'static> Recipe<S> {
-    #[allow(clippy::too_many_arguments, reason = "what the dispatch is made of")]
     pub(crate) fn new(
         args: ParkArgs<S>,
         seat: OwnerSeat,
-        report: fn(&S, &str, u32, i32),
-        depth: FlatDepth,
         flat_host: Shared<FlatHost>,
         identity: NativeIdentity,
         events: super::event_tags::EventTags,
@@ -63,8 +139,6 @@ impl<S: Services + 'static> Recipe<S> {
         Self {
             args,
             seat,
-            report,
-            depth,
             flat_host,
             identity,
             events,
@@ -74,19 +148,20 @@ impl<S: Services + 'static> Recipe<S> {
 
     fn made(&self) -> Result<Box<dyn NativeInstance>, Unparked> {
         let args = &self.args;
-        let admitted = linked_entry::check(args.entry, args.metadata, &args.host)
+        let shell = &*args.shell;
+        let admitted = linked_entry::check(args.entry, args.metadata, &shell.host)
             .map_err(|_| Unparked::Refused)?;
-        let resources = args.resources.try_clone().ok_or(Unparked::NoMemory)?;
+        let resources = shell.resources.try_clone().ok_or(Unparked::NoMemory)?;
         // SAFETY: the contract `register_linked_parked` took these under:
         // the factory, its static code and the image stay for the whole run.
         let hosted = unsafe {
             admitted.hosted_for_owner(
-                (args.services)(),
+                (shell.services)(),
                 // Checked at its admission (`register_linked_with`).
                 paperpaw_sdk::Id::new_static(args.id),
-                args.teardown,
+                shell.teardown,
                 resources,
-                args.image,
+                shell.image,
                 self.seat,
             )
         }
@@ -97,20 +172,20 @@ impl<S: Services + 'static> Recipe<S> {
         // else the plugin is withdrawn (the declarations published are its
         // admission's).
         if !retained.host().make_registered_only()
-            || batch_hash(&raw, &retained, &self.depth) != Some(self.hash)
+            || batch_hash(&raw, &retained, &shell.depth) != Some(self.hash)
         {
             return Err(Unparked::Refused);
         }
-        let events = super::native_install::check_registrations(&retained, &self.depth, &tokens)
+        let events = super::native_install::check_registrations(&retained, &shell.depth, &tokens)
             .map_err(unparked)?;
         if events != self.events {
             return Err(Unparked::Refused);
         }
         let dispatch = NativeDispatch::with_events(
             retained,
-            self.depth.try_clone().ok_or(Unparked::NoMemory)?,
+            shell.depth.try_clone().ok_or(Unparked::NoMemory)?,
             self.flat_host.try_clone().ok_or(Unparked::NoMemory)?,
-            self.report,
+            shell.report,
             self.identity.try_clone().ok_or(Unparked::NoMemory)?,
             events,
         );
@@ -127,7 +202,7 @@ impl<S: Services + 'static> Unpark for Recipe<S> {
         self.events.contains(tag)
     }
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
-        let image = self.args.fixed.image;
+        let image = self.args.shell.bytes;
         visit((!image.is_empty()).then_some(image));
     }
 }
@@ -137,7 +212,6 @@ impl crate::Kernel {
     /// may be parked (the four conditions of the design, checked here):
     /// `None` where it may not, or where what parking needs has no room
     /// (it then runs as any plugin).
-    #[allow(clippy::too_many_arguments, reason = "the admission's parts")]
     pub(super) fn park_recipe<S: Services + 'static, M: 'static>(
         &mut self,
         key: u64,
@@ -145,7 +219,6 @@ impl crate::Kernel {
         raw: &RawDeclarations,
         depth: &FlatDepth,
         events: super::event_tags::EventTags,
-        report: fn(&S, &str, u32, i32),
         args: ParkArgs<S>,
     ) -> Option<Recipe<S>> {
         let host = retained.host();
@@ -172,8 +245,6 @@ impl crate::Kernel {
         Some(Recipe::new(
             args,
             host.seat(),
-            report,
-            depth.try_clone()?,
             self.shared_flat_host().ok()?,
             identity,
             events,

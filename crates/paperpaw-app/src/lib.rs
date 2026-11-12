@@ -149,6 +149,31 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 16] = [
     ("wifi", &paperpaw_plugin_wifi::NATIVE_ENTRY),
 ];
 
+/// The linked plugins that may sleep: parked until first use, and again on
+/// standby or under memory pressure, where the kernel's checks allow it
+/// (#248, Decisions 165 and 166). Every other plugin stays awake. A plugin
+/// joins only with a case in `tests/sleep_parity.rs` that shows it behaves
+/// the same parked as awake. Not here: `help`, told of every screen change,
+/// would be made again at the first one; `transfer` installs plugins
+/// (`uses.install`), and the kernel parks no installer.
+#[cfg(feature = "native-linked")]
+pub const SLEEPS: &[&str] = &[
+    "about",
+    "file-manager",
+    "files",
+    "keyboard",
+    "menu",
+    "opds",
+    "settings",
+];
+
+/// Whether the linked plugin `id` may sleep ([`SLEEPS`]).
+#[cfg(feature = "native-linked")]
+#[must_use]
+pub fn sleeps(id: &str) -> bool {
+    SLEEPS.contains(&id)
+}
+
 /// The settings and setting groups plugin `id` keeps in the program, as Beta 3
 /// did, instead of one copy on the heap for each it declares
 /// (`Kernel::register_linked`): the tables its build script makes of its own
@@ -209,8 +234,11 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
 /// the shell's table of handles (each plugin gets a share) with its services
 /// wired; `depth` the shell's one dispatch budget; `services` makes one
 /// [`Services`](paperpaw_native::host_glue::Services) (heap and clock) per
-/// plugin. A plugin the host refuses (a service it does not wire, no memory)
-/// is returned with the reason and does not stop the others.
+/// plugin. A plugin `sleep` says yes for (the shells pass [`sleeps`]) is
+/// registered to sleep (`Kernel::register_linked_parked`, #248): parked
+/// until first use where the kernel's checks allow it. A plugin the host
+/// refuses (a service it does not wire, no memory) is returned with the
+/// reason and does not stop the others.
 ///
 /// # Safety
 /// Every entry of [`NATIVE_PLUGINS`] comes from `native_plugin!(..., linked =
@@ -231,10 +259,11 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
     host: &paperpaw_native::metadata::Host<'static>,
     resources: &paperpaw_core::native_host::HostResources,
     depth: &paperpaw_core::native_host::flat::FlatDepth,
-    mut services: impl FnMut() -> S,
+    services: fn() -> S,
     teardown: paperpaw_core::native_host::shell::Report<S>,
     report: fn(&S, &str, u32, i32),
     image: (*const u8, usize),
+    sleep: fn(&str) -> bool,
 ) -> alloc::vec::Vec<(
     &'static str,
     Result<(), paperpaw_core::native_host::shell::Error>,
@@ -245,7 +274,29 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
         return outcome;
     }
     add_native_catalogs(kernel);
+    // What every sleeping plugin keeps of the shell, once: without room for
+    // it they all stay awake.
+    // SAFETY: `image` as this function's contract says.
+    let park_shell = unsafe {
+        paperpaw_core::native_host::ParkShell::try_new(
+            host, services, resources, depth, teardown, report, image,
+        )
+    };
     for (id, linked) in &NATIVE_PLUGINS {
+        if let Some(park_shell) = park_shell.as_ref().filter(|_| sleep(id)) {
+            // SAFETY: as this function's contract says.
+            let status = unsafe {
+                kernel.register_linked_parked(
+                    linked.entry(),
+                    linked.metadata(),
+                    id,
+                    park_shell,
+                    fixed_tables(id),
+                )
+            };
+            outcome.push((*id, status));
+            continue;
+        }
         let Some(share) = resources.try_clone() else {
             outcome.push((*id, Err(Error::Allocation)));
             continue;

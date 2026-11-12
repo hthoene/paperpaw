@@ -211,6 +211,7 @@ pub(crate) mod shared;
 #[path = "native_host/resources.rs"]
 pub mod resources;
 pub use fixed_settings::FixedTables;
+pub use park_linked::ParkShell;
 pub use resources::HostResources;
 
 #[path = "native_host/shell_wiring.rs"]

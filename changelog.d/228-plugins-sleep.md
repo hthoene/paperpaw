@@ -1,0 +1,3 @@
+### Changed
+
+- **Built-in plugins may sleep until first use** (#248, D1). A shell names which linked plugins may sleep (`paperpaw_app::SLEEPS`: about, file-manager, files, keyboard, menu, opds, settings; every other plugin stays awake), and the kernel parks them after their start where its checks allow it. What all sleeping plugins keep of the shell is shared once (`ParkShell`) instead of copied per plugin; `register_native_plugins` and `Kernel::register_linked_parked` take it. A test (`sleep_parity`) runs each flagged plugin's screens and actions asleep and awake and compares screens, replies and saved files.

@@ -385,7 +385,7 @@ impl crate::Kernel {
         // (#248): its declarations are published, its instance dropped.
         let recipe = match park {
             Some(park) if !installer => {
-                self.park_recipe(key, &retained, &raw, &depth, events, report, park)
+                self.park_recipe(key, &retained, &raw, &depth, events, park)
             }
             _ => None,
         };
