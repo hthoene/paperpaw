@@ -194,6 +194,9 @@ const PAGE: Id = Id::new_static("shelf.page");
 struct Blank;
 impl paperpaw_sdk::Screen for Blank {
     fn draw(&mut self, _: &mut paperpaw_sdk::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+        paperpaw_sdk::Handled::No
+    }
 }
 
 impl paperpaw_sdk::Plugin for Shelf {
