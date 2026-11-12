@@ -705,7 +705,8 @@ relative to the data folder).
   Its form is the interface-6 one (`size N`, then tab-separated section, offset, level, title). It is
   written in pieces of about 1 KiB to a `.new` file and renamed, so a cut leaves the old copy and the
   whole text (up to 80 KB) is never one `String`; reading it back is one 80 KB read at most
-  (`read_file`). The size the caller passes is the book file's (`native::storage` for the book root).
+  (`read_file`). The `edition` the caller passes is the document's conversion (it moves when the book
+  or what reads it changes); the file keeps interface 6's `size N` line for it.
 - `native_finding.rs`: the "Finding the chapters" model, `Finding::update(percent)` (steps of 5 so the
   e-paper is not drawn for every block) and `draw` (the title and the text where the list is);
   `reader.toc.finding` (existing) before a number is known, `reader.toc.finding-percent` (new, en and de)

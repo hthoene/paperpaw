@@ -1,7 +1,7 @@
 //! What the table-of-contents screen decides without a host: the entries made
 //! from a book's headings where its own table is missing or has one entry,
-//! the kept copy of them (`headings.txt`, valid while the book file keeps its
-//! size), the focus on the chapter a place is in, and the parameters that
+//! the kept copy of them (valid while the book keeps its edition), the focus
+//! on the chapter a place is in, and the parameters that
 //! carry a place. The interface-6 `toc.rs` is the reference until it goes at
 //! activation; every allocation here is fallible.
 use alloc::string::String;
@@ -107,15 +107,15 @@ pub fn headings_path(book_dir: &str) -> Result<String, Error> {
     concat(&[book_dir, "/headings.txt"])
 }
 
-/// The kept copy of `headings` for a book file of `size` bytes: a line
-/// `size N`, then one line each of section, offset, level and title, tab
-/// separated (the form interface 6 wrote).
+/// The kept copy of `headings` for a book's `edition` (its conversion; the
+/// file size in interface 6): a line `size N`, then one line each of section,
+/// offset, level and title, tab separated (the form interface 6 wrote).
 ///
 /// # Errors
 /// [`Error::NoMemory`].
-pub fn kept_text(size: u64, headings: &[Entry]) -> Result<String, Error> {
+pub fn kept_text(edition: u64, headings: &[Entry]) -> Result<String, Error> {
     let mut out = String::new();
-    push(&mut out, format_args!("size {size}\n"))?;
+    push(&mut out, format_args!("size {edition}\n"))?;
     for h in headings {
         push(
             &mut out,
@@ -132,13 +132,13 @@ fn push(out: &mut String, args: core::fmt::Arguments<'_>) -> Result<(), Error> {
     paperpaw_ui_kit::text::write_to(out, args)
 }
 
-/// The headings read back from a kept copy, when it was made for a book file
-/// of `size` bytes; `None` where it was made for another or is not one. A line
+/// The headings read back from a kept copy, when it was made for the book's
+/// `edition`; `None` where it was made for another or is not one. A line
 /// that is not an entry is left out.
 ///
 /// # Errors
 /// [`Error::NoMemory`].
-pub fn kept_headings(text: &str, size: u64) -> Result<Option<Vec<Entry>>, Error> {
+pub fn kept_headings(text: &str, edition: u64) -> Result<Option<Vec<Entry>>, Error> {
     if text.len() > MAX_KEPT {
         return Ok(None);
     }
@@ -152,7 +152,7 @@ pub fn kept_headings(text: &str, size: u64) -> Result<Option<Vec<Entry>>, Error>
     else {
         return Ok(None);
     };
-    if kept != size {
+    if kept != edition {
         return Ok(None);
     }
     let mut found = Vec::new();

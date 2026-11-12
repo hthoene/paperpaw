@@ -110,7 +110,8 @@ pub enum Step {
 }
 
 /// The file of the kept headings of the book at `path` (the data folder is
-/// flat: the path's hash tells the books apart, the size the editions).
+/// flat: the path's hash tells the books apart, the edition inside it the
+/// editions).
 ///
 /// # Errors
 /// [`Error::NoMemory`].
@@ -128,12 +129,13 @@ fn storage_error(error: StorageError) -> Error {
     }
 }
 
-/// The headings kept for the book at `path` of `size` bytes: `None` where there
-/// are none, they were made for another file or cannot be read.
+/// The headings kept for the book at `path` in its `edition` (the document's
+/// conversion, which moves when the book or what reads it changes): `None`
+/// where there are none, they were made for another edition or cannot be read.
 ///
 /// # Errors
 /// [`Error::NoMemory`].
-pub fn load(storage: &dyn Storage, path: &str, size: u64) -> Result<Option<Vec<Entry>>, Error> {
+pub fn load(storage: &dyn Storage, path: &str, edition: u64) -> Result<Option<Vec<Entry>>, Error> {
     let name = file_name(path)?;
     let data = match read_file(storage, &name, MAX_KEPT) {
         Ok(data) => data,
@@ -141,7 +143,7 @@ pub fn load(storage: &dyn Storage, path: &str, size: u64) -> Result<Option<Vec<E
         Err(_) => return Ok(None),
     };
     match core::str::from_utf8(&data) {
-        Ok(text) => kept_headings(text, size),
+        Ok(text) => kept_headings(text, edition),
         Err(_) => Ok(None),
     }
 }
@@ -151,7 +153,7 @@ pub fn load(storage: &dyn Storage, path: &str, size: u64) -> Result<Option<Vec<E
 fn write_kept(
     storage: &dyn Storage,
     name: &str,
-    size: u64,
+    edition: u64,
     headings: &[Entry],
 ) -> Result<(), Error> {
     let mut temporary = String::new();
@@ -166,7 +168,7 @@ fn write_kept(
         .try_reserve_exact(CHUNK + 2 * native_toc::MAX_TITLE * 4 + 64)
         .map_err(|_| Error::NoMemory)?;
     let result = (|| {
-        writeln!(piece, "size {size}").map_err(|_| Error::NoMemory)?;
+        writeln!(piece, "size {edition}").map_err(|_| Error::NoMemory)?;
         storage.append(&temporary, b"").map_err(storage_error)?;
         for h in headings {
             writeln!(
@@ -220,7 +222,8 @@ fn keep(storage: &dyn Storage, name: &str) {
 #[derive(Debug)]
 pub struct Scan {
     name: String,
-    size: u64,
+    /// What tells the book's editions apart (see [`load`]).
+    edition: u64,
     sections: u32,
     next: Place,
     found: Vec<Entry>,
@@ -229,15 +232,15 @@ pub struct Scan {
 }
 
 impl Scan {
-    /// A scan of the book at `path` of `size` bytes with `sections` sections,
-    /// from its start.
+    /// A scan of the book at `path` in its `edition` (see [`load`]) with
+    /// `sections` sections, from its start.
     ///
     /// # Errors
     /// [`Error::NoMemory`].
-    pub fn new(path: &str, size: u64, sections: u32) -> Result<Self, Error> {
+    pub fn new(path: &str, edition: u64, sections: u32) -> Result<Self, Error> {
         Ok(Self {
             name: file_name(path)?,
-            size,
+            edition,
             sections,
             next: Place::default(),
             found: Vec::new(),
@@ -327,7 +330,7 @@ impl Scan {
     fn finish(&mut self, storage: &dyn Storage) -> Step {
         normalize(&mut self.found);
         self.end = Some(true);
-        if write_kept(storage, &self.name, self.size, &self.found).is_ok() {
+        if write_kept(storage, &self.name, self.edition, &self.found).is_ok() {
             keep(storage, &self.name);
         }
         Step::Done
