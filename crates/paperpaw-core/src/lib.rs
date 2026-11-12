@@ -821,6 +821,15 @@ impl Kernel {
     /// Advances time, e.g. when a requested [`Effect::WakeAt`] is due.
     pub fn tick(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
+        self.tick_due(now);
+        self.finish()
+    }
+
+    /// What comes due at `now` in [`Self::tick`], before the commands run.
+    /// Its own frame: its locals are not on the stack while `finish` calls
+    /// the plugins (a nested callback's route on the X4, #250).
+    #[inline(never)]
+    fn tick_due(&mut self, now: Instant) {
         self.now = now;
         self.hide_hints();
         self.escape(now);
@@ -876,7 +885,6 @@ impl Kernel {
         // while input waits.
         self.works.ticking();
         self.native_tick();
-        self.finish()
     }
 
     /// The framebuffer, for tests of a kernel that holds the whole screen.

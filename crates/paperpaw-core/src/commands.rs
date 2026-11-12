@@ -50,13 +50,18 @@ impl Kernel {
         }
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than the limit from before it was set; split it when it is next changed"
-    )]
     pub(crate) fn finish(&mut self) -> Effects {
         // The events of the host services, between callbacks.
         self.native_service_pump();
+        self.finish_commands();
+        self.finish_frame()
+    }
+
+    /// The commands, the work and the network of [`Self::finish`], after the
+    /// services' pass. Its own frame: its locals are not on the stack while
+    /// the services' pumps call the plugins (#250).
+    #[inline(never)]
+    fn finish_commands(&mut self) {
         self.run_commands();
         // The time since, to the screen on top.
         let top = self.stack.last().map_or(meter::CORE, |s| s.id.namespace());
@@ -81,6 +86,18 @@ impl Kernel {
         self.firmware_finish_due();
         // Whatever this call decided is what the next callback goes by.
         self.sync_net_policy();
+    }
+
+    /// The rest of [`Self::finish`] once the commands ran: the hints, the
+    /// areas to draw, the refresh and the effects for the shell. Its own
+    /// frame: its locals are not on the stack while [`Self::finish`] runs
+    /// the plugins' callbacks (a nested callback's route on the X4, #250).
+    #[inline(never)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than the limit from before it was set; split it when it is next changed"
+    )]
+    fn finish_frame(&mut self) -> Effects {
         if let Some(row) = self.hint_row() {
             // A screen that read much as it opened may have filled what is
             // read from a card catalog: the row's labels would fall back.
@@ -354,18 +371,7 @@ impl Kernel {
                 self.show_top();
                 continue;
             }
-            let trusted = mem::take(&mut self.trusted);
-            let own = mem::take(&mut self.own_trusted);
-            for (i, command) in mem::take(&mut self.output.commands).into_iter().enumerate() {
-                self.from_guard = trusted.contains(&i);
-                self.from_guard_own = own.contains(&i);
-                // One callback can fill the cache; the next command must still
-                // be able to translate notices and dialog labels.
-                self.forget_read_messages_if_full();
-                self.apply(command);
-            }
-            self.from_guard = false;
-            self.from_guard_own = false;
+            self.apply_round();
             self.works.runs.round_done();
         }
         if !self.output.commands.is_empty() {
@@ -391,6 +397,25 @@ impl Kernel {
             let shown = events::ScreenShown::new(top.id.clone()).slot(top.slot.clone());
             self.output.commands.push(events::SCREEN_SHOWN.emit(shown));
         }
+    }
+
+    /// One round of [`Self::run_commands`]: the commands staged, each
+    /// applied. Its own frame: the commands and their marks are not on the
+    /// stack while the native plugins' actions run (#250).
+    #[inline(never)]
+    fn apply_round(&mut self) {
+        let trusted = mem::take(&mut self.trusted);
+        let own = mem::take(&mut self.own_trusted);
+        for (i, command) in mem::take(&mut self.output.commands).into_iter().enumerate() {
+            self.from_guard = trusted.contains(&i);
+            self.from_guard_own = own.contains(&i);
+            // One callback can fill the cache; the next command must still
+            // be able to translate notices and dialog labels.
+            self.forget_read_messages_if_full();
+            self.apply(command);
+        }
+        self.from_guard = false;
+        self.from_guard_own = false;
     }
 
     /// Opens a book in the reading app that takes it (`Command::OpenBook`).
