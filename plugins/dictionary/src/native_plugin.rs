@@ -23,7 +23,7 @@ use paperpaw_sdk::{
         lookup::{self, Ask, Entry},
         registrations,
         reply::Reply,
-        ui::Ui,
+        ui::{Instance, Ui},
         work::{Work, WorkSpec},
     },
 };
@@ -193,6 +193,27 @@ impl NativeDictionary {
         }
     }
 
+    /// Whether a panel waits for the indexes once they were started: not where
+    /// the work could not be declared (what is ready is what there is), and a
+    /// refused allocation is an error.
+    fn waits_for(started: Result<(), Error>) -> Result<bool, Error> {
+        match started {
+            Ok(()) => Ok(true),
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            Err(_) => Ok(false),
+        }
+    }
+
+    /// Forgets a closed panel. Beta 3 stopped the indexing with the last panel
+    /// that waited for it.
+    fn close_screen(&mut self, instance: Instance) {
+        let waiting = self.screens.all().any(|view| view.preparing());
+        self.screens.close(instance);
+        if waiting && !self.screens.all().any(|view| view.preparing()) {
+            self.index.clear();
+        }
+    }
+
     /// The dictionary of the first index is left out, and a file in its cache
     /// says it could not be indexed from these files.
     fn skip_damaged(&mut self, storage: &Routed<'_>) {
@@ -275,8 +296,11 @@ impl Plugin for NativeDictionary {
                 // Where indexing was given up, what is ready is what there is.
                 let (mut view, pending) = View::open(host, ui, handover, !self.gave_up)?;
                 if !pending.is_empty() {
-                    self.start(host, pending)?;
-                    view.prepare(self.index.percent());
+                    if Self::waits_for(self.start(host, pending))? {
+                        view.prepare(self.index.percent());
+                    } else {
+                        view.indexed(host, None)?;
+                    }
                 }
                 self.screens.open(instance, view)
             }
@@ -285,7 +309,7 @@ impl Plugin for NativeDictionary {
                 ..
             } => self.screens.shown(POPUP_TOKEN, instance),
             Event::ScreenClosed { instance, .. } => {
-                self.screens.close(instance);
+                self.close_screen(instance);
                 Ok(())
             }
             _ => Ok(()),
@@ -308,6 +332,113 @@ impl Plugin for NativeDictionary {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::format;
+
+    /// The instance number `n` the host issues: read from an event as the
+    /// plugin reads it.
+    fn instance(n: u32) -> Instance {
+        use paperpaw_core::native_host::registrations::{
+            EventScreenOpened, Record, records_encode,
+        };
+        let record = Record::EventScreenOpened(EventScreenOpened {
+            now_ms: 0,
+            screen: "dictionary.panel",
+            instance: n,
+            slot: "",
+            flags: 0,
+            handover: 0,
+            params: 0,
+            text_bytes: 0,
+        });
+        let mut bytes = [0_u8; 256];
+        let len = records_encode(core::slice::from_ref(&record), &mut bytes).unwrap();
+        match Incoming::new(&bytes[..len]).unwrap().decode().unwrap() {
+            Event::ScreenOpened { instance, .. } => instance,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// One index still to be made: a dictionary on a card, never indexed.
+    fn pending() -> Vec<Pending> {
+        use crate::{
+            native_disk::Routed,
+            native_model::{Item, Listing},
+            native_source::Dictionaries,
+        };
+        use paperpaw_sdk::MemoryStorage;
+        struct Tree;
+        impl Listing for Tree {
+            fn list(&mut self, _: &str, each: &mut dyn FnMut(Item<'_>)) -> Result<(), Error> {
+                for name in ["a.ifo", "a.idx", "a.dict"] {
+                    each(Item {
+                        name,
+                        is_dir: false,
+                    });
+                }
+                Ok(())
+            }
+        }
+        let (files, data) = (MemoryStorage::new(), MemoryStorage::new());
+        let mut idx = b"cat\0".to_vec();
+        idx.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 1]);
+        let ifo = format!(
+            "StarDict's dict ifo file\nversion=2.4.2\nwordcount=1\nidxfilesize={}\nbookname=A\nsametypesequence=m\n",
+            idx.len()
+        );
+        files.write("d/a.ifo", ifo.as_bytes()).unwrap();
+        files.write("d/a.idx", &idx).unwrap();
+        files.write("d/a.dict", b"x").unwrap();
+        let storage = Routed {
+            files: &files,
+            data: &data,
+        };
+        let mut tree = Tree;
+        Dictionaries::new(&mut tree, &storage, "d")
+            .unwrap()
+            .pending()
+            .unwrap()
+    }
+
+    #[test]
+    fn work_that_cannot_be_declared_leaves_the_panel_with_what_is_ready() {
+        assert_eq!(NativeDictionary::waits_for(Ok(())), Ok(true));
+        for refused in [Error::State, Error::Invalid, Error::NotFound] {
+            assert_eq!(
+                NativeDictionary::waits_for(Err(refused)),
+                Ok(false),
+                "no waiting for work that will not run: {refused:?}"
+            );
+        }
+        assert_eq!(
+            NativeDictionary::waits_for(Err(Error::NoMemory)),
+            Err(Error::NoMemory),
+            "a refused allocation still fails"
+        );
+    }
+
+    #[test]
+    fn the_indexing_stops_when_the_last_panel_that_waits_for_it_closes() {
+        let (first, second) = (instance(1), instance(2));
+        let mut plugin = NativeDictionary::default();
+        assert!(plugin.index.adopt(pending()).unwrap());
+        for instance in [first, second] {
+            let mut view = View::default();
+            view.prepare(10);
+            plugin.screens.open(instance, view).unwrap();
+        }
+        plugin.close_screen(first);
+        assert!(
+            !plugin.index.pending.is_empty(),
+            "another panel still waits"
+        );
+        plugin.close_screen(second);
+        assert!(plugin.index.pending.is_empty(), "no panel waits: stopped");
+        // A panel that waited for nothing does not stop what an ask started.
+        assert!(plugin.index.adopt(pending()).unwrap());
+        plugin.screens.open(first, View::default()).unwrap();
+        plugin.close_screen(first);
+        assert!(!plugin.index.pending.is_empty());
+    }
 
     #[test]
     fn the_percent_of_the_indexes_is_what_is_read_of_what_there_is() {
