@@ -204,8 +204,9 @@ input(state: pointer, token: u32, input: bytes) -> i32
   page under a menu bar, `ui.md` 1.2). A full screen above it, or a guard above it (an overlay or
   not, `ui.md` 4.3), is `ERR_STATE` (whole batch refused), and a redraw queued before that
   happened is dropped with a warning. It draws in that screen's own region (areas from its
-  corner, follow-ups too), and the overlays that cross it are drawn again after it, a dimming
-  scrim included.
+  corner, follow-ups too), and the overlays above it that cross what was drawn (for
+  `redraw_area` the rectangle, not the region) are drawn again after it, in stack order; a
+  `dims_below` overlay always does, and its scrim dims that area again first.
 - [D] `redraw_area` (interface 6 `Cx::request_redraw_area`, #252) draws again only a rectangle of
   the plugin's screen (the top, or one with only overlays above it, as `redraw`). `x` and `y`
   count from the top-left corner of the screen's region, the `x`/`y` of its `draw.frame`
