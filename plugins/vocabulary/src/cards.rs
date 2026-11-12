@@ -753,9 +753,10 @@ impl<'a> Adder<'a> {
         failed?;
         // A last line cut off is ended first, so no card joins it.
         let size = storage.size(&file).unwrap_or(0);
-        let mut last = *b"\n";
-        if size > 0 {
-            let _ = storage.read_at(&file, size - 1, &mut last);
+        // A byte not read (the read failed, or gave less) counts as the end of a line.
+        let mut last = [0u8; 1];
+        if size == 0 || !matches!(storage.read_at(&file, size - 1, &mut last), Ok(1)) {
+            last = *b"\n";
         }
         let mut out = String::new();
         if last[0] != b'\n' {

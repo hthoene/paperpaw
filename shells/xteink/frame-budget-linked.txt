@@ -1,0 +1,10 @@
+# The stack frames of the plugin entry points of a firmware with the built-in plugins linked
+# (`static-native`, the image `tools/flash-gate.sh` measures), checked with
+# `paperpaw-sign frames <elf> --budget shells/xteink/frame-budget-linked.txt`.
+#
+# A plugin file is checked by `paperpaw-sign pack`, a linked plugin is not: its code is part of
+# the firmware's. Its callbacks run on the main stack like a file's, so the same bound holds:
+# the band at the stack's end is 2 KiB high, and a frame of 2,048 bytes or more could step over it
+# without a store. `paperpaw_sdk::native::binding::entry` is the generic every plugin's callbacks
+# go through (`event::<Plugin>::{closure}`): what a plugin inlines into its handler is in it.
+each 2047 paperpaw_sdk::native::binding::entry

@@ -135,14 +135,8 @@ impl DeclarationStore {
                 let Ok(host) = owner.source.owner_id() else {
                     continue;
                 };
-                for slot in owner.of_kind(kind) {
-                    let key = super::DeclKey {
-                        owner: u16::try_from(index).unwrap_or(u16::MAX),
-                        batch: slot.batch(),
-                        record: slot.record(),
-                        generation: owner.generation,
-                        incarnation: owner.incarnation,
-                    };
+                let _ = owner.places(kind, &mut |batch, record| {
+                    let key = owner.key(index, batch, record);
                     self.with_record(key, &mut |record| {
                         let name = match record {
                             Record::BookFieldSpec(spec) => spec.name,
@@ -161,7 +155,8 @@ impl DeclarationStore {
                         }
                         next = Some((place, key, host));
                     });
-                }
+                    core::ops::ControlFlow::Continue(())
+                });
             }
             let Some((place, key, host)) = next else {
                 return;

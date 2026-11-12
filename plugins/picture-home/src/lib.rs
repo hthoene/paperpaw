@@ -50,6 +50,7 @@ pub mod native_dash;
 pub mod native_dashboard;
 pub use paperpaw_ui_kit::dashboard::focus as native_focus;
 pub use paperpaw_ui_kit::dashboard::grid as native_grid;
+pub mod native_icons;
 pub mod native_measure;
 pub mod native_pages;
 pub mod native_pick;

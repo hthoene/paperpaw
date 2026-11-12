@@ -117,8 +117,13 @@ fn a_snippet_is_held_by_its_row_only_and_a_row_is_made_once() {
     assert_eq!(view.places.len(), 3);
     // A row leads to its hit's start.
     assert_eq!(
-        view.places.iter().map(|p| p.offset).collect::<Vec<_>>(),
+        view.places.iter().map(|p| p.0.offset).collect::<Vec<_>>(),
         [2, 4, 16]
+    );
+    // And knows where the match ends, for the page to mark it.
+    assert_eq!(
+        view.places.iter().map(|p| p.1).collect::<Vec<_>>(),
+        [5, 7, 19]
     );
 }
 

@@ -1,16 +1,18 @@
 //! What the reader declares (slice 1): its settings, the screens and the
 //! slots they fill, the actions with their menu entries, icons, device needs
 //! and key bindings, and the events it hears. Compared with the interface-6
-//! registration by `tests/abi7_declarations.rs`. What has no native
-//! declaration yet (status places, the sample widget, the
-//! book data folder, screen hints, help, the setup step, the reader's stages)
-//! is listed in `PORTING-7.md`.
+//! registration by `tests/abi7_declarations.rs`. The first-run help, the
+//! setup step and the sample widget are declared by [`first_run`]. What has no
+//! native declaration yet (the book data folder, the screen hints *on press*,
+//! the help's wait for the book) is listed in `PORTING-7.md`.
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, Instances, KeyBindingDecl, Kind,
-    MenuEntryDecl, ReaderDecl, ScreenDecl, SlotOfferDecl, SpecDecl, StageDecl, StatusItemDecl,
-    StatusLineDecl, StatusPlaceDecl,
+    ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, HelpHintDecl, Instances,
+    KeyBindingDecl, Kind, MenuEntryDecl, ReaderDecl, ScreenDecl, SetupPage, SetupStepDecl,
+    SlotOfferDecl, SpecDecl, StageDecl, StatusItemDecl, StatusLineDecl, StatusPlaceDecl,
+    WidgetDecl,
 };
+use paperpaw_sdk::native::ui::HintInput;
 
 /// Callback tokens: stable within this plugin. Screens from 10, actions from
 /// 100, events from 3.
@@ -54,6 +56,9 @@ pub const DOCUMENT_CHANGED: u32 = 18;
 )]
 pub const SEARCH_WORK: u32 = 9;
 pub const FIRST_ACTION: u32 = 100;
+/// The sample widget above the reading settings (`native_sample`): its draws
+/// and its `core.widget` stage calls.
+pub const SAMPLE: u32 = 40;
 
 const BEHAVIOUR: &str = "core.group.reading-behaviour";
 const CONTROLS: &str = "core.group.controls";
@@ -529,6 +534,71 @@ pub fn hold_keys<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
+/// A help hint: its text, the input it is for, and its zone (x, y, width,
+/// height in thousandths of the screen), if it has one.
+pub type Hint = (&'static str, HintInput, Option<(u16, u16, u16, u16)>);
+
+/// The first time the reading screen shows: its help hints, the tap zones
+/// (thousandths of the screen, as the standard key map has them) or the
+/// buttons (Beta 3's `help::add`). Beta 3 had them wait for the book
+/// (`help::wait`); the host refuses that flag yet (`native_ready`).
+pub const HINTS: [Hint; 9] = [
+    (
+        "reader.help.previous",
+        HintInput::Touch,
+        Some((0, 120, 333, 760)),
+    ),
+    (
+        "reader.help.menu",
+        HintInput::Touch,
+        Some((333, 120, 334, 760)),
+    ),
+    (
+        "reader.help.next",
+        HintInput::Touch,
+        Some((667, 120, 333, 760)),
+    ),
+    ("reader.help.quick", HintInput::Touch, None),
+    ("reader.help.night", HintInput::Touch, None),
+    ("reader.help.turn", HintInput::Buttons, None),
+    ("reader.help.select", HintInput::Buttons, None),
+    ("reader.help.back", HintInput::Buttons, None),
+    ("reader.help.panel", HintInput::Buttons, None),
+];
+
+/// The first run: the reading screen's help hints, the setup step that asks
+/// how large the text is (the kernel's `core.font-size`, titled as that
+/// setting is, which Beta 3's empty title meant), and the sample of text
+/// above the reading settings (`native_sample`).
+pub fn first_run<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    let refused = |what| move |_| DeclareError::Empty(what);
+    for (text, input, zone) in HINTS {
+        let mut hint =
+            HelpHintDecl::new("reader.screen", text, input).map_err(refused("help hint"))?;
+        if let Some((x, y, width, height)) = zone {
+            hint = hint
+                .zone(paperpaw_sdk::Rect::new(x, y, width, height))
+                .map_err(refused("help hint"))?;
+        }
+        d.help_hint(hint)?;
+    }
+    d.submit()?;
+    let mut step = SetupStepDecl::new(
+        "setup.font-size",
+        "core.setting.font-size",
+        SetupPage::Setting("core.font-size"),
+    );
+    step.order = 30;
+    d.setup_step(step)?;
+    let sample = WidgetDecl::new("sample", "reader.sample", "core.widgets.other", SAMPLE)
+        .and_then(|widget| widget.previews("core.group.reading"))
+        .map_err(refused("widget"))?;
+    d.widget(sample)?;
+    d.submit()
+}
+
 /// The start (reopen the last book), a book moved (the last book follows), and
 /// what saves the place: sleep, stop, and the quiet time (`core.work`).
 pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
@@ -565,6 +635,12 @@ pub const FILTER_MAX_INPUT: u32 = 160;
 pub const FILTER_MAX_REPLY: u32 = 3840;
 pub const FILTER_MAX_RECORDS: u32 = 4;
 
+/// The bounds of `reader.decorations`, as `stages/reader.decorations@1.def` says.
+pub const DECORATIONS_SCHEMA: u32 = 1;
+pub const DECORATIONS_MAX_INPUT: u32 = 3840;
+pub const DECORATIONS_MAX_REPLY: u32 = 3840;
+pub const DECORATIONS_MAX_RECORDS: u32 = 4;
+
 /// The stage the reader runs after it wrote a book's notes as Markdown
 /// (`core.notes-exported` of interface 6): a notes app or a sync subscribes
 /// (`registration.stage`) and answers each run with one `notes.done` record
@@ -597,6 +673,15 @@ pub fn stages<F: FnMut(&[u8]) -> Result<(), i32>>(
         FILTER_MAX_INPUT,
         FILTER_MAX_REPLY,
         FILTER_MAX_RECORDS,
+    ))?;
+    // The marks of a page (a vocabulary list's words): the reader asks each
+    // laid-out page and draws what the subscribers answer (`PORTING-7.md`).
+    d.stage(StageDecl::new(
+        "decorations",
+        DECORATIONS_SCHEMA,
+        DECORATIONS_MAX_INPUT,
+        DECORATIONS_MAX_REPLY,
+        DECORATIONS_MAX_RECORDS,
     ))?;
     d.submit()
 }
