@@ -308,7 +308,7 @@ fn the_details_open_takes_a_doc_state_at_its_caps_in_its_small_room() {
     )
     .unwrap();
     bytes.truncate(n);
-    assert!(n + 1 <= OPEN_REPLY, "{n}");
+    assert!(n < OPEN_REPLY, "{n}");
     // The service's answer to the opener at its caps.
     let mut room = vec![0_u8; OPEN_REPLY];
     codec::encode_batch(
