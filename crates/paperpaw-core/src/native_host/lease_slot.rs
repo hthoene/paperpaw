@@ -203,10 +203,15 @@ impl Slot {
 
     /// When a start asked for may be made (ms; now for a refused batch to
     /// withdraw): a wake deadline, so what waits for it is not left to the
-    /// next key press (#248). `None` where none was asked.
+    /// next key press (#248). `None` where none was asked, and once the wait
+    /// after no memory reached its longest: the device no longer wakes for
+    /// it (six tries in about a minute), what waits is kept and tried again
+    /// at the next pass anything else brings (Senior on #1337).
     pub(crate) fn start_at(&self) -> Option<u64> {
         let parked = self.parked.borrow();
-        let parked = parked.as_ref().filter(|parked| parked.start.get())?;
+        let parked = parked
+            .as_ref()
+            .filter(|parked| parked.start.get() && parked.wait.get() < RETRY_LAST_MS)?;
         Some(if parked.refused.get() {
             0
         } else {

@@ -246,6 +246,11 @@ fn admit(kernel: &mut crate::Kernel) -> u64 {
 
 /// [`admit`] with the shell's resources (one pool for every plugin).
 fn admit_with(kernel: &mut crate::Kernel, resources: HostResources) -> u64 {
+    admit_as(kernel, "linked", resources)
+}
+
+/// [`admit_with`] under the id `id`.
+fn admit_as(kernel: &mut crate::Kernel, id: &'static str, resources: HostResources) -> u64 {
     let image = image().bytes;
     // The device's one depth counter (a second is refused).
     let depth = match kernel.shared.native_depth.as_ref() {
@@ -259,7 +264,7 @@ fn admit_with(kernel: &mut crate::Kernel, resources: HostResources) -> u64 {
             entry(),
             METADATA,
             &shell_host(),
-            "linked",
+            id,
             || Heap,
             resources,
             &depth,
@@ -270,7 +275,7 @@ fn admit_with(kernel: &mut crate::Kernel, resources: HostResources) -> u64 {
         )
     }
     .unwrap();
-    kernel.shared.native_instances.find("linked").unwrap()
+    kernel.shared.native_instances.find(id).unwrap()
 }
 
 fn lease(kernel: &crate::Kernel, key: u64) -> super::super::native_instances::NativeLease {
@@ -547,4 +552,60 @@ fn a_screen_of_a_plugin_without_room_does_not_open_and_opens_once_it_is_made() {
         kernel.stack.last().map(|entry| entry.id.as_str()),
         Some("linked.screen")
     );
+}
+
+#[test]
+fn a_parked_screen_opened_by_another_plugins_batch_is_made_there_and_the_batch_goes_on_in_order() {
+    use paperpaw_sdk::{Command, Id, Params};
+    let mut kernel = kernel(Mode::Parkable);
+    let resources = HostResources::try_new().unwrap();
+    let parked = admit_with(&mut kernel, resources.try_clone().unwrap());
+    // A plugin that runs (its declarations copied), whose callback staged
+    // an open of the parked plugin's screen, then one of its own.
+    MODE.with(|cell| cell.set(Mode::Copied));
+    let other = admit_as(&mut kernel, "other", resources);
+    assert_eq!(makes(), 2);
+    MODE.with(|cell| cell.set(Mode::Parkable));
+    let commands = std::vec![
+        Command::OpenScreen(Id::parse("linked.screen").unwrap(), Params::new()),
+        Command::OpenScreen(Id::parse("other.screen").unwrap(), Params::new()),
+    ];
+    let staged = super::super::event_call::Staged::new(other, commands, None, std::vec![]);
+    kernel.shared.native_instances.outbox.put(staged).unwrap();
+    // The outbox is applied at depth 0, a safe point (Senior on #1337).
+    // Both opens are applied there, in order, the parked plugin made
+    // between them.
+    kernel.native_outbox_run();
+    assert_eq!(makes(), 3);
+    assert!(!lease(&kernel, parked).is_parked());
+    let stack: std::vec::Vec<_> = kernel.stack.iter().map(|entry| entry.id.as_str()).collect();
+    assert_eq!(stack, ["linked.screen", "other.screen"]);
+}
+
+#[test]
+fn a_plugin_that_stays_without_room_stops_waking_the_device_and_keeps_its_action() {
+    let mut kernel = kernel(Mode::Parkable);
+    let key = admit(&mut kernel);
+    MODE.with(|cell| cell.set(Mode::NoRoom));
+    run_action(&kernel, key);
+    kernel.run_commands();
+    // Each wake tries again, the wait doubling, until the longest wait.
+    let mut wakes = 0;
+    while let Some(at) = kernel.service_due() {
+        wakes += 1;
+        assert!(wakes <= 8, "woken without end");
+        kernel.now = at;
+        kernel.run_commands();
+    }
+    // 1, 2, 4, 8, 16 and 32 s; the next wait is the longest.
+    assert_eq!(wakes, 6);
+    assert!(lease(&kernel, key).is_parked());
+    assert_eq!(actions_waiting(&kernel), 1);
+    // The next pass anything brings tries again; with room it is made and
+    // the action delivered.
+    MODE.with(|cell| cell.set(Mode::Parkable));
+    kernel.now = paperpaw_platform::Instant(kernel.now.millis() + 60_000);
+    kernel.run_commands();
+    assert!(!lease(&kernel, key).is_parked());
+    assert_eq!(actions_waiting(&kernel), 0);
 }
