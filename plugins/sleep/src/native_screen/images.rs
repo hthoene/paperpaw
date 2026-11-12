@@ -1,5 +1,6 @@
 //! The pictures of the sleep screen on interface 7: the sleeping cat and the
-//! logo (embedded, written once into the data folder), the cover of the book
+//! logo (embedded, written once into the data folder; the logo is the card's
+//! picture `core.logo` names where one is set), the cover of the book
 //! read last (the library's), the next picture of the folder and the picture
 //! over the page (files of the card). The host decodes a file in the
 //! background (`image_prepare`) and says when it is ready; a draw can send no
@@ -10,7 +11,8 @@
 //! screen asks for a full refresh. A file that fails (not there, damaged, no
 //! consent for the card) clears its fact and the decision of
 //! [`crate::native_sleep`] falls back: the picture to the cat, the cover to
-//! the cat, the picture over the page to the cover.
+//! the cat, the picture over the page to the cover; the logo the setting names
+//! to the plugin's own, as interface 6 fell back to its drawn one.
 use super::Sleeping;
 use crate::native_pick::Failure;
 use crate::native_sleep::{self as model, Content, Pictures};
@@ -35,7 +37,7 @@ use paperpaw_ui_kit::{
 
 /// The embedded files, as written into the data folder.
 const CAT_FILE: &str = "cat.png";
-const LOGO_FILE: &str = "logo.png";
+const LOGO_FILE: &str = model::OWN_LOGO;
 const LOGO: &[u8] = include_bytes!("../../pictures/logo.png");
 /// The count of pictures shown (`next.txt`, as interface 6 kept it).
 const NEXT: &str = "next.txt";
@@ -74,6 +76,10 @@ pub(super) struct Pics {
     cover_tried: bool,
     /// The cat or the logo could not be made: the message stays alone.
     given_up: bool,
+    /// The logo asked for is the card's picture `core.logo` names.
+    card_logo: bool,
+    /// That picture could not be had: the plugin's own is asked for.
+    card_logo_failed: bool,
     /// The file asked for to go over the page (for why it did not show).
     over_path: String,
 }
@@ -221,6 +227,11 @@ impl Sleeping {
         match kind {
             Kind::Picture => self.facts.picture = false,
             Kind::Over => self.facts.over_page = false,
+            // The picture `core.logo` names falls back to the plugin's own.
+            Kind::Logo if self.pics.card_logo => {
+                self.pics.card_logo = false;
+                self.pics.card_logo_failed = true;
+            }
             Kind::Cat | Kind::Logo => self.pics.given_up = true,
         }
     }
@@ -281,16 +292,24 @@ impl Sleeping {
         file: &str,
     ) -> Result<bool, Error> {
         let (root, path) = match kind {
-            Kind::Cat | Kind::Logo => {
-                let bytes = if kind == Kind::Cat {
-                    crate::cat::PICTURE
+            Kind::Logo => {
+                let setting = if self.pics.card_logo_failed {
+                    String::new()
                 } else {
-                    LOGO
+                    logo_setting(host)?
                 };
-                if !only_memory_ok(ensure(host, file, bytes))? {
+                let (root, path) = model::logo_file(&setting, self.pics.card_logo_failed).request();
+                self.pics.card_logo = root == PrepareRoot::Library;
+                if !self.pics.card_logo && !only_memory_ok(ensure(host, file, LOGO))? {
                     return Ok(false);
                 }
-                (PrepareRoot::Data, String::from(file))
+                (root, paperpaw_ui_kit::text::copy(path)?)
+            }
+            Kind::Cat => {
+                if !only_memory_ok(ensure(host, file, crate::cat::PICTURE))? {
+                    return Ok(false);
+                }
+                (PrepareRoot::Data, paperpaw_ui_kit::text::copy(file)?)
             }
             _ => {
                 let chosen = self
@@ -393,14 +412,16 @@ pub(super) fn room(content: Content, screen: Rect, margin: u16) -> Rect {
     )
 }
 
+/// The size of `held` as large as fits in `width` × `height`, its
+/// proportions kept.
+pub(super) fn fitted(held: Held, width: u16, height: u16) -> (u16, u16) {
+    let size = |side: u32| u16::try_from(side).unwrap_or(u16::MAX);
+    model::fit((size(held.width), size(held.height)), width, height)
+}
+
 /// `held` as large as fits in `room`, in its middle, its proportions kept.
 pub(super) fn centred(held: Held, room: Rect) -> Rect {
-    let size = |side: u32| u16::try_from(side).unwrap_or(u16::MAX);
-    let (w, h) = model::fit(
-        (size(held.width), size(held.height)),
-        room.width,
-        room.height,
-    );
+    let (w, h) = fitted(held, room.width, room.height);
     Rect::new(
         room.x + room.width.saturating_sub(w) / 2,
         room.y + room.height.saturating_sub(h) / 2,
@@ -414,6 +435,15 @@ fn only_memory(result: Result<(), Error>) -> Result<(), Error> {
     match result {
         Err(Error::NoMemory) => Err(Error::NoMemory),
         Ok(()) | Err(_) => Ok(()),
+    }
+}
+
+/// The value of `core.logo` (empty where the host gives none).
+fn logo_setting(host: &Host<'_>) -> Result<String, Error> {
+    match super::read_text(host, model::LOGO_SETTING) {
+        Ok(text) => Ok(text),
+        Err(Error::NoMemory) => Err(Error::NoMemory),
+        Err(_) => Ok(String::new()),
     }
 }
 
@@ -608,6 +638,25 @@ mod tests {
         assert_eq!(centred(held(800, 400), screen), Rect::new(0, 280, 480, 240));
         // A picture of no size is nowhere.
         assert_eq!(centred(held(0, 0), screen).width, 0);
+    }
+
+    #[test]
+    fn a_card_logo_that_failed_leaves_the_plugins_own_to_ask_for() {
+        let mut view = Sleeping::plain(false);
+        view.pics.card_logo = true;
+        view.fail(Kind::Logo);
+        assert!(view.pics.card_logo_failed);
+        assert!(!view.pics.card_logo && !view.pics.given_up);
+        // The plugin's own failing too leaves the message alone.
+        view.fail(Kind::Logo);
+        assert!(view.pics.given_up);
+    }
+
+    #[test]
+    fn a_logo_is_fitted_into_its_square_with_its_proportions() {
+        assert_eq!(fitted(held(192, 192), 160, 160), (160, 160));
+        assert_eq!(fitted(held(600, 200), 160, 160), (160, 53));
+        assert_eq!(fitted(held(100, 400), 160, 160), (40, 160));
     }
 
     #[test]

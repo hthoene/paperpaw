@@ -1,9 +1,10 @@
-# Interface-7 port (slices 1 to 4: the decisions, the declarations, the native entry and screen, the pictures, the picker)
+# Interface-7 port (slices 1 to 5: the decisions, the declarations, the native entry and screen, the pictures, the picker, the custom logo)
 
 Version 1.0.4 (already above its Beta 3 version, 1.0.3; no further bump). Status: **not complete**: the native
 entry (`NativeSleep`, `NATIVE_ENTRY`, `native/` metadata, the `plugin-files7` bin) shows the screen and, since
 slice 3, its pictures (`src/native_screen/images.rs`); since slice 4 (#257) the picker (item 4,
-`src/native_pick.rs`, `src/native_picker.rs`); the steps named below are open, so it is not in
+`src/native_pick.rs`, `src/native_picker.rs`); since slice 5 (#257) the custom logo of `core.logo` (item 3); the steps
+named below are open, so it is not in
 `tools/plugin-files7/complete.txt`. The interface-6 `Sleep` and everything of it stays until the host activates native
 plugins (then it goes together, no shim; see the removal step).
 
@@ -77,8 +78,10 @@ back; at most 8 prepared and 4 waiting per plugin. With it the items below becom
      decodes to the opaque gray/colour cache format and has no alpha flag; needs a prepare flag for alpha (Services);
      until then the picture over the page is opaque where it is not see-through;
    - *a picture a preset names under another plugin's folder* (`plugins/<id>/owl.png`): the card root (1) excludes
-     `plugins/` and `.paperpaw/` and root 2 is the plugin's own install folder only; needs a root for another plugin's
-     files (Host); a path there fails and the fallback shows;
+     `plugins/` and `.paperpaw/` and root 2 is the plugin's own install folder only; since #243 (`files.md` 1.1) root 1
+     shows a **running data plugin's** folder read only to `image_prepare` (with `uses.storage`), so a data plugin's
+     preset picture is read; a **code** plugin's folder, or a data plugin switched off or gone, stays refused (status 6,
+     not found) and the fallback shows; that needs a root for another plugin's files (Host);
    - *why the picture over the page failed, for the picker* (`overlay-failed.txt`): done with the picker (item 4).
 3. **The cover: done (slice 3).** `Library::cover` (op 7) for the first book of `Query::new().sort(RecentlyOpened)
    .descending(true)` that is `opened`, at the screen's longer side, held as the cover's `ImageId` (no prepare), released
@@ -89,9 +92,28 @@ back; at most 8 prepared and 4 waiting per plugin. With it the items below becom
    when the first draw lays it out, and a draw can ask for nothing, so the fallback picture of that case is the cover
    where one was held (looked for beforehand for the page mode) and else the message without a logo (interface 6: the
    cat or the logo); named step: a pre-asked cat and logo, or a command allowed in a draw (Host).
-   **Not ported with the images:** the custom logo picture of `core.logo` (a card file named in `settings.ini`; the
-   contracts allow it through `PrepareRoot::Library`, a small slice of its own), the image description for
-   accessibility (`Canvas::describe`: the native canvas has none) and the gray-levels hint of `Screen::grays`.
+   **The custom logo of `core.logo`: done (slice 5, #257).** The message's logo is the card file the core setting
+   `core.logo` names (a JPEG, PNG or GIF, e.g. `plugins/mine/logo.png` a data plugin's `settings.ini` sets, or any card
+   path), read with `settings.read` as the other settings (a core setting is public: no feature, no metadata change)
+   and trimmed of spaces and slashes at its ends as Beta 3's `Logo::read` did (`native_sleep::logo_file`). Where it is
+   set, the request for the logo (from the events, `Sleeping::begin`, as before) is `image_prepare` with
+   `PrepareRoot::Library` and that path at the logo's side (a third of the screen's shorter side); the answer is drawn
+   `small()` and **fitted, not filled**, into that square: its fitted size (`images::fitted`, Beta 3's `Logo::fit`)
+   lays out the message below it, as Beta 3 placed it. A refused request (no `uses.storage` consent, a path refused,
+   one longer than 512 bytes) or an answer that is not `Ready` (not found, damaged, unsupported, too large, no memory,
+   card failure) asks for the plugin's own `logo.png` (`PrepareRoot::Data`) instead, as Beta 3 fell back to its drawn
+   logo; that one failing too leaves the message alone, as before. One logo picture is held at most (the card's is
+   only asked for before the own one, never both held), released at `ScreenClosed` with the rest; the setting is read
+   once per open into a 4 KiB buffer freed at once. **Differences to Beta 3:** a card picture now needs the reader's
+   consent (`uses.storage`, optional; without it the plugin's logo shows); the host's picture cache decodes it (Beta 3
+   wrote `logo.pixels` and `logo.stamp` into its data folder); a file under a **code** plugin's folder, or under a data
+   plugin that is switched off, is refused by root 1 (`files.md` 1.1: only a running data plugin's folder is shown)
+   and the plugin's logo shows: that needs a root for another plugin's files, as in item 2 (Host); the fallback is the
+   plugin's own picture, not the logo drawn from shapes (as since slice 3). Pinned by `tests/sleep_logo.rs` (empty:
+   own; set: the library picture, trimmed; failed: own; too long: own) and `images`' unit tests (a failed card logo
+   asks for the own one; fitted sizes).
+   **Not ported with the images:** the image description for accessibility (`Canvas::describe`: the native canvas
+   has none) and the gray-levels hint of `Screen::grays`.
 4. **The picker (`pick-overlay`): done (slice 4, #257).** The screen `sleep.pick-overlay` (token `PICK`) is declared
    and is the editor (`EditorDecl::Screen`) of both `sleep.overlay-picture` and `sleep.overlay-widget`, as in
    interface 6. Its rows are Beta 3's, in its order (`overlay::Picker`; the model is `src/native_pick.rs`, the screen
@@ -169,9 +191,10 @@ back; at most 8 prepared and 4 waiting per plugin. With it the items below becom
 The order that makes the plugin native-only: #692 → 1 and 2 (one decode at a time, four waiting at most) → 3 with the
 cover facade → 4 (5 is done); 1 to 3 are in slice 3, 4 in slice 4.
 
-**Remaining gaps** (after slice 4): the hidden hints of the sleep screen (item 6, no declaration); the clear parts of a
-PNG or GIF over the page (alpha, item 2); a picture under another plugin's folder (item 2); the custom logo of
-`core.logo`, the image description and the gray-levels hint (item 3); a pre-asked cat and logo or a command allowed in a
+**Remaining gaps** (after slice 5): the hidden hints of the sleep screen (item 6, no declaration); the clear parts of a
+PNG or GIF over the page (alpha, item 2); a picture (or a `core.logo`) under a code plugin's folder or a data plugin
+that is not running (items 2 and 3, a root for another plugin's files); the image description and the gray-levels hint
+(item 3); a pre-asked cat and logo or a command allowed in a
 draw for the fallbacks decided at draw time (item 3); the production loader and the qualification of screen commands,
 composition and input (the acceptance cases in `tests/acceptance_pending.rs`, H1, H3, H4).
 
