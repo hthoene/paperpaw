@@ -207,9 +207,11 @@ fn fold_into(text: &str, out: &mut String, base: usize) -> Result<usize, Error> 
 const ENTRY: u8 = 0;
 const PREFIX: u8 = 1;
 /// The side file of a language: its magic, then the words file's size (little-endian
-/// u32) it was made from, then the hashes (little-endian u32 each).
+/// u32) it was made from, then how many hashes it holds (u32), then the hashes
+/// (little-endian u32 each). A file cut short by a power cut or a refused write
+/// is not as long as its count says, and is not read.
 const MAGIC: &[u8; 4] = b"VM01";
-const HEADER: usize = 8;
+const HEADER: usize = 12;
 /// Bytes of the side file read or written at a time.
 const CHUNK: usize = 512;
 /// Where the side files are; the language is in the name.
@@ -321,13 +323,23 @@ impl Entries {
         };
         let mut head = [0u8; HEADER];
         let read = |at: usize, buf: &mut [u8]| matches!(storage.read_at(side, at as u64, buf), Ok(n) if n == buf.len());
-        if length < HEADER || (length - HEADER) & 3 != 0 || !read(0, &mut head) {
+        if length < HEADER || !read(0, &mut head) {
             return Ok(None);
         }
-        if head.get(..4) != Some(MAGIC.as_slice()) || head.get(4..) != Some(&size.to_le_bytes()) {
+        if head.get(..4) != Some(MAGIC.as_slice()) || head.get(4..8) != Some(&size.to_le_bytes()) {
             return Ok(None);
         }
-        let count = (length - HEADER) / 4;
+        let count = head
+            .get(8..)
+            .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+            .map_or(usize::MAX, |bytes| u32::from_le_bytes(bytes) as usize);
+        if count
+            .checked_mul(4)
+            .and_then(|bytes| bytes.checked_add(HEADER))
+            != Some(length)
+        {
+            return Ok(None);
+        }
         let mut hashes = Vec::new();
         hashes
             .try_reserve_exact(count)
@@ -363,7 +375,10 @@ impl Entries {
     ) -> Result<(), paperpaw_sdk::StorageError> {
         let mut head = [0u8; HEADER];
         head[..4].copy_from_slice(MAGIC);
-        head[4..].copy_from_slice(&size.to_le_bytes());
+        head[4..8].copy_from_slice(&size.to_le_bytes());
+        let count =
+            u32::try_from(self.hashes.len()).map_err(|_| paperpaw_sdk::StorageError::TooLarge)?;
+        head[8..].copy_from_slice(&count.to_le_bytes());
         storage.write(side, &head)?;
         let mut chunk = [0u8; CHUNK];
         for part in self.hashes.chunks(CHUNK / 4) {

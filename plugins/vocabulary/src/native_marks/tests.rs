@@ -268,7 +268,7 @@ fn a_page_turn_reads_the_side_file_and_not_the_list_until_the_list_changes() {
     let again = Entries::read(&storage, "en").unwrap();
     assert_eq!(again.len(), 2000);
     assert_eq!(storage.list.get(), 0, "the list is not read again");
-    assert_eq!(storage.side.get(), 8 + 4 * 2000);
+    assert_eq!(storage.side.get(), 12 + 4 * 2000);
     assert!(marks(&again, "so word7 and word1999 are", 0).len() == 2);
     // A word more: the list's size changed, so it is read again and the side file made anew.
     storage
@@ -286,15 +286,25 @@ fn a_side_file_that_is_cut_short_or_foreign_is_made_again_and_languages_have_the
     let de = Entries::read(&storage, "de").unwrap();
     let en = Entries::read(&storage, "en").unwrap();
     assert_ne!(de.len(), en.len());
-    // The side file of `de` cut after a hash's third byte: not read, made again.
+    // The side file of `de` cut: after a hash (a power cut between two writes),
+    // and in the middle of one. Neither is read, both are made again.
     let side = ".paperpaw/plugins/vocabulary/marks-de.idx";
-    let mut bytes = vec![0; 64];
-    let n = storage.read_at(side, 0, &mut bytes).unwrap();
-    storage.write(side, &bytes[..n - 1]).unwrap();
-    storage.list.set(0);
-    let again = Entries::read(&storage, "de").unwrap();
-    assert_eq!(again.len(), de.len());
-    assert!(storage.list.get() > 0, "the list was read again");
+    let mut whole = vec![0; 64];
+    let n = storage.read_at(side, 0, &mut whole).unwrap();
+    for cut in [4, 1] {
+        storage.write(side, &whole[..n - cut]).unwrap();
+        storage.list.set(0);
+        let again = Entries::read(&storage, "de").unwrap();
+        assert_eq!(again.len(), de.len(), "cut by {cut}");
+        assert!(
+            storage.list.get() > 0,
+            "the list was read again (cut by {cut})"
+        );
+        // Made whole again: the next read is from the side file.
+        storage.list.set(0);
+        assert_eq!(Entries::read(&storage, "de").unwrap().len(), de.len());
+        assert_eq!(storage.list.get(), 0, "cut by {cut}");
+    }
     // Not a side file at all.
     storage.write(side, b"hello world, not hashes").unwrap();
     assert_eq!(Entries::read(&storage, "de").unwrap().len(), de.len());

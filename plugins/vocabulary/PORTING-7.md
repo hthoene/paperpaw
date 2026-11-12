@@ -162,7 +162,7 @@ native screens replace these callers.
   (fallible allocation, sorted 32-bit hashes of the folded entries, binary search; no `WordSet`, which allocates infallibly).
 - **Memory (#248):** nothing is kept between two calls of the stage (Beta 3 kept the set by the list's change count). The set
   is 4 bytes an entry (and 4 for each start of a phrase) in a side file of the language (`marks[-<language>].idx` in the data
-  folder: magic, the list's size, the hashes), read in 512-byte pieces; it is made again from the list (one pass, by the same
+  folder: magic, the list's size, the number of hashes, the hashes; a file shorter than its count says is not read), read in 512-byte pieces; it is made again from the list (one pass, by the same
   code) when the list's size is not the one it was made from, and is not read where it is cut short. Measured on the host
   (in-memory storage, a list of the most, 2,000 words of 250-byte sentences = 562,890 bytes): a page turn reads 8,008 bytes and
   takes 4 µs, where the previous version read the whole list each page (562,890 bytes, 785 µs, a set of about 32 KiB on the
