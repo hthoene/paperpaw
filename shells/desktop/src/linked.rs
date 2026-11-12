@@ -482,18 +482,41 @@ pub fn register(
         services: offered(on),
         features: features(on),
     };
-    // SAFETY: the offered services are the ones wired above (`offered`), and
-    // the plugins are the app's linked ones, as the helper's contract says.
     // PAPERPAW_PARKED=1: the plugins are registered parkable (#2638, #248), to
     // measure the heap with and without parking; off by default.
     let parked = std::env::var_os("PAPERPAW_PARKED").is_some_and(|value| value == "1");
-    let outcome = unsafe {
+    let outcome = register_linked(kernel, &host, &resources, &depth, parked);
+    let mut registered = 0;
+    for (id, status) in outcome {
+        match status {
+            Ok(()) => registered += 1,
+            Err(why) => eprintln!("native plugin {id}: not registered: {why:?}"),
+        }
+    }
+    Ok(registered)
+}
+
+/// Registers the app's linked plugins, parkable or not.
+fn register_linked(
+    kernel: &mut Kernel,
+    host: &metadata::Host<'static>,
+    resources: &HostResources,
+    depth: &FlatDepth,
+    parked: bool,
+) -> Vec<(
+    &'static str,
+    Result<(), paperpaw_core::native_host::shell::Error>,
+)> {
+    // SAFETY: the offered services are the ones wired by the caller
+    // (`offered`), and the plugins are the app's linked ones, as the helper's
+    // contract says.
+    unsafe {
         if parked {
             paperpaw_app::register_native_plugins_parked(
                 kernel,
-                &host,
-                &resources,
-                &depth,
+                host,
+                resources,
+                depth,
                 DesktopServices::new,
                 teardown_report,
                 linked_report,
@@ -503,9 +526,9 @@ pub fn register(
         } else {
             paperpaw_app::register_native_plugins(
                 kernel,
-                &host,
-                &resources,
-                &depth,
+                host,
+                resources,
+                depth,
                 DesktopServices::new,
                 teardown_report,
                 linked_report,
@@ -513,15 +536,7 @@ pub fn register(
                 rodata_image(),
             )
         }
-    };
-    let mut registered = 0;
-    for (id, status) in outcome {
-        match status {
-            Ok(()) => registered += 1,
-            Err(why) => eprintln!("native plugin {id}: not registered: {why:?}"),
-        }
     }
-    Ok(registered)
 }
 
 #[cfg(test)]
