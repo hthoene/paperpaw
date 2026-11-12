@@ -152,7 +152,7 @@ fn install(
     kernel: &mut crate::Kernel,
     entry: &'static PpEntry,
     metadata: &'static [u8],
-    id: &str,
+    id: &'static str,
 ) -> Result<(), shell::Error> {
     install_on(kernel, entry, metadata, &shell_host(&[]), id)
 }
@@ -162,7 +162,7 @@ fn install_on(
     entry: &'static PpEntry,
     metadata: &'static [u8],
     host: &Host<'static>,
-    id: &str,
+    id: &'static str,
 ) -> Result<(), shell::Error> {
     install_with(
         kernel,
@@ -179,7 +179,7 @@ fn install_with(
     entry: &'static PpEntry,
     metadata: &'static [u8],
     host: &Host<'static>,
-    id: &str,
+    id: &'static str,
     resources: HostResources,
 ) -> Result<(), shell::Error> {
     install_depth(
@@ -198,7 +198,7 @@ fn install_depth(
     entry: &'static PpEntry,
     metadata: &'static [u8],
     host: &Host<'static>,
-    id: &str,
+    id: &'static str,
     resources: HostResources,
     depth: &FlatDepth,
 ) -> Result<(), shell::Error> {
@@ -382,17 +382,8 @@ fn metadata_the_kernel_refuses_is_unsupported_before_make() {
 #[test]
 fn an_unparseable_id_is_refused_before_make() {
     let mut kernel = kernel();
-    let long = "a".repeat(41);
-    for id in [
-        "",
-        "Not An Id",
-        "a b",
-        "a..b",
-        "a@x",
-        "x@2",
-        "a.b",
-        long.as_str(),
-    ] {
+    let long: &'static str = alloc::boxed::Box::leak("a".repeat(41).into_boxed_str());
+    for id in ["", "Not An Id", "a b", "a..b", "a@x", "x@2", "a.b", long] {
         assert_eq!(
             status(install(&mut kernel, entry(|_| {}), METADATA, id)),
             ERR_INVALID
@@ -512,7 +503,7 @@ const NETWORK_WIRED: &[Feature<'static>] = &[Feature {
 }];
 
 /// Installs `id` with the feature `uses.network` admitted.
-fn install_networked(kernel: &mut crate::Kernel, id: &str) {
+fn install_networked(kernel: &mut crate::Kernel, id: &'static str) {
     let bytes = feature_metadata(NETWORK);
     let with_feature = entry(|entry| {
         entry.metadata = PpBytes {

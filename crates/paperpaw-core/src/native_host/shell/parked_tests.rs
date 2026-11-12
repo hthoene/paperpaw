@@ -25,7 +25,15 @@ fn fake_in<M>(
         match seat {
             None => Hosted::new(Heap, module, make, "fake", image, report, pool, services),
             Some(seat) => Hosted::new_for_owner(
-                Heap, module, make, "fake", image, report, pool, seat, services,
+                Heap,
+                module,
+                make,
+                paperpaw_sdk::Id::new_static("fake"),
+                image,
+                report,
+                pool,
+                seat,
+                services,
             ),
         }
     }

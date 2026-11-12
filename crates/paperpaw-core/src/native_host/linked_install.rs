@@ -56,7 +56,7 @@ impl crate::Kernel {
         entry: &'static PpEntry,
         metadata: &'static [u8],
         host: &metadata::Host<'static>,
-        id: &str,
+        id: &'static str,
         services: S,
         resources: super::HostResources,
         depth: &FlatDepth,
@@ -148,7 +148,7 @@ impl crate::Kernel {
         entry: &'static PpEntry,
         metadata: &'static [u8],
         host: &metadata::Host<'static>,
-        id: &str,
+        id: &'static str,
         services: S,
         resources: super::HostResources,
         depth: &FlatDepth,
@@ -170,6 +170,9 @@ impl crate::Kernel {
         {
             return Err(shell::Error::Status(ERR_INVALID));
         }
+        // Checked above: every copy of the id is the firmware's text, none
+        // takes heap (#248, D4).
+        let caller = Id::new_static(id);
         let admitted = linked_entry::check(entry, metadata, host).map_err(|refusal| {
             shell::Error::Status(match refusal {
                 Refusal::Entry => ERR_INVALID,
@@ -181,7 +184,7 @@ impl crate::Kernel {
         let linked = resources.hosts().linked().clone();
         linked.add(id).map_err(shell::Error::Status)?;
         // SAFETY: the caller guarantees the factory contract and static code.
-        let host = match unsafe { admitted.hosted(services, id, teardown, resources, image) } {
+        let host = match unsafe { admitted.hosted(services, caller, teardown, resources, image) } {
             Ok(host) => host,
             Err(error) => {
                 linked.remove(id);

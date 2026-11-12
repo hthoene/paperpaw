@@ -731,7 +731,7 @@ mod network {
             let socks = Rc::clone(&resources.hosts().sockets().unwrap().0);
             // The plugin subscribed to `http_done` (a request needs it).
             let owners = resources.hosts().owners().unwrap();
-            let _ = owners.admit(w.owners[0], "a");
+            let _ = owners.admit(w.owners[0], &paperpaw_sdk::Id::new_static("a"));
             owners.subscribe(
                 w.owners[0],
                 EventTags::collect(|tag| tag == DONE || tag == wire::EVENT_SOCKET_TAG),

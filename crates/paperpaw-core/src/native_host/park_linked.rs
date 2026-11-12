@@ -82,7 +82,8 @@ impl<S: Services + 'static> Recipe<S> {
         let hosted = unsafe {
             admitted.hosted_for_owner(
                 (args.services)(),
-                args.id,
+                // Checked at its admission (`register_linked_with`).
+                paperpaw_sdk::Id::new_static(args.id),
                 args.teardown,
                 resources,
                 args.image,
