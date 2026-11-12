@@ -876,6 +876,54 @@ reader's own highlights' drawing, so they look as Beta 3's decorations did) and 
   refused `ERR_INVALID` until it is wired, in event callbacks as in input callbacks.
 - Not covered by a test: the host path (no scripted host); `state.ini`'s reading is the tested `native_state`.
 
+## The script hint (#257 item 16, todo 529, `native_script_hint.rs`)
+
+- Beta 3's `screen/script_hint.rs`: when a book opens (`View::opened`, so also when a prepared book is ready
+  and when a resting screen opens its book again) the first blocks are read for letters of the five scripts of
+  Beta 3's table (Greek, Cyrillic, Arabic, Hebrew, Korean) that the reading font lacks; the book's declared
+  language adds its script where the font lacks the script's letter. Each maps to Beta 3's pack
+  (`script-greek`, `-cyrillic`, `-arabic`, `-hebrew`, `-korean`); once `script-korean` is on the device
+  (`core.registry` op 6, asked only when Korean is lacking) a book with Hangul syllables the font still lacks
+  asks for `script-korean-extra` instead, else nothing. Packs named in the book's `packs-asked.txt` are left
+  out; at most 4 are asked for at once with `command.request_plugins`, and the file keeps the last 4.
+- Glyph coverage is `Font::covers` (`text.covers`, slot 39) on `role:reading`, which counts the role's
+  fallbacks (an installed pack covers its letters). The letters are asked about in runs of at most 512 bytes,
+  only those of the five scripts and only while they can tell something new: a book of one script asks a few
+  dozen times at most. A font that cannot tell (`Unsupported` on a host without the slot) asks for nothing.
+- Bounds as Beta 3: 3 sections, 80 blocks, 12,000 letters; one block is held at a time (`HostDocument`, 256 B
+  and 4 KiB buffers), and nothing is kept after the decision (a run of 512 B on the stack, the scripts in a
+  fixed array, the ids `&'static`).
+- The answer: `event.plugin_answered` (78) goes only to the plugin that asked and only if it subscribed:
+  `declarations::events` subscribes (`PLUGIN_ANSWERED`, token 20; 19 is taken by `LIBRARY_CHANGED` in flight;
+  10 subscriptions of the 32 registrations the host admits). `installed`: every reading screen with a book is
+  laid out again (`View::reflow`, the count starts again) and asked about once more (Korean's rare syllables,
+  with the script of the book's language, the UI's where it declares none, as Beta 3's second ask); `failed`
+  (and an outcome the SDK does not know): taken off the file of the book that asked for it (each open book
+  keeps a byte of the packs it asked for, as Beta 3 forgot them for its own book), asked for at the next
+  opening; `declined` and `not found`: kept.
+- Writes of `packs-asked.txt` happen only in event callbacks (screen opened or shown, document changed, the
+  answer), never in a draw. The file is kept only once the request was taken: a request refused with
+  `ERR_FULL` (2 of the reader's own or 4 device-wide open, `registry.md` 5) is asked again at the next opening.
+- Metadata: `text.covers` added to `used` (since 1: the bytes are unchanged); no new service or feature
+  (`request_plugins` needs none; `core.registry` and `core.files` were asked already).
+- **Differences from Beta 3.** (1) The file is `books/<FNV-1a 64 of the path>/packs-asked.txt` in the reader's
+  data, Beta 3's own path, so a device updated from Beta 3 keeps what it asked; but it is not a
+  `book_data.spec` folder (`books/<name>/<key>/`, op 25's key): the host refuses that declaration
+  (`declarations.rs` in core: `ERR_UNSUPPORTED`), so the file does not follow a moved book (it is asked for once
+  more) and is not removed with the book. When Core admits `book_data.spec`, the reader declares its book
+  folder and this file moves there (with Beta 3's other per-book files). (2) The answer is one event per pack,
+  without the store's translated error text: nothing is shown on a failure (Beta 3 showed the store's text;
+  the store shows its own). (3) Beta 3 kept the asked packs before the request; here after it was taken.
+  (4) The scripts are asked for in the order found, the declared one last, as Beta 3; Beta 3 asked the font
+  letter by letter.
+- **X4 gate:** opening a book reads up to 80 blocks more before its first page (as Beta 3); not measured.
+  Frames (`tools/stack-frames.py` on the X4 build): `native_script_hint::ask` 1,424 B (the 512 B run
+  inlined), `answered` 208 B; the largest of the reader stays `Open::lay_with`, 1,760 B.
+- Tests (`native_script_hint/tests.rs`): the script table and the declared language, detection in order and
+  Hangul syllables told apart, the bounds (sections, blocks, letters, a block that does not advance), the
+  number of font questions, a font that cannot tell, the packs filtered (asked before, at most 4, the declared
+  language, Korean and its rare syllables, the registry asked only for Korean), the file kept 4 lines long,
+  an answer that forgets, the file's path, every allocation refused.
 ## Marks on the page: highlights and the search hit (`native_marks.rs`, #257)
 
 - The page draws the book's **highlights** (library annotations of kind highlight, read with `core.library` op 15 when the book

@@ -921,6 +921,49 @@ impl NativeReader {
         }
     }
 
+    /// The store's answer for a pack of letters asked for: a book whose letters
+    /// came is laid out again and its pages counted anew (`native_script_hint`).
+    fn pack_answered(
+        &mut self,
+        host: &Host<'_>,
+        plugin: &str,
+        outcome: paperpaw_sdk::native::commands::PluginOutcome,
+    ) -> Result<(), Error> {
+        let Some(docs) = &self.docs else {
+            return Ok(());
+        };
+        if crate::native_script_hint::answered(host, docs, self.screens.all(), plugin, outcome) {
+            self.start_count(host);
+        }
+        Ok(())
+    }
+
+    /// A screen of the reader closed: its view goes with it.
+    fn screen_closed(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        instance: paperpaw_sdk::native::ui::Instance,
+    ) {
+        match token {
+            SCREEN => {
+                self.hands.closed(host, instance, self.work.as_ref());
+                self.close(host, instance);
+            }
+            TOC => self.close_toc(host, instance),
+            SEARCH => {
+                if let Some(view) = self.searches.get(instance) {
+                    view.close();
+                }
+                self.searches.close(instance);
+            }
+            ANNOTATIONS => self.annotations.close(instance),
+            FOOTNOTE => self.notes.close(instance),
+            SKIM => self.skims.close(instance),
+            _ => {}
+        }
+    }
+
     /// The UI service, opened at the first need.
     fn open_ui(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.ui.is_none() {
@@ -998,6 +1041,7 @@ impl Plugin for NativeReader {
             kinds::Spoken,
             kinds::StackChanged,
             kinds::DocumentChanged,
+            kinds::PluginAnswered,
             kinds::StageCall
         ) else {
             return Ok(());
@@ -1023,6 +1067,11 @@ impl Plugin for NativeReader {
             Event::DocumentChanged { .. } if token == DOCUMENT_CHANGED => {
                 self.document_changed(host);
                 Ok(())
+            }
+            Event::PluginAnswered {
+                plugin, outcome, ..
+            } if token == crate::declarations::PLUGIN_ANSWERED => {
+                self.pack_answered(host, plugin, outcome)
             }
             Event::BookMoved { from, path, .. } if token == BOOK_MOVED => {
                 self.moved(host, from, path)
@@ -1073,23 +1122,7 @@ impl Plugin for NativeReader {
                 ..
             } => self.screen_shown(host, token, instance, now_ms),
             Event::ScreenClosed { instance, .. } => {
-                match token {
-                    SCREEN => {
-                        self.hands.closed(host, instance, self.work.as_ref());
-                        self.close(host, instance);
-                    }
-                    TOC => self.close_toc(host, instance),
-                    SEARCH => {
-                        if let Some(view) = self.searches.get(instance) {
-                            view.close();
-                        }
-                        self.searches.close(instance);
-                    }
-                    ANNOTATIONS => self.annotations.close(instance),
-                    FOOTNOTE => self.notes.close(instance),
-                    SKIM => self.skims.close(instance),
-                    _ => {}
-                }
+                self.screen_closed(host, token, instance);
                 Ok(())
             }
             _ => Ok(()),

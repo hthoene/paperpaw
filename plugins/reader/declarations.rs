@@ -47,6 +47,10 @@ pub const SPOKEN: u32 = 16;
 /// the first time opens when its preparation is done (`native_view/preparing.rs`).
 /// It goes only to plugins that subscribed.
 pub const DOCUMENT_CHANGED: u32 = 18;
+/// The store's answer for a pack of letters the reader asked for
+/// (`event.plugin_answered`, 78, `native_script_hint`): it goes only to the
+/// plugin that asked, and only if it subscribed.
+pub const PLUGIN_ANSWERED: u32 = 20;
 /// The token of the search's background scan (`core.work`, key `search`): a step
 /// of the book is read each time. Not a subscription: the work's own token comes
 /// back in `event.work_due`, which the reader hears as `WORK_DUE`.
@@ -613,6 +617,7 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.subscribe_event(EventKind::StackChanged, STACK_CHANGED)?;
     d.subscribe_event(EventKind::Spoken, SPOKEN)?;
     d.subscribe_event(EventKind::DocumentChanged, DOCUMENT_CHANGED)?;
+    d.subscribe_event(EventKind::PluginAnswered, PLUGIN_ANSWERED)?;
     d.submit()
 }
 

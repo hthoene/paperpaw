@@ -100,6 +100,7 @@ pub mod native_pages;
 pub mod native_plugin;
 pub mod native_ready;
 pub mod native_sample;
+pub mod native_script_hint;
 pub mod native_search;
 pub mod native_search_view;
 pub mod native_selection;

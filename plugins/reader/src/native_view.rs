@@ -161,6 +161,8 @@ struct Open {
     undecorated: bool,
     /// Pages are asked for marks: from the step after the first is shown.
     ask_marks: bool,
+    /// The packs of letters this book asked for while open (`native_script_hint`).
+    packs_asked: crate::native_script_hint::Asked,
 }
 
 /// One open reading screen.
@@ -325,6 +327,7 @@ impl View {
                 // The path stands for a title the format does not give.
                 text::copy(native_place::title_of(meta.title(), &found.path)),
                 book_language(host, meta.language()),
+                crate::native_script_hint::declared(meta.language()),
             ),
             Err(Error::NoMemory) => {
                 Self::forget(host, docs, id);
@@ -335,7 +338,7 @@ impl View {
                 return Ok(Self::message("reader.error"));
             }
         };
-        let (sections, title, language) = sections;
+        let (sections, title, language, script) = sections;
         let (Ok(title), Ok(language)) = (title, language) else {
             Self::forget(host, docs, id);
             return Err(Error::NoMemory);
@@ -343,21 +346,15 @@ impl View {
         // The place the hand-over names, if the book has it; else the place
         // saved last time; else the start (a page number needs the page index:
         // `PORTING-7.md`).
-        let progress = match Progress::read(host, docs, id, sections, (&mut input, &mut out)) {
-            Ok(progress) => progress,
-            Err(error) => {
-                Self::forget(host, docs, id);
-                return Err(error);
-            }
+        let fail = |error| {
+            Self::forget(host, docs, id);
+            error
         };
+        let progress =
+            Progress::read(host, docs, id, sections, (&mut input, &mut out)).map_err(fail)?;
         let (at, stored_ppm) =
-            match Self::starting_place(host, library, &found, (sections, conversion), &mut out) {
-                Ok(start) => start,
-                Err(error) => {
-                    Self::forget(host, docs, id);
-                    return Err(error);
-                }
-            };
+            Self::starting_place(host, library, &found, (sections, conversion), &mut out)
+                .map_err(fail)?;
         // The highlights of the book; a book the library does not know has none.
         let marks = match library.map(|l| native_marks::load(host, l, &found.path, conversion)) {
             Some(Ok(spans)) => Marks::new(spans),
@@ -400,9 +397,11 @@ impl View {
             decorations: None,
             undecorated: false,
             ask_marks: false,
+            packs_asked: 0,
         };
         open.begin(host, root == Root::Library);
         open.load_bookmarks(host, library);
+        open.ask_packs(host, docs, script);
         // The host's book events start here (`document.md` 2.4); a book whose
         // first page cannot be laid out is told with its first draw.
         open.announce(host, docs);
@@ -1370,6 +1369,7 @@ mod menu_bar;
 mod pictures;
 mod preparing;
 mod ribbon;
+mod script_hint;
 mod setup;
 use preparing::Preparing;
 use setup::{LayoutKey, Setup, flag, integer};
