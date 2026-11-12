@@ -23,6 +23,7 @@ use super::{CommandStage, DevOp, WireCommand};
 use crate::native_host::{
     dual_boot_ini::Mode,
     firmware_cell::{DriverRef, FirmwareCell},
+    firmware_driver::Driver,
     owner_paths,
     plugin_check::PluginCheck,
     plugin_install::{self, PluginInstall},
