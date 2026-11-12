@@ -275,8 +275,12 @@ impl Plugin for NativeDictionary {
                 // Where indexing was given up, what is ready is what there is.
                 let (mut view, pending) = View::open(host, ui, handover, !self.gave_up)?;
                 if !pending.is_empty() {
-                    self.start(host, pending)?;
-                    view.prepare(self.index.percent());
+                    match self.start(host, pending) {
+                        Ok(()) => view.prepare(self.index.percent()),
+                        // Work that cannot be declared: what is ready is what there is.
+                        Err(Error::NoMemory) => return Err(Error::NoMemory),
+                        Err(_) => view.indexed(host, None)?,
+                    }
                 }
                 self.screens.open(instance, view)
             }
@@ -285,7 +289,12 @@ impl Plugin for NativeDictionary {
                 ..
             } => self.screens.shown(POPUP_TOKEN, instance),
             Event::ScreenClosed { instance, .. } => {
+                let waiting = self.screens.all().any(|view| view.preparing());
                 self.screens.close(instance);
+                // Beta 3 stopped the indexing with the panel that waited for it.
+                if waiting && !self.screens.all().any(|view| view.preparing()) {
+                    self.index.clear();
+                }
                 Ok(())
             }
             _ => Ok(()),
