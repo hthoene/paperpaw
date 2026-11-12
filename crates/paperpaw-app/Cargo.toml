@@ -24,6 +24,7 @@ panes = ["paperpaw-core/panes"]
 # vocabulary join them where `native-linked-store` links the store's plugins.
 native-linked-reading = [
     "native-linked",
+    "paperpaw-core/native-reading",
     "paperpaw-plugin-home/linked",
     "paperpaw-plugin-reader/linked",
     "paperpaw-plugin-news?/linked",
