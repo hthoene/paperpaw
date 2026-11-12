@@ -16,8 +16,14 @@ use crate::native_host::{
 use alloc::{format, string::String, vec::Vec};
 use paperpaw_native::host_glue::ERR_BUSY;
 use paperpaw_sdk::{
-    Id, Manifest, Plugin, RegisterError, Registrar, SettingGroupSpec, SettingSpec, Version,
+    Id, Manifest, Plugin, RegisterError, Registrar, SettingGroupSpec, SettingSpec, SettingValue,
+    Version,
 };
+
+/// `reg_setting.flags` bits.
+const SHOWN: u32 = 1 << 9;
+const GOVERNS: u32 = 1 << 10;
+const SLIDER: u32 = 1 << 11;
 
 /// The settings a native plugin's host makes from its spec records: no extra.
 struct Nat;
@@ -62,14 +68,19 @@ fn kernel() -> crate::Kernel {
         .unwrap()
 }
 
-fn extra(name: &'static str, editor_kind: u32, editor: &'static str) -> Record<'static> {
+fn extra(
+    name: &'static str,
+    editor_kind: u32,
+    editor: &'static str,
+    shown_id: &'static str,
+) -> Record<'static> {
     Record::SettingExtra(wire::SettingExtra {
         name,
         unit: "nat.unit.pt",
         section: "nat.section.look",
         follows: "nat.flag",
-        shown_id: "nat.flag",
-        shown_value: "on",
+        shown_id,
+        shown_value: if shown_id.is_empty() { "" } else { "on" },
         editor_kind,
         editor,
         step: 2,
@@ -78,10 +89,14 @@ fn extra(name: &'static str, editor_kind: u32, editor: &'static str) -> Record<'
     })
 }
 
-/// The store: `nat.size` a slider with every field, `nat.flag` a switch
-/// that asks for a slider (an int's alone), `nat.plain` nothing.
+/// The store: `nat.size` a slider with every field, shown while `nat.flag`
+/// is on; `nat.flag` a switch that asks for a slider (an int's alone);
+/// `nat.plain` nothing.
 fn store() -> NativeDeclarations {
-    declarations(&[extra("size", 1, "edit"), extra("flag", 0, "")])
+    declarations(&[
+        extra("size", 1, "edit", "nat.flag"),
+        extra("flag", 0, "", ""),
+    ])
 }
 
 /// `key flags` of op 1's rows, `extra …` of op 2's.
@@ -112,16 +127,20 @@ fn rows(reply: &[u8]) -> Vec<String> {
     rows
 }
 
-fn slider(directory: Option<&NativeDeclarations>, key: &str) -> bool {
-    let kernel = kernel();
+/// `reg_setting.flags` of `key` in op 1's list of `nat`.
+fn flags(kernel: &crate::Kernel, directory: Option<&NativeDeclarations>, key: &str) -> u32 {
     let query = query_flags("nat", 0, 0, 0);
-    let reply = call_in(&kernel, directory, schema::OP_SETTINGS, &query, 4096).unwrap();
+    let reply = call_in(kernel, directory, schema::OP_SETTINGS, &query, 4096).unwrap();
     let prefix = format!("{key} ");
     let row = rows(&reply)
         .into_iter()
         .find(|r| r.starts_with(&prefix))
         .unwrap();
-    row[prefix.len()..].parse::<u32>().unwrap() & (1 << 11) != 0
+    row[prefix.len()..].parse().unwrap()
+}
+
+fn slider(directory: Option<&NativeDeclarations>, key: &str) -> bool {
+    flags(&kernel(), directory, key) & SLIDER != 0
 }
 
 fn detail(directory: Option<&NativeDeclarations>, setting: &str) -> Result<String, i32> {
@@ -154,4 +173,35 @@ fn op_two_shows_what_a_native_plugin_declared() {
     // A store being changed: asked again later.
     let _held = store.store.borrow_mut();
     assert_eq!(detail(Some(&store), "nat.size"), Err(ERR_BUSY));
+}
+
+#[test]
+fn a_native_setting_shows_while_its_governing_setting_has_the_value() {
+    let store = store();
+    let mut kernel = kernel();
+    let of = |kernel: &crate::Kernel, key: &str| flags(kernel, Some(&store), key);
+    assert_eq!(of(&kernel, "nat.size") & SHOWN, 0, "nat.flag is off");
+    assert_ne!(of(&kernel, "nat.flag") & GOVERNS, 0, "the page asks again");
+    assert_eq!(of(&kernel, "nat.plain") & (SHOWN | GOVERNS), SHOWN);
+    kernel
+        .shared
+        .settings
+        .set("nat.flag", SettingValue::Bool(true))
+        .unwrap();
+    assert_ne!(of(&kernel, "nat.size") & SHOWN, 0, "nat.flag is on");
+    // One row alone (op 2) finds what governs it the same way.
+    let reply = call_in(
+        &kernel,
+        Some(&store),
+        schema::OP_SETTING,
+        &key("nat.flag"),
+        4096,
+    )
+    .unwrap();
+    let row = rows(&reply).remove(0);
+    let bits: u32 = row.split(' ').nth(1).unwrap().parse().unwrap();
+    assert_ne!(bits & GOVERNS, 0);
+    // Without the store nothing is declared: shown, governing nothing.
+    assert_ne!(flags(&kernel, None, "nat.size") & SHOWN, 0);
+    assert_eq!(flags(&kernel, None, "nat.flag") & GOVERNS, 0);
 }

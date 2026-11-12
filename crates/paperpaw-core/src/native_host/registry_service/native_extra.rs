@@ -11,7 +11,7 @@ use crate::native_host::{
     registrations::{Record, SettingExtra},
 };
 use paperpaw_native::host_glue::ERR_BUSY;
-use paperpaw_sdk::{Editor, SettingSpec};
+use paperpaw_sdk::{Editor, SettingSpec, Settings};
 
 /// `setting_extra.flags` (`paperpaw_sdk::native::declare`).
 const SLIDER: u32 = 1;
@@ -132,4 +132,52 @@ fn native_name(spec: &SettingSpec) -> Option<(&str, &str)> {
     let plugin = spec.id.namespace();
     let name = spec.id.as_str().strip_prefix(plugin)?.strip_prefix('.')?;
     Some((plugin, name))
+}
+
+/// Whether a setting with `shown` shows now: not while the setting its
+/// `shown_if` names has another value (as [`Settings::shows`] for a spec's
+/// own; a setting not there hides nothing).
+pub(super) fn shows(settings: &Settings, shown: &Shown<'_>) -> bool {
+    if shown.shown_id.is_empty() {
+        return true;
+    }
+    let Some(condition) = settings.spec(shown.shown_id) else {
+        return true;
+    };
+    condition
+        .kind
+        .parse(shown.shown_value)
+        .is_some_and(|value| settings.get(shown.shown_id) == Some(&value))
+}
+
+/// Hands `f` the id of each setting a native plugin's declared `shown_if`
+/// names (once per record, as `all` spells it). Nothing while the store is
+/// being changed.
+pub(super) fn each_governing<'s>(
+    sources: &Sources<'_>,
+    all: &'s Settings,
+    f: &mut dyn FnMut(&'s str),
+) {
+    let Some(directory) = sources.directory else {
+        return;
+    };
+    let Ok(store) = directory.store.try_borrow() else {
+        return;
+    };
+    store.keys(Kind::Extra, &mut |key| {
+        store.with_record(key, &mut |record| {
+            if let Record::SettingExtra(extra) = record
+                && let Some(spec) = all.spec(extra.shown_id)
+            {
+                f(spec.id.as_str());
+            }
+        });
+    });
+}
+
+/// Whether a native plugin's declared `shown_if` names setting `id`.
+pub(super) fn governs(sources: &Sources<'_>, all: &Settings, id: &str) -> bool {
+    let mut found = false;
+    each_governing(sources, all, &mut |of| found |= of == id);
+    found
 }
