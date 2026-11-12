@@ -2,7 +2,7 @@
 //! now, and so who pays for an allocation made through the context-free
 //! `PpHeap` table.
 //!
-//! Every entry from host code into plugin code goes through [`within`], which
+//! Every entry from host code into plugin code goes through [`within_recorded`], which
 //! pushes the plugin and restores the previous one on every way out (a guard
 //! value, also when the call unwinds on a hosted target): the factory, the
 //! destructor, the event, draw and input callbacks of a registration, a
@@ -17,6 +17,7 @@
 //! plugin code there, as for [`host_slot`](super::host_slot)).
 
 use core::any::TypeId;
+use core::cell::Cell;
 use core::ffi::c_void;
 use core::ptr;
 
@@ -33,6 +34,9 @@ struct Frame {
     /// The services type `S` of the shell it runs in (its `TypeId`): a table
     /// entry reads the context only if the frame was pushed for its own `S`.
     kind: TypeId,
+    /// Where a host call made by this frame's own code is noted, or null:
+    /// set while `make` runs ([`within_recorded`], parked plugins #248).
+    calls: *const Cell<bool>,
     /// The frame this one was pushed over, or null.
     previous: *const Frame,
 }
@@ -88,21 +92,59 @@ impl Drop for Restore {
 /// `owner`, context `context` (a pinned `Context<S>`) and the `TypeId` `kind` of its
 /// services type `S`, with that plugin as the frame owner; the
 /// previous owner is back when it returns.
+#[cfg(test)]
 pub(crate) fn within<R>(
     owner: u64,
     context: *const c_void,
     kind: TypeId,
     call: impl FnOnce() -> R,
 ) -> R {
+    push(owner, context, kind, ptr::null(), call)
+}
+
+/// Runs `call` with the plugin as the frame owner, as `within` does (tests),
+/// and every host call the plugin makes from this frame
+/// itself (not from a frame pushed over it) sets `calls`
+/// ([`note_host_call`]): what `make` called besides registering.
+pub(crate) fn within_recorded<R>(
+    owner: u64,
+    context: *const c_void,
+    kind: TypeId,
+    calls: &Cell<bool>,
+    call: impl FnOnce() -> R,
+) -> R {
+    push(owner, context, kind, ptr::from_ref(calls), call)
+}
+
+fn push<R>(
+    owner: u64,
+    context: *const c_void,
+    kind: TypeId,
+    calls: *const Cell<bool>,
+    call: impl FnOnce() -> R,
+) -> R {
     let frame = Frame {
         owner,
         context,
         kind,
+        calls,
         previous: current::get(),
     };
     let _restore = Restore(frame.previous);
     current::set(ptr::from_ref(&frame));
     call()
+}
+
+/// Notes a host call of the plugin whose code runs now, where its frame
+/// records them ([`within_recorded`]); nothing otherwise.
+pub(crate) fn note_host_call() {
+    let frame = current::get();
+    // SAFETY: as for [`context_of`]; `calls` is null or borrowed by the
+    // `within_recorded` that pushed the frame, for as long as it is current.
+    if let Some(calls) = unsafe { frame.as_ref() }.and_then(|frame| unsafe { frame.calls.as_ref() })
+    {
+        calls.set(true);
+    }
 }
 
 /// The context of the plugin whose code runs now, if the frame was pushed

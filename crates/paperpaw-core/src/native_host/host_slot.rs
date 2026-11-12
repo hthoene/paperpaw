@@ -37,8 +37,16 @@ fn call(hook: &AtomicPtr<()>) {
 #[must_use = "the slot ends when this is dropped"]
 pub(super) struct Slot(());
 
-/// Begins a host slot: hold the result until the slot returns.
+/// Begins a host slot: hold the result until the slot returns. The call is
+/// noted where the plugin's frame records them (its `make`, #248).
 pub(super) fn enter() -> Slot {
+    super::frame_owner::note_host_call();
+    enter_registration()
+}
+
+/// As [`enter`], for `registrations.submit`: the one call `make` is meant to
+/// make, never noted.
+pub(super) fn enter_registration() -> Slot {
     call(&BEGIN);
     Slot(())
 }
@@ -88,15 +96,16 @@ mod tests {
                     .chars()
                     .take_while(|c| c.is_alphanumeric() || *c == '_')
                     .collect();
-                let body_end = after
-                    .find("\nunsafe extern \"C\" fn ")
-                    .or_else(|| after.find("\nextern \"C\" fn "))
-                    .unwrap_or(after.len());
+                // Up to the next entry, whatever its visibility.
+                let body_end = after.find("extern \"C\" fn ").unwrap_or(after.len());
                 let function = &after[..body_end];
                 let signature = function.split('{').next().unwrap();
                 if signature.contains("ctx: *mut c_void") && !FAST.contains(&name.as_str()) {
                     seen += 1;
-                    if !function.contains("host_slot::enter()") {
+                    let guarded = function.contains("host_slot::enter()")
+                        || (name == "registrations_submit"
+                            && function.contains("host_slot::enter_registration()"));
+                    if !guarded {
                         missing.push(format!("{}: {name}", path.display()));
                     }
                 }

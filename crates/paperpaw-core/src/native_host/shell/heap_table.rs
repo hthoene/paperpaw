@@ -21,10 +21,23 @@ impl<S: 'static> Context<S> {
     /// destructor, a callback), with the plugin as the frame owner. Every
     /// entry of host code into plugin code goes through here.
     pub(crate) fn run_plugin<R>(&self, call: impl FnOnce() -> R) -> R {
-        frame_owner::within(
+        frame_owner::within_recorded(
             self.resources.owner_id(),
             ptr::from_ref(self).cast(),
             TypeId::of::<S>(),
+            &self.calls.after_make,
+            call,
+        )
+    }
+
+    /// [`Self::run_plugin`] for `make`: its host calls other than
+    /// `registrations.submit` and the heap are noted apart (`calls.make`).
+    pub(crate) fn run_make<R>(&self, call: impl FnOnce() -> R) -> R {
+        frame_owner::within_recorded(
+            self.resources.owner_id(),
+            ptr::from_ref(self).cast(),
+            TypeId::of::<S>(),
+            &self.calls.make,
             call,
         )
     }

@@ -188,6 +188,23 @@ impl HostServices {
         Ok(())
     }
 
+    /// Whether `owner` still waits for its retirement (queued).
+    ///
+    /// # Errors
+    /// `ERR_BUSY` while the queue is in use; `ERR_STATE` once a retirement
+    /// was lost (which owner's is not known, so none is sure to be done).
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the kernel's unpark recipe calls it (#2638)")
+    )]
+    pub(crate) fn retiring(&self, owner: u64) -> Result<bool, i32> {
+        if self.lost.get() != 0 {
+            return Err(ERR_STATE);
+        }
+        let queue = self.retiring.try_borrow().map_err(|_| ERR_BUSY)?;
+        Ok(queue.contains(&owner))
+    }
+
     /// An owner is gone; `retired` says its retirement ran to the end. If not,
     /// it is queued for [`Self::retry_retirements`] (in the room reserved at
     /// admission).

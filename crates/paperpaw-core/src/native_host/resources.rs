@@ -161,6 +161,49 @@ impl HostResources {
             caller: None,
         })
     }
+
+    /// Admits `owner` again, a key this pool assigned before whose resources
+    /// are gone: a parked plugin made again (#248, `parked-plugins.md`). No
+    /// key is drawn, so what the kernel keys by it (the instance row, the
+    /// owner directory, timers, queued events) stays as it is. Only one
+    /// `OwnerResources` of a key may live at a time: the caller dropped the
+    /// earlier one (its handles are released, its retirement ran).
+    ///
+    /// # Errors
+    /// `ERR_INVALID` for a key this pool never assigned; `ERR_BUSY` while the
+    /// owner still holds a handle or its retirement is queued, or a table is
+    /// in use; as [`Self::try_owner`] otherwise.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the kernel's unpark recipe calls it (#2638)")
+    )]
+    pub(crate) fn try_owner_for(&self, owner: u64) -> Result<OwnerResources, i32> {
+        if owner == 0 || owner >= self.0.next_owner.get() {
+            return Err(paperpaw_native::host_glue::ERR_INVALID);
+        }
+        let holds = self
+            .0
+            .handles
+            .try_borrow()
+            .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?
+            .holds(owner);
+        if holds || self.0.hosts.retiring(owner)? {
+            return Err(paperpaw_native::host_glue::ERR_BUSY);
+        }
+        let table = self.0.try_clone().ok_or(ERR_NO_MEMORY)?;
+        self.0.hosts.admit_owner()?;
+        let Ok(heap_owner) = self.0.heap.admit() else {
+            // Not admitted after all: its reserved retirement is given back.
+            self.0.hosts.owner_gone(owner, true);
+            return Err(ERR_NO_MEMORY);
+        };
+        Ok(OwnerResources {
+            table,
+            owner,
+            heap_owner,
+            caller: None,
+        })
+    }
 }
 
 /// Host-assigned ownership of one plugin's handles in the device-wide pool.
@@ -245,6 +288,22 @@ impl OwnerResources {
 
     pub(crate) fn owner_id(&self) -> u64 {
         self.owner
+    }
+
+    /// Whether this owner holds any handle (a font, blob or service).
+    ///
+    /// # Errors
+    /// `ERR_BUSY` while the handle table is in use.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the kernel's unpark recipe calls it (#2638)")
+    )]
+    pub(crate) fn holds_handles(&self) -> Result<bool, i32> {
+        self.table
+            .handles
+            .try_borrow()
+            .map(|handles| handles.holds(self.owner))
+            .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)
     }
 
     /// The plugin heap's accounting and this owner's place in it.
