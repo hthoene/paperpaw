@@ -212,7 +212,13 @@ impl DocState {
             let _ = self.table.close(row.owner, row.id);
             return JobStep::None;
         }
+        // Not while a book is open for reading, nor beside the user's last
+        // input (it came after the book was asked for): the document is only
+        // closed and the book asked for again once covers may be made.
         let made = if self.table.reading_besides(0) {
+            None
+        } else if self.now.get() < self.input_quiet_until.get() {
+            self.job_held_back.set(true);
             None
         } else {
             Some(self.make_cover(hosts, route, row))

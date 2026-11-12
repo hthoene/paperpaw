@@ -255,7 +255,7 @@ fn a_cover_job_held_for_a_list_wakes_the_device_when_the_quiet_moment_is_over() 
         // The list was up a moment ago (the test kernel has no stack, so the
         // pass finds it gone): the job waits for the quiet moment, and the
         // device is woken at its end, not at some later tick.
-        w.state.cover_job_list(true);
+        w.state.cover_job_list(true, 0);
         kernel.native_cover_list();
         assert!(!kernel.native_doc_pump());
         assert!(log.calls.borrow().is_empty(), "held");
@@ -268,6 +268,29 @@ fn a_cover_job_held_for_a_list_wakes_the_device_when_the_quiet_moment_is_over() 
         kernel.native_cover_list();
         assert!(!kernel.native_doc_pump());
         assert_eq!(log.calls.borrow().len(), 1, "resumed at once");
+    });
+}
+
+#[test]
+fn a_cover_held_for_the_users_quiet_time_wakes_the_device_when_it_is_over() {
+    world(|w| {
+        let log = Rc::new(Log::default());
+        let (mut kernel, _opener) = kernel(w, &log);
+        kernel.now = Instant(10_000);
+        w.state.now.set(10_000);
+        w.state.allow_cover_jobs();
+        // The user's last input was at 10,000; a cover was asked for since
+        // and held back: the device is woken when the quiet time is over,
+        // not at some later tick, and the screens are told then.
+        kernel.last_activity = Instant(10_000);
+        w.state.cover_job_held_back();
+        kernel.native_cover_list();
+        assert_eq!(kernel.shared.native_instances.doc_retry(), Some(11_000));
+        assert!(kernel.service_due().is_some_and(|at| at.millis() == 11_000));
+        kernel.now = Instant(11_000);
+        w.state.now.set(11_000);
+        kernel.native_cover_list();
+        assert!(w.state.cover_jobs_released(), "the screens ask again");
     });
 }
 

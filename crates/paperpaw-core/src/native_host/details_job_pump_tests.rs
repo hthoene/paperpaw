@@ -327,6 +327,21 @@ fn kept_title(w: &World, path: &str) -> Option<std::string::String> {
 }
 
 #[test]
+fn the_quiet_second_counts_from_the_start() {
+    let mut w = world(&[]);
+    w.kernel.last_activity = Instant(5_000);
+    started(&mut w);
+    pump(&mut w, 5_500);
+    assert!(
+        !DocHost::cover_quiet(&*w.docs),
+        "no cover opens at the start"
+    );
+    assert!(DocHost::cover_must_wait(&*w.docs));
+    pump(&mut w, 6_100);
+    assert!(DocHost::cover_quiet(&*w.docs), "quiet a second after it");
+}
+
+#[test]
 fn native_books_are_read_one_at_a_time_and_the_catalog_is_wanted_once_at_its_end() {
     let mut w = world(&["books/a.epub", "books/b.docx", "books/c.epub"]);
     catalog(
