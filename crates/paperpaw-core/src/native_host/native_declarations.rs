@@ -14,7 +14,7 @@ pub(crate) fn pending(
     raw: RawDeclarations,
     allocations: &mut Allocations,
 ) -> Result<PendingDeclarations, i32> {
-    lease.live()?;
+    lease.check_running()?;
     let id = plugin.try_clone().ok_or(ERR_NO_MEMORY)?;
     let mut pending = PendingDeclarations::native(id, lease, owner);
     // A batch without indexed records keeps nothing, so it needs no room.
