@@ -40,7 +40,7 @@ fn kernel() -> Kernel {
             ))
             .unwrap();
     }
-    let driver = kernel.firmware.clone().unwrap();
+    let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
     driver.borrow_mut().set_plugin_host(PluginHost {
         loader: Loader::x4(1),
         offered: Offered {
@@ -56,7 +56,7 @@ fn kernel() -> Kernel {
 }
 
 fn asks(kernel: &Kernel, owner: u64) {
-    let driver = kernel.firmware.clone().unwrap();
+    let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
     let job = PluginInstall::new(owner, 1, "Download/dials", 1, Evidence::NONE).unwrap();
     driver
         .borrow_mut()
@@ -65,7 +65,7 @@ fn asks(kernel: &Kernel, owner: u64) {
 }
 
 fn granted(kernel: &Kernel, owner: u64) -> bool {
-    let driver = kernel.firmware.clone().unwrap();
+    let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
     kernel.feed_install_grants(&driver);
     driver.borrow().install_granted(owner)
 }
