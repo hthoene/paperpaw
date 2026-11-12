@@ -111,7 +111,7 @@ use paperpaw_sdk::{
     Settings, ShowsThrough, StatusItems,
 };
 
-pub use crate::builder::KernelBuilder;
+pub use crate::builder::{KernelBuilder, KernelError};
 pub use crate::card::CardTrouble;
 pub use crate::code_plugin::{CodeFile, CodeLoader, NativeAdmission, code_to_load};
 use crate::config::{mono_coverage, plugin_switches, read_config};
@@ -190,23 +190,6 @@ impl fmt::Display for Warning {
         write!(f, ": {}", self.message)
     }
 }
-
-/// Errors that prevent the kernel from starting.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum KernelError {
-    Graphics(GraphicsError),
-}
-
-impl fmt::Display for KernelError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            KernelError::Graphics(error) => write!(f, "cannot create framebuffer: {error}"),
-        }
-    }
-}
-
-impl core::error::Error for KernelError {}
 
 /// An open screen kept while its task is not shown
 /// ([`Command::SwitchTask`]): its id, slot and params.
