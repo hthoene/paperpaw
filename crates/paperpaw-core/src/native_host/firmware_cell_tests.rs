@@ -36,14 +36,20 @@ fn nothing_is_made_until_a_command_needs_it_and_it_goes_when_nothing_is_left() {
     assert!(cell.plugins_accepted(), "told while at rest");
     let driver = cell.make().unwrap();
     assert!(Rc::ptr_eq(&driver, &cell.make().unwrap()), "one driver");
-    assert!(driver.borrow().plugins_accepted(), "it keeps what it was told");
+    assert!(
+        driver.borrow().plugins_accepted(),
+        "it keeps what it was told"
+    );
     assert!(cell.machine().is_some());
     // Held by a command: it stays.
     assert!(!cell.rest());
     drop(driver);
     assert!(cell.rest());
     assert!(cell.driver().is_none() && cell.machine().is_none());
-    assert!(cell.plugins_accepted(), "what it was told rests with the cell");
+    assert!(
+        cell.plugins_accepted(),
+        "what it was told rests with the cell"
+    );
     assert!(cell.rest(), "at rest twice");
 }
 
@@ -51,7 +57,10 @@ fn nothing_is_made_until_a_command_needs_it_and_it_goes_when_nothing_is_left() {
 fn a_driver_with_work_left_stays_made() {
     let cell = FirmwareCell::new(fake(false));
     let driver = cell.make().unwrap();
-    driver.borrow_mut().submit_check(7, 1, "update.ppu").unwrap();
+    driver
+        .borrow_mut()
+        .submit_check(7, 1, "update.ppu")
+        .unwrap();
     drop(driver);
     assert!(!cell.rest(), "a queued check keeps it");
     let driver = cell.driver().unwrap();
@@ -64,7 +73,10 @@ fn a_driver_with_work_left_stays_made() {
 fn what_an_ended_job_left_for_its_plugin_rests_with_the_parts() {
     let cell = FirmwareCell::new(fake(false));
     let driver = cell.make().unwrap();
-    driver.borrow_mut().submit_check(7, 1, "update.ppu").unwrap();
+    driver
+        .borrow_mut()
+        .submit_check(7, 1, "update.ppu")
+        .unwrap();
     // The check ends (refused by the pump's first step or aborted): its
     // outcome is told and kept for op 13, and its result slot stays.
     driver.borrow_mut().abort_all();
@@ -77,7 +89,11 @@ fn what_an_ended_job_left_for_its_plugin_rests_with_the_parts() {
     drop(driver);
     assert!(cell.rest(), "only what plugins read is left: it rests");
     assert!(cell.driver().is_none());
-    assert_eq!(cell.lookup(7, 1).unwrap(), Some(told), "op 13 still answers");
+    assert_eq!(
+        cell.lookup(7, 1).unwrap(),
+        Some(told),
+        "op 13 still answers"
+    );
     assert_eq!(cell.lookup(7, 2).unwrap(), None);
     // Made again, the driver has it too; resting again keeps it.
     assert_eq!(cell.make().unwrap().borrow().lookup(7, 1), Some(told));
@@ -85,7 +101,10 @@ fn what_an_ended_job_left_for_its_plugin_rests_with_the_parts() {
     // The plugin stops: nothing is left for it.
     cell.forget_resting(7);
     assert_eq!(cell.lookup(7, 1).unwrap(), None);
-    assert!(cell.machine().is_none(), "no result kept: no machine either");
+    assert!(
+        cell.machine().is_none(),
+        "no result kept: no machine either"
+    );
 }
 
 #[test]

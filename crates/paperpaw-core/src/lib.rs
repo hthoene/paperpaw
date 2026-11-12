@@ -298,8 +298,7 @@ pub struct Kernel {
     /// Shared with the DEV command stages and their outputs, which give back
     /// reservations an unapplied batch leaves.
     radio_requests: alloc::rc::Rc<core::cell::RefCell<native_host::radio_requests::RadioRequests>>,
-    /// Firmware requests, queue and pump, made while a job needs them; none
-    /// without a firmware host.
+    /// Firmware jobs' table and pump, made while one needs them; none without a firmware host.
     firmware: Option<alloc::rc::Rc<native_host::firmware_cell::FirmwareCell>>,
     /// Since when the screen on top has been counted as shown.
     shown_since: Instant,

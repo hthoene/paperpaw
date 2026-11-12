@@ -271,8 +271,11 @@ impl Driver {
     pub(crate) fn into_parts(self) -> DriverParts {
         let mut kept = self.kept;
         kept.retain(|kept| kept.outcome.is_some());
-        let machine = Some(self.machine)
-            .filter(|machine| machine.try_borrow().map_or(true, |machine| !machine.at_rest()));
+        let machine = Some(self.machine).filter(|machine| {
+            machine
+                .try_borrow()
+                .map_or(true, |machine| !machine.at_rest())
+        });
         DriverParts {
             host: self.host,
             plugin_host: self.plugin_host,
