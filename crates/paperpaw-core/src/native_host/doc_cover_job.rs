@@ -225,8 +225,9 @@ impl DocState {
             return JobStep::None;
         }
         // A `details` document is never prepared (`document.md` 2.1): one the
-        // format answered preparing ends as failed, nothing converted.
-        if job.state == PREPARING && !job.details {
+        // format answered preparing ends as failed, nothing converted. One
+        // whose open is pending waits for it (`doc_service::pending`).
+        if job.state == PREPARING && (!job.details || job.open_pending) {
             return JobStep::Wait;
         }
         // It comes to an end by itself: displacements are not in a row.
@@ -307,6 +308,7 @@ impl DocState {
     pub(super) fn end_job(&self, hosts: &HostServices, route: &dyn Route, document: &Document) {
         self.finish_cache(hosts, document.id);
         if !document.format_gone
+            && !document.open_pending
             && let Ok((target, _)) = self.format_target(document.format)
         {
             let mut scratch = Vec::new();

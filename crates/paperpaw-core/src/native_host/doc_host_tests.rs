@@ -1231,6 +1231,8 @@ mod cover_job_tests;
 mod details_flag_tests;
 #[path = "doc_host_details_job_tests.rs"]
 mod details_job_tests;
+#[path = "doc_host_pending_tests.rs"]
+mod pending_tests;
 #[path = "doc_host_prepare_tests.rs"]
 mod prepare_tests;
 #[path = "doc_host_report_tests.rs"]

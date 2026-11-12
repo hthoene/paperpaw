@@ -183,7 +183,7 @@ fn covered(
     } else if host
         .table()
         .lease(host.owner(), document)
-        .is_ok_and(|d| d.details)
+        .is_ok_and(|d| d.details && !d.open_pending)
     {
         // A `details` open the format answered preparing is never prepared
         // (`document.md` 2.1): no cover until the next start, no conversion.
