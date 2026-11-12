@@ -176,3 +176,25 @@ fn every_linked_plugins_screen_keeps_the_entry_of_its_titles_table() {
     }
     assert!(kept > 10, "{kept} screens kept");
 }
+
+/// Each linked native plugin's row in the plugin list points to its manifest
+/// kept in the program, not a copy on the heap (#248, B; Senior M1, #1372).
+/// The flip lists them so (`list`, with the build's table of manifests).
+#[test]
+#[ignore = "needs native activation (the flip's list() with kept manifests, handoff to Firmware)"]
+fn every_linked_plugins_row_points_to_its_kept_manifest() {
+    let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
+    let builder = Kernel::builder(DEVICE).storage(storage);
+    let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
+    let _ = kernel.start(Instant(0));
+    let mut kept = 0;
+    for (id, _) in paperpaw_app::NATIVE_PLUGINS.iter() {
+        let info = kernel.plugins().get(id).expect("listed");
+        assert!(
+            info.manifest.is_fixed(),
+            "{id} holds a copy of its manifest"
+        );
+        kept += 1;
+    }
+    assert!(kept > 10, "{kept} rows kept");
+}

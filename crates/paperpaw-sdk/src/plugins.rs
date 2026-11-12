@@ -160,6 +160,21 @@ impl ManifestRef {
         Self(Held::Fixed(manifest))
     }
 
+    /// `made`, the manifest a plugin has: `kept`, the one kept in the
+    /// program, where every field of the two is the same (no heap), else a
+    /// copy of `made` of its own. A manifest kept in the program that
+    /// differs in any field (its description, what it uses, how it works)
+    /// is not taken for it.
+    ///
+    /// # Errors
+    /// `made` back, where the heap has no room for its copy.
+    pub fn try_new(made: Manifest, kept: Option<&'static Manifest>) -> Result<Self, Manifest> {
+        match kept {
+            Some(kept) if *kept == made => Ok(Self::fixed(kept)),
+            _ => try_box(made).map(|owned| Self(Held::Owned(owned))),
+        }
+    }
+
     /// Whether it is kept in the program ([`ManifestRef::fixed`]), not a copy.
     #[must_use]
     pub const fn is_fixed(&self) -> bool {
@@ -175,6 +190,26 @@ impl core::ops::Deref for ManifestRef {
             Held::Fixed(manifest) => manifest,
             Held::Owned(manifest) => manifest,
         }
+    }
+}
+
+/// `manifest` in a box of its own, or back where the heap has no room for it
+/// (`Box::new` would stop PaperPaw instead).
+fn try_box(manifest: Manifest) -> Result<Box<Manifest>, Manifest> {
+    const { assert!(core::mem::size_of::<Manifest>() > 0) };
+    let layout = core::alloc::Layout::new::<Manifest>();
+    // SAFETY: a layout of non-zero size (asserted above), as `alloc` needs;
+    // null is handled.
+    let pointer = unsafe { alloc::alloc::alloc(layout) }.cast::<Manifest>();
+    if pointer.is_null() {
+        return Err(manifest);
+    }
+    // SAFETY: fresh storage of `Manifest`'s size and alignment from the
+    // global allocator, which `Box` frees with the same layout; written
+    // before the box is made.
+    unsafe {
+        pointer.write(manifest);
+        Ok(Box::from_raw(pointer))
     }
 }
 
@@ -415,14 +450,17 @@ mod tests {
     use alloc::vec::Vec;
 
     use super::*;
-    use crate::Version;
+    use crate::{Uses, Version};
 
     fn info(id: &'static str, state: PluginState, enabled: bool) -> PluginInfo {
         PluginInfo {
-            manifest: Manifest::new(Id::new_static(id), "Name", Version::new(1, 0, 0))
-                .description("Does things.")
-                .uses(crate::Uses::NOTHING)
-                .into(),
+            manifest: ManifestRef::try_new(
+                Manifest::new(Id::new_static(id), "Name", Version::new(1, 0, 0))
+                    .description("Does things.")
+                    .uses(crate::Uses::NOTHING),
+                None,
+            )
+            .unwrap(),
             state,
             enabled,
             required_for: RequiredFor::default(),
@@ -496,8 +534,60 @@ mod tests {
     static LINKED: Manifest = Manifest::fixed(
         Id::new_static("linked"),
         "linked",
+        "",
         Version::of_package("0", "6", "0", "beta.3"),
     );
+
+    static HOW: [(&str, &str); 1] = [("en", "What it does.")];
+
+    /// A linked plugin's manifest with every field set (#248, B).
+    static FULL: Manifest = Manifest::fixed(
+        Id::new_static("full"),
+        "Full",
+        "Does it all.",
+        Version::new(1, 2, 3),
+    )
+    .uses(Uses::NETWORK)
+    .how(&HOW);
+
+    /// The manifest the plugin itself has: the same as `FULL`.
+    fn full() -> Manifest {
+        Manifest::new(Id::new_static("full"), "Full", Version::new(1, 2, 3))
+            .description("Does it all.")
+            .uses(Uses::NETWORK)
+            .how(&HOW)
+    }
+
+    /// The manifest kept in the program stands for the plugin's only where
+    /// every field is the same; any other is a copy, so nothing a plugin
+    /// declares (what it uses above all) is lost (#248, B; Senior M1, #1372).
+    #[test]
+    fn a_kept_manifest_stands_only_for_one_the_same_in_every_field() {
+        let same = ManifestRef::try_new(full(), Some(&FULL)).unwrap();
+        assert!(same.is_fixed());
+        assert!(core::ptr::eq(&*same, &FULL));
+        static OTHER_HOW: [(&str, &str); 1] = [("en", "Something else.")];
+        let differing = [
+            full().uses(Uses::NOTHING),
+            full().description("Does less."),
+            full().how(&OTHER_HOW),
+            Manifest::new(Id::new_static("full"), "Fuller", Version::new(1, 2, 3))
+                .description("Does it all.")
+                .uses(Uses::NETWORK)
+                .how(&HOW),
+            Manifest::new(Id::new_static("full"), "Full", Version::new(1, 2, 4))
+                .description("Does it all.")
+                .uses(Uses::NETWORK)
+                .how(&HOW),
+        ];
+        for made in differing {
+            let listed = ManifestRef::try_new(made.clone(), Some(&FULL)).unwrap();
+            assert!(!listed.is_fixed(), "{made:?}");
+            assert_eq!(*listed, made);
+        }
+        // No manifest kept: a copy.
+        assert!(!ManifestRef::try_new(full(), None).unwrap().is_fixed());
+    }
 
     #[test]
     fn a_manifest_kept_in_the_program_is_listed_without_a_copy() {
@@ -520,7 +610,7 @@ mod tests {
             "linked",
             Version::parse("0.6.0-beta.3").unwrap(),
         );
-        let copy = ManifestRef::from(made.clone());
+        let copy = ManifestRef::try_new(made.clone(), None).unwrap();
         assert!(!copy.is_fixed());
         assert_eq!(*listed.manifest, made);
         assert_eq!(listed.manifest, copy);

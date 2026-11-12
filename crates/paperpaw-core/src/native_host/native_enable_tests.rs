@@ -36,7 +36,11 @@ fn enabled(k: &mut Kernel, id: &str, default_on: bool) -> bool {
 
 fn info(id: &'static str, state: PluginState, enabled: bool) -> PluginInfo {
     PluginInfo::new(
-        Manifest::new(Id::new_static(id), id, Version::new(1, 0, 0)),
+        paperpaw_sdk::ManifestRef::try_new(
+            Manifest::new(Id::new_static(id), id, Version::new(1, 0, 0)),
+            None,
+        )
+        .unwrap(),
         state,
         enabled,
         RequiredFor::default(),
@@ -285,4 +289,29 @@ fn the_decision_says_how_to_list_the_plugin() {
         ),
         (true, Some(PluginProblem::Crashed))
     );
+}
+
+/// A linked plugin's manifest kept in the program (#248, B).
+static KEPT: Manifest = Manifest::fixed(Id::new_static("kept"), "kept", "", Version::new(1, 0, 0));
+
+/// The row of a linked plugin listed with its manifest kept in the program
+/// points there: no copy on the heap (#248, B; Senior M1, #1372).
+#[test]
+fn a_native_plugin_listed_with_a_kept_manifest_points_to_it() {
+    let mut k = kernel("", "");
+    let made = Manifest::new(Id::new_static("kept"), "kept", Version::new(1, 0, 0));
+    let manifest = paperpaw_sdk::ManifestRef::try_new(made, Some(&KEPT)).unwrap();
+    let info = PluginInfo::new(
+        manifest,
+        PluginState::Running,
+        true,
+        RequiredFor::default(),
+        PluginKind::BuiltIn,
+        None,
+        None,
+    );
+    k.list_native(info).unwrap();
+    let listed = &k.plugins().get("kept").unwrap().manifest;
+    assert!(listed.is_fixed());
+    assert!(core::ptr::eq(&**listed, &KEPT));
 }
