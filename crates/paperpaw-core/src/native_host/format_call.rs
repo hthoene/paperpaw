@@ -104,7 +104,7 @@ pub(crate) fn call(
     target: Target,
     payload: &[u8],
     out: &mut [u8],
-    env: &Env<'_>,
+    (env, entered): (&Env<'_>, &core::cell::Cell<bool>),
 ) -> Result<usize, i32> {
     let framed = framed(payload)?;
     let room = out.len().min(PAYLOAD_MAX);
@@ -119,6 +119,8 @@ pub(crate) fn call(
         InstanceState::Stopped => return Err(ERR_CANCELLED),
     };
     let reply = &mut out[..room];
+    // From here the payload is the format's (Senior, R1 on #1368).
+    entered.set(true);
     let result = lease.stage(target.token, &framed, reply, env);
     // A negative result is the format's own status and passes through; it is
     // not a misbehaviour. Only a reply the host cannot take is dropped.

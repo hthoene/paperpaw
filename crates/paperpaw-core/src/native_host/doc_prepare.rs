@@ -310,21 +310,21 @@ impl DocState {
         }
         // The format's roots 3, 4 and 6 are this call's, as in an open.
         let _scope = self.enter_scope(hosts, target.plugin, document.id, kind, &css)?;
-        // From here the call goes to the format: what failed before was the
-        // host's own (Senior, R1 on #1368).
-        called.set(true);
         let stage = Stage {
             route,
             images: &NoImages,
         };
         let mut result = Err(ERR_NOT_FOUND);
         let mut run = |sibling: &str| {
-            result = stage.call(
+            // `called` is set once the call goes to the format: what failed
+            // before (the open, the CSS, the scope, the call's own buffers)
+            // was the host's own (Senior, R1 on #1368).
+            result = stage.call_noted(
                 Opener {
                     owner: document.owner,
                     sibling,
                 },
-                target,
+                (target, called),
                 &call,
                 out,
             );
