@@ -39,7 +39,7 @@ pub struct ParkArgs<S> {
 pub(crate) struct Recipe<S: Services + 'static> {
     args: ParkArgs<S>,
     seat: OwnerSeat,
-    report: fn(&S, u32, i32),
+    report: fn(&S, &str, u32, i32),
     depth: FlatDepth,
     flat_host: Shared<FlatHost>,
     identity: NativeIdentity,
@@ -53,7 +53,7 @@ impl<S: Services + 'static> Recipe<S> {
     pub(crate) fn new(
         args: ParkArgs<S>,
         seat: OwnerSeat,
-        report: fn(&S, u32, i32),
+        report: fn(&S, &str, u32, i32),
         depth: FlatDepth,
         flat_host: Shared<FlatHost>,
         identity: NativeIdentity,
@@ -144,7 +144,7 @@ impl crate::Kernel {
         raw: &RawDeclarations,
         depth: &FlatDepth,
         events: super::event_tags::EventTags,
-        report: fn(&S, u32, i32),
+        report: fn(&S, &str, u32, i32),
         args: ParkArgs<S>,
     ) -> Option<Recipe<S>> {
         let host = retained.host();

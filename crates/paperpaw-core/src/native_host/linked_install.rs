@@ -61,7 +61,7 @@ impl crate::Kernel {
         resources: super::HostResources,
         depth: &FlatDepth,
         teardown: shell::Report<S>,
-        report: fn(&S, u32, i32),
+        report: fn(&S, &str, u32, i32),
         image: (*const u8, usize),
         fixed: super::FixedTables,
     ) -> Result<(), shell::Error> {
@@ -102,7 +102,7 @@ impl crate::Kernel {
         resources: super::HostResources,
         depth: &FlatDepth,
         teardown: shell::Report<S>,
-        report: fn(&S, u32, i32),
+        report: fn(&S, &str, u32, i32),
         image: (*const u8, usize),
         fixed: super::FixedTables,
     ) -> Result<(), shell::Error> {
@@ -153,7 +153,7 @@ impl crate::Kernel {
         resources: super::HostResources,
         depth: &FlatDepth,
         teardown: shell::Report<S>,
-        report: fn(&S, u32, i32),
+        report: fn(&S, &str, u32, i32),
         image: (*const u8, usize),
         fixed: super::FixedTables,
         park: Option<super::park_linked::ParkArgs<S>>,

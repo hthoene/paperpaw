@@ -5,9 +5,9 @@
 //! background (`core.work`), a step at a time, and answers once it is ready.
 //! The panel is a later slice (`PORTING-7.md`).
 use crate::{
-    declarations::{DEFAULT_FOLDER, POPUP_TOKEN, PROVIDER_TOKEN, WORK_KEY, WORK_TOKEN},
+    declarations::{POPUP_TOKEN, PROVIDER_TOKEN, WORK_KEY, WORK_TOKEN},
     native_disk::{HostRoot, Routed},
-    native_folders::Folders,
+    native_folders::{self, Folders},
     native_model::{self, Source},
     native_popup::View,
     native_source::Dictionaries,
@@ -22,7 +22,6 @@ use paperpaw_sdk::{
         lookup::{self, Ask, Entry},
         registrations,
         reply::Reply,
-        settings::{self, SettingValue},
         ui::Ui,
         work::{Work, WorkSpec},
     },
@@ -30,8 +29,6 @@ use paperpaw_sdk::{
 use paperpaw_stardict::Builder;
 use paperpaw_ui_kit::Screens;
 
-/// The setting of the folder.
-const FOLDER_KEY: &str = "dictionary.folder";
 /// Bytes of an index read per step of the background work.
 const STEP_BYTES: usize = 64 * 1024;
 
@@ -65,10 +62,7 @@ impl NativeDictionary {
     /// indexes still missing.
     fn ask(&mut self, host: &Host<'_>, ask: &Ask<'_>, reply: &mut Reply<'_>) -> Result<(), Error> {
         let mut scratch = [0u8; 300];
-        let folder = match settings::read_setting(host, FOLDER_KEY, &mut scratch)? {
-            SettingValue::Text(text) if !text.trim_matches('/').is_empty() => text,
-            _ => DEFAULT_FOLDER,
-        };
+        let folder = native_folders::folder_setting(host, &mut scratch)?;
         let (files, data) = (HostRoot::files(host), HostRoot::data(host));
         let storage = Routed {
             files: &files,

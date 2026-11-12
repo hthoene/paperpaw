@@ -1,11 +1,27 @@
 //! Listing the dictionary folder through `core.files` (root 1).
+use crate::declarations::DEFAULT_FOLDER;
 use crate::native_model::{Item, Listing};
 use paperpaw_sdk::native::{
     Error, Host,
     files::{self, Files},
+    settings::{self, SettingValue},
     storage::Root,
 };
 use paperpaw_ui_kit::mem::buffer;
+
+/// The setting of the folder.
+const FOLDER_KEY: &str = "dictionary.folder";
+
+/// The folder the setting names, or the default where it names none.
+///
+/// # Errors
+/// The host's refusal of the read.
+pub fn folder_setting<'b>(host: &Host<'_>, scratch: &'b mut [u8; 300]) -> Result<&'b str, Error> {
+    match settings::read_setting(host, FOLDER_KEY, scratch)? {
+        SettingValue::Text(text) if !text.trim_matches('/').is_empty() => Ok(text),
+        _ => Ok(DEFAULT_FOLDER),
+    }
+}
 
 /// A folder listing on the host's files; the service is opened for the walk and
 /// released with [`Folders::finish`].

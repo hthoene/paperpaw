@@ -233,7 +233,7 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
     depth: &paperpaw_core::native_host::flat::FlatDepth,
     mut services: impl FnMut() -> S,
     teardown: paperpaw_core::native_host::shell::Report<S>,
-    report: fn(&S, u32, i32),
+    report: fn(&S, &str, u32, i32),
     image: (*const u8, usize),
 ) -> alloc::vec::Vec<(
     &'static str,

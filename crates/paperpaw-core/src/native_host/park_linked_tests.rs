@@ -258,7 +258,7 @@ fn admit_with(kernel: &mut crate::Kernel, resources: HostResources) -> u64 {
             resources,
             &depth,
             |_, _, _, _| {},
-            |_, _, _| {},
+            |_, _, _, _| {},
             (image.as_ptr(), image.len()),
             FixedTables::NONE,
         )
@@ -367,7 +367,7 @@ fn the_plain_entry_never_parks() {
             HostResources::try_new().unwrap(),
             &FlatDepth::try_new().unwrap(),
             |_, _, _, _| {},
-            |_, _, _| {},
+            |_, _, _, _| {},
             (image.as_ptr(), image.len()),
             FixedTables::NONE,
         )
