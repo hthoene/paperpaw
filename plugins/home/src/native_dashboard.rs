@@ -97,6 +97,9 @@ struct Laid {
     handle: u16,
     /// The status line above the grid (`home.status-bar`), made and placed.
     status: Option<(Made, Rect)>,
+    /// How far the focus ring reaches outside a target: what a focus step
+    /// draws again around it, kept here so that a step reads no style.
+    ring_room: i32,
 }
 
 /// Which of the footer's buttons are there.
@@ -250,6 +253,7 @@ impl Dashboard {
             wide,
             ..
         } = Shown::read(host, display, font)?;
+        let ring_room = ring_room(&Style::read(host, display, font)?);
         let nav = self.nav.get_or_insert(Nav::new(pages.len()));
         nav.resize(pages.len());
         let (page, count) = (nav.page, nav.pages);
@@ -338,6 +342,7 @@ impl Dashboard {
             wide,
             handle: (metrics.row / 2).max(16),
             status,
+            ring_room,
         })
     }
 
@@ -856,13 +861,9 @@ impl Dashboard {
         laid: &Laid,
         ats: [Option<usize>; 2],
     ) -> Result<(), Error> {
-        let display = snapshot::capture_snapshot(host)?;
-        let font = Font::acquire_role(host, FontRole::Ui)?;
-        let style = Style::read(host, &display, &font);
-        let released = font.release();
-        let style = style?;
-        released?;
-        let room = i32::from(style.gap / 2).saturating_add(i32::from(style.line.max(2)));
+        // Nothing is allocated here: the focus has moved already, and a step
+        // that could not be drawn would leave it moved unseen.
+        let room = laid.ring_room;
         let mut scratch = [0; 64];
         let mut sender = CommandSender::new(host, &mut scratch);
         for target in ats
@@ -1209,6 +1210,15 @@ fn paintpush(paint: &mut Vec<Paint>, op: Paint) -> Result<(), Error> {
 
 /// Where target `rect` and its ring (`room` round it) are, from the top left
 /// of the screen's region at `origin`.
+/// How far [`ring`] reaches outside its target: the air around it and its line.
+fn ring_room(style: &Style) -> i32 {
+    ring_room_of(style.gap, style.line)
+}
+
+fn ring_room_of(gap: u16, line: u16) -> i32 {
+    i32::from(gap / 2).saturating_add(i32::from(line.max(2)))
+}
+
 fn focus_area(rect: Rect, room: i32, origin: (i32, i32)) -> FrameRect {
     let grown = |size: u16| {
         u32::from(size).saturating_add(u32::try_from(room).unwrap_or(0).saturating_mul(2))
@@ -1256,6 +1266,19 @@ fn clamp_i32(value: i32) -> u16 {
 #[allow(clippy::unwrap_used, reason = "test assertions")]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_focus_step_draws_again_all_the_ring_covers() {
+        // Air 12 / 2 = 6 around the target, then a line of at least 2.
+        assert_eq!(ring_room_of(12, 1), 8);
+        assert_eq!(ring_room_of(12, 3), 9);
+        let target = Rect::new(100, 200, 50, 60);
+        let area = focus_area(target, ring_room_of(12, 1), (0, 40));
+        // The area reaches past the air and the line, measured from the region.
+        let (x, y) = (100 - 6 - 2, 200 - 6 - 2 - 40);
+        assert_eq!((area.x, area.y), (x, y));
+        assert_eq!((area.width, area.height), (50 + 16, 60 + 16));
+    }
 
     #[test]
     fn a_point_is_inside_a_rectangle_by_its_left_and_top_edges() {
