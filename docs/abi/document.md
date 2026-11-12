@@ -863,6 +863,10 @@ reply 4,096 bytes, stage payload 3,840.
 - Host note: the details job sizes its reply rooms to these caps (`OPEN_REPLY` in
   doc_service/details.rs, `READ_REPLY` in doc_details_job.rs); a minor that grows `doc_meta`,
   `doc_text` or `fmt.state` grows them too.
+- Host note: the host's own calls lend a format small reply rooms too: 256 bytes for op 3
+  `prepare` and op 4 `close` (`OPEN_REPLY`), 384 bytes for op 17 `cover` (`COVER_REPLY` in
+  doc_service/cover.rs, one `fmt.image` at its caps). A format answer longer than that is refused,
+  never cut; a minor that grows `fmt.state` or `fmt.image` grows them too (#248).
 
 ### 8.2 Memory (X4)
 
