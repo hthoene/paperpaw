@@ -11,13 +11,8 @@
 //! nothing. A grant that already skipped a question is not asked again for
 //! that job: a revocation counts for later jobs.
 
-use super::{
-    firmware_driver::{Driver, REQUESTS_MAX},
-    plugin_job::InstallGrants,
-};
+use super::{firmware_cell::DriverRef, firmware_driver::REQUESTS_MAX, plugin_job::InstallGrants};
 use crate::Kernel;
-use alloc::rc::Rc;
-use core::cell::RefCell;
 use paperpaw_sdk::SettingValue;
 
 /// The owners that hold the grant at the moment of the reading.
@@ -71,7 +66,7 @@ impl Kernel {
     /// Reads the grants of the plugins that have a plugin job and hands
     /// them to the driver, before it steps. A busy driver is left alone: it
     /// steps nothing then either.
-    pub(crate) fn feed_install_grants(&self, driver: &Rc<RefCell<Driver>>) {
+    pub(crate) fn feed_install_grants(&self, driver: &DriverRef) {
         let mut owners = [0; REQUESTS_MAX];
         let Ok(count) = driver
             .try_borrow()

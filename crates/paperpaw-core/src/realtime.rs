@@ -30,17 +30,10 @@ const ESCAPE_HINTED: &str = ".paperpaw/core/escape-hinted";
 impl Kernel {
     /// The first time a screen that takes every key shows, a notice says
     /// how to leave it (*Back* held, or a corner held on touch screens);
-    /// never again. A native screen takes every key only to hand it to its
-    /// plugin, which leaves on *Back* as any screen does: no notice over it,
-    /// as Beta 3 showed none over the screens native plugins now draw.
+    /// never again. Not over a native screen ([`Self::realtime_at`]): Beta 3
+    /// showed none over the screens native plugins now draw.
     pub(crate) fn hint_escape(&mut self) {
-        let native = self
-            .stack
-            .len()
-            .checked_sub(1)
-            .is_some_and(|top| self.is_native_at(top));
-        if native || !self.top_mode().takes_raw_keys() || self.shared.storage.exists(ESCAPE_HINTED)
-        {
+        if !self.top_realtime() || self.shared.storage.exists(ESCAPE_HINTED) {
             return;
         }
         let key = match self.shared.device.input.touch {
@@ -52,6 +45,26 @@ impl Kernel {
         // start at most.
         let _ = self.shared.storage.write(ESCAPE_HINTED, b"");
         self.notify(text);
+    }
+
+    /// Whether open screen `index` runs in real time: it takes raw keys and
+    /// is not a native screen. A native screen takes every key only so that
+    /// its plugin gets them as input (`NativeScreen::mode`); for the kernel it
+    /// is a screen of pages: no hint and no way out by *Back* or a corner
+    /// held, and it holds no background work (#2671).
+    pub(crate) fn realtime_at(&self, index: usize) -> bool {
+        self.stack
+            .get(index)
+            .is_some_and(|active| active.screen.mode().takes_raw_keys())
+            && !self.is_native_at(index)
+    }
+
+    /// [`Self::realtime_at`] of the screen on top.
+    pub(crate) fn top_realtime(&self) -> bool {
+        self.stack
+            .len()
+            .checked_sub(1)
+            .is_some_and(|top| self.realtime_at(top))
     }
 
     /// How the screen on top runs; a screen of pages where there is none.
@@ -84,9 +97,8 @@ impl Kernel {
     pub(crate) fn raw_key(&mut self, name: &'static str, state: ButtonState, now: Instant) -> bool {
         let pressed = state == ButtonState::Pressed;
         if pressed {
-            let input = self
-                .input_index()
-                .map(|index| self.stack[index].screen.mode());
+            let index = self.input_index();
+            let input = index.map(|index| self.stack[index].screen.mode());
             if name == buttons::POWER || !input.is_some_and(|mode| mode.takes_raw_keys()) {
                 return false;
             }
@@ -95,7 +107,8 @@ impl Kernel {
                 return false;
             }
             self.raw.taken.push(name);
-            if name == buttons::BACK {
+            // *Back* held leaves a real-time screen only, not a native one.
+            if name == buttons::BACK && index.is_some_and(|index| self.realtime_at(index)) {
                 self.raw.back_since = Some(now);
             }
             return true;
@@ -129,8 +142,7 @@ impl Kernel {
     /// *Back*). It is offered to the screen as ever.
     pub(crate) fn note_corner(&mut self, pointer: &paperpaw_platform::PointerEvent, now: Instant) {
         use paperpaw_platform::PointerPhase;
-        let mode = self.top_mode();
-        if !(mode.is_full_screen() || mode.takes_raw_keys()) {
+        if !(self.top_mode().is_full_screen() || self.top_realtime()) {
             self.raw.corner = None;
             return;
         }

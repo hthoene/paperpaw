@@ -90,11 +90,14 @@ struct Wired {
     /// The profile's device has the radio the pretend Wi-Fi answers for
     /// (`wifi.rs`): `uses.wifi` and the radio commands are backed.
     wifi: bool,
+    /// Plugin jobs are taken (the emulated device installs plugins from the
+    /// card: [`card_plugins`]): `uses.install` is backed.
+    install: bool,
 }
 
 impl Wired {
     /// How many combinations there are (one bit a service).
-    const COMBINATIONS: usize = 1 << 9;
+    const COMBINATIONS: usize = 1 << 10;
 
     fn index(self) -> usize {
         [
@@ -107,6 +110,7 @@ impl Wired {
             self.files,
             self.lookup,
             self.wifi,
+            self.install,
         ]
         .into_iter()
         .enumerate()
@@ -119,9 +123,10 @@ impl Wired {
 /// `uses.secrets` (it has a sealing key), `uses.network` (HTTP requests,
 /// `core.net`), `uses.storage` (the card's files, `core.files`) and
 /// `uses.library` (`core.library`) and, on a profile whose device has Wi-Fi,
-/// `uses.wifi` (the pretend radio answers the radio commands). Not offered,
-/// because the desktop does not back them yet: `uses.bluetooth`,
-/// `uses.install`, `uses.firmware`. A plugin that needs one is refused at admission.
+/// `uses.wifi` (the pretend radio answers the radio commands) and, where the
+/// emulated device installs plugins ([`card_plugins`]), `uses.install`. Not
+/// offered, because the desktop does not back them yet: `uses.bluetooth`,
+/// `uses.firmware`. A plugin that needs one is refused at admission.
 fn features(wired: Wired) -> &'static [Feature<'static>] {
     use std::sync::OnceLock;
     static FEATURES: [OnceLock<&'static [Feature<'static>]>; Wired::COMBINATIONS] =
@@ -153,6 +158,10 @@ fn features_list(wired: Wired) -> &'static [Feature<'static>] {
     // The radio commands (`device.md`) are answered by the pretend radio.
     if wired.wifi {
         features.push(feature("uses.wifi"));
+    }
+    // Plugin installs, checks and removals (`device.md` 5.1, 5.2).
+    if wired.install {
+        features.push(feature("uses.install"));
     }
     Box::leak(features.into_boxed_slice())
 }
@@ -380,6 +389,51 @@ fn wired_services(wired: &WiredHosts, on_card: Wired) -> Wired {
     }
 }
 
+/// What a plugin file for the emulated device is checked against: the loader
+/// of its chip and the metadata profile of its firmware (`device.md` 5.1), as
+/// the device's firmware has them. `None` for a device PaperPaw installs no
+/// plugin files on. The emulator runs no such file itself (an installed
+/// plugin is the device's from its next start), but its store installs,
+/// checks and removes them as the device's does.
+pub fn card_plugins(
+    profile: &Profile,
+) -> Option<(
+    paperpaw_native::header5::Host,
+    metadata::Profile<'static>,
+    u16,
+)> {
+    use crate::no_firmware::{CHIP_ESP32_C3, CHIP_ESP32_S3};
+    use paperpaw_native::header5::{Host, S3_PROFILE, X4_PROFILE};
+    let minor = paperpaw_native::host_glue::MINOR;
+    match profile.catalog_device? {
+        "x4" => Some((Host::x4(minor), X4_PROFILE, CHIP_ESP32_C3)),
+        "x4-pro" | "x4-classic" => Some((Host::x4_pro(minor), S3_PROFILE, CHIP_ESP32_S3)),
+        _ => None,
+    }
+}
+
+/// Tells `kernel` what plugin jobs check a plugin file against: the services
+/// and features wired here (`on`, with `uses.install`), for the chip of
+/// `profile` ([`card_plugins`]). Whether plugin jobs are taken (the device
+/// installs plugins and the kernel has its firmware host, `device::build`).
+fn take_plugin_jobs(kernel: &mut Kernel, profile: &Profile, on: Wired) -> bool {
+    let Some((loader, card, _)) = card_plugins(profile) else {
+        return false;
+    };
+    let on = Wired {
+        install: true,
+        ..on
+    };
+    let offered = metadata::Host {
+        abi_major: 7,
+        minor: paperpaw_native::host_glue::MINOR,
+        profile: card,
+        services: offered(on),
+        features: features(on),
+    };
+    kernel.set_plugin_host(loader, offered, &[])
+}
+
 /// Registers every plugin of `paperpaw_app::NATIVE_PLUGINS` with `kernel` for
 /// the device of `profile`; the number registered. Call before the kernel
 /// starts, once.
@@ -459,7 +513,8 @@ pub fn register(
     {
         eprintln!("native plugins: the secrets file could not be upgraded ({status})");
     }
-    let on = wired_services(&wired, on_card);
+    let mut on = wired_services(&wired, on_card);
+    on.install = take_plugin_jobs(kernel, profile, on);
     *inputs.net.borrow_mut() =
         transport
             .zip(wired.net().cloned())

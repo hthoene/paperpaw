@@ -69,7 +69,7 @@ impl DocState {
         {
             return Err(None);
         }
-        let at = self.job_resume_at.get();
+        let at = self.job_resume_at.get().max(self.input_quiet_until.get());
         if self.now.get() < at {
             return Err(Some(at));
         }
@@ -89,18 +89,24 @@ impl DocState {
 
     /// A library list screen is up (`up`) or not (`DocHost::cover_job_list`):
     /// the job is held while one is up and for [`RESUME_AFTER_MS`] after, and
-    /// the time it is held is no awake time.
+    /// the time it is held is no awake time. Also held, as a conversion and
+    /// a cover that is made, until `quiet_until` (the user's last input, the
+    /// start, plus the quiet time: the heap's peaks never come beside what
+    /// the user works in).
     ///
-    /// Says when the quiet moment of a job that waits ends (the kernel's
-    /// clock, ms), so that the pump asks to be woken then: `None` while a
-    /// list is up (its leaving makes a pass), without a job, or with no hold.
-    pub(super) fn list_hold(&self, up: bool) -> Option<u64> {
+    /// Says when the wait of a job (or a start held back) that only time
+    /// holds ends (the kernel's clock, ms), so that the pump asks to be woken
+    /// then: `None` while a list is up (its leaving makes a pass), without
+    /// anything to wait for, or with no hold.
+    pub(super) fn list_hold(&self, up: bool, quiet_until: u64) -> Option<u64> {
         let now = self.now.get();
+        self.input_quiet_until.set(quiet_until);
         if up {
             self.list_quiet_until
                 .set(now.saturating_add(super::RESUME_AFTER_MS));
         }
-        let hold = up || now < self.list_quiet_until.get();
+        let list_over = self.list_quiet_until.get();
+        let hold = up || now < list_over || now < quiet_until;
         if hold && !self.table.list_held() {
             // What it ran so far counts; the held time does not.
             self.add_used();
@@ -108,7 +114,9 @@ impl DocState {
         if self.table.set_list_hold(hold) && !hold {
             self.job_started.set(now);
         }
-        (hold && !up && self.table.cover_job().is_some()).then(|| self.list_quiet_until.get())
+        let waiting = self.table.cover_job().is_some() || self.job_held_back.get();
+        let at = list_over.max(quiet_until);
+        (hold && !up && waiting).then_some(at)
     }
 
     /// What the job that runs has run since it began (or since this was last

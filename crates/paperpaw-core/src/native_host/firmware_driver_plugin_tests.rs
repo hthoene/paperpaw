@@ -2,12 +2,13 @@
 //! `plugin_job`, against a job that takes a scripted number of steps.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 use super::*;
-use crate::native_host::firmware_install::KIND_CHECK;
+use crate::native_host::firmware_install::{FirmwareInstall, KIND_CHECK};
 use crate::native_host::plugin_job::{
     Answer, Finished, KIND_INSTALL, KIND_REMOVAL, PluginFacts, PluginQuestion, Relation,
     USES_SHOWN, Uses, reason as job_reason,
 };
 use crate::native_host::plugin_jobs::PluginJobs;
+use core::cell::RefCell;
 use paperpaw_native::{
     header5::{Host as Loader, X4_PROFILE},
     host_glue::{ERR_FULL, ERR_UNSUPPORTED},
@@ -234,7 +235,7 @@ fn driver(with_host: bool) -> Driver {
     );
     let mut d = Driver::new(
         Box::new(fake),
-        Rc::new(RefCell::new(FirmwareInstall::new())),
+        crate::native_host::firmware_cell::test_shared(RefCell::new(FirmwareInstall::new())),
     );
     if with_host {
         d.set_plugin_host(host());
@@ -303,7 +304,7 @@ fn plugin_and_firmware_jobs_run_one_at_a_time_in_queue_order() {
     assert!(matches!(ended, Event::Ended(o) if (o.owner, o.kind, o.reason) == (1, KIND_CHECK, 0)));
     assert_eq!(seen.steps.get(), 3);
     assert!(seen.dropped.get());
-    assert!(!d.machine().borrow().busy());
+    assert!(!d.machine().unwrap().borrow().busy());
     assert!(d.holds(2, 1));
     // Then the firmware check, which ends in its turn.
     assert!(matches!(run(&mut d), Event::Ended(o) if o.owner == 2));
@@ -313,7 +314,7 @@ fn plugin_and_firmware_jobs_run_one_at_a_time_in_queue_order() {
     let (job, seen) = check_job(2, 1, 1);
     d.submit_plugin(job).unwrap();
     d.pump(&NoStorage, &Names, 100);
-    assert!(d.machine().borrow().busy());
+    assert!(d.machine().unwrap().borrow().busy());
     assert_eq!(seen.steps.get(), 0);
     assert!(matches!(run(&mut d), Event::Ended(o) if o.owner == 1));
     assert!(matches!(run(&mut d), Event::Ended(o) if o.owner == 2));
@@ -325,7 +326,7 @@ fn a_plugin_checks_facts_wait_in_its_owners_result_slot_for_op_6() {
     let mut d = driver(true);
     let (job, _) = check_job(1, 7, 2);
     d.submit_plugin(job).unwrap();
-    let machine = d.machine();
+    let machine = d.machine().unwrap();
     // Queued and running: the slot is reserved, empty (`ERR_BUSY`).
     assert_eq!(machine.borrow().checked(1).err(), Some(ERR_BUSY));
     d.pump(&NoStorage, &Names, 100);
@@ -361,7 +362,7 @@ fn a_refused_plugin_check_leaves_its_reason_and_no_facts() {
     }))
     .unwrap();
     assert!(matches!(run(&mut d), Event::Ended(o) if o.reason == job_reason::UNSIGNED));
-    let machine = d.machine();
+    let machine = d.machine().unwrap();
     let checked = machine.borrow().checked(1).unwrap();
     assert_eq!(checked.reason, job_reason::UNSIGNED);
     assert!(checked.plugin_facts().is_none() && checked.facts().is_none());
@@ -404,7 +405,7 @@ fn a_stop_ends_the_running_plugin_job_and_the_waiting_ones_with_reason_twenty() 
     assert_eq!((first.owner, first.kind, first.reason), (1, KIND_CHECK, 20));
     assert_eq!((second.owner, second.reason), (2, 20));
     // Their check slots say why, not busy.
-    let machine = d.machine();
+    let machine = d.machine().unwrap();
     assert_eq!(machine.borrow().checked(1).unwrap().reason, 20);
     assert_eq!(machine.borrow().checked(2).unwrap().reason, 20);
 }
@@ -421,7 +422,7 @@ fn a_sender_that_stopped_takes_its_running_plugin_job_and_leaves_the_others() {
     assert!(seen.dropped.get());
     assert!(!d.holds(1, 1));
     assert!(d.take_ready().is_none());
-    assert!(d.machine().borrow().checked(1).is_err());
+    assert!(d.machine().unwrap().borrow().checked(1).is_err());
     // The firmware check of another plugin still runs (the machine was not
     // aborted for the plugin job's sake).
     assert!(matches!(run(&mut d), Event::Ended(o) if o.owner == 2 && o.reason == 0));
@@ -616,7 +617,7 @@ fn a_plugin_checks_needs_draft_waits_in_the_result_slot_for_op_6() {
     }))
     .unwrap();
     assert!(matches!(run(&mut d), Event::Ended(o) if o.reason == job_reason::NEEDS_NEWER));
-    let machine = d.machine();
+    let machine = d.machine().unwrap();
     let checked = machine.borrow().checked(1).unwrap();
     assert_eq!(
         (checked.reason, checked.needs_draft()),

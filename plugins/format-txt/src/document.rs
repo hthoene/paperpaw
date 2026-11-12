@@ -339,8 +339,14 @@ impl TxtDocument {
                 };
                 bytes.drain(..kept);
                 *start = from;
-                let more = from + bytes.len() as u32;
                 let ahead = to.saturating_add(AHEAD).min(self.end);
+                // A window that must grow lets go of its block and reads what
+                // it kept again (a few KiB, a few times a book): growing in
+                // place holds the old block and the new one at once (#248).
+                if ahead.saturating_sub(from) as usize > bytes.capacity() {
+                    *bytes = Vec::new();
+                }
+                let more = from + bytes.len() as u32;
                 if let Err(error) = read_onto(storage, &self.path, more, ahead, bytes) {
                     bytes.clear();
                     return Err(error);

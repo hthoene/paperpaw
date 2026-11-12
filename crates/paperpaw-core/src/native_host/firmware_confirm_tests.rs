@@ -176,7 +176,7 @@ mod kernel_side {
 
     /// An install that has asked, pumped until the kernel opened its screen.
     fn shown(kernel: &mut Kernel) -> u128 {
-        let driver = kernel.firmware.clone().unwrap();
+        let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
         driver
             .borrow_mut()
             .submit_install(1, 5, "update.ppu", None, 0)
@@ -192,8 +192,8 @@ mod kernel_side {
     }
 
     fn state(kernel: &Kernel) -> State {
-        let driver = kernel.firmware.clone().unwrap();
-        let machine = driver.borrow().machine();
+        let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
+        let machine = driver.borrow().machine().unwrap();
         machine.borrow().state()
     }
 
@@ -233,7 +233,7 @@ mod kernel_side {
         assert_eq!(state(&kernel), State::WaitingForUser);
         assert!(kernel.stack.iter().any(|s| s.id == SCREEN), "still open");
         // And the driver takes only the nonce of the screen shown.
-        let driver = kernel.firmware.clone().unwrap();
+        let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
         assert!(
             driver
                 .borrow_mut()
@@ -262,7 +262,7 @@ mod kernel_side {
         let mut kernel = kernel();
         shown(&mut kernel);
         let _ = kernel.suspend(paperpaw_sdk::Instant(1_000));
-        let driver = kernel.firmware.clone().unwrap();
+        let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
         // The finish that follows tells it (nobody is subscribed), so it is
         // kept for op 13.
         let outcome = driver.borrow().kept(1, KIND_FIRMWARE).unwrap();
@@ -279,7 +279,7 @@ mod kernel_side {
         let mut kernel = kernel();
         let nonce = shown(&mut kernel);
         kernel.firmware_sender_stopped(1);
-        let driver = kernel.firmware.clone().unwrap();
+        let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
         assert_eq!(driver.borrow().waiting(), 0);
         assert_ne!(state(&kernel), State::WaitingForUser);
         assert!(
@@ -306,7 +306,7 @@ mod kernel_side {
             .build()
             .unwrap();
         kernel.start(Instant(0));
-        let driver = kernel.firmware.clone().unwrap();
+        let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
         driver
             .borrow_mut()
             .submit_install(1, 5, "update.ppu", None, 0)
@@ -320,7 +320,7 @@ mod kernel_side {
 
     /// What the install of request 5 ended with, told or not yet.
     fn ended(kernel: &Kernel) -> Option<u8> {
-        let driver = kernel.firmware.clone().unwrap();
+        let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
         let driver = driver.borrow();
         driver
             .kept(1, KIND_FIRMWARE)
@@ -436,7 +436,7 @@ mod kernel_side {
                 .unwrap();
             kernel.start(Instant(0));
             let _ = kernel.open_screen(Instant(1), LOCK, Params::new());
-            let driver = kernel.firmware.clone().unwrap();
+            let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
             driver
                 .borrow_mut()
                 .submit_install(1, 5, "update.ppu", None, 0)

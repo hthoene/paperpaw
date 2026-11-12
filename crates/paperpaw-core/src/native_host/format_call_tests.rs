@@ -29,6 +29,16 @@ pub(crate) enum Behavior {
     TooMany,
     /// Exactly these bytes as the reply.
     Raw(&'static [u8]),
+    /// Writes over all its reply room, then answers this status.
+    Scribble(i32),
+    /// Notes the heap held while it runs ([`HELD_AT_STAGE`]), then as `Good`.
+    Measure,
+}
+
+extern crate std;
+std::thread_local! {
+    /// The test allocator's live bytes when a `Measure` format ran.
+    static HELD_AT_STAGE: Cell<usize> = const { Cell::new(0) };
 }
 
 pub(crate) struct Fake {
@@ -89,6 +99,16 @@ impl Dispatch for Fake {
             Behavior::Raw(bytes) => {
                 out[..bytes.len()].copy_from_slice(bytes);
                 Ok(i32::try_from(bytes.len()).unwrap())
+            }
+            Behavior::Scribble(status) => {
+                out.fill(0xee);
+                Ok(status)
+            }
+            Behavior::Measure => {
+                let live = crate::native_host::shell::tests::HEAP_LIVE.with(Cell::get);
+                HELD_AT_STAGE.with(|held| held.set(live));
+                out[..5].copy_from_slice(&[1, 5, 2, 0xaa, 0xbb]);
+                Ok(5)
             }
         }
     }
@@ -224,4 +244,41 @@ fn a_lazy_format_asks_for_its_start_and_a_stopped_one_is_cancelled() {
     assert_eq!(run(&h, stopped, &[], &mut out), Err(ERR_CANCELLED));
     assert!(h.seen.borrow().is_empty());
     assert_eq!(h.registry.depth(), 0);
+}
+
+#[test]
+fn what_a_format_wrote_before_an_error_is_zeros_and_past_its_room_untouched() {
+    let mut h = Harness::new();
+    let failing = h.add("a", Behavior::Scribble(ERR_STATE));
+    let cut = h.add("b", Behavior::Truncated);
+    for plugin in [failing, cut] {
+        let mut out = vec![0xa5_u8; PAYLOAD_MAX + 16];
+        assert!(run(&h, plugin, &[], &mut out).is_err());
+        assert!(out[..PAYLOAD_MAX].iter().all(|byte| *byte == 0));
+        assert!(out[PAYLOAD_MAX..].iter().all(|byte| *byte == 0xa5));
+    }
+    // Not asked at all (a stopped format): untouched.
+    let stopped = h.add("c", Behavior::Good);
+    h.registry.stop(stopped).unwrap();
+    let mut out = [0xa5_u8; 8];
+    assert_eq!(run(&h, stopped, &[], &mut out), Err(ERR_CANCELLED));
+    assert_eq!(out, [0xa5; 8]);
+}
+
+#[test]
+fn the_format_answers_into_the_callers_buffer_and_no_copy_of_it_is_held() {
+    let mut h = Harness::new();
+    let plugin = h.add("format-epub", Behavior::Measure);
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let mut out = vec![0_u8; 4096];
+    let before = crate::native_host::shell::tests::HEAP_LIVE.with(Cell::get);
+    let target = Target { plugin, token: 7 };
+    assert_eq!(call(&h.registry, target, &[1, 2, 3], &mut out, &env), Ok(5));
+    assert_eq!(out[..5], [1, 5, 2, 0xaa, 0xbb]);
+    let held = HELD_AT_STAGE.with(Cell::get).saturating_sub(before);
+    // The framed call and the fixture's note of it; never 3,840 bytes of reply.
+    assert!(held < 512, "{held} bytes held while the format ran");
 }

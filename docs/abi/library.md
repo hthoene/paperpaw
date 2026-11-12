@@ -305,7 +305,10 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   failed book). A job takes **no preparing step (no conversion) while the library's list screen (the
   files plugin's) is on the screen stack**, shown or covered, and for 2 s after it left it: a
   conversion's peak must not come beside the list's buffers. A book that is ready (its cover only
-  to be made) is not held. The row stays open meanwhile; the time held is no awake time of the
+  to be made) is not held by the list. **Nothing is opened, made or converted within 1 s of the
+  user's last input or of the start** (#248): a `cover` of a book not made yet then answers
+  `ERR_BUSY` without opening the book, and bit 6 follows once it is quiet. The row stays open
+  meanwhile; the time held is no awake time of the
   book. A job never holds the device awake
   and does not restart after a sleep until a new `cover` asks. Between two of its steps the pump waits 100 ms (1 s in the power modes Saving and Offline), a
   timed wake, so the job goes on on an idle device. A book's job may run 10 minutes in all per
@@ -339,7 +342,11 @@ Records (the generated codec; tags 1094-1124 follow DOC's 1060-1093, and 1182):
   whole title and series by offsets where `meta` cut them, the first author and at most 16 subjects
   (op 6, each cut at the details' caps), keeps them as the book's details marked as read (never where
   nothing was read), and closes it. It begins only when no job of either kind runs and no book is
-  open for reading or showing; a book the format failed (or whose job a reset ended) joins the cover
+  open for reading or showing, not within 1 s of the start or of any input, and not while a first
+  walk is under way (looked at again after 1 s, doubling up to 32 s): never at the start's peak
+  nor while the user is busy. A device in steady use (an input at least every second) reads no
+  details until it is left alone; a book the format failed (or whose job a reset ended) joins
+  the cover
   job's failed books and is skipped until the next start. A `cover` never waits for the details job:
   a ready cover is made beside it, and one that needs the slot makes the details job give way (it
   ends, and its book is looked at again later, counted neither as failed nor as displaced). The
