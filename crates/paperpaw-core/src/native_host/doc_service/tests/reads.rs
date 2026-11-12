@@ -288,6 +288,11 @@ fn arguments_reach_the_format_as_the_contract_maps_them() {
     assert_eq!(last(&fake)[6], 1200);
     call(&fake, 16, &[ask(1600)]).unwrap();
     assert_eq!(last(&fake)[6], 1600);
+    // A larger side is clamped, not refused (`document.md` 5).
+    for side in [1601, u32::MAX] {
+        call(&fake, 16, &[ask(side)]).unwrap();
+        assert_eq!(last(&fake)[6], 1600, "side {side}");
+    }
 }
 
 #[test]
@@ -308,6 +313,8 @@ fn image_index_max_is_the_cover() {
     assert_eq!((last(&fake)[0], last(&fake)[7]), (fmt::COVER, 300));
     call(&fake, 16, &[cover(1200)]).unwrap();
     assert_eq!((last(&fake)[0], last(&fake)[7]), (fmt::COVER, 1200));
+    call(&fake, 16, &[cover(5000)]).unwrap();
+    assert_eq!((last(&fake)[0], last(&fake)[7]), (fmt::COVER, 1600));
 }
 
 #[test]
@@ -390,14 +397,6 @@ fn bad_arguments_are_refused_before_the_format_is_asked() {
         ),
         Err(ERR_INVALID)
     );
-    let ask = |side| {
-        Record::ServiceDocImageAsk(wire::ServiceDocImageAsk {
-            document: id,
-            index: 0,
-            side,
-        })
-    };
-    assert_eq!(bad(16, ask(1601)), Err(ERR_INVALID));
     // A record of another op is not this op's input.
     assert_eq!(bad(3, position(id)), Err(ERR_INVALID));
     assert_eq!(fake.calls.borrow().len(), before);

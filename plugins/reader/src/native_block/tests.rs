@@ -85,12 +85,12 @@ fn a_picture_or_a_table_row_without_its_records_reads_as_a_paragraph() {
 fn a_picture_block_carries_the_hosts_handle_and_size() {
     let mut h = head(0);
     h.kind = BlockKind::Image;
-    let block = join(&[&[Piece::Head(h), Piece::Image(12, 640, 480)]]).unwrap();
+    let block = join(&[&[Piece::Head(h), Piece::Image(12, 3, 640, 480)]]).unwrap();
     assert_eq!(block.kind, BlockKind::Image);
     let image = block.image.unwrap();
     assert_eq!(
         (image.path.as_str(), image.width, image.height),
-        ("12", 640, 480)
+        ("12:3", 640, 480)
     );
 }
 

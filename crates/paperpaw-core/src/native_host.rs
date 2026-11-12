@@ -234,6 +234,7 @@ pub(crate) mod data_plugin_folders;
 #[path = "native_host/data_services.rs"]
 mod data_services;
 mod declared_services;
+mod details_job_pump;
 pub mod device_service;
 pub(crate) mod dialog_pump;
 #[path = "native_host/dialogs.rs"]

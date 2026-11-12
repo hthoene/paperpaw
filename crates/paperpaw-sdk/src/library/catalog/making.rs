@@ -204,9 +204,10 @@ impl Making {
     /// as the lists say; `true` where the book was opened.
     fn of_details(&self, env: &Env<'_>, path: &str, size: u64) -> (Record, bool) {
         // Its metadata alone: its cover when a view first shows it.
-        let cached = library::metadata::read_book(env.storage(), path, size);
-        let opened = cached.is_none();
-        let book = cached.unwrap_or_else(|| library::metadata::index_details(env, path));
+        let (book, opened) = match library::metadata::read_book(env.storage(), path, size) {
+            Some(book) => (book, false),
+            None => library::metadata::index_details(env, path),
+        };
         let fields: Vec<&str> = self.fields.iter().map(String::as_str).collect();
         let record = Record::of(path, &book)
             .with_status(self.status(path, book.progress))
