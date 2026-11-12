@@ -371,7 +371,12 @@ impl DocState {
                 self.fail_prepared(hosts, document, ERR_NO_MEMORY);
                 return Ok(());
             }
-            Err(status @ (ERR_BUSY | ERR_NO_MEMORY)) => return Err(status),
+            Err(ERR_BUSY) => return Err(ERR_BUSY),
+            // A preparation step without memory is tried again later; a
+            // pending open that reached its format and found no memory fails
+            // now, as the open does with the format awake (#248, Manager's
+            // decision 2), never tried again for ever.
+            Err(ERR_NO_MEMORY) if !document.open_pending => return Err(ERR_NO_MEMORY),
             Err(status) if document.open_pending => {
                 if status != ERR_CANCELLED {
                     self.open_sent(document.id);

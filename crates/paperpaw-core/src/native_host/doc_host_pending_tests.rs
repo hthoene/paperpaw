@@ -144,6 +144,24 @@ fn a_format_that_cannot_be_made_fails_the_document_and_the_opener_hears_it() {
     });
 }
 
+#[test]
+fn a_pending_open_its_format_answers_without_memory_fails_at_once() {
+    // Manager's decision 2 on #248: the format was made and its open found
+    // no memory. Awake, the open fails then; pending, it did not end (the
+    // loop tried it again each time).
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        parked(w);
+        let id = w.open(1, "books/a.epub").unwrap();
+        *w.reply.borrow_mut() = Err(ERR_NO_MEMORY);
+        assert_eq!(step(w), PrepareStep::More);
+        let failed = document(w, id);
+        assert_eq!((failed.state, failed.status), (FAILED, ERR_NO_MEMORY));
+        assert_eq!(changed_event(w), Some((id, FAILED)));
+        assert_eq!(step(w), PrepareStep::Idle, "not tried again");
+    });
+}
+
 /// A route whose format plugin gave up being made (Senior, R2 on #1365).
 struct GaveUp<'a>(FrameRoute<'a>);
 impl crate::native_host::fmt_call::Route for GaveUp<'_> {
