@@ -42,6 +42,9 @@ const GOT_IT: usize = 0;
 const NO_MORE: usize = 1;
 /// The most characters of a screen id a hint query takes.
 const SCREEN_LIMIT: usize = 128;
+/// The input of `core.ui` ops `stack`, `hints` and `params`: at most 256 bytes
+/// (their `max_input`); replies keep a full service buffer (`max_reply`).
+const QUERY_INPUT: usize = 256;
 
 /// One row of the screen stack, as far as the hints care.
 struct Row {
@@ -176,17 +179,12 @@ impl NativeHelp {
     ) -> Result<(), Error> {
         let slot = match screen {
             OVERLAY_SCREEN => {
-                let mut input = buffer(SERVICE_BUFFER)?;
-                let mut output = buffer(SERVICE_BUFFER)?;
-                let mut id = String::new();
-                if let Some(handover) = handover {
-                    for param in self.ui()?.params(host, handover, &mut input, &mut output)? {
-                        let param = param?;
-                        if param.key() == "id" {
-                            id = copy(param.value())?;
-                        }
-                    }
-                }
+                // The params' buffers are gone before the hints are read: one
+                // pair of service buffers at a time (#248).
+                let id = match handover {
+                    Some(handover) => self.overlay_id(host, handover)?,
+                    None => String::new(),
+                };
                 Slot::Overlay(Overlay::read(host, self.ui()?, id)?)
             }
             "help.again" => {
@@ -199,9 +197,27 @@ impl NativeHelp {
         self.screens.open(instance, slot)
     }
 
+    /// The screen id handed over to the hints overlay; empty without one.
+    fn overlay_id(
+        &self,
+        host: &Host<'_>,
+        handover: paperpaw_sdk::native::ui::HandoverId,
+    ) -> Result<String, Error> {
+        let mut input = buffer(QUERY_INPUT)?;
+        let mut output = buffer(SERVICE_BUFFER)?;
+        let mut id = String::new();
+        for param in self.ui()?.params(host, handover, &mut input, &mut output)? {
+            let param = param?;
+            if param.key() == "id" {
+                id = copy(param.value())?;
+            }
+        }
+        Ok(id)
+    }
+
     /// The rows of the screen stack, top first.
     fn stack(&self, host: &Host<'_>) -> Result<Vec<Row>, Error> {
-        let mut input = buffer(SERVICE_BUFFER)?;
+        let mut input = buffer(QUERY_INPUT)?;
         let mut output = buffer(SERVICE_BUFFER)?;
         let mut rows = Vec::new();
         let mut cursor = UiCursor::start();
@@ -318,7 +334,7 @@ fn read_hints(
         return Err(Error::Invalid);
     }
     let touch = snapshot::capture_snapshot(host)?.has_touch();
-    let mut input = buffer(SERVICE_BUFFER)?;
+    let mut input = buffer(QUERY_INPUT)?;
     let mut output = buffer(SERVICE_BUFFER)?;
     let mut cursor = UiCursor::start();
     loop {

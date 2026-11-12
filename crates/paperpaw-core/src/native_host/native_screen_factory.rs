@@ -6,7 +6,7 @@ use super::{
     shell,
 };
 use alloc::{borrow::Cow, boxed::Box};
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED};
 use paperpaw_sdk::{Id, Instances, Screen};
 
 pub(crate) struct NativeScreenSpec {
@@ -57,8 +57,17 @@ impl NativeMade {
         params: &paperpaw_sdk::Params,
     ) -> Result<Box<dyn Screen>, i32> {
         let result = (|| {
-            // Made at the first callback, not here (a parked plugin).
             self.instance.check_running()?;
+            // A parked plugin is made here at a safe point, so that one
+            // without room fails the open as any plugin then does (no
+            // screen it never heard of); elsewhere at its first callback.
+            self.instance.make_if_safe().map_err(|status| {
+                if status == ERR_BUSY {
+                    ERR_NO_MEMORY
+                } else {
+                    status
+                }
+            })?;
             let count = u32::try_from(params.iter().count()).map_err(|_| ERR_INVALID)?;
             let id = id.try_clone().ok_or(ERR_NO_MEMORY)?;
             let instance = self.instance.try_clone()?;

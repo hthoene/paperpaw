@@ -565,43 +565,8 @@ impl CommandStage<'_> {
         let before = fw.requests.len();
         let mut driver = ctx.driver.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         for item in new {
-            let accepted = match &item.op {
-                DevOp::Firmware(FirmwareOp::Install {
-                    request,
-                    path,
-                    key,
-                    flags,
-                }) => driver
-                    .submit_install(ctx.owner, *request, path, *key, *flags)
-                    .map(|()| *request),
-                DevOp::Firmware(FirmwareOp::Check { request, path }) => driver
-                    .submit_check(ctx.owner, *request, path)
-                    .map(|()| *request),
-                DevOp::Firmware(FirmwareOp::DualBoot { request, mode }) => driver
-                    .submit_dual_boot(ctx.owner, *request, *mode)
-                    .map(|()| *request),
-                DevOp::Firmware(FirmwareOp::PluginCheck { request, path }) => {
-                    PluginCheck::new(ctx.owner, *request, path)
-                        .ok_or(ERR_NO_MEMORY)
-                        .and_then(|job| driver.submit_plugin(PluginJobs::Check(job)))
-                        .map(|()| *request)
-                }
-                DevOp::Firmware(FirmwareOp::PluginRemove { request, id }) => {
-                    PluginRemove::new(ctx.owner, *request, id)
-                        .ok_or(ERR_NO_MEMORY)
-                        .and_then(|job| driver.submit_plugin(PluginJobs::Remove(job)))
-                        .map(|()| *request)
-                }
-                DevOp::Firmware(FirmwareOp::PluginInstall {
-                    request,
-                    path,
-                    flags,
-                    evidence,
-                }) => PluginInstall::new(ctx.owner, *request, path, *flags, **evidence)
-                    .ok_or(ERR_NO_MEMORY)
-                    .and_then(|job| driver.submit_plugin(PluginJobs::Install(job)))
-                    .map(|()| *request),
-                _ => continue,
+            let Some(accepted) = submit_op(&mut driver, ctx.owner, &item.op) else {
+                continue;
             };
             match accepted {
                 // Room was reserved above: this push cannot reallocate.
@@ -617,6 +582,68 @@ impl CommandStage<'_> {
             }
         }
         Ok(())
+    }
+}
+
+/// Accepts one firmware op of a batch in the device's table: its request, or
+/// `None` for an op the table does not take. Its own frame, and the plugin
+/// jobs in one of their own ([`submit_plugin_job`]): the jobs are big, and are
+/// not held on `push_batch`'s frame (the S3 frame limit).
+#[inline(never)]
+fn submit_op(driver: &mut Driver, owner: u64, op: &DevOp) -> Option<Result<u32, i32>> {
+    let DevOp::Firmware(op) = op else {
+        return None;
+    };
+    Some(match op {
+        FirmwareOp::Install {
+            request,
+            path,
+            key,
+            flags,
+        } => driver
+            .submit_install(owner, *request, path, *key, *flags)
+            .map(|()| *request),
+        FirmwareOp::Check { request, path } => driver
+            .submit_check(owner, *request, path)
+            .map(|()| *request),
+        FirmwareOp::DualBoot { request, mode } => driver
+            .submit_dual_boot(owner, *request, *mode)
+            .map(|()| *request),
+        FirmwareOp::PluginCheck { .. }
+        | FirmwareOp::PluginRemove { .. }
+        | FirmwareOp::PluginInstall { .. } => submit_plugin_job(driver, owner, op),
+        FirmwareOp::Restart(_) | FirmwareOp::Revoke { .. } => return None,
+    })
+}
+
+/// A plugin check, removal or install as a job of the queue: its request.
+/// One call from [`submit_op`] (a target the S3 frame scan follows); each
+/// arm hands its job on at once, so no two jobs are held together.
+#[inline(never)]
+fn submit_plugin_job(driver: &mut Driver, owner: u64, op: &FirmwareOp) -> Result<u32, i32> {
+    match op {
+        FirmwareOp::PluginCheck { request, path } => {
+            let job = PluginCheck::new(owner, *request, path).ok_or(ERR_NO_MEMORY)?;
+            driver.submit_plugin(PluginJobs::Check(job))?;
+            Ok(*request)
+        }
+        FirmwareOp::PluginRemove { request, id } => {
+            let job = PluginRemove::new(owner, *request, id).ok_or(ERR_NO_MEMORY)?;
+            driver.submit_plugin(PluginJobs::Remove(job))?;
+            Ok(*request)
+        }
+        FirmwareOp::PluginInstall {
+            request,
+            path,
+            flags,
+            evidence,
+        } => {
+            let job = PluginInstall::new(owner, *request, path, *flags, **evidence)
+                .ok_or(ERR_NO_MEMORY)?;
+            driver.submit_plugin(PluginJobs::Install(job))?;
+            Ok(*request)
+        }
+        _ => Err(ERR_INVALID),
     }
 }
 

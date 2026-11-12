@@ -246,3 +246,70 @@ fn rows_keep_their_order() {
     let kept = shown(rows, "", |_| false).unwrap();
     assert_eq!(items(&kept), ["z", "a", "m"]);
 }
+
+/// What a row says of the value of a setting, in the language of `en`/`de` files.
+fn said(catalog: &paperpaw_i18n::Catalog, info: &SettingInfo) -> String {
+    crate::native_plugin::value_text(info, "On", "Off", &mut |key| {
+        Ok(catalog.get(key).unwrap_or(key).to_string())
+    })
+    .unwrap()
+}
+
+#[test]
+fn a_choice_is_said_by_its_translated_title_not_by_its_key() {
+    use paperpaw_i18n::Catalog;
+    let choice = |value: &str| info(SettingKind::Choice, Some(Value::Text(value.to_string())));
+    let en = Catalog::parse(concat!(
+        include_str!("../../../power/i18n/en.ini"),
+        "\n",
+        include_str!("../../../files/i18n/en.ini"),
+    ))
+    .unwrap();
+    let de = Catalog::parse(concat!(
+        include_str!("../../../power/i18n/de.ini"),
+        "\n",
+        include_str!("../../../files/i18n/de.ini"),
+    ))
+    .unwrap();
+    assert_eq!(said(&en, &choice("power.mode.auto")), "Auto");
+    assert_eq!(said(&de, &choice("power.mode.auto")), "Auto");
+    assert_eq!(said(&en, &choice("files.sort.recent")), "Recently read");
+    assert_eq!(said(&de, &choice("files.sort.recent")), "Zuletzt gelesen");
+    assert_eq!(said(&de, &choice("files.view.list")), "Liste");
+    // A choice with no value says nothing; a value that is no key is itself.
+    assert_eq!(said(&en, &info(SettingKind::Choice, None)), "");
+    assert_eq!(said(&en, &choice("")), "");
+    assert_eq!(said(&en, &choice("plain")), "plain");
+}
+
+#[test]
+fn a_switch_a_number_and_a_text_are_said_as_before() {
+    // Nothing is translated here: asked to, the closure fails the row.
+    let say = |kind, value| {
+        crate::native_plugin::value_text(&info(kind, Some(value)), "On", "Off", &mut |_| {
+            Err(paperpaw_sdk::native::Error::State)
+        })
+        .unwrap()
+    };
+    assert_eq!(say(SettingKind::Bool, Value::Bool(true)), "On");
+    assert_eq!(say(SettingKind::Bool, Value::Bool(false)), "Off");
+    assert_eq!(say(SettingKind::Int, Value::Int(6)), "6 min");
+    // A text (not a choice) is shown as it is, even where it looks like a key.
+    assert_eq!(say(SettingKind::Text, Value::Text("a.b".into())), "a.b");
+}
+
+#[test]
+fn a_choice_with_no_text_in_the_catalogs_is_said_as_it_is_and_a_real_failure_fails() {
+    use paperpaw_sdk::native::Error;
+    let choice = info(
+        SettingKind::Choice,
+        Some(Value::Text("Literal".to_string())),
+    );
+    for refused in [Error::NotFound, Error::Invalid] {
+        let said = crate::native_plugin::value_text(&choice, "On", "Off", &mut |_| Err(refused));
+        assert_eq!(said.unwrap(), "Literal", "{refused:?}");
+    }
+    let failed =
+        crate::native_plugin::value_text(&choice, "On", "Off", &mut |_| Err(Error::NoMemory));
+    assert_eq!(failed, Err(Error::NoMemory));
+}

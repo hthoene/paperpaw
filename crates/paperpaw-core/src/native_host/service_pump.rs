@@ -147,6 +147,12 @@ fn drain(
         call,
         now,
     } = *delivery;
+    // A parked plugin has called no service since its `make` (it would not
+    // have been parked), so none has an event for it; it is not made here,
+    // where the pump's buffer is borrowed (#248).
+    if lease.is_parked() {
+        return false;
+    }
     let mut taken = 0;
     while taken < PER_OWNER {
         match service.next_event(owner, buffer) {
@@ -320,6 +326,7 @@ impl crate::Kernel {
             .flatten()
             .filter_map(|service| service.next_deadline())
             .chain(instances.service_retry())
+            .chain(instances.parked_start_at())
             .chain(instances.image_pump.retry_at())
             .chain(instances.moves_retry())
             .chain(instances.doc_retry())

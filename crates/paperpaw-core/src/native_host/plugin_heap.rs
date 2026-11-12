@@ -159,13 +159,23 @@ impl HeapState {
         self.limit.get()
     }
 
-    /// A place for one more owner, reserved without an abort.
+    /// The owners admitted, and the room the table holds.
+    #[cfg(test)]
+    pub(crate) fn owners_room(&self) -> (usize, usize) {
+        let owners = self.owners.borrow();
+        (owners.len(), owners.capacity())
+    }
+
+    /// A place for one more owner, reserved without an abort. Reserved
+    /// exactly (#248): the table only grows, one owner at each admission (not
+    /// a hot path), and a doubling one held room for up to as many owners
+    /// again for the whole run.
     ///
     /// # Errors
     /// `Err(())` when there is no room for it.
     pub(crate) fn admit(&self) -> Result<u32, ()> {
         let mut owners = self.owners.try_borrow_mut().map_err(|_| ())?;
-        owners.try_reserve(1).map_err(|_| ())?;
+        owners.try_reserve_exact(1).map_err(|_| ())?;
         let index = u32::try_from(owners.len()).map_err(|_| ())?;
         owners.push(Owner {
             used: 0,
