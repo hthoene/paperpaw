@@ -549,15 +549,21 @@ impl Firmware {
         esp_hal::system::software_reset();
     }
 
-    /// How an update goes.
+    /// How an update goes. Its step (`ota_step`) has a frame of its own, so
+    /// that this one, which the effects are applied from, stays small.
     #[inline(never)]
     fn firmware_step(&mut self) {
-        if let Some(ota) = &mut self.ota
-            && let Some(state) = ota.step(self.kernel.storage())
-        {
+        if let Some(state) = self.ota_step() {
             let effects = self.kernel.firmware_state(now(), state);
             self.apply(effects);
         }
+    }
+
+    /// One step of the update being written, if there is one.
+    #[inline(never)]
+    fn ota_step(&mut self) -> Option<FirmwareState> {
+        let ota = self.ota.as_mut()?;
+        ota.step(self.kernel.storage())
     }
 
     /// The battery and the time, every [`STATUS_MS`], once the clock was
@@ -1155,6 +1161,7 @@ impl Firmware {
 
     /// Shows the busy mark in `area` and lets the kernel work while the
     /// panel refreshes; what the work brought.
+    #[inline(never)]
     fn show_busy(&mut self, area: Rect) -> Effects {
         power::mark(power::at::SHOWING);
         let send_again = !self.panel.keeps_frame();
@@ -1212,6 +1219,7 @@ impl Firmware {
             .is_some_and(|id| id.as_str() == "sleep.screen")
     }
 
+    #[inline(never)]
     fn show_gray(&mut self, area: Rect, clean: bool) {
         power::mark(power::at::SHOWING);
         let started = now();
