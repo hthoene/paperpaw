@@ -173,6 +173,8 @@ Field meanings:
   switch wherever it is listed, its state in `reg_setting.value`; in a menu its `reg_menu_row` has
   flag 6 `switch` with bit 0 whether it is on (section 3). An int setting with flag 11 shows as a
   slider over `min..=max` in steps of `step` (1 where 0); one without it as a number to step.
+  Flag 11 asks for a slider; the shell decides how it shows: without a touch screen it is −/+
+  steps, as in interface 6. Op 1 carries no range, so a list reads op 2 for each slider row.
 - `reg_setting.value` is the `settings_value` encoding, empty when hidden or long.
 - `reg_setting_extra` repeats `setting.spec`/`setting.extra` fields the editor needs, with their
   types (`min`/`max`/`step` are `i32` there; `shown_id`/`shown_value` are `setting.extra`'s);
