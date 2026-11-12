@@ -183,12 +183,12 @@ impl<S: 'static> super::Context<S> {
             self.declared_services.features(),
             hosts.radio_requests()?,
         );
-        Some(match hosts.firmware_requests() {
-            Some(driver) => {
-                // Allocates nothing: the driver is never borrowed across a
-                // callback, so it shares the driver's own skip counter.
+        Some(match hosts.firmware_cell() {
+            Some(firmware) => {
+                // Allocates nothing: it shares the cell and the driver's skip
+                // counter; a driver is made only by a command that needs one.
                 context.with_firmware(super::super::commands::dev::FirmwareContext::new(
-                    alloc::rc::Rc::clone(driver),
+                    alloc::rc::Rc::clone(firmware),
                     self.resources.owner_id(),
                 ))
             }

@@ -190,7 +190,7 @@ mod kernel_side {
     }
 
     fn submit(kernel: &mut Kernel) {
-        let driver = kernel.firmware.clone().unwrap();
+        let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
         driver.borrow_mut().submit_plugin(asking_job(1, 5)).unwrap();
         for _ in 0..20 {
             kernel.native_firmware_pump();
@@ -208,7 +208,7 @@ mod kernel_side {
 
     /// What the install ended with, told or not yet.
     fn ended(kernel: &Kernel) -> Option<u8> {
-        let driver = kernel.firmware.clone().unwrap();
+        let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
         let driver = driver.borrow();
         driver
             .kept(1, KIND_INSTALL)
@@ -229,7 +229,7 @@ mod kernel_side {
             kernel.native_firmware_pump();
         }
         assert_eq!(open_count(&kernel), 1, "no second screen for it");
-        let driver = kernel.firmware.clone().unwrap();
+        let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
         // An open question is no work for the loop.
         assert!(!driver.borrow().has_work(0));
         assert!(driver.borrow().peek_plugin_question().is_none());
@@ -247,7 +247,7 @@ mod kernel_side {
             kernel.emit(&ANSWERED, &params);
         }
         assert_eq!(ended(&kernel), None, "forged answers count for nothing");
-        let driver = kernel.firmware.clone().unwrap();
+        let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
         assert!(
             driver
                 .borrow_mut()
@@ -352,7 +352,7 @@ mod kernel_side {
         .unwrap();
         card.write(".paperpaw/plugins/dials/notes.txt", b"notes")
             .unwrap();
-        let driver = kernel.firmware.clone().unwrap();
+        let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
         let job = crate::native_host::plugin_remove::PluginRemove::new(1, 5, "dials").unwrap();
         driver
             .borrow_mut()
@@ -372,7 +372,7 @@ mod kernel_side {
         for _ in 0..40 {
             kernel.native_firmware_pump();
         }
-        let driver = kernel.firmware.clone().unwrap();
+        let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
         let driver = driver.borrow();
         driver
             .kept(1, crate::native_host::plugin_job::KIND_REMOVAL)

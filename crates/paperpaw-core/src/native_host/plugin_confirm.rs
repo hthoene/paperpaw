@@ -9,8 +9,7 @@ use super::firmware_confirm::{Texts, clean, fingerprint, open_params};
 use super::firmware_install::KIND_FIRMWARE;
 use super::plugin_job::{KIND_REMOVAL, PluginQuestion, Relation};
 use crate::Kernel;
-use alloc::{rc::Rc, string::String};
-use core::cell::RefCell;
+use alloc::string::String;
 use paperpaw_i18n::Arg;
 
 /// `text` as an owned string, or `None` where the heap cannot take it.
@@ -165,13 +164,13 @@ impl Kernel {
     /// another pass has something to do.
     pub(crate) fn plugin_confirm_pump(
         &mut self,
-        driver: &Rc<RefCell<super::firmware_driver::Driver>>,
+        driver: &super::firmware_cell::DriverRef,
         question: &PluginQuestion,
     ) -> bool {
         if self.guard().is_some() {
             return false;
         }
-        let dismiss = |driver: &Rc<RefCell<super::firmware_driver::Driver>>| {
+        let dismiss = |driver: &super::firmware_cell::DriverRef| {
             if let Ok(mut driver) = driver.try_borrow_mut() {
                 driver.plugin_question_dismissed(question);
             }
