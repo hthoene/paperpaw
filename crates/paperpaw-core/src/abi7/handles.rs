@@ -159,6 +159,10 @@ impl<T> Handles<T> {
     }
 
     /// Whether `owner` holds any handle.
+    #[allow(
+        dead_code,
+        reason = "parked plugins (#2638); unused by tests/abi7_teardown.rs"
+    )]
     pub(crate) fn holds(&self, owner: u64) -> bool {
         self.slots.iter().any(|slot| {
             slot.entry
