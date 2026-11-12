@@ -184,6 +184,23 @@ impl HeapState {
         Ok(index)
     }
 
+    /// Whether owner place `index` was handed out.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the kernel's unpark recipe calls it (#2638)")
+    )]
+    pub(crate) fn has(&self, index: u32) -> bool {
+        self.owners
+            .try_borrow()
+            .is_ok_and(|owners| (index as usize) < owners.len())
+    }
+
+    /// The owner places handed out (tests).
+    #[cfg(test)]
+    pub(crate) fn rows(&self) -> usize {
+        self.owners.try_borrow().map_or(0, |owners| owners.len())
+    }
+
     /// The bytes charged to owner `index` now.
     #[cfg_attr(
         not(test),
