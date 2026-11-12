@@ -534,7 +534,9 @@ mod x4 {
         // (`device_host::wired_families`); the image is the firmware's read-only
         // data in flash, mapped for the whole run.
         let outcome = unsafe {
-            paperpaw_app::register_native_plugins(
+            // Parkable (#2638, #248): a plugin not in use waits without its
+            // instance; the services' maker is a plain `fn`.
+            paperpaw_app::register_native_plugins_parked(
                 kernel,
                 &offered,
                 &resources,

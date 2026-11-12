@@ -484,18 +484,35 @@ pub fn register(
     };
     // SAFETY: the offered services are the ones wired above (`offered`), and
     // the plugins are the app's linked ones, as the helper's contract says.
+    // PAPERPAW_PARKED=1: the plugins are registered parkable (#2638, #248), to
+    // measure the heap with and without parking; off by default.
+    let parked = std::env::var_os("PAPERPAW_PARKED").is_some_and(|value| value == "1");
     let outcome = unsafe {
-        paperpaw_app::register_native_plugins(
-            kernel,
-            &host,
-            &resources,
-            &depth,
-            DesktopServices::new,
-            teardown_report,
-            linked_report,
-            |id| paperpaw_app::native_default_on(id, paperpaw_app::default_store()),
-            rodata_image(),
-        )
+        if parked {
+            paperpaw_app::register_native_plugins_parked(
+                kernel,
+                &host,
+                &resources,
+                &depth,
+                DesktopServices::new,
+                teardown_report,
+                linked_report,
+                |id| paperpaw_app::native_default_on(id, paperpaw_app::default_store()),
+                rodata_image(),
+            )
+        } else {
+            paperpaw_app::register_native_plugins(
+                kernel,
+                &host,
+                &resources,
+                &depth,
+                DesktopServices::new,
+                teardown_report,
+                linked_report,
+                |id| paperpaw_app::native_default_on(id, paperpaw_app::default_store()),
+                rodata_image(),
+            )
+        }
     };
     let mut registered = 0;
     for (id, status) in outcome {
