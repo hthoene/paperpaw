@@ -56,11 +56,12 @@ pub(crate) struct ActiveScreen {
 }
 
 /// The policy bits `command.screen_policy` sets: `guards` (1), `secret` (4),
-/// `holds_edges` (5).
+/// `holds_edges` (5), `grays` (9).
 pub(crate) const POLICY_GUARDS: u32 = 1 << 1;
 pub(crate) const POLICY_SECRET: u32 = 1 << 4;
 pub(crate) const POLICY_EDGES: u32 = 1 << 5;
-pub(crate) const POLICY_BITS: u32 = POLICY_GUARDS | POLICY_SECRET | POLICY_EDGES;
+pub(crate) const POLICY_GRAYS: u32 = crate::native_host::declarations::SCREEN_GRAYS;
+pub(crate) const POLICY_BITS: u32 = POLICY_GUARDS | POLICY_SECRET | POLICY_EDGES | POLICY_GRAYS;
 
 impl ActiveScreen {
     /// Whether it guards the device: what a native plugin set at run time,
@@ -76,6 +77,13 @@ impl ActiveScreen {
             || self.screen.secret(),
             |bits| bits & (POLICY_GUARDS | POLICY_SECRET) != 0,
         )
+    }
+
+    /// Whether what it shows is best in grays: what a native plugin set at run
+    /// time, else the screen's own answer.
+    pub(crate) fn grays(&self) -> bool {
+        self.policy
+            .map_or_else(|| self.screen.grays(), |bits| bits & POLICY_GRAYS != 0)
     }
 
     /// Whether it holds the edge swipes.

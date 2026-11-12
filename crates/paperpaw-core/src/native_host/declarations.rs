@@ -597,8 +597,11 @@ fn extension_check(plugin_id: &str, extension: &ResourceFontExtension<'_>) -> Ch
 pub const SCREEN_FULL_REFRESH_ON_OPEN: u32 = 1;
 /// `screen.spec` flag bit 8: the screen shows no row of button hints.
 pub const SCREEN_HINTS_HIDDEN: u32 = 1 << 8;
+/// `screen.spec` flag bit 9: what the screen shows is best in grays (a page with
+/// a picture, smooth text); `command.screen_policy` may change it at run time.
+pub const SCREEN_GRAYS: u32 = 1 << 9;
 /// Every `screen.spec` flag bit this host knows.
-const SCREEN_FLAGS_KNOWN: u32 = 0x1ff;
+const SCREEN_FLAGS_KNOWN: u32 = 0x3ff;
 /// `action.spec` flag bit 0: runs only while one of the plugin's screens is on top.
 pub const ACTION_NEEDS_SCREEN: u32 = 1;
 

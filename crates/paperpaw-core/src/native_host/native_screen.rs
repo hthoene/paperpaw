@@ -429,6 +429,11 @@ impl<D: Dispatch> Screen for NativeScreen<D> {
         (self.flags & super::declarations::SCREEN_HINTS_HIDDEN != 0)
             .then_some(paperpaw_sdk::HintVisibility::Hidden)
     }
+    fn grays(&self) -> bool {
+        // Declared (`screen.spec.flags` bit 9); the run-time policy of
+        // `ActiveScreen::grays` takes the place of it once one is set.
+        self.flags & super::declarations::SCREEN_GRAYS != 0
+    }
     fn region(&self, env: &Env<'_>) -> Option<Rect> {
         (self.flags & (1 << 2) != 0)
             .then(|| Rect::new(0, 0, env.content().width, env.content().height))

@@ -121,7 +121,7 @@ impl<'a> Notify<'a> {
 }
 
 /// Runtime policies for an own screen instance. A fresh policy clears all
-/// three runtime flags; declaration-only overlay/readiness bits are excluded.
+/// four runtime flags (guards, secret, held edges, grays); declaration-only overlay/readiness bits are excluded.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ScreenPolicy {
     flags: u32,
@@ -148,6 +148,13 @@ impl ScreenPolicy {
     #[must_use]
     pub const fn holds_edges(mut self) -> Self {
         self.flags |= 32;
+        self
+    }
+    /// The content is best in grays (see
+    /// [`ScreenDecl::grays`](crate::native::declare::ScreenDecl::grays)).
+    #[must_use]
+    pub const fn grays(mut self) -> Self {
+        self.flags |= 512;
         self
     }
     pub(crate) const fn flags(self) -> u32 {

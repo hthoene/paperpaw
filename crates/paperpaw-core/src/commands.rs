@@ -126,7 +126,7 @@ impl Kernel {
                         && region.intersection(&bounds) == Some(bounds)
                 }
             };
-            (whole, top.screen.grays(), top.screen.pictures_in_grays())
+            (whole, top.grays(), top.screen.pictures_in_grays())
         });
         let grays = whole && grays;
         let again = mem::take(&mut self.frame.again);

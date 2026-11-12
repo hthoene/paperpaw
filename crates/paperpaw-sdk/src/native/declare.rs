@@ -462,6 +462,16 @@ impl ScreenDecl<'_> {
         self.policy_flags |= 32;
         self
     }
+    /// The screen's content is best in grays (a page with a picture, smooth
+    /// text): where the panel has few but shows more with a refresh of its own
+    /// (the X4), the whole screen is shown so while it is on top with nothing
+    /// over it. A screen that changes it page by page sets it at run time
+    /// ([`ScreenPolicy::grays`](crate::native::ui::ScreenPolicy::grays)).
+    #[must_use]
+    pub const fn grays(mut self) -> Self {
+        self.policy_flags |= 512;
+        self
+    }
     /// Show no row of button hints with this screen (the sleep screen).
     #[must_use]
     pub const fn hints_hidden(mut self) -> Self {
