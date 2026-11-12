@@ -33,25 +33,17 @@ impl Kernel {
 
     /// Shows the notice made ahead, without allocating: in place of the
     /// notice showing, never over a guarding screen (the lack is in the log
-    /// then), and not twice at once.
+    /// then), and not again while it shows.
     pub(crate) fn show_memory_notice(&mut self) {
-        if self.held_by_guard() {
+        if self.held_by_guard() || !self.waiting_notices.memory_notice_ready() {
             return;
         }
+        // The notice showing ends first: ended while this one showed, it
+        // would be kept in its place.
+        self.end_notice();
         let Some(notice) = self.waiting_notices.show_memory_notice() else {
             return;
         };
-        self.end_notice();
-        let seconds = self
-            .shared
-            .settings
-            .int(core_settings::NOTICE_SECONDS.as_str())
-            .clamp(1, 60) as u32;
-        let region = crate::screens::notice_area(notice.as_ref(), &self.shared.env(self.now));
-        self.notice = Some((notice, self.now.add_millis(u64::from(seconds) * 1000)));
-        self.invalidate(region);
-        self.output.request_refresh(RefreshMode::Fast);
-        let cause = &mut self.output.refresh_cause;
-        cause.get_or_insert(paperpaw_sdk::filters::RefreshCause::Notice);
+        self.place_notice(notice);
     }
 }

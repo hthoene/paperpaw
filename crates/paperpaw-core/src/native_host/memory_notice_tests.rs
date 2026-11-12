@@ -85,6 +85,7 @@ fn it_holds_little_while_it_waits() {
 fn a_new_language_makes_it_again_and_one_showing_then_is_not_kept() {
     let mut kernel = kernel(0);
     kernel.start(paperpaw_platform::Instant(0));
+    let made = kernel.waiting_notices.memory_notices_made();
     kernel.show_memory_notice();
     kernel
         .shared
@@ -96,10 +97,61 @@ fn a_new_language_makes_it_again_and_one_showing_then_is_not_kept() {
         .unwrap();
     kernel.setting_changed(&crate::core_settings::LANGUAGE.into());
     assert!(kernel.waiting_notices.memory_notice_ready(), "made anew");
+    assert_eq!(kernel.waiting_notices.memory_notices_made(), made + 1);
+    let new = kernel.waiting_notices.memory_notice_at();
     kernel.end_notice();
-    assert!(kernel.waiting_notices.memory_notice_ready());
+    assert_eq!(
+        kernel.waiting_notices.memory_notice_at(),
+        new,
+        "the old one, showing, is dropped when it ends"
+    );
     // Before start there is none to make again.
     let mut fresh = super::native_screen_install::kernel(0);
     fresh.setting_changed(&crate::core_settings::LANGUAGE.into());
     assert!(!fresh.waiting_notices.has_memory_notice());
+}
+
+#[test]
+fn a_notice_showing_before_is_not_kept_in_its_place() {
+    let mut kernel = kernel(0);
+    kernel.start(paperpaw_platform::Instant(0));
+    let made = kernel.waiting_notices.memory_notice_at();
+    assert!(made.is_some());
+    kernel.notify("Saved".into());
+    assert!(kernel.notice.is_some(), "a general notice shows");
+    kernel.show_memory_notice();
+    assert!(kernel.notice.is_some(), "the lack is told in its place");
+    assert!(
+        !kernel.waiting_notices.memory_notice_ready(),
+        "the notice before is dropped, not kept as the one for a lack"
+    );
+    kernel.end_notice();
+    assert_eq!(
+        kernel.waiting_notices.memory_notice_at(),
+        made,
+        "the one made ahead comes back"
+    );
+    // While it shows, it is not shown again in its own place.
+    kernel.show_memory_notice();
+    kernel.show_memory_notice();
+    kernel.end_notice();
+    assert_eq!(kernel.waiting_notices.memory_notice_at(), made);
+}
+
+#[test]
+fn every_setting_of_the_interface_makes_it_again() {
+    let mut kernel = kernel(0);
+    kernel.start(paperpaw_platform::Instant(0));
+    for id in [
+        paperpaw_sdk::builtin::settings::UI_ROW.id().clone(),
+        paperpaw_sdk::builtin::settings::UI_TITLE.id().clone(),
+    ] {
+        let made = kernel.waiting_notices.memory_notices_made();
+        kernel.setting_changed(&id);
+        assert_eq!(
+            kernel.waiting_notices.memory_notices_made(),
+            made + 1,
+            "{id}"
+        );
+    }
 }

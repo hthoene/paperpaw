@@ -24,6 +24,9 @@ pub(crate) struct Waiting {
     memory: Option<Box<dyn Screen>>,
     /// The notice showing is the one above: it comes back when it ends.
     memory_shown: bool,
+    /// How often one was made (tests tell a new one from the old).
+    #[cfg(test)]
+    made: u32,
 }
 
 impl core::fmt::Debug for Waiting {
@@ -49,12 +52,18 @@ impl Waiting {
             cap,
             memory: None,
             memory_shown: false,
+            #[cfg(test)]
+            made: 0,
         }
     }
 
     /// Keeps `notice` as the one for a lack of memory, in place of the one
     /// before; one showing now is not taken back when it ends.
     pub(crate) fn keep_memory_notice(&mut self, notice: Option<Box<dyn Screen>>) {
+        #[cfg(test)]
+        {
+            self.made += u32::from(notice.is_some());
+        }
         self.memory = notice;
         self.memory_shown = false;
     }
@@ -73,9 +82,22 @@ impl Waiting {
     }
 
     /// Whether one is made and does not show.
-    #[cfg(test)]
     pub(crate) fn memory_notice_ready(&self) -> bool {
         self.memory.is_some()
+    }
+
+    /// Where the one made ahead is, to tell it from another notice.
+    #[cfg(test)]
+    pub(crate) fn memory_notice_at(&self) -> Option<*const u8> {
+        self.memory
+            .as_deref()
+            .map(|n| core::ptr::from_ref(n).cast::<u8>())
+    }
+
+    /// How often one was made.
+    #[cfg(test)]
+    pub(crate) fn memory_notices_made(&self) -> u32 {
+        self.made
     }
 
     /// The notice that showed ended: the one for a lack of memory is kept for

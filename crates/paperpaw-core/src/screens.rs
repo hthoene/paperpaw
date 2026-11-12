@@ -573,13 +573,19 @@ impl Kernel {
             return;
         };
         drop(running);
+        self.end_notice();
+        self.place_notice(screen);
+    }
+
+    /// Puts `screen` on as the notice, for `core.notice-seconds`; the one
+    /// before has ended.
+    pub(crate) fn place_notice(&mut self, screen: Box<dyn Screen>) {
         let seconds = self
             .shared
             .settings
             .int(core_settings::NOTICE_SECONDS.as_str())
             .clamp(1, 60) as u32;
-        let region = notice_area(screen.as_ref(), &env);
-        self.end_notice();
+        let region = notice_area(screen.as_ref(), &self.shared.env(self.now));
         self.notice = Some((screen, self.now.add_millis(u64::from(seconds) * 1000)));
         self.invalidate(region);
         self.output.request_refresh(RefreshMode::Fast);
