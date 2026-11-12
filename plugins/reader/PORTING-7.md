@@ -417,9 +417,18 @@ reader's own highlights' drawing, so they look as Beta 3's decorations did) and 
   page left is kept to turn back to; the place is written as a turn's and reported to the host when the
   reading screen is shown again, as the host drops the report of a screen below the top) and closes the
   screen. Both screens are this plugin's, so no hand-over carries the place back.
-- **Not yet:** the headings found by scanning blocks where the book's table has at most one entry
-  (`native_toc`'s model: the scan, the kept copy `headings.txt`, the "Finding the chapters" screen), the
-  chapter of the page for the status line and the report, next/previous chapter actions, and the
+- Where the book's own table has at most one entry (`wants_scan`), the screen lists the headings
+  kept for the book (`native_headings::load`, keyed by the document's conversion, so a changed book
+  or converter finds them anew) where there are more of them; with none kept it scans
+  (`Scan`, `core.work` key `toc`, token `TOC_WORK`, a step every 50 ms) and shows "Finding the
+  chapters" with the percentage (`native_finding`) until the scan ends. A scan that stops lists the
+  book's own table; one that runs out of memory says `reader.no-memory`.
+- Memory (#248): the list holds each title once, in its row (`targets` keeps only the places).
+  Titles and rows are capped at `native_toc::TOC_BYTES` (48 KiB counted as title bytes + 64 a row: 500 titles of up to 32 bytes fit):
+  the book's table is read and the scan runs one heading past it, and the list then shows the
+  first rows with the note `reader.toc.cut`. Beta 3 held 500 long headings in full (299.3 KiB on
+  the X4 for a TXT of 500 60-character headings).
+- **Not yet:** the chapter of the page for the status line and the report, next/previous chapter actions, and the
   skim screen (R6b). The hosted end-to-end test waits for a document host in the harness.
 - The screen reads the reading screen's document (`View::doc_id`), never opening a second one: the X4 holds
   one open document per plugin. **X4 gates (Port Reviewer 2):** a list of 500 entries holds its titles twice
@@ -767,13 +776,14 @@ reader's own highlights' drawing, so they look as Beta 3's decorations did) and 
   headings are normalized (`native_toc::normalize`) and kept, then `load` gives them back for a book of
   the same size. **The caller wires `core.work`** (declare with a key, `native_index::pace` for the
   wait, `Scan::percent` for the screen) and starts the scan where `native_toc::wants_scan(len)` and
-  `load` finds nothing; `TocView` is not changed yet (its `message` is where `native_finding` shows).
+  `load` finds nothing; `TocView` does so (#257, see the table of contents above).
 - The kept copy is `headings-<hash of the path>.txt` in the data folder, not `headings.txt`: the data
   storage is flat, so one name per book (`headings.list` keeps the newest 16, older files are removed).
   Its form is the interface-6 one (`size N`, then tab-separated section, offset, level, title). It is
   written in pieces of about 1 KiB to a `.new` file and renamed, so a cut leaves the old copy and the
   whole text (up to 80 KB) is never one `String`; reading it back is one 80 KB read at most
-  (`read_file`). The size the caller passes is the book file's (`native::storage` for the book root).
+  (`read_file`). The `edition` the caller passes is the document's conversion (it moves when the book
+  or what reads it changes); the file keeps interface 6's `size N` line for it.
 - `native_finding.rs`: the "Finding the chapters" model, `Finding::update(percent)` (steps of 5 so the
   e-paper is not drawn for every block) and `draw` (the title and the text where the list is);
   `reader.toc.finding` (existing) before a number is known, `reader.toc.finding-percent` (new, en and de)
