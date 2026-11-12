@@ -513,3 +513,16 @@ fn a_stop_clears_a_restart_that_waits_for_the_kernel() {
     d.abort_all();
     assert!(!d.restart_wanted(), "sleep between the passes: no restart");
 }
+
+#[test]
+fn a_request_reserves_the_room_of_one_request_and_no_more() {
+    let mut d = driver();
+    d.submit_check(1, 1, "a.ppu").unwrap();
+    let rooms = (
+        d.entries.capacity(),
+        d.queue.capacity(),
+        d.ready.capacity(),
+        d.kept.capacity(),
+    );
+    assert_eq!(rooms, (1, 1, 1, 1));
+}
