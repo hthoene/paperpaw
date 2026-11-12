@@ -394,8 +394,12 @@ fn every_host_allocation_failure_refuses_the_binding_owner_whole() {
         MENUS.with(|value| value.set(100));
         // The admission: the key map is built after it, as the kernel's own
         // refresh is (`register_native_in`).
-        let result =
-            kernel.admit_native(host(0), &FlatDepth::try_new().unwrap(), None, |_, _, _| {});
+        let result = kernel.admit_native(
+            host(0),
+            &FlatDepth::try_new().unwrap(),
+            None,
+            |_, _, _, _| {},
+        );
         MENUS.with(|value| value.set(0));
         arm_failure(0);
         INSTALL_FAIL_NTH.with(|value| value.set(0));
