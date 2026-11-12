@@ -183,7 +183,12 @@ fn a_details_open_beside_a_conversion_of_the_same_cache_is_busy() {
         };
         let opens = w.open_flags.borrow().len();
         let made = cover::make(w, &opener, "books/a.docx", 0);
-        assert!(matches!(made, Err(ERR_BUSY)), "{:?}", made.as_ref().err());
+        // A reader is open: the cover waits, and nothing is opened for it.
+        assert!(
+            matches!(made, Ok(cover::Made::Queued)),
+            "{:?}",
+            made.as_ref().err()
+        );
         assert_eq!(
             w.open_flags.borrow().len(),
             opens,

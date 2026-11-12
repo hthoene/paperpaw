@@ -133,8 +133,7 @@ pub(crate) trait DocHost {
     fn serve(&self, _frame: &dyn Frame, _who: &Caller<'_>, run: &mut dyn FnMut(&dyn DocHost)) {
         run(self.as_dyn());
     }
-    /// The calling plugin: a never-reused host owner id. The shell's host
-    /// does not know it; the backend wraps it in the call's owner.
+    /// The calling plugin: a never-reused host owner id (the backend wraps it).
     fn owner(&self) -> u64 {
         0
     }
@@ -156,16 +155,15 @@ pub(crate) trait DocHost {
     fn handed_open(&self, _path: &str) -> Result<HandedBook, i32> {
         Err(ERR_UNSUPPORTED)
     }
-    /// The document `document`, just opened, reads a file of `maker`'s
-    /// folders (root 5): the host remembers it, so the document ends when
-    /// the maker goes (`document_of_maker`).
+    /// The document `document` reads a file of `maker`'s folders (root 5):
+    /// it ends when the maker goes (`document_of_maker`).
     fn handed_maker(&self, _document: u32, _maker: u64) {}
     /// A document that reads a file of `maker`'s folders and is not ended yet.
     fn document_of_maker(&self, _maker: u64) -> Option<u32> {
         None
     }
     /// Section 1: the format that reads `path` (the longest extension, the
-    /// user's choice, priority). `requested` is a format id or empty.
+    /// user's choice, priority); `requested` is a format id or empty.
     /// `ERR_NOT_FOUND` when none reads it.
     fn select_format(&self, root: u32, path: &str, requested: &str) -> Result<FormatRef, i32>;
     fn format_id(&self, format: FormatRef, visit: &mut dyn FnMut(&str)) -> Result<(), i32>;
@@ -253,8 +251,8 @@ pub(crate) trait DocHost {
     fn cover_at(&self, _path: &str) -> super::doc_host::CoverAt {
         super::doc_host::CoverAt::Made
     }
-    /// Whether the only document that prepares is the cover job: the pump's
-    /// "more" then does not hold the device awake.
+    /// Whether only the cover job prepares: the pump's "more" then does not
+    /// hold the device awake.
     fn only_cover_job_preparing(&self) -> bool {
         false
     }
@@ -309,8 +307,7 @@ pub(crate) trait DocHost {
     fn cover_must_wait(&self) -> bool {
         !self.cover_jobs_allowed() || !self.cover_quiet() || self.table().reading_besides(0)
     }
-    /// The key of a book whose job was displaced too often in a row (0: none):
-    /// the library counts it as failed (no cover until the next start).
+    /// The key of a book whose job was displaced too often (0: none): failed.
     fn cover_job_given_up(&self) -> u64 {
         0
     }
@@ -637,6 +634,9 @@ impl DocHost for Cx<'_> {
     }
     fn cover_job_held_back(&self) {
         self.host.cover_job_held_back();
+    }
+    fn cover_quiet(&self) -> bool {
+        self.host.cover_quiet()
     }
     fn cover_job_displaced(&self, kind: JobKind) {
         self.host.cover_job_displaced(kind);

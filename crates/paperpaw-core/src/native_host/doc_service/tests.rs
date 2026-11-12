@@ -254,6 +254,15 @@ impl DocHost for Fake {
     fn cover_quiet(&self) -> bool {
         !self.noisy.get()
     }
+    fn cover_at(&self, _path: &str) -> crate::native_host::doc_host::CoverAt {
+        use crate::native_host::doc_host::CoverAt;
+        // The host's table knows an unmade book; the fake's quiet time stands in.
+        if self.noisy.get() {
+            CoverAt::Unmade
+        } else {
+            CoverAt::Made
+        }
+    }
     fn cover_job_guard(&self, path: &str) -> Result<(), i32> {
         if self.guard_fails.get() {
             return Err(ERR_IO);
