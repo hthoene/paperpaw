@@ -88,6 +88,13 @@ impl Kernel {
                 self.invalidate(row);
             }
         }
+        // Areas drawn after the frame before them (`command.redraw_area`).
+        // The follow-up's frame stays marked until it is drawn, also while
+        // a refresh filter holds it back.
+        if self.frame.unrendered.is_none() {
+            self.frame.followup_frame = None;
+        }
+        self.run_followup();
         if mem::take(&mut self.output.redraw)
             && let Some(top) = self.stack.len().checked_sub(1)
         {
@@ -268,6 +275,7 @@ impl Kernel {
             self.native_unload_due(),
             self.service_due(),
             self.work_pump_due(),
+            self.followup_due(effects.refresh.is_some()),
         ]
         .into_iter()
         .flatten()

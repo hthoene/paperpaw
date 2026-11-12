@@ -4,8 +4,9 @@
 //! **one** stand-in `FormatSpec` there for all the formats native plugins
 //! declared (`format.spec`, `docs/abi/document.md` section 1): its id
 //! [`STAND_IN_ID`], no title, and every extension they declared, matched as
-//! every format's are (after a dot, ASCII case ignored). Its opener refuses:
-//! a native document opens through `core.document`, never `Formats::open`.
+//! every format's are (after a dot, ASCII case ignored). Its opener refuses
+//! with `NotReady`: a native document opens through `core.document`, never
+//! `Formats::open`, and its details are read by the host later.
 //!
 //! **In line with the declarations.** The stand-ins are made again whenever
 //! the registry's generation moved ([`Kernel::native_book_formats_sync`]):
@@ -141,6 +142,17 @@ fn gather(
 }
 
 impl NativeBookFormats {
+    /// Whether the format `id` of `Formats` is the native formats' stand-in:
+    /// its books are read by the host's details job (`doc_details_job`).
+    pub(crate) fn has(&self, id: &str) -> bool {
+        id == STAND_IN_ID && !self.runs.is_empty()
+    }
+
+    /// Whether there is no stand-in (no native format).
+    pub(crate) fn is_empty(&self) -> bool {
+        self.runs.is_empty()
+    }
+
     /// Makes the stand-in of `store`'s formats in `formats` again where
     /// `generation` is not the one it was made at, or the last sync was cut
     /// short: one the heap refused is made again at the next call.
@@ -173,7 +185,10 @@ impl NativeBookFormats {
                 Cow::Borrowed(""),
                 extensions,
                 // Never opened here: `core.document` opens native documents.
-                Box::new(|_, _, _| Err(paperpaw_sdk::document::DocumentError::UnsupportedFormat)),
+                // "Not ready" tells the walk its details come later, from the
+                // host's details job (`library::keep_native_details`), so it
+                // marks nothing as read.
+                Box::new(|_, _, _| Err(paperpaw_sdk::document::DocumentError::NotReady)),
             );
             // Within the room reserved, and its id is the kernel's own.
             let _added = formats.add(spec);

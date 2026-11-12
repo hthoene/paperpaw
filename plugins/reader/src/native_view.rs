@@ -9,7 +9,7 @@ use crate::{
     native_actions,
     native_chapter::{self, Chapter},
     native_document::HostDocument,
-    native_draw::{HostInk, draw_lines_marked},
+    native_draw::{HostInk, draw_page},
     native_index::Counter,
     native_links::DocRef,
     native_look::Look,
@@ -127,6 +127,8 @@ struct Open {
     unsaved: bool,
     /// The last input turned the page, not yet told to the plugin.
     turned: bool,
+    /// The pictures of the page on show: drawn a frame after its text (#252).
+    pictures: pictures::Pass,
     /// A jump from another screen is not yet reported to the host.
     report_due: bool,
     /// The book's title as a report carries it.
@@ -364,6 +366,7 @@ impl View {
             saved_at: None,
             unsaved: false,
             turned: false,
+            pictures: pictures::Pass::Whole,
             report_due: false,
             said: false,
             title,
@@ -380,6 +383,11 @@ impl View {
         // The host's book events start here (`document.md` 2.4); a book whose
         // first page cannot be laid out is told with its first draw.
         open.announce(host, docs);
+        // Its pictures follow its text: their boxes are asked for when the
+        // screen is shown (its place on the screen is the host's then).
+        if open.has_pictures() {
+            open.pictures = pictures::Pass::Ask;
+        }
         Ok(Self {
             body: Body::Open(open),
             speaker: Speaker::new(0),
@@ -466,6 +474,7 @@ impl View {
             open.page = None;
             open.laid = None;
             open.trail.clear();
+            open.pictures = pictures::Pass::Whole;
             if let Ok(setup) = Setup::read(host) {
                 open.ensure_counter(host, &setup);
             }
@@ -574,6 +583,18 @@ impl View {
             && core::mem::take(&mut open.report_due)
         {
             open.announce(host, docs);
+            // The book or a place in it is shown: its pictures follow its text
+            // (the show draws it anyway: asked for only where there are any).
+            if open.has_pictures() {
+                open.redraw_page(host, docs, RedrawMode::Partial).ok();
+            }
+        } else if let Body::Open(open) = &mut self.body
+            && open.pictures_pending()
+        {
+            // Opened with pictures, or shown again while they waited (the
+            // host dropped their follow-up when the screen left the top): they
+            // are asked for now.
+            open.redraw_page(host, docs, RedrawMode::Partial).ok();
         }
     }
 
@@ -669,8 +690,7 @@ impl View {
         open.unsaved = true;
         open.turned = true;
         open.announce(host, docs);
-        let mut scratch = [0; 64];
-        CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)
+        open.redraw_page(host, docs, RedrawMode::Partial)
     }
 
     /// What an input did: turns the page.
@@ -881,9 +901,7 @@ impl Open {
         self.turned = true;
         self.save(host, library, When::Turn);
         self.announce(host, docs);
-        let mut scratch = [0; 64];
-        CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
-        Ok(())
+        self.redraw_page(host, docs, RedrawMode::Partial)
     }
 
     /// Says that the place could not be saved; after the screen closed the
@@ -1042,7 +1060,7 @@ impl Open {
         self.turned = true;
         self.save(host, library, When::Turn);
         self.announce(host, docs);
-        redraw(host, RedrawMode::Partial)
+        self.redraw_page(host, docs, RedrawMode::Partial)
     }
 
     /// What the marking makes of `input` on the page on show (nothing where the
@@ -1265,6 +1283,8 @@ impl Open {
         }
         if self.page.is_none() {
             let page = self.lay_with(host, docs, &faces, setup, self.at, area)?;
+            // Laid out only here: drawn in one pass.
+            self.pictures = pictures::Pass::Whole;
             self.page = Some(page);
             self.words = Vec::new();
             self.laid = Some(key);
@@ -1274,6 +1294,7 @@ impl Open {
             self.words = native_wordbox::word_boxes(&faces, page, area)?;
         }
         let rect = frame.rect;
+        let follow_up = pictures::follow_up(frame);
         let canvas = frame.draw_canvas()?;
         canvas.fill_rectangle(rect, Color::WHITE)?;
         let look = Look::read(host, setup.display.display_gray_levels())?;
@@ -1282,7 +1303,14 @@ impl Open {
             rect.x as f32 + f32::from(area.x),
             rect.y as f32 + f32::from(area.y),
         );
-        draw_lines_marked(&mut ink, &faces, page, origin, self.mark.clone())?;
+        let pictures = self.pictures.drawing(follow_up);
+        draw_page(
+            &mut ink,
+            &faces,
+            page,
+            origin,
+            (self.mark.clone(), pictures),
+        )?;
         self.paint_status(host, ui, frame, (setup, &area))?;
         let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),
@@ -1339,6 +1367,7 @@ fn say_with(
 mod aloud;
 mod count;
 mod menu_bar;
+mod pictures;
 mod preparing;
 use preparing::Preparing;
 
