@@ -671,3 +671,20 @@ fn beta_3s_own_annotations_are_moved_at_the_first_edit_and_the_next_edit_goes_to
     assert_eq!(t.annotations().len(), 3);
     assert!(t.file().contains("before"));
 }
+
+/// The transactions' rows are reserved at the first begin and freed when the
+/// last one ends: nothing is held while no plugin edits (#248).
+#[test]
+fn no_transaction_room_is_held_before_the_first_begin_or_after_the_last_end() {
+    let t = fixture();
+    let held = || t.host.transactions().unwrap().held();
+    assert_eq!(held(), 0, "before any begin");
+    t.transact(1, &[edit(0)], &[]).unwrap();
+    assert_eq!(held(), 0, "after the commit");
+    // One open: its rows are held until its plugin's transactions end.
+    let transactions = t.host.transactions().unwrap();
+    transactions.begin_for_test(OWNER, 1_000);
+    assert!(held() > 0, "while one is open");
+    transactions.close_owner(OWNER, |_| {}).unwrap();
+    assert_eq!(held(), 0, "after the last ended");
+}
