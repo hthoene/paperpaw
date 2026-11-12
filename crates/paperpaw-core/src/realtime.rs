@@ -30,9 +30,19 @@ const ESCAPE_HINTED: &str = ".paperpaw/core/escape-hinted";
 impl Kernel {
     /// The first time a screen that takes every key shows, a notice says
     /// how to leave it (*Back* held, or a corner held on touch screens);
-    /// never again.
+    /// never again. A native screen takes every key only to hand it to its
+    /// plugin, which leaves on *Back* as any screen does: no notice over it,
+    /// as Beta 3 showed none over the screens native plugins now draw.
     pub(crate) fn hint_escape(&mut self) {
-        if !self.top_mode().takes_raw_keys() || self.shared.storage.exists(ESCAPE_HINTED) {
+        let native = self
+            .stack
+            .len()
+            .checked_sub(1)
+            .is_some_and(|top| self.is_native_at(top));
+        if native
+            || !self.top_mode().takes_raw_keys()
+            || self.shared.storage.exists(ESCAPE_HINTED)
+        {
             return;
         }
         let key = match self.shared.device.input.touch {
