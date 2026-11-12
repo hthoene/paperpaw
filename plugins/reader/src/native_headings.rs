@@ -227,6 +227,10 @@ pub struct Scan {
     sections: u32,
     next: Place,
     found: Vec<Entry>,
+    /// What the headings found cost the list ([`native_toc::row_cost`]): the
+    /// scan stops one heading past [`native_toc::TOC_BYTES`], so the list knows
+    /// it left some out.
+    bytes: usize,
     /// `Some` once the scan ended: `true` where it ran to the end.
     end: Option<bool>,
 }
@@ -244,6 +248,7 @@ impl Scan {
             sections,
             next: Place::default(),
             found: Vec::new(),
+            bytes: 0,
             end: None,
         })
     }
@@ -285,7 +290,10 @@ impl Scan {
             None => {}
         }
         for _ in 0..STEP_BLOCKS {
-            if self.next.section >= self.sections || self.found.len() >= MAX_HEADINGS {
+            if self.next.section >= self.sections
+                || self.found.len() >= MAX_HEADINGS
+                || self.bytes > native_toc::TOC_BYTES
+            {
                 return self.finish(storage);
             }
             match read(self.next) {
@@ -319,6 +327,7 @@ impl Scan {
             return Ok(());
         };
         self.found.try_reserve(1).map_err(|_| Error::NoMemory)?;
+        self.bytes = self.bytes.saturating_add(native_toc::row_cost(&title));
         self.found.push(Entry::new(
             title,
             level,

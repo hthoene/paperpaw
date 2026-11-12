@@ -35,9 +35,15 @@ pub struct TocView {
     /// The document was opened by this screen (and is closed with it): the X4
     /// holds one open document per plugin, so the reading screen's is used.
     owned: bool,
-    /// Entries as the host listed them: where each leads and whether that is exact.
-    entries: Vec<(Entry, bool)>,
+    /// Where each row leads and whether that is exact (the title is held in
+    /// its row only).
+    targets: Vec<(Place, bool)>,
     list: ItemList,
+    /// Rows were left out: the list keeps to [`native_toc::TOC_BYTES`].
+    cut: bool,
+    /// The book's own table (at most one entry) while its headings are found:
+    /// what the screen lists where the scan finds no more.
+    table: Vec<(Entry, bool)>,
     /// Why there is nothing to list (the key of the text).
     message: Option<&'static str>,
     /// The headings scan under way, and how far the screen says it is.
@@ -78,13 +84,23 @@ fn row_title(entry: &Entry) -> Result<String, Error> {
     Ok(title)
 }
 
+fn heading_title(entry: &Entry) -> &str {
+    &entry.title
+}
+
+fn table_title(entry: &(Entry, bool)) -> &str {
+    &entry.0.title
+}
+
 impl TocView {
     fn none(message: &'static str) -> Self {
         Self {
             document: None,
             owned: false,
-            entries: Vec::new(),
+            targets: Vec::new(),
             list: ItemList::default(),
+            cut: false,
+            table: Vec::new(),
             message: Some(message),
             scan: None,
             at: Place::default(),
@@ -156,10 +172,12 @@ impl TocView {
     ) -> Result<(), Error> {
         let (mut input, mut out) = (buffer(256)?, buffer(SERVICE_BUFFER)?);
         let mut cursor = DocCursor::start();
+        let (mut table, mut bytes) = (Vec::new(), 0_usize);
         'pages: loop {
             let page = docs.toc(host, id, cursor, &mut input, &mut out)?;
             for row in page.rows() {
-                if self.entries.len() >= MAX_HEADINGS {
+                // One past the bytes the list holds: it then says some are left out.
+                if table.len() >= MAX_HEADINGS || bytes > native_toc::TOC_BYTES {
                     break 'pages;
                 }
                 let Some(title) = native_toc::title_of(row.title())? else {
@@ -171,8 +189,9 @@ impl TocView {
                     u8::try_from(row.level()).unwrap_or(u8::MAX),
                     Place::new(position.section, position.offset),
                 );
-                self.entries.try_reserve(1).map_err(|_| Error::NoMemory)?;
-                self.entries.push((entry, row.approximate()));
+                bytes = bytes.saturating_add(native_toc::row_cost(&entry.title));
+                table.try_reserve(1).map_err(|_| Error::NoMemory)?;
+                table.push((entry, row.approximate()));
             }
             match page.end().next() {
                 Some(next) => cursor = next,
@@ -180,19 +199,22 @@ impl TocView {
             }
         }
         drop((input, out));
-        if native_toc::wants_scan(self.entries.len()) {
+        if native_toc::wants_scan(table.len()) {
             let kept = native_headings::load(&DataStorage::new(host), path, conversion)?;
             match kept {
                 // Found before, for this conversion of the book.
                 Some(kept) => {
-                    if let Some(headings) = native_toc::prefer(Some(kept), self.entries.len()) {
+                    if let Some(headings) = native_toc::prefer(Some(kept), table.len()) {
                         return self.show_headings(headings);
                     }
                 }
-                None => return self.start_scan(host, docs, id, (path, conversion)),
+                None => {
+                    self.table = table;
+                    return self.start_scan(host, docs, id, (path, conversion));
+                }
             }
         }
-        self.show_table(host, docs, id)
+        self.show_table(host, docs, id, table)
     }
 
     /// The headings scan starts: the screen says it is finding the chapters.
@@ -239,9 +261,10 @@ impl TocView {
             });
         }
         let found = self.scan.take().map(|(scan, _)| scan.into_entries());
-        match native_toc::prefer(found.filter(|_| step == ScanStep::Done), self.entries.len()) {
+        let table = core::mem::take(&mut self.table);
+        match native_toc::prefer(found.filter(|_| step == ScanStep::Done), table.len()) {
             Some(headings) => self.show_headings(headings)?,
-            None => self.show_table(host, docs, id)?,
+            None => self.show_table(host, docs, id, table)?,
         }
         Ok(Stepped {
             redraw: true,
@@ -252,7 +275,9 @@ impl TocView {
     /// The scan failed with `error`: the screen says so.
     pub fn give_up(&mut self, error: Error) {
         self.scan = None;
-        self.entries = Vec::new();
+        self.table = Vec::new();
+        self.targets = Vec::new();
+        self.cut = false;
         self.list = ItemList::default();
         self.message = Some(if error == Error::NoMemory {
             "reader.no-memory"
@@ -264,51 +289,76 @@ impl TocView {
     /// The headings found listed, the focus on the one the reader is past.
     fn show_headings(&mut self, headings: Vec<Entry>) -> Result<(), Error> {
         let focus = native_toc::current(&headings, self.at);
-        let mut entries = Vec::new();
-        entries
-            .try_reserve_exact(headings.len())
-            .map_err(|_| Error::NoMemory)?;
         // A heading's place is exact: no target to ask for.
-        entries.extend(headings.into_iter().map(|entry| (entry, false)));
-        self.entries = entries;
-        self.fill()?;
-        self.list.set_focus(focus);
+        if self.fill(headings, |entry| (entry, false), heading_title)? {
+            self.list
+                .set_focus(focus.min(self.targets.len().saturating_sub(1)));
+        }
         Ok(())
     }
 
-    /// The rows of the entries; `false` where there are none (the screen says
-    /// so).
-    fn fill(&mut self) -> Result<bool, Error> {
-        if self.entries.is_empty() {
-            self.list = ItemList::default();
+    /// The rows of `entries` (`part` gives an entry and whether its place is
+    /// approximate, `title` its title), each title moved into its row: those
+    /// within [`native_toc::TOC_BYTES`], [`TocView::cut`] where some are left
+    /// out. `false` where there are none (the screen says so).
+    fn fill<E>(
+        &mut self,
+        entries: Vec<E>,
+        part: impl Fn(E) -> (Entry, bool),
+        title: fn(&E) -> &str,
+    ) -> Result<bool, Error> {
+        self.list = ItemList::default();
+        self.targets = Vec::new();
+        // The rows that fit, counted first: no room is kept for the rest.
+        let mut bytes = 0_usize;
+        let fit = entries
+            .iter()
+            .take_while(|entry| {
+                bytes = bytes.saturating_add(native_toc::row_cost(title(entry)));
+                bytes <= native_toc::TOC_BYTES
+            })
+            .count()
+            .max(entries.len().min(1));
+        self.cut = fit < entries.len();
+        if fit == 0 {
             self.message = Some("reader.no-toc");
             return Ok(false);
         }
-        self.message = None;
-        let mut items = Vec::new();
-        items
-            .try_reserve(self.entries.len())
+        let (mut items, mut targets) = (Vec::new(), Vec::new());
+        items.try_reserve_exact(fit).map_err(|_| Error::NoMemory)?;
+        targets
+            .try_reserve_exact(fit)
             .map_err(|_| Error::NoMemory)?;
-        for (entry, _) in &self.entries {
-            items.push(Item::row(&row_title(entry)?, "")?);
+        for entry in entries.into_iter().take(fit) {
+            let (entry, approximate) = part(entry);
+            items.push(Item::row(&row_title(&entry)?, "")?);
+            targets.push((entry.at, approximate));
         }
+        self.message = None;
         self.list = ItemList::new(items);
+        self.targets = targets;
         Ok(true)
     }
 
     /// The book's own table listed, the focus on the chapter the reader is in.
-    fn show_table(&mut self, host: &Host<'_>, docs: &Documents, id: DocId) -> Result<(), Error> {
-        if !self.fill()? {
+    fn show_table(
+        &mut self,
+        host: &Host<'_>,
+        docs: &Documents,
+        id: DocId,
+        table: Vec<(Entry, bool)>,
+    ) -> Result<(), Error> {
+        if !self.fill(table, |entry| entry, table_title)? {
             return Ok(());
         }
         let at = self.at;
         let focus = native_toc::current_of_table(
-            self.entries.iter().map(|(e, _)| e.at.section),
+            self.targets.iter().map(|(place, _)| place.section),
             at,
             |index| {
-                let (entry, approximate) = self.entries.get(index)?;
+                let (place, approximate) = *self.targets.get(index)?;
                 if !approximate {
-                    return Some(entry.at);
+                    return Some(place);
                 }
                 let (mut input, mut out) = (buffer(256).ok()?, buffer(SERVICE_BUFFER).ok()?);
                 let exact = docs
@@ -344,14 +394,14 @@ impl TocView {
 
     /// Where entry `index` leads: the exact place where the host's was approximate.
     fn target(&self, host: &Host<'_>, docs: &Documents, index: usize) -> Option<Place> {
-        let (entry, approximate) = self.entries.get(index)?;
-        let (Some(id), true) = (self.document, *approximate) else {
-            return Some(entry.at);
+        let (place, approximate) = *self.targets.get(index)?;
+        let (Some(id), true) = (self.document, approximate) else {
+            return Some(place);
         };
         let (mut input, mut out) = (buffer(256).ok()?, buffer(SERVICE_BUFFER).ok()?);
         match docs.toc_target(host, id, u32::try_from(index).ok()?, &mut input, &mut out) {
             Ok(exact) => Some(Place::new(exact.section, exact.offset)),
-            Err(_) => Some(entry.at),
+            Err(_) => Some(place),
         }
     }
 
@@ -378,6 +428,11 @@ impl TocView {
                         text: "",
                     },
                 )
+            }
+            None if self.cut => {
+                let note = messages.copy(host, "reader.toc.cut")?;
+                self.list
+                    .draw_with(host, frame, &title, true, Footer::Note(&note))
             }
             None => self.list.draw_with(host, frame, &title, true, Footer::None),
         }

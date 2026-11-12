@@ -354,6 +354,11 @@ relative to the data folder).
   (`Scan`, `core.work` key `toc`, token `TOC_WORK`, a step every 50 ms) and shows "Finding the
   chapters" with the percentage (`native_finding`) until the scan ends. A scan that stops lists the
   book's own table; one that runs out of memory says `reader.no-memory`.
+- Memory (#248): the list holds each title once, in its row (`targets` keeps only the places).
+  Titles and rows are capped at `native_toc::TOC_BYTES` (48 KiB counted as title bytes + 64 a row: 500 titles of up to 32 bytes fit):
+  the book's table is read and the scan runs one heading past it, and the list then shows the
+  first rows with the note `reader.toc.cut`. Beta 3 held 500 long headings in full (299.3 KiB on
+  the X4 for a TXT of 500 60-character headings).
 - **Not yet:** the chapter of the page for the status line and the report, next/previous chapter actions, and the
   skim screen (R6b). The hosted end-to-end test waits for a document host in the harness.
 - The screen reads the reading screen's document (`View::doc_id`), never opening a second one: the X4 holds

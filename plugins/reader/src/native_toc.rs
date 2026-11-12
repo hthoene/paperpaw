@@ -11,6 +11,21 @@ use paperpaw_ui_kit::text::{concat, copy};
 
 /// Headings kept at most for a table of contents.
 pub const MAX_HEADINGS: usize = 500;
+/// The most the table of contents holds of its titles, in bytes counted by
+/// [`row_cost`] (#248): a list of 500 long headings is over the X4's heap, so
+/// the list stops here and says that the rest is left out. 500 titles of up
+/// to 32 bytes fit ([`MAX_HEADINGS`] stops them first).
+pub const TOC_BYTES: usize = 48 * 1024;
+/// What a row of the list holds beside its title's bytes: its item and the
+/// place it leads to.
+pub const ROW_OVERHEAD: usize = 64;
+
+/// What a heading titled `title` costs the list (see [`TOC_BYTES`]).
+#[must_use]
+pub const fn row_cost(title: &str) -> usize {
+    title.len() + ROW_OVERHEAD
+}
+
 /// Blocks read in one step of finding the headings.
 pub const STEP_BLOCKS: usize = 60;
 /// Longest heading kept, in characters.
