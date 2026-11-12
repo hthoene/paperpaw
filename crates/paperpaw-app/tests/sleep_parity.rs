@@ -603,3 +603,35 @@ fn format_markdown_is_the_same_asleep() {
 fn format_txt_is_the_same_asleep() {
     same_awake_and_asleep("format-txt");
 }
+
+/// A book whose document is ready at once (every plugin awake): the reader
+/// counts its pages, so the page index is on the card and the reading record
+/// has the pages. The count used to start only for a book prepared first
+/// (#248: the open path asked before the screen was on top).
+#[test]
+fn a_book_ready_at_once_has_its_pages_counted() {
+    let book = book_of("format-txt").expect("a txt book");
+    let mut run = Run::start(none_sleeps, Some(&book));
+    run.run(&actions::HOME);
+    run.book(book.path);
+    run.run(&actions::NEXT_PAGE);
+    run.run(&actions::BACK);
+    let mut files = Vec::new();
+    list_files(&run.card, "", &mut files);
+    assert!(
+        files
+            .iter()
+            .any(|path| path.starts_with(".paperpaw/plugins/reader/pages-")),
+        "no page index: {files:?}"
+    );
+    let record = run
+        .card
+        .0
+        .get(".paperpaw/plugins/widgets/reading.ini")
+        .unwrap_or_default();
+    let record = String::from_utf8_lossy(&record);
+    assert!(
+        record.contains("pages = "),
+        "no pages in the record: {record}"
+    );
+}

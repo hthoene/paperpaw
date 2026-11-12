@@ -972,6 +972,9 @@ impl NativeReader {
         {
             self.document_changed(host);
         }
+        // A book that opened ready at once was not on top when it opened: its
+        // pages are counted from now (`start_count` asks for the screen on top).
+        self.start_count(host);
         self.follow_note(host, instance)
     }
 
