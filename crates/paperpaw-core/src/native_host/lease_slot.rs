@@ -91,6 +91,27 @@ impl Slot {
         })
     }
 
+    /// Makes a parked plugin now where this is a safe point; elsewhere it
+    /// stays parked and is made at its first call, as ever. `Ok` for a
+    /// live plugin.
+    ///
+    /// # Errors
+    /// As [`Self::live`] at a safe point (`ERR_BUSY` while its wait after
+    /// no memory runs, `ERR_CANCELLED` for a refused or stopped plugin).
+    pub(crate) fn make_if_safe(&self) -> Result<(), i32> {
+        let safe = self.live.get().is_none()
+            && self
+                .parked
+                .borrow()
+                .as_ref()
+                .is_some_and(|parked| parked.clock.safe_point());
+        if safe {
+            self.live().map(|_| ())
+        } else {
+            Ok(())
+        }
+    }
+
     /// The live instance without making it: `None` while parked.
     pub(crate) fn peek(&self) -> Option<&dyn NativeInstance> {
         self.live.get().map(|instance| &**instance)
@@ -177,6 +198,19 @@ impl Slot {
         self.parked.borrow().as_ref().is_some_and(|parked| {
             let due = parked.refused.get() || parked.clock.now_ms() >= parked.retry_at.get();
             due && parked.start.replace(false)
+        })
+    }
+
+    /// When a start asked for may be made (ms; now for a refused batch to
+    /// withdraw): a wake deadline, so what waits for it is not left to the
+    /// next key press (#248). `None` where none was asked.
+    pub(crate) fn start_at(&self) -> Option<u64> {
+        let parked = self.parked.borrow();
+        let parked = parked.as_ref().filter(|parked| parked.start.get())?;
+        Some(if parked.refused.get() {
+            0
+        } else {
+            parked.retry_at.get()
         })
     }
 

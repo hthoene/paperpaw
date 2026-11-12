@@ -24,9 +24,9 @@ use paperpaw_ui_kit::{
 };
 
 use crate::declarations::{
-    CARDS_TOKEN, DECKS_TOKEN, EVENTS_TOKEN, OPEN_TOKEN, RESUME_TOKEN, REVIEW_TOKEN, SD_CARD_TOKEN,
-    SD_MENU_TOKEN, SLEEP_CARD, SLEEP_TOKEN, TICK_TOKEN, WORD_STAGE, WORD_TOKEN, WORDS_TOKEN,
-    WORK_TOKEN,
+    CARDS_TOKEN, DECKS_TOKEN, DECORATE_STAGE, DECORATE_TOKEN, EVENTS_TOKEN, OPEN_TOKEN,
+    RESUME_TOKEN, REVIEW_TOKEN, SD_CARD_TOKEN, SD_MENU_TOKEN, SLEEP_CARD, SLEEP_TOKEN, TICK_TOKEN,
+    WORD_STAGE, WORD_TOKEN, WORDS_TOKEN, WORK_TOKEN,
 };
 use crate::files::DataFolder;
 use crate::native_decks::{self, DecksView, Numbers};
@@ -186,6 +186,13 @@ impl State {
                 payload,
                 ..
             } if token == WORD_TOKEN => self.word_looked_up(host, payload),
+            Event::StageCall {
+                stage: DECORATE_STAGE,
+                payload,
+                ..
+            } if token == DECORATE_TOKEN => {
+                crate::native_marks_stage::decorate(host, &mut self.ui, payload, reply)
+            }
             Event::ActionRun {
                 action: "vocabulary.flash-cards",
                 ..

@@ -284,6 +284,14 @@ impl crate::Kernel {
             let Some(pending) = queue.take() else {
                 break;
             };
+            // A parked plugin is made first; one that cannot be made now
+            // keeps its action, behind those waiting (#248).
+            if pending.lease.is_parked() && pending.lease.live().err() == Some(ERR_BUSY) {
+                if queue.put_back(pending).is_err() {
+                    self.warn_runtime("a native plugin's action was not run: too many wait");
+                }
+                continue;
+            }
             if self.shared.native_instances.outbox.full() {
                 self.native_outbox_run();
             }

@@ -88,6 +88,10 @@
     },
     {
       "kind": "host",
+      "name": "text.covers"
+    },
+    {
+      "kind": "host",
       "name": "canvas.clip"
     },
     {

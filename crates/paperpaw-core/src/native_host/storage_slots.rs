@@ -8,11 +8,9 @@ use super::{
     paths_in_use::PathsInUse,
     storage::{self, MAX_DATA, MAX_FOLDER, MAX_PATH, PREFIX, ROOT_PLUGIN, StorageAdapter},
 };
-use alloc::{alloc::alloc_zeroed, boxed::Box};
-use core::alloc::Layout;
+use core::mem::MaybeUninit;
 use paperpaw_native::host_glue::{
-    ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes,
-    buffers,
+    ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes, buffers,
 };
 
 /// The format calls under way and the host owner id of the plugin whose slot
@@ -78,6 +76,14 @@ fn pair(ptr: *const u8, len: usize, max: usize) -> Result<(), i32> {
     Ok(())
 }
 
+/// Whether a nonempty output range shares a byte with `path` (both already
+/// bounded by [`pair`]).
+fn overlaps(path: &[u8], out: *const u8, cap: usize) -> bool {
+    let (start, end) = (path.as_ptr() as usize, path.as_ptr() as usize + path.len());
+    let at = out as usize;
+    cap != 0 && !path.is_empty() && at < end && start < at + cap
+}
+
 unsafe fn input<'a>(bytes: PpBytes, max: usize) -> Result<&'a [u8], i32> {
     pair(bytes.ptr, bytes.len, max)?;
     // SAFETY: pair bounds were checked and the caller guarantees live input.
@@ -141,9 +147,15 @@ pub(crate) unsafe fn size(
 }
 
 /// Slot 21: read a bounded chunk into possibly uninitialized caller storage.
-/// A fallibly allocated host-heap buffer sized to output keeps the caller's output
-/// unchanged on every error, without a result-sized stack frame. Only the
-/// successful read prefix is copied; the remaining caller bytes are untouched.
+/// The card's adapter reads straight into the caller's buffer (no copy of it is
+/// held on the heap, #248): its bytes are zeroed first (it may be
+/// uninitialized), and the whole of it again on a read error, as the adapter
+/// may use it as scratch (sectors, directory entries) before it fails. On
+/// success the bytes after `count` are zeroed too, for the same reason. A
+/// refusal before the read (the path, the buffer, the route) leaves the
+/// buffer untouched (`files.md` 1: `out` is unspecified on an error). An `out`
+/// that overlaps the path is `ERR_INVALID`: the path stays borrowed while
+/// `out` is written.
 ///
 /// # Safety
 /// Nonempty input must be live and readable; nonempty output must be live,
@@ -161,55 +173,36 @@ pub(crate) unsafe fn read_at(
         // SAFETY: the caller guarantees live input storage.
         let path = unsafe { path(root, bytes) }?;
         pair(out.ptr, out.cap, MAX_DATA)?;
-        // SAFETY: validated bounds and the caller's exclusive output contract.
+        if overlaps(path, out.ptr, out.cap) {
+            return Err(ERR_INVALID);
+        }
+        // SAFETY: validated bounds, disjoint from the path just above, and the
+        // caller's exclusive output contract.
         let out = unsafe { buffers::buffer_out(out, MAX_DATA) }?;
         with_adapter(scope, owner, None, format.map(|f| (f, root)), |adapter| {
-            let mut scratch = read_scratch(out.len())?;
-            let count = adapter.read_at(root, path, offset, &mut scratch)?;
-            let bytes = scratch
-                .get(..count)
-                .filter(|bytes| bytes.len() <= out.len())
-                .ok_or(ERR_INVALID)?;
-            Ok(buffers::copy_count(bytes, out))
+            out.fill(MaybeUninit::new(0));
+            // SAFETY: every byte was initialized just above, and
+            // `MaybeUninit<u8>` has the size and alignment of `u8`.
+            let into = unsafe { &mut *(core::ptr::from_mut(out) as *mut [u8]) };
+            match adapter.read_at(root, path, offset, into) {
+                Ok(count) if count <= into.len() => {
+                    if let Some(rest) = into.get_mut(count..) {
+                        rest.fill(0);
+                    }
+                    i32::try_from(count).map_err(|_| ERR_INVALID)
+                }
+                Ok(_) => {
+                    into.fill(0);
+                    Err(ERR_INVALID)
+                }
+                Err(error) => {
+                    into.fill(0);
+                    Err(error)
+                }
+            }
         })
     })();
     result.unwrap_or_else(|error| error)
-}
-
-// Request exactly the caller's capacity, never a maximum-sized stack array.
-// The empty case owns no allocation and never calls the allocator with size 0.
-fn read_scratch(len: usize) -> Result<Box<[u8]>, i32> {
-    if len == 0 {
-        return Ok(Box::default());
-    }
-    let layout = Layout::array::<u8>(len).map_err(|_| ERR_NO_MEMORY)?;
-    #[cfg(test)]
-    if scratch_fault::take() {
-        return Err(ERR_NO_MEMORY);
-    }
-    // SAFETY: the nonzero byte-array layout is valid; zeroing happens in heap.
-    let pointer = unsafe { alloc_zeroed(layout) };
-    if pointer.is_null() {
-        return Err(ERR_NO_MEMORY);
-    }
-    // SAFETY: exclusive heap storage has exactly this slice layout and every
-    // byte was initialized by alloc_zeroed. Box frees the same allocation.
-    Ok(unsafe { Box::from_raw(core::ptr::slice_from_raw_parts_mut(pointer, len)) })
-}
-
-#[cfg(test)]
-mod scratch_fault {
-    extern crate std;
-    use core::cell::Cell;
-    std::thread_local! {
-        static REFUSE: Cell<bool> = const { Cell::new(false) };
-    }
-    pub(super) fn refuse_next() {
-        REFUSE.with(|refuse| refuse.set(true));
-    }
-    pub(super) fn take() -> bool {
-        REFUSE.with(|refuse| refuse.replace(false))
-    }
 }
 
 /// Slot 22: replace a file, preserving the reserve and path rules.

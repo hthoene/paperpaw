@@ -225,6 +225,7 @@ mod admitted_features;
 pub(crate) mod secret_bytes;
 
 pub(crate) mod book_data_steps;
+pub(crate) mod book_scope;
 pub(crate) mod busy_adapters;
 #[path = "native_host/call_services.rs"]
 mod call_services;
