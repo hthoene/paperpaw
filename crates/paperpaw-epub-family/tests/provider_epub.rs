@@ -793,3 +793,63 @@ fn every_paged_list_ends_with_the_last_page_bit_and_a_generation_that_is_never_0
         }
     }
 }
+
+/// Every file below `dir` of `io`'s cache, as paths.
+fn cached_files(io: &Roots, dir: &str, into: &mut Vec<String>) {
+    let mut entries = Vec::new();
+    let _ = io
+        .mem
+        .list(dir, &mut |e| entries.push((e.name.to_string(), e.is_dir)));
+    for (name, is_dir) in entries {
+        let path = format!("{dir}/{name}");
+        if is_dir {
+            cached_files(io, &path, into);
+        } else {
+            into.push(path);
+        }
+    }
+}
+
+/// The state flags of an open of `notes.epub` with the open flags `flags`.
+fn open_flags(
+    p: &mut paperpaw_epub_family::provider::FormatProvider,
+    io: &Roots,
+    flags: u32,
+) -> u32 {
+    let reply = run(
+        p,
+        io,
+        &call(2, |c| {
+            c.text = "notes.epub";
+            c.flags = flags;
+        }),
+    )
+    .unwrap();
+    let stage::Record::FmtState(s) = rows(&reply)[0] else {
+        panic!("state")
+    };
+    assert_eq!((s.state, s.status), (0, 0), "{s:?}");
+    s.flags
+}
+
+#[test]
+fn a_background_open_builds_nothing_and_a_normal_one_after_it_finds_everything_out() {
+    const XPOINTERS: u32 = 1 << 2;
+    let io = Roots::new("notes.epub", &book_bytes());
+    let mut p = epub_provider();
+    // A background open (the library's cover, an index build): no contents,
+    // positions or labels, and nothing written but what a cover needs.
+    assert_eq!(open_flags(&mut p, &io, 4) & XPOINTERS, 0);
+    let mut files = Vec::new();
+    cached_files(&io, "cache", &mut files);
+    assert!(files.is_empty(), "{files:?}");
+    run(&mut p, &io, &call(4, |_| {})).unwrap();
+    // A normal open of the same book finds the flags out, as ever.
+    assert_eq!(open_flags(&mut p, &io, 0) & XPOINTERS, XPOINTERS);
+    let mut files = Vec::new();
+    cached_files(&io, "cache", &mut files);
+    assert!(
+        files.iter().any(|f| f.ends_with("package.ini")),
+        "{files:?}"
+    );
+}

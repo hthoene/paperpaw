@@ -34,7 +34,8 @@ const TOUCH_TOGGLE: &str = "lock.touch-toggle";
 const SLEEP_SLOT: &str = "core.sleep";
 const SETTINGS_SLOT: &str = "core.settings";
 const GROUP: &str = "power.group";
-/// `core.ui` calls use buffers of the schema's capacity.
+/// `core.ui` and `core.device` calls use buffers of the schema's capacity (4,096
+/// bytes: the host refuses a smaller reply buffer).
 const UI_BUFFER: usize = 4096;
 /// A translated label or title fits this.
 const LABEL: usize = 128;
@@ -269,7 +270,7 @@ fn wear(host: &Host<'_>) -> Result<(), Error> {
     });
     let device = Device::open(host)?;
     let worn = (|| {
-        let (mut input, mut out) = ([0; 64], [0; 512]);
+        let (mut input, mut out) = ([0; 64], buffer(UI_BUFFER)?);
         let power = device.power(host, 0, &mut input, &mut out)?;
         let level = match power.level() {
             PowerLevel::Saving => Level::Saving,
@@ -299,7 +300,7 @@ fn wear(host: &Host<'_>) -> Result<(), Error> {
 fn device_caps(host: &Host<'_>) -> Result<Caps, Error> {
     let device = Device::open(host)?;
     let caps = (|| {
-        let (mut input, mut out) = ([0; 64], [0; 512]);
+        let (mut input, mut out) = ([0; 64], buffer(UI_BUFFER)?);
         let identity = device.device(host, &mut input, &mut out)?;
         Ok(Caps {
             sleep: identity.supports(DeviceCapability::Sleep),
@@ -378,7 +379,7 @@ fn status(
 fn worn_level(host: &Host<'_>) -> Result<Level, Error> {
     let device = Device::open(host)?;
     let level = (|| {
-        let (mut input, mut out) = ([0; 64], [0; 512]);
+        let (mut input, mut out) = ([0; 64], buffer(UI_BUFFER)?);
         Ok(match device.power(host, 0, &mut input, &mut out)?.level() {
             PowerLevel::Saving => Level::Saving,
             PowerLevel::Offline => Level::Offline,

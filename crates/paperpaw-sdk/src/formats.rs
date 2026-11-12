@@ -283,7 +283,9 @@ impl Formats {
         &mut self,
         additional: usize,
     ) -> Result<(), alloc::collections::TryReserveError> {
-        self.specs.try_reserve(additional)
+        // Exact: the kernel adds one stand-in (a list of 112-byte specs
+        // would otherwise grow to four at once).
+        self.specs.try_reserve_exact(additional)
     }
 
     /// Whether no format was added: nothing can be opened, nor be a

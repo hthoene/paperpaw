@@ -15,9 +15,15 @@
 //!   format left) leaves only its row, which this step frees.
 //! * No frame: the format's `close` goes through the pump's route, as a
 //!   preparing step's call does.
+//! * The slot is the device's one background job, of either kind
+//!   (`JobKind`): the library's cover, or the host's details job
+//!   (`doc_details_job`), whose book is read here before it is closed. The
+//!   marker, the start gate, the end at sleep, the place any other open
+//!   takes, the failure after [`LATER_MAX`] steps and the awake-time cap per
+//!   book are the same for both.
 use super::{DocState, NoImages};
 use crate::native_host::{
-    doc_service::{Document, FAILED, JobStep, PREPARING, PrepareStep, READY},
+    doc_service::{Document, FAILED, JobKind, JobStep, PREPARING, PrepareStep, READY, details},
     fmt_call::{Route, Stage},
     host_services::HostServices,
 };
@@ -33,19 +39,46 @@ const LATER_MAX: u8 = 8;
 const SCRATCH: usize = 4096;
 
 impl DocState {
-    /// Whether the cover job is the document of the book at `path`.
-    pub(super) fn cover_job_path_is(&self, path: &str) -> bool {
+    /// Whether the job is a job of `kind` and the document of the book at
+    /// `path`.
+    pub(super) fn job_book_is(&self, path: &str, kind: JobKind) -> bool {
         let Some(job) = self.table.cover_job() else {
             return false;
         };
-        self.books
-            .try_borrow()
-            .is_ok_and(|books| books.iter().any(|b| b.document == job.id && b.path == path))
+        job.job_kind == kind
+            && self
+                .books
+                .try_borrow()
+                .is_ok_and(|books| books.iter().any(|b| b.document == job.id && b.path == path))
+    }
+
+    /// Whether the cover job is the document of the book at `path`.
+    #[cfg(test)]
+    pub(super) fn cover_job_path_is(&self, path: &str) -> bool {
+        self.job_book_is(path, JobKind::Cover)
+    }
+
+    /// Whether a job of either kind may begin now: the kernel's start
+    /// returned, no job runs and no book is open for reading (else `Err
+    /// (None)`), and the quiet moment after a displacement is over (else
+    /// `Err(Some(at))`, its end).
+    pub(super) fn job_may_begin(&self) -> Result<(), Option<u64>> {
+        if !self.jobs_allowed.get()
+            || self.table.cover_job().is_some()
+            || self.table.reading_besides(0)
+        {
+            return Err(None);
+        }
+        let at = self.job_resume_at.get();
+        if self.now.get() < at {
+            return Err(Some(at));
+        }
+        Ok(())
     }
 
     /// The key of the path of the book of document `document` (what the
     /// library keeps of a failed book), 0 where the book is not held.
-    fn book_key(&self, document: u32) -> u64 {
+    pub(super) fn book_key(&self, document: u32) -> u64 {
         self.books.try_borrow().map_or(0, |books| {
             books
                 .iter()
@@ -54,12 +87,36 @@ impl DocState {
         })
     }
 
+    /// A library list screen is up (`up`) or not (`DocHost::cover_job_list`):
+    /// the job is held while one is up and for [`RESUME_AFTER_MS`] after, and
+    /// the time it is held is no awake time.
+    ///
+    /// Says when the quiet moment of a job that waits ends (the kernel's
+    /// clock, ms), so that the pump asks to be woken then: `None` while a
+    /// list is up (its leaving makes a pass), without a job, or with no hold.
+    pub(super) fn list_hold(&self, up: bool) -> Option<u64> {
+        let now = self.now.get();
+        if up {
+            self.list_quiet_until
+                .set(now.saturating_add(super::RESUME_AFTER_MS));
+        }
+        let hold = up || now < self.list_quiet_until.get();
+        if hold && !self.table.list_held() {
+            // What it ran so far counts; the held time does not.
+            self.add_used();
+        }
+        if self.table.set_list_hold(hold) && !hold {
+            self.job_started.set(now);
+        }
+        (hold && !up && self.table.cover_job().is_some()).then(|| self.list_quiet_until.get())
+    }
+
     /// What the job that runs has run since it began (or since this was last
     /// asked) is added to its book's total.
-    fn add_used(&self) {
+    pub(super) fn add_used(&self) {
         let (key, used) = self.job_used.get();
         let now = self.now.get();
-        if key == self.job_key.get() {
+        if key == self.job_key.get() && !self.table.list_held() {
             let ran = now.saturating_sub(self.job_started.get());
             self.job_used.set((key, used.saturating_add(ran)));
         }
@@ -75,8 +132,11 @@ impl DocState {
                 >= super::JOB_AWAKE_MAX_MS
     }
 
-    /// The cover job was displaced (`DocHost::cover_job_displaced`).
-    pub(super) fn displaced(&self) {
+    /// The job, of `kind`, was displaced (`DocHost::cover_job_displaced`).
+    /// A details job is not held back: nothing waits for it (`cover_jobs_
+    /// released` raises bit 6 for a held-back cover), it waits the quiet
+    /// moment only (`DetailsJob::start`).
+    pub(super) fn displaced(&self, kind: JobKind) {
         self.add_used();
         let key = self.job_key.get();
         let (last, times) = self.job_displaced.get();
@@ -88,11 +148,13 @@ impl DocState {
         self.job_displaced.set((key, times));
         if times >= super::DISPLACED_MAX {
             // Displaced again and again: its conversion would start over
-            // for ever. No cover for it until the next start.
+            // for ever. No job for it until the next start.
             self.job_given_up.set(key);
             return;
         }
-        self.job_held_back.set(true);
+        if kind == JobKind::Cover {
+            self.job_held_back.set(true);
+        }
         self.job_resume_at
             .set(self.now.get().saturating_add(super::RESUME_AFTER_MS));
     }
@@ -121,14 +183,25 @@ impl DocState {
         }
     }
 
-    /// One look at the cover job; ends it when it is ready or failed.
+    /// One look at the job; ends it when it is ready or failed (a details
+    /// job's book is read first, and `keep` keeps what was read).
     #[inline(never)]
-    pub(super) fn cover_job_next(&self, hosts: &HostServices, route: &dyn Route) -> JobStep {
+    pub(super) fn cover_job_next(
+        &self,
+        hosts: &HostServices,
+        route: &dyn Route,
+        keep: &mut details::Keep<'_>,
+    ) -> JobStep {
         // A sleep that came inside a callback: the job ends now, and nothing
         // restarts it.
         if self.job_suspend.replace(false) {
             self.cover_job_end(hosts, route);
             return JobStep::None;
+        }
+        // A ready book's cover to make goes first: it never waits behind a
+        // job (`doc_cover_make`).
+        if let Some(row) = self.table.cover_make() {
+            return self.cover_make_next(hosts, route, &row);
         }
         let Some(job) = self.table.cover_job() else {
             // A job that an open took the place of: its marker is left.
@@ -142,9 +215,19 @@ impl DocState {
             self.unguard();
             return JobStep::None;
         }
-        if job.state == PREPARING {
+        // A `details` document is never prepared (`document.md` 2.1): one the
+        // format answered preparing ends as failed, nothing converted.
+        if job.state == PREPARING && !job.details {
             return JobStep::Wait;
         }
+        // It comes to an end by itself: displacements are not in a row.
+        self.job_displaced.set((0, 0));
+        if job.job_kind == JobKind::Details {
+            return self.details_end(hosts, route, &job, keep);
+        }
+        // Ready: the format makes the cover now, outside the list's frame
+        // (`doc_cover_make`).
+        let made = (job.state == READY).then(|| self.make_cover(hosts, route, &job));
         // A card that failed is no fault of the book: not remembered as failed.
         let key = if job.state == FAILED && job.status == ERR_IO {
             0
@@ -156,15 +239,10 @@ impl DocState {
         };
         self.end_job(hosts, route, &document);
         self.unguard();
-        // It came to an end by itself: displacements are not in a row.
-        self.job_displaced.set((0, 0));
-        JobStep::Ended {
-            ready: job.state == READY,
-            key,
-        }
+        made.map_or(JobStep::Ended { ready: false, key }, |made| made.step(key))
     }
 
-    /// Notes what a preparing step did for the cover job: steps that cannot be
+    /// Notes what a preparing step did for the job: steps that cannot be
     /// made, [`LATER_MAX`] in a row while only the job prepares, fail it (its
     /// book alone counts as failed, the format plugin is left as it is).
     pub(super) fn cover_job_stepped(&self, step: PrepareStep) {
@@ -211,12 +289,13 @@ impl DocState {
         if let Some(job) = self.table.take_cover_job() {
             self.end_job(hosts, route, &job);
         }
+        self.cover_make_end(hosts, route);
         self.unguard();
     }
 
     /// Ends a job whose preparation is over, as `close` would: the cache is
     /// finished, the format gets op 4, the book's hold is given back.
-    fn end_job(&self, hosts: &HostServices, route: &dyn Route, document: &Document) {
+    pub(super) fn end_job(&self, hosts: &HostServices, route: &dyn Route, document: &Document) {
         self.finish_cache(hosts, document.id);
         if !document.format_gone
             && let Ok((target, _)) = self.format_target(document.format)
