@@ -158,7 +158,9 @@ impl FormatIndex {
             priority: spec.priority,
             token: spec.token,
         };
-        self.formats.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        self.formats
+            .try_reserve_exact(1)
+            .map_err(|_| ERR_NO_MEMORY)?;
         self.formats.push(format);
         self.next_ref.set(next);
         self.changed();
@@ -185,7 +187,9 @@ impl FormatIndex {
             formats: text(spec.formats)?,
             title: text(title)?,
         };
-        self.readers.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        self.readers
+            .try_reserve_exact(1)
+            .map_err(|_| ERR_NO_MEMORY)?;
         self.readers.push(reader);
         self.changed();
         Ok(())
