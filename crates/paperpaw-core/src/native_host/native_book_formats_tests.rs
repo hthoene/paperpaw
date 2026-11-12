@@ -70,6 +70,14 @@ fn plugin(id: &'static str) -> Rc<Plugin> {
     })
 }
 
+/// The stand-in's extensions (none where there is no stand-in).
+fn held(formats: &Formats) -> usize {
+    formats
+        .iter()
+        .find(|spec| spec.id.as_str() == STAND_IN_ID)
+        .map_or(0, |spec| spec.extensions.len())
+}
+
 /// An interface 6 format of `extension`.
 fn interface_6(id: &'static str, extension: &'static str) -> FormatSpec {
     FormatSpec::new(
@@ -108,13 +116,14 @@ fn the_declared_extensions_are_books_and_go_with_the_plugin_at_the_next_generati
     assert!(formats.open(&storage, "a.epub").is_err());
     // Again at the same generation: nothing doubled.
     stand_ins.sync(&mut formats, &store, 3);
-    assert_eq!(stand_ins.ids.len(), 1);
+    assert_eq!(held(&formats), 2, "epub and fb2.zip, once each");
+    assert_eq!(formats.iter().count(), 1, "one stand-in");
 
     // Stopped (a fault, parked) but still in the store: its books stay.
     epub.live.set(false);
     stand_ins.sync(&mut formats, &store, 4);
     assert!(formats.supports("books/a.epub"));
-    assert_eq!(stand_ins.ids.len(), 1);
+    assert_eq!(held(&formats), 2);
     // Taken out of the store (removed, turned off): they go.
     store.remove_owner(&Id::try_parse("format-epub").unwrap(), 1);
     stand_ins.sync(&mut formats, &store, 5);
@@ -137,11 +146,12 @@ fn an_extension_of_an_interface_6_format_stays_its_own() {
     // EPUB is still the interface 6 format's; DOCX is the native one's; the
     // native format left without an extension adds nothing.
     assert_eq!(formats.for_path("a.epub").unwrap().id.as_str(), "old.epub");
+    assert_eq!(formats.for_path("a.docx").unwrap().id.as_str(), STAND_IN_ID);
     assert_eq!(
-        formats.for_path("a.docx").unwrap().id.as_str(),
-        "format-books.books"
+        held(&formats),
+        1,
+        "docx alone: epub stays the interface 6 one's"
     );
-    assert_eq!(stand_ins.ids.len(), 1);
     // Taken out again, the interface 6 format stays.
     store.remove_owner(&Id::try_parse("format-books").unwrap(), 1);
     stand_ins.sync(&mut formats, &store, 3);
@@ -171,8 +181,8 @@ fn a_stand_in_costs_little() {
 
 #[test]
 fn a_sync_the_heap_refused_is_made_again_at_the_next_call_not_the_next_generation() {
-    // Each allocation of the sync in turn: the 1st is the room for the ids,
-    // then `Formats`' room, then the stand-ins' lists, copies and ids.
+    // Each allocation of the sync in turn: the lists' room, the copies,
+    // `Formats`' room.
     for nth in 1..=16 {
         let mut store = DeclarationStore::default();
         declare(&mut store, &plugin("format-docx"), "docx", "docx");
@@ -187,7 +197,8 @@ fn a_sync_the_heap_refused_is_made_again_at_the_next_call_not_the_next_generatio
         for book in ["a.docx", "b.mobi", "c.azw3"] {
             assert!(formats.supports(book), "{book} after failure {nth}");
         }
-        assert_eq!(stand_ins.ids.len(), 2, "after failure {nth}");
+        assert_eq!(held(&formats), 3, "after failure {nth}");
+        assert_eq!(formats.iter().count(), 1, "after failure {nth}");
         assert_eq!(stand_ins.synced, 2);
     }
 }
@@ -208,15 +219,12 @@ fn a_plugin_turned_off_and_on_again_has_its_stand_ins_once() {
     // Within the same generation nothing is made again, and its books stay.
     stand_ins.sync(&mut formats, &store, 2);
     assert!(formats.supports("a.docx"));
-    assert_eq!(stand_ins.ids.len(), 1);
+    assert_eq!(held(&formats), 1);
     // At the next one its stand-in is made again, once.
     stand_ins.sync(&mut formats, &store, 3);
     assert!(formats.supports("a.docx"));
-    assert_eq!(stand_ins.ids.len(), 1);
-    assert_eq!(
-        formats.for_path("a.docx").unwrap().id.as_str(),
-        "format-docx.docx"
-    );
+    assert_eq!(held(&formats), 1);
+    assert_eq!(formats.for_path("a.docx").unwrap().id.as_str(), STAND_IN_ID);
     // Declared anew and then stopped (a fault): its stand-in stays, once.
     let docx = plugin("format-docx");
     store.remove_owner(&Id::try_parse("format-docx").unwrap(), 1);
@@ -224,5 +232,31 @@ fn a_plugin_turned_off_and_on_again_has_its_stand_ins_once() {
     docx.live.set(false);
     stand_ins.sync(&mut formats, &store, 4);
     assert!(formats.supports("a.docx"));
-    assert_eq!(stand_ins.ids.len(), 1);
+    assert_eq!(held(&formats), 1);
+}
+
+/// Ten native format plugins of two extensions each: one stand-in, not ten
+/// (#248: ten stand-ins held about 2.3 KiB at the X4's start peak).
+#[test]
+fn ten_native_formats_are_one_stand_in_of_little_memory() {
+    let mut store = DeclarationStore::default();
+    let names = [
+        "format-a", "format-b", "format-c", "format-d", "format-e", "format-f", "format-g",
+        "format-h", "format-i", "format-j",
+    ];
+    for (n, id) in names.iter().enumerate() {
+        let list = std::format!("x{n}\ny{n}");
+        declare(&mut store, &plugin(id), "f", &list);
+    }
+    let mut formats = Formats::new();
+    let mut stand_ins = NativeBookFormats::default();
+    let live = || crate::native_host::shell::tests::HEAP_LIVE.with(Cell::get);
+    let before = live();
+    stand_ins.sync(&mut formats, &store, 2);
+    let bytes = live().saturating_sub(before);
+    std::println!("ten native formats, twenty extensions: one stand-in, {bytes} B held");
+    assert_eq!(formats.iter().count(), 1);
+    assert_eq!(held(&formats), 20);
+    assert!(formats.supports("a.x0") && formats.supports("b.Y9"));
+    assert!(bytes < 1_100, "{bytes} B");
 }

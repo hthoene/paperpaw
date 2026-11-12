@@ -226,10 +226,13 @@ pub(crate) mod book_data_steps;
 pub(crate) mod busy_adapters;
 #[path = "native_host/call_services.rs"]
 mod call_services;
+mod cover_job_marker;
+mod cover_job_pump;
 pub(crate) mod data_plugin_folders;
 #[path = "native_host/data_services.rs"]
 mod data_services;
 mod declared_services;
+mod details_job_pump;
 pub mod device_service;
 pub(crate) mod dialog_pump;
 #[path = "native_host/dialogs.rs"]

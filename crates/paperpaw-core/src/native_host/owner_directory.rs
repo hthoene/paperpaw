@@ -94,6 +94,25 @@ impl OwnerDirectory {
             .topmost_screen(owner)
     }
 
+    /// Whether an enabled plugin with the id `id` has a screen on the stack
+    /// (shown or covered). Unknown state (the table or the snapshot held or
+    /// stale) says `true`: the caller holds back; no stack attached says
+    /// `false` (no screens). No allocation.
+    pub(crate) fn plugin_has_screen(&self, id: &str) -> bool {
+        let Ok(screens) = self.screens.try_borrow() else {
+            return true;
+        };
+        let Some(screens) = screens.as_ref() else {
+            return false;
+        };
+        let Ok(rows) = self.rows.try_borrow() else {
+            return true;
+        };
+        rows.iter()
+            .filter(|row| row.id == id)
+            .any(|row| screens.has_screen(row.key).unwrap_or(true))
+    }
+
     /// Whether the work scheduler can be asked now (attached and not in use):
     /// when it cannot, a caller that needs to know that no run is current
     /// fails closed (`current_run` alone says `None` for both).
@@ -304,6 +323,35 @@ mod tests {
         // The scheduler in use: not known (never "no run").
         let _busy = dir.sched.try_borrow_mut().unwrap();
         assert!(!dir.run_known());
+    }
+
+    #[test]
+    fn a_plugin_has_a_screen_while_one_of_its_rows_is_on_the_stack() {
+        use crate::native_host::stack_rows::{HOST, OVERLAY, StackRow, StackRows};
+        let row = |instance, owner, flags| StackRow {
+            instance,
+            owner,
+            flags,
+        };
+        let dir = OwnerDirectory::new();
+        dir.admit(5, "files").unwrap();
+        dir.admit(6, "home").unwrap();
+        assert!(!dir.plugin_has_screen("files"), "no stack, no screens");
+        let rows = Rc::new(StackRows::default());
+        dir.attach_screens(&rows);
+        rows.update([row(1, 6, 0)]);
+        assert!(!dir.plugin_has_screen("files") && dir.plugin_has_screen("home"));
+        // Covered by another owner's screen, or by a dialog: still up.
+        rows.update([
+            row(1, 5, 0),
+            row(2, 6, 0),
+            row(3, 5, OVERLAY),
+            row(4, 0, HOST),
+        ]);
+        assert!(dir.plugin_has_screen("files"));
+        rows.update([row(2, 6, 0), row(4, 0, HOST)]);
+        assert!(!dir.plugin_has_screen("files"), "gone from the stack");
+        assert!(!dir.plugin_has_screen("nobody"));
     }
 
     #[test]

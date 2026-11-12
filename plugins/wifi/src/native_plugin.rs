@@ -31,7 +31,7 @@ use paperpaw_ui_kit::{
 use crate::declarations::{
     NETWORK_IDLE, NETWORK_WANTED, NETWORKS as NETWORKS_TOKEN, OPEN as OPEN_TOKEN,
     PAGE as PAGE_TOKEN, PHONE as PHONE_TOKEN, POWER_CHANGED, SERVED_REQUEST, SERVER_EVENT,
-    STACK_CHANGED, STARTED, STATUS_CHANGED, WIFI_CHANGED, WIFI_DONE, WIFI_SCANNED, WORK,
+    STACK_CHANGED, STARTED, STATUS, STATUS_CHANGED, WIFI_CHANGED, WIFI_DONE, WIFI_SCANNED, WORK,
 };
 use crate::native_ini::{self, Content};
 use crate::native_known::{self, Remember};
@@ -115,10 +115,14 @@ impl Plugin for NativeWifi {
         host: &Host<'_>,
         token: u32,
         incoming: Incoming<'_>,
-        _: &mut Reply<'_>,
+        reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         let event = incoming.decode()?;
         match event {
+            // The status item: the host asks which of its items show.
+            Event::StageCall { stage, payload, .. } if token == STATUS => {
+                self.status(host, stage, payload, reply)
+            }
             Event::ActionRun { .. } if token == OPEN_TOKEN => {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).open(Open::screen("wifi.page")?)
@@ -513,8 +517,14 @@ impl NativeWifi {
             PageRow::Radio => {
                 let title = say.copy(host, "wifi.title")?;
                 let state = Self::state_text(host, say, info)?;
-                let value = switch(say, info.radio.is_on())?;
-                Item::noted(&title, &value, &state)
+                // As in Beta 3 the row reads "Wi-Fi, <where the radio is>": the
+                // note says whether it is on, so no word of the switch is
+                // added; it is told as a switch (`on`) to whoever asks.
+                let mut item = Item::noted(&title, "", &state)?;
+                if let Item::Row(row) = &mut item {
+                    row.on = Some(info.radio.is_on());
+                }
+                Ok(item)
             }
             PageRow::Networks => {
                 let title = say.copy(host, "wifi.networks.title")?;

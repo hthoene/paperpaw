@@ -84,8 +84,9 @@ pub enum Piece<'a> {
     Lang(&'a str),
     /// An annotation: start, end, kind, size, text.
     Ruby(u32, u32, AnnotationKind, u32, &'a str),
-    /// The picture of an image block: the host's handle, width, height.
-    Image(u32, u32, u32),
+    /// The picture of an image block: the host's handle, the format's index
+    /// of it, width, height.
+    Image(u32, u32, u32, u32),
     /// The column weights of a table row (at most [`MAX_COLUMNS`] taken).
     Columns(Vec<u16>),
     /// A cell of a table row: end of its text, columns, rows spanned, align, vertical.
@@ -123,7 +124,7 @@ pub fn pieces<'a>(fragment: &BlockFragment<'a>) -> impl Iterator<Item = Piece<'a
             BlockRecord::Map(m) => Piece::Map(m.text(), m.source()),
             BlockRecord::InlineLang(tag) => Piece::Lang(tag),
             BlockRecord::Ruby(r) => Piece::Ruby(r.start(), r.end(), r.kind(), r.size(), r.text()),
-            BlockRecord::Image(i) => Piece::Image(i.image(), i.width(), i.height()),
+            BlockRecord::Image(i) => Piece::Image(i.image(), i.index(), i.width(), i.height()),
             BlockRecord::Cell(c) => {
                 Piece::Cell(c.end(), c.span(), c.rows(), c.align(), c.vertical())
             }
@@ -296,12 +297,11 @@ impl Assembler {
                 note.size = u16::try_from(size).unwrap_or(0);
                 block.annotations.push(note);
             }
-            Piece::Image(handle, width, height) => {
-                // The handle is the picture's name for the host's drawing; it
-                // travels as the decimal text of the path.
-                let mut path = alloc::string::String::new();
-                path.try_reserve_exact(10).map_err(|_| Error::NoMemory)?;
-                push_decimal(&mut path, handle);
+            Piece::Image(handle, index, width, height) => {
+                // The handle is the picture's name for the host's drawing, the
+                // index the format's, to ask for it again (`native_view/
+                // pictures.rs`): they travel as the path `handle:index`.
+                let path = picture_path(handle, index)?;
                 block.image = Some(ImageRef {
                     path,
                     width,
@@ -335,6 +335,20 @@ const fn full(len: usize) -> Result<(), Error> {
     } else {
         Ok(())
     }
+}
+
+/// A picture's path in the layout: its image id and the format's index of it
+/// (`handle:index`), as `native_draw::picture_of` reads it.
+///
+/// # Errors
+/// `NoMemory`.
+pub(crate) fn picture_path(handle: u32, index: u32) -> Result<alloc::string::String, Error> {
+    let mut path = alloc::string::String::new();
+    path.try_reserve_exact(21).map_err(|_| Error::NoMemory)?;
+    push_decimal(&mut path, handle);
+    path.push(':');
+    push_decimal(&mut path, index);
+    Ok(path)
 }
 
 /// `n` as decimal digits appended to `out`, which has room for them.

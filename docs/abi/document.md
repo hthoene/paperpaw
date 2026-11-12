@@ -167,9 +167,13 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   choice, `flags`, `image_side`, `cover_side`, `css_root`, `css_path`; then at most 12 `doc_option`
   rows `key`/`value`, so `input_rows` 13 in the schema, a maximum only; no `doc_open` first, a
   second `doc_open` or one after an option is `ERR_INVALID`; interface 6 `OpenOptions::settings`):
-  `flags` bit 0 publisher styles, bit 1 colour, bit 2 background (an index build, not for showing;
-  section 8); `image_side` the longest side of a page's picture (0: interface 6 `IMAGE_FIT`, 1,600;
-  at most 1,600, the most a picture is ever decoded to, larger is `ERR_INVALID`),
+  `flags` bit 0 publisher styles, bit 1 colour, bit 2 background (an index build, not for showing,
+  section 8; also the library's cover open, `core.library` op 7: a format may leave
+  `doc_state.flags` bit 1 (has a table of contents), bit 2 (has XPointers) and bit 4 (has page
+  labels), which only a shown book needs, unset in its answer to such an open, and a later open
+  without `background` finds them out), bit 3 `details` (the host's own, below); `image_side` the
+  longest side of a page's picture (0: interface 6 `IMAGE_FIT`, 1,600; at most 1,600, the most a
+  picture is ever decoded to, larger is `ERR_INVALID`),
   `cover_side` of the cover (0: interface 6 `cover_fit`, the larger of 300 and 3/8 of the screen's
   long side; at most the screen's long side); `css_path` a file of user CSS (at most 65,536 bytes,
   empty for none) on `css_root` (0 or 1 under the same rule as `path`). Other flag bits
@@ -213,6 +217,35 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   `progress_ppm`, 0 to 1,000,000, as `doc_state` has them at delivery; one per document, coalesced,
   the latest wins) when the state or the progress moves; other ops on a preparing document are
   `ERR_BUSY`. The X4 runs at most one preparation at a time, queued in open order.
+- [D] **A details open may skip preparing** (#245). `doc_open.flags` bit 3 `details` is the host's
+  own: the host's background job (covers, book details) may set it, a plugin's `open` with it is
+  `ERR_INVALID` (bit 2 `background` says nothing about it: an index build needs blocks). The format
+  gets it in `fmt.call.flags` of op 2 and may honour it: it answers `ready` (state 0, no show-only
+  `doc_state.flags`) without converting, from what it reads at open (a DOCX's `docProps/core.xml`,
+  a MOBI's EXTH header and cover record). Such a document serves op 4 `close`, 5 `meta`, 6
+  `meta_text` and 17 `cover` (section 3) and answers every other op `ERR_STATE`; the host never
+  calls op 3 `prepare` on it (a format that gets op 3 there answers `ERR_STATE`). It writes no
+  converted document to root 6, only the cover picture file op 17 names. A format may also ignore
+  the bit and open as usual; an answer of preparing to a `details` open is never prepared: the
+  host closes the document (op 4) and keeps no details. A `details` open neither makes the
+  `.complete` stamp nor removes an unstamped root 6, whatever the format answered (a cache
+  finished before keeps its stamp): it reads what is there, so the cover picture it made survives
+  the next `details` open. In an unstamped root 6 the format reads only that cover picture file
+  (which may be from a half-made conversion: the host checks it as any cached picture, section 5)
+  and nothing else. Only an open without `details` removes an unstamped root 6 (the cover goes
+  with it) and prepares. A `details` open is `ERR_BUSY` while any other document of the same book
+  and format plugin is preparing, whatever its conversion (a `details` open's key rarely matches a
+  reader's: sides, CSS and options differ). A `details` open never removes another conversion of
+  the book (it makes no room); an open without `details` that needs room removes the book's
+  unstamped folders (a `details` open's cover file, a half-made conversion) before its finished
+  ones, oldest first. Bits 2 and 3 of a `details` open are not part of its conversion key. A
+  `details` document is the host job's alone: any other open closes it first and is
+  a new open, prepared as usual. Bit 3 may come with bit 2 `background`. The host sets the bit on
+  its own opens of a book for details and covers (the book-details job, the library's cover job
+  and the library list's inline cover open, `library.md` op 7 `cover`), and only for a format whose
+  `format.spec` has bit 0 `prepared`; it opens other formats as before (bit 2 at most), and their
+  caches are stamped as usual. Where root 6 holds a stamped cache, a `details` open is still a
+  `details` document (ops 4, 5, 6 and 17 only); the format may read that cache for them.
 - [D] **A preparation that does not move fails.** After 32 answers in a row of state 1 whose
   `progress_ppm` is not higher than the highest one this preparation gave (equal or lower counts),
   the host fails the document with `ERR_TIMEOUT`, exactly as if the format had answered failed:
@@ -251,7 +284,9 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   image ids end) and its opener gets `event.document_closed` with `reason` 4 `needed`; later calls
   on its id are `ERR_CANCELLED`. The shown book itself is never taken. Only when no document can
   be taken (the opener's own cap) is the `open` `ERR_FULL`. An index build that lost its place
-  starts again later (the library's walk tries it again).
+  starts again later (the library's walk tries it again). The host's own background job (covers,
+  book details) is no opener: it takes one device-wide place but no opener's cap, is the first
+  document a book to show takes, gets no `document_closed`, and starts again later.
 
 ### 2.2 Metadata
 

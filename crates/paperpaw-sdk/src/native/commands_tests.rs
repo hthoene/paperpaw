@@ -258,6 +258,34 @@ fn screen_commands_and_refresh_modes_use_the_generated_tags_and_scalars() {
 }
 
 #[test]
+fn a_redraw_area_carries_its_mode_and_rectangle_unchanged() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 64];
+    let mut sender = CommandSender::new(&host, &mut scratch);
+    let area = super::super::callbacks::FrameRect::new(-4, 120, 300, u32::MAX);
+    sender.queue_redraw_area(RedrawMode::Partial, area).unwrap();
+    let batches = ctx.batches.borrow();
+    assert_eq!(
+        wire::commands_decode(&batches[0])
+            .unwrap()
+            .iter()
+            .collect::<Vec<_>>(),
+        [wire::Command::RedrawArea {
+            mode: 2,
+            x: -4,
+            y: 120,
+            width: 300,
+            height: u32::MAX,
+        }]
+    );
+}
+
+#[test]
 fn empty_and_overlong_screen_action_ids_are_invalid_without_effects() {
     let table = table();
     let mut ctx = Context::default();
