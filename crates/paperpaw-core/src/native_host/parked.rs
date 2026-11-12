@@ -6,16 +6,24 @@
 impl crate::Kernel {
     /// Makes the parked plugins asked to start whose turn is now; withdraws
     /// those whose batch was refused. `true` where one was made (what waited
-    /// for it is delivered on the next pass). At safe points only: the top of
+    /// for it is delivered on the next pass); one starved asks for that pass
+    /// itself (a pending open waiting for it fails). At safe points only: the top of
     /// `run_commands` and the end of a service pump pass.
     // Its own frame: off the command loop's route (#250).
     #[inline(never)]
     pub(crate) fn native_unpark_pending(&mut self) -> bool {
         self.shared.native_instances.set_now(self.now.millis());
         // Memory pressure (an unpark found no memory): one idle plugin is
-        // parked again first, so the start waiting may find room (D3).
+        // parked again first, so the start waiting may find room (D3). Where
+        // none could be (none idle, not only not now), what found no memory
+        // is starved: a pending open waiting for it fails at the next pass, as
+        // with the format awake (#248, Manager's decision 2).
+        let mut starved = false;
         if self.shared.native_instances.take_pressure() {
-            self.native_repark_idle(1);
+            let blocked = self.native_repark_blocked();
+            if self.native_repark_idle(1) == 0 && !blocked {
+                starved = self.shared.native_instances.starve_waiting();
+            }
         }
         let mut made = false;
         // Each start is taken once; a bound all the same.
@@ -45,12 +53,15 @@ impl crate::Kernel {
                 made |= lease.live().is_ok();
             }
         }
-        if made {
+        if made || starved {
             // What waited for it in the document loop (a pending open, a
             // cover or details step) goes on at the next pass, not after the
             // loop's back-off: it backed off only because the plugin was not
-            // made yet (#248, a parked format).
+            // made yet (#248, a parked format); a starved one's open fails.
             self.shared.native_instances.set_doc_retry(None);
+        }
+        if starved {
+            self.shared.native_instances.set_service_more(true);
         }
         made
     }
@@ -93,19 +104,10 @@ impl crate::Kernel {
     // Its own frame: off the command loop's route (#250).
     #[inline(never)]
     pub(crate) fn native_repark_idle(&mut self, at_most: usize) -> usize {
-        let instances = &self.shared.native_instances;
-        // Nothing staged may wait: a batch runs for the plugin that staged it.
-        let staged = instances.outbox.full()
-            || instances
-                .screen_stage()
-                .is_some_and(super::screen_stage::ScreenStage::waiting);
-        if at_most == 0
-            || staged
-            || instances.depth() != 0
-            || instances.pending_handover().is_some()
-        {
+        if at_most == 0 || self.native_repark_blocked() {
             return 0;
         }
+        let instances = &self.shared.native_instances;
         let mut parked = 0;
         let mut index = 0;
         while parked < at_most {
@@ -130,6 +132,21 @@ impl crate::Kernel {
             }
         }
         parked
+    }
+}
+
+impl crate::Kernel {
+    /// Whether no plugin may be parked again now, whichever is idle: a staged
+    /// batch waits (it runs for the plugin that staged it), a callback runs,
+    /// or a hand-over waits.
+    fn native_repark_blocked(&self) -> bool {
+        let instances = &self.shared.native_instances;
+        instances.outbox.full()
+            || instances
+                .screen_stage()
+                .is_some_and(super::screen_stage::ScreenStage::waiting)
+            || instances.depth() != 0
+            || instances.pending_handover().is_some()
     }
 }
 
