@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "fixtures")]
 use super::*;
+use alloc::{format, vec};
 use paperpaw_sdk::MemoryStorage;
 
 const WORDS: &str = "Rabbit\ten\t1\t10\tbooks/alice.txt\tAlice\tThe White Rabbit.\n\
@@ -179,4 +180,126 @@ fn a_tapped_word_loses_its_punctuation_and_keeps_the_language_it_was_kept_in() {
     assert_eq!(language_of(&storage, "RABBIT").unwrap(), "en");
     assert_eq!(language_of(&storage, "white  rabbit").unwrap(), "en-GB");
     assert_eq!(language_of(&storage, "nothing").unwrap(), "");
+}
+
+/// A storage that counts the bytes read of the list and of the side files.
+struct Counting {
+    inner: MemoryStorage,
+    list: core::cell::Cell<usize>,
+    side: core::cell::Cell<usize>,
+}
+
+impl Counting {
+    fn new(inner: MemoryStorage) -> Self {
+        Self {
+            inner,
+            list: Default::default(),
+            side: Default::default(),
+        }
+    }
+}
+
+impl Storage for Counting {
+    fn read_at(
+        &self,
+        path: &str,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> Result<usize, paperpaw_sdk::StorageError> {
+        let n = self.inner.read_at(path, offset, buf)?;
+        let which = if path == store::file() {
+            &self.list
+        } else {
+            &self.side
+        };
+        which.set(which.get() + n);
+        Ok(n)
+    }
+    fn size(&self, path: &str) -> Result<u64, paperpaw_sdk::StorageError> {
+        self.inner.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_sdk::StorageError> {
+        self.inner.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_sdk::StorageError> {
+        self.inner.append(path, data)
+    }
+    fn list(
+        &self,
+        dir: &str,
+        visit: &mut dyn FnMut(paperpaw_sdk::DirEntry<'_>),
+    ) -> Result<(), paperpaw_sdk::StorageError> {
+        self.inner.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), paperpaw_sdk::StorageError> {
+        self.inner.remove(path)
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), paperpaw_sdk::StorageError> {
+        self.inner.rename(from, to)
+    }
+    fn sync(&self) -> Result<(), paperpaw_sdk::StorageError> {
+        self.inner.sync()
+    }
+}
+
+/// A list of `n` words (a sentence of about 300 bytes each, the most the list keeps).
+fn long_list(n: usize) -> String {
+    let sentence = "x".repeat(250);
+    let mut text = String::new();
+    for i in 0..n {
+        text.push_str(&format!("word{i}\ten\t1\t10\tbooks/a.txt\tA\t{sentence}\n"));
+    }
+    text
+}
+
+#[test]
+fn a_page_turn_reads_the_side_file_and_not_the_list_until_the_list_changes() {
+    let storage = Counting::new(MemoryStorage::new().with(store::file(), long_list(2000).as_str()));
+    let first = Entries::read(&storage, "en").unwrap();
+    assert_eq!(first.len(), 2000);
+    let list_once = storage.list.get();
+    assert!(
+        list_once > 500_000,
+        "the first page reads the list: {list_once}"
+    );
+    // The next pages read the side file: 4 bytes an entry.
+    storage.list.set(0);
+    storage.side.set(0);
+    let again = Entries::read(&storage, "en").unwrap();
+    assert_eq!(again.len(), 2000);
+    assert_eq!(storage.list.get(), 0, "the list is not read again");
+    assert_eq!(storage.side.get(), 8 + 4 * 2000);
+    assert!(marks(&again, "so word7 and word1999 are", 0).len() == 2);
+    // A word more: the list's size changed, so it is read again and the side file made anew.
+    storage
+        .append(store::file(), b"newword\ten\t1\t10\tbooks/a.txt\tA\t\n")
+        .unwrap();
+    let changed = Entries::read(&storage, "en").unwrap();
+    assert_eq!(changed.len(), 2001);
+    assert!(storage.list.get() > 0);
+    assert_eq!(marks(&changed, "a newword", 0).len(), 1);
+}
+
+#[test]
+fn a_side_file_that_is_cut_short_or_foreign_is_made_again_and_languages_have_their_own() {
+    let storage = Counting::new(MemoryStorage::new().with(store::file(), WORDS));
+    let de = Entries::read(&storage, "de").unwrap();
+    let en = Entries::read(&storage, "en").unwrap();
+    assert_ne!(de.len(), en.len());
+    // The side file of `de` cut after a hash's third byte: not read, made again.
+    let side = ".paperpaw/plugins/vocabulary/marks-de.idx";
+    let mut bytes = vec![0; 64];
+    let n = storage.read_at(side, 0, &mut bytes).unwrap();
+    storage.write(side, &bytes[..n - 1]).unwrap();
+    storage.list.set(0);
+    let again = Entries::read(&storage, "de").unwrap();
+    assert_eq!(again.len(), de.len());
+    assert!(storage.list.get() > 0, "the list was read again");
+    // Not a side file at all.
+    storage.write(side, b"hello world, not hashes").unwrap();
+    assert_eq!(Entries::read(&storage, "de").unwrap().len(), de.len());
+    // A language that is no plain code has no side file and is read from the list.
+    storage.list.set(0);
+    assert!(Entries::read(&storage, "en\u{e9}!").is_ok());
+    assert!(storage.list.get() > 0);
 }

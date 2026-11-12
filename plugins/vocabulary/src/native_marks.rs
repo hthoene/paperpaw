@@ -7,11 +7,11 @@
 //! search for them in a run, the look of the mark and the codes the stage
 //! carries it in. Beta 3's decorator (`marks.rs`) found the same words with
 //! the SDK's `WordSet`; this one allocates fallibly and keeps nothing between
-//! two fires of the stage (#248: the set is read from the list each time).
+//! two fires of the stage (#248): the set is read each time, from a side file
+//! of hashes that is made again only when the list's size has changed.
 use crate::store;
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::cmp::Ordering;
 use paperpaw_sdk::{
     Storage,
     decorations::{AS_IS, LineKind, NONE, THICKNESS, Tone},
@@ -202,13 +202,63 @@ fn fold_into(text: &str, out: &mut String, base: usize) -> Result<usize, Error> 
     Ok(words)
 }
 
-/// The words and phrases of the list that belong to a language, folded and
-/// sorted, each once, in one string.
+/// What an entry's hash is of: the entry itself, or the first words of one
+/// longer (a phrase can start here).
+const ENTRY: u8 = 0;
+const PREFIX: u8 = 1;
+/// The side file of a language: its magic, then the words file's size (little-endian
+/// u32) it was made from, then the hashes (little-endian u32 each).
+const MAGIC: &[u8; 4] = b"VM01";
+const HEADER: usize = 8;
+/// Bytes of the side file read or written at a time.
+const CHUNK: usize = 512;
+/// Where the side files are; the language is in the name.
+const SIDE: &str = ".paperpaw/plugins/vocabulary/marks";
+
+/// A 32-bit hash of a folded entry (FNV-1a with a final mix), the same in every
+/// build: the side file keeps it.
+fn hash(kind: u8, text: &str) -> u32 {
+    let mut h = 0x811c_9dc5_u32 ^ u32::from(kind);
+    h = h.wrapping_mul(0x0100_0193);
+    for byte in text.bytes() {
+        h ^= u32::from(byte);
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    h ^= h >> 16;
+    h = h.wrapping_mul(0x85eb_ca6b);
+    h ^= h >> 13;
+    h = h.wrapping_mul(0xc2b2_ae35);
+    h ^ (h >> 16)
+}
+
+/// The side file of a language, or none where its name is no plain code.
+fn side_file(language: &str) -> Result<Option<String>, Error> {
+    let plain = language.len() <= 8 && language.bytes().all(|b| b.is_ascii_alphabetic());
+    if !plain {
+        return Ok(None);
+    }
+    let mut name = String::new();
+    name.try_reserve(SIDE.len() + 10)
+        .map_err(|_| Error::NoMemory)?;
+    name.push_str(SIDE);
+    if !language.is_empty() {
+        name.push('-');
+        name.push_str(&language.to_ascii_lowercase());
+    }
+    name.push_str(".idx");
+    Ok(Some(name))
+}
+
+/// The words and phrases of the list that belong to a language, as sorted
+/// 32-bit hashes (4 bytes an entry, and 4 for each start of a phrase): what
+/// the page's words are looked up in. Not the text: the list's words are kept
+/// folded in a side file of the language, made again when the list's size
+/// changes, so a page turn reads some kilobytes rather than the whole list.
+/// A hash that two entries or an entry and a page word share (about one in
+/// 2^32 for each pair) marks a word that is not in the list.
 #[derive(Debug, Default)]
 pub struct Entries {
-    text: String,
-    /// Where each entry is in `text`, sorted by the entry.
-    spans: Vec<(u32, u32)>,
+    hashes: Vec<u32>,
 }
 
 impl Entries {
@@ -218,10 +268,28 @@ impl Entries {
     /// # Errors
     /// [`Error::NoMemory`].
     pub fn read(storage: &dyn Storage, language: &str) -> Result<Self, Error> {
+        let Ok(size) = storage.size(store::file()) else {
+            return Ok(Self::default());
+        };
+        let (Ok(size), Some(side)) = (u32::try_from(size), side_file(language)?) else {
+            return Ok(Self::build(storage, language)?.0);
+        };
+        if let Some(set) = Self::load(storage, &side, size)? {
+            return Ok(set);
+        }
+        let (set, whole) = Self::build(storage, language)?;
+        if whole {
+            // Best effort: a side file that is not kept is made again.
+            set.save(storage, &side, size).ok();
+        }
+        Ok(set)
+    }
+
+    /// The entries from the list itself, and whether it was read to its end.
+    fn build(storage: &dyn Storage, language: &str) -> Result<(Self, bool), Error> {
         let mut entries = Self::default();
         let mut failed = None;
-        // Ignored: a list cut by a card that cannot be read marks what it can.
-        store::each_line(storage, store::file(), |line| {
+        let read = store::each_line(storage, store::file(), |line| {
             if failed.is_some() {
                 return;
             }
@@ -234,13 +302,78 @@ impl Entries {
             {
                 failed = Some(error);
             }
-        })
-        .ok();
+        });
         if let Some(error) = failed {
             return Err(error);
         }
         entries.finish();
-        Ok(entries)
+        Ok((entries, read.is_ok()))
+    }
+
+    /// The entries of the side file, if it is there and was made from a list
+    /// of `size` bytes.
+    fn load(storage: &dyn Storage, side: &str, size: u32) -> Result<Option<Self>, Error> {
+        let Ok(length) = storage.size(side) else {
+            return Ok(None);
+        };
+        let Ok(length) = usize::try_from(length) else {
+            return Ok(None);
+        };
+        let mut head = [0u8; HEADER];
+        let read = |at: usize, buf: &mut [u8]| matches!(storage.read_at(side, at as u64, buf), Ok(n) if n == buf.len());
+        if length < HEADER || (length - HEADER) & 3 != 0 || !read(0, &mut head) {
+            return Ok(None);
+        }
+        if head.get(..4) != Some(MAGIC.as_slice()) || head.get(4..) != Some(&size.to_le_bytes()) {
+            return Ok(None);
+        }
+        let count = (length - HEADER) / 4;
+        let mut hashes = Vec::new();
+        hashes
+            .try_reserve_exact(count)
+            .map_err(|_| Error::NoMemory)?;
+        let mut chunk = [0u8; CHUNK];
+        let mut at = HEADER;
+        while at < length {
+            let take = CHUNK.min(length - at);
+            let Some(part) = chunk.get_mut(..take) else {
+                return Ok(None);
+            };
+            if !read(at, part) {
+                return Ok(None);
+            }
+            hashes.extend(
+                part.as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|bytes| u32::from_le_bytes(*bytes)),
+            );
+            at += take;
+        }
+        Ok(Some(Self { hashes }))
+    }
+
+    /// Writes the side file; a file cut short is not read (its length is
+    /// checked), the next page makes it again.
+    fn save(
+        &self,
+        storage: &dyn Storage,
+        side: &str,
+        size: u32,
+    ) -> Result<(), paperpaw_sdk::StorageError> {
+        let mut head = [0u8; HEADER];
+        head[..4].copy_from_slice(MAGIC);
+        head[4..].copy_from_slice(&size.to_le_bytes());
+        storage.write(side, &head)?;
+        let mut chunk = [0u8; CHUNK];
+        for part in self.hashes.chunks(CHUNK / 4) {
+            let bytes = part.len() * 4;
+            for (slot, hash) in chunk.as_chunks_mut::<4>().0.iter_mut().zip(part) {
+                *slot = hash.to_le_bytes();
+            }
+            storage.append(side, chunk.get(..bytes).unwrap_or_default())?;
+        }
+        Ok(())
     }
 
     /// Adds `word` (a word or a phrase), folded; text with no word in it is
@@ -249,85 +382,47 @@ impl Entries {
     /// # Errors
     /// [`Error::NoMemory`].
     pub fn add(&mut self, word: &str) -> Result<(), Error> {
-        let from = self.text.len();
-        let words = fold_into(word, &mut self.text, from);
-        match words {
-            Ok(0) => {
-                self.text.truncate(from);
-                return Ok(());
-            }
-            Err(error) => {
-                self.text.truncate(from);
-                return Err(error);
-            }
-            Ok(_) => {}
+        let mut folded = String::new();
+        if fold_into(word, &mut folded, 0)? == 0 {
+            return Ok(());
         }
-        let span = (
-            u32::try_from(from).map_err(|_| Error::NoMemory)?,
-            u32::try_from(self.text.len()).map_err(|_| Error::NoMemory)?,
-        );
-        if self.spans.try_reserve(1).is_err() {
-            self.text.truncate(from);
-            return Err(Error::NoMemory);
+        self.hashes
+            .try_reserve(1 + folded.matches(' ').count())
+            .map_err(|_| Error::NoMemory)?;
+        self.hashes.push(hash(ENTRY, &folded));
+        for (at, _) in folded.match_indices(' ') {
+            self.hashes
+                .push(hash(PREFIX, folded.get(..at).unwrap_or("")));
         }
-        self.spans.push(span);
         Ok(())
     }
 
-    /// Sorts the entries and leaves each once.
+    /// Sorts the hashes and leaves each once.
     pub fn finish(&mut self) {
-        let text = &self.text;
-        let entry = |span: &(u32, u32)| text.get(span.0 as usize..span.1 as usize).unwrap_or("");
-        self.spans.sort_unstable_by(|a, b| entry(a).cmp(entry(b)));
-        self.spans.dedup_by(|a, b| entry(a) == entry(b));
+        self.hashes.sort_unstable();
+        self.hashes.dedup();
     }
 
-    /// How many entries there are.
+    /// How many hashes there are (entries and starts of phrases).
     #[cfg(test)]
     #[must_use]
     pub fn len(&self) -> usize {
-        self.spans.len()
+        self.hashes.len()
     }
 
     /// Whether there are none.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.spans.is_empty()
-    }
-
-    fn entry(&self, at: usize) -> &str {
-        self.spans
-            .get(at)
-            .and_then(|span| self.text.get(span.0 as usize..span.1 as usize))
-            .unwrap_or("")
-    }
-
-    /// The number of the first entry not before `key`.
-    fn position(&self, key: &str) -> usize {
-        let (mut low, mut high) = (0, self.spans.len());
-        while low < high {
-            let middle = low + (high - low) / 2;
-            if self.entry(middle).cmp(key) == Ordering::Less {
-                low = middle + 1;
-            } else {
-                high = middle;
-            }
-        }
-        low
+        self.hashes.is_empty()
     }
 
     fn has(&self, key: &str) -> bool {
-        let at = self.position(key);
-        at < self.spans.len() && self.entry(at) == key
+        self.hashes.binary_search(&hash(ENTRY, key)).is_ok()
     }
 
     /// Whether an entry begins with the folded `key` and more words.
-    fn has_longer(&self, key: &mut String) -> Result<bool, Error> {
-        push_char(key, ' ')?;
-        let at = self.position(key);
-        let more = at < self.spans.len() && self.entry(at).starts_with(key.as_str());
-        key.pop();
-        Ok(more)
+    fn has_longer(&self, key: &str) -> bool {
+        self.hashes.binary_search(&hash(PREFIX, key)).is_ok()
     }
 
     /// Marks the entries found in `run` (a page's text, words apart by one
@@ -359,7 +454,7 @@ impl Entries {
                 if self.has(&key) {
                     longest = Some(end);
                 }
-                if !self.has_longer(&mut key)? {
+                if !self.has_longer(&key) {
                     break;
                 }
                 match token(run, end) {

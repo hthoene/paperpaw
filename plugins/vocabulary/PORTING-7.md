@@ -159,9 +159,16 @@ native screens replace these callers.
   book's language (primary subtag, any language where either side says none), found as whole words without regard to case
   (`ß` as `ss`, apostrophes inside words kept, accents counted), the longest entry winning, a mark covering the words as the page
   shows them (punctuation around them too), no entry across a token with no word. The search is `native_marks::Entries`
-  (fallible allocation, sorted folded entries in one string, binary search; no `WordSet`, which allocates infallibly).
-- **Memory (#248):** nothing is kept between two calls of the stage: the set is read from the list each time (Beta 3 kept it by
-  the list's change count). A page turn so costs one pass over the list file; the set is its folded words plus 8 bytes each.
+  (fallible allocation, sorted 32-bit hashes of the folded entries, binary search; no `WordSet`, which allocates infallibly).
+- **Memory (#248):** nothing is kept between two calls of the stage (Beta 3 kept the set by the list's change count). The set
+  is 4 bytes an entry (and 4 for each start of a phrase) in a side file of the language (`marks[-<language>].idx` in the data
+  folder: magic, the list's size, the hashes), read in 512-byte pieces; it is made again from the list (one pass, by the same
+  code) when the list's size is not the one it was made from, and is not read where it is cut short. Measured on the host
+  (in-memory storage, a list of the most, 2,000 words of 250-byte sentences = 562,890 bytes): a page turn reads 8,008 bytes and
+  takes 4 µs, where the previous version read the whole list each page (562,890 bytes, 785 µs, a set of about 32 KiB on the
+  heap); the heap held for the call is 8,000 bytes (4 bytes a hash), released at its end. Not measured on an X4. **A hash
+  shared** by an entry and a word of the page (about one in 2^32 for each pair) marks a word that is not in the list: a tap
+  looks it up, nothing else. A list changed to the same size (a word replaced by one as long) is seen at its next change.
 - **The look** is read from the role's seven settings each call (`vocabulary.learning.background`, `.ink`, `.line`, `.line-tone`,
   `.thickness`, `.frame`, `.struck`: group `core.group.marks`, section `vocabulary.role.learning`, Beta 3's defaults: a dotted line,
   four tenths of a millimetre; declared in `declarations.rs`, held to the interface-6 registration by `tests/settings_parity.rs`,
