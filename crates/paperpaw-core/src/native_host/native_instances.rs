@@ -103,11 +103,7 @@ impl NativeLease {
     pub(crate) fn live(&self) -> Result<&dyn NativeInstance, i32> {
         self.0.live()
     }
-    /// A parked plugin made now where this is a safe point
-    /// ([`lease_slot::Slot::make_if_safe`](super::lease_slot::Slot::make_if_safe)).
-    ///
-    /// # Errors
-    /// As [`Self::live`].
+    /// As [`Slot::make_if_safe`](super::lease_slot::Slot::make_if_safe).
     pub(crate) fn make_if_safe(&self) -> Result<(), i32> {
         self.0.make_if_safe()
     }
