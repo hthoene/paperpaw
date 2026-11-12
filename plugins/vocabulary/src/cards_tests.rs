@@ -601,3 +601,19 @@ fn a_last_byte_that_cannot_be_read_is_taken_for_the_end_of_a_line() {
     );
     assert_eq!(page(&storage, deck, 0, 9).1, 2);
 }
+
+#[test]
+fn a_blank_line_in_a_deck_is_no_card_and_splits_nothing() {
+    let storage = MemoryStorage::new();
+    let deck = add_deck(&storage, "Words").unwrap();
+    add(&storage, deck, [texts("Hund", "dog")]).unwrap();
+    let path = deck_path(deck).unwrap();
+    storage.append(&path, b"\n\n").unwrap();
+    add(&storage, deck, [texts("Katze", "cat")]).unwrap();
+    let (cards, total) = page(&storage, deck, 0, 9);
+    assert_eq!(total, 2, "blank lines are no cards");
+    assert_eq!(
+        (cards[0].front.as_str(), cards[1].front.as_str()),
+        ("Hund", "Katze")
+    );
+}
