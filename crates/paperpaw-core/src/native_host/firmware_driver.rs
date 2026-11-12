@@ -94,17 +94,11 @@ struct Entry {
 /// A kept outcome: `None` while the plugin's request of that kind waits.
 #[derive(Clone, Copy)]
 pub(crate) struct Kept {
-    owner: u64,
+    pub(super) owner: u64,
     kind: u32,
     /// The request the slot waits for: only its own outcome fills it.
     request: u32,
-    outcome: Option<Outcome>,
-}
-
-impl Kept {
-    pub(crate) fn owner(&self) -> u64 {
-        self.owner
-    }
+    pub(super) outcome: Option<Outcome>,
 }
 
 /// One job in the queue: a firmware install or check, or a plugin job.
@@ -283,20 +277,6 @@ impl Driver {
             kept,
             machine,
         }
-    }
-
-    /// What op 13 says of `owner`'s ended request `request` in `kept`.
-    pub(crate) fn kept_lookup(kept: &[Kept], owner: u64, request: u32) -> Option<Lookup> {
-        kept.iter()
-            .filter(|kept| kept.owner == owner)
-            .find_map(|kept| kept.outcome.filter(|outcome| outcome.request == request))
-            .map(|outcome| Lookup {
-                kind: outcome.kind,
-                state: 2,
-                outcome: Some(outcome),
-                done: 0,
-                total: 0,
-            })
     }
 
     /// Whether nothing is left to run, ask or tell, and the machine runs
@@ -1165,7 +1145,7 @@ impl Driver {
                 done: 0,
                 total: 0,
             })
-            .or_else(|| Self::kept_lookup(&self.kept, owner, request))
+            .or_else(|| super::firmware_cell::kept_lookup(&self.kept, owner, request))
     }
 
     /// `dev_firmware.state` now (0 while the machine is in use).

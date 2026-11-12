@@ -43,7 +43,7 @@ impl DriverParts {
     /// The plugin `owner` stopped: what was kept for it goes, and the
     /// machine with it once it keeps nothing.
     fn forget(&mut self, owner: u64) {
-        self.kept.retain(|kept| kept.owner() != owner);
+        self.kept.retain(|kept| kept.owner != owner);
         let rests = self.machine.as_ref().is_some_and(|machine| {
             machine.try_borrow_mut().is_ok_and(|mut machine| {
                 machine.forget(owner);
@@ -144,7 +144,7 @@ impl FirmwareCell {
                 .try_borrow()
                 .map_err(|_| ERR_BUSY)?
                 .lookup(owner, request)),
-            State::Resting(parts) => Ok(Driver::kept_lookup(&parts.kept, owner, request)),
+            State::Resting(parts) => Ok(kept_lookup(&parts.kept, owner, request)),
             State::Moving => Err(ERR_BUSY),
         }
     }
@@ -258,6 +258,20 @@ impl FirmwareCell {
     pub(crate) fn skip_counter(&self) -> Rc<Cell<u32>> {
         Rc::clone(&self.skipped)
     }
+}
+
+/// What op 13 says of `owner`'s ended request `request` in `kept`.
+pub(crate) fn kept_lookup(kept: &[Kept], owner: u64, request: u32) -> Option<Lookup> {
+    kept.iter()
+        .filter(|kept| kept.owner == owner)
+        .find_map(|kept| kept.outcome.filter(|outcome| outcome.request == request))
+        .map(|outcome| Lookup {
+            kind: outcome.kind,
+            state: 2,
+            outcome: Some(outcome),
+            done: 0,
+            total: 0,
+        })
 }
 
 /// The block an `Rc` of `T` takes: its two counts and the value.
