@@ -159,9 +159,6 @@ pub(crate) struct Driver {
     /// The running removal asks the host to forget this plugin's secrets and
     /// grants and waits for [`Self::plugin_forgotten`].
     plugin_forget: Option<Text<ID_MAX>>,
-    /// A removal journal the start left to finish with the host's help (its
-    /// plugin's secrets and grants): the kernel's first pass does it.
-    resume: bool,
     /// Revocations handed in (`trust_revoked`), kept at the next pump with no
     /// plugin job running; at most [`MAX_REVOCATIONS_QUEUED`].
     revocations: Vec<Revocation>,
@@ -239,7 +236,6 @@ impl Driver {
             plugin_shown: None,
             plugin_unload: None,
             plugin_forget: None,
-            resume: false,
             revocations: Vec::new(),
             ready: Vec::new(),
             kept,
@@ -294,7 +290,6 @@ impl Driver {
             && self.plugin_shown.is_none()
             && self.plugin_unload.is_none()
             && self.plugin_forget.is_none()
-            && !self.resume
             && self.revocations.is_empty()
             && self.ready.is_empty()
             && self.blocked_until.is_none()
@@ -548,16 +543,6 @@ impl Driver {
         {
             self.plugin_jobs[at].forgotten(ok);
         }
-    }
-
-    /// The start left a removal journal that needs the host's help to finish.
-    pub(crate) fn want_resume(&mut self) {
-        self.resume = true;
-    }
-
-    /// Whether [`Self::want_resume`] is not done yet; taken once.
-    pub(crate) fn take_resume(&mut self) -> bool {
-        core::mem::take(&mut self.resume)
     }
 
     /// The host closed the instances asked for: the job goes on.
@@ -1173,7 +1158,6 @@ impl Driver {
             || self.dual_pending.is_some()
             || stepping
             || revoking
-            || self.resume
             || (!held && self.tell_pending())
         {
             return true;

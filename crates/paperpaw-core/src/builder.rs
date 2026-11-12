@@ -584,12 +584,9 @@ impl BuilderParts {
         );
         // A removal waits for the host to forget its plugin's secrets and
         // grants: the first pass of the kernel finishes it.
-        if to_finish
-            && let Some(cell) = &kernel.firmware
-            && let Ok(driver) = cell.make()
-            && let Ok(mut driver) = driver.try_borrow_mut()
-        {
-            driver.want_resume();
+        // Kept by the cell: no driver needs to be made for it.
+        if to_finish && let Some(cell) = &kernel.firmware {
+            cell.want_resume();
         }
         for line in said {
             kernel.warn_runtime(line);

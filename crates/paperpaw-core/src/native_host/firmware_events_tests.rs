@@ -231,3 +231,39 @@ fn the_grants_go_even_when_the_secrets_could_not_be_forgotten() {
     assert!(!kernel.forget_removed_by("dials", || false));
     assert!(!is_set(&kernel, id), "no grant stays for a later plugin");
 }
+
+#[test]
+fn a_removal_a_cut_left_is_finished_at_the_first_pass_without_making_the_driver() {
+    use crate::native_host::plugin_swap::{Removal, begin_removal};
+    use paperpaw_platform::{Storage as _, firmware::Text};
+    let card = paperpaw_sdk::MemoryStorage::new();
+    card.write("plugins/dials/plugin.ini", b"x").unwrap();
+    card.write(".paperpaw/plugins/dials/notes.txt", b"x")
+        .unwrap();
+    let removal = Removal {
+        id: Text::new("dials"),
+        data: true,
+    };
+    begin_removal(&card, &removal).unwrap();
+    let fake = FakeFirmware::new(
+        "0.5.0",
+        "paperpaw-x4",
+        5,
+        paperpaw_facts("0.6.0", "paperpaw-x4", 2 * WRITE_BLOCK),
+    );
+    let mut kernel = Kernel::builder(crate::tests::DEVICE)
+        .storage(card)
+        .firmware_host(alloc::boxed::Box::new(fake))
+        .build()
+        .unwrap();
+    // The start left it at the step the host must do (forget its secrets and
+    // grants): kept by the cell, no driver made for it.
+    let cell = kernel.firmware.clone().unwrap();
+    assert!(cell.resume_wanted());
+    assert!(cell.driver().is_none());
+    assert!(kernel.shared.storage.size("plugins/.journal").is_ok());
+    kernel.native_firmware_pump();
+    assert!(!cell.resume_wanted());
+    assert!(kernel.shared.storage.size("plugins/.journal").is_err());
+    assert!(cell.driver().is_none(), "nothing else asked for one");
+}

@@ -112,16 +112,23 @@ impl Kernel {
             return false;
         };
         self.firmware_wire(&cell);
+        let now = self.now.millis();
+        if self.shared.native_instances.depth() > 0 {
+            return cell.resume_wanted()
+                || cell.driver().is_some_and(|driver| {
+                    driver
+                        .try_borrow()
+                        .map_or(true, |driver| driver.has_work(now))
+                });
+        }
+        // A removal a cut left needs no driver: finished first, whether one
+        // is made or not.
+        if cell.take_resume() {
+            self.firmware_resume();
+        }
         let Some(driver) = cell.driver() else {
             return false;
         };
-        let now = self.now.millis();
-        if self.shared.native_instances.depth() > 0 {
-            return driver
-                .try_borrow()
-                .map_or(true, |driver| driver.has_work(now));
-        }
-        self.firmware_resume(&driver);
         self.native_outbox_run();
         self.feed_install_grants(&driver);
         {
@@ -238,13 +245,7 @@ impl Kernel {
 
     /// The first pass after a start that left a removal journal at its forget
     /// step: finished with the host's help, once.
-    fn firmware_resume(
-        &mut self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
-    ) {
-        if !driver.try_borrow_mut().is_ok_and(|mut d| d.take_resume()) {
-            return;
-        }
+    fn firmware_resume(&mut self) {
         let storage = self.shared.storage.clone();
         let done = super::plugin_swap::resume(storage.as_ref(), &mut |id| self.forget_removed(id));
         match done {

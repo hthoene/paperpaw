@@ -12,6 +12,7 @@ use super::firmware_driver::{Driver, Kept, Lookup};
 use super::firmware_install::FirmwareInstall;
 use super::plugin_job::PluginHost;
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
+use core::alloc::Layout;
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
 use paperpaw_platform::firmware::FirmwareHost;
@@ -81,6 +82,10 @@ pub(crate) struct FirmwareCell {
     /// The driver's count of skips, kept across its lives (see
     /// [`Driver::skip_counter`]).
     skipped: Rc<Cell<u32>>,
+    /// A removal a cut left waits for the host to forget its plugin's
+    /// secrets and grants: the kernel's next pass finishes it, made driver
+    /// or not (`Kernel::native_firmware_pump`).
+    resume: Cell<bool>,
 }
 
 impl FirmwareCell {
@@ -101,6 +106,7 @@ impl FirmwareCell {
         Self {
             state: RefCell::new(state),
             skipped,
+            resume: Cell::new(false),
         }
     }
 
@@ -113,6 +119,7 @@ impl FirmwareCell {
         Self {
             state: RefCell::new(State::Running(driver)),
             skipped,
+            resume: Cell::new(false),
         }
     }
 
@@ -167,16 +174,18 @@ impl FirmwareCell {
         if let State::Running(driver) = &*state {
             return Ok(Rc::clone(driver));
         }
-        // Rc and RefCell have no fallible constructor: the room for both
-        // blocks is asked for first and given back, so that their
-        // allocations find it (one thread; nothing allocates in between).
+        // Rc has no fallible constructor: both blocks are asked for first,
+        // held together and given back ([`room_for`]), in the order they are
+        // made below: the machine (where none rests with the parts), then
+        // the driver. Nothing allocates in between.
         let resting_machine = matches!(&*state, State::Resting(parts) if parts.machine.is_some());
-        let machine_bytes = if resting_machine {
-            0
+        let driver = Layout::new::<RcBox<RefCell<Driver>>>();
+        let machine = Layout::new::<RcBox<RefCell<FirmwareInstall>>>();
+        if resting_machine {
+            room_for(&[driver])?;
         } else {
-            core::mem::size_of::<RcBox<RefCell<FirmwareInstall>>>()
-        };
-        room_for(core::mem::size_of::<RcBox<RefCell<Driver>>>() + machine_bytes)?;
+            room_for(&[machine, driver])?;
+        }
         let State::Resting(mut parts) = core::mem::replace(&mut *state, State::Moving) else {
             return Err(ERR_BUSY);
         };
@@ -254,6 +263,21 @@ impl FirmwareCell {
         }
     }
 
+    /// Asks the next pass to finish a removal a cut left (at start).
+    pub(crate) fn want_resume(&self) {
+        self.resume.set(true);
+    }
+
+    /// Whether a removal waits to be finished.
+    pub(crate) fn resume_wanted(&self) -> bool {
+        self.resume.get()
+    }
+
+    /// Takes the wish to finish a removal (once).
+    pub(crate) fn take_resume(&self) -> bool {
+        self.resume.take()
+    }
+
     /// The count of skips, for a context that cannot borrow the driver.
     pub(crate) fn skip_counter(&self) -> Rc<Cell<u32>> {
         Rc::clone(&self.skipped)
@@ -274,19 +298,44 @@ pub(crate) fn kept_lookup(kept: &[Kept], owner: u64, request: u32) -> Option<Loo
         })
 }
 
-/// The block an `Rc` of `T` takes: its two counts and the value.
+/// The block an `Rc` of `T` takes: its two counts and the value, as the
+/// standard library lays it out (`repr(C)`, the counts first).
 #[allow(dead_code, reason = "only its layout is used")]
+#[repr(C)]
 struct RcBox<T> {
     strong: Cell<usize>,
     weak: Cell<usize>,
     value: T,
 }
 
-/// Whether `bytes` can be had now in one block (asked for and given back):
-/// two smaller blocks then fit where it was.
-fn room_for(bytes: usize) -> Result<(), i32> {
-    let mut room: Vec<u8> = Vec::new();
-    room.try_reserve_exact(bytes).map_err(|_| ERR_NO_MEMORY)
+/// Whether the blocks of `layouts` can be had now, in this order, each with
+/// its own size and alignment: all are asked for and held at once, then
+/// given back in the reverse order. `Rc::new` has no fallible form, so the
+/// same requests in the same order follow at once, with nothing allocated
+/// in between (one thread): the allocator is where it was before the probe
+/// and finds the same room. Any refusal gives back what was had.
+fn room_for(layouts: &[Layout]) -> Result<(), i32> {
+    let mut held: [(*mut u8, Layout); 2] = [(core::ptr::null_mut(), Layout::new::<()>()); 2];
+    let mut ok = layouts.len() <= held.len();
+    for (slot, layout) in held.iter_mut().zip(layouts) {
+        if !ok || layout.size() == 0 {
+            continue;
+        }
+        // SAFETY: a nonzero size, checked above.
+        let block = unsafe { alloc::alloc::alloc(*layout) };
+        if block.is_null() {
+            ok = false;
+        } else {
+            *slot = (block, *layout);
+        }
+    }
+    for (block, layout) in held.iter().rev() {
+        if !block.is_null() {
+            // SAFETY: allocated above with this very layout, not freed yet.
+            unsafe { alloc::alloc::dealloc(*block, *layout) };
+        }
+    }
+    if ok { Ok(()) } else { Err(ERR_NO_MEMORY) }
 }
 
 #[cfg(test)]
