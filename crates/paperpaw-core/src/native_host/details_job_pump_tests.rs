@@ -682,6 +682,8 @@ fn no_book_begins_while_a_first_walk_is_under_way() {
     // The walk ended.
     w.card.remove(&building).unwrap();
     w.card.remove(&first).unwrap();
+    // A later kernel call: what the last one read is read again (`recall.rs`).
+    w.kernel.shared.recall.clear();
     pump(&mut w, 2_000 + QUIET_MS);
     assert_eq!(w.format.opens(), 1);
     assert_eq!(kept_title(&w, "books/a.epub").as_deref(), Some("Dune"));
