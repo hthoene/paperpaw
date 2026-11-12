@@ -248,7 +248,10 @@ pub struct DrawFrame<'a> {
     pub clip_top: i32,
     /// Exclusive last row permitted by the host canvas clip.
     pub clip_bottom: i32,
-    /// Purpose-specific identifier.
+    /// Purpose-specific identifier. For a screen, bit 0 marks the draws of
+    /// the frame that draws the follow-up of its
+    /// [`queue_redraw_area`](super::commands::CommandSender::queue_redraw_area)
+    /// areas (every band and send of it); otherwise 0.
     pub id: u32,
     /// Purpose-specific bytes, borrowed for this callback only.
     pub payload: &'a [u8],

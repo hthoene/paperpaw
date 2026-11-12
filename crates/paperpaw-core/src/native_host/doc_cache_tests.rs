@@ -139,6 +139,21 @@ fn a_book_keeps_two_conversions_and_the_older_one_goes() {
 }
 
 #[test]
+fn room_is_made_from_unstamped_folders_before_finished_ones() {
+    let storage = MemoryStorage::new();
+    // The oldest is the reader's finished conversion; the newer one holds
+    // only what a `details` open left (no stamp).
+    made_cache(&storage, 1, true);
+    made_cache(&storage, 2, false);
+    prepare(&storage, &id(3), &nothing_pinned).unwrap();
+    assert!(exists(&storage, &folder(1)), "the finished one stays");
+    assert!(
+        !exists(&storage, &folder(2)),
+        "the unstamped one goes first"
+    );
+}
+
+#[test]
 fn a_conversion_an_open_document_uses_never_goes_and_the_third_waits() {
     let storage = MemoryStorage::new();
     made_cache(&storage, 1, true);
