@@ -262,6 +262,15 @@ impl NativeHelp {
     /// them whenever a screen returned there), unless it waits until it is
     /// ready: `event.screen_ready` opens those.
     fn stacked(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        // Hints off and none open: nothing to close and nothing to open, so the
+        // stack is not read and its buffers are not taken (#248).
+        let open = self
+            .screens
+            .all()
+            .any(|slot| matches!(slot, Slot::Overlay(_)));
+        if !reads_stack(hints_on(host)?, open) {
+            return Ok(());
+        }
         let rows = self.stack(host)?;
         self.covered(host, &rows)?;
         match rows.first() {
@@ -273,6 +282,10 @@ impl NativeHelp {
     }
 
     fn explain(&mut self, host: &Host<'_>, screen: &str) -> Result<(), Error> {
+        // Hints off open nothing: the stack is not read (#248).
+        if !hints_on(host)? {
+            return Ok(());
+        }
         let rows = self.stack(host)?;
         self.explain_with(host, screen, &rows)
     }
@@ -299,12 +312,7 @@ impl NativeHelp {
     /// Opens the hints over `screen` where it has some, they are on, they were
     /// not shown yet and the first-run setup is not under way.
     fn explain_with(&self, host: &Host<'_>, screen: &str, rows: &[Row]) -> Result<(), Error> {
-        let mut scratch = [0; 64];
-        let on = match settings::read_setting(host, SHOW, &mut scratch)? {
-            SettingValue::Bool(on) => on,
-            _ => true,
-        };
-        if !on
+        if !hints_on(host)?
             // Hints are open already (or about to be): not twice.
             || rows.first().is_some_and(|row| row.screen == OVERLAY_SCREEN)
             || rows.iter().any(|row| row.setup)
@@ -321,6 +329,21 @@ impl NativeHelp {
                 .handover(host, &[Param::new("id", screen)?], &mut input, &mut output)?;
         CommandSender::new(host, &mut input).open(Open::screen(OVERLAY_SCREEN)?.handover(handover))
     }
+}
+
+/// Whether hints open by themselves (`help.show`; on unless set otherwise).
+fn hints_on(host: &Host<'_>) -> Result<bool, Error> {
+    let mut scratch = [0; 64];
+    Ok(match settings::read_setting(host, SHOW, &mut scratch)? {
+        SettingValue::Bool(on) => on,
+        _ => true,
+    })
+}
+
+/// Whether a changed stack is read: hints that are on may open, and hints
+/// already open may be covered and must close. Otherwise it has nothing to do.
+fn reads_stack(on: bool, overlay_open: bool) -> bool {
+    on || overlay_open
 }
 
 /// The hints of `screen` that fit this device's input.
@@ -577,4 +600,19 @@ fn again_input(host: &Host<'_>, input: &Input<'_>) -> Result<Handled, Error> {
         CommandSender::new(host, &mut scratch).back()?;
     }
     Ok(Handled::Yes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reads_stack;
+
+    #[test]
+    fn a_changed_stack_is_read_only_where_hints_may_open_or_close() {
+        assert!(reads_stack(true, false));
+        assert!(reads_stack(true, true));
+        // Off, but hints shown again or opened before they were switched off.
+        assert!(reads_stack(false, true));
+        // Off and none open: the 4 KiB buffers are never taken.
+        assert!(!reads_stack(false, false));
+    }
 }
