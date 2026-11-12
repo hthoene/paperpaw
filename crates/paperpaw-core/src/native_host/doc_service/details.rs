@@ -199,8 +199,9 @@ pub(crate) struct DetailsRun {
     /// The timed wake of the next look (the kernel's clock, ms), where one
     /// waits (`details_job_pump`).
     wake: Cell<Option<u64>>,
-    /// The last wait while a first walk was under way (ms; 0: none).
-    walk_wait: Cell<u64>,
+    /// The last wait while the job was held (a first walk under way, a
+    /// network or install job; ms; 0: none).
+    hold_wait: Cell<u64>,
 }
 
 impl DetailsRun {
@@ -214,7 +215,7 @@ impl DetailsRun {
         self.line.set(0);
         self.later.set(0);
         self.wake.set(None);
-        self.walk_wait.set(0);
+        self.hold_wait.set(0);
     }
     /// Nothing more to read in the catalog.
     pub(crate) fn disarm(&self) {
@@ -270,19 +271,20 @@ impl DetailsRun {
         }
         later
     }
-    /// A first walk is under way: how long until the next look, `first` ms
-    /// the first time, then twice the last, `most` at most.
-    pub(crate) fn walk_waits(&self, first: u64, most: u64) -> u64 {
-        let wait = match self.walk_wait.get() {
+    /// The job is held (a first walk under way, a network or install job):
+    /// how long until the next look, `first` ms the first time, then twice
+    /// the last, `most` at most.
+    pub(crate) fn hold_waits(&self, first: u64, most: u64) -> u64 {
+        let wait = match self.hold_wait.get() {
             0 => first,
             last => last.saturating_mul(2).min(most),
         };
-        self.walk_wait.set(wait);
+        self.hold_wait.set(wait);
         wait
     }
-    /// No first walk is under way (any more): the next one waits from `first`.
-    pub(crate) fn walk_ended(&self) {
-        self.walk_wait.set(0);
+    /// Nothing holds the job (any more): the next hold waits from `first`.
+    pub(crate) fn hold_ended(&self) {
+        self.hold_wait.set(0);
     }
     /// The next look is due at `at` (a timed wake of the pump).
     pub(crate) fn wake_at(&self, at: u64) {
