@@ -83,30 +83,39 @@ fn a_batch_past_the_last_place_a_slot_holds_is_no_space() {
     pending
         .kept
         .batches
-        .refs_mut()
+        .indexed_mut()
         .unwrap()
+        .refs
         .reserve_exact(BATCHES_MAX - 1);
     for _ in 1..BATCHES_MAX {
         pending
             .kept
             .batches
-            .refs_mut()
+            .indexed_mut()
             .unwrap()
+            .refs
             .push(DeclRef::Image { offset: 0, len: 0 });
     }
     // The last batch a slot can name is taken and indexed.
     pending.stage_batch(&first, &mut allocations).unwrap();
-    assert!(!pending.kept.slots.is_empty());
+    assert!(!pending.kept.batches.slots().is_empty());
     let last = u16::try_from(BATCHES_MAX - 1).unwrap();
-    assert!(pending.kept.slots.iter().all(|slot| slot.batch() == last));
+    assert!(
+        pending
+            .kept
+            .batches
+            .slots()
+            .iter()
+            .all(|slot| slot.batch() == last)
+    );
     // The next is refused, and nothing of it is kept.
-    let slots = pending.kept.slots.len();
+    let slots = pending.kept.batches.slots().len();
     assert_eq!(
         pending.stage_batch(&second, &mut allocations).err(),
         Some(ERR_NO_SPACE)
     );
     assert_eq!(pending.kept.batches.len(), BATCHES_MAX);
-    assert_eq!(pending.kept.slots.len(), slots);
+    assert_eq!(pending.kept.batches.slots().len(), slots);
 }
 
 #[test]
@@ -178,7 +187,7 @@ fn slot_keys_keep_kinds_apart_and_the_declaration_order_inside_a_kind() {
         Kind::BookBadge as u16
     );
     let mut owner = PendingDeclarations::new(Id::new_static("fixture"), image()).kept;
-    owner.slots.reserve_exact(5);
+    owner.batches.indexed_mut().unwrap().slots.reserve_exact(5);
     for (kind, hash, record) in [
         (Kind::Spec, 0x0040_0000, 0),
         (Kind::Lookup, 0, 1),
@@ -186,10 +195,12 @@ fn slot_keys_keep_kinds_apart_and_the_declaration_order_inside_a_kind() {
         (Kind::Spec, 0x003f_ffff, 3),
         (Kind::Spec, 0, 4),
     ] {
-        owner.add_slot(Slot {
-            hash: kind.slot_key(hash),
-            place: record,
-        });
+        owner
+            .add_slot(Slot {
+                hash: kind.slot_key(hash),
+                place: record,
+            })
+            .unwrap();
     }
     let records = |slots: &[Slot]| slots.iter().map(|slot| slot.record()).collect::<Vec<_>>();
     assert_eq!(records(owner.of_kind(Kind::Group)), [2]);
