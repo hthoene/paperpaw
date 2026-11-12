@@ -199,12 +199,23 @@ impl InputKey {
     }
 
     pub(crate) fn parse(key: &str) -> Option<InputKey> {
+        Self::parse_in(key, |name| Cow::Owned(name.to_string()))
+    }
+
+    /// [`Self::parse`] of a key kept for the whole run (a built-in key map's):
+    /// its button names are borrowed, not copied (#248).
+    fn parse_kept(key: &'static str) -> Option<InputKey> {
+        Self::parse_in(key, Cow::Borrowed)
+    }
+
+    /// `keep` makes a button's name the key keeps.
+    fn parse_in<'k>(key: &'k str, keep: impl Fn(&'k str) -> Cow<'static, str>) -> Option<InputKey> {
         if key == "tap2" {
             return Some(InputKey::Tap2);
         }
         let (kind, name) = key.split_once('.')?;
         // A Bluetooth remote's keys have a dot in their names (`hid.right`).
-        let button = |name: &str| button_name_ok(name).then(|| Cow::Owned(name.to_string()));
+        let button = |name: &'k str| button_name_ok(name).then(|| keep(name));
         match kind {
             "button" => button(name).map(InputKey::Button),
             "long" => button(name).map(InputKey::LongButton),
@@ -504,7 +515,8 @@ pub(crate) struct Problem {
 
 #[derive(Debug, Default)]
 pub(crate) struct Keymap {
-    layers: VecMap<String, VecMap<InputKey, Binding>>,
+    /// By layer; a built-in key map's layer names are borrowed (#248).
+    layers: VecMap<Cow<'static, str>, VecMap<InputKey, Binding>>,
     /// The layers' own tap zones (`[zones.<layer>]`): the layer, the name
     /// and where it is, in percent of the screen (left, top, width,
     /// height).
@@ -559,6 +571,36 @@ impl Keymap {
     /// With `strict`, sections other than `[keymap.*]` are problems;
     /// otherwise (user configuration files) they are skipped.
     pub(crate) fn load(&mut self, source: &str, origin: Origin, strict: bool) -> Vec<Problem> {
+        self.load_in(source, origin, strict, |_| None)
+    }
+
+    /// [`Self::load`] of a source that may be kept for the whole run (a
+    /// preset's, a plugin's or the device's key map, built in): its layers,
+    /// button names and action ids are then borrowed, not copied (#248).
+    #[allow(
+        clippy::ptr_arg,
+        reason = "whether it is borrowed for the whole run is what is asked"
+    )]
+    pub(crate) fn load_kept(
+        &mut self,
+        source: &Cow<'static, str>,
+        origin: Origin,
+        strict: bool,
+    ) -> Vec<Problem> {
+        match source {
+            Cow::Borrowed(source) => self.load_in(source, origin, strict, Some),
+            Cow::Owned(source) => self.load(source, origin, strict),
+        }
+    }
+
+    /// `kept` gives a text of the source as kept for the whole run, where it is.
+    fn load_in<'a>(
+        &mut self,
+        source: &'a str,
+        origin: Origin,
+        strict: bool,
+        kept: impl Fn(&'a str) -> Option<&'static str>,
+    ) -> Vec<Problem> {
         let mut problems = Vec::new();
         let problem = |problems: &mut Vec<Problem>, line, message: &'static str| {
             problems.push(Problem {
@@ -605,7 +647,11 @@ impl Keymap {
                 problem(&mut problems, entry.line, "invalid key map layer");
                 continue;
             }
-            let Some(input) = InputKey::parse(entry.key) else {
+            let input = match kept(entry.key) {
+                Some(key) => InputKey::parse_kept(key),
+                None => InputKey::parse(entry.key),
+            };
+            let Some(input) = input else {
                 problem(
                     &mut problems,
                     entry.line,
@@ -629,17 +675,24 @@ impl Keymap {
                 continue;
             }
             let value = entry.value.as_str();
+            let kept_value = match &value {
+                Cow::Borrowed(value) => kept(value),
+                Cow::Owned(_) => None,
+            };
+            let parsed = match kept_value {
+                Some(value) => Id::parse_static(value),
+                None => Id::parse(&value),
+            };
             let action = if value == UNBOUND {
                 None
-            } else if let Ok(id) = Id::parse(&value) {
+            } else if let Ok(id) = parsed {
                 Some(id)
             } else {
                 problem(&mut problems, entry.line, "invalid action id");
                 continue;
             };
-            let bindings = self
-                .layers
-                .get_or_insert_with(String::from(layer), VecMap::new);
+            let layer = kept(layer).map_or_else(|| Cow::Owned(String::from(layer)), Cow::Borrowed);
+            let bindings = self.layers.get_or_insert_with(layer, VecMap::new);
             let overrides = bindings.get(&input).is_none_or(|b| origin >= b.origin);
             if overrides {
                 bindings.insert(input, Binding { action, origin });
@@ -689,7 +742,7 @@ impl Keymap {
             return Native::Dropped;
         }
         self.layers
-            .get_or_insert_with(String::from(layer), VecMap::new)
+            .get_or_insert_with(Cow::Owned(String::from(layer)), VecMap::new)
             .insert(input, Binding { action, origin });
         Native::Bound
     }
@@ -997,6 +1050,43 @@ mod tests {
             let key = InputKey::parse(input).unwrap();
             assert!(keymap.resolve(&["reader"], &key).is_some(), "{input}");
         }
+    }
+
+    /// A built-in key map is kept by reference: its layers, buttons and
+    /// actions are not copied (#248); a source made at run time is.
+    #[test]
+    fn a_built_in_key_map_is_borrowed_and_a_made_one_copied() {
+        const SOURCE: &str =
+            "[keymap.core.reader]\nbutton.next = core.page-forward\nlong.next = core.menu\n";
+        let mut kept = Keymap::default();
+        assert!(
+            kept.load_kept(&Cow::Borrowed(SOURCE), Origin::Preset, true)
+                .is_empty()
+        );
+        let mut made = Keymap::default();
+        let owned = Cow::Owned(String::from(SOURCE));
+        assert!(made.load_kept(&owned, Origin::Preset, true).is_empty());
+        for (keymap, borrowed) in [(&kept, true), (&made, false)] {
+            let (layer, bindings) = keymap.layers.iter().next().unwrap();
+            assert_eq!(matches!(layer, Cow::Borrowed(_)), borrowed);
+            for (input, binding) in bindings.iter() {
+                let (InputKey::Button(name) | InputKey::LongButton(name)) = input else {
+                    panic!("{input:?}");
+                };
+                assert_eq!(matches!(name, Cow::Borrowed(_)), borrowed);
+                let action = binding.action.as_ref().unwrap();
+                assert_eq!(action.kept().is_some(), borrowed, "{action}");
+            }
+            let next = InputKey::parse("button.next").unwrap();
+            assert_eq!(
+                keymap.resolve(&["core.reader"], &next).map(Id::as_str),
+                Some("core.page-forward")
+            );
+        }
+        // An invalid id stays a problem either way.
+        let mut keymap = Keymap::default();
+        let bad = Cow::Borrowed("[keymap.global]\nbutton.next = Not An Id\n");
+        assert_eq!(keymap.load_kept(&bad, Origin::Device, true).len(), 1);
     }
 
     #[test]

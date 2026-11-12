@@ -246,7 +246,7 @@ impl Kernel {
         }
         for source in staging.keymaps.drain(..) {
             // Validated by the registrar.
-            self.shared.keymap.load(&source, Origin::Plugin, true);
+            self.shared.keymap.load_kept(&source, Origin::Plugin, true);
             self.keys.plugins.push((plugin.clone(), source));
         }
         self.keys.presets.append(&mut staging.keymap_presets);
@@ -480,7 +480,7 @@ impl Kernel {
     pub(crate) fn preset_actions(&self) -> Vec<Id> {
         let mut all = Keymap::default();
         for (_, source) in self.keys.presets.iter().chain(&self.keys.when) {
-            all.load(source, Origin::Preset, true);
+            all.load_kept(source, Origin::Preset, true);
         }
         all.actions().cloned().collect()
     }
@@ -502,12 +502,12 @@ impl Kernel {
             .iter()
             .find(|(id, _)| id.as_str() == preset)
         {
-            keymap.load(source, Origin::Preset, true);
+            keymap.load_kept(source, Origin::Preset, true);
         }
         for (_, source) in &self.keys.plugins {
-            keymap.load(source, Origin::Plugin, true);
+            keymap.load_kept(source, Origin::Plugin, true);
         }
-        keymap.load(&self.keys.device, Origin::Device, true);
+        keymap.load_kept(&self.keys.device, Origin::Device, true);
         // Native plugins' `key.bind` rows: against the preset, plugin and
         // device sources (a binding of the device's outranks them, as before),
         // before the user's. The main-menu rule reads that baseline.
@@ -518,7 +518,7 @@ impl Kernel {
         // After the plugins' other bindings, which they then override.
         for (setting, source) in &self.keys.when {
             if self.shared.settings.bool(setting.as_str()) {
-                keymap.load(source, Origin::Plugin, true);
+                keymap.load_kept(source, Origin::Plugin, true);
             }
         }
         keymap.shrink_to_fit();
