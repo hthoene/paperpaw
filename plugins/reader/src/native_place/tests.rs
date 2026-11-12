@@ -95,3 +95,79 @@ fn a_share_of_the_book_is_the_place_its_progress_is() {
     assert_eq!(progress(&[]).place_at(500_000), (0, 0));
     assert_eq!(progress(&[0, 0]).place_at(500_000), (1, 0));
 }
+
+#[test]
+fn a_book_the_library_has_not_listed_yet_is_tried_again_unsaid() {
+    // #257: the last book reopened at the start, before the catalog walk listed
+    // it, was said to be unsaved for want of memory.
+    assert_eq!(place_refused(Error::NotFound, false), Refused::Retry);
+    assert_eq!(place_refused(Error::Busy, false), Refused::Retry);
+    // Closing, nothing tries again: said, but not as a lack of memory.
+    assert_eq!(
+        place_refused(Error::NotFound, true),
+        Refused::Say("reader.not-saved-plain")
+    );
+}
+
+#[test]
+fn only_a_lack_of_memory_says_the_memory_may_be_full() {
+    for closing in [false, true] {
+        assert_eq!(
+            place_refused(Error::NoMemory, closing),
+            Refused::Say("reader.not-saved")
+        );
+        assert_eq!(
+            place_refused(Error::Full, closing),
+            Refused::Say("reader.not-saved-full")
+        );
+        for error in [
+            Error::Io,
+            Error::State,
+            Error::Denied,
+            Error::Invalid,
+            Error::NoSpace,
+        ] {
+            assert_eq!(
+                place_refused(error, closing),
+                Refused::Say("reader.not-saved-plain"),
+                "{error:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_refused_mark_names_a_full_card_and_nothing_else() {
+    assert_eq!(marks_refused(Error::Full), "reader.marks-not-saved-full");
+    for error in [Error::NotFound, Error::Io, Error::State, Error::Busy] {
+        assert_eq!(marks_refused(error), "reader.marks-not-saved", "{error:?}");
+    }
+}
+
+#[test]
+fn every_refusal_text_is_there_in_english_and_german() {
+    let texts = [
+        include_str!("../../i18n/en.ini"),
+        include_str!("../../i18n/de.ini"),
+    ];
+    let keys = [
+        "reader.not-saved",
+        "reader.not-saved-full",
+        "reader.not-saved-plain",
+        "reader.marks-not-saved",
+        "reader.marks-not-saved-full",
+    ];
+    for text in texts {
+        for key in keys {
+            let found = text.lines().find_map(|l| {
+                let (k, v) = l.split_once('=')?;
+                (k.trim() == key).then(|| v.trim())
+            });
+            let value = found.unwrap_or_else(|| panic!("{key} missing"));
+            // Only the lack of memory says the memory may be full.
+            let full =
+                value.contains("may be full") || value.contains("Vielleicht ist der Speicher voll");
+            assert_eq!(full, key == "reader.not-saved", "{key}: {value}");
+        }
+    }
+}

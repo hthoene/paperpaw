@@ -162,14 +162,14 @@ pub fn standing(ctx: &Ctx<'_>, range: (usize, usize)) -> Option<bool> {
         .map(|h| h.noted)
 }
 
-/// What a refused change is: said (the memory may be full), the page goes on.
+/// What a refused change is: said (by why it was refused), the page goes on.
 /// Only a lack of memory is the host's to hear.
 fn said<T>(host: &Host<'_>, done: Result<T, Error>) -> Result<Option<T>, Error> {
     match done {
         Ok(value) => Ok(Some(value)),
         Err(Error::NoMemory) => Err(Error::NoMemory),
-        Err(_) => {
-            say_not_saved(host);
+        Err(error) => {
+            say_not_saved(host, error);
             Ok(None)
         }
     }

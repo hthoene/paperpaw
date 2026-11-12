@@ -67,7 +67,7 @@ impl View {
         match done {
             Ok(()) => {}
             Err(Error::NoMemory) => return Err(Error::NoMemory),
-            Err(_) => crate::native_bookmark::say_not_saved(host),
+            Err(error) => crate::native_bookmark::say_not_saved(host, error),
         }
         open.reload_marks(host, Some(library))?;
         super::redraw(host, super::RedrawMode::Partial)

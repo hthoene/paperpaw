@@ -338,10 +338,12 @@ fn stage(
         .map(|_| ())
 }
 
-/// Says that a bookmark, highlight or note could not be kept (the memory may be
-/// full); a message that cannot be made or shown is dropped.
-pub fn say_not_saved(host: &Host<'_>) {
-    let Ok(text) = Messages::new().and_then(|mut m| m.copy(host, "reader.marks-not-saved")) else {
+/// Says that a bookmark, highlight or note could not be kept, by the library's
+/// refusal `error` (`native_place::marks_refused`); a message that cannot be
+/// made or shown is dropped.
+pub fn say_not_saved(host: &Host<'_>, error: Error) {
+    let key = crate::native_place::marks_refused(error);
+    let Ok(text) = Messages::new().and_then(|mut m| m.copy(host, key)) else {
         return;
     };
     let Ok(note) = Notify::new(&text) else {
