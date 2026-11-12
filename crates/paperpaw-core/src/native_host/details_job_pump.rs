@@ -12,14 +12,17 @@
 //! kernel's start has returned, when no background job of either kind runs (it
 //! is the device's one slot, `doc_cover_job`), when no book is open for
 //! reading or showing, and not in the quiet moment after a displacement: the
-//! cover job's rules. Also never at the start's peak nor beside the user
-//! (#2670): not before [`QUIET_MS`] after the start or the last input, nor
-//! while a first walk is under way (its books published so far arm the job
-//! while it goes on); a timed wake looks again. A reader's open takes its place at once (a displacement:
-//! the book is looked at again later, and given up, as a failed book, after
-//! three in a row); a cover that needs the slot makes it give way (`cover`:
-//! looked at again later, counted as nothing); the device's sleep ends it, and
-//! nothing starts one after the wake until a walk arms it again.
+//! cover job's rules. Also never at the start's peak nor while the user is
+//! busy (#2670): not before [`QUIET_MS`] after the start or any input, by a
+//! timed wake; nor while a first walk is under way (its books published so
+//! far arm the job while it goes on), looked at again after 1 s, then 2, 4 …
+//! up to [`WALK_WAIT_MAX_MS`]: a walk cut short goes on only once a view of
+//! the library wants the catalog, so its marks may stay on the card a long
+//! time. A reader's open takes its place at once (a displacement: the book
+//! is looked at again later, and given up, as a failed book, after three in
+//! a row); a cover that needs the slot makes it give way (`cover`: looked at
+//! again later, counted as nothing); the device's sleep ends it, and nothing
+//! starts one after the wake until a walk arms it again.
 //!
 //! **Which.** The catalog is read from a byte cursor, a line at a time (a 256
 //! byte chunk and the SDK's line view on the stack, nothing kept): a book of a
@@ -63,6 +66,8 @@ const CHUNK: usize = 256;
 /// book's job begins: an EPUB's open (its zip and XML, some 30 KiB) is never
 /// added to the start's peak or to a screen the user works in (#2670).
 pub(crate) const QUIET_MS: u64 = 1_000;
+/// The longest wait between looks while a first walk is under way.
+pub(crate) const WALK_WAIT_MAX_MS: u64 = 32_000;
 
 /// The pump's frame for the details job's open: the kernel's settings,
 /// declarations and registry, no callback (the format is called through the
@@ -305,8 +310,10 @@ impl crate::Kernel {
         }
         let env = self.shared.env(self.now);
         if catalog::is_growing(env.storage()) {
-            return Pass::Wait(now.saturating_add(QUIET_MS));
+            let wait = run.walk_waits(QUIET_MS, WALK_WAIT_MAX_MS);
+            return Pass::Wait(now.saturating_add(wait));
         }
+        run.walk_ended();
         let formats = &self.shared.formats;
         let wanted = |path: &str| {
             formats

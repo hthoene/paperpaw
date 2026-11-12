@@ -688,3 +688,33 @@ fn no_book_begins_while_a_first_walk_is_under_way() {
     assert_eq!(w.format.opens(), 1);
     assert_eq!(kept_title(&w, "books/a.epub").as_deref(), Some("Dune"));
 }
+
+#[test]
+fn marks_of_a_walk_that_does_not_go_on_are_looked_at_ever_less_often() {
+    let mut w = world(&["books/a.epub"]);
+    catalog(&w, &[("books/a.epub", false)]);
+    // A first walk cut short (the power gone): its marks stay until a view
+    // of the library wants the catalog.
+    let building = alloc::format!("{}/catalog.tmp", library::DIR);
+    let first = alloc::format!("{}/walk.first", library::DIR);
+    w.card.write(&building, b"").unwrap();
+    w.card.write(&first, b"").unwrap();
+    started(&mut w);
+    w.kernel.native_details_arm();
+    let mut now = 2_000;
+    for wait in [1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 32_000] {
+        pump(&mut w, now);
+        assert_eq!(w.kernel.service_due(), Some(Instant(now + wait)));
+        now += wait;
+    }
+    assert_eq!(w.format.opens(), 0);
+    // The walk went on and ended: the book at the next look, and a later
+    // walk waits from a second again.
+    w.card.remove(&building).unwrap();
+    w.card.remove(&first).unwrap();
+    w.kernel.shared.recall.clear();
+    pump(&mut w, now);
+    assert_eq!(w.format.opens(), 1);
+    let run = w.docs.details_job().unwrap().run();
+    assert_eq!(run.walk_waits(QUIET_MS, WALK_WAIT_MAX_MS), QUIET_MS);
+}
