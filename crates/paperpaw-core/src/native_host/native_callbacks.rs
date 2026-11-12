@@ -14,6 +14,12 @@ struct State {
     /// A native screen's `draw` callback returned `OK` since the kernel last
     /// cleared this (the first draw of an instance raises `event.screen_ready`).
     drew: Cell<bool>,
+    /// Event batches being delivered and registration transactions open: no
+    /// parked plugin is made again while one is (#248, parked plugins M5).
+    holds: Cell<u16>,
+    /// The kernel's time (ms), for the wait before a parked plugin is tried
+    /// again after it found no memory.
+    now_ms: Cell<u64>,
 }
 impl State {
     fn enter(&self, fresh: bool) -> Result<u64, i32> {
@@ -69,6 +75,27 @@ impl CallbackClock {
     pub(crate) fn take_drew(&self) -> bool {
         self.state().drew.take()
     }
+    /// Whether a parked plugin may be made again now: no callback running,
+    /// no event batch being delivered, no registration transaction open.
+    pub(crate) fn safe_point(&self) -> bool {
+        let state = self.state();
+        state.depth.get() == 0 && state.holds.get() == 0
+    }
+    /// The kernel's time now (set at each tick and call).
+    pub(crate) fn set_now(&self, now_ms: u64) {
+        self.state().now_ms.set(now_ms);
+    }
+    /// Holds unparking off until the returned guard is dropped (an event
+    /// batch being delivered, a registration transaction). `None` where the
+    /// clock is not shared yet (no native plugin): nothing is parked then.
+    pub(crate) fn hold(&self) -> Option<Hold> {
+        let Source::Shared(state) = &self.0 else {
+            return None;
+        };
+        let state = state.try_clone()?;
+        state.holds.set(state.holds.get().saturating_add(1));
+        Some(Hold(state))
+    }
     pub(crate) fn runtime(&mut self) -> Result<CallbackRuntime, i32> {
         if self.depth() != 0 {
             return Err(ERR_STATE);
@@ -79,6 +106,8 @@ impl CallbackClock {
                 epoch: Cell::new(state.epoch.get()),
                 open_info: Cell::new(state.open_info.get()),
                 drew: Cell::new(state.drew.get()),
+                holds: Cell::new(state.holds.get()),
+                now_ms: Cell::new(state.now_ms.get()),
             };
             let shared = Shared::try_new(value).map_err(|_| ERR_NO_MEMORY)?;
             self.0 = Source::Shared(shared);
@@ -90,8 +119,32 @@ impl CallbackClock {
     }
 }
 
+/// Unparking held off while it lives ([`CallbackClock::hold`]).
+#[must_use]
+pub(crate) struct Hold(Shared<State>);
+impl Drop for Hold {
+    fn drop(&mut self) {
+        self.0.holds.set(self.0.holds.get().saturating_sub(1));
+    }
+}
+
 pub(crate) struct CallbackRuntime(Shared<State>);
 impl CallbackRuntime {
+    /// As [`CallbackClock::safe_point`], read through a lease's clock.
+    pub(crate) fn safe_point(&self) -> bool {
+        self.0.depth.get() == 0 && self.0.holds.get() == 0
+    }
+    /// As [`CallbackClock::set_now`]'s time.
+    pub(crate) fn now_ms(&self) -> u64 {
+        self.0.now_ms.get()
+    }
+    /// As [`CallbackClock::hold`], taken by an unpark itself (its own
+    /// registration transaction).
+    pub(crate) fn hold(&self) -> Option<Hold> {
+        let state = self.0.try_clone()?;
+        state.holds.set(state.holds.get().saturating_add(1));
+        Some(Hold(state))
+    }
     pub(crate) fn enter(&self) -> Result<NativeCallbackEpoch, i32> {
         let state = self.0.try_clone().ok_or(ERR_NO_MEMORY)?;
         let epoch = state.enter(true)?;

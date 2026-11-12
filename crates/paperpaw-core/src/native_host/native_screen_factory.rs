@@ -57,7 +57,8 @@ impl NativeMade {
         params: &paperpaw_sdk::Params,
     ) -> Result<Box<dyn Screen>, i32> {
         let result = (|| {
-            self.instance.live()?;
+            // Made at the first callback, not here (a parked plugin).
+            self.instance.check_running()?;
             let count = u32::try_from(params.iter().count()).map_err(|_| ERR_INVALID)?;
             let id = id.try_clone().ok_or(ERR_NO_MEMORY)?;
             let instance = self.instance.try_clone()?;
