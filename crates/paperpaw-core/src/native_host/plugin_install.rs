@@ -457,6 +457,9 @@ impl PluginInstall {
         let new_uses = code.is_some() && self.installed.is_some() && self.new_uses(env, &uses);
         self.manifest = Some(manifest);
         self.pins = Some(pins);
+        // Nothing after the rules reads through the buffer: it is not held
+        // while the question waits, nor through the marks and the swap.
+        self.buf = Vec::new();
         // The grant skips only the prompt.
         let skip = env.granted && !sideload && !new_uses && self.installed.is_some();
         if skip {
