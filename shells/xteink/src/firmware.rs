@@ -491,31 +491,39 @@ impl Firmware {
         }
     }
 
-    /// An update or a restart the kernel asked for.
+    /// An update or a restart the kernel asked for. The update's own work
+    /// (`install_state`) has a frame of its own, so that this one, which the
+    /// effects are applied from, stays small: it lies under every plugin's
+    /// work for the effects (the X4's stack, #2619).
     #[inline(never)]
     fn firmware(&mut self, command: FirmwareCommand) {
+        if let Some(state) = self.install_state(command) {
+            let effects = self.kernel.firmware_state(now(), state);
+            self.apply(effects);
+        }
+    }
+
+    /// What the update asked for comes to: `None` for a restart (asked for
+    /// at the top of the next loop) or a command this firmware does not know.
+    #[inline(never)]
+    fn install_state(&mut self, command: FirmwareCommand) -> Option<FirmwareState> {
         match command {
             FirmwareCommand::Install {
                 path, key, older, ..
-            } => {
-                let state = match &mut self.ota {
-                    Some(ota) => ota.begin(self.kernel.storage(), &path, key.as_ref(), older),
-                    None => FirmwareState::Failed(InstallFailure::Write),
-                };
-                let effects = self.kernel.firmware_state(now(), state);
-                self.apply(effects);
+            } => Some(match &mut self.ota {
+                Some(ota) => ota.begin(self.kernel.storage(), &path, key.as_ref(), older),
+                None => FirmwareState::Failed(InstallFailure::Write),
+            }),
+            FirmwareCommand::InstallForeign { path, .. } => Some(match &mut self.ota {
+                Some(ota) => ota.begin_foreign(self.kernel.storage(), &path),
+                None => FirmwareState::Failed(InstallFailure::Write),
+            }),
+            FirmwareCommand::Restart => {
+                self.state.restart_wanted = true;
+                None
             }
-            FirmwareCommand::InstallForeign { path, .. } => {
-                let state = match &mut self.ota {
-                    Some(ota) => ota.begin_foreign(self.kernel.storage(), &path),
-                    None => FirmwareState::Failed(InstallFailure::Write),
-                };
-                let effects = self.kernel.firmware_state(now(), state);
-                self.apply(effects);
-            }
-            FirmwareCommand::Restart => self.state.restart_wanted = true,
             // A command this firmware does not know: nothing done.
-            _ => {}
+            _ => None,
         }
     }
 
