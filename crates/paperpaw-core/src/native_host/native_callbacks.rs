@@ -130,6 +130,10 @@ impl Drop for Hold {
 
 pub(crate) struct CallbackRuntime(Shared<State>);
 impl CallbackRuntime {
+    /// The same clock again (a shared count, no copy).
+    pub(crate) fn try_clone(&self) -> Option<Self> {
+        self.0.try_clone().map(Self)
+    }
     /// As [`CallbackClock::safe_point`], read through a lease's clock.
     pub(crate) fn safe_point(&self) -> bool {
         self.0.depth.get() == 0 && self.0.holds.get() == 0

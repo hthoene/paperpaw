@@ -65,6 +65,99 @@ impl crate::Kernel {
         image: (*const u8, usize),
         fixed: super::FixedTables,
     ) -> Result<(), shell::Error> {
+        // SAFETY: this function's contract, passed on.
+        unsafe {
+            self.register_linked_with(
+                entry, metadata, host, id, services, resources, depth, teardown, report, image,
+                fixed, None,
+            )
+        }
+    }
+
+    /// [`register_linked`](Self::register_linked) for a plugin the kernel may
+    /// park (#248, `docs/measurements/parked-plugins.md`): where its `make`
+    /// only registers, it holds nothing of the host, its declarations all lie
+    /// in `image` and no other plugin's callback can reach it, its instance is
+    /// dropped right after its declarations are published and made again on
+    /// first use. `services` makes the shell's services handle for each
+    /// hosting; `id` and `host` are kept for them.
+    ///
+    /// # Errors
+    /// As [`register_linked`](Self::register_linked).
+    ///
+    /// # Safety
+    /// As [`register_linked`](Self::register_linked), for every hosting of the
+    /// plugin, not only the first.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "as `register_linked`, with the services' maker"
+    )]
+    pub unsafe fn register_linked_parked<S: Services + 'static>(
+        &mut self,
+        entry: &'static PpEntry,
+        metadata: &'static [u8],
+        host: &metadata::Host<'static>,
+        id: &'static str,
+        services: fn() -> S,
+        resources: super::HostResources,
+        depth: &FlatDepth,
+        teardown: shell::Report<S>,
+        report: fn(&S, u32, i32),
+        image: (*const u8, usize),
+        fixed: super::FixedTables,
+    ) -> Result<(), shell::Error> {
+        let Some(kept) = resources.try_clone() else {
+            return Err(shell::Error::Allocation);
+        };
+        let park = super::park_linked::ParkArgs {
+            entry,
+            metadata,
+            host: *host,
+            id,
+            services,
+            resources: kept,
+            teardown,
+            image,
+            fixed,
+        };
+        // SAFETY: this function's contract, passed on.
+        unsafe {
+            self.register_linked_with(
+                entry,
+                metadata,
+                host,
+                id,
+                services(),
+                resources,
+                depth,
+                teardown,
+                report,
+                image,
+                fixed,
+                Some(park),
+            )
+        }
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "as `register_linked`, with what parking keeps"
+    )]
+    unsafe fn register_linked_with<S: Services + 'static>(
+        &mut self,
+        entry: &'static PpEntry,
+        metadata: &'static [u8],
+        host: &metadata::Host<'static>,
+        id: &str,
+        services: S,
+        resources: super::HostResources,
+        depth: &FlatDepth,
+        teardown: shell::Report<S>,
+        report: fn(&S, u32, i32),
+        image: (*const u8, usize),
+        fixed: super::FixedTables,
+        park: Option<super::park_linked::ParkArgs<S>>,
+    ) -> Result<(), shell::Error> {
         // Before anything is built and long before `make`: the host's own id
         // (reserved, ui.md 4.3), an id that is not a plugin id (1 to 40 bytes
         // of `[a-z0-9-]`, as for a loaded plugin), or one that is taken.
@@ -104,7 +197,12 @@ impl crate::Kernel {
             // are taken (`native_values::Kept`).
             fixed.image = unsafe { core::slice::from_raw_parts(image.0, image.1) };
         }
-        let registered = self.register_native_fixed(host, depth, report, fixed);
+        let mut park = park;
+        if let Some(park) = park.as_mut() {
+            // The image as the declarations are kept against.
+            park.fixed = fixed;
+        }
+        let registered = self.register_native_fixed(host, depth, report, fixed, park);
         if registered.is_err() {
             linked.remove(id);
         }

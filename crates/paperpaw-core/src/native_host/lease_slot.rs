@@ -36,10 +36,6 @@ pub(crate) trait Unpark {
 
 /// Why an unpark made no instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(
-    dead_code,
-    reason = "made by the linked-plugin recipe (Core's part of #2638); tests do today"
-)]
 pub(crate) enum Unparked {
     NoMemory,
     Refused,

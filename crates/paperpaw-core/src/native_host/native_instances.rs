@@ -1041,6 +1041,18 @@ pub(crate) struct NativeIdentity {
     pool: Option<OwnerResourceView>,
 }
 impl NativeIdentity {
+    /// The same identity again: a parked plugin's recipe keeps one for each
+    /// time it makes the plugin's dispatch (#248).
+    pub(crate) fn try_clone(&self) -> Option<Self> {
+        Some(Self {
+            owner: self.owner,
+            callbacks: self.callbacks.try_clone()?,
+            pool: match &self.pool {
+                Some(pool) => Some(pool.try_clone()?),
+                None => None,
+            },
+        })
+    }
     pub(crate) fn owner(&self) -> u64 {
         self.owner
     }

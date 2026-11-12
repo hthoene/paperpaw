@@ -175,10 +175,6 @@ impl HeapState {
     }
 
     /// Whether owner place `index` was handed out.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the kernel's unpark recipe calls it (#2638)")
-    )]
     pub(crate) fn has(&self, index: u32) -> bool {
         self.owners
             .try_borrow()
