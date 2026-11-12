@@ -337,8 +337,8 @@ impl Look {
 mod tests {
     use super::super::{detect_breaks, find, is_utf8, line_after, typical_line_length};
     use super::*;
-    use alloc::format;
     use alloc::string::String;
+    use alloc::{format, vec};
     use paperpaw_sdk::{DirEntry, MemoryStorage, StorageError};
 
     const PATH: &str = "book.txt";
@@ -463,6 +463,29 @@ mod tests {
     fn pieces_tell_what_the_whole_head_tells() {
         for text in texts() {
             same(&text);
+        }
+    }
+
+    #[test]
+    fn a_utf16_mark_ends_the_pass_at_its_first_piece_only_where_looked_for() {
+        let mut text = vec![0xff, 0xfe];
+        text.extend(
+            "*** START OF it\n"
+                .encode_utf16()
+                .flat_map(u16::to_le_bytes),
+        );
+        let mut big = vec![0xfe, 0xff];
+        big.extend("text".encode_utf16().flat_map(u16::to_be_bytes));
+        for (bytes, big_endian) in [(text, false), (big, true)] {
+            let storage = MemoryStorage::new().with(PATH, bytes.clone());
+            let to = bytes.len() as u32;
+            let found = scan(&storage, PATH, to, true, true).unwrap();
+            assert_eq!(found.utf16, Some(big_endian));
+            assert_eq!((found.bom, found.marker), (false, None));
+            // Not looked for (a converted copy): read as any other text.
+            let plain = scan(&storage, PATH, to, true, false).unwrap();
+            assert_eq!(plain.utf16, None);
+            assert!(!plain.utf8);
         }
     }
 
