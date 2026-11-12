@@ -36,3 +36,7 @@ each 2047 paperpaw_platform::tree
 frame 448 x4::call_begin
 frame 448 x4::call_end
 frame 384 safe_mode::read
+# The kernel's redraw of a native plugin's screen after its call (#1302, #2660):
+# reached from a host entry, so held to the same bound. (`redraw_screen` joins
+# when #1302 is in the tree.)
+frame 2047 Kernel::finish_native_redraw
