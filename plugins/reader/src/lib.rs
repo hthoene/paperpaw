@@ -92,6 +92,7 @@ pub mod native_footnote;
 pub mod native_headings;
 pub mod native_links;
 pub mod native_marking;
+pub mod native_marks;
 pub mod native_notes;
 pub mod native_open;
 pub mod native_pages;

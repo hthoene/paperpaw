@@ -15,7 +15,7 @@ use crate::native_marks_codes as codes;
 use crate::stages::reader_decorations_v1 as stage;
 
 mod draw;
-pub use draw::{Paint, draw_behind, draw_over};
+pub use draw::{decoration, draw_behind, draw_over};
 
 /// The most marks a page keeps over all subscribers (about 2 KiB).
 pub const MAX_MARKS: usize = 256;

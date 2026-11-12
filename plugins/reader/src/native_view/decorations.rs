@@ -4,10 +4,10 @@
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
 use paperpaw_sdk::{
-    Color, Handled,
+    Handled,
     native::{
         Error, Host,
-        callbacks::{FrameRect, Input, InputGestureKind},
+        callbacks::{Input, InputGestureKind},
         canvas::Canvas,
         stages::Stage,
     },
@@ -15,7 +15,8 @@ use paperpaw_sdk::{
 };
 
 use super::{Body, Open, View};
-use crate::native_decorations::{self as decorations, Decorations, Paint};
+use crate::native_decorations::{self as decorations, Decorations};
+use crate::native_marks::{CanvasPen, Gauge};
 use crate::stages::reader_decorations_v1 as stage;
 use paperpaw_sdk::native::document::Documents;
 
@@ -43,9 +44,16 @@ impl Open {
     }
 
     /// Draws the page's backgrounds, before its text.
-    pub(super) fn draw_behind(&self, canvas: &Canvas<'_>, at: (i32, i32)) -> Result<(), Error> {
+    pub(super) fn draw_behind(
+        &self,
+        canvas: &Canvas<'_>,
+        gauge: Gauge,
+        at: (i32, i32),
+    ) -> Result<(), Error> {
         match &self.decorations {
-            Some(found) => decorations::draw_behind(&mut OnCanvas(canvas), found, &self.words, at),
+            Some(found) => {
+                decorations::draw_behind(&mut CanvasPen(canvas), gauge, found, &self.words, at)
+            }
             None => Ok(()),
         }
     }
@@ -54,12 +62,12 @@ impl Open {
     pub(super) fn draw_over(
         &self,
         canvas: &Canvas<'_>,
+        gauge: Gauge,
         at: (i32, i32),
-        dpi: u16,
     ) -> Result<(), Error> {
         match &self.decorations {
             Some(found) => {
-                decorations::draw_over(&mut OnCanvas(canvas), found, &self.words, at, dpi)
+                decorations::draw_over(&mut CanvasPen(canvas), gauge, found, &self.words, at)
             }
             None => Ok(()),
         }
@@ -209,14 +217,4 @@ fn reply_buffer() -> Result<Vec<u8>, Error> {
     out.try_reserve_exact(room).map_err(|_| Error::NoMemory)?;
     out.resize(room, 0);
     Ok(out)
-}
-
-/// The host's canvas as [`Paint`].
-struct OnCanvas<'c, 'a>(&'c Canvas<'a>);
-
-impl Paint for OnCanvas<'_, '_> {
-    fn fill(&mut self, x: i32, y: i32, width: u32, height: u32, color: Color) -> Result<(), Error> {
-        self.0
-            .fill_rectangle(FrameRect::new(x, y, width, height), color)
-    }
 }

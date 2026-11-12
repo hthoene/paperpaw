@@ -269,13 +269,26 @@ fn a_tap_on_a_mark_that_takes_taps_is_its_plugins() {
 }
 
 #[derive(Default)]
-struct Fills(Vec<(i32, i32, u32, u32, Color)>);
+struct Fills(
+    Vec<(i32, i32, u32, u32, Color)>,
+    Vec<((i32, i32, u32, u32), u32)>,
+);
 
-impl Paint for Fills {
+impl crate::native_marks::Pen for Fills {
     fn fill(&mut self, x: i32, y: i32, w: u32, h: u32, c: Color) -> Result<(), Error> {
         self.0.push((x, y, w, h, c));
         Ok(())
     }
+
+    fn stroke(&mut self, rect: (i32, i32, u32, u32), t: u32, _: Color) -> Result<(), Error> {
+        self.1.push((rect, t));
+        Ok(())
+    }
+}
+
+/// 254 dpi: a tenth of a millimetre is a pixel; many grays.
+fn gauge() -> crate::native_marks::Gauge {
+    crate::native_marks::Gauge::of(254, None, true)
 }
 
 #[test]
@@ -299,18 +312,37 @@ fn backgrounds_join_a_lines_words_and_the_first_subscriber_is_drawn_last() {
         ]),
     );
     let mut fills = Fills::default();
-    draw_behind(&mut fills, &d, &words, (100, 200)).unwrap();
+    draw_behind(&mut fills, gauge(), &d, &words, (100, 200)).unwrap();
     let yellow = codes::tone(6).unwrap().color();
     let light = codes::tone(1).unwrap().color();
-    // "cat sat": one box from 40 to 110, drawn after b's "The".
+    // Half a millimetre (5 px) round each: "cat sat" one box from 40 to 110,
+    // drawn after b's "The".
     assert_eq!(
         fills.0,
-        [(100, 200, 30, 20, light), (140, 200, 70, 20, yellow)]
+        [(95, 200, 40, 20, light), (135, 200, 80, 20, yellow)]
     );
 }
 
 #[test]
-fn lines_and_frames_go_over_the_text_in_the_line_tone() {
+fn few_grays_shade_a_background_in_rows() {
+    let words = page();
+    let (mut d, fire) = asked(&words);
+    d.absorb(
+        &fire,
+        "a",
+        &reply(&[
+            look(0, "a.x", 2, 0),
+            stage::Record::DecorateMarks(stage::DecorateMarks::new(0, &marks(&[(0, 0, 3)]))),
+        ]),
+    );
+    let mut fills = Fills::default();
+    let few = crate::native_marks::Gauge::of(254, Some(4), false);
+    draw_behind(&mut fills, few, &d, &words, (0, 0)).unwrap();
+    assert!(!fills.0.is_empty() && fills.0.iter().all(|f| f.3 == 1 && f.4 == Color::BLACK));
+}
+
+#[test]
+fn lines_and_frames_go_over_the_text_four_tenths_thick() {
     let words = page();
     let (mut d, fire) = asked(&words);
     d.absorb(
@@ -323,20 +355,56 @@ fn lines_and_frames_go_over_the_text_in_the_line_tone() {
                 0,
                 0,
                 1,
-                4,
                 0,
-                codes::FRAME,
+                0,
+                codes::FRAME | codes::STRUCK,
             )),
             stage::Record::DecorateMarks(stage::DecorateMarks::new(0, &marks(&[(1, 0, 4)]))),
         ]),
     );
     let mut fills = Fills::default();
-    draw_over(&mut fills, &d, &words, (0, 0), 254).unwrap();
-    // An underline and four sides, a pixel thick (20 / 16), all black.
-    assert_eq!(fills.0.len(), 5);
-    assert!(fills.0.iter().all(|f| f.4 == Color::BLACK));
-    assert_eq!(fills.0[0], (0, 49, 40, 1, Color::BLACK));
+    draw_over(&mut fills, gauge(), &d, &words, (0, 0)).unwrap();
+    // The frame: half a millimetre round "Dogs", 4 px thick.
+    assert_eq!(fills.1, [((-5, 30, 50, 20), 4)]);
+    // The line through at 3/5 of the height, the line under at the bottom.
+    assert!(fills.0.contains(&(0, 30 + 12 - 2, 40, 4, Color::BLACK)));
+    assert!(fills.0.iter().any(|f| f.1 + f.3 as i32 == 50));
     let mut nothing = Fills::default();
-    draw_behind(&mut nothing, &d, &words, (0, 0)).unwrap();
+    draw_behind(&mut nothing, gauge(), &d, &words, (0, 0)).unwrap();
     assert!(nothing.0.is_empty());
+}
+
+#[test]
+fn a_look_is_the_sdks_decoration_by_the_fixed_codes() {
+    let look = Look {
+        role: "v.x".to_string(),
+        background: 6,
+        ink: 0,
+        line: 4,
+        line_tone: 11,
+        thickness: 3,
+        flags: (codes::FRAME | codes::TAPS) as u8,
+    };
+    let deco = decoration(&look);
+    use paperpaw_sdk::decorations::{LineKind, Tone};
+    assert_eq!(
+        (
+            deco.background,
+            deco.ink,
+            deco.line,
+            deco.line_tone,
+            deco.thickness,
+            deco.frame,
+            deco.struck
+        ),
+        (
+            Some(Tone::Yellow),
+            None,
+            Some(LineKind::Wavy),
+            Some(Tone::Red),
+            3,
+            true,
+            false
+        )
+    );
 }
