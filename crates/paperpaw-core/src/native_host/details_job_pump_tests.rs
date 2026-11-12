@@ -780,6 +780,23 @@ fn a_screen_other_than_homes_or_the_librarys_holds_the_job_until_it_goes() {
 }
 
 #[test]
+fn a_screen_opened_for_the_library_lets_it_run_and_no_screen_holds_it() {
+    let mut w = world(&["books/a.epub", "books/b.epub"]);
+    catalog(&w, &[("books/a.epub", false), ("books/b.epub", false)]);
+    started(&mut w);
+    w.kernel.native_details_arm();
+    // Nothing on the stack (before the first screen, say): held.
+    w.kernel.stack.clear();
+    pump(&mut w, 2_000);
+    assert_eq!(w.format.opens(), 0, "no screen");
+    // A screen opened for slot `core.library` (it need not be offered for it).
+    w.kernel
+        .open(PAGE, Some(slots::LIBRARY), &Params::default());
+    pump(&mut w, 3_000);
+    assert_eq!(w.format.opens(), 1, "the library's screen");
+}
+
+#[test]
 fn network_work_holds_the_job_until_it_ends() {
     let mut w = world(&["books/a.epub"]);
     catalog(&w, &[("books/a.epub", false)]);
@@ -841,9 +858,17 @@ fn a_job_of_the_install_queue_holds_the_job_until_it_ends() {
     w.kernel.native_details_job_pump();
     assert_eq!(w.format.opens(), 0, "a check waits in the queue");
     assert_eq!(w.kernel.native_details_due(), Some(3_000));
+    // A queue its own pump holds borrowed counts as busy too.
+    {
+        let _held = driver.borrow_mut();
+        w.kernel.now = Instant(3_000);
+        w.kernel.native_details_job_pump();
+        assert_eq!(w.format.opens(), 0, "the queue is borrowed");
+        assert_eq!(w.kernel.native_details_due(), Some(5_000));
+    }
     driver.borrow_mut().cancel(9, 1);
     w.kernel.shared.recall.clear();
-    w.kernel.now = Instant(3_000);
+    w.kernel.now = Instant(5_000);
     w.kernel.native_details_job_pump();
     assert_eq!(w.format.opens(), 1, "the queue is empty");
 }

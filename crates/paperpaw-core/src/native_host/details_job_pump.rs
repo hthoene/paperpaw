@@ -17,7 +17,8 @@
 //! timed wake. Nor beside another screen's or job's peak (#248): not while a
 //! screen other than home's or the library's is on top (one opened for slot
 //! `core.home` or `core.library`, or by its id where it is offered for one;
-//! the next input, which takes it away, looks again), nor while network work
+//! looked at again at the next input, also after a screen that closed on its
+//! own: no timed wake), nor while network work
 //! or a job of the install queue runs, nor while a first walk is under way
 //! (its books published so far arm the job while it goes on); the last
 //! three looked at again after 1 s, then 2, 4 … up to [`HOLD_WAIT_MAX_MS`]: a

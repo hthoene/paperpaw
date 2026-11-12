@@ -860,9 +860,6 @@ reply 4,096 bytes, stage payload 3,840.
   no first-party format reads options today (Plugin's audit), and more is `ERR_NO_SPACE`, never a
   silent drop. Values are the book's own (section 2.1), so a later global settings read is not a
   replacement.
-- Host note: the details job sizes its reply rooms to these caps (`OPEN_REPLY` in
-  doc_service/details.rs, `READ_REPLY` in doc_details_job.rs); a minor that grows `doc_meta`,
-  `doc_text` or `fmt.state` grows them too.
 
 ### 8.2 Memory (X4)
 
