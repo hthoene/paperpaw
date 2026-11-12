@@ -798,7 +798,6 @@ allow indirect paperpaw_core::native_host::firmware_driver::Driver::take_slot 1 
 allow indirect paperpaw_text::font::Font::anchors 10 vtable or fn-pointer call at text/stored.rs:379, text/stored.rs:383: `paperpaw_text` font/strike trait objects (the font packs in use)
 allow indirect _ZN90_$LT$paperpaw_fat..FatStorage$LT$IO$GT$$u20$as$u20$paperpaw_platform..storage..Storage$GT$13remove_listed 3 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow call paperpaw_fat::settle::settle_recorded -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
-allow indirect paperpaw_fat::create_dirs 3 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_fat::found::lookup_with 2 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_fat::remove_tree 9 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow indirect paperpaw_fat::settle::recorded 1 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
@@ -815,3 +814,4 @@ allow call paperpaw_fat::settle::temps_in -> memcpy the chip's ROM `memcpy`: not
 allow indirect paperpaw_fat::settle::files_of_temps 1 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
 allow call paperpaw_fat::settle::files_of_temps -> memcpy the chip's ROM `memcpy`: not scanned here (device test S4)
 allow call paperpaw_fat::settle::files_of_temps -> memcmp the chip's ROM `memcmp`: not scanned here (device test S4)
+allow indirect paperpaw_fat::create_dirs 2 new in train 20: a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by device test S4
