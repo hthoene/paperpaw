@@ -13,6 +13,8 @@ struct Recorder {
     draws: RefCell<Vec<DrawCall>>,
     dropped: RefCell<Vec<(u32, i32)>>,
     result: Cell<i32>,
+    /// What the kernel answers to `secret_now` (`None`: it cannot tell).
+    secret_now: Cell<Option<bool>>,
 }
 impl Dispatch for Recorder {
     fn event(&self, token: u32, bytes: &[u8], _: &Env<'_>) -> Result<i32, i32> {
@@ -40,6 +42,9 @@ impl Dispatch for Recorder {
             canvas.clip(),
         ));
         Ok(self.result.get())
+    }
+    fn secret_now(&self, _: Option<ScreenKey>) -> Option<bool> {
+        self.secret_now.get()
     }
     fn dropped(&self, token: u32, status: i32) {
         self.dropped.borrow_mut().push((token, status));
@@ -102,6 +107,184 @@ fn draw_keeps_full_pane_dimensions_separate_from_band_clip() {
     dispatch.result.set(2);
     screen.draw_visible(&mut band, &env);
     assert_eq!(*dispatch.dropped.borrow(), [(10, ERR_INVALID)]);
+}
+
+/// A kernel with `stack` (id, overlay, guards) bottom first, keys 1, 2, …, and a
+/// screen that is the one at `mine` (an index into it).
+fn stacked(
+    stack: &[(&'static str, bool, bool)],
+    mine: usize,
+) -> (crate::Kernel, NativeScreen<Rc<Recorder>>, Rc<Recorder>) {
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    for (n, (id, overlay, guards)) in stack.iter().enumerate() {
+        kernel.shared.stack.push(
+            paperpaw_sdk::StackEntry::new(
+                Id::new_static(id),
+                None,
+                *overlay,
+                paperpaw_sdk::ScreenKey::new(n as u32 + 1),
+            )
+            .guarding(*guards),
+        );
+    }
+    let dispatch = Rc::new(Recorder::default());
+    let mut screen = NativeScreen::new(Id::new_static(stack[mine].0), 10, Rc::clone(&dispatch));
+    screen.key = Some(paperpaw_sdk::ScreenKey::new(mine as u32 + 1));
+    screen.flags = if stack[mine].2 { 1 << 1 } else { 0 };
+    (kernel, screen, dispatch)
+}
+
+/// How many times the plugin was drawn by one kernel draw of `screen`.
+fn drawn(
+    kernel: &crate::Kernel,
+    screen: &mut NativeScreen<Rc<Recorder>>,
+    dispatch: &Recorder,
+) -> usize {
+    let env = kernel.shared.env(Instant(1));
+    let mut frame = paperpaw_graphics::Framebuffer::new(40, 100, PixelFormat::Gray8).unwrap();
+    let mut canvas = frame.canvas();
+    let before = dispatch.draws.borrow().len();
+    screen.draw(&mut canvas, &env);
+    dispatch.draws.borrow().len() - before
+}
+
+#[test]
+fn a_screen_below_overlays_only_is_drawn_as_if_on_top() {
+    // The reader under its menu bar (an overlay): both are drawn, the page first.
+    let (kernel, mut page, page_calls) = stacked(
+        &[("reader.screen", false, false), ("reader.bar", true, false)],
+        0,
+    );
+    assert_eq!(drawn(&kernel, &mut page, &page_calls), 1);
+    let (kernel, mut bar, bar_calls) = stacked(
+        &[("reader.screen", false, false), ("reader.bar", true, false)],
+        1,
+    );
+    assert_eq!(drawn(&kernel, &mut bar, &bar_calls), 1);
+    // Under two overlays, too.
+    let (kernel, mut page, calls) = stacked(
+        &[
+            ("reader.screen", false, false),
+            ("reader.bar", true, false),
+            ("reader.dialog", true, false),
+        ],
+        0,
+    );
+    assert_eq!(drawn(&kernel, &mut page, &calls), 1);
+}
+
+#[test]
+fn a_screen_below_a_full_screen_is_not_drawn() {
+    let (kernel, mut home, calls) = stacked(
+        &[
+            ("home.screen", false, false),
+            ("reader.screen", false, false),
+        ],
+        0,
+    );
+    assert_eq!(drawn(&kernel, &mut home, &calls), 0);
+    // Nor one that has a full screen above an overlay's page.
+    let (kernel, mut page, calls) = stacked(
+        &[
+            ("reader.screen", false, false),
+            ("files.screen", false, false),
+            ("reader.bar", true, false),
+        ],
+        0,
+    );
+    assert_eq!(drawn(&kernel, &mut page, &calls), 0);
+}
+
+#[test]
+fn under_another_plugins_overlay_a_secret_or_guarded_screen_stays_blank() {
+    // The PIN screen (it guards) under the sleep screen of another plugin.
+    let (kernel, mut pin, calls) = stacked(
+        &[("lock.pin", false, true), ("sleep.screen", true, false)],
+        0,
+    );
+    assert_eq!(drawn(&kernel, &mut pin, &calls), 0);
+    // The page below a PIN screen's overlay... of the same plugin is drawn.
+    let (kernel, mut pin, calls) =
+        stacked(&[("lock.pin", false, true), ("lock.keys", true, false)], 0);
+    assert_eq!(drawn(&kernel, &mut pin, &calls), 1);
+    // A page at or below a guard, under another plugin's overlay.
+    let (kernel, mut page, calls) = stacked(
+        &[
+            ("reader.screen", false, false),
+            ("lock.pin", false, true),
+            ("sleep.screen", true, false),
+        ],
+        0,
+    );
+    // (the guard is a full screen: the reader is covered by it anyway)
+    assert_eq!(drawn(&kernel, &mut page, &calls), 0);
+    // The top screen draws, guard or not.
+    let (kernel, mut top, calls) = stacked(&[("lock.pin", false, true)], 0);
+    assert_eq!(drawn(&kernel, &mut top, &calls), 1);
+    // A secret screen (bit 4) under another plugin's overlay is blank too.
+    let (kernel, mut secret, calls) = stacked(
+        &[("keys.entry", false, false), ("menu.bar", true, false)],
+        0,
+    );
+    secret.flags = 1 << 4;
+    assert_eq!(drawn(&kernel, &mut secret, &calls), 0);
+}
+
+#[test]
+fn a_screen_that_becomes_secret_at_run_time_goes_blank_under_another_plugins_overlay() {
+    // Declared plain, made secret by `command.screen_policy`: the kernel says so.
+    let (kernel, mut page, calls) = stacked(
+        &[("keys.entry", false, false), ("sleep.screen", true, false)],
+        0,
+    );
+    assert_eq!(drawn(&kernel, &mut page, &calls), 1);
+    calls.secret_now.set(Some(true));
+    assert_eq!(drawn(&kernel, &mut page, &calls), 0);
+    // Its own plugin's overlay does not blank it, nor does a kernel that says no.
+    let (kernel, mut page, calls) = stacked(
+        &[("keys.entry", false, false), ("keys.menu", true, false)],
+        0,
+    );
+    calls.secret_now.set(Some(true));
+    assert_eq!(drawn(&kernel, &mut page, &calls), 1);
+}
+
+#[test]
+fn a_secret_page_stays_blank_under_a_foreign_overlay_however_often_it_is_drawn() {
+    // A redraw asked for the secret page (a whole one, then an area) reaches the
+    // kernel's draw again and again: the plugin is never called while the sleep
+    // screen of another plugin covers it.
+    let (kernel, mut page, calls) = stacked(
+        &[("keys.entry", false, false), ("sleep.screen", true, false)],
+        0,
+    );
+    calls.secret_now.set(Some(true));
+    for _ in 0..3 {
+        assert_eq!(drawn(&kernel, &mut page, &calls), 0);
+    }
+    // The sleep screen gone, it is the top again and draws.
+    let (kernel, mut page, calls) = stacked(&[("keys.entry", false, false)], 0);
+    calls.secret_now.set(Some(true));
+    assert_eq!(drawn(&kernel, &mut page, &calls), 1);
+}
+
+#[test]
+fn a_dialog_above_a_guard_stays_blank_under_the_sleep_screen() {
+    // The lock guards; its PIN dialog (an overlay of the lock, so secret as it
+    // lies above a guard) must not show through the sleep screen of another
+    // plugin that lies on top.
+    let stack = [
+        ("lock.screen", false, true),
+        ("lock.pin", true, false),
+        ("sleep.screen", true, false),
+    ];
+    let (kernel, mut pin, calls) = stacked(&stack, 1);
+    assert_eq!(drawn(&kernel, &mut pin, &calls), 0);
+    // The same dialog with nothing foreign on top is drawn.
+    let (kernel, mut pin, calls) = stacked(&stack[..2], 1);
+    assert_eq!(drawn(&kernel, &mut pin, &calls), 1);
 }
 
 #[test]

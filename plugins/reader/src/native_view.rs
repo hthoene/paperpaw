@@ -14,6 +14,7 @@ use crate::{
     native_links::DocRef,
     native_look::Look,
     native_marking::{Ctx, Marking, Outcome},
+    native_marks::{self, CanvasPen, Gauge, Marks, Painted},
     native_open::{self, Place, Start},
     native_pages::{self, Reading, Trail, Turn},
     native_place::{self, Progress},
@@ -29,7 +30,7 @@ use core::ops::Range;
 use paperpaw_sdk::{
     Color, Handled, NoStorage,
     document::{DocumentError, Locator},
-    layout::{LayoutContext, Page, Style, layout_page},
+    layout::{BookStyles, LayoutContext, Page, Style, layout_page},
     native::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose, Input},
@@ -106,6 +107,8 @@ struct Open {
     words: Vec<WordBox>,
     /// What is chosen, looked up and followed on the page.
     marking: Marking,
+    /// The book's highlights and the search hit shown on its page.
+    marks: Marks,
     /// What the page on show was laid out with: a change of the reading
     /// settings or of the screen lays it out again.
     laid: Option<LayoutKey>,
@@ -149,8 +152,16 @@ struct Open {
     class_asked: bool,
     /// The chapter of the page on show (its start, the next start, its title).
     chapter: Option<Chapter>,
+    /// The starts of the book's bookmarks, for the ribbon (`ribbon.rs`).
+    bookmarks: Vec<(u32, u32)>,
     /// The status lines chosen at the top and the bottom.
     status: native_status::State,
+    /// The marks plugins gave the page on show (`reader.decorations@1`).
+    decorations: Option<crate::native_decorations::Decorations>,
+    /// No plugin marks this book's pages (asked again once back on top).
+    undecorated: bool,
+    /// Pages are asked for marks: from the step after the first is shown.
+    ask_marks: bool,
     /// The packs of letters this book asked for while open (`native_script_hint`).
     packs_asked: crate::native_script_hint::Asked,
 }
@@ -351,6 +362,13 @@ impl View {
                     return Err(error);
                 }
             };
+        // The highlights of the book; a book the library does not know has none.
+        let marks = match library.map(|l| native_marks::load(host, l, &found.path, conversion)) {
+            Some(Ok(spans)) => Marks::new(spans),
+            // A book the library does not know, or no room to read them in: the
+            // page is drawn without highlights, the book still opens.
+            _ => Marks::default(),
+        };
         let mut open = Open {
             id,
             sections,
@@ -359,6 +377,7 @@ impl View {
             page: None,
             words: Vec::new(),
             marking: Marking::new(),
+            marks,
             laid: None,
             trail: Trail::new(),
             root: root_code(root),
@@ -380,19 +399,16 @@ impl View {
             class: None,
             class_asked: false,
             chapter: None,
+            bookmarks: Vec::new(),
             status: native_status::State::default(),
+            decorations: None,
+            undecorated: false,
+            ask_marks: false,
             packs_asked: 0,
         };
         open.begin(host, root == Root::Library);
-        // The packs of letters the reading font lacks, asked for once a book.
-        let book = crate::native_script_hint::Book {
-            id,
-            sections,
-            whole_pages,
-            path: &open.path,
-            script,
-        };
-        open.packs_asked = crate::native_script_hint::ask(host, docs, &book);
+        open.load_bookmarks(host, library);
+        open.ask_packs(host, docs, script);
         // The host's book events start here (`document.md` 2.4); a book whose
         // first page cannot be laid out is told with its first draw.
         open.announce(host, docs);
@@ -589,9 +605,29 @@ impl View {
         Ok(())
     }
 
+    /// [`go_to`](Self::go_to) the page that starts at `start`, with the match
+    /// from `start` to `end` marked on it (a search hit chosen); the mark goes
+    /// with the next page.
+    ///
+    /// # Errors
+    /// `NoMemory`, and the host's refusal to redraw.
+    pub fn go_to_match(&mut self, start: (u32, u32), end: (u32, u32)) -> Result<(), Error> {
+        self.go_to(start)?;
+        if let Body::Open(open) = &mut self.body
+            && start.0 < open.sections
+            && start < end
+        {
+            open.marks.found(open.at, native_marks::Span { start, end });
+        }
+        Ok(())
+    }
+
     /// This screen is on top again: a jump made from a screen above is told to
     /// the host now.
     pub fn shown(&mut self, host: &Host<'_>, docs: &Documents) {
+        if let Body::Open(open) = &mut self.body {
+            open.decorate_again();
+        }
         if let Body::Open(open) = &mut self.body
             && core::mem::take(&mut open.report_due)
         {
@@ -620,30 +656,6 @@ impl View {
             // and it is given back for another one.
             Body::Preparing(book) => Some((book.found.path.as_str(), root_code(book.found.root()))),
             Body::Message(_) => None,
-        }
-    }
-
-    /// The open book as the script hint reads it (`native_script_hint`), with
-    /// the script of its language (the UI's where it declares none, as Beta 3
-    /// asked again once letters came).
-    pub(crate) fn hint_book(&self) -> Option<crate::native_script_hint::Book<'_>> {
-        match &self.body {
-            Body::Open(open) => Some(crate::native_script_hint::Book {
-                id: open.id,
-                sections: open.sections,
-                whole_pages: open.whole_pages,
-                path: &open.path,
-                script: crate::native_script_hint::declared(&open.language),
-            }),
-            Body::Message(_) | Body::Preparing(_) => None,
-        }
-    }
-
-    /// The packs of letters the open book asked for, to take an answer off.
-    pub(crate) fn packs_asked(&mut self) -> Option<&mut crate::native_script_hint::Asked> {
-        match &mut self.body {
-            Body::Open(open) => Some(&mut open.packs_asked),
-            Body::Message(_) | Body::Preparing(_) => None,
         }
     }
 
@@ -763,10 +775,16 @@ impl View {
         {
             return Ok(handled);
         }
+        if let Some(handled) = self.corner_tap(host, library, input)? {
+            return Ok(handled);
+        }
         let Body::Open(open) = &mut self.body else {
             return Ok(Handled::No);
         };
         if let Some(handled) = open.status_input(host, ui, input)? {
+            return Ok(handled);
+        }
+        if let Some(handled) = open.decoration_tap(host, input)? {
             return Ok(handled);
         }
         let marked = open.mark(host, (docs, Some(ui)), input)?;
@@ -866,6 +884,36 @@ fn flag(host: &Host<'_>, key: &str) -> Result<bool, Error> {
     ))
 }
 
+/// Whether paragraphs are broken over all their lines (`core.line-breaking`
+/// is not the fast choice), as in Beta 3.
+fn balanced(host: &Host<'_>) -> Result<bool, Error> {
+    let mut bytes = [0; 64];
+    Ok(!matches!(
+        settings::read_setting(host, "core.line-breaking", &mut bytes)?,
+        SettingValue::Text("core.line-breaking.fast")
+    ))
+}
+
+/// The book's own styles followed, by their switches (`core.book-…`), as the
+/// bits of `BookStyles`.
+fn book_styles(host: &Host<'_>) -> Result<u16, Error> {
+    let mut book = BookStyles::NONE;
+    for (key, style) in [
+        ("core.book-align", BookStyles::ALIGN),
+        ("core.book-indent", BookStyles::INDENT),
+        ("core.book-sizes", BookStyles::SIZE),
+        ("core.book-spacing", BookStyles::SPACING),
+        ("core.book-fonts", BookStyles::FONTS),
+        ("core.book-margins", BookStyles::MARGINS),
+        ("core.book-line-height", BookStyles::LINE_HEIGHT),
+    ] {
+        if flag(host, key)? {
+            book = book.with(style);
+        }
+    }
+    Ok(book.bits())
+}
+
 impl Setup {
     fn read(host: &Host<'_>) -> Result<Self, Error> {
         let display = snapshot::capture_snapshot(host)?;
@@ -880,7 +928,25 @@ impl Setup {
                 integer(host, "core.margin-ends")?,
                 flag(host, "core.justify")?,
             )
-            .with_status(top, bottom),
+            .with_status(top, bottom)
+            .with_paragraphs(
+                (
+                    flag(host, "core.indent")?,
+                    integer(host, "core.indent-size")?,
+                ),
+                (
+                    flag(host, "core.paragraph-spacing")?,
+                    integer(host, "core.paragraph-space")?,
+                ),
+            )
+            .with_lines(
+                (
+                    integer(host, "core.widows")?,
+                    integer(host, "core.orphans")?,
+                ),
+                balanced(host)?,
+                book_styles(host)?,
+            ),
             display,
             room,
         })
@@ -901,6 +967,12 @@ impl Setup {
     /// The size of body text in pixels.
     fn base(&self) -> f32 {
         self.reading.size_pt * f32::from(self.display.display_dpi()) / 72.0
+    }
+
+    /// How the text is set, with paragraphs spaced by parts of the body's
+    /// `line` height (`Reading::style`).
+    fn style(&self, line: f32) -> Style {
+        self.reading.style(self.base(), line)
     }
 }
 
@@ -1277,7 +1349,7 @@ impl Open {
         area: native_pages::Box,
     ) -> Result<Page, Error> {
         let document = HostDocument::new(host, docs, self.id, self.sections, self.whole_pages)?;
-        let style = Style::new(0.0, 0.0, setup.base(), setup.reading.justify);
+        let style = setup.style(faces.line_height());
         let cx = LayoutContext::new(&document, &NoStorage, f32::from(area.width), &style, faces);
         layout_page(&cx, Locator::new(start.0, start.1), f32::from(area.height)).map_err(|error| {
             match document_error_kind(&error) {
@@ -1329,7 +1401,9 @@ impl Open {
         let page = self.page.as_ref().ok_or(Error::State)?;
         if self.words.is_empty() {
             self.words = native_wordbox::word_boxes(&faces, page, area)?;
+            self.decorate(host);
         }
+        let page = self.page.as_ref().ok_or(Error::State)?;
         let rect = frame.rect;
         let follow_up = pictures::follow_up(frame);
         let canvas = frame.draw_canvas()?;
@@ -1340,6 +1414,19 @@ impl Open {
             rect.x as f32 + f32::from(area.x),
             rect.y as f32 + f32::from(area.y),
         );
+        // The highlights and the search hit: backgrounds behind the words,
+        // lines and frames over them.
+        let hit = self.marks.hit_on(self.at);
+        // A mark never fails the page: no room for it or a refusal of the host
+        // leaves the text drawn without marks (or with the part drawn so far).
+        let gauge = Gauge::of(
+            setup.display.display_dpi(),
+            setup.display.display_gray_levels(),
+            setup.display.display_is_colour(),
+        );
+        let painted = Painted::new(host, &self.marks, &self.words, hit, gauge).unwrap_or_default();
+        self.draw_behind(&canvas, gauge, (rect.x, rect.y)).ok();
+        painted.behind(&mut CanvasPen(&canvas)).ok();
         let pictures = self.pictures.drawing(follow_up);
         draw_page(
             &mut ink,
@@ -1348,6 +1435,10 @@ impl Open {
             origin,
             (self.mark.clone(), pictures),
         )?;
+        // Other plugins' marks under the reader's own, as Beta 3 drew them.
+        self.draw_over(&canvas, gauge, (rect.x, rect.y)).ok();
+        painted.over(&mut CanvasPen(&canvas)).ok();
+        self.draw_ribbon(&canvas, rect, (&area, setup.display.display_dpi()))?;
         self.paint_status(host, ui, frame, (setup, &area))?;
         let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),
@@ -1403,9 +1494,13 @@ fn say_with(
 
 mod aloud;
 mod count;
+mod decorations;
+mod goto;
 mod menu_bar;
 mod pictures;
 mod preparing;
+mod ribbon;
+mod script_hint;
 use preparing::Preparing;
 
 /// The language a book is read in: its own, or the UI language where the

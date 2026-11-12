@@ -220,7 +220,8 @@ pub(crate) fn move_data(
             }
         }
     }
-    Ok(())
+    // A book's own settings of each plugin (`books/<key>/settings.ini`).
+    super::book_scope::move_scopes(storage, old, new)
 }
 
 /// One entry to the new key. `false`: it stays (its new name is taken, or the
@@ -466,7 +467,8 @@ pub(crate) fn remove_data_within(
             }
         }
     }
-    Ok(Progress::Done)
+    // A book's own settings of each plugin (`books/<key>/settings.ini`).
+    super::book_scope::remove_scopes(storage, key, budget)
 }
 
 #[cfg(test)]

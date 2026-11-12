@@ -110,7 +110,7 @@ pub enum Problem {
     /// A cause this build has no variant for, by its code (0: not said).
     /// Codes are listed here as they are given and never reused; a build
     /// that doesn't know one treats it as the most general failure of its
-    /// kind.
+    /// kind. 1: there was no memory to check it (the file is not judged).
     Other(u16),
 }
 

@@ -135,6 +135,8 @@ impl Kernel {
     }
 
     /// An answer to the pairing question, where `event` is one.
+    // Its own frame: not inlined into `emit_from` (#250).
+    #[inline(never)]
     pub(crate) fn bluetooth_answer(&mut self, event: &Id, params: &Params) -> bool {
         let Some(answer) = PAIR_ANSWERED.read(event, params) else {
             return false;

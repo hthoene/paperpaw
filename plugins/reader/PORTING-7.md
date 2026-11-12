@@ -33,12 +33,10 @@ the kernel's settings (`core.*`); the reader declares none of them and adds no d
   host and formats, `DOC-open-layout`), positions and book data (`add_book_data` has no native
   declaration; `LIB-position`), the screens, input and dialogs (H1–H4), reading aloud (a speech
   facade) and the timers.
-- **No native declaration exists yet for** (the status lines are declared since R2b-2, see the end): the sample widget above the
-  reading settings (`previews(groups::READING)`), the screen
-  hints (*on press*) and the first-run help. The setup step *text size* is pending the host (op 22,
-  Host todo 99); at P6 time its title reuses an existing reader title string, with no new text. Each
-  is a gap in the declaration set; the declaration test counts the status settings so they cannot be
-  forgotten.
+- **No native declaration exists yet for** the screen hints *on press* and the first-run help's wait
+  for the book (both SDK/host gaps; the help hints, the setup step *text size* and the sample widget
+  are declared since #257, see *The first run* at the end). Each is a gap in the declaration set;
+  `tests/abi7_declarations.rs` fails when the host admits the wait, so it cannot be forgotten.
 - **Owner ask #241 (the reading plugin extensible through plugins).** The reader's stages
   (`stage.spec`: inserted blocks between lines, text style, an input filter, with the layout key
   and page numbers from the source text) wait for #224 (`paperpaw-reader-api`) and the stage host
@@ -106,6 +104,77 @@ relative to the data folder).
   validation); the reader drops a reply that is invalid whole.
 
 
+## The stage `reader.decorations@1` (schema approved by Kernel; todos 338, 448)
+
+Replaces the interface-6 decorators (`add_decorator`, `PageText`, `Decorated`) and the event
+`core.decoration-tapped` (Kernel ruling 334: a reader-defined stage, `document.md` 9). Schema
+`stages/reader.decorations@1.def`, codec `src/stages.rs`, look codes `src/native_marks_codes.rs`.
+Declared (`declarations::stages`) and fired by the reading screen: `src/native_decorations.rs`
+(runs, fires, checks, the marks kept; `draw.rs` draws them through `native_marks`, the
+reader's own highlights' drawing, so they look as Beta 3's decorations did) and `src/native_view/decorations.rs`
+(the stage run at a page's first draw, the tap). Open, against Beta 3:
+
+- **Not on the X4 yet:** the host refuses `stage.run` there until the stack gate of nested
+  callbacks passes (`native_host/stage_run.rs`), so no marks show. The reader asks with empty
+  buffers first (refused there before any buffer is looked at) and takes that as "no
+  subscriber" for the book: nothing is encoded or allocated at a page turn on the X4.
+- **Asking whether anyone subscribed:** no call tells it, so the first fire of a book finds out;
+  with none the book is not asked again until the screen is back on top (a plugin may have been
+  switched on). That is one encoded fire and one reply buffer a book, never one a page. A device
+  without stages is remembered for the session (Kernel: only a firmware update changes it).
+- **When (#248):** never in the open. A book's first page is asked in a step of the background
+  work after it is shown (the step that counts the pages; `View::marks_step`) and drawn again
+  only where it got marks; later pages at their first draw.
+- **Not yet:** the ink of a look (text in another colour; backgrounds, lines, struck lines and
+  frames are drawn), choosing a mark that takes taps with the buttons (as links are), and a log
+  line for marks dropped (counted in `Decorations::dropped`; the native SDK has no log).
+
+- **Asking a page.** Only where a plugin subscribed (none: nothing is encoded, no buffer is
+  taken). Once a page is laid out, and again when the reader screen comes back on top (a word
+  added in a lookup shows), the reader fires one head record `decorate.page` (`path` str 512,
+  the library's path limit; `language` str 16; `runs`: how many run rows follow, which must equal
+  the rows sent, else the fire is invalid) and `runs` rows `decorate.run`. A run is `section`
+  and `offset`, the place of its first character in the document's anchor units (the same
+  section and offset as annotations and saved places), and `text` (str 3,200): the page's text
+  of that section from there, words apart by one space, a word broken over two lines once, whole.
+  `text` is normalized and is no anchor: a mark's place is its run's place plus its byte range.
+  A section's text over 3,200 bytes is split at a word boundary into several runs of the same
+  section, each with its own `offset`; a mark never crosses runs. A page over the stage's 3,840
+  bytes is asked in several fires of whole runs, at most 32 runs a fire. The answer is kept with
+  the page; turning back to a page asks again (nothing kept between pages, #248).
+- **Looks and marks.** A subscriber replies at most 64 rows: `decorate.look` rows, each a `look`
+  number of its own (0 to 63), its `role` (str 64) and the look it resolved from its own role
+  settings, then `decorate.marks` rows, each a `look` and `ranges` (bytes, at most 3,600): packed
+  marks of 6 bytes, little-endian `run` u16, `from` u16, `to` u16 (byte offsets in that run's
+  `text`), about 590 marks a fire. Checks: a `ranges` whose length is not a multiple of 6, or
+  whose `look` the same reply did not define, drops its row; a triple with `run` at or past the
+  runs sent, `from` >= `to`, `to` past its run's text or a bound not on a character boundary is
+  dropped alone, its neighbours stay. Where marks meet, the subscriber answered first wins an
+  aspect both set (Beta 3's order).
+- **Memory (#248).** The reader keeps at most 256 marks a page over all subscribers, packed as
+  they came (about 2 KiB at most); past them the rest is dropped in the order the subscribers
+  answered, and counted. A look is kept only while a mark uses it. Marks are decoded
+  straight from the reply buffer, never into a list of rows. The X4 page-turn peaks (TXT, EPUB,
+  one subscriber, `--heap-report`) are measured before and after the reader side: input and reply
+  are about 7.5 KB at a turn.
+- **Roles are the subscriber's own.** A `role` must be `<subscriber id>.<name>`; a look with any
+  other role is dropped with its marks, so no plugin styles another's marks or takes its taps.
+- **Look codes** (fixed, never the order of `Tone::ALL` or `LineKind::ALL`): `background`,
+  `ink` and `line_tone`: 0 none (the ink: the text as it is), 1 light gray, 2 gray, 3 dark gray,
+  4 black, 5 white, 6 yellow, 7 green, 8 blue, 9 pink, 10 orange, 11 red; `line`: 0 none,
+  1 solid, 2 dotted, 3 dashed, 4 wavy, 5 double; `thickness` in tenths of a millimetre, 0 the
+  default, at most 20; `flags` bit 0 frame, bit 1 struck, bit 2 the subscriber takes taps on its
+  marks, other bits 0. A tone code a reader does not know draws gray, a line code solid.
+- **Taps.** A tap on a mark whose look has bit 2 (or choosing it with the buttons) fires the
+  stage again with one record `decorate.tapped` (`role`, the mark's `text` str 256, cut at a
+  character boundary, `path` str 512, start and end place in anchor units). Only the
+  subscriber whose id is the role's plugin acts; it replies one `decorate.taken` (`taken` 1)
+  and opens what it shows itself. The reader reads `decorate.taken` only from that
+  subscriber; no answer or `taken` 0 and the tap goes on as a tap on the page.
+- **Bounds.** At most 4 subscribers; input and reply at most 3,840 bytes each; the reader holds
+  one reply buffer of that size while it fires and nothing between fires (#248). A subscriber's
+  bad reply (framing, a tag it should not send) drops that subscriber's marks for the page only.
+
 ## The native entry (slice 2)
 
 - `NATIVE_ENTRY` (feature `linked`; `native-entry` for the packed form), `src/native_plugin.rs`,
@@ -118,9 +187,9 @@ relative to the data folder).
   screens it offers would be empty. The views come next: the annotations screen (model in
   `native_annotations.rs`), then TOC, skim, search, footnote and the reading screen with the
   document host.
-- Still undeclared: the slice-1 list (status places, the sample widget, screen hints,
-  first-run help, the setup step). `tests/hosted_construction.rs` runs `make` in the registered scope
-  of the kernel's native host.
+- Still undeclared: the screen hints *on press* and the help's wait (see *The first run*); the status
+  places, the help hints, the setup step and the sample widget are declared since.
+  `tests/hosted_construction.rs` runs `make` in the registered scope of the kernel's native host.
 - Metadata asks `core.ui` and no features yet; it grows with the views (storage for the last book,
   `core.library` for annotations, `core.files` for the export).
 
@@ -556,11 +625,14 @@ relative to the data folder).
   `native_bookmark::text_of`), on one line and cut at 512 bytes at a character (Beta 3 ended a cut text in "…": the
   library cuts at its own limit), the progress in whole percent (rounded, as Beta 3), the book's clock and
   the conversion. At most 24 bookmarks of one page are removed in one go.
-- **Not yet (named):** the ribbon on a bookmarked page and the tap on the top right corner
-  (`reader.corner-bookmark`): both belong to the draw and the gesture code (`native_view.rs`, R2b's files) and
-  follow when that lands; until then a toggle shows no mark on the page (the annotations screen, R5, lists it).
-  Go to a page / percentage (a number dialog; its answer is an event of the reader's own) and the status-line actions
-  (`reader.next-status-line`, R2b) are not here. The annotations screen itself is R5.
+- The ribbon on a bookmarked page and the tap on the top right corner (`reader.corner-bookmark`) are
+  `native_view/ribbon.rs` (#257): Beta 3's ribbon (3 mm wide, a notch, four fifths of the room above the text)
+  and corner (12 mm, at most a quarter of the width). The book's bookmark starts are read once at the opening
+  (at most 256, 8 bytes each) and follow the toggles made here; a toggle redraws the page.
+  Go to a page / percentage is `native_goto.rs` and `native_view/goto.rs` (#257): the number is asked on the keyboard
+  (`core.ui` ask, number mode), a page goes to its start in the count (clamped to the pages counted so far), a
+  percentage to the start of its page where the count is complete, else to the place that far into the text, as Beta 3
+  did. The status-line actions (`reader.next-status-line`, R2b) are not here. The annotations screen itself is R5.
 - An empty page (nothing laid out) is a silent no-op: no bookmark, no notice. Beta 3 sent `annotations::changed`
   itself after an edit; here the plugin does not: `docs/abi/library.md` lists event 91 (`annotations-changed`)
   as the host's after a commit, but `paperpaw-core` does not raise it yet. **Gap:** the library annotation
@@ -826,7 +898,8 @@ relative to the data folder).
   10 subscriptions of the 32 registrations the host admits). `installed`: every reading screen with a book is
   laid out again (`View::reflow`, the count starts again) and asked about once more (Korean's rare syllables,
   with the script of the book's language, the UI's where it declares none, as Beta 3's second ask); `failed`
-  (and an outcome the SDK does not know): taken off the file of every book on show, asked for at the next
+  (and an outcome the SDK does not know): taken off the file of the book that asked for it (each open book
+  keeps a byte of the packs it asked for, as Beta 3 forgot them for its own book), asked for at the next
   opening; `declined` and `not found`: kept.
 - Writes of `packs-asked.txt` happen only in event callbacks (screen opened or shown, document changed, the
   answer), never in a draw. The file is kept only once the request was taken: a request refused with
@@ -851,3 +924,69 @@ relative to the data folder).
   number of font questions, a font that cannot tell, the packs filtered (asked before, at most 4, the declared
   language, Korean and its rare syllables, the registry asked only for Korean), the file kept 4 lines long,
   an answer that forgets, the file's path, every allocation refused.
+## Marks on the page: highlights and the search hit (`native_marks.rs`, #257)
+
+- The page draws the book's **highlights** (library annotations of kind highlight, read with `core.library` op 15 when the book
+  opens: rows of another conversion are left out, one with none is taken, a highlight of no length marks nothing) and the
+  **match of a search hit** gone to, in the looks of the roles `core.highlight` and `core.search-hit` (settings
+  `<role>.background|ink|line|line-tone|thickness|frame|struck`, read on the pages that have a mark, as Beta 3's
+  `Decoration::of_role`). Backgrounds go behind the words (`Painted::behind`, before `draw_lines_marked`), lines under, frames
+  and strikes over them (`Painted::over`); a box is one for each line of covered words (`native_selection::line_boxes`).
+- **Memory.** Only the highlights are held: 16 bytes each, at most 512 (`MAX_HIGHLIGHTS`; Beta 3 held every note with its
+  text). The cap is 8 KiB at most, kept for the whole reading, and a page rarely has more than a few; a book with more draws
+  the first ones the library gives. The list grows by exactly one entry (`try_reserve_exact`) and is shrunk to fit after the
+  read. No room for it (or a refusal of the library) at the open: the book opens without highlights.
+- **Marks never fail a page.** `Painted::new`, `behind` and `over` run on the page's draw: any error (no memory, a host
+  refusal) leaves the page drawn without the marks (or with those drawn so far), as the text is drawn after.
+- **Few grays.** On a panel of two or four grays (not colour) a background is not filled with the tone, which would turn
+  white (light gray 210) or black behind black text: it is rows of black by the tone's darkness (one in four for light gray,
+  three in four for dark gray), counted from the top of the screen so boxes of two lines meet without a seam; Beta 3's
+  `fill_shaded`. The looks are read on each draw that has a mark on the band (a handful of small host reads), not kept, so a
+  look changed in the settings shows at once. The read is one pass of at most 8,192 rows through a 256 B
+  and a 4 KiB buffer at the open. The search results keep 4 bytes more a row (where the match ends, 100 rows at most).
+- **The hit.** Choosing a search hit goes to the page that starts at the match (`View::go_to_match`) and marks it there; the next
+  page drops the mark (it is kept with the page it was set for).
+- **Not here (named):** the highlights are read at the open and after the reader's own edits (the creation, next slice); the
+  event 91 (`annotations-changed`) has no SDK decoder yet, so an edit by another plugin shows at the next open. The `ink` aspect
+  (a tone for the words' letters) is not drawn: the text is one colour. Words a text filter inserted have no places and are not
+  marked.
+
+## The first run (#257 item 16, todo 529)
+
+- **Help hints** (`declarations::first_run`, `HINTS`): Beta 3's nine for `reader.screen`, in its order: touch
+  *previous*, *menu* and *next* with their zones (thousandths: 0/333/667 across, 120 to 880 down), touch *quick*
+  and *night*, buttons *turn*, *select*, *back* and *panel*. The keys `reader.help.*` are in `en` and `de`.
+  `tests/abi7_declarations.rs` decodes them and compares them with the interface-6 `help.hints` lines.
+- **The wait for the book (`help::wait`): not declared.** Its native counterpart is `ScreenDecl::waits_ready`
+  (`screen.spec` bit 3), but the host's admission refuses the bit (`ERR_UNSUPPORTED`, `declarations.rs`
+  `screen_check`: "not connected to the host help policy yet"), and a refused screen would fail `make`. Until it
+  is admitted the host raises `event.screen_ready` after the reading screen's first draw, so the hints can come
+  over *Preparing* or an error message. The reader's half is done (`native_ready.rs`): it sends
+  `command.screen_ready` as Beta 3's `on_show` sent `help::ready` (the screen on top with its book open, and a
+  prepared book that opened; hooks in `native_plugin.rs` `reading_shown` and `document_changed`); the host takes
+  it as nothing for a screen that does not wait. A test fails once the host admits bit 3: then add
+  `.waits_ready()` to the reading screen in `declarations::screens` (one line).
+- **Screen hints *on press* (`HintVisibility::OnPress`): not declarable.** `ScreenDecl` has `hints_hidden`
+  (bit 8, Beta 3's `Hidden`) and nothing for *on press*; the reader declares neither, so the row of button
+  hints shows as on any screen (and takes its room). SDK/ABI/host gap: a `screen.spec` bit (9) `hints_on_press`
+  with `ScreenDecl::hints_on_press`, the host showing the row for a few seconds after a press (as
+  `command.show_hints`). A test records the gap.
+- **Setup step *text size*** (`setup.font-size`, order 30, the page `Setting("core.font-size")`): admitted
+  (`setup.step`, `registry.md` 6) and listed by `core.registry` op 15. Its title is the setting's own
+  (`core.setting.font-size`): Beta 3's empty title meant that, and a native step needs a title; no new text.
+  No help (as Beta 3); op 22 (`setup_step`, the help) is not needed for it.
+- **Sample widget** `reader.sample` (token `SAMPLE` 40, category `core.widgets.other`, previews
+  `core.group.reading`): `native_sample.rs`. Measured a fifth of the display high (`core.widget` stage call,
+  least height the same), placed, no targets (a tap does nothing). Drawn from scratch at each draw: the
+  reading settings read then (`core.font-size`, line and word spacing, side margins, justify; the values on
+  show while one is chosen), the two texts `reader.sample.1` and `.2` (two 1 KiB transient buffers), the four
+  reading fonts, the layout (`layout_page` over a two-paragraph `Document`) and the page's ink (`Look`,
+  `draw_lines`); nothing is kept across frames. Text box: a page's side margins and width (no wider than the
+  frame), 2 mm above and below.
+  - *Differences from Beta 3:* no hyphenation, no text filters and no page frames (columns), as the native
+    reading page has none yet; Beta 3 kept the laid-out lines between draws (the native one lays out at
+    each draw). The language of the layout is not set (Beta 3 passed the interface language for the script).
+  - *Not shown yet:* the settings plugin does not compose a group's preview widget above its settings
+    (`plugins/settings/PORTING-7.md`, ignored case `settings-group-preview`); the host lists it
+    (`reg_widget.previews`, op 19 flag). Untested on a host (no scripted widget call); the layout and the
+    draw are tested over a fixed-width measure.
