@@ -29,7 +29,7 @@ use core::ops::Range;
 use paperpaw_sdk::{
     Color, Handled, NoStorage,
     document::{DocumentError, Locator},
-    layout::{LayoutContext, Page, Style, layout_page},
+    layout::{BookStyles, LayoutContext, Page, Style, layout_page},
     native::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose, Input},
@@ -829,6 +829,36 @@ fn flag(host: &Host<'_>, key: &str) -> Result<bool, Error> {
     ))
 }
 
+/// Whether paragraphs are broken over all their lines (`core.line-breaking`
+/// is not the fast choice), as in Beta 3.
+fn balanced(host: &Host<'_>) -> Result<bool, Error> {
+    let mut bytes = [0; 64];
+    Ok(!matches!(
+        settings::read_setting(host, "core.line-breaking", &mut bytes)?,
+        SettingValue::Text("core.line-breaking.fast")
+    ))
+}
+
+/// The book's own styles followed, by their switches (`core.book-…`), as the
+/// bits of `BookStyles`.
+fn book_styles(host: &Host<'_>) -> Result<u16, Error> {
+    let mut book = BookStyles::NONE;
+    for (key, style) in [
+        ("core.book-align", BookStyles::ALIGN),
+        ("core.book-indent", BookStyles::INDENT),
+        ("core.book-sizes", BookStyles::SIZE),
+        ("core.book-spacing", BookStyles::SPACING),
+        ("core.book-fonts", BookStyles::FONTS),
+        ("core.book-margins", BookStyles::MARGINS),
+        ("core.book-line-height", BookStyles::LINE_HEIGHT),
+    ] {
+        if flag(host, key)? {
+            book = book.with(style);
+        }
+    }
+    Ok(book.bits())
+}
+
 impl Setup {
     fn read(host: &Host<'_>) -> Result<Self, Error> {
         let display = snapshot::capture_snapshot(host)?;
@@ -843,7 +873,25 @@ impl Setup {
                 integer(host, "core.margin-ends")?,
                 flag(host, "core.justify")?,
             )
-            .with_status(top, bottom),
+            .with_status(top, bottom)
+            .with_paragraphs(
+                (
+                    flag(host, "core.indent")?,
+                    integer(host, "core.indent-size")?,
+                ),
+                (
+                    flag(host, "core.paragraph-spacing")?,
+                    integer(host, "core.paragraph-space")?,
+                ),
+            )
+            .with_lines(
+                (
+                    integer(host, "core.widows")?,
+                    integer(host, "core.orphans")?,
+                ),
+                balanced(host)?,
+                book_styles(host)?,
+            ),
             display,
             room,
         })
@@ -864,6 +912,12 @@ impl Setup {
     /// The size of body text in pixels.
     fn base(&self) -> f32 {
         self.reading.size_pt * f32::from(self.display.display_dpi()) / 72.0
+    }
+
+    /// How the text is set, with paragraphs spaced by parts of the body's
+    /// `line` height (`Reading::style`).
+    fn style(&self, line: f32) -> Style {
+        self.reading.style(self.base(), line)
     }
 }
 
@@ -1240,7 +1294,7 @@ impl Open {
         area: native_pages::Box,
     ) -> Result<Page, Error> {
         let document = HostDocument::new(host, docs, self.id, self.sections, self.whole_pages)?;
-        let style = Style::new(0.0, 0.0, setup.base(), setup.reading.justify);
+        let style = setup.style(faces.line_height());
         let cx = LayoutContext::new(&document, &NoStorage, f32::from(area.width), &style, faces);
         layout_page(&cx, Locator::new(start.0, start.1), f32::from(area.height)).map_err(|error| {
             match document_error_kind(&error) {
