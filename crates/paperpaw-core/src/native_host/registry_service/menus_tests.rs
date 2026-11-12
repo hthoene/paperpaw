@@ -456,6 +456,33 @@ fn op_12_default_view_is_the_declared_rows_the_device_shows() {
 }
 
 #[test]
+fn op_12_negative_orders_keep_their_groups() {
+    let kernel = kernel();
+    // Placed first, by order and placed last, each with a negative order.
+    let directory = declarations(&[
+        entry("nat.last", -5, 5),
+        entry("nat.go", -5, 0),
+        entry("nat.first", -5, 4),
+    ]);
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", 0);
+    assert_eq!(
+        items(&rows),
+        [
+            "nat.first",
+            "nat.go",
+            "demo.open",
+            "demo.save",
+            "demo.part",
+            "demo.switchy",
+            "demo.flag",
+            "demo.sub",
+            "demo.long",
+            "nat.last",
+        ]
+    );
+}
+
+#[test]
 fn op_12_all_adds_the_hidden_rows_and_flags_them() {
     let kernel = kernel();
     let directory = native_menus();

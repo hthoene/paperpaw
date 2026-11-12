@@ -16,7 +16,7 @@
 use super::{
     Row,
     fixed::{Fixed, caps, clip, translated},
-    menu_native::{BY_ORDER, Entry, Native},
+    menu_native::{BY_ORDER_END, Entry, FIRST_END, Native},
     ordered::Sort,
     sources::Sources,
 };
@@ -309,9 +309,12 @@ fn declared(
     // among them (a native row of the same order after), then those placed
     // last.
     let mut after: Option<Sort> = None;
+    // The row read and not yet due: `next` scans the store, so it is kept.
+    let mut pending: Option<(Sort, Entry)> = None;
     if let Some(native) = native {
         while let Some((sort, entry)) = native.next(call.menu, after) {
-            if sort.0 >= BY_ORDER {
+            if sort.0 >= FIRST_END {
+                pending = Some((sort, entry));
                 break;
             }
             after = Some(sort);
@@ -325,9 +328,10 @@ fn declared(
         let Some(native) = native else {
             return ControlFlow::Continue(());
         };
-        while let Some((sort, entry)) = native.next(call.menu, after) {
-            let due = sort.0 < BY_ORDER * 2 && limit.is_none_or(|limit| entry.order < limit);
+        while let Some((sort, entry)) = pending.take().or_else(|| native.next(call.menu, after)) {
+            let due = sort.0 < BY_ORDER_END && limit.is_none_or(|limit| entry.order < limit);
             if !due {
+                pending = Some((sort, entry));
                 break;
             }
             after = Some(sort);
@@ -354,14 +358,14 @@ fn declared(
         visit(&Item {
             id: id.as_str(),
             by: id.namespace(),
-            order: order_of(call, id.as_str()),
+            order: here,
             title: None,
             section: menus.is_section(id.as_str()),
             hidden_by: by.as_ref().map(Fixed::as_str),
         })?;
     }
     if let Some(native) = native {
-        while let Some((sort, entry)) = native.next(call.menu, after) {
+        while let Some((sort, entry)) = pending.take().or_else(|| native.next(call.menu, after)) {
             after = Some(sort);
             native_row(&entry, &mut *visit)?;
         }
