@@ -35,8 +35,8 @@ const CASES: [Case; 7] = [
         golden: None,
         blocked_by: &["REG"],
     },
-    // Tiles (the menu style) and the reader's bar draw icons: the canvas has
-    // no icon operation, and the bar needs the status font role.
+    // Tiles (the menu style) and the reader's bar draw icons. The bar is
+    // ported (tests/bar_mode.rs); its golden and tiles wait for the host.
     Case {
         name: "menu-tiles-and-bar",
         golden: Some("x4-reader-menu"),
