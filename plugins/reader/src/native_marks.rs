@@ -9,7 +9,7 @@
 //! (`native_selection::line_boxes`), and the drawing goes through [`Pen`] so a
 //! test sees what would be painted.
 //!
-//! **Memory.** Only the highlights are held (16 bytes each, at most
+//! **Memory.** Only the highlights are held (24 bytes each, at most
 //! [`MAX_HIGHLIGHTS`]); Beta 3 held every note with its text. A book with more
 //! highlights draws the first ones the library gives.
 use crate::native_selection::line_boxes;
@@ -45,6 +45,8 @@ pub const SEARCH_HIT: &str = "core.search-hit";
 pub struct Span {
     pub start: (u32, u32),
     pub end: (u32, u32),
+    /// A highlight that has a note (the bar then offers *Edit note*).
+    pub noted: bool,
 }
 
 impl Span {
@@ -88,6 +90,12 @@ impl Marks {
     #[must_use]
     pub fn highlights(&self) -> &[Span] {
         &self.highlights
+    }
+
+    /// Gives up the highlights held (to free them before a new reading of the
+    /// library: the old list and the new one are not held at once).
+    pub fn take(&mut self) -> Vec<Span> {
+        core::mem::take(&mut self.highlights)
     }
 
     /// Takes the highlights of a new reading of the library.
@@ -146,6 +154,7 @@ pub fn load(host: &Host<'_>, library: &Library, path: &str, mine: u64) -> Result
             let span = Span {
                 start: (row.start_section(), row.start_offset()),
                 end: (row.end_section(), row.end_offset()),
+                noted: row.noted(),
             };
             if row.kind() == AnnotationKind::Highlight
                 && row.conversion().is_none_or(|c| c == mine)
@@ -570,6 +579,8 @@ fn draw_line(
         _ => pen.fill(x, bottom - ti, width, t, color),
     }
 }
+
+pub mod edit;
 
 #[cfg(test)]
 mod tests;

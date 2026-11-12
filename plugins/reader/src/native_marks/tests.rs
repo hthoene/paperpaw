@@ -14,6 +14,7 @@ fn span(start: u32, end: u32) -> Span {
     Span {
         start: (0, start),
         end: (0, end),
+        noted: false,
     }
 }
 
@@ -54,6 +55,7 @@ fn a_span_covers_the_words_it_touches() {
     let across = Span {
         start: (0, 3),
         end: (1, 2),
+        noted: false,
     };
     assert!(words.iter().all(|w| across.covers(w) || w.end.offset <= 3));
 }
@@ -64,6 +66,7 @@ fn a_span_of_another_section_covers_nothing() {
     let other = Span {
         start: (1, 0),
         end: (1, 50),
+        noted: false,
     };
     assert!(!other.covers(&w));
 }
@@ -168,6 +171,25 @@ fn the_names_of_a_roles_settings() {
     );
     let mut small = [0u8; 8];
     assert_eq!(join(&mut small, HIGHLIGHT, "line"), Err(Error::NoSpace));
+}
+
+#[test]
+fn stretches_overlap_where_they_share_a_place() {
+    use super::edit::overlaps;
+    assert!(overlaps(&span(0, 10), &span(5, 15)));
+    assert!(overlaps(&span(5, 15), &span(0, 10)));
+    assert!(overlaps(&span(0, 10), &span(2, 3)));
+    // Touching is not sharing; a stretch of no length shares nothing.
+    assert!(!overlaps(&span(0, 10), &span(10, 20)));
+    assert!(!overlaps(&span(4, 4), &span(0, 10)));
+}
+
+#[test]
+fn a_text_is_one_line_cut_at_a_character() {
+    let long = "é".repeat(400);
+    let cut = super::edit::snippet(&long).unwrap();
+    assert_eq!(cut.len(), 512);
+    assert_eq!(super::edit::snippet("a\n b\tc").unwrap(), "a  b c");
 }
 
 #[test]

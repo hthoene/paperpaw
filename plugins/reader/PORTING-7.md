@@ -932,8 +932,8 @@ reader's own highlights' drawing, so they look as Beta 3's decorations did) and 
   `<role>.background|ink|line|line-tone|thickness|frame|struck`, read on the pages that have a mark, as Beta 3's
   `Decoration::of_role`). Backgrounds go behind the words (`Painted::behind`, before `draw_lines_marked`), lines under, frames
   and strikes over them (`Painted::over`); a box is one for each line of covered words (`native_selection::line_boxes`).
-- **Memory.** Only the highlights are held: 16 bytes each, at most 512 (`MAX_HIGHLIGHTS`; Beta 3 held every note with its
-  text). The cap is 8 KiB at most, kept for the whole reading, and a page rarely has more than a few; a book with more draws
+- **Memory.** Only the highlights are held: 24 bytes each, at most 512 (`MAX_HIGHLIGHTS`; Beta 3 held every note with its
+  text). The cap is 12 KiB at most, kept for the whole reading, and a page rarely has more than a few; a book with more draws
   the first ones the library gives. The list grows by exactly one entry (`try_reserve_exact`) and is shrunk to fit after the
   read. No room for it (or a refusal of the library) at the open: the book opens without highlights.
 - **Marks never fail a page.** `Painted::new`, `behind` and `over` run on the page's draw: any error (no memory, a host
@@ -950,6 +950,26 @@ reader's own highlights' drawing, so they look as Beta 3's decorations did) and 
   event 91 (`annotations-changed`) has no SDK decoder yet, so an edit by another plugin shows at the next open. The `ink` aspect
   (a tone for the words' letters) is not drawn: the text is one colour. Words a text filter inserted have no places and are not
   marked.
+
+## Making highlights and notes (`native_marks/edit.rs`, `native_view/notes.rs`, #257)
+
+- The selection bar has five items: *Look up*, *Highlight* (*Remove highlight* where a highlight overlaps the chosen words),
+  *Note* (*Edit note* where that highlight has a note), *Copy*, *Extend* / *Cancel*. The labels were Beta 3's keys
+  (`reader.select.highlight|unhighlight|note|edit-note`). Chips that do not fit one row go on the next; the bar is as high as
+  its rows (`Chips::height_for`). The *More …* item, *Read from here* and *Translate* are the next slice.
+- **Highlight** (`edit::toggle`): the highlights that overlap the words are removed (at most 24 at once), else one is added: the
+  words' text on one line (512 bytes), the progress at its start in whole percent, the conversion and the time. **Note**
+  (`edit::begin_note`): the first overlapping highlight, made if there is none (as Beta 3 made it before asking); the plugin asks
+  with `core.ui` (`reader.note.prompt`, the keyboard answers, the note it has as the start) and the answer is set on the highlight
+  (`edit::set_note`: a replace edit; an empty note takes it away; a note over 3 KiB is not kept). A cancelled question leaves the
+  highlight as it is (as Beta 3).
+- Each change is one staged transaction at the generation read; a `State` is done again once; a refused edit aborts and says
+  "could not be saved" (`reader.marks-not-saved`); only `NoMemory` is the host's. The highlights are read again afterwards.
+- **Differences from Beta 3 (named):** a text with more than 24 highlights loses the rest with the next *Remove highlight*; the
+  progress comes from the sections' lengths (as the bookmark's). Transactions need the book in the library: a book the library does
+  not know cannot be marked (the notice says so).
+- Not tested without the host: the edit transactions and the question (Host's end-to-end test, #2585, covers ops 15-21). Tested: the
+  bar's items, how the words stand with the highlights, overlap and the text kept.
 
 ## The first run (#257 item 16, todo 529)
 
