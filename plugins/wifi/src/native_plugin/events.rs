@@ -33,6 +33,9 @@ use super::{NativeWifi, ON_DEMAND, WHILE_CHARGING, native_known, native_model};
 use crate::native_policy::{Failure, Goal, Known, Net, Password, Radio};
 use crate::native_radio::{Action, Facts, Notice, Timer};
 
+/// The input of a `core.ui` stack query (a cursor, no key).
+const STACK_INPUT: usize = 256;
+
 /// The work that switches the radio off, and the one that tries again.
 const IDLE_KEY: &str = "wifi.idle-off";
 const RETRY_KEY: &str = "wifi.retry";
@@ -261,7 +264,8 @@ impl NativeWifi {
     /// nothing there uses the network.
     fn at_rest(&self, host: &Host<'_>) -> Result<bool, Error> {
         let ui = self.ui.as_ref().ok_or(Error::State)?;
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        // The query is a cursor and an empty key: 256 B hold it (#248).
+        let (mut input, mut out) = (buffer(STACK_INPUT)?, buffer(SERVICE_BUFFER)?);
         let page = ui.stack(host, UiCursor::start(), &mut input, &mut out)?;
         // The stack is read top first.
         Ok(match page.into_iter().next() {

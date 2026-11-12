@@ -1,7 +1,8 @@
 //! The firmware request table, queue and pump against the scripted device.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 use super::*;
-use crate::native_host::firmware_install::Answer;
+use crate::native_host::firmware_install::{Answer, FirmwareInstall};
+use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_DENIED, ERR_STATE};
 use paperpaw_platform::{
     NoStorage,
@@ -33,7 +34,7 @@ fn driver_sized(blocks: u32) -> Driver {
     );
     Driver::new(
         Box::new(fake),
-        Rc::new(RefCell::new(FirmwareInstall::new())),
+        crate::native_host::firmware_cell::test_shared(RefCell::new(FirmwareInstall::new())),
     )
 }
 
@@ -187,7 +188,7 @@ fn a_failed_start_ends_the_request_at_once_with_the_devices_reason() {
     fake.fail = Some((Stage::BeginCheck, 0, Reason::OTHER));
     let mut d = Driver::new(
         Box::new(fake),
-        Rc::new(RefCell::new(FirmwareInstall::new())),
+        crate::native_host::firmware_cell::test_shared(RefCell::new(FirmwareInstall::new())),
     );
     d.submit_install(1, 1, "a.ppu", None, 0).unwrap();
     let event = d.pump(&NoStorage, &Names, 100);
@@ -300,7 +301,7 @@ fn a_check_stopped_before_it_ran_leaves_a_result_not_a_busy_slot() {
     let mut d = driver();
     d.submit_check(1, 1, "a.ppu").unwrap();
     d.abort_all();
-    let machine = d.machine();
+    let machine = d.machine().unwrap();
     let checked = machine.borrow().checked(1).unwrap();
     assert_eq!((checked.request, checked.reason), (1, 20));
 }
@@ -350,7 +351,7 @@ fn an_answer_that_finds_the_machine_borrowed_is_counted() {
     let mut d = driver();
     installed(&mut d, 5);
     let ask = d.request_restart(1).unwrap();
-    let machine = d.machine();
+    let machine = d.machine().unwrap();
     let held = machine.borrow_mut();
     assert_eq!(d.answer(ask.question(), Answer::Yes), Event::Quiet);
     drop(held);
@@ -365,7 +366,7 @@ fn cancelling_one_check_keeps_the_result_place_of_the_others() {
     d.cancel(1, 2);
     d.abort_all();
     // The first check still has its place: it left a result, not `NOT_FOUND`.
-    let machine = d.machine();
+    let machine = d.machine().unwrap();
     let checked = machine.borrow().checked(1).unwrap();
     assert_eq!((checked.request, checked.reason), (1, 20));
 }
@@ -393,7 +394,7 @@ fn a_stop_with_the_machine_borrowed_tells_nobody_twice() {
     d.submit_install(1, 1, "a.ppu", None, 0).unwrap();
     d.submit_check(2, 1, "b.ppu").unwrap();
     assert_eq!(d.pump(&NoStorage, &Names, 100), Event::Quiet);
-    let machine = d.machine();
+    let machine = d.machine().unwrap();
     let held = machine.borrow_mut();
     d.abort_all();
     drop(held);
@@ -511,4 +512,17 @@ fn a_stop_clears_a_restart_that_waits_for_the_kernel() {
     assert!(d.restart_wanted());
     d.abort_all();
     assert!(!d.restart_wanted(), "sleep between the passes: no restart");
+}
+
+#[test]
+fn a_request_reserves_the_room_of_one_request_and_no_more() {
+    let mut d = driver();
+    d.submit_check(1, 1, "a.ppu").unwrap();
+    let rooms = (
+        d.entries.capacity(),
+        d.queue.capacity(),
+        d.ready.capacity(),
+        d.kept.capacity(),
+    );
+    assert_eq!(rooms, (1, 1, 1, 1));
 }

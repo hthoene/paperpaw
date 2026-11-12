@@ -72,23 +72,61 @@ pub(crate) fn status_of(outcome: Outcome) -> i32 {
 }
 
 impl Kernel {
+    /// What the device tells plugin jobs about itself, as
+    /// [`KernelBuilder::plugin_host`](crate::KernelBuilder::plugin_host) does:
+    /// for a shell that knows what it offers card plugins only once its
+    /// services are wired, after the build. Before [`Kernel::start`]. Whether
+    /// it took: plugin jobs share the firmware's queue, so without
+    /// [`KernelBuilder::firmware_host`](crate::KernelBuilder::firmware_host)
+    /// (or with the driver in use) nothing is set and they stay
+    /// `ERR_UNSUPPORTED`.
+    pub fn set_plugin_host(
+        &mut self,
+        loader: paperpaw_native::header5::Host,
+        offered: paperpaw_native::metadata::Host<'static>,
+        signers: &'static [(&'static str, [u8; 32])],
+    ) -> bool {
+        self.firmware.as_ref().is_some_and(|cell| {
+            cell.set_plugin_host(super::plugin_job::PluginHost {
+                loader,
+                offered,
+                signers,
+            })
+        })
+    }
+
+    /// The firmware driver, where one is made now (none at rest).
+    pub(crate) fn firmware_driver(&self) -> Option<super::firmware_cell::DriverRef> {
+        self.firmware.as_ref().and_then(|cell| cell.driver())
+    }
+
     /// One step of the firmware table's job, then the outcomes that wait for
     /// their plugin. `true` while something is left (another pass).
     // Its own frame: the pump keeps the services' passes apart, so that no
     // frame adds their locals (the firmware's frame limit for host code).
     #[inline(never)]
     pub(crate) fn native_firmware_pump(&mut self) -> bool {
-        let Some(driver) = self.firmware.clone() else {
+        let Some(cell) = self.firmware.clone() else {
             return false;
         };
+        self.firmware_wire(&cell);
         let now = self.now.millis();
         if self.shared.native_instances.depth() > 0 {
-            return driver
-                .try_borrow()
-                .map_or(true, |driver| driver.has_work(now));
+            return cell.resume_wanted()
+                || cell.driver().is_some_and(|driver| {
+                    driver
+                        .try_borrow()
+                        .map_or(true, |driver| driver.has_work(now))
+                });
         }
-        self.firmware_wire(&driver);
-        self.firmware_resume(&driver);
+        // A removal a cut left needs no driver: finished first, whether one
+        // is made or not.
+        if cell.take_resume() {
+            self.firmware_resume();
+        }
+        let Some(driver) = cell.driver() else {
+            return false;
+        };
         self.native_outbox_run();
         self.feed_install_grants(&driver);
         {
@@ -108,10 +146,17 @@ impl Kernel {
         self.firmware_told(&driver);
         let asked = self.firmware_confirm_pump(&driver);
         self.native_outbox_run();
-        asked
+        let more = asked
             || driver
                 .try_borrow()
-                .map_or(true, |driver| driver.has_work(now))
+                .map_or(true, |driver| driver.has_work(now));
+        // Nothing left to run, tell or keep: the driver goes until the next
+        // command (`FirmwareCell::rest` keeps it while anything holds it).
+        drop(driver);
+        if !more {
+            cell.rest();
+        }
+        more
     }
 
     /// Forgets what the host holds of a plugin removed with its data: its
@@ -183,10 +228,7 @@ impl Kernel {
 
     /// A removal that waits for the host to forget its plugin's state: done,
     /// the job goes on. Never from a callback.
-    fn firmware_forget_pump(
-        &mut self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
-    ) {
+    fn firmware_forget_pump(&mut self, driver: &super::firmware_cell::DriverRef) {
         let Some(id) = driver.try_borrow().ok().and_then(|d| d.peek_forget()) else {
             return;
         };
@@ -198,13 +240,7 @@ impl Kernel {
 
     /// The first pass after a start that left a removal journal at its forget
     /// step: finished with the host's help, once.
-    fn firmware_resume(
-        &mut self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
-    ) {
-        if !driver.try_borrow_mut().is_ok_and(|mut d| d.take_resume()) {
-            return;
-        }
+    fn firmware_resume(&mut self) {
         let storage = self.shared.storage.clone();
         let done = super::plugin_swap::resume(storage.as_ref(), &mut |id| self.forget_removed(id));
         match done {
@@ -240,10 +276,7 @@ impl Kernel {
     /// A removal's first step: the instances of the plugin it removes are
     /// closed and the plugin leaves the list (REG op 6; event 70 is raised),
     /// then the job goes on. Never from a callback.
-    fn firmware_unload_pump(
-        &mut self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
-    ) {
+    fn firmware_unload_pump(&mut self, driver: &super::firmware_cell::DriverRef) {
         let Some(id) = driver.try_borrow().ok().and_then(|d| d.peek_unload()) else {
             return;
         };
@@ -263,10 +296,7 @@ impl Kernel {
     /// this pass ([`Self::firmware_finish_due`]): not here, under the command
     /// or the callback that stopped it, where an install's signature check
     /// would run too deep for the X4's stack (#250).
-    pub(crate) fn firmware_finish_stopped(
-        &mut self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
-    ) {
+    pub(crate) fn firmware_finish_stopped(&mut self, driver: &super::firmware_cell::DriverRef) {
         if let Ok(mut driver) = driver.try_borrow_mut() {
             driver.want_finish();
         }
@@ -282,7 +312,8 @@ impl Kernel {
         if self.shared.native_instances.depth() > 0 {
             return;
         }
-        let Some(driver) = self.firmware.clone() else {
+        // No driver made: nothing was asked to finish.
+        let Some(driver) = self.firmware_driver() else {
             return;
         };
         if !driver.try_borrow().is_ok_and(|driver| driver.finish_due()) {
@@ -304,20 +335,14 @@ impl Kernel {
         }
     }
 
-    /// Lets the device ops read the machine, once the host views exist.
-    fn firmware_wire(
-        &self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
-    ) {
+    /// Lets the device ops and the plugins' commands reach the firmware, once
+    /// the host views exist.
+    fn firmware_wire(&self, cell: &alloc::rc::Rc<super::firmware_cell::FirmwareCell>) {
         let Some(hosts) = self.shared.native_instances.hosts() else {
             return;
         };
-        if hosts.firmware_install().is_some() {
-            return;
-        }
-        if let Ok(table) = driver.try_borrow() {
-            let _ = hosts.wire_firmware_install(table.machine());
-            let _ = hosts.wire_firmware_requests(alloc::rc::Rc::clone(driver));
+        if hosts.firmware_cell().is_none() {
+            let _ = hosts.wire_firmware(alloc::rc::Rc::clone(cell));
         }
     }
 
@@ -325,10 +350,7 @@ impl Kernel {
     /// (see [`super::firmware_driver::Driver::peek_changed`]): one event per
     /// request however many steps passed, encoded from the state now. A
     /// plugin that cannot be called keeps its mark for the next pass.
-    fn firmware_changes(
-        &self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
-    ) {
+    fn firmware_changes(&self, driver: &super::firmware_cell::DriverRef) {
         for _ in 0..PER_PASS {
             let Some((owner, request)) = driver
                 .try_borrow()
@@ -356,10 +378,7 @@ impl Kernel {
     }
 
     /// Tells the plugins whose requests ended, a few a pass.
-    fn firmware_told(
-        &mut self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
-    ) {
+    fn firmware_told(&mut self, driver: &super::firmware_cell::DriverRef) {
         for _ in 0..PER_PASS {
             self.native_outbox_run();
             if self.shared.native_instances.outbox.full() {
@@ -412,10 +431,7 @@ impl Kernel {
 
     /// A plugin could not be called: no new try for [`RETRY_MS`], so the
     /// device may idle meanwhile (`Kernel::firmware_due` is the deadline).
-    fn firmware_hold_back(
-        &self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
-    ) {
+    fn firmware_hold_back(&self, driver: &super::firmware_cell::DriverRef) {
         if let Ok(mut driver) = driver.try_borrow_mut() {
             driver.hold_back(self.now.millis().saturating_add(RETRY_MS));
         }
@@ -423,8 +439,7 @@ impl Kernel {
 
     /// When the pump looks again for what could not be told.
     pub(crate) fn firmware_due(&self) -> Option<u64> {
-        self.firmware
-            .as_ref()
+        self.firmware_driver()
             .and_then(|driver| driver.try_borrow().ok().and_then(|driver| driver.due()))
     }
 

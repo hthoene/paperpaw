@@ -59,6 +59,13 @@ pub const PLUGIN_ANSWERED: u32 = 20;
     reason = "the plugin's code uses it; the build script that includes this file does not"
 )]
 pub const SEARCH_WORK: u32 = 9;
+/// The token of the table of contents' headings scan (`core.work`, key `toc`),
+/// as [`SEARCH_WORK`].
+#[allow(
+    dead_code,
+    reason = "the plugin's code uses it; the build script that includes this file does not"
+)]
+pub const TOC_WORK: u32 = 19;
 pub const FIRST_ACTION: u32 = 100;
 /// The sample widget above the reading settings (`native_sample`): its draws
 /// and its `core.widget` stage calls.

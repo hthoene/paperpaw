@@ -688,6 +688,29 @@ impl View {
         }
     }
 
+    /// A screen of this plugin that needs room covers this one (the table of
+    /// contents finding headings): the page on show and its words are let go
+    /// of, and laid out again when the page is drawn next (#248). Kept while
+    /// the book is read aloud, which follows the words.
+    pub fn release_page(&mut self) {
+        if self.reading_aloud() {
+            return;
+        }
+        if let Body::Open(open) = &mut self.body {
+            open.page = None;
+            open.words = Vec::new();
+        }
+    }
+
+    /// The open document and the conversion its places belong to.
+    #[must_use]
+    pub const fn document(&self) -> Option<(DocId, u64)> {
+        match &self.body {
+            Body::Open(open) => Some((open.id, open.conversion)),
+            Body::Message(_) | Body::Preparing(_) => None,
+        }
+    }
+
     /// The hand-over params of the table of contents of this book: where the
     /// book is and where the reader is in it. `None` where no book is open.
     #[must_use]
