@@ -3,8 +3,8 @@
 //! and places when it first draws, and what it draws. The decisions are
 //! [`crate::native_sleep`]'s and the layout [`crate::native_stack`]'s.
 //!
-//! The pictures (the cat, the logo, the cover, the folder's picture and the
-//! picture over the page) are [`images`]'s: asked for from the events, since a
+//! The pictures (the cat, the logo or the picture `core.logo` names, the
+//! cover, the folder's picture and the picture over the page) are [`images`]'s: asked for from the events, since a
 //! draw can send no command; until one is there the screen shows the message.
 use crate::{
     native_pick::Failure,
@@ -264,12 +264,14 @@ impl Sleeping {
                 );
         let mut logo = None;
         if message {
-            // PaperPaw's logo, a third of the screen across, above the message.
-            let side = match held {
-                Some(_) if content == Content::Message => screen.width.min(screen.height) / 3,
-                _ => 0,
+            // The logo (PaperPaw's or the picture `core.logo` names) fitted
+            // into a square a third of the screen across, above the message.
+            let side = screen.width.min(screen.height) / 3;
+            let size = match held {
+                Some(held) if content == Content::Message => images::fitted(held, side, side),
+                _ => (0, 0),
             };
-            logo = self.message(host, &font, &style, screen, side, &mut below)?;
+            logo = self.message(host, &font, &style, screen, size, &mut below)?;
         }
         paint::replay(frame, &font, below.iter())?;
         if let Some(held) = held {
@@ -311,15 +313,15 @@ impl Sleeping {
         Ok(())
     }
 
-    /// The message in the middle, with room above for a logo `logo` pixels
-    /// across (none: 0); where the logo goes.
+    /// The message in the middle, with room above for a logo of `logo`'s
+    /// width and height (none: 0); where the logo goes.
     fn message(
         &self,
         host: &Host<'_>,
         font: &Font<'_>,
         style: &Style,
         screen: Rect,
-        logo: u16,
+        logo: (u16, u16),
         paint: &mut Vec<Paint>,
     ) -> Result<Option<Rect>, Error> {
         let mut messages = Messages::new()?;
@@ -351,10 +353,12 @@ impl Sleeping {
         };
         let small = paperpaw_ui_kit::geometry::line_px(font, style.small)?;
         // The logo a little above the middle, the message below it.
-        let above = if logo == 0 {
-            0
+        let (logo_w, logo_h) = logo;
+        let shown = logo_w > 0 && logo_h > 0;
+        let above = if shown {
+            u32::from(logo_h) + u32::from(style.gap) * 2
         } else {
-            u32::from(logo) + u32::from(style.gap) * 2
+            0
         };
         let total = above
             + u32::from(line) * lines.len() as u32
@@ -366,10 +370,10 @@ impl Sleeping {
             };
         let top = u32::from(screen.height).saturating_sub(total) / 2;
         let at = Rect::new(
-            screen.width.saturating_sub(logo) / 2,
+            screen.width.saturating_sub(logo_w) / 2,
             top.min(u32::from(u16::MAX)) as u16,
-            logo,
-            logo,
+            logo_w,
+            logo_h,
         );
         let mut y = top.saturating_add(above);
         for (rows, size, high, color) in [
@@ -393,7 +397,7 @@ impl Sleeping {
             }
             y = y.saturating_add(u32::from(style.gap));
         }
-        Ok((logo > 0).then_some(at))
+        Ok(shown.then_some(at))
     }
 
     /// Makes and places what the mode shows, and decides what shows.
