@@ -7,6 +7,7 @@ use paperpaw_sdk::{
         Error, Host,
         callbacks::{Input, InputGestureKind},
         commands::CommandSender,
+        device::{Device, DeviceCapability},
         registry::{PageCursor, Registry},
         ui::{Open, Param, Ui},
     },
@@ -16,17 +17,35 @@ use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 /// The slot of the screens that look a word up online.
 pub const SLOT: &str = "core.lookup-online";
 
-/// Whether a screen is offered for [`SLOT`].
+/// Whether the device has a network and a screen is offered for [`SLOT`]
+/// (Beta 3 showed *Online* only where the device has a network).
 ///
 /// # Errors
 /// The host's refusals; `NoMemory`.
 pub fn offered(host: &Host<'_>) -> Result<bool, Error> {
+    if !has_network(host)? {
+        return Ok(false);
+    }
     let registry = Registry::open(host)?;
     let found = first_offer(host, &registry);
     let released = registry.release(host);
     let any = found?;
     released?;
     Ok(any)
+}
+
+/// Whether the device has a network at all.
+fn has_network(host: &Host<'_>) -> Result<bool, Error> {
+    let device = Device::open(host)?;
+    let found = buffer(SERVICE_BUFFER).and_then(|mut input| {
+        let mut out = buffer(SERVICE_BUFFER)?;
+        let identity = device.device(host, &mut input, &mut out)?;
+        Ok(identity.supports(DeviceCapability::Network))
+    });
+    let released = device.release(host);
+    let network = found?;
+    released?;
+    Ok(network)
 }
 
 fn first_offer(host: &Host<'_>, registry: &Registry) -> Result<bool, Error> {

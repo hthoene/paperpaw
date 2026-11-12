@@ -128,6 +128,7 @@
     }
   ],
   "services": [
+    "core.device",
     "core.files",
     "core.lookup",
     "core.registry",
