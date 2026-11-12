@@ -418,29 +418,27 @@ impl TocView {
         if let Some((_, finding)) = &self.scan {
             return finding.draw(host, frame);
         }
-        let mut messages = Messages::new()?;
-        let title = messages.copy(host, "reader.toc")?;
-        match self.message {
-            Some(key) => {
-                let text = messages.copy(host, key)?;
-                self.list.draw_with(
-                    host,
-                    frame,
-                    &title,
-                    true,
-                    Footer::Empty {
-                        title: &text,
-                        text: "",
-                    },
-                )
-            }
-            None if self.cut => {
-                let note = messages.copy(host, "reader.toc.cut")?;
-                self.list
-                    .draw_with(host, frame, &title, true, Footer::Note(&note))
-            }
-            None => self.list.draw_with(host, frame, &title, true, Footer::None),
-        }
+        // The texts are copied out first and the message buffer (4 KiB)
+        // let go of before the list draws, which takes one of its own.
+        let (title, below) = {
+            let mut messages = Messages::new()?;
+            let title = messages.copy(host, "reader.toc")?;
+            let below = match self.message {
+                Some(key) => Some((true, messages.copy(host, key)?)),
+                None if self.cut => Some((false, messages.copy(host, "reader.toc.cut")?)),
+                None => None,
+            };
+            (title, below)
+        };
+        let footer = match &below {
+            Some((true, text)) => Footer::Empty {
+                title: text,
+                text: "",
+            },
+            Some((false, note)) => Footer::Note(note),
+            None => Footer::None,
+        };
+        self.list.draw_with(host, frame, &title, true, footer)
     }
 
     /// Gives the document back (the screen closed).
