@@ -94,6 +94,42 @@ list) is still in place beside the native one. It is removed in the PR that fini
 - Tests: `tests/native_panel_own.rs` (a 5,000-byte definition whole, the budget, not ready, unlistable folder),
   `native_model` and `native_panel` unit tests, allocation refusal of `all_within`.
 
+## Slice 5 (#257): preparing, the failed marker, the caches of removed dictionaries
+
+- **Preparing.** The plugin keeps the indexes it makes (`Index`: the builders, bytes done and in all). A lookup (the
+  provider) or an opened panel that finds dictionaries without indexes hands them to it and declares the work
+  `dictionary.index`; each `work_due` does one 64 KiB step, as before. The panel waits: its header says *Preparing … N %*
+  (`dictionary.preparing`), the body is empty, back, confirm and a tap close it. When the last index is made the
+  plugin tells the open panel, which reads the word again (own dictionaries, then the providers) and draws.
+  Where indexing was given up this session (an error that may pass), a new panel shows what is ready.
+- **`failed` marker.** A damaged dictionary (`paperpaw_stardict::Error::Malformed`) is left out, and the file
+  `<cache>/failed` in the data folder keeps the sizes of the files that were to be indexed (`native_disk::stamp`).
+  `Dictionaries::pending` leaves out a dictionary whose marker equals its stamp: it is tried again only when the files
+  change (as Beta 3). Other failures (a card that could not be read, a refused allocation) end the indexing for the
+  session only.
+- **Caches of removed dictionaries.** When a panel lists the folder, the folders of 16 hexadecimal digits in the data
+  folder that no dictionary found names are removed with `core.files` (`Folders::forget_caches`, root 0,
+  `remove_tree`); best effort, never when the folder itself cannot be listed.
+- Tests: `tests/native_source.rs` (the marker), `native_disk` (`is_stale_cache`), `native_plugin` (the percent).
+  Not run on a host (the panel's wait, the work steps and the removal need a scripted host with `core.ui` and
+  `core.files`: `tests/acceptance_pending.rs`).
+
+## Slice 6 (#257): *Online ›*
+
+- Where a screen is offered for the slot `core.lookup-online` (Wikipedia's; `native_online::offered`, the registry's
+  `slot_offers`, checked when the panel opens), the header says *Online ›* left of the page note, as Beta 3. A tap on
+  it, or the menu button (`core.menu`), closes the panel and opens the slot with a hand-over of the word and the
+  language (`native_online::go`; Beta 3: back, then `OpenSlot`). Not shown while the panel prepares indexes.
+  The service `core.registry` joins the metadata (regenerated).
+- Beta 3 asked network providers (providers that fetch, flag `online`) only on *Online ›* and showed their entries in the
+  panel, and its entries could end with a line that opens more (*Open Wikipedia ›*). The native lookup service calls a
+  provider that fetches itself whenever the network is up, and an entry has no "opens more": the line is replaced by
+  *Online ›* (the same screen), and no first-party provider that fetches exists (Wikipedia is the slot's screen).
+- Not done: the hint text of the menu button (*Online ›*; the host's hints, #892) and *Looking up …* while providers
+  answer later (todo 98).
+- Tests: `native_online` (what asks to go online), `native_popup` (the place of the label); not run on a host (the
+  slot's offer and the opening need a scripted host with `core.registry` and `core.ui`).
+
 ## What the slice loses (each returns in a later slice or with its host piece)
 
 - **Every lookup** (done in slice 2 for the provider).

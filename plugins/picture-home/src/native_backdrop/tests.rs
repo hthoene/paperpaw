@@ -3,6 +3,7 @@
 use super::*;
 use crate::fail_alloc::sweep;
 use crate::native_picture::{Asked, Recipe};
+use alloc::vec::Vec;
 
 fn asked<'a>(path: &'a str, fit: &'a str, zoom: i64, lighten: i64) -> Asked<'a> {
     Asked {
@@ -123,7 +124,7 @@ fn a_failure_leaves_the_page_plain_and_is_not_asked_again() {
             Landed::Failed(reason)
         );
         assert!(!back.making() && !back.held());
-        assert_eq!(back.drawing().unwrap(), None);
+        assert_eq!(back.drawing(), None);
         assert_eq!(
             back.want(recipe("a.png", FILL, 100, 0), &mut cookie)
                 .unwrap(),
@@ -148,7 +149,7 @@ fn a_ready_answer_without_a_picture_is_a_failure_that_gives_back_what_it_holds()
         back.ready(number, ImageStatus::Ready, Some(id(3)), (0, 0), None),
         Landed::Ignore(Some(id(3)))
     );
-    assert_eq!(back.drawing().unwrap(), None);
+    assert_eq!(back.drawing(), None);
     // Ready without an id is a failure.
     let mut back = Backdrop::default();
     let (number, _) = back
@@ -170,7 +171,7 @@ fn a_request_the_host_refuses_leaves_the_page_plain() {
         .unwrap();
     back.refused();
     assert!(!back.making() && !back.held());
-    assert_eq!(back.drawing().unwrap(), None);
+    assert_eq!(back.drawing(), None);
     // The settings are as they were: not asked again and again.
     assert_eq!(
         back.want(recipe("a.png", FILL, 100, 0), &mut cookie)
@@ -207,7 +208,12 @@ fn held(fit: &str, zoom: i64, lighten: i64, size: (u32, u32)) -> Drawing {
         .ask
         .unwrap();
     ready(&mut back, number, size);
-    back.drawing().unwrap().unwrap()
+    back.drawing().unwrap()
+}
+
+/// Every place of a drawing, over the whole screen.
+fn places(drawing: &Drawing) -> Vec<Place> {
+    drawing.tiles.within((i32::MIN, i32::MAX)).collect()
 }
 
 #[test]
@@ -217,7 +223,7 @@ fn a_picture_that_fills_is_drawn_as_the_plan_places_it() {
     assert_eq!(drawing.image, id(7));
     assert_eq!(drawing.screen, (480, 800));
     assert_eq!(
-        drawing.places,
+        places(&drawing),
         [Place {
             x: -360,
             y: 0,
@@ -231,7 +237,7 @@ fn a_picture_that_fills_is_drawn_as_the_plan_places_it() {
     // The zoom enlarges it about the place.
     let zoomed = held(FILL, 200, 0, (600, 400));
     assert_eq!(
-        zoomed.places,
+        places(&zoomed),
         [Place {
             x: -960,
             y: -400,
@@ -245,7 +251,7 @@ fn a_picture_that_fills_is_drawn_as_the_plan_places_it() {
 fn a_whole_picture_sits_on_paper_and_a_paler_one_is_blended_with_it() {
     let whole = held(WHOLE, 100, 0, (600, 400));
     assert_eq!(
-        whole.places,
+        places(&whole),
         [Place {
             x: 0,
             y: 240,
@@ -267,7 +273,7 @@ fn a_whole_picture_sits_on_paper_and_a_paler_one_is_blended_with_it() {
 fn a_stretched_picture_fills_the_screen() {
     let stretch = held(STRETCH, 100, 0, (600, 400));
     assert_eq!(
-        stretch.places,
+        places(&stretch),
         [Place {
             x: 0,
             y: 0,
@@ -283,14 +289,16 @@ fn a_tile_repeats_to_cover_the_screen_or_is_not_drawn() {
     // At most half the screen: 240 by 160 here, from the middle's place.
     let drawing = held(TILE, 100, 0, (600, 400));
     assert!(drawing.paper);
-    assert!(drawing.places.len() as i64 <= TILES_MAX);
-    let width = drawing.places[0].width as i64;
-    let height = drawing.places[0].height as i64;
+    let all = places(&drawing);
+    assert!(all.len() as i64 <= TILES_MAX);
+    assert_eq!(all.len() as u64, drawing.tiles.count());
+    let width = all[0].width as i64;
+    let height = all[0].height as i64;
     assert_eq!((width, height), (240, 160));
     // Every pixel of the screen is under a tile.
     for (x, y) in [(0, 0), (479, 0), (0, 799), (479, 799), (240, 400)] {
         assert!(
-            drawing.places.iter().any(|p| {
+            all.iter().any(|p| {
                 (i64::from(p.x)..i64::from(p.x) + width).contains(&x)
                     && (i64::from(p.y)..i64::from(p.y) + height).contains(&y)
             }),
@@ -299,10 +307,8 @@ fn a_tile_repeats_to_cover_the_screen_or_is_not_drawn() {
     }
     // Tiles on the grid of the first: no gaps, no overlaps.
     assert!(
-        drawing
-            .places
-            .iter()
-            .all(|p| (i64::from(p.x) - i64::from(drawing.places[0].x)) % width == 0)
+        all.iter()
+            .all(|p| (i64::from(p.x) - i64::from(all[0].x)) % width == 0)
     );
     // A tiny picture would repeat a thousand times: not drawn.
     assert_eq!(held_tiny(), None);
@@ -317,7 +323,129 @@ fn held_tiny() -> Option<Drawing> {
         .ask
         .unwrap();
     ready(&mut back, number, (16, 16));
-    back.drawing().unwrap()
+    back.drawing()
+}
+
+#[test]
+fn a_small_pattern_repeats_over_the_screen_as_on_interface_6() {
+    // 64 by 64: 9 by 14 tiles, past the 64 there were while every draw asked
+    // for each tile; drawn now.
+    let mut back = Backdrop::default();
+    let mut cookie = 0;
+    let (number, _) = back
+        .want(recipe("a.png", TILE, 100, 0), &mut cookie)
+        .unwrap()
+        .ask
+        .unwrap();
+    ready(&mut back, number, (64, 64));
+    let drawing = back.drawing().unwrap();
+    let all = places(&drawing);
+    assert!(
+        all.len() > 64 && all.len() as i64 <= TILES_MAX,
+        "{}",
+        all.len()
+    );
+    for (x, y) in [(0, 0), (479, 0), (0, 799), (479, 799), (240, 400)] {
+        assert!(
+            all.iter()
+                .any(|p| (p.x..p.x + 64).contains(&x) && (p.y..p.y + 64).contains(&y)),
+            "({x}, {y})"
+        );
+    }
+    // A tile of the same size by the side of each: no gaps, no overlaps.
+    assert!(
+        all.iter()
+            .all(|p| (p.x - all[0].x) % 64 == 0 && (p.y - all[0].y) % 64 == 0)
+    );
+}
+
+#[test]
+fn a_draw_asks_only_for_the_tiles_in_the_rows_it_may_change() {
+    let drawing = held(TILE, 100, 0, (600, 400));
+    let all = places(&drawing);
+    // The X4's bands of 192 rows: each tile is asked for in every band it
+    // meets, and only there.
+    let mut seen = Vec::new();
+    for top in (0..800).step_by(192) {
+        let band = (top, (top + 192).min(800));
+        for place in drawing.tiles.within(band) {
+            assert!(place.y < band.1 && place.y + place.height as i32 > band.0);
+            seen.push(place);
+        }
+        let meeting = all
+            .iter()
+            .filter(|p| p.y < band.1 && p.y + p.height as i32 > band.0)
+            .count();
+        assert_eq!(drawing.tiles.within(band).count(), meeting);
+    }
+    // Every tile on the screen is asked for (one in the row above its top edge,
+    // where the place starts a tile below it, is not).
+    let on_screen = |p: &&Place| p.y < 800 && p.y + p.height as i32 > 0;
+    assert!(all.iter().filter(on_screen).all(|p| seen.contains(p)));
+    // Rows that no tile meets: nothing.
+    assert_eq!(drawing.tiles.within((900, 1000)).count(), 0);
+    // One picture: asked for only where it is.
+    let one = held(WHOLE, 100, 0, (600, 400));
+    assert_eq!(one.tiles.within((0, 192)).count(), 0);
+    assert_eq!(one.tiles.within((192, 384)).count(), 1);
+}
+
+#[test]
+fn a_picture_that_would_repeat_too_often_or_too_many_in_a_row_is_not_drawn() {
+    let tiled = |size: (u32, u32)| {
+        let mut back = Backdrop::default();
+        let mut cookie = 0;
+        let (number, _) = back
+            .want(recipe("a.png", TILE, 100, 0), &mut cookie)
+            .unwrap()
+            .ask
+            .unwrap();
+        ready(&mut back, number, size);
+        back.drawing()
+    };
+    // 30 by 30: 17 across, 27 down, 459 in all.
+    assert_eq!(tiled((30, 30)), None);
+    // 14 by 400: 105 in all, but 35 in a row.
+    assert_eq!(tiled((14, 400)), None);
+    // 16 by 400: 31 in a row, 93 in all.
+    let drawing = tiled((16, 400)).unwrap();
+    assert_eq!((drawing.tiles.across, drawing.tiles.down), (31, 3));
+    assert!(i64::from(drawing.tiles.across) <= TILES_ACROSS_MAX);
+}
+
+#[test]
+fn a_file_replaced_by_another_of_the_same_name_is_asked_for_anew() {
+    let mut back = Backdrop::default();
+    let mut cookie = 0;
+    let with = |bytes, modified| {
+        Recipe::new(
+            &Asked {
+                bytes,
+                modified,
+                ..asked("p/a.jpg", FILL, 100, 0)
+            },
+            480,
+            800,
+        )
+        .unwrap()
+    };
+    let (number, _) = back.want(with(1000, 50), &mut cookie).unwrap().ask.unwrap();
+    assert_eq!(ready(&mut back, number, (480, 800)), Landed::Ready);
+    // The same file: nothing new.
+    assert_eq!(
+        back.want(with(1000, 50), &mut cookie).unwrap(),
+        Change::default()
+    );
+    // Another size, or the same size changed later: the held picture goes back
+    // and the new file is asked for.
+    for (bytes, modified) in [(1200, 50), (1200, 90)] {
+        let change = back.want(with(bytes, modified), &mut cookie).unwrap();
+        assert!(change.ask.is_some(), "{bytes} {modified}");
+        let (number, _) = change.ask.unwrap();
+        ready(&mut back, number, (480, 800));
+    }
+    let change = back.want(with(1200, 50), &mut cookie).unwrap();
+    assert_eq!(change.release, Some(id(7)));
 }
 
 #[test]
@@ -335,11 +463,11 @@ fn the_longest_side_asked_follows_the_fit_and_stays_within_the_hosts_limit() {
 #[test]
 fn nothing_is_drawn_before_the_picture_is_made() {
     let mut back = Backdrop::default();
-    assert_eq!(back.drawing().unwrap(), None);
+    assert_eq!(back.drawing(), None);
     let mut cookie = 0;
     back.want(recipe("a.png", FILL, 100, 0), &mut cookie)
         .unwrap();
-    assert_eq!(back.drawing().unwrap(), None);
+    assert_eq!(back.drawing(), None);
 }
 
 #[test]
@@ -350,7 +478,7 @@ fn every_allocation_may_be_refused() {
         let wish = Recipe::new(&asked("p/a.jpg", TILE, 100, 20), 480, 800)?;
         let (number, _) = back.want(wish, &mut cookie)?.ask.ok_or(Error::Invalid)?;
         ready(&mut back, number, (600, 400));
-        back.drawing()?;
+        back.drawing().ok_or(Error::Invalid)?;
         Ok(())
     });
 }
@@ -420,11 +548,7 @@ fn the_render_choice_is_the_draw_flag() {
             render,
             ..asked("a.png", FILL, 100, 0)
         };
-        made_with(asked, (600, 400), None)
-            .drawing()
-            .unwrap()
-            .unwrap()
-            .render
+        made_with(asked, (600, 400), None).drawing().unwrap().render
     };
     assert_eq!(with(crate::settings::RENDERS[0]), Rendering::Panel);
     assert_eq!(with(crate::settings::RENDERS[1]), Rendering::Grays);

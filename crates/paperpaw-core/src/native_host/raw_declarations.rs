@@ -478,7 +478,9 @@ pub(crate) fn record_at(wire: &[u8], index: usize) -> Result<&[u8], i32> {
     }
     wire.get(cursor..).ok_or(ERR_INVALID)
 }
-fn varint(wire: &[u8], cursor: &mut usize) -> Result<u32, i32> {
+/// The LEB128 `u32` at `cursor` (moved past it); `ERR_INVALID` past the end or
+/// over 32 bits.
+pub(crate) fn varint(wire: &[u8], cursor: &mut usize) -> Result<u32, i32> {
     let mut value = 0;
     for shift in (0..=28).step_by(7) {
         let byte = *wire.get(*cursor).ok_or(ERR_INVALID)?;

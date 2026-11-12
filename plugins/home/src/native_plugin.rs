@@ -1,7 +1,8 @@
 //! The flat home screen plugin, first slice: what needs no dashboard.
 //!
-//! Here: the editor of the footer's items (the kit's status items view on the
-//! screen `status-items`), the two actions (*Edit home screen*, *All tools*),
+//! Here: the editor of the footer's items and of the status line's parts (the
+//! kit's status items view on the screen `status-items`; for the line, the
+//! status lines other plugins draw), the two actions (*Edit home screen*, *All tools*),
 //! and the declarations the image carries. The dashboard, *Add* and the tools
 //! drawer are declared and answer `Unsupported` when opened until their
 //! slices (`PORTING-7.md`); nothing opens them while the interface-6 home
@@ -35,28 +36,44 @@ mod image {
 
 use crate::declarations::{
     ADD, ALL_TOOLS, DASHBOARD, DRAWER, EDIT_PAGES, SETTING_CHANGED, STACK_CHANGED, STATUS_ITEMS,
-    TICK, WIDGET_CHANGED,
+    STATUS_PARTS, TICK, WIDGET_CHANGED,
 };
 use crate::native_add_screen::{self as add_screen, AddScreen};
 use crate::native_dashboard::{Dashboard, redraw};
 use crate::native_drawer::{self as drawer, Drawer};
+use crate::native_lines;
 use crate::native_reflow::fit;
 use crate::native_source::is_grid_setting;
 use crate::native_widgets::Widgets;
 
 /// The setting the footer's editor changes.
 const FOOTER_ITEMS: &str = "home.footer.items";
+/// The status line widget, whose settings (`home.status.<part>`, or of one
+/// placement `home.status@<placement>.<part>`) end in the parts
+/// `STATUS_PARTS` names.
+const STATUS_WIDGET: &str = "home.status";
+/// The part that lists whole lines, not items.
+const LINE_PART: &str = "line";
 /// The screen the editor is declared as.
 const ITEMS_SCREEN: &str = "home.status-items";
 const DASHBOARD_SCREEN: &str = "home.dashboard";
 /// Space for the two commands that open a screen.
 const COMMANDS: usize = 512;
 
-/// A footer items editor: the setting it changes and its view.
+/// An items (or lines) editor: the setting it changes and its view.
 #[derive(Debug)]
 struct Editor {
     setting: String,
     view: StatusItemsView,
+}
+
+/// A setting the screen `status-items` edits: its full id, its title, and
+/// whether it lists status lines (else status items).
+#[derive(Debug, PartialEq, Eq)]
+struct Edited {
+    setting: String,
+    title: &'static str,
+    lines: bool,
 }
 
 /// The interface-7 home screen plugin.
@@ -374,12 +391,14 @@ impl NativeHome {
         AddScreen::new(host, page, kind)
     }
 
-    /// The editor for the setting the handover names (`id`): the items there
-    /// are, and what the setting holds now.
+    /// The editor for the setting the handover names (`id`): the items (or,
+    /// for the status line's line, the lines) there are, and what the setting
+    /// holds now. As interface 6's items screen, it stays open while the
+    /// choice changes (each change is set at once); *Back* leaves it.
     fn items_editor(&self, host: &Host<'_>, handover: Option<HandoverId>) -> Result<Editor, Error> {
         let mut input = buffer(SERVICE_BUFFER)?;
         let mut output = buffer(SERVICE_BUFFER)?;
-        let setting = match handover {
+        let edited = match handover {
             Some(handover) => editor_setting(
                 self.ui()?
                     .params(host, handover, &mut input, &mut output)?
@@ -387,16 +406,25 @@ impl NativeHome {
             )?,
             None => return Err(Error::Invalid),
         };
+        drop((input, output));
         let mut scratch = buffer(SERVICE_BUFFER)?;
-        let held = match settings::read_setting(host, &setting, &mut scratch)? {
+        let held = match settings::read_setting(host, &edited.setting, &mut scratch)? {
             SettingValue::Text(text) => copy(text)?,
             _ => String::new(),
         };
-        let entries = read_entries(host, StatusScope::Items)?;
+        drop(scratch);
+        let entries = if edited.lines {
+            native_lines::entries(host)?
+        } else {
+            read_entries(host, StatusScope::Items)?
+        };
         let texts = Texts::read(host)?;
-        let title = Messages::new()?.copy(host, "home.setting.footer-items")?;
+        let title = Messages::new()?.copy(host, edited.title)?;
         let view = StatusItemsView::new(entries, &held, title, texts)?;
-        Ok(Editor { setting, view })
+        Ok(Editor {
+            setting: edited.setting,
+            view,
+        })
     }
 }
 
@@ -433,12 +461,28 @@ fn edit_mode<'a>(
     Ok(edits)
 }
 
-/// The setting a handover names (`id`): the only one this screen is declared as
-/// the editor of. No `id`, another one or one repeated differently is
-/// `Invalid`.
+/// What the screen `status-items` edits for `id`: the footer's items, and the
+/// status line widget's parts it is declared as the editor of (`STATUS_PARTS`),
+/// also of one placement; its part `line` lists lines.
+fn edited(id: &str) -> Option<(&'static str, bool)> {
+    if id == FOOTER_ITEMS {
+        return Some(("home.setting.footer-items", false));
+    }
+    let (placement, name) = id.strip_prefix(STATUS_WIDGET)?.rsplit_once('.')?;
+    if !placement.is_empty() && !(placement.len() > 1 && placement.starts_with('@')) {
+        return None;
+    }
+    STATUS_PARTS
+        .iter()
+        .find(|&&(part, _, _, _, editor)| editor && part == name)
+        .map(|&(part, _, title, _, _)| (title, part == LINE_PART))
+}
+
+/// The setting a handover names (`id`): one this screen is declared as the
+/// editor of. No `id`, another one or one repeated differently is `Invalid`.
 fn editor_setting<'a>(
     params: impl Iterator<Item = Result<(&'a str, &'a str), Error>>,
-) -> Result<String, Error> {
+) -> Result<Edited, Error> {
     let mut setting = None;
     for param in params {
         let (key, value) = param?;
@@ -449,10 +493,13 @@ fn editor_setting<'a>(
             setting = Some(value);
         }
     }
-    match setting {
-        Some(FOOTER_ITEMS) => copy(FOOTER_ITEMS),
-        _ => Err(Error::Invalid),
-    }
+    let setting = setting.ok_or(Error::Invalid)?;
+    let (title, lines) = edited(setting).ok_or(Error::Invalid)?;
+    Ok(Edited {
+        setting: copy(setting)?,
+        title,
+        lines,
+    })
 }
 
 #[cfg(test)]
@@ -470,7 +517,48 @@ mod tests {
     #[test]
     fn the_footer_items_setting_is_the_one_named() {
         let named = [("mode", "edit"), ("id", FOOTER_ITEMS)];
-        assert_eq!(editor_setting(pairs(&named)).unwrap(), FOOTER_ITEMS);
+        let edited = editor_setting(pairs(&named)).unwrap();
+        assert_eq!(edited.setting, FOOTER_ITEMS);
+        assert_eq!(edited.title, "home.setting.footer-items");
+        assert!(!edited.lines);
+    }
+
+    #[test]
+    fn the_status_lines_line_lists_lines_and_its_parts_items() {
+        let line = editor_setting(pairs(&[("id", "home.status.line")])).unwrap();
+        assert_eq!(line.setting, "home.status.line");
+        assert_eq!(line.title, "home.status.line");
+        assert!(line.lines);
+        for (id, title) in [
+            ("home.status.left", "home.status.left"),
+            ("home.status.center", "home.status.center"),
+            ("home.status.right", "home.status.right"),
+        ] {
+            let part = editor_setting(pairs(&[("id", id)])).unwrap();
+            assert_eq!((part.setting.as_str(), part.title), (id, title));
+            assert!(!part.lines, "{id}");
+        }
+        // Of one placement, as the settings of a placed widget are named.
+        let placed = [("id", "home.status@home.page-1/0.line")];
+        let placed = editor_setting(pairs(&placed)).unwrap();
+        assert_eq!(placed.setting, "home.status@home.page-1/0.line");
+        assert!(placed.lines);
+        let placed = editor_setting(pairs(&[("id", "home.status@2.right")])).unwrap();
+        assert!(!placed.lines);
+        for other in ["home.status@.line", "home.statusx.line", "home.status-bar"] {
+            assert_eq!(
+                editor_setting(pairs(&[("id", other)])),
+                Err(Error::Invalid),
+                "{other}"
+            );
+        }
+        // The look of the line is not edited here.
+        let look = [("id", "home.status.paper")];
+        assert_eq!(editor_setting(pairs(&look)), Err(Error::Invalid));
+        assert_eq!(
+            editor_setting(pairs(&[("id", "home.status.")])),
+            Err(Error::Invalid)
+        );
     }
 
     #[test]

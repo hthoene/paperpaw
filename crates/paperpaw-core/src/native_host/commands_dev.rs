@@ -598,6 +598,9 @@ impl<'a> CommandStage<'a> {
     }
 
     /// Reserve the table entries of the items from `start`, all or none.
+    /// Its own frame: a cold path (DEV batches only) whose table borrows and
+    /// requests are not held on `push_batch`'s (the S3 frame limit).
+    #[inline(never)]
     pub(super) fn dev_commit(&mut self, start: usize) -> Result<(), i32> {
         self.dev_commit_radio(start)?;
         if let Err(error) = self.firmware_commit(start) {

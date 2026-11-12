@@ -10,6 +10,7 @@ mod reading;
 mod widget_settings;
 
 use crate::native_host::book_data_steps::{follow_move, follow_removal};
+use crate::native_host::notice;
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -801,7 +802,7 @@ fn register_screens(r: &mut Registrar) -> Result<(), RegisterError> {
     // question every plugin asks (`ask::choice`, `ask::confirm`), unless
     // another screen fills the slot; a folder for a setting: the folder
     // chooser's, whichever plugin fills its slot.
-    static SCREENS: [FixedScreen; 10] = [
+    static SCREENS: [FixedScreen; 11] = [
         FixedScreen::new(
             screens::STATUS_ITEMS,
             "core.status.choose",
@@ -832,6 +833,9 @@ fn register_screens(r: &mut Registrar) -> Result<(), RegisterError> {
         }),
         FixedScreen::new(screens::CONFIRM, "core.confirm.screen", |env, params| {
             Box::new(paperpaw_sdk::ui::confirm::Confirm::new(env, params))
+        }),
+        FixedScreen::new(notice::SCREEN, notice::TITLE, |env, params| {
+            Box::new(notice::Notice::new(env, params))
         }),
         FixedScreen::new(screens::PLACEHOLDER, placeholder::TEXT, |_, _| {
             Box::new(placeholder::PlaceholderScreen)
@@ -864,6 +868,9 @@ fn register_screens(r: &mut Registrar) -> Result<(), RegisterError> {
     r.bind_slot(slots::EDIT_WIDGETS, screens::WIDGET_LIST, Priority::DEFAULT)?;
     r.bind_slot(slots::CHOICE, screens::CHOICE, Priority::FALLBACK)?;
     r.bind_slot(slots::CONFIRM, screens::CONFIRM, Priority::FALLBACK)?;
+    // Notices are the host's (`docs/abi/ui.md`, *Messages*) where no plugin
+    // shows them its own way (#257).
+    r.bind_slot(slots::NOTICE, notice::SCREEN, Priority::FALLBACK)?;
     Ok(())
 }
 

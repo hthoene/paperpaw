@@ -187,6 +187,13 @@ impl<M: Measure> Faces<M> {
         })
     }
 
+    /// The line height of body text: the size times the line spacing, at
+    /// least the font's own distance (below 1.0 that much of it), as Beta 3.
+    #[must_use]
+    pub fn line_height(&self) -> f32 {
+        self.body.1
+    }
+
     /// The same with spaces `factor` of the font's own width (0.5 to 2.0, as the
     /// reader's word spacing setting allows).
     #[must_use]

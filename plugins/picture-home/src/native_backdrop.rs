@@ -7,11 +7,10 @@
 //! (`canvas.draw_image`). So the recipe of interface 6 is met as far as that
 //! reaches: the fitting, the place and the zoom are the rectangle (the same
 //! `native_picture::plan`), the paleness is the blend with the paper below it
-//! (transparency), tiles are drawn one by one. What the facade cannot do is
-//! named in `PORTING-7.md`: the turn of a phone's picture (EXIF), the tone
-//! (brightness and contrast), picture in dots by force, stretching, and tiles
-//! past [`TILES_MAX`].
-use alloc::{string::String, vec::Vec};
+//! (transparency), tiles are the one picture drawn again and again, only those
+//! in the rows a draw may change. What the facade cannot do is named in
+//! `PORTING-7.md`: tiles past [`TILES_MAX`] (or [`TILES_ACROSS_MAX`] in a row).
+use alloc::string::String;
 use paperpaw_sdk::Rect;
 use paperpaw_sdk::native::{
     Error,
@@ -22,9 +21,18 @@ use crate::native_picture::{Fitting, Plan, Recipe, lighten, plan, tone};
 
 /// The first cookie of the requests of this screen (the rest count up from it).
 const COOKIE: u32 = 0x5048_0000;
-/// Tiles drawn at most: each is one call of the host, which reads the picture
-/// again. A picture that would repeat more often is not drawn.
-pub const TILES_MAX: i64 = 64;
+/// Tiles on the screen at most. Each tile a draw meets is one call of the host,
+/// which opens the picture's file on the card again (also for a tile outside the
+/// rows it may change, so those are not asked for: [`Tiles::within`]). A host that
+/// draws the screen whole makes at most this many calls; the X4, which draws in
+/// bands, about this many over a frame plus [`TILES_ACROSS_MAX`] for each band
+/// edge a row of tiles crosses. A picture that would repeat more often is not
+/// drawn (a host-side tiled draw would lift it, `PORTING-7.md`). It was 64 while
+/// every draw asked for every tile and the places were kept in a list.
+pub const TILES_MAX: i64 = 256;
+/// Tiles in a row at most: what a band of the X4 meets once for each row of
+/// tiles in it.
+pub const TILES_ACROSS_MAX: i64 = 32;
 
 /// The side of the host's grid of brightness (8 by 8 cells).
 const GRID: i64 = 8;
@@ -110,6 +118,54 @@ pub struct Place {
     pub height: u32,
 }
 
+/// Where the picture goes: one place, or the tiles that cover the screen (the
+/// first place repeated `across` by `down` times, each a place's width and
+/// height on from the one before). Nothing is allocated for them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tiles {
+    pub first: Place,
+    pub across: u32,
+    pub down: u32,
+}
+
+impl Tiles {
+    const fn one(place: Place) -> Self {
+        Self {
+            first: place,
+            across: 1,
+            down: 1,
+        }
+    }
+
+    /// How many places there are.
+    #[must_use]
+    pub const fn count(&self) -> u64 {
+        self.across as u64 * self.down as u64
+    }
+
+    /// The places that meet the rows `top..bottom` of the screen (the rows a
+    /// draw may change), row by row, left to right.
+    pub fn within(&self, (top, bottom): (i32, i32)) -> impl Iterator<Item = Place> + use<> {
+        let first = self.first;
+        let (width, height) = (i64::from(first.width), i64::from(first.height));
+        let (top, bottom) = (i64::from(top), i64::from(bottom));
+        let across = i64::from(self.across);
+        (0..i64::from(self.down))
+            .map(move |row| i64::from(first.y) + row * height)
+            .filter(move |y| *y < bottom && *y + height > top)
+            .flat_map(move |y| {
+                (0..across).filter_map(move |column| {
+                    Some(Place {
+                        x: i32::try_from(i64::from(first.x) + column * width).ok()?,
+                        y: i32::try_from(y).ok()?,
+                        width: first.width,
+                        height: first.height,
+                    })
+                })
+            })
+    }
+}
+
 /// What to draw: the picture, where, and how.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Drawing {
@@ -124,7 +180,7 @@ pub struct Drawing {
     pub render: Rendering,
     /// 255 minus the opacity: 0 opaque.
     pub transparency: u8,
-    pub places: Vec<Place>,
+    pub tiles: Tiles,
 }
 
 /// How the picture is drawn: by the panel's rule, or in dots or in grays by force.
@@ -327,51 +383,45 @@ impl Backdrop {
         )
     }
 
-    /// Where and how the held picture is drawn.
-    ///
-    /// # Errors
-    /// [`Error::NoMemory`].
-    pub fn drawing(&self) -> Result<Option<Drawing>, Error> {
+    /// Where and how the held picture is drawn; none where no picture is held
+    /// or it would repeat too often. Allocates nothing.
+    #[must_use]
+    pub fn drawing(&self) -> Option<Drawing> {
         let Some(Entry {
             recipe,
             slot: Slot::Held(image, size, _),
             ..
         }) = self.entry.as_ref()
         else {
-            return Ok(None);
+            return None;
         };
         let screen = (recipe.width, recipe.height);
-        let mut places = Vec::new();
         let stretch = recipe.fitting == Fitting::Stretch;
-        if stretch {
-            places.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
-            places.push(Place {
+        let tiles = if stretch {
+            Tiles::one(Place {
                 x: 0,
                 y: 0,
                 width: u32::from(screen.0),
                 height: u32::from(screen.1),
-            });
+            })
         } else {
-            tiles(recipe, plan(recipe, *size), &mut places)?;
-        }
-        if places.is_empty() {
-            return Ok(None);
-        }
+            tiles(recipe, plan(recipe, *size))?
+        };
         let covers = matches!(recipe.fitting, Fitting::Fill | Fitting::Stretch);
         let render = match (recipe.dotted, recipe.grays) {
             (true, _) => Rendering::Dots,
             (_, true) => Rendering::Grays,
             _ => Rendering::Panel,
         };
-        Ok(Some(Drawing {
+        Some(Drawing {
             image: *image,
             screen,
             paper: !covers || recipe.lighten > 0,
             stretch,
             render,
             transparency: transparency(recipe.lighten),
-            places,
-        }))
+            tiles,
+        })
     }
 }
 
@@ -399,8 +449,9 @@ pub fn transparency(percent: u32) -> u8 {
 }
 
 /// The places of the picture `plan` puts on the screen: one, or the tiles that
-/// cover it (the first starting where the place says, as interface 6 made it).
-fn tiles(recipe: &Recipe, plan: Plan, places: &mut Vec<Place>) -> Result<(), Error> {
+/// cover it (the first starting where the place says, as interface 6 made it);
+/// none for more tiles than [`TILES_MAX`] or [`TILES_ACROSS_MAX`] across.
+fn tiles(recipe: &Recipe, plan: Plan) -> Option<Tiles> {
     let one = |x: i32, y: i32| Place {
         x,
         y,
@@ -408,9 +459,7 @@ fn tiles(recipe: &Recipe, plan: Plan, places: &mut Vec<Place>) -> Result<(), Err
         height: plan.height,
     };
     if recipe.fitting != Fitting::Tile {
-        places.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
-        places.push(one(plan.left, plan.top));
-        return Ok(());
+        return Some(Tiles::one(one(plan.left, plan.top)));
     }
     let (w, h) = (i64::from(recipe.width), i64::from(recipe.height));
     let (pw, ph) = (i64::from(plan.width.max(1)), i64::from(plan.height.max(1)));
@@ -419,21 +468,14 @@ fn tiles(recipe: &Recipe, plan: Plan, places: &mut Vec<Place>) -> Result<(), Err
     let y0 = i64::from(plan.top).rem_euclid(ph) - ph;
     let across = (w - x0 + pw - 1) / pw;
     let down = (h - y0 + ph - 1) / ph;
-    if across * down > TILES_MAX {
-        return Ok(());
+    if across * down > TILES_MAX || across > TILES_ACROSS_MAX {
+        return None;
     }
-    places
-        .try_reserve_exact((across * down) as usize)
-        .map_err(|_| Error::NoMemory)?;
-    for row in 0..down {
-        for column in 0..across {
-            let (x, y) = (x0 + column * pw, y0 + row * ph);
-            // x0 and y0 are above -pw and -ph, so these are on the screen's side
-            // of what an i32 holds.
-            places.push(one(x as i32, y as i32));
-        }
-    }
-    Ok(())
+    Some(Tiles {
+        first: one(i32::try_from(x0).ok()?, i32::try_from(y0).ok()?),
+        across: u32::try_from(across).ok()?,
+        down: u32::try_from(down).ok()?,
+    })
 }
 
 #[cfg(test)]

@@ -19,6 +19,8 @@ pub const PLUGINS_CHANGED: u32 = 15;
 pub const SETTING_CHANGED: u32 = 14;
 /// A picture the host decoded for the screen is ready (`native_screen`).
 pub const IMAGE_READY: u32 = 16;
+/// The picker of the picture or the widget over the page (`native_picker`).
+pub const PICK: u32 = 17;
 
 const GROUP: &str = "sleep.group";
 const SHOW: [&str; 7] = [
@@ -110,9 +112,10 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
         let mut spec = SpecDecl::new(name, Kind::Text(""), GROUP, title);
         spec.help = help;
         d.spec(spec)?;
-        // BLOCKED (PORTING-7.md): interface 6 picks these with its own screen
-        // (`pick-overlay`, the widget or the picture); until that is ported they
-        // have no editor, so that no row opens a screen nobody answers.
+        // Both picked on the picker (the folder, a preset, a widget).
+        let mut extra = ExtraDecl::new(name);
+        extra.editor = Some(EditorDecl::Screen("pick-overlay"));
+        d.extra(extra)?;
     }
     let mut position = SpecDecl::new(
         "overlay-position",
@@ -165,10 +168,15 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The sleep screen (the screen that picks the picture over the page is blocked).
+/// The picker of what goes over the page and the sleep screen.
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
+    d.screen(ScreenDecl::new(
+        "pick-overlay",
+        "sleep.setting.overlay-picture",
+        PICK,
+    ))?;
     // An overlay: the host draws the page below first, which the modes that
     // leave it (`page`, `overlay`) need; the screen never draws it itself. A
     // locked device never shows the page below it (`ui.md` section 1.2).

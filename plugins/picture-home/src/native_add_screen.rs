@@ -5,7 +5,8 @@
 //! placements reset, the message and the way back. Any error drops everything
 //! staged (`docs/abi/screens-input.md` 2.1), so a choice is all or nothing.
 //!
-//! Not here (`PORTING-7.md`): the icons of the rows (#517).
+//! Not here (`PORTING-7.md`): the icons of the rows (the kit's list renderer
+//! draws none).
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled,
