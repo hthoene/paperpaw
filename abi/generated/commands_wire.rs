@@ -264,6 +264,8 @@ pub const COMMAND_SET_HINT_ACTION_MAX_BYTES: usize = 128;
 pub const COMMAND_SET_HINT_LABEL_MAX_BYTES: usize = 64;
 /// Wire tag of the `command.firmware_dual_boot` command.
 pub const COMMAND_FIRMWARE_DUAL_BOOT_TAG: u32 = 1595;
+/// Wire tag of the `command.redraw_area` command.
+pub const COMMAND_REDRAW_AREA_TAG: u32 = 1596;
 pub const COMMAND_SET_SETTING_TAG: u32 = 4;
 
 /// A command borrowed from one validated batch. No Rust value crosses the ABI.
@@ -671,6 +673,19 @@ pub enum Command<'a> {
         request: u32,
         /// Little-endian u32.
         mode: u32,
+    },
+    /// The `command.redraw_area` command (`docs/abi/registry.md`).
+    RedrawArea {
+        /// Little-endian u32.
+        mode: u32,
+        /// Little-endian i32.
+        x: i32,
+        /// Little-endian i32.
+        y: i32,
+        /// Little-endian u32.
+        width: u32,
+        /// Little-endian u32.
+        height: u32,
     },
 }
 
@@ -1377,6 +1392,16 @@ pub fn commands_decode(bytes: &[u8]) -> Result<CommandBatch<'_>, i32> {
                     mode: u32::from_le_bytes(scalar(body.take(4)?)),
                 }
             }
+            COMMAND_REDRAW_AREA_TAG => {
+                body.bitmap()?;
+                Command::RedrawArea {
+                    mode: u32::from_le_bytes(scalar(body.take(4)?)),
+                    x: i32::from_le_bytes(scalar(body.take(4)?)),
+                    y: i32::from_le_bytes(scalar(body.take(4)?)),
+                    width: u32::from_le_bytes(scalar(body.take(4)?)),
+                    height: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
             _ => return Err(-1),
         });
     }
@@ -1691,6 +1716,7 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
             Ok((COMMAND_SET_HINT_TAG, len))
         }
         Command::FirmwareDualBoot { .. } => Ok((COMMAND_FIRMWARE_DUAL_BOOT_TAG, 1 + 8)),
+        Command::RedrawArea { .. } => Ok((COMMAND_REDRAW_AREA_TAG, 1 + 20)),
     }
 }
 
@@ -2081,6 +2107,24 @@ pub fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize
                     out[offset..offset + 4].copy_from_slice(&request.to_le_bytes());
                     offset += 4;
                     out[offset..offset + 4].copy_from_slice(&mode.to_le_bytes());
+                    offset += 4;
+                }
+                Command::RedrawArea {
+                    mode,
+                    x,
+                    y,
+                    width,
+                    height,
+                } => {
+                    out[offset..offset + 4].copy_from_slice(&mode.to_le_bytes());
+                    offset += 4;
+                    out[offset..offset + 4].copy_from_slice(&x.to_le_bytes());
+                    offset += 4;
+                    out[offset..offset + 4].copy_from_slice(&y.to_le_bytes());
+                    offset += 4;
+                    out[offset..offset + 4].copy_from_slice(&width.to_le_bytes());
+                    offset += 4;
+                    out[offset..offset + 4].copy_from_slice(&height.to_le_bytes());
                     offset += 4;
                 }
                 Command::SetSetting { .. } => {}
