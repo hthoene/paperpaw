@@ -508,12 +508,28 @@ mod x4 {
         // The test image says what it offers the linked plugins (#2595).
         #[cfg(feature = "test-image")]
         info!("native: families offered: {wired:?}");
-        let offered = metadata::Host {
+        let offer = |wired| metadata::Host {
             abi_major: HOST.abi_major,
             minor: HOST.minor,
             profile: super::PROFILE,
             services: leak(services(wired)),
             features: leak(features(wired)),
+        };
+        // The plugin jobs (installs, checks) of the kernel: given the same
+        // offer, so that a check and a load agree. `uses.install` is offered
+        // only where the kernel took the host: its commands then work.
+        #[cfg(feature = "ppn5")]
+        let offered = {
+            let with = offer(paperpaw_x4::native_offer::Wired {
+                installs: true,
+                ..wired
+            });
+            if kernel.set_plugin_host(HOST, with, &[]) {
+                with
+            } else {
+                warn!("native: the plugin jobs are not wired (no firmware host)");
+                offer(wired)
+            }
         };
         // The loader's own table of handles and callback-depth counter (one of
         // each for the device), not a second: the kernel refuses a plugin that

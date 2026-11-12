@@ -1023,6 +1023,13 @@ fn kernel(
         .setting_default(&paperpaw_plugin_wifi::WHILE_CHARGING, true);
     #[cfg(feature = "bluetooth")]
     let builder = builder.bluetooth(bluetooth::LINKS as u8);
+    // The kernel's plugin jobs queue on a firmware host (#2654): one that
+    // refuses firmware jobs, as the X4's updates stay with `ota`.
+    #[cfg(feature = "ppn5")]
+    let builder = match &firmware {
+        Some(firmware) => builder.firmware_host(Box::new(ota::PluginJobsHost::new(firmware))),
+        None => builder,
+    };
     let builder = match firmware {
         Some(firmware) => builder.firmware(firmware),
         None => builder,
