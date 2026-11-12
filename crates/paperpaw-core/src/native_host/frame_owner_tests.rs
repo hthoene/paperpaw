@@ -94,3 +94,19 @@ fn a_frame_pushed_for_another_services_type_gives_no_context() {
         assert_eq!(context_of(other), Some(ctx(1)));
     });
 }
+
+#[test]
+fn a_recorded_frame_notes_its_own_host_calls_only() {
+    let calls = Cell::new(false);
+    // Outside any frame, and in a frame that records nothing: no effect.
+    note_host_call();
+    within(1, ctx(1), table(), note_host_call);
+    within_recorded(1, ctx(1), table(), &calls, || {
+        // Another plugin's code, called from this one, is not this one's.
+        within(2, ctx(2), table(), note_host_call);
+        assert!(!calls.get());
+        note_host_call();
+    });
+    assert!(calls.get());
+    assert_eq!(owner(), None);
+}
