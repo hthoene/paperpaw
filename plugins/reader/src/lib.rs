@@ -94,6 +94,7 @@ pub mod native_notes;
 pub mod native_open;
 pub mod native_pages;
 pub mod native_plugin;
+pub mod native_script_hint;
 pub mod native_search;
 pub mod native_search_view;
 pub mod native_selection;

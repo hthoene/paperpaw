@@ -315,6 +315,7 @@ impl View {
                 // The path stands for a title the format does not give.
                 text::copy(native_place::title_of(meta.title(), &found.path)),
                 book_language(host, meta.language()),
+                crate::native_script_hint::declared(meta.language()),
             ),
             Err(Error::NoMemory) => {
                 Self::forget(host, docs, id);
@@ -325,7 +326,7 @@ impl View {
                 return Ok(Self::message("reader.error"));
             }
         };
-        let (sections, title, language) = sections;
+        let (sections, title, language, script) = sections;
         let (Ok(title), Ok(language)) = (title, language) else {
             Self::forget(host, docs, id);
             return Err(Error::NoMemory);
@@ -380,6 +381,15 @@ impl View {
             status: native_status::State::default(),
         };
         open.begin(host, root == Root::Library);
+        // The packs of letters the reading font lacks, asked for once a book.
+        let book = crate::native_script_hint::Book {
+            id,
+            sections,
+            whole_pages,
+            path: &open.path,
+            script,
+        };
+        crate::native_script_hint::ask(host, docs, &book);
         // The host's book events start here (`document.md` 2.4); a book whose
         // first page cannot be laid out is told with its first draw.
         open.announce(host, docs);
@@ -607,6 +617,22 @@ impl View {
             // and it is given back for another one.
             Body::Preparing(book) => Some((book.found.path.as_str(), root_code(book.found.root()))),
             Body::Message(_) => None,
+        }
+    }
+
+    /// The open book as the script hint reads it (`native_script_hint`), with
+    /// the script of its language (the UI's where it declares none, as Beta 3
+    /// asked again once letters came).
+    pub(crate) fn hint_book(&self) -> Option<crate::native_script_hint::Book<'_>> {
+        match &self.body {
+            Body::Open(open) => Some(crate::native_script_hint::Book {
+                id: open.id,
+                sections: open.sections,
+                whole_pages: open.whole_pages,
+                path: &open.path,
+                script: crate::native_script_hint::declared(&open.language),
+            }),
+            Body::Message(_) | Body::Preparing(_) => None,
         }
     }
 

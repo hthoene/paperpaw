@@ -848,6 +848,23 @@ impl NativeReader {
         }
     }
 
+    /// The store's answer for a pack of letters asked for: a book whose letters
+    /// came is laid out again and its pages counted anew (`native_script_hint`).
+    fn pack_answered(
+        &mut self,
+        host: &Host<'_>,
+        plugin: &str,
+        outcome: paperpaw_sdk::native::commands::PluginOutcome,
+    ) -> Result<(), Error> {
+        let Some(docs) = &self.docs else {
+            return Ok(());
+        };
+        if crate::native_script_hint::answered(host, docs, self.screens.all(), plugin, outcome) {
+            self.start_count(host);
+        }
+        Ok(())
+    }
+
     /// The UI service, opened at the first need.
     fn open_ui(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.ui.is_none() {
@@ -924,7 +941,8 @@ impl Plugin for NativeReader {
             kinds::SettingChanged,
             kinds::Spoken,
             kinds::StackChanged,
-            kinds::DocumentChanged
+            kinds::DocumentChanged,
+            kinds::PluginAnswered
         ) else {
             return Ok(());
         };
@@ -943,6 +961,11 @@ impl Plugin for NativeReader {
             Event::DocumentChanged { .. } if token == DOCUMENT_CHANGED => {
                 self.document_changed(host);
                 Ok(())
+            }
+            Event::PluginAnswered {
+                plugin, outcome, ..
+            } if token == crate::declarations::PLUGIN_ANSWERED => {
+                self.pack_answered(host, plugin, outcome)
             }
             Event::BookMoved { from, path, .. } if token == BOOK_MOVED => {
                 self.moved(host, from, path)
