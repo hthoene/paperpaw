@@ -76,6 +76,14 @@ fn pair(ptr: *const u8, len: usize, max: usize) -> Result<(), i32> {
     Ok(())
 }
 
+/// Whether a nonempty output range shares a byte with `path` (both already
+/// bounded by [`pair`]).
+fn overlaps(path: &[u8], out: *const u8, cap: usize) -> bool {
+    let (start, end) = (path.as_ptr() as usize, path.as_ptr() as usize + path.len());
+    let at = out as usize;
+    cap != 0 && !path.is_empty() && at < end && start < at + cap
+}
+
 unsafe fn input<'a>(bytes: PpBytes, max: usize) -> Result<&'a [u8], i32> {
     pair(bytes.ptr, bytes.len, max)?;
     // SAFETY: pair bounds were checked and the caller guarantees live input.
@@ -143,9 +151,11 @@ pub(crate) unsafe fn size(
 /// held on the heap, #248): its bytes are zeroed first (it may be
 /// uninitialized), and the whole of it again on a read error, as the adapter
 /// may use it as scratch (sectors, directory entries) before it fails. On
-/// success the bytes after `count` are zeros. A refusal before the read (the
-/// path, the buffer, the route) leaves the buffer untouched (`files.md` 1:
-/// `out` is unspecified on an error, the host leaves zeros).
+/// success the bytes after `count` are zeroed too, for the same reason. A
+/// refusal before the read (the path, the buffer, the route) leaves the
+/// buffer untouched (`files.md` 1: `out` is unspecified on an error). An `out`
+/// that overlaps the path is `ERR_INVALID`: the path stays borrowed while
+/// `out` is written.
 ///
 /// # Safety
 /// Nonempty input must be live and readable; nonempty output must be live,
@@ -163,7 +173,11 @@ pub(crate) unsafe fn read_at(
         // SAFETY: the caller guarantees live input storage.
         let path = unsafe { path(root, bytes) }?;
         pair(out.ptr, out.cap, MAX_DATA)?;
-        // SAFETY: validated bounds and the caller's exclusive output contract.
+        if overlaps(path, out.ptr, out.cap) {
+            return Err(ERR_INVALID);
+        }
+        // SAFETY: validated bounds, disjoint from the path just above, and the
+        // caller's exclusive output contract.
         let out = unsafe { buffers::buffer_out(out, MAX_DATA) }?;
         with_adapter(scope, owner, None, format.map(|f| (f, root)), |adapter| {
             out.fill(MaybeUninit::new(0));
@@ -171,7 +185,12 @@ pub(crate) unsafe fn read_at(
             // `MaybeUninit<u8>` has the size and alignment of `u8`.
             let into = unsafe { &mut *(core::ptr::from_mut(out) as *mut [u8]) };
             match adapter.read_at(root, path, offset, into) {
-                Ok(count) if count <= into.len() => i32::try_from(count).map_err(|_| ERR_INVALID),
+                Ok(count) if count <= into.len() => {
+                    if let Some(rest) = into.get_mut(count..) {
+                        rest.fill(0);
+                    }
+                    i32::try_from(count).map_err(|_| ERR_INVALID)
+                }
                 Ok(_) => {
                     into.fill(0);
                     Err(ERR_INVALID)

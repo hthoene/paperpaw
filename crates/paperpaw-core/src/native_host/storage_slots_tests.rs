@@ -16,6 +16,8 @@ pub(super) struct Backend {
     pub(super) fail: Rc<Cell<Option<StorageError>>>,
     bad_count: Rc<Cell<bool>>,
     partial_error: Rc<Cell<bool>>,
+    /// The adapter writes over the whole buffer before a good read.
+    scribble: Rc<Cell<bool>>,
 }
 
 impl Backend {
@@ -36,6 +38,9 @@ impl Storage for Backend {
                 *first = 0xee;
             }
             return Err(StorageError::Io);
+        }
+        if self.scribble.get() {
+            out.fill(0xee);
         }
         self.files.read_at(path, offset, out)
     }
@@ -726,6 +731,59 @@ fn a_short_read_returns_its_count_and_zeros_the_rest() {
             4
         );
         assert_eq!(out, *b"keep\0\0\0\0");
+    });
+}
+
+#[test]
+fn an_adapter_that_used_the_buffer_as_scratch_leaves_zeros_after_the_count() {
+    let backend = Backend::default();
+    // Larger than the small-file cache, so the read reaches the backend.
+    backend
+        .files
+        .write(FILE, &alloc::vec![0x5a; MAX_DATA + 1])
+        .unwrap();
+    backend.scribble.set(true);
+    scoped(&backend, |scope, _| {
+        let mut out = [0xa5; 4];
+        let at = MAX_DATA as u64;
+        // SAFETY: valid disjoint input and exclusive initialized output.
+        assert_eq!(
+            unsafe { read_at(scope, OWNER, None, 0, bytes(b"state"), at, output(&mut out)) },
+            1
+        );
+        // The scratch bytes (0xee) after the one byte read are gone.
+        assert_eq!(out, [0x5a, 0, 0, 0]);
+    });
+}
+
+#[test]
+fn an_output_that_overlaps_the_path_is_invalid_and_untouched() {
+    let backend = Backend::default();
+    backend.files.write(FILE, b"keep").unwrap();
+    scoped(&backend, |scope, _| {
+        let mut both = *b"state....";
+        let at = both.as_mut_ptr();
+        let path = PpBytes { ptr: at, len: 5 };
+        // SAFETY: inside `both` (9 bytes); the overlap is what is refused.
+        let over = PpBuffer {
+            ptr: unsafe { at.add(3) },
+            cap: 4,
+        };
+        // SAFETY: both ranges are live; the host must refuse the overlap.
+        assert_eq!(
+            unsafe { read_at(scope, OWNER, None, 0, path, 0, over) },
+            ERR_INVALID
+        );
+        assert_eq!(&both, b"state....");
+        // Right after the path is no overlap.
+        // SAFETY: inside `both`, disjoint from the path's five bytes.
+        let next = PpBuffer {
+            ptr: unsafe { at.add(5) },
+            cap: 4,
+        };
+        // SAFETY: disjoint live input and exclusive output.
+        assert_eq!(unsafe { read_at(scope, OWNER, None, 0, path, 0, next) }, 4);
+        assert_eq!(&both, b"statekeep");
     });
 }
 
