@@ -92,12 +92,20 @@ pub struct Requested<'a> {
     pub required: bool,
 }
 
-impl Checked<'_> {
+/// The declared services of validated metadata, as the one span they were
+/// checked in: a host keeps it where the metadata outlives it (a linked
+/// plugin's, in the program's read-only data) instead of a copy.
+#[derive(Clone, Copy, Debug)]
+pub struct ServiceList<'a> {
+    bytes: &'a [u8],
+}
+
+impl<'a> ServiceList<'a> {
     /// Declared services in canonical order, borrowing the validated bytes.
     /// Repeated iteration allocates nothing and retains no per-service array.
-    pub fn services(&self) -> impl Iterator<Item = Declared<'_>> {
+    pub fn iter(&self) -> impl Iterator<Item = Declared<'a>> + use<'a> {
         let mut cursor = Cursor {
-            bytes: self.service_bytes,
+            bytes: self.bytes,
             at: 0,
         };
         core::iter::from_fn(move || {
@@ -114,6 +122,23 @@ impl Checked<'_> {
                 semantic_revision,
             })
         })
+    }
+}
+
+impl<'a> Checked<'a> {
+    /// The declared services, as long as the metadata they were read from.
+    pub fn service_list(&self) -> ServiceList<'a> {
+        ServiceList {
+            bytes: self.service_bytes,
+        }
+    }
+}
+
+impl Checked<'_> {
+    /// Declared services in canonical order, borrowing the validated bytes.
+    /// Repeated iteration allocates nothing and retains no per-service array.
+    pub fn services(&self) -> impl Iterator<Item = Declared<'_>> {
+        self.service_list().iter()
     }
 
     /// Available requested feature keys in canonical order, without allocation.

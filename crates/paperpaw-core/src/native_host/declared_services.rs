@@ -1,7 +1,9 @@
-//! Admission-owned service requirements. No metadata borrow survives admission.
+//! Admission-owned service requirements. A loaded plugin's are copied (no
+//! borrow of its metadata survives admission); a linked plugin's metadata is
+//! the program's read-only data, and its list is borrowed from there (#248).
 use super::admitted_features::AdmittedFeatures;
 use alloc::{boxed::Box, string::String, vec::Vec};
-use paperpaw_native::metadata::{Checked, Declared};
+use paperpaw_native::metadata::{Checked, Declared, ServiceList};
 
 /// Why copying admission requirements failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,11 +22,22 @@ struct Entry {
     revision: u16,
 }
 
-/// Host-only copy of checked metadata service requirements.
+/// Where the requirements are kept.
+#[derive(Debug)]
+enum Kept {
+    /// Copied from metadata that may go (a loaded plugin's).
+    Copied {
+        keys: Box<str>,
+        entries: Box<[Entry]>,
+    },
+    /// Checked metadata kept for the whole run (a linked plugin's).
+    Linked(ServiceList<'static>),
+}
+
+/// Host-only service requirements from checked metadata.
 #[derive(Debug)]
 pub struct DeclaredServices {
-    keys: Box<str>,
-    entries: Box<[Entry]>,
+    kept: Kept,
     features: AdmittedFeatures,
 }
 
@@ -33,10 +46,32 @@ impl DeclaredServices {
     #[must_use]
     pub fn none() -> Self {
         Self {
-            keys: Box::default(),
-            entries: Box::default(),
+            kept: Kept::Copied {
+                keys: Box::default(),
+                entries: Box::default(),
+            },
             features: AdmittedFeatures::NONE,
         }
+    }
+
+    /// The requirements of a linked plugin's checked metadata, borrowed: the
+    /// metadata is the program's read-only data. The list is checked as a
+    /// copy would be; nothing is allocated.
+    ///
+    /// # Errors
+    /// Returns Invalid for an unordered or oversized list.
+    pub(crate) fn linked(services: ServiceList<'static>) -> Result<Self, Error> {
+        let mut last: Option<&str> = None;
+        for (count, Declared { key, .. }) in services.iter().enumerate() {
+            if count == MAX_SERVICES || !key_ok(key) || last.is_some_and(|last| last >= key) {
+                return Err(Error::Invalid);
+            }
+            last = Some(key);
+        }
+        Ok(Self {
+            kept: Kept::Linked(services),
+            features: AdmittedFeatures::NONE,
+        })
     }
 
     /// Retain service requirements and available features from checked metadata.
@@ -81,14 +116,9 @@ impl DeclaredServices {
             semantic_revision: revision,
         } in services
         {
-            if entries.len() == 32
-                || key.is_empty()
-                || key.len() > 128
-                || entries.last().is_some_and(|entry| {
-                    &keys[usize::from(entry.start)
-                        ..usize::from(entry.start) + usize::from(entry.len)]
-                        >= key
-                })
+            if entries.len() == MAX_SERVICES
+                || !key_ok(key)
+                || entries.last().is_some_and(|entry| entry.key(&keys) >= key)
             {
                 return Err(Error::Invalid);
             }
@@ -104,8 +134,10 @@ impl DeclaredServices {
             keys.push_str(key);
         }
         Ok(Self {
-            keys: keys.into_boxed_str(),
-            entries: entries.into_boxed_slice(),
+            kept: Kept::Copied {
+                keys: keys.into_boxed_str(),
+                entries: entries.into_boxed_slice(),
+            },
             features: AdmittedFeatures::NONE,
         })
     }
@@ -113,18 +145,40 @@ impl DeclaredServices {
     /// Number of declared service keys admitted for this plugin.
     #[must_use]
     pub fn count(&self) -> usize {
-        self.entries.len()
+        match &self.kept {
+            Kept::Copied { entries, .. } => entries.len(),
+            Kept::Linked(services) => services.iter().count(),
+        }
     }
 
     pub(crate) fn declared(&self, key: &str) -> Option<(u16, u16)> {
-        self.entries
-            .iter()
-            .find(|entry| {
-                &self.keys
-                    [usize::from(entry.start)..usize::from(entry.start) + usize::from(entry.len)]
-                    == key
-            })
-            .map(|entry| (entry.major, entry.revision))
+        match &self.kept {
+            Kept::Copied { keys, entries } => entries
+                .iter()
+                .find(|entry| entry.key(keys) == key)
+                .map(|entry| (entry.major, entry.revision)),
+            Kept::Linked(services) => services
+                .iter()
+                .find(|declared| declared.key == key)
+                .map(|declared| (declared.major, declared.semantic_revision)),
+        }
+    }
+}
+
+/// Declared services a plugin may have at most.
+const MAX_SERVICES: usize = 32;
+
+/// A key within the admission bounds (1 to 128 bytes).
+fn key_ok(key: &str) -> bool {
+    (1..=128).contains(&key.len())
+}
+
+impl Entry {
+    /// Its key in `keys`.
+    fn key<'k>(&self, keys: &'k str) -> &'k str {
+        let start = usize::from(self.start);
+        keys.get(start..start + usize::from(self.len))
+            .unwrap_or_default()
     }
 }
 
@@ -177,5 +231,43 @@ mod tests {
         assert_eq!(copy([(key.as_str(), 1, 0)]).unwrap().count(), 1);
         let key = "x".repeat(129);
         assert_eq!(copy([(key.as_str(), 1, 0)]).unwrap_err(), Error::Invalid);
+    }
+
+    #[test]
+    fn a_linked_list_is_borrowed_and_answers_as_its_copy() {
+        use paperpaw_native::metadata::{self, Host, Profile, Service};
+        static BYTES: &[u8] = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../plugins/widgets/native/metadata.host.bin"
+        ));
+        let services =
+            ["core.registry", "core.ui", "core.library", "core.files"].map(|key| Service {
+                key,
+                major: 1,
+                semantic_revision: 0,
+                min_table_bytes: 0,
+            });
+        let host = Host {
+            abi_major: 7,
+            minor: 1,
+            profile: Profile {
+                target: "linux-x86_64-sysv64-le",
+                entry_layout: 1,
+                entry_bytes: 32,
+            },
+            services: &services,
+            features: &[],
+        };
+        let checked = metadata::check(BYTES, &host).unwrap();
+        let linked = DeclaredServices::linked(checked.service_list()).unwrap();
+        let copied = DeclaredServices::try_from_iter(checked.services()).unwrap();
+        assert!(matches!(linked.kept, Kept::Linked(_)), "nothing copied");
+        assert!(linked.count() > 0);
+        assert_eq!(linked.count(), copied.count());
+        for declared in checked.services() {
+            assert_eq!(linked.declared(declared.key), copied.declared(declared.key));
+            assert!(linked.declared(declared.key).is_some());
+        }
+        assert_eq!(linked.declared("core.nothing"), None);
     }
 }

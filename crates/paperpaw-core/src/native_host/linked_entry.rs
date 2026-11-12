@@ -26,7 +26,8 @@ pub(crate) struct Admitted {
 }
 
 impl Admitted {
-    /// Copy validated service admission before retaining the linked factory.
+    /// Keep validated service admission before retaining the linked factory:
+    /// the list is borrowed from the static metadata, not copied (#248).
     /// This constructs only the host; the registration transaction runs make.
     ///
     /// # Safety
@@ -44,7 +45,7 @@ impl Admitted {
         image: (*const u8, usize),
     ) -> Result<shell::Hosted<S, ()>, shell::Error> {
         let declared =
-            shell::DeclaredServices::try_from_iter(self.metadata.services()).map_err(|error| {
+            shell::DeclaredServices::linked(self.metadata.service_list()).map_err(|error| {
                 match error {
                     shell::DeclaredServicesError::Invalid => {
                         shell::Error::Status(paperpaw_native::host_glue::ERR_INVALID)
@@ -83,7 +84,7 @@ impl Admitted {
         seat: super::resources::OwnerSeat,
     ) -> Result<shell::Hosted<S, ()>, shell::Error> {
         let declared =
-            shell::DeclaredServices::try_from_iter(self.metadata.services()).map_err(|error| {
+            shell::DeclaredServices::linked(self.metadata.service_list()).map_err(|error| {
                 match error {
                     shell::DeclaredServicesError::Invalid => {
                         shell::Error::Status(paperpaw_native::host_glue::ERR_INVALID)
