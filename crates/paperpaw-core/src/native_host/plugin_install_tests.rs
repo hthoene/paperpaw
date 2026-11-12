@@ -1006,10 +1006,14 @@ fn the_buffer_is_let_go_before_the_question_and_the_swap() {
     };
     let mut asked = false;
     while job.phase != Phase::Swapping {
-        if let JobStep::Ask(_) = job.step(&env) {
-            assert_eq!(job.buf.capacity(), 0, "not held while the user decides");
-            asked = true;
-            job.answer(Answer::Yes);
+        match job.step(&env) {
+            JobStep::Ask(_) => {
+                assert_eq!(job.buf.capacity(), 0, "not held while the user decides");
+                asked = true;
+                job.answer(Answer::Yes);
+            }
+            JobStep::Done(done) => panic!("ended before the swap: {done:?}"),
+            _ => {}
         }
         if matches!(job.phase, Phase::Marks | Phase::Journal | Phase::Swapping) {
             assert_eq!(job.buf.capacity(), 0, "not held through the swap");
