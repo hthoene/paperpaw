@@ -225,7 +225,7 @@ impl ImageOwner for Image {
 }
 
 /// A declaration store holding `rows`, all of plugin `nat`.
-fn declarations(rows: &[Record<'_>]) -> NativeDeclarations {
+pub(super) fn declarations(rows: &[Record<'_>]) -> NativeDeclarations {
     let mut allocations = Allocations::default();
     let mut pending = PendingDeclarations::new(
         Id::new_static("nat"),

@@ -530,6 +530,29 @@ fn every_rows_governs_flag_is_what_settings_governs_says() {
 }
 
 #[test]
+fn the_slider_flag_is_set_for_int_settings_that_ask_for_one_and_no_other() {
+    let kernel = kernel();
+    let settings = &kernel.shared.settings;
+    let rows = pages(&kernel, schema::OP_SETTINGS, "");
+    let mut sliders = 0;
+    for row in rows.iter().filter(|row| row.starts_with("setting ")) {
+        let key = row.split(' ').nth(1).unwrap();
+        let spec = settings
+            .specs()
+            .find(|spec| spec.id.as_str() == key)
+            .unwrap();
+        let wanted =
+            spec.extra().slider && matches!(spec.kind, paperpaw_sdk::SettingKind::Int { .. });
+        assert_eq!(flags_of(row) & 2048 != 0, wanted, "{key}");
+        sliders += usize::from(wanted);
+    }
+    // The kernel's own margins and sizes are set by eye, with sliders.
+    assert!(sliders > 0);
+    // `cfg.size` is an int without one: a number to step.
+    assert_eq!(flags_of(row(&rows, "cfg.size")) & 2048, 0);
+}
+
+#[test]
 fn secrets_grants_and_values_follow_slot_five() {
     let mut kernel = kernel();
     let settings = &mut kernel.shared.settings;
