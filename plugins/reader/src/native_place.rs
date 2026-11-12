@@ -202,7 +202,12 @@ pub fn wall_seconds(host: &Host<'_>) -> u64 {
         .unwrap_or(0)
 }
 
-/// Writes the place of the page that starts at `at`; whether it was kept.
+/// Writes the place of the page that starts at `at`.
+///
+/// # Errors
+///
+/// The library's refusal (`library.md` section 2.2), or [`Error::Invalid`] for a
+/// path that is no book reference.
 pub fn save(
     host: &Host<'_>,
     library: &Library,
@@ -210,15 +215,40 @@ pub fn save(
     at: (u32, u32),
     (ppm, conversion, updated): (u32, u64, u64),
     (input, out): (&mut [u8], &mut [u8]),
-) -> bool {
-    let Ok(book) = BookRef::path(path) else {
-        return false;
-    };
+) -> Result<(), Error> {
+    let book = BookRef::path(path).map_err(|_| Error::Invalid)?;
     let write = PositionWrite::new(at.0, at.1)
         .progress_ppm(ppm.min(1_000_000))
         .conversion(conversion)
         .updated(updated);
-    library.set_position(host, book, &write, input, out).is_ok()
+    library
+        .set_position(host, book, &write, input, out)
+        .map(|_| ())
+}
+
+/// What the reader does about a place the library refused to keep.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Refused {
+    /// Nothing said: the next save tries again (a book the library has not
+    /// listed yet, or a library busy with something else).
+    Retry,
+    /// Said with this text.
+    Say(&'static str),
+}
+
+/// What a refusal of the place (`error`) does while reading, or when the book
+/// `closing` (no later save tries again then). Only a lack of memory says the
+/// memory may be full; a full card (`NoSpace`, `library.md` section 6: the
+/// place is a few lines, so never too large) says so; anything else, also a
+/// full table (`Full`), says just that the place was not saved.
+#[must_use]
+pub const fn place_refused(error: Error, closing: bool) -> Refused {
+    match error {
+        Error::NotFound | Error::Busy if !closing => Refused::Retry,
+        Error::NoMemory => Refused::Say("reader.not-saved"),
+        Error::NoSpace => Refused::Say("reader.not-saved-full"),
+        _ => Refused::Say("reader.not-saved-plain"),
+    }
 }
 
 #[cfg(test)]

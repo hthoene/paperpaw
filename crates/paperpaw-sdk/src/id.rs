@@ -238,6 +238,18 @@ impl Id {
         }
     }
 
+    /// [`Id::parse`] of text kept for the whole run (a built-in key map's):
+    /// checked, then borrowed, so nothing is allocated (#248).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn parse_static(id: &'static str) -> Result<Id, InvalidId> {
+        if is_valid(id) {
+            Ok(Id(Text::borrowed(id)))
+        } else {
+            Err(InvalidId)
+        }
+    }
+
     /// [`Id::parse`] that never aborts on a full heap, for hosts that must
     /// not abort when memory runs out (the X4's plugin admission): checks
     /// the id first ([`IdError::Invalid`]), then copies it in one allocation

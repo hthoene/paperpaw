@@ -17,7 +17,7 @@ use crate::{
     native_marks::{self, CanvasPen, Gauge, Marks, Painted},
     native_open::{self, Place, Start},
     native_pages::{self, Trail, Turn},
-    native_place::{self, Progress},
+    native_place::{self, Progress, Refused},
     native_speech::Speaker,
     native_status,
     native_typeset::{Faces, HostFonts},
@@ -916,12 +916,12 @@ impl Open {
         self.redraw_page(host, docs, RedrawMode::Partial)
     }
 
-    /// Says that the place could not be saved; after the screen closed the
+    /// Says that the place could not be saved (`key`, by the refusal); after the screen closed the
     /// device's message (`announce`) carries it, as nothing else would. Whether
     /// the host took the notice: a quiet work run (the auto-turn's tick) is
     /// refused one, and the next save tries again.
-    fn say_not_saved(&self, host: &Host<'_>, closing: bool) -> bool {
-        let Ok(text) = Messages::new().and_then(|mut m| m.copy(host, "reader.not-saved")) else {
+    fn say_not_saved(&self, host: &Host<'_>, key: &str, closing: bool) -> bool {
+        let Ok(text) = Messages::new().and_then(|mut m| m.copy(host, key)) else {
             return false;
         };
         let Ok(note) = Notify::new(&text) else {
@@ -934,7 +934,8 @@ impl Open {
 
     /// Writes the place of the page on show if it is not saved: now unless
     /// `when` is a turn, else once Beta 3's interval has gone since the last
-    /// write. A refused write is said once and tried again at the next time.
+    /// write. A refused write is said once (as `native_place::place_refused`
+    /// has it) and tried again at the next time.
     fn save(&mut self, host: &Host<'_>, library: Option<&Library>, when: When) {
         let (true, Some(library)) = (self.unsaved, library) else {
             return;
@@ -954,22 +955,30 @@ impl Open {
             .map_or(self.stored_ppm, |p| p.ppm(self.at.0, self.at.1));
         // The host asks for room for the op's largest answer (`set_position`:
         // `max_reply` 4,096), else it refuses before the op runs.
-        let (Ok(mut input), Ok(mut out)) = (buffer(2048), buffer(SERVICE_BUFFER)) else {
-            return;
+        let kept = match (buffer(2048), buffer(SERVICE_BUFFER)) {
+            (Ok(mut input), Ok(mut out)) => native_place::save(
+                host,
+                library,
+                &self.path,
+                self.at,
+                (ppm, self.conversion, native_place::wall_seconds(host)),
+                (&mut input, &mut out),
+            ),
+            _ => Err(Error::NoMemory),
         };
-        let kept = native_place::save(
-            host,
-            library,
-            &self.path,
-            self.at,
-            (ppm, self.conversion, native_place::wall_seconds(host)),
-            (&mut input, &mut out),
-        );
-        if kept {
-            self.unsaved = false;
-            self.saved_at = now;
-        } else if !self.said {
-            self.said = self.say_not_saved(host, when == When::Closing);
+        match kept {
+            Ok(()) => {
+                self.unsaved = false;
+                self.saved_at = now;
+            }
+            Err(error) => {
+                let closing = when == When::Closing;
+                if let (Refused::Say(key), false) =
+                    (native_place::place_refused(error, closing), self.said)
+                {
+                    self.said = self.say_not_saved(host, key, closing);
+                }
+            }
         }
     }
 

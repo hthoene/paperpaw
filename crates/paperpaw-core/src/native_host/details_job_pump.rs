@@ -14,11 +14,16 @@
 //! reading or showing, and not in the quiet moment after a displacement: the
 //! cover job's rules. Also never at the start's peak nor while the user is
 //! busy (#2670): not before [`QUIET_MS`] after the start or any input, by a
-//! timed wake; nor while a first walk is under way (its books published so
-//! far arm the job while it goes on), looked at again after 1 s, then 2, 4 …
-//! up to [`WALK_WAIT_MAX_MS`]: a walk cut short goes on only once a view of
-//! the library wants the catalog, so its marks may stay on the card a long
-//! time. A reader's open takes its place at once (a displacement: the book
+//! timed wake. Nor beside another screen's or job's peak (#248): not while a
+//! screen other than home's or the library's is on top (one opened for slot
+//! `core.home` or `core.library`, or by its id where it is offered for one;
+//! looked at again at the next input, also after a screen that closed on its
+//! own: no timed wake), nor while network work
+//! or a job of the install queue runs, nor while a first walk is under way
+//! (its books published so far arm the job while it goes on); the last
+//! three looked at again after 1 s, then 2, 4 … up to [`HOLD_WAIT_MAX_MS`]: a
+//! walk cut short goes on only once a view of the library wants the
+//! catalog, so its marks may stay on the card a long time. A reader's open takes its place at once (a displacement: the book
 //! is looked at again later, and given up, as a failed book, after three in
 //! a row); a cover that needs the slot makes it give way (`cover`: looked at
 //! again later, counted as nothing); the device's sleep ends it, and nothing
@@ -55,7 +60,7 @@ use paperpaw_native::host_glue::{
     ERR_UNSUPPORTED,
 };
 use paperpaw_platform::{Storage, StorageError};
-use paperpaw_sdk::builtin::events;
+use paperpaw_sdk::builtin::{events, slots};
 use paperpaw_sdk::library::{self, catalog};
 
 /// The most catalog lines one pass looks at.
@@ -66,8 +71,9 @@ const CHUNK: usize = 256;
 /// book's job begins: an EPUB's open (its zip and XML, some 30 KiB) is never
 /// added to the start's peak or to a screen the user works in (#2670).
 pub(crate) const QUIET_MS: u64 = 1_000;
-/// The longest wait between looks while a first walk is under way.
-pub(crate) const WALK_WAIT_MAX_MS: u64 = 32_000;
+/// The longest wait between looks while the job is held (a first walk, a
+/// network or install job).
+pub(crate) const HOLD_WAIT_MAX_MS: u64 = 32_000;
 
 /// The pump's frame for the details job's open: the kernel's settings,
 /// declarations and registry, no callback (the format is called through the
@@ -308,12 +314,15 @@ impl crate::Kernel {
             run.disarm();
             return Pass::Nothing;
         }
+        if !self.details_browsing() {
+            return Pass::Nothing;
+        }
         let env = self.shared.env(self.now);
-        if catalog::is_growing(env.storage()) {
-            let wait = run.walk_waits(QUIET_MS, WALK_WAIT_MAX_MS);
+        if self.details_busy() || catalog::is_growing(env.storage()) {
+            let wait = run.hold_waits(QUIET_MS, HOLD_WAIT_MAX_MS);
             return Pass::Wait(now.saturating_add(wait));
         }
-        run.walk_ended();
+        run.hold_ended();
         let formats = &self.shared.formats;
         let wanted = |path: &str| {
             formats
@@ -369,6 +378,51 @@ impl crate::Kernel {
                 key: path_key(&path),
             },
         }
+    }
+
+    /// Whether the screen on top is home's or the library's: opened for slot
+    /// `core.home` or `core.library`, or opened by its id where it is offered
+    /// for one of them (see the module). `false` with no screen.
+    fn details_browsing(&self) -> bool {
+        let Some(top) = self.stack.last() else {
+            return false;
+        };
+        let browsing = [slots::HOME, slots::LIBRARY];
+        match &top.slot {
+            Some(slot) => browsing.contains(slot),
+            None => browsing.iter().any(|slot| {
+                self.shared
+                    .registry
+                    .slot_screens(slot)
+                    .any(|screen| *screen == top.id)
+            }),
+        }
+    }
+
+    /// Whether network work (a request, a server, a socket, work that waits
+    /// for a network, a native service's) or a job of the install queue (an
+    /// install, a check, a removal, firmware) runs or waits.
+    fn details_busy(&self) -> bool {
+        let network = self.io.http.busy()
+            || self.io.servers.busy()
+            || self.io.sockets.any()
+            || self.network_work_waiting()
+            || self
+                .shared
+                .native_instances
+                .net_demand()
+                .is_some_and(|(pool, _)| pool.wants() || pool.live());
+        // A resting cell has no driver and so nothing to run: the driver
+        // rests only at rest (`FirmwareCell::rest`, `Driver::at_rest`: no
+        // queue, nothing running). A driver lent out counts as busy.
+        let installing = self.firmware.as_ref().is_some_and(|cell| {
+            cell.driver().is_some_and(|driver| {
+                driver
+                    .try_borrow()
+                    .map_or(true, |driver| driver.waiting() > 0)
+            })
+        });
+        network || installing
     }
 
     /// The open of a book answered `status`: tried again later where nothing

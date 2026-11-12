@@ -118,6 +118,7 @@ kinds! {
     DocumentClosed => EVENT_DOCUMENT_CLOSED_TAG, core_events::document_closed, DocumentClosed;
     ScreenOpened => EVENT_SCREEN_OPENED_TAG, uix_events::screen_opened, ScreenOpened;
     ScreenClosed => EVENT_SCREEN_CLOSED_TAG, uix_events::screen_closed, ScreenClosed;
+    ScreenHidden => EVENT_SCREEN_HIDDEN_TAG, uix_events::screen_hidden, ScreenHidden;
     StackChanged => EVENT_STACK_CHANGED_TAG, uix_events::stack_changed, StackChanged;
     Answered => EVENT_ANSWERED_TAG, uix_events::answered, Answered;
     WidgetMade => EVENT_WIDGET_MADE_TAG, uix_events::widget_made, WidgetMade;

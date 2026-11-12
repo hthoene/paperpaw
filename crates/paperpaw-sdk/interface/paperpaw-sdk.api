@@ -4425,6 +4425,9 @@ pub const paperpaw_sdk::native::events::kinds::Resume::TAG: u32
 pub struct paperpaw_sdk::native::events::kinds::ScreenClosed
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ScreenClosed
 pub const paperpaw_sdk::native::events::kinds::ScreenClosed::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::ScreenHidden
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ScreenHidden
+pub const paperpaw_sdk::native::events::kinds::ScreenHidden::TAG: u32
 pub struct paperpaw_sdk::native::events::kinds::ScreenOpened
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ScreenOpened
 pub const paperpaw_sdk::native::events::kinds::ScreenOpened::TAG: u32
@@ -4564,6 +4567,8 @@ impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events:
 pub const paperpaw_sdk::native::events::kinds::Resume::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ScreenClosed
 pub const paperpaw_sdk::native::events::kinds::ScreenClosed::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ScreenHidden
+pub const paperpaw_sdk::native::events::kinds::ScreenHidden::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ScreenOpened
 pub const paperpaw_sdk::native::events::kinds::ScreenOpened::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ScreenReady
@@ -4730,6 +4735,10 @@ pub paperpaw_sdk::native::events::Event::Resume::now_ms: u64
 pub paperpaw_sdk::native::events::Event::ScreenClosed::instance: paperpaw_sdk::native::ui::Instance
 pub paperpaw_sdk::native::events::Event::ScreenClosed::now_ms: u64
 pub paperpaw_sdk::native::events::Event::ScreenClosed::screen: &'a str
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::ScreenHidden
+pub paperpaw_sdk::native::events::Event::ScreenHidden::instance: paperpaw_sdk::native::ui::Instance
+pub paperpaw_sdk::native::events::Event::ScreenHidden::now_ms: u64
+pub paperpaw_sdk::native::events::Event::ScreenHidden::screen: &'a str
 #[non_exhaustive] pub paperpaw_sdk::native::events::Event::ScreenOpened
 pub paperpaw_sdk::native::events::Event::ScreenOpened::again: bool
 pub paperpaw_sdk::native::events::Event::ScreenOpened::handover: core::option::Option<paperpaw_sdk::native::ui::HandoverId>
