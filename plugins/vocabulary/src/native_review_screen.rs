@@ -529,10 +529,14 @@ fn redraw(host: &Host<'_>) -> Result<(), Error> {
     CommandSender::new(host, &mut [0; 64]).queue_redraw(RedrawMode::Partial)
 }
 
+/// The bytes of a stack request (a cursor and no more).
+const STACK_REQUEST: usize = 256;
+
 /// Whether `instance` is the screen on top of the stack (the stack is read
 /// top first; a screen the host leaves out as guarded is not ours).
 fn on_top(host: &Host<'_>, ui: &Ui, instance: Instance) -> Result<bool, Error> {
-    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+    // The request is a cursor and no more; the reply is a page of rows.
+    let (mut input, mut out) = (buffer(STACK_REQUEST)?, buffer(SERVICE_BUFFER)?);
     let page = ui.stack(host, UiCursor::start(), &mut input, &mut out)?;
     match page.into_iter().next() {
         Some(row) => Ok(row?.instance() == instance),

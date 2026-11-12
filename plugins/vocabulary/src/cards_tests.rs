@@ -545,3 +545,75 @@ fn ties_follow_the_decks_file_not_the_ids() {
         .collect();
     assert_eq!(order, [second, first]);
 }
+
+/// A storage whose read of one byte fails and leaves zero in the buffer, as the
+/// host's does after a failed read.
+struct LastByteFails(MemoryStorage);
+
+impl Storage for LastByteFails {
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        if buf.len() == 1 {
+            buf.fill(0);
+            return Err(StorageError::Io);
+        }
+        self.0.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        self.0.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.0.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.0.append(path, data)
+    }
+    fn list(
+        &self,
+        dir: &str,
+        visit: &mut dyn FnMut(paperpaw_sdk::DirEntry<'_>),
+    ) -> Result<(), StorageError> {
+        self.0.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), StorageError> {
+        self.0.remove(path)
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        self.0.rename(from, to)
+    }
+    fn sync(&self) -> Result<(), StorageError> {
+        self.0.sync()
+    }
+}
+
+#[test]
+fn a_last_byte_that_cannot_be_read_is_taken_for_the_end_of_a_line() {
+    let storage = LastByteFails(MemoryStorage::new());
+    let deck = add_deck(&storage, "Words").unwrap();
+    add(&storage, deck, [texts("Hund", "dog")]).unwrap();
+    add(&storage, deck, [texts("Katze", "cat")]).unwrap();
+    let mut text = alloc::vec![0u8; 4096];
+    let path = deck_path(deck).unwrap();
+    let n = storage.0.read_at(&path, 0, &mut text).unwrap();
+    let text = core::str::from_utf8(&text[..n]).unwrap();
+    assert!(
+        !text.contains("\n\n"),
+        "no empty line between cards: {text:?}"
+    );
+    assert_eq!(page(&storage, deck, 0, 9).1, 2);
+}
+
+#[test]
+fn a_blank_line_in_a_deck_is_no_card_and_splits_nothing() {
+    let storage = MemoryStorage::new();
+    let deck = add_deck(&storage, "Words").unwrap();
+    add(&storage, deck, [texts("Hund", "dog")]).unwrap();
+    let path = deck_path(deck).unwrap();
+    storage.append(&path, b"\n\n").unwrap();
+    add(&storage, deck, [texts("Katze", "cat")]).unwrap();
+    let (cards, total) = page(&storage, deck, 0, 9);
+    assert_eq!(total, 2, "blank lines are no cards");
+    assert_eq!(
+        (cards[0].front.as_str(), cards[1].front.as_str()),
+        ("Hund", "Katze")
+    );
+}

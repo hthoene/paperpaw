@@ -7,7 +7,7 @@ use crate::native_host::dual_boot_ini::{INI_MAX, INI_PATH, card_choice};
 use crate::native_host::firmware_driver::Driver;
 use crate::native_host::firmware_install::{BuiltIns, Event, FirmwareInstall, Outcome};
 use crate::native_host::plugin_job::PluginHost;
-use alloc::{boxed::Box, rc::Rc};
+use alloc::boxed::Box;
 use core::cell::RefCell;
 use paperpaw_native::{
     header5::{Host as Loader, X4_PROFILE},
@@ -197,7 +197,7 @@ fn driver(declared: bool) -> Driver {
     fake.can_restart_running = true;
     let mut d = Driver::new(
         Box::new(fake),
-        Rc::new(RefCell::new(FirmwareInstall::new())),
+        crate::native_host::firmware_cell::test_shared(RefCell::new(FirmwareInstall::new())),
     );
     d.set_plugin_host(host());
     d.open_dual_boot();
@@ -220,7 +220,7 @@ fn the_driver_restarts_after_a_yes_and_tells_the_flags() {
     d.submit_dual_boot(7, 3, Mode::Off).unwrap();
     // The first idle pass read the file: `shared` and no `ini_off`.
     d.pump(&card, &Names, 50);
-    assert_eq!(d.machine().borrow().dual_flags(), 0b01);
+    assert_eq!(d.machine().unwrap().borrow().dual_flags(), 0b01);
     // Mode 1 asks: the pump stops on the question.
     for now in (100..2_000).step_by(100) {
         d.pump(&card, &Names, now);
@@ -231,7 +231,7 @@ fn the_driver_restarts_after_a_yes_and_tells_the_flags() {
     let outcome = pump_to_end(&mut d, &card);
     assert_eq!((outcome.kind, outcome.reason), (1, 0));
     assert!(d.restart_wanted());
-    assert_eq!(d.machine().borrow().dual_flags(), 0b11);
+    assert_eq!(d.machine().unwrap().borrow().dual_flags(), 0b11);
     // The restart is of the running image.
     assert!(!d.restart_now());
     assert!(!d.restart_wanted());
@@ -243,12 +243,12 @@ fn mode_0_latches_the_setup_declared_and_an_install_ends_with_reason_19() {
     let mut d = driver(false);
     d.submit_dual_boot(7, 3, Mode::Auto).unwrap();
     d.pump(&card, &Names, 50);
-    assert_eq!(d.machine().borrow().dual_flags(), 0b10);
+    assert_eq!(d.machine().unwrap().borrow().dual_flags(), 0b10);
     let outcome = pump_to_end(&mut d, &card);
     assert_eq!(outcome.reason, 0);
     // No restart: a plugin must not restart the device by it.
     assert!(!d.restart_wanted());
-    assert_eq!(d.machine().borrow().dual_flags(), 0b01);
+    assert_eq!(d.machine().unwrap().borrow().dual_flags(), 0b01);
     d.submit_install(7, 4, "u.ppu", None, 0).unwrap();
     let outcome = pump_to_end(&mut d, &card);
     assert_eq!((outcome.kind, outcome.reason), (1, 19));
@@ -265,7 +265,7 @@ fn the_command_is_unsupported_until_the_host_opens_it() {
     fake.dual_capable = true;
     let d = Driver::new(
         Box::new(fake),
-        Rc::new(RefCell::new(FirmwareInstall::new())),
+        crate::native_host::firmware_cell::test_shared(RefCell::new(FirmwareInstall::new())),
     );
     assert!(!d.dual_boot_open());
 }
@@ -274,7 +274,7 @@ fn the_command_is_unsupported_until_the_host_opens_it() {
 fn a_latch_that_found_the_machine_borrowed_is_kept_and_applied_next() {
     let card = card_with("[firmware]\ndual-boot = off\n");
     let mut d = driver(false);
-    let machine = d.machine();
+    let machine = d.machine().unwrap();
     {
         // A host fault: the machine is held when the job ends.
         let _held = machine.borrow_mut();

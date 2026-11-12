@@ -297,7 +297,12 @@ key and text bytes within the stage budget.
   empty key: read again) or its absence.
 - [D] `set_scope`: the book scope for scoped settings, by a path on root 1, while the submitting
   screen stays open; empty ends it. The screen identity is stamped at submit (as `command.redraw`):
-  not the submitter's own top screen gives `ERR_STATE`.
+  not the submitter's own top screen gives `ERR_STATE` (so does a work run; outside a screen's
+  callback `ERR_UNSUPPORTED`, as every UI command), a path that names no book (root 1's grammar,
+  not below `.paperpaw`, `plugins` or `paperpaw.ini`) `ERR_INVALID`. The host picks the
+  file, never the plugin: `books/<book key>/settings.ini` in the submitter's Data (root 0), the book
+  key of `library.md` section 6, which is where Beta 3's reader kept a book's own settings (#257);
+  it follows the book (`library.md` 4). The scope also ends when the plugin stops or is parked.
 
 ### 4.2 Menus, bindings, slots, plugins
 

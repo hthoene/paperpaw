@@ -75,11 +75,11 @@ fn a_stage_call_allocation_failure_never_enters_the_format() {
         sibling: "",
     };
     let target = Target { plugin, token: 7 };
-    // The call's rows, its encoded payload, the payload's exact copy, the
-    // framed call and the reply buffer: the 1st to 5th allocations, all before
-    // the format is entered (the fake format allocates infallibly from the 6th
-    // on).
-    for nth in 1..=5 {
+    // The call's rows, its encoded payload, the payload's exact copy and the
+    // framed call: the 1st to 4th allocations, all before the format is
+    // entered (the format answers into `out`, no reply buffer of its own,
+    // #248; the fake format allocates infallibly from the 5th on).
+    for nth in 1..=4 {
         let mut out = [0_u8; 4096];
         arm_failure(nth);
         let r = stage.call(who, target, &call, &mut out);

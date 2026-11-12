@@ -175,8 +175,8 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The dashboard, adding to a page, every tool at once, and the footer items'
-/// editor.
+/// The dashboard, adding to a page, every tool at once, and the editor of the
+/// footer's items and of the status line's parts and line.
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
@@ -342,17 +342,19 @@ pub const WIDGETS: &[Def] = &[
     },
 ];
 
-/// The status line's parts, each a list of status items chosen on their
-/// picker: the line shown instead (none), the time on the left, nothing in the
-/// centre, and Wi-Fi and the battery on the right. Name (relative to the
-/// widget), default, title, help, and whether the picker is home's items screen.
+/// The status line's parts, each a list chosen on its picker: the whole lines
+/// shown instead (none; the first that is there shows), the time on the left,
+/// nothing in the centre, and Wi-Fi and the battery on the right. Name
+/// (relative to the widget), default, title, help, and whether the picker is
+/// home's items screen (for `line` in its lines mode, as interface 6 had the
+/// core screen `core.status-lines`).
 pub const STATUS_PARTS: &[(&str, &str, &str, &str, bool)] = &[
     (
         "line",
         "",
         "home.status.line",
         "home.status.line.help",
-        false,
+        true,
     ),
     (
         "left",

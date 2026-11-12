@@ -4,10 +4,12 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use super::*;
+use crate::native_host::firmware_install::FirmwareInstall;
 use crate::native_host::plugin_install::PluginInstall;
 use crate::native_host::plugin_job::{InstallGrants, KIND_INSTALL};
 use crate::native_host::plugin_jobs::PluginJobs;
 use crate::native_host::plugin_rules::Evidence;
+use core::cell::RefCell;
 use paperpaw_native::{
     header5::{Host as Loader, X4_PROFILE},
     metadata::Host as Offered,
@@ -46,7 +48,7 @@ fn driver() -> Driver {
     );
     let mut d = Driver::new(
         Box::new(fake),
-        Rc::new(RefCell::new(FirmwareInstall::new())),
+        crate::native_host::firmware_cell::test_shared(RefCell::new(FirmwareInstall::new())),
     );
     d.set_plugin_host(PluginHost {
         loader: Loader::x4(1),

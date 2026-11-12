@@ -35,3 +35,32 @@ fn the_codec_is_made_from_that_schema() {
         assert!(status.success(), "the generated codec is stale");
     }
 }
+
+const DECORATIONS: &str = "stages/decorations/reader.decorations@1.def";
+const READERS_DECORATIONS: &str = "../reader/stages/reader.decorations@1.def";
+
+#[test]
+fn the_decorations_schema_is_the_readers_byte_for_byte() {
+    let ours = fs::read(DECORATIONS).unwrap();
+    let readers = fs::read(READERS_DECORATIONS).unwrap();
+    assert_eq!(
+        ours, readers,
+        "copy plugins/reader/stages/reader.decorations@1.def and run tools/stage-codec.py stages/decorations src/stages_decorations.rs"
+    );
+}
+
+#[test]
+fn the_decorations_codec_is_made_from_that_schema() {
+    let status = std::process::Command::new("python3")
+        .args([
+            "-I",
+            "../../tools/stage-codec.py",
+            "stages/decorations",
+            "src/stages_decorations.rs",
+            "--check",
+        ])
+        .status();
+    if let Ok(status) = status {
+        assert!(status.success(), "the generated codec is stale");
+    }
+}

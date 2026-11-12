@@ -13,9 +13,10 @@ use crate::{
     native_index::Counter,
     native_links::DocRef,
     native_look::Look,
-    native_marking::{Ctx, Marking, Outcome},
+    native_marking::{Book, Ctx, Marking, Outcome},
+    native_marks::{self, CanvasPen, Gauge, Marks, Painted},
     native_open::{self, Place, Start},
-    native_pages::{self, Reading, Trail, Turn},
+    native_pages::{self, Trail, Turn},
     native_place::{self, Progress},
     native_speech::Speaker,
     native_status,
@@ -29,7 +30,7 @@ use core::ops::Range;
 use paperpaw_sdk::{
     Color, Handled, NoStorage,
     document::{DocumentError, Locator},
-    layout::{LayoutContext, Page, Style, layout_page},
+    layout::{LayoutContext, Page, layout_page},
     native::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose, Input},
@@ -38,8 +39,7 @@ use paperpaw_sdk::{
         document::{DocId, DocPosition, Documents, OpenBook, Preparation, Report, Root},
         fonts::{Font, FontRole},
         library::Library,
-        settings::{self, SettingValue},
-        snapshot::{self, Snapshot},
+        snapshot,
         ui::{HandoverId, Notify, Open as NavOpen, Param, Ui},
     },
     reading::WordBox,
@@ -106,6 +106,8 @@ struct Open {
     words: Vec<WordBox>,
     /// What is chosen, looked up and followed on the page.
     marking: Marking,
+    /// The book's highlights and the search hit shown on its page.
+    marks: Marks,
     /// What the page on show was laid out with: a change of the reading
     /// settings or of the screen lays it out again.
     laid: Option<LayoutKey>,
@@ -149,8 +151,18 @@ struct Open {
     class_asked: bool,
     /// The chapter of the page on show (its start, the next start, its title).
     chapter: Option<Chapter>,
+    /// The starts of the book's bookmarks, for the ribbon (`ribbon.rs`).
+    bookmarks: Vec<(u32, u32)>,
     /// The status lines chosen at the top and the bottom.
     status: native_status::State,
+    /// The marks plugins gave the page on show (`reader.decorations@1`).
+    decorations: Option<crate::native_decorations::Decorations>,
+    /// No plugin marks this book's pages (asked again once back on top).
+    undecorated: bool,
+    /// Pages are asked for marks: from the step after the first is shown.
+    ask_marks: bool,
+    /// The packs of letters this book asked for while open (`native_script_hint`).
+    packs_asked: crate::native_script_hint::Asked,
 }
 
 /// One open reading screen.
@@ -315,6 +327,7 @@ impl View {
                 // The path stands for a title the format does not give.
                 text::copy(native_place::title_of(meta.title(), &found.path)),
                 book_language(host, meta.language()),
+                crate::native_script_hint::declared(meta.language()),
             ),
             Err(Error::NoMemory) => {
                 Self::forget(host, docs, id);
@@ -325,7 +338,7 @@ impl View {
                 return Ok(Self::message("reader.error"));
             }
         };
-        let (sections, title, language) = sections;
+        let (sections, title, language, script) = sections;
         let (Ok(title), Ok(language)) = (title, language) else {
             Self::forget(host, docs, id);
             return Err(Error::NoMemory);
@@ -333,21 +346,22 @@ impl View {
         // The place the hand-over names, if the book has it; else the place
         // saved last time; else the start (a page number needs the page index:
         // `PORTING-7.md`).
-        let progress = match Progress::read(host, docs, id, sections, (&mut input, &mut out)) {
-            Ok(progress) => progress,
-            Err(error) => {
-                Self::forget(host, docs, id);
-                return Err(error);
-            }
+        let fail = |error| {
+            Self::forget(host, docs, id);
+            error
         };
+        let progress =
+            Progress::read(host, docs, id, sections, (&mut input, &mut out)).map_err(fail)?;
         let (at, stored_ppm) =
-            match Self::starting_place(host, library, &found, (sections, conversion), &mut out) {
-                Ok(start) => start,
-                Err(error) => {
-                    Self::forget(host, docs, id);
-                    return Err(error);
-                }
-            };
+            Self::starting_place(host, library, &found, (sections, conversion), &mut out)
+                .map_err(fail)?;
+        // The highlights of the book; a book the library does not know has none.
+        let marks = match library.map(|l| native_marks::load(host, l, &found.path, conversion)) {
+            Some(Ok(spans)) => Marks::new(spans),
+            // A book the library does not know, or no room to read them in: the
+            // page is drawn without highlights, the book still opens.
+            _ => Marks::default(),
+        };
         let mut open = Open {
             id,
             sections,
@@ -356,6 +370,7 @@ impl View {
             page: None,
             words: Vec::new(),
             marking: Marking::new(),
+            marks,
             laid: None,
             trail: Trail::new(),
             root: root_code(root),
@@ -377,9 +392,16 @@ impl View {
             class: None,
             class_asked: false,
             chapter: None,
+            bookmarks: Vec::new(),
             status: native_status::State::default(),
+            decorations: None,
+            undecorated: false,
+            ask_marks: false,
+            packs_asked: 0,
         };
         open.begin(host, root == Root::Library);
+        open.load_bookmarks(host, library);
+        open.ask_packs(host, docs, script);
         // The host's book events start here (`document.md` 2.4); a book whose
         // first page cannot be laid out is told with its first draw.
         open.announce(host, docs);
@@ -576,9 +598,36 @@ impl View {
         Ok(())
     }
 
+    /// [`go_to`](Self::go_to) the page that starts at `start`, with the match
+    /// from `start` to `end` marked on it (a search hit chosen); the mark goes
+    /// with the next page.
+    ///
+    /// # Errors
+    /// `NoMemory`, and the host's refusal to redraw.
+    pub fn go_to_match(&mut self, start: (u32, u32), end: (u32, u32)) -> Result<(), Error> {
+        self.go_to(start)?;
+        if let Body::Open(open) = &mut self.body
+            && start.0 < open.sections
+            && start < end
+        {
+            open.marks.found(
+                open.at,
+                native_marks::Span {
+                    start,
+                    end,
+                    noted: false,
+                },
+            );
+        }
+        Ok(())
+    }
+
     /// This screen is on top again: a jump made from a screen above is told to
     /// the host now.
     pub fn shown(&mut self, host: &Host<'_>, docs: &Documents) {
+        if let Body::Open(open) = &mut self.body {
+            open.decorate_again();
+        }
         if let Body::Open(open) = &mut self.body
             && core::mem::take(&mut open.report_due)
         {
@@ -635,6 +684,29 @@ impl View {
     pub const fn doc_id(&self) -> Option<DocId> {
         match &self.body {
             Body::Open(open) => Some(open.id),
+            Body::Message(_) | Body::Preparing(_) => None,
+        }
+    }
+
+    /// A screen of this plugin that needs room covers this one (the table of
+    /// contents finding headings): the page on show and its words are let go
+    /// of, and laid out again when the page is drawn next (#248). Kept while
+    /// the book is read aloud, which follows the words.
+    pub fn release_page(&mut self) {
+        if self.reading_aloud() {
+            return;
+        }
+        if let Body::Open(open) = &mut self.body {
+            open.page = None;
+            open.words = Vec::new();
+        }
+    }
+
+    /// The open document and the conversion its places belong to.
+    #[must_use]
+    pub const fn document(&self) -> Option<(DocId, u64)> {
+        match &self.body {
+            Body::Open(open) => Some((open.id, open.conversion)),
             Body::Message(_) | Body::Preparing(_) => None,
         }
     }
@@ -726,16 +798,26 @@ impl View {
         {
             return Ok(handled);
         }
+        if let Some(handled) = self.corner_tap(host, library, input)? {
+            return Ok(handled);
+        }
         let Body::Open(open) = &mut self.body else {
             return Ok(Handled::No);
         };
         if let Some(handled) = open.status_input(host, ui, input)? {
             return Ok(handled);
         }
-        let marked = open.mark(host, (docs, Some(ui)), input)?;
+        if let Some(handled) = open.decoration_tap(host, input)? {
+            return Ok(handled);
+        }
+        let marked = open.mark(host, (docs, library, Some(ui)), input)?;
         let choosing = matches!(marked, Outcome::Turn { .. });
         let moved = match marked {
             Outcome::Handled | Outcome::Redraw => return Ok(Handled::Yes),
+            Outcome::Edited => {
+                open.reload_marks(host, library)?;
+                return Ok(Handled::Yes);
+            }
             Outcome::Jump { section, offset } => {
                 open.jump((section, offset));
                 true
@@ -794,76 +876,6 @@ impl View {
             },
         };
         say(host, frame, key)
-    }
-}
-
-/// What a page is laid out with: the reading settings and the display's size
-/// and density (a turned screen is another size).
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct LayoutKey {
-    reading: Reading,
-    display: (u16, u16, u16),
-}
-
-/// The text the screen reads its page from: reading settings and the display.
-struct Setup {
-    reading: Reading,
-    display: Snapshot,
-    /// The room of the status lines (their size and places).
-    room: native_status::Room,
-}
-
-fn integer(host: &Host<'_>, key: &str) -> Result<i64, Error> {
-    let mut bytes = [0; 32];
-    Ok(match settings::read_setting(host, key, &mut bytes)? {
-        SettingValue::Int(value) => value,
-        _ => 0,
-    })
-}
-
-fn flag(host: &Host<'_>, key: &str) -> Result<bool, Error> {
-    let mut bytes = [0; 32];
-    Ok(matches!(
-        settings::read_setting(host, key, &mut bytes)?,
-        SettingValue::Bool(true)
-    ))
-}
-
-impl Setup {
-    fn read(host: &Host<'_>) -> Result<Self, Error> {
-        let display = snapshot::capture_snapshot(host)?;
-        let room = native_status::room(host, display.display_dpi())?;
-        let (top, bottom) = room.reserved();
-        Ok(Self {
-            reading: Reading::new(
-                integer(host, "core.font-size")?,
-                integer(host, "core.line-spacing")?,
-                integer(host, "core.word-spacing")?,
-                integer(host, "core.margin")?,
-                integer(host, "core.margin-ends")?,
-                flag(host, "core.justify")?,
-            )
-            .with_status(top, bottom),
-            display,
-            room,
-        })
-    }
-
-    /// What a page laid out with this setup depends on.
-    fn key(&self) -> LayoutKey {
-        LayoutKey {
-            reading: self.reading,
-            display: (
-                self.display.display_width(),
-                self.display.display_height(),
-                self.display.display_dpi(),
-            ),
-        }
-    }
-
-    /// The size of body text in pixels.
-    fn base(&self) -> f32 {
-        self.reading.size_pt * f32::from(self.display.display_dpi()) / 72.0
     }
 }
 
@@ -1068,7 +1080,7 @@ impl Open {
     fn mark(
         &mut self,
         host: &Host<'_>,
-        (docs, ui): (&Documents, Option<&Ui>),
+        (docs, library, ui): (&Documents, Option<&Library>, Option<&Ui>),
         input: &Input<'_>,
     ) -> Result<Outcome, Error> {
         if self.page.is_none() {
@@ -1084,7 +1096,14 @@ impl Open {
             "",
             area,
         )
-        .doc(DocRef::new(docs, self.id, self.sections, self.whole_pages));
+        .doc(DocRef::new(docs, self.id, self.sections, self.whole_pages))
+        .book(Book {
+            highlights: self.marks.highlights(),
+            library,
+            conversion: self.conversion,
+            progress: self.progress.as_ref(),
+            stored_ppm: self.stored_ppm,
+        });
         let ctx = match ui {
             Some(ui) => ctx.ui(ui),
             None => ctx,
@@ -1240,7 +1259,7 @@ impl Open {
         area: native_pages::Box,
     ) -> Result<Page, Error> {
         let document = HostDocument::new(host, docs, self.id, self.sections, self.whole_pages)?;
-        let style = Style::new(0.0, 0.0, setup.base(), setup.reading.justify);
+        let style = setup.style(faces.line_height());
         let cx = LayoutContext::new(&document, &NoStorage, f32::from(area.width), &style, faces);
         layout_page(&cx, Locator::new(start.0, start.1), f32::from(area.height)).map_err(|error| {
             match document_error_kind(&error) {
@@ -1292,7 +1311,9 @@ impl Open {
         let page = self.page.as_ref().ok_or(Error::State)?;
         if self.words.is_empty() {
             self.words = native_wordbox::word_boxes(&faces, page, area)?;
+            self.decorate(host);
         }
+        let page = self.page.as_ref().ok_or(Error::State)?;
         let rect = frame.rect;
         let follow_up = pictures::follow_up(frame);
         let canvas = frame.draw_canvas()?;
@@ -1303,6 +1324,19 @@ impl Open {
             rect.x as f32 + f32::from(area.x),
             rect.y as f32 + f32::from(area.y),
         );
+        // The highlights and the search hit: backgrounds behind the words,
+        // lines and frames over them.
+        let hit = self.marks.hit_on(self.at);
+        // A mark never fails the page: no room for it or a refusal of the host
+        // leaves the text drawn without marks (or with the part drawn so far).
+        let gauge = Gauge::of(
+            setup.display.display_dpi(),
+            setup.display.display_gray_levels(),
+            setup.display.display_is_colour(),
+        );
+        let painted = Painted::new(host, &self.marks, &self.words, hit, gauge).unwrap_or_default();
+        self.draw_behind(&canvas, gauge, (rect.x, rect.y)).ok();
+        painted.behind(&mut CanvasPen(&canvas)).ok();
         let pictures = self.pictures.drawing(follow_up);
         draw_page(
             &mut ink,
@@ -1311,6 +1345,10 @@ impl Open {
             origin,
             (self.mark.clone(), pictures),
         )?;
+        // Other plugins' marks under the reader's own, as Beta 3 drew them.
+        self.draw_over(&canvas, gauge, (rect.x, rect.y)).ok();
+        painted.over(&mut CanvasPen(&canvas)).ok();
+        self.draw_ribbon(&canvas, rect, (&area, setup.display.display_dpi()))?;
         self.paint_status(host, ui, frame, (setup, &area))?;
         let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),
@@ -1320,7 +1358,14 @@ impl Open {
             "",
             area,
         )
-        .doc(DocRef::new(docs, self.id, self.sections, self.whole_pages));
+        .doc(DocRef::new(docs, self.id, self.sections, self.whole_pages))
+        .book(Book {
+            highlights: self.marks.highlights(),
+            library: None,
+            conversion: self.conversion,
+            progress: self.progress.as_ref(),
+            stored_ppm: self.stored_ppm,
+        });
         self.marking.draw_overlay(host, &ctx, frame)
     }
 }
@@ -1366,10 +1411,17 @@ fn say_with(
 
 mod aloud;
 mod count;
+mod decorations;
+mod goto;
 mod menu_bar;
+mod notes;
 mod pictures;
 mod preparing;
+mod ribbon;
+mod script_hint;
+mod setup;
 use preparing::Preparing;
+use setup::{LayoutKey, Setup, flag, integer};
 
 /// The language a book is read in: its own, or the UI language where the
 /// format names none (a text file), as in Beta 3, so the voice reading aloud

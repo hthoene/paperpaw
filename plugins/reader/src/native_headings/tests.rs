@@ -193,3 +193,40 @@ fn allocation_refused_in_turn_is_no_memory() {
     );
     assert_eq!(load(&storage, "/b/refused", 1).unwrap(), None);
 }
+
+/// A title as long as one is kept.
+const LONG: &str = "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL";
+
+#[test]
+fn the_scan_stops_one_heading_past_the_bytes_of_the_list() {
+    let storage = MemoryStorage::new();
+    let book: Book = (0..MAX_HEADINGS).map(|_| alloc::vec![(2, LONG)]).collect();
+    let mut scan = Scan::new("/b/long", 1, book.len() as u32).unwrap();
+    assert_eq!(run(&mut scan, &storage, &book), Step::Done);
+    let fit = native_toc::TOC_BYTES / native_toc::row_cost(LONG);
+    assert_eq!(scan.entries().len(), fit + 1);
+    // What was kept is read back the same, a line at a time.
+    let kept = load(&storage, "/b/long", 1).unwrap().unwrap();
+    assert_eq!(kept.len(), fit + 1);
+}
+
+#[test]
+fn a_kept_copy_is_read_in_pieces_and_odd_lines_are_left_out() {
+    let name = file_name("/b/pieces").unwrap();
+    let mut text = alloc::string::String::from("size 3\n");
+    for i in 0..40 {
+        text.push_str(&alloc::format!("0\t{i}\t0\tChapter {i} {LONG}\n"));
+    }
+    // Longer than any line written, not UTF-8, not an entry.
+    text.push_str(&"x".repeat(2000));
+    text.push('\n');
+    text.push_str("0\t1000\t0\tLast");
+    let mut bytes = text.into_bytes();
+    bytes.extend_from_slice(b"\n0\t1001\t0\t\xff\xfe\n");
+    let storage = MemoryStorage::new().with(&name, bytes);
+    let kept = load(&storage, "/b/pieces", 3).unwrap().unwrap();
+    assert_eq!(kept.len(), 41);
+    assert_eq!(kept[7].at, Place::new(0, 7));
+    assert_eq!(kept[40].title, "Last");
+    assert_eq!(load(&storage, "/b/pieces", 4).unwrap(), None);
+}

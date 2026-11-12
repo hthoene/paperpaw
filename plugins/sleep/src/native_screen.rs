@@ -3,10 +3,11 @@
 //! and places when it first draws, and what it draws. The decisions are
 //! [`crate::native_sleep`]'s and the layout [`crate::native_stack`]'s.
 //!
-//! The pictures (the cat, the logo, the cover, the folder's picture and the
-//! picture over the page) are [`images`]'s: asked for from the events, since a
+//! The pictures (the cat, the logo or the picture `core.logo` names, the
+//! cover, the folder's picture and the picture over the page) are [`images`]'s: asked for from the events, since a
 //! draw can send no command; until one is there the screen shows the message.
 use crate::{
+    native_pick::Failure,
     native_sleep::{self as model, Content, Facts},
     native_stack::{self as stack, Entry},
 };
@@ -45,6 +46,9 @@ const MOST_STACK_PAGES: usize = 8;
 const VALUE_BUFFER: usize = 4096;
 /// Most lines the message takes.
 const MOST_LINES: usize = 4;
+/// The input of `core.ui` ops `stack`, `params` and `widget_drop`: at most 256
+/// bytes (their `max_input`); replies keep what each op answers (`max_reply`).
+const QUERY_INPUT: usize = 256;
 
 mod images;
 
@@ -59,6 +63,15 @@ struct OverSetup {
     percent: u32,
     /// How opaque the picture is drawn (0 to 255).
     opacity: u8,
+}
+
+/// Why the picture over the page did not show, for the picker, once known.
+#[derive(Debug, Default)]
+struct OverNote {
+    /// `None` until known; `Some(None)`: it showed.
+    known: Option<Option<Failure>>,
+    /// What is known is kept in the data folder.
+    kept: bool,
 }
 
 /// A widget made for the screen and where it goes.
@@ -95,6 +108,8 @@ pub struct Sleeping {
     facts: Facts,
     /// The pictures asked for and held.
     pics: images::Pics,
+    /// Why the picture over the page did not show (`native_picker::remember`).
+    over_note: OverNote,
 }
 
 impl Sleeping {
@@ -117,7 +132,32 @@ impl Sleeping {
                 ..facts_before(off)
             },
             pics: images::Pics::default(),
+            over_note: OverNote::default(),
         }
+    }
+
+    /// Notes why the picture over the page did not show (`None`: it showed).
+    fn note(&mut self, why: Option<Failure>) {
+        self.over_note = OverNote {
+            known: Some(why),
+            kept: false,
+        };
+    }
+
+    /// Keeps what is known of the picture over the page for the picker, once:
+    /// called from the events (a draw writes no file).
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn note_over(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let Some(why) = &self.over_note.known else {
+            return Ok(());
+        };
+        if self.over_note.kept {
+            return Ok(());
+        }
+        self.over_note.kept = true;
+        crate::native_picker::remember(host, why.as_ref())
     }
 
     /// Reads the parameters of the open, the settings and, for the picture
@@ -227,12 +267,14 @@ impl Sleeping {
                 );
         let mut logo = None;
         if message {
-            // PaperPaw's logo, a third of the screen across, above the message.
-            let side = match held {
-                Some(_) if content == Content::Message => screen.width.min(screen.height) / 3,
-                _ => 0,
+            // The logo (PaperPaw's or the picture `core.logo` names) fitted
+            // into a square a third of the screen across, above the message.
+            let side = screen.width.min(screen.height) / 3;
+            let size = match held {
+                Some(held) if content == Content::Message => images::fitted(held, side, side),
+                _ => (0, 0),
             };
-            logo = self.message(host, &font, &style, screen, side, &mut below)?;
+            logo = self.message(host, &font, &style, screen, size, &mut below)?;
         }
         paint::replay(frame, &font, below.iter())?;
         if let Some(held) = held {
@@ -274,15 +316,15 @@ impl Sleeping {
         Ok(())
     }
 
-    /// The message in the middle, with room above for a logo `logo` pixels
-    /// across (none: 0); where the logo goes.
+    /// The message in the middle, with room above for a logo of `logo`'s
+    /// width and height (none: 0); where the logo goes.
     fn message(
         &self,
         host: &Host<'_>,
         font: &Font<'_>,
         style: &Style,
         screen: Rect,
-        logo: u16,
+        logo: (u16, u16),
         paint: &mut Vec<Paint>,
     ) -> Result<Option<Rect>, Error> {
         let mut messages = Messages::new()?;
@@ -314,10 +356,12 @@ impl Sleeping {
         };
         let small = paperpaw_ui_kit::geometry::line_px(font, style.small)?;
         // The logo a little above the middle, the message below it.
-        let above = if logo == 0 {
-            0
+        let (logo_w, logo_h) = logo;
+        let shown = logo_w > 0 && logo_h > 0;
+        let above = if shown {
+            u32::from(logo_h) + u32::from(style.gap) * 2
         } else {
-            u32::from(logo) + u32::from(style.gap) * 2
+            0
         };
         let total = above
             + u32::from(line) * lines.len() as u32
@@ -329,10 +373,10 @@ impl Sleeping {
             };
         let top = u32::from(screen.height).saturating_sub(total) / 2;
         let at = Rect::new(
-            screen.width.saturating_sub(logo) / 2,
+            screen.width.saturating_sub(logo_w) / 2,
             top.min(u32::from(u16::MAX)) as u16,
-            logo,
-            logo,
+            logo_w,
+            logo_h,
         );
         let mut y = top.saturating_add(above);
         for (rows, size, high, color) in [
@@ -356,7 +400,7 @@ impl Sleeping {
             }
             y = y.saturating_add(u32::from(style.gap));
         }
-        Ok((logo > 0).then_some(at))
+        Ok(shown.then_some(at))
     }
 
     /// Makes and places what the mode shows, and decides what shows.
@@ -369,7 +413,7 @@ impl Sleeping {
         style: &Style,
     ) -> Result<Laid, Error> {
         let screen = Rect::new(0, 0, display.display_width(), display.display_height());
-        let mut over = None;
+        let (mut over, mut noted) = (None, None);
         // A widget over the page is made here; the picture over it was asked
         // for when the screen opened (`images`), and stands as it was found.
         let widget = self
@@ -380,9 +424,21 @@ impl Sleeping {
             && let Some(setup) = widget
         {
             over = self.make_over(host, ui, display, font, style, setup)?;
+            // Kept when the screen closes; a name that cannot be copied
+            // leaves it unknown.
+            let why = match over {
+                Some(_) => Some(None),
+                None => paperpaw_ui_kit::text::copy(setup.widget.trim())
+                    .ok()
+                    .map(|name| Some(Failure::NoWidget(name))),
+            };
+            noted = why;
         }
         if widget.is_some() || self.over.is_none() {
             self.facts.over_page = over.is_some();
+        }
+        if let Some(why) = noted {
+            self.note(why);
         }
         let mut widgets = Vec::new();
         if model::effective(&self.setting, self.facts) == model::WIDGETS {
@@ -591,7 +647,7 @@ fn facts_before(off: bool) -> Facts {
 /// Lets widgets go; a refusal is of no matter (the host drops them when the
 /// screen closes).
 fn drop_all(host: &Host<'_>, ui: &Ui, widgets: impl IntoIterator<Item = WidgetHandle>) {
-    if let (Ok(mut input), Ok(mut out)) = (buffer(SERVICE_BUFFER), buffer(64)) {
+    if let (Ok(mut input), Ok(mut out)) = (buffer(QUERY_INPUT), buffer(64)) {
         for widget in widgets {
             // A refusal to let one go leaves it to the host.
             if ui.widget_drop(host, widget, &mut input, &mut out).is_err() {
@@ -603,7 +659,7 @@ fn drop_all(host: &Host<'_>, ui: &Ui, widgets: impl IntoIterator<Item = WidgetHa
 
 /// Whether the open says the device is switched off (`off` = `1`).
 fn off_param(host: &Host<'_>, ui: &Ui, handover: HandoverId) -> Result<bool, Error> {
-    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+    let (mut input, mut out) = (buffer(QUERY_INPUT)?, buffer(SERVICE_BUFFER)?);
     let params = ui.params(host, handover, &mut input, &mut out)?;
     for param in params {
         let param = param?;
@@ -617,7 +673,7 @@ fn off_param(host: &Host<'_>, ui: &Ui, handover: HandoverId) -> Result<bool, Err
 /// Whether a screen guards the device, and whether the topmost full screen
 /// shows the reader.
 fn page_below(host: &Host<'_>, ui: &Ui) -> Result<(bool, bool), Error> {
-    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+    let (mut input, mut out) = (buffer(QUERY_INPUT)?, buffer(SERVICE_BUFFER)?);
     let (mut guarded, mut reading, mut found) = (false, false, false);
     let mut cursor = UiCursor::start();
     for _ in 0..MOST_STACK_PAGES {

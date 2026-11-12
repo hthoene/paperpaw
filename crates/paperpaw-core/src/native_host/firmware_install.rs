@@ -520,6 +520,20 @@ impl FirmwareInstall {
 
     /// `dev_firmware.flags` (draft 35): bit 0 `shared`, bit 1 `ini_off`. A
     /// device with no second app partition to share says 0.
+    /// Whether nothing runs, waits for its restart, failed or is kept for a
+    /// plugin to read, on a device that boots one firmware: a new machine is
+    /// the same ([`super::firmware_driver::Driver::at_rest`]).
+    pub(crate) fn at_rest(&self) -> bool {
+        self.quiet() && self.failed.is_none() && self.results.is_empty()
+    }
+
+    /// Whether nothing runs or waits for a restart: what is left (check
+    /// results, a failed install's outcome) is only read, so the machine may
+    /// rest with them ([`super::firmware_driver::Driver::into_parts`]).
+    pub(crate) fn quiet(&self) -> bool {
+        matches!(self.phase, Phase::Idle) && self.waiting.is_none() && self.dual == Dual::default()
+    }
+
     pub(crate) fn dual_flags(&self) -> u32 {
         if !self.dual.capable {
             return 0;

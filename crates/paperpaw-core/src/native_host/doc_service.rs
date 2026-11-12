@@ -133,8 +133,7 @@ pub(crate) trait DocHost {
     fn serve(&self, _frame: &dyn Frame, _who: &Caller<'_>, run: &mut dyn FnMut(&dyn DocHost)) {
         run(self.as_dyn());
     }
-    /// The calling plugin: a never-reused host owner id. The shell's host
-    /// does not know it; the backend wraps it in the call's owner.
+    /// The calling plugin: a never-reused host owner id (the backend wraps it).
     fn owner(&self) -> u64 {
         0
     }
@@ -156,16 +155,15 @@ pub(crate) trait DocHost {
     fn handed_open(&self, _path: &str) -> Result<HandedBook, i32> {
         Err(ERR_UNSUPPORTED)
     }
-    /// The document `document`, just opened, reads a file of `maker`'s
-    /// folders (root 5): the host remembers it, so the document ends when
-    /// the maker goes (`document_of_maker`).
+    /// The document `document` reads a file of `maker`'s folders (root 5):
+    /// it ends when the maker goes (`document_of_maker`).
     fn handed_maker(&self, _document: u32, _maker: u64) {}
     /// A document that reads a file of `maker`'s folders and is not ended yet.
     fn document_of_maker(&self, _maker: u64) -> Option<u32> {
         None
     }
     /// Section 1: the format that reads `path` (the longest extension, the
-    /// user's choice, priority). `requested` is a format id or empty.
+    /// user's choice, priority); `requested` is a format id or empty.
     /// `ERR_NOT_FOUND` when none reads it.
     fn select_format(&self, root: u32, path: &str, requested: &str) -> Result<FormatRef, i32>;
     fn format_id(&self, format: FormatRef, visit: &mut dyn FnMut(&str)) -> Result<(), i32>;
@@ -253,8 +251,8 @@ pub(crate) trait DocHost {
     fn cover_at(&self, _path: &str) -> super::doc_host::CoverAt {
         super::doc_host::CoverAt::Made
     }
-    /// Whether the only document that prepares is the cover job: the pump's
-    /// "more" then does not hold the device awake.
+    /// Whether only the cover job prepares: the pump's "more" then does not
+    /// hold the device awake.
     fn only_cover_job_preparing(&self) -> bool {
         false
     }
@@ -289,18 +287,27 @@ pub(crate) trait DocHost {
     /// what displaced it is done before it starts again from the beginning (a
     /// cache is whole or not used: nothing of the job's work is kept).
     fn cover_job_displaced(&self, _kind: JobKind) {}
-    /// A library list screen is up (`up`) or is not: the cover job takes no
-    /// *preparing* step (a conversion) while one is up and for a quiet moment
-    /// after it closes, so that no conversion peaks beside the list's
-    /// buffers. A job whose book is ready is not held (its cover is made). The time held does not
-    /// count toward the job's awake time. Said by the pump before it steps.
-    /// Answers when the quiet moment of a waiting job ends (kernel clock, ms),
-    /// if that is what holds it: the pump wakes then.
-    fn cover_job_list(&self, _up: bool) -> Option<u64> {
+    /// A library list screen is up (`up`) or not: no *preparing* step (a
+    /// conversion) is taken while one is up and for a quiet moment after it
+    /// closes. Said by the pump, with the end of the quiet time after the
+    /// user's last input and the start (`quiet_until`, kernel ms): before it,
+    /// no step, no cover and no start (#248). Held time does not count toward
+    /// the awake time. Answers when a waiting job's wait ends: the pump wakes.
+    fn cover_job_list(&self, _up: bool, _quiet_until: u64) -> Option<u64> {
         None
     }
-    /// The key of a book whose job was displaced too often in a row (0: none):
-    /// the library counts it as failed (no cover until the next start).
+    /// An input came: the quiet time begins anew, before its callbacks run.
+    fn cover_job_input(&self, _quiet_until: u64) {}
+    /// Whether the user's quiet time is over.
+    fn cover_quiet(&self) -> bool {
+        true
+    }
+    /// Whether a `cover` of an unmade book waits: nothing is opened for it in
+    /// the list's frame; the library is told when to ask again.
+    fn cover_must_wait(&self) -> bool {
+        !self.cover_jobs_allowed() || !self.cover_quiet() || self.table().reading_besides(0)
+    }
+    /// The key of a book whose job was displaced too often (0: none): failed.
     fn cover_job_given_up(&self) -> u64 {
         0
     }
@@ -627,6 +634,9 @@ impl DocHost for Cx<'_> {
     }
     fn cover_job_held_back(&self) {
         self.host.cover_job_held_back();
+    }
+    fn cover_quiet(&self) -> bool {
+        self.host.cover_quiet()
     }
     fn cover_job_displaced(&self, kind: JobKind) {
         self.host.cover_job_displaced(kind);

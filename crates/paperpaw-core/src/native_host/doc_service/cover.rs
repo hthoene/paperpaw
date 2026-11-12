@@ -69,6 +69,15 @@ pub(crate) fn make(
         CoverAt::Made => true,
         CoverAt::Unmade => false,
     };
+    // Not now (the start, a book open for reading, the user's last input
+    // not a second ago): nothing is opened in the list's frame, where the
+    // zip and XML of the book would come beside the list's buffers. The host
+    // raises the change when covers may be made, and the book is asked for
+    // again.
+    if !inline && services.0.cover_must_wait() {
+        services.0.cover_job_held_back();
+        return Ok(Made::Queued);
+    }
     let mut scratch = bytes(SCRATCH)?;
     let mut result = Err(ERR_STATE);
     services.0.serve(frame, caller, &mut |bound| {

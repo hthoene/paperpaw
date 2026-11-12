@@ -281,8 +281,8 @@ pub struct Kernel {
     /// Shared with the DEV command stages and their outputs, which give back
     /// reservations an unapplied batch leaves.
     radio_requests: alloc::rc::Rc<core::cell::RefCell<native_host::radio_requests::RadioRequests>>,
-    /// Firmware requests, queue and pump; none without a firmware host.
-    firmware: Option<alloc::rc::Rc<core::cell::RefCell<native_host::firmware_driver::Driver>>>,
+    /// Firmware jobs' table and pump, made while one needs them; none without a firmware host.
+    firmware: Option<alloc::rc::Rc<native_host::firmware_cell::FirmwareCell>>,
     /// Since when the screen on top has been counted as shown.
     shown_since: Instant,
     /// The active settings scope: a book's own settings.
@@ -482,6 +482,8 @@ impl Kernel {
         self.now = now;
         self.last_activity = now;
         self.last_user_input = Some(now);
+        // No cover work begins beside what the user does now.
+        self.native_cover_input();
         // Not counted while a screen guards the device: it would tell a typed code's length.
         if self.guard().is_none() {
             self.shared.usage.inputs = self.shared.usage.inputs.saturating_add(1);
@@ -821,6 +823,15 @@ impl Kernel {
     /// Advances time, e.g. when a requested [`Effect::WakeAt`] is due.
     pub fn tick(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
+        self.tick_due(now);
+        self.finish()
+    }
+
+    /// What comes due at `now` in [`Self::tick`], before the commands run.
+    /// Its own frame: its locals are not on the stack while `finish` calls
+    /// the plugins (a nested callback's route on the X4, #250).
+    #[inline(never)]
+    fn tick_due(&mut self, now: Instant) {
         self.now = now;
         self.hide_hints();
         self.escape(now);
@@ -876,7 +887,6 @@ impl Kernel {
         // while input waits.
         self.works.ticking();
         self.native_tick();
-        self.finish()
     }
 
     /// The framebuffer, for tests of a kernel that holds the whole screen.

@@ -478,6 +478,9 @@ impl ItemList {
             page,
             starts.len(),
         )?;
+        // The header was the last to need the catalog: its buffers (4 KiB) go
+        // before the rows are painted, the peak of drawing a list (#248).
+        drop(messages);
         let end = starts.get(page + 1).copied().unwrap_or(self.items.len());
         let mut body = Vec::new();
         paint::push(&mut body, Paint::Fill(area, style.paper))?;

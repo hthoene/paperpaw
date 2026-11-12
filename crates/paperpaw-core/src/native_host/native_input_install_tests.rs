@@ -349,3 +349,84 @@ fn nothing_reaches_a_screen_below_a_guard() {
 mod dev_commands;
 #[path = "native_screen_command_tests.rs"]
 mod screen_commands;
+
+/// A native screen takes every key only to pass it to its plugin: it is not a
+/// real-time screen (#2671). Each of these held before the fix.
+mod not_realtime {
+    use super::*;
+    use crate::native_host::work_sched::{Power, WorkEnv};
+
+    #[test]
+    fn a_native_screen_on_top_shows_no_way_out_hint() {
+        let mut kernel = opened(0, 0);
+        // The notice itself, not the file that keeps it shown (the test
+        // kernel's storage is read-only): none at the opening, none asked.
+        assert!(kernel.notice.is_none() && kernel.waiting_notices.is_empty());
+        kernel.hint_escape();
+        assert!(kernel.notice.is_none() && kernel.waiting_notices.is_empty());
+    }
+
+    #[test]
+    fn back_held_on_a_native_screen_does_not_leave_it() {
+        let mut kernel = opened(0, 0);
+        TAKES_KEYS.with(|takes| takes.set(true));
+        kernel.handle(
+            Instant(100),
+            InputEvent::Button {
+                name: "back",
+                state: ButtonState::Pressed,
+            },
+        );
+        assert_eq!(seen(), [Seen::Key("back".into(), 0)], "the plugin has it");
+        assert_eq!(kernel.escape_due(), None);
+    }
+
+    #[test]
+    fn a_finger_held_in_the_corner_of_a_native_screen_does_not_leave_it() {
+        let mut kernel = opened(0, 0);
+        touch(&mut kernel, 100, PointerPhase::Down, 1, 1);
+        assert_eq!(kernel.escape_due(), None);
+    }
+
+    /// Records whether the kernel said a real-time screen holds the device.
+    #[derive(Default)]
+    struct Held(Cell<Option<bool>>);
+    impl WorkEnv for Held {
+        fn now_ms(&self) -> u64 {
+            0
+        }
+        fn power(&self) -> Power {
+            Power {
+                level: 0,
+                stretch: 1,
+                radio_on: true,
+            }
+        }
+        fn screen_hold(&self) -> bool {
+            self.0.get().unwrap_or(false)
+        }
+        fn network_up(&self) -> bool {
+            true
+        }
+        fn network_allowed(&self, _: u64) -> bool {
+            true
+        }
+        fn saving_manual(&self, _: u64) -> bool {
+            false
+        }
+        fn subscribed(&self, _: u64, _: u32) -> bool {
+            false
+        }
+        fn kernel_state(&self, _: u32, _: u32, screen_hold: bool) {
+            self.0.set(Some(screen_hold));
+        }
+    }
+
+    #[test]
+    fn a_native_screen_on_top_holds_no_background_work() {
+        let kernel = opened(0, 0);
+        let env = Held::default();
+        kernel.tell_work_env(&env);
+        assert_eq!(env.0.get(), Some(false));
+    }
+}
