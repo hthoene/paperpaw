@@ -6,8 +6,10 @@
 //! after the first (a remade plugin opens its font and service handles
 //! anew: the old ones must have gone with the old instance).
 //!
-//! The first cycle grows lasting state once (about 1.1 KiB, flat from then
-//! on); the heap is compared from the end of cycle 2 on. Its own
+//! The first cycle grows lasting state once: the storage recall cache's
+//! table (`recall::Recall`, about 1.1 KiB, filled by the catalog check after
+//! the first standby), the same with every plugin awake; the heap is compared
+//! from the end of cycle 2 on. Its own
 //! binary without the test harness (`harness = false`): the allocator counts
 //! every allocation, and captured output would grow the heap it measures.
 #![allow(
