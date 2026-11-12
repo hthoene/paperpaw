@@ -116,8 +116,10 @@ fn only_a_lack_of_memory_says_the_memory_may_be_full() {
             place_refused(Error::NoMemory, closing),
             Refused::Say("reader.not-saved")
         );
+        // The host answers a full card with `NoSpace` (`library.md` section 6);
+        // `Full` is a table at its cap.
         assert_eq!(
-            place_refused(Error::Full, closing),
+            place_refused(Error::NoSpace, closing),
             Refused::Say("reader.not-saved-full")
         );
         for error in [
@@ -125,7 +127,7 @@ fn only_a_lack_of_memory_says_the_memory_may_be_full() {
             Error::State,
             Error::Denied,
             Error::Invalid,
-            Error::NoSpace,
+            Error::Full,
         ] {
             assert_eq!(
                 place_refused(error, closing),
@@ -133,14 +135,6 @@ fn only_a_lack_of_memory_says_the_memory_may_be_full() {
                 "{error:?}"
             );
         }
-    }
-}
-
-#[test]
-fn a_refused_mark_names_a_full_card_and_nothing_else() {
-    assert_eq!(marks_refused(Error::Full), "reader.marks-not-saved-full");
-    for error in [Error::NotFound, Error::Io, Error::State, Error::Busy] {
-        assert_eq!(marks_refused(error), "reader.marks-not-saved", "{error:?}");
     }
 }
 
@@ -155,7 +149,6 @@ fn every_refusal_text_is_there_in_english_and_german() {
         "reader.not-saved-full",
         "reader.not-saved-plain",
         "reader.marks-not-saved",
-        "reader.marks-not-saved-full",
     ];
     for text in texts {
         for key in keys {

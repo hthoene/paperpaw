@@ -72,11 +72,16 @@ impl View {
             Ok(()) => Ok(()),
             // Short memory is the host's to hear, not a bookmark that failed.
             Err(Error::NoMemory) => Err(Error::NoMemory),
-            Err(error) => {
-                native_bookmark::say_not_saved(host, error);
+            Err(_) => {
+                self.say_marks_not_saved(host);
                 Ok(())
             }
         }
+    }
+
+    /// Says that a bookmark, highlight or note could not be kept.
+    fn say_marks_not_saved(&self, host: &Host<'_>) {
+        native_bookmark::say_not_saved(host);
     }
 }
 

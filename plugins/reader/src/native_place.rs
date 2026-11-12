@@ -238,25 +238,16 @@ pub enum Refused {
 
 /// What a refusal of the place (`error`) does while reading, or when the book
 /// `closing` (no later save tries again then). Only a lack of memory says the
-/// memory may be full; a full card says so; anything else says just that the
-/// place was not saved.
+/// memory may be full; a full card (`NoSpace`, `library.md` section 6: the
+/// place is a few lines, so never too large) says so; anything else, also a
+/// full table (`Full`), says just that the place was not saved.
 #[must_use]
 pub const fn place_refused(error: Error, closing: bool) -> Refused {
     match error {
         Error::NotFound | Error::Busy if !closing => Refused::Retry,
         Error::NoMemory => Refused::Say("reader.not-saved"),
-        Error::Full => Refused::Say("reader.not-saved-full"),
+        Error::NoSpace => Refused::Say("reader.not-saved-full"),
         _ => Refused::Say("reader.not-saved-plain"),
-    }
-}
-
-/// The text for a bookmark, highlight or note the library refused (`error`); a
-/// lack of memory is not said here, the host hears it.
-#[must_use]
-pub const fn marks_refused(error: Error) -> &'static str {
-    match error {
-        Error::Full => "reader.marks-not-saved-full",
-        _ => "reader.marks-not-saved",
     }
 }
 
