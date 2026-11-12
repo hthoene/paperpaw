@@ -57,6 +57,7 @@ events 83, 88 and 90 are free).
 | 38 | `event.screen_shown` | its fields, among them `instance: u32` | the screen's token |
 | 79 | `event.screen_opened` | `now_ms: u64`, `screen: str 128`, `instance: u32`, `slot: str 128`, `flags: u32`, `handover: u32`, `params: u32`, `text_bytes: u32` | the screen's token |
 | 80 | `event.screen_closed` | `now_ms: u64`, `screen: str 128`, `instance: u32` | the screen's token |
+| 111 | `event.screen_hidden` | `now_ms: u64`, `screen: str 128`, `instance: u32` | the screen's token |
 | 81 | `event.stack_changed` | `now_ms: u64` | subscribers (hint) |
 
 - [D] `screen_opened` comes once per instance, before its first `screen_shown`, and **again**
@@ -67,6 +68,26 @@ events 83, 88 and 90 are free).
   last `draw`; a plugin frees the instance's state there. Like 38 and 39, 79 and 80 are not
   registrable (`ERR_UNSUPPORTED` in `registration.event`): they go to the token of the screen
   they name.
+- [D] **`screen_hidden`** (111, #248; interface 6 `Screen::on_hide`): a full screen opened above
+  the instance, so that it is covered until that one closes. The instance may let go of what it
+  keeps only to draw itself (rows, text windows, pictures) and builds it again from what it keeps
+  (position, selection, open edit transactions, its pending requests and image ids) when its next
+  `screen_shown` comes: **that is the only signal to build again**, and a reply that arrived while
+  hidden is kept or asked again, never drawn from freed state. It is sent only for a full screen
+  above (never for an overlay, which draws the page below), only after `screen_opened` of the
+  instance and never after its `screen_closed`; it may come before its first `screen_shown` (a
+  screen opened below a guard waits hidden). It comes **once per cover**: a second full screen
+  opened above the first sends nothing to the instance below it, and a cover opened after the
+  instance's next `screen_shown` sends it again. A task switch closes the instance
+  (`screen_closed`) and opens it anew, so it sends none.
+- [D] **Delivery of `screen_hidden`.** The host calls the instance's token synchronously while it
+  applies the open of the covering screen, at depth 0 (never inside the opener's callback), before
+  the cover's own `screen_opened` and first `draw`, so that what it frees is free before the cover
+  builds. The callback gets **no command stage**, as `draw` gets none: a command submitted in it
+  is `ERR_STATE`. The host sends it in a frame of 80's size, allocating nothing. It is not
+  registrable (as 79 and 80), a plugin that does not read it loses nothing, and **dropping it is
+  harmless** (the host may drop it when memory is short, or when the callback is refused); a
+  plugin that frees on it must keep the screen drawable by `screen_shown` alone.
 - [D] **Params are lossless** (interface 6 `Params`, Senior's answer to [Q] 3): an opener makes a
   **hand-over** with `core.ui` op 16 `handover` (input: `ui_param` records, reply `ui_handle`) and
   names it in `command.open.handover`. A `ui_param` (`key: str 32`, `value: str 1024`) is one
@@ -416,7 +437,7 @@ asker learns its request id at once and long texts move in pages, never cut.
 - [D] **No subscription**: `event.answered` goes to the asking plugin by its request,
   through `dispatch_event`, without a `registration.event`; like 79 and 80 it is not registrable
   (`ERR_UNSUPPORTED` in `registration.event`; the SDK has no `EventKind` for it). The SDK hands
-  addressed events (38, 39, 79, 80, 82, 109) to the plugin whatever kinds it subscribed to.
+  addressed events (38, 39, 79, 80, 82, 109, 111) to the plugin whatever kinds it subscribed to.
   `dispatch_event` passes `token` 0 for 82 (the ask names no token); the plugin routes it by its
   tag and `request`, never by the token, which may equal one of its own.
 - [D] **An answer is never lost.** `event.answered` is not a held-store edge: the answer stays in
@@ -885,6 +906,7 @@ its caps (hand-off).
 | `ui_param` × 32 (op 16 input, op 17 reply) | key and value bytes at most 1,024 in all, plus 32 × 9 of fields and frames, + 1 = 1,313 (+ `end` on op 17) | 4,096 |
 | `command.open` | 1 + 130 + 4 + 130 + 4 = 269, framed 274 | 4,096 and the stage budget |
 | `event.screen_opened` | 1 + 8 + 130 + 4 + 130 + 4 × 4 = 289, framed 293 | the 1.1 KB stack buffer of `core-events.md` 3.3 |
+| `event.screen_hidden` | 1 + 8 + 130 + 4 = 143, framed 147 | the 1.1 KB stack buffer of `core-events.md` 3.3 |
 | `ui.verdict` (filter reply) | under 200 | 3,840 |
 
 ### 8.2 Memory (X4)

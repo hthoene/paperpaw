@@ -511,7 +511,13 @@ fn every_rows_governs_flag_is_what_settings_governs_says() {
     let kernel = kernel();
     let settings = &kernel.shared.settings;
     // Found once for a list: sorted, each id once, the same answer per id.
-    let ids = settings::governing(settings).unwrap();
+    let env = kernel.shared.env(Instant(0));
+    let sources = super::sources::Sources {
+        env: &env,
+        directory: None,
+        generation: &kernel.shared.registry_generation,
+    };
+    let ids = settings::governing(&sources, settings).unwrap();
     assert!(ids.windows(2).all(|pair| pair[0] < pair[1]));
     assert!(ids.contains(&"cfg.flag"));
     let rows = pages(&kernel, schema::OP_SETTINGS, "");
@@ -527,6 +533,29 @@ fn every_rows_governs_flag_is_what_settings_governs_says() {
     // One setting alone asks `governs` itself: the same flag.
     let flag = detail_as(&kernel, "reader", schema::OP_SETTING, "cfg.flag").unwrap();
     assert_eq!(flags_of(&flag[0]) & 1024, 1024);
+}
+
+#[test]
+fn the_slider_flag_is_set_for_int_settings_that_ask_for_one_and_no_other() {
+    let kernel = kernel();
+    let settings = &kernel.shared.settings;
+    let rows = pages(&kernel, schema::OP_SETTINGS, "");
+    let mut sliders = 0;
+    for row in rows.iter().filter(|row| row.starts_with("setting ")) {
+        let key = row.split(' ').nth(1).unwrap();
+        let spec = settings
+            .specs()
+            .find(|spec| spec.id.as_str() == key)
+            .unwrap();
+        let wanted =
+            spec.extra().slider && matches!(spec.kind, paperpaw_sdk::SettingKind::Int { .. });
+        assert_eq!(flags_of(row) & 2048 != 0, wanted, "{key}");
+        sliders += usize::from(wanted);
+    }
+    // The kernel's own margins and sizes are set by eye, with sliders.
+    assert!(sliders > 0);
+    // `cfg.size` is an int without one: a number to step.
+    assert_eq!(flags_of(row(&rows, "cfg.size")) & 2048, 0);
 }
 
 #[test]
