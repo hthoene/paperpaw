@@ -3,15 +3,15 @@
 //! (`core.net` asks it before it accepts a request or a server).
 use paperpaw_native::host_glue::ERR_INVALID;
 
-/// A set of event wire tags below 256.
+/// A set of event wire tags below [`EventTags::LIMIT`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct EventTags([u64; 4]);
+pub(crate) struct EventTags([u64; 2]);
 
 impl EventTags {
-    /// Tags from this value on cannot be held (the wire's event tags end well
-    /// below it).
-    #[cfg(test)]
-    pub(crate) const LIMIT: u32 = 256;
+    /// Tags from this value on cannot be held: the wire's event tags end
+    /// below it (the last is 112). Two words, not four: the set is in every
+    /// owner's row (#248, B). An event tag at or past it fails the build.
+    pub(crate) const LIMIT: u32 = 128;
 
     /// The tags in the set for which `has` says yes (asked once for each tag
     /// the set can hold, word by word: no tag range is tested).
@@ -47,6 +47,20 @@ impl EventTags {
     }
 }
 
+// Every event tag fits the set: a later event at or past the limit fails the
+// build here, not a subscription on the device. Tags far past it are not
+// event tags (the wire's own records).
+const _: () = {
+    let mut tag = EventTags::LIMIT;
+    while tag < 4_096 {
+        assert!(
+            !super::events::is_event_tag(tag),
+            "an event tag past EventTags::LIMIT"
+        );
+        tag += 1;
+    }
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -58,9 +72,9 @@ mod tests {
         assert!(!tags.contains(99));
         tags.insert(99).unwrap();
         tags.insert(0).unwrap();
-        tags.insert(255).unwrap();
-        assert!(tags.contains(99) && tags.contains(0) && tags.contains(255));
-        assert!(!tags.contains(100) && !tags.contains(1) && !tags.contains(254));
+        tags.insert(127).unwrap();
+        assert!(tags.contains(99) && tags.contains(0) && tags.contains(127));
+        assert!(!tags.contains(100) && !tags.contains(1) && !tags.contains(126));
     }
 
     #[test]
@@ -74,16 +88,22 @@ mod tests {
 
     #[test]
     fn collect_asks_every_tag_the_set_can_hold_once() {
-        let mut asked = [0u8; 256];
+        let mut asked = [0u8; EventTags::LIMIT as usize];
         let tags = EventTags::collect(|tag| {
             asked[tag as usize] += 1;
-            matches!(tag, 0 | 63 | 64 | 99 | 255)
+            matches!(tag, 0 | 63 | 64 | 99 | 127)
         });
         assert!(asked.iter().all(|&n| n == 1));
-        for tag in [0, 63, 64, 99, 255] {
+        for tag in [0, 63, 64, 99, 127] {
             assert!(tags.contains(tag), "{tag}");
         }
         assert!(!tags.contains(1) && !tags.contains(65) && !tags.contains(100));
+    }
+
+    #[test]
+    fn the_set_is_two_words() {
+        // #248 B: it is in every owner's row; 256 bits held 144 never used.
+        assert_eq!(core::mem::size_of::<EventTags>(), 16);
     }
 
     #[test]
