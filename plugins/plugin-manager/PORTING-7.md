@@ -88,3 +88,12 @@ the values). The list's note says it, en/de, with the number: *plugin-manager.fo
 as does a value this plugin does not know. The limit is whichever the batch ran into (8 formats or 4
 readers a plugin, 32 or 16 on the device), so the words say "limit", not "the device". **Host side pending:** until Host fills 14 and 15 a refused
 batch shows as before (`plugin-manager.failed`). Version unchanged (1.0.6, above Beta 3's 1.0.5).
+
+## Field, badge and lookup-provider caps (draft 37, problems 16 to 18)
+
+The same refusal for the other declaration caps (`registry.md`, Kernel PR #1039): 16 too many book fields
+(`problem_arg` 8 a plugin or 64 on the device, `library.md` 1), 17 too many book badges (4 or 16), 18 too many
+lookup providers (8 or 32, `document.md` 7). The note says it with the number (*plugin-manager.fields.too-many*,
+*plugin-manager.badges.too-many*, *plugin-manager.providers.too-many*, en/de, as 14/15); a value without a limit
+(0) or one this plugin does not know says "Could not be loaded". **Host side pending:** until Host fills 16 to 18 a
+refused batch shows as before. Version unchanged (1.0.6, above Beta 3's 1.0.5).
