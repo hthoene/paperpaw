@@ -210,8 +210,8 @@ fn with_row<R>(
     let settings = env.settings();
     let id = spec.id.as_str();
     let extra = spec.extra();
-    // A native plugin's declared extra is read from the store; while the
-    // store is being changed the spec's own counts (the list is asked again).
+    // A native plugin's declared extra is read from the store, never busy
+    // here: the op checked it first ([`native_extra::ready`]).
     let (slider, shown) = native_extra::with_extra(sources, spec, |shown| {
         (shown.slider, native_extra::shows(settings, shown))
     })
@@ -305,6 +305,7 @@ fn settings(
     asker: &Asker<'_>,
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> Result<(), i32> {
+    native_extra::ready(sources)?;
     let all = sources.env.settings();
     let is_group = scope == OTHER.static_str() || all.groups().any(|g| g.id.as_str() == scope);
     let governing = governing(sources, all);
@@ -377,6 +378,7 @@ pub(super) fn detail(
     visit: &mut dyn FnMut(&dyn Row) -> Result<(), i32>,
 ) -> Result<(), i32> {
     let spec = exact(sources, key).ok_or(ERR_NOT_FOUND)?;
+    native_extra::ready(sources)?;
     with_row(sources, asker, spec, None, |row| visit(row))?;
     native_extra::with_extra(sources, spec, |shown| extra_row(spec, shown, visit))??;
     let help = spec.description.as_deref().unwrap_or("");
