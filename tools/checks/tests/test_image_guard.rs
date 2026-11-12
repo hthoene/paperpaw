@@ -45,7 +45,10 @@ fn no_release_build_asks_for_the_test_image() {
 fn the_firmware_refuses_a_test_image_that_is_a_release() {
     let main = read("shells/xteink/src/main.rs");
     assert!(main.contains(r#"all(feature = "test-image", feature = "release")"#));
-    assert!(read("shells/xteink/Cargo.toml").contains("test-image = [\"native-on\"]"));
+    assert!(
+        read("shells/xteink/Cargo.toml")
+            .contains("test-image = [\"native-on\", \"paperpaw-core/x4-nested\"]")
+    );
 }
 
 /// The release build sets `release`, which refuses `test-image` at compile

@@ -50,7 +50,10 @@ native-on = ["ppn5", "paperpaw-app/native-linked", "paperpaw-app/native-linked-r
 # #2462, the high-water log every 30 s (`src/high_water.rs`). Never in a
 # release: `release` refuses it at compile time and
 # `tools/checks/tests/test_image_guard.rs` (CI) refuses it in the shipped lists.
-test-image = ["native-on"]
+# `paperpaw-core/x4-nested` opens the nested-callback gates (stage.run, ui.compose,
+# widget ops) for the owner's device tests of the stack (#2619); release builds
+# keep them closed until the device passes.
+test-image = ["native-on", "paperpaw-core/x4-nested"]
 # Marks a build as a release (beta.1 and later); set by the release build.
 release = []
 # What both ESP32-C3 devices build with; chosen by `x4` or `x3`, not by
