@@ -18,7 +18,8 @@ use paperpaw_sdk::{
     keys::InputMode,
     native::{
         Error, Host,
-        callbacks::{DrawFrame, Input, InputGestureKind},
+        callbacks::{DrawFrame, FrameRect, Input, InputGestureKind},
+        canvas::PartRole,
         commands::{CommandSender, RedrawMode},
         fonts::{Font, FontRole},
         snapshot::{self, Snapshot},
@@ -96,6 +97,9 @@ struct Laid {
     handle: u16,
     /// The status line above the grid (`home.status-bar`), made and placed.
     status: Option<(Made, Rect)>,
+    /// How far the focus ring reaches outside a target: what a focus step
+    /// draws again around it, kept here so that a step reads no style.
+    ring_room: i32,
 }
 
 /// Which of the footer's buttons are there.
@@ -142,6 +146,9 @@ pub struct Dashboard {
     moving: Option<arrange::Moving>,
     /// An item a finger has taken along.
     drag: Option<arrange::Drag>,
+    /// The top left of the screen's region at the last draw: where the
+    /// cells' places are counted from when a part of it is drawn again.
+    origin: (i32, i32),
 }
 
 impl Dashboard {
@@ -246,6 +253,7 @@ impl Dashboard {
             wide,
             ..
         } = Shown::read(host, display, font)?;
+        let ring_room = ring_room(&Style::read(host, display, font)?);
         let nav = self.nav.get_or_insert(Nav::new(pages.len()));
         nav.resize(pages.len());
         let (page, count) = (nav.page, nav.pages);
@@ -334,6 +342,7 @@ impl Dashboard {
             wide,
             handle: (metrics.row / 2).max(16),
             status,
+            ring_room,
         })
     }
 
@@ -611,6 +620,7 @@ impl Dashboard {
     ) -> Result<(), Error> {
         self.ensure(host, ui)?;
         self.ensure_dialog(host)?;
+        self.origin = (frame.rect.x, frame.rect.y);
         let Some(laid) = self.laid.as_ref() else {
             return Ok(());
         };
@@ -645,6 +655,29 @@ impl Dashboard {
         Ok(lines)
     }
 
+    /// What each target is and which has the focus, for whoever asks what
+    /// shows (`canvas.describe`: automation, reading aloud, the tests), as
+    /// interface 6 told its cells.
+    fn describe_targets(
+        &self,
+        below: &mut Vec<Paint>,
+        describing: bool,
+        laid: &Laid,
+    ) -> Result<(), Error> {
+        for (at, target) in laid.targets.iter().enumerate() {
+            let focused = self.focus.shown() && self.focus.at() == at;
+            paint::describe(
+                below,
+                describing,
+                PartRole::Button,
+                target.rect,
+                focused,
+                false,
+            )?;
+        }
+        Ok(())
+    }
+
     fn paint(
         &self,
         host: &Host<'_>,
@@ -657,6 +690,7 @@ impl Dashboard {
         let style = Style::read(host, display, font)?;
         let mut below = Vec::new();
         let mut above = Vec::new();
+        self.describe_targets(&mut below, paint::asking(frame), laid)?;
         let icon_font = paperpaw_ui_kit::icons::font(host)?;
         let circle = paperpaw_ui_kit::icons::glyph(host, "circle")?;
         let fonts = Fonts {
@@ -800,11 +834,12 @@ impl Dashboard {
         let Some(laid) = self.laid.as_ref() else {
             return Ok(Handled::No);
         };
+        let left = self.focus.shown().then(|| self.focus.at());
         match self.focus.press(press, &laid.targets, laid.arrows_stay) {
             Step::Ignored => Ok(Handled::No),
             Step::Held => Ok(Handled::Yes),
-            Step::Shown(_) | Step::Moved(_) => {
-                redraw(host)?;
+            Step::Shown(at) | Step::Moved(at) => {
+                self.redraw_focus(host, laid, [left, Some(at)])?;
                 Ok(Handled::Yes)
             }
             Step::Run(at) => {
@@ -814,6 +849,34 @@ impl Dashboard {
                 Ok(Handled::Yes)
             }
         }
+    }
+
+    /// Only the targets the focus left and came to are drawn again, each with
+    /// the room of its ring, not the page (as interface 6 drew only those
+    /// cells): a step takes a small part of a frame on the X4. A host that
+    /// refuses a part draws the page.
+    fn redraw_focus(
+        &self,
+        host: &Host<'_>,
+        laid: &Laid,
+        ats: [Option<usize>; 2],
+    ) -> Result<(), Error> {
+        // Nothing is allocated here: the focus has moved already, and a step
+        // that could not be drawn would leave it moved unseen.
+        let room = laid.ring_room;
+        let mut scratch = [0; 64];
+        let mut sender = CommandSender::new(host, &mut scratch);
+        for target in ats
+            .into_iter()
+            .flatten()
+            .filter_map(|at| laid.targets.get(at))
+        {
+            let area = focus_area(target.rect, room, self.origin);
+            if sender.queue_redraw_area(RedrawMode::Partial, area).is_err() {
+                return redraw(host);
+            }
+        }
+        Ok(())
     }
 
     fn turn(&mut self, host: &Host<'_>, ui: &Ui, forward: bool) -> Result<Handled, Error> {
@@ -1145,6 +1208,33 @@ fn paintpush(paint: &mut Vec<Paint>, op: Paint) -> Result<(), Error> {
     paint::push(paint, op)
 }
 
+/// Where target `rect` and its ring (`room` round it) are, from the top left
+/// of the screen's region at `origin`.
+/// How far [`ring`] reaches outside its target: the air around it and its line.
+fn ring_room(style: &Style) -> i32 {
+    ring_room_of(style.gap, style.line)
+}
+
+fn ring_room_of(gap: u16, line: u16) -> i32 {
+    i32::from(gap / 2).saturating_add(i32::from(line.max(2)))
+}
+
+fn focus_area(rect: Rect, room: i32, origin: (i32, i32)) -> FrameRect {
+    let grown = |size: u16| {
+        u32::from(size).saturating_add(u32::try_from(room).unwrap_or(0).saturating_mul(2))
+    };
+    FrameRect::new(
+        i32::from(rect.x)
+            .saturating_sub(room)
+            .saturating_sub(origin.0),
+        i32::from(rect.y)
+            .saturating_sub(room)
+            .saturating_sub(origin.1),
+        grown(rect.width),
+        grown(rect.height),
+    )
+}
+
 pub(crate) fn redraw(host: &Host<'_>) -> Result<(), Error> {
     let mut scratch = [0; 64];
     CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)
@@ -1176,6 +1266,19 @@ fn clamp_i32(value: i32) -> u16 {
 #[allow(clippy::unwrap_used, reason = "test assertions")]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_focus_step_draws_again_all_the_ring_covers() {
+        // Air 12 / 2 = 6 around the target, then a line of at least 2.
+        assert_eq!(ring_room_of(12, 1), 8);
+        assert_eq!(ring_room_of(12, 3), 9);
+        let target = Rect::new(100, 200, 50, 60);
+        let area = focus_area(target, ring_room_of(12, 1), (0, 40));
+        // The area reaches past the air and the line, measured from the region.
+        let (x, y) = (100 - 6 - 2, 200 - 6 - 2 - 40);
+        assert_eq!((area.x, area.y), (x, y));
+        assert_eq!((area.width, area.height), (50 + 16, 60 + 16));
+    }
 
     #[test]
     fn a_point_is_inside_a_rectangle_by_its_left_and_top_edges() {
