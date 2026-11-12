@@ -27,6 +27,21 @@ pub(crate) struct Preparing {
     pub(super) conversion: u64,
 }
 
+/// `ERR_NO_MEMORY`, the status of a document that failed for want of memory
+/// (`DocState::status` gives the ABI's number; a test pins it).
+const NO_MEMORY: i32 = -4;
+
+/// What a failed document says: no room says so in a few words, as when the
+/// open itself found none (#248: a format made late fails its open with
+/// `ERR_NO_MEMORY` in the document's state, not in the open's answer).
+pub(crate) const fn failed_message(status: i32) -> &'static str {
+    if status == NO_MEMORY {
+        "reader.no-memory"
+    } else {
+        "reader.error"
+    }
+}
+
 /// What a state the host gave means for the screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Next {
@@ -67,16 +82,17 @@ impl View {
         };
         // The host asks for room for the largest answer of the op (`max_reply` 4,096).
         let asked = match (buffer(64), buffer(4096)) {
-            (Ok(mut input), Ok(mut out)) => docs
-                .state(host, book.id, &mut input, &mut out)
-                .map(|state| (state.preparation(), state.whole_pages(), state.conversion())),
+            (Ok(mut input), Ok(mut out)) => {
+                docs.state(host, book.id, &mut input, &mut out)
+                    .map(|state| {
+                        let flags = (state.whole_pages(), state.conversion(), state.status());
+                        (state.preparation(), flags)
+                    })
+            }
             _ => Err(Error::NoMemory),
         };
-        let flags = asked
-            .as_ref()
-            .ok()
-            .map(|&(_, whole, conversion)| (whole, conversion));
-        let step = next(asked.map(|(preparation, ..)| preparation));
+        let flags = asked.as_ref().ok().map(|&(_, flags)| flags);
+        let step = next(asked.map(|(preparation, _)| preparation));
         // The body that holds the document is taken: whatever happens below, the
         // document is given back at most once.
         let Body::Preparing(mut book) =
@@ -90,7 +106,7 @@ impl View {
                 Ok(false)
             }
             Ok(Next::Open) => {
-                if let Some((whole_pages, conversion)) = flags {
+                if let Some((whole_pages, conversion, _)) = flags {
                     book.whole_pages = whole_pages;
                     book.conversion = conversion;
                 }
@@ -115,7 +131,8 @@ impl View {
             }
             Ok(Next::Fail) => {
                 Self::forget(host, docs, book.id);
-                self.body = Body::Message("reader.error");
+                let status = flags.map_or(0, |(.., status)| status);
+                self.body = Body::Message(failed_message(status));
                 Ok(true)
             }
             Err(error) => {
@@ -136,6 +153,17 @@ impl View {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_document_failed_for_want_of_memory_says_so_others_say_it_could_not_open() {
+        assert_eq!(NO_MEMORY, paperpaw_native::host_glue::ERR_NO_MEMORY);
+        assert_eq!(failed_message(NO_MEMORY), "reader.no-memory");
+        assert_eq!(
+            failed_message(paperpaw_native::host_glue::ERR_CANCELLED),
+            "reader.error"
+        );
+        assert_eq!(failed_message(0), "reader.error");
+    }
 
     #[test]
     fn a_ready_document_opens_a_failed_one_fails_and_one_preparing_waits() {
