@@ -196,3 +196,22 @@ fn a_dictionary_that_failed_before_from_the_same_files_is_not_indexed_again() {
     assert_eq!(source.found().unwrap(), 1);
     assert_eq!(source.caches().unwrap(), [cache]);
 }
+
+#[test]
+fn the_cache_of_a_dictionary_that_cannot_be_opened_is_still_in_use() {
+    let (files, data) = (card(), MemoryStorage::new());
+    // Its data file is gone: it cannot be opened, yet it was found.
+    files.remove("dicts/en/small.dict").unwrap();
+    let storage = Routed {
+        files: &files,
+        data: &data,
+    };
+    let mut tree = Tree;
+    let mut source = Dictionaries::new(&mut tree, &storage, "dicts").unwrap();
+    assert_eq!(source.found().unwrap(), 0);
+    assert_eq!(
+        source.caches().unwrap(),
+        [cache_of("dicts/en/small.ifo").unwrap()],
+        "a failed open does not let its cache be cleaned away"
+    );
+}
