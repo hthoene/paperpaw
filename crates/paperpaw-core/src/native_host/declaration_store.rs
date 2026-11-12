@@ -449,10 +449,11 @@ enum Batches {
     Refs(Vec<DeclRef>),
     /// Where each batch starts in the owner's read-only image (an image-only
     /// owner: no slots either; its records of a kind are found by walking the
-    /// batches' frames, `declaration_scan.rs`). Four bytes a batch, where a
-    /// reference takes 12 on the X4. Beside them, one bit for each kind the
-    /// owner declares (`1 << kind`): a kind it has none of is not walked.
-    Starts(Box<[u32]>, u64),
+    /// batches' frames, `declaration_scan.rs`). Beside each start, one bit
+    /// for each kind the batch declares (`1 << kind`): a batch without the
+    /// kind looked for is not walked (#248, R1). Twelve bytes a batch, what a
+    /// reference takes on the X4, where the index took a slot a record.
+    Starts(Box<[u32]>, Box<[u64]>),
 }
 
 impl Batches {
@@ -552,28 +553,34 @@ impl StoredOwner {
         kind: Kind,
         visit: &mut dyn FnMut(u16, u16) -> ControlFlow<()>,
     ) -> ControlFlow<()> {
-        match &self.batches {
-            Batches::Starts(_, kinds) if kinds & 1 << kind as u32 == 0 => {
-                return ControlFlow::Continue(());
-            }
-            Batches::Starts(..) => {}
+        let (starts, kinds) = match &self.batches {
+            Batches::Starts(starts, kinds) => (starts, kinds),
             Batches::Refs(_) => {
                 for slot in self.of_kind(kind) {
                     visit(slot.batch(), slot.record())?;
                 }
                 return ControlFlow::Continue(());
             }
-        }
-        for at in 0..self.batches.len() {
+        };
+        let bit = 1_u64 << kind as u32;
+        for (at, (start, batch_kinds)) in starts.iter().zip(kinds.iter()).enumerate() {
+            if batch_kinds & bit == 0 {
+                continue;
+            }
             // Below `BATCHES_MAX`: checked when the batch was staged.
             let Ok(batch) = u16::try_from(at) else {
                 break;
             };
             let mut found = Ok(0);
             self.source.with_image(&mut |image| {
+                // The frames are walked once: from the start to the batch's
+                // last record of any kind, each checked to stay in the image.
                 found = image
                     .ok_or(ERR_STATE)
-                    .and_then(|image| self.batches.bytes(at, image))
+                    .and_then(|image| {
+                        let start = usize::try_from(*start).map_err(|_| ERR_INVALID)?;
+                        image.get(start..).ok_or(ERR_INVALID)
+                    })
                     .and_then(|bytes| scan::places_of(bytes, kind));
             });
             let places = match found {
@@ -629,9 +636,13 @@ impl StoredOwner {
             return;
         }
         let mut starts = Vec::new();
-        if starts.try_reserve_exact(refs.len()).is_err() {
+        let mut kinds = Vec::new();
+        if starts.try_reserve_exact(refs.len()).is_err()
+            || kinds.try_reserve_exact(refs.len()).is_err()
+        {
             return;
         }
+        kinds.resize(refs.len(), 0_u64);
         for reference in refs {
             match reference {
                 DeclRef::Image { offset, .. } => starts.push(*offset),
@@ -639,12 +650,14 @@ impl StoredOwner {
             }
         }
         // Every record is in a slot (staging indexes each one), so the slots'
-        // kinds are the kinds the owner declares.
-        let kinds = self
-            .slots
-            .iter()
-            .fold(0_u64, |kinds, slot| kinds | 1 << (slot.hash >> KIND_SHIFT));
-        self.batches = Batches::Starts(starts.into_boxed_slice(), kinds);
+        // kinds are the kinds each batch declares.
+        for slot in &self.slots {
+            let Some(batch) = kinds.get_mut(usize::from(slot.batch())) else {
+                return;
+            };
+            *batch |= 1 << (slot.hash >> KIND_SHIFT);
+        }
+        self.batches = Batches::Starts(starts.into_boxed_slice(), kinds.into_boxed_slice());
         self.slots = Vec::new();
     }
 }
