@@ -318,6 +318,15 @@ impl<'a> CommandStage<'a> {
                 Ok(text.len() + language.len())
             }
             WireCommand::StopSpeaking {} => Ok(0),
+            // A book scope (`book_scope.rs`): from the submitter's own top
+            // screen only, a path that may name a book or empty (the end).
+            WireCommand::SetScope { path } => {
+                self.own_top()?;
+                if !path.is_empty() && !crate::native_host::book_scope::book_path_ok(path) {
+                    return Err(ERR_INVALID);
+                }
+                Ok(path.len())
+            }
             // Plugin requests (`plugin_requests.rs`): every id valid here, the
             // room for the request in `validate_plugin_requests`.
             WireCommand::RequestPlugins { plugins } => {
@@ -425,6 +434,11 @@ impl<'a> CommandStage<'a> {
                 (rate, flags),
             ),
             WireCommand::StopSpeaking {} => crate::native_host::speech::stop(self.owner),
+            WireCommand::SetScope { path: "" } => Ok(Command::SetScope(None)),
+            WireCommand::SetScope { path } => {
+                let file = crate::native_host::book_scope::file(self.owner.as_str(), path)?;
+                Ok(Command::SetScope(Some(file)))
+            }
             WireCommand::RequestPlugins { plugins } => {
                 let mut ids = alloc::vec::Vec::new();
                 ids.try_reserve_exact(plugins.split('\n').count())
