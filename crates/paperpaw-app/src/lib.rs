@@ -440,6 +440,88 @@ fn list(
     let _ = kernel.list_native(info);
 }
 
+/// [`register_native_plugins`] through `Kernel::register_linked_parked`: the
+/// plugins are registered parkable (a plugin that is not in use waits without
+/// its instance, #2638, #248). `services` is a plain `fn` (no capture), which
+/// the kernel calls again at each hosting. The old function stays, so that
+/// comparing the two is one call swap.
+///
+/// # Safety
+/// As [`register_native_plugins`], for every hosting of a plugin, not only the
+/// first.
+#[cfg(feature = "native-linked")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the shell supplies what Kernel::register_linked_parked takes, once for every plugin"
+)]
+pub unsafe fn register_native_plugins_parked<S: paperpaw_native::host_glue::Services + 'static>(
+    kernel: &mut paperpaw_core::Kernel,
+    host: &paperpaw_native::metadata::Host<'static>,
+    resources: &paperpaw_core::native_host::HostResources,
+    depth: &paperpaw_core::native_host::flat::FlatDepth,
+    services: fn() -> S,
+    teardown: paperpaw_core::native_host::shell::Report<S>,
+    report: fn(&S, &str, u32, i32),
+    default_on: impl Fn(&str) -> Option<bool>,
+    image: (*const u8, usize),
+) -> alloc::vec::Vec<(
+    &'static str,
+    Result<(), paperpaw_core::native_host::shell::Error>,
+)> {
+    use paperpaw_core::native_host::shell::Error;
+    use paperpaw_core::sdk::PluginState;
+    let config = kernel.native_config();
+    let mut outcome = alloc::vec::Vec::new();
+    if outcome.try_reserve_exact(NATIVE_PLUGINS.len()).is_err() {
+        return outcome;
+    }
+    add_native_catalogs(kernel);
+    for (id, linked) in NATIVE_PLUGINS {
+        // As `register_native_plugins`: not linked here, off, or held back.
+        let Some(default) = default_on(id) else {
+            continue;
+        };
+        let decision = kernel.native_decide(&config, id, default, false);
+        if !decision.hosts() {
+            list(
+                kernel,
+                id,
+                (PluginState::Off, decision.enabled(), decision.problem()),
+            );
+            continue;
+        }
+        let Some(share) = resources.try_clone() else {
+            outcome.push((*id, Err(Error::Allocation)));
+            list(kernel, id, (PluginState::Failed, true, None));
+            continue;
+        };
+        // SAFETY: as this function's contract says.
+        let status = unsafe {
+            kernel.register_linked_parked(
+                linked.entry(),
+                linked.metadata(),
+                host,
+                id,
+                services,
+                share,
+                depth,
+                teardown,
+                report,
+                image,
+                fixed_tables(id),
+            )
+        };
+        let state = if status.is_ok() {
+            PluginState::Running
+        } else {
+            PluginState::Failed
+        };
+        list(kernel, id, (state, true, None));
+        outcome.push((*id, status));
+    }
+    outcome
+}
+
 /// The translation catalogs plugin `id` brings built in, as the texts of its
 /// `i18n/<language>.ini` files (a linked native plugin has no code file to
 /// carry them: `screens-input.md` \[D\]). Empty for a plugin with none.
