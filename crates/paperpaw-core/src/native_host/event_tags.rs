@@ -3,16 +3,16 @@
 //! (`core.net` asks it before it accepts a request or a server).
 use paperpaw_native::host_glue::ERR_INVALID;
 
-/// A set of event wire tags below [`EventTags::LIMIT`].
+/// Tags from this value on cannot be held: the wire's event tags end below it
+/// (the last is 112). Two words, not four: the set is in every owner's row
+/// (#248, B). An event tag at or past it fails the build.
+const LIMIT: u32 = 128;
+
+/// A set of event wire tags below [`LIMIT`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct EventTags([u64; 2]);
+pub(crate) struct EventTags([u64; LIMIT as usize / 64]);
 
 impl EventTags {
-    /// Tags from this value on cannot be held: the wire's event tags end
-    /// below it (the last is 112). Two words, not four: the set is in every
-    /// owner's row (#248, B). An event tag at or past it fails the build.
-    pub(crate) const LIMIT: u32 = 128;
-
     /// The tags in the set for which `has` says yes (asked once for each tag
     /// the set can hold, word by word: no tag range is tested).
     pub(crate) fn collect(mut has: impl FnMut(u32) -> bool) -> Self {
@@ -52,13 +52,14 @@ impl EventTags {
 // tag (the whole 32-bit range would cost the build minutes; the wire's tags
 // are far below 65,536).
 const _: () = {
-    let mut tag = EventTags::LIMIT;
-    while tag <= u16::MAX as u32 {
+    // Every number from the limit on, not a range of records (`test_abi_tags.py`).
+    let mut number = LIMIT;
+    while number <= u16::MAX as u32 {
         assert!(
-            !super::events::is_event_tag(tag),
-            "an event tag past EventTags::LIMIT"
+            !super::events::is_event_tag(number),
+            "an event tag past LIMIT"
         );
-        tag += 1;
+        number += 1;
     }
 };
 
@@ -81,15 +82,15 @@ mod tests {
     #[test]
     fn a_tag_beyond_the_limit_is_refused_and_never_contained() {
         let mut tags = EventTags::default();
-        assert_eq!(tags.insert(EventTags::LIMIT), Err(ERR_INVALID));
+        assert_eq!(tags.insert(LIMIT), Err(ERR_INVALID));
         assert_eq!(tags.insert(u32::MAX), Err(ERR_INVALID));
         assert_eq!(tags, EventTags::default());
-        assert!(!tags.contains(EventTags::LIMIT) && !tags.contains(u32::MAX));
+        assert!(!tags.contains(LIMIT) && !tags.contains(u32::MAX));
     }
 
     #[test]
     fn collect_asks_every_tag_the_set_can_hold_once() {
-        let mut asked = [0u8; EventTags::LIMIT as usize];
+        let mut asked = [0u8; LIMIT as usize];
         let tags = EventTags::collect(|tag| {
             asked[tag as usize] += 1;
             matches!(tag, 0 | 63 | 64 | 99 | 127)
