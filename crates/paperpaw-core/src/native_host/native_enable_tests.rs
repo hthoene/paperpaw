@@ -315,3 +315,20 @@ fn a_native_plugin_listed_with_a_kept_manifest_points_to_it() {
     assert!(listed.is_fixed());
     assert!(core::ptr::eq(&**listed, &KEPT));
 }
+
+/// A plugin whose manifest's copy the heap has no room for is left out of
+/// the list, with a warning, not a stop (#248, B; Senior R1, #1372).
+#[test]
+fn a_plugin_whose_manifest_has_no_room_is_not_listed() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    let mut k = kernel("", "");
+    let made = || Manifest::new(Id::new_static("tight"), "tight", Version::new(1, 0, 0));
+    FAIL_NTH.with(|n| n.set(1));
+    k.add_plugin_info(made(), PluginState::Running, true);
+    let left = FAIL_NTH.with(|n| n.replace(0));
+    assert_eq!(left, 0);
+    assert!(k.plugins().get("tight").is_none());
+    // With room, it is listed.
+    k.add_plugin_info(made(), PluginState::Running, true);
+    assert!(k.plugins().get("tight").is_some());
+}

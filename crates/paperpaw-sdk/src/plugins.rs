@@ -213,13 +213,6 @@ fn try_box(manifest: Manifest) -> Result<Box<Manifest>, Manifest> {
     }
 }
 
-impl From<Manifest> for ManifestRef {
-    /// A copy of its own (on the heap).
-    fn from(manifest: Manifest) -> Self {
-        Self(Held::Owned(Box::new(manifest)))
-    }
-}
-
 impl From<&'static Manifest> for ManifestRef {
     fn from(manifest: &'static Manifest) -> Self {
         Self::fixed(manifest)
