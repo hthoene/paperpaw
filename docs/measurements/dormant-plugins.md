@@ -75,10 +75,15 @@ starts); linked ids stay `&'static str`. Owner directory, linked set and declara
 become views on that row. Target ~200 B per plugin, for all 32. No `unsafe`; Core co-owns the
 owner directory and the store.
 
-**D5 (item 4). Batch starts from the image.** An image-only owner keeps 12 B per batch (start and
-kind bits, `declaration_scan.rs`). The starts can be found by walking the image's batch frames
-once per lookup; the kind bits stay only for the large owners. Kept as its own pull request after
-D4; it saves up to 2.8 KiB, minus what the kind bits that stay cost.
+**D5 (item 4). Packed batch starts.** An image-only owner kept 12 B per batch (start and kind bits,
+`declaration_scan.rs`). A plugin's batches are separate statics, so the image cannot be walked from
+one batch to the next; but they lie close together. Built: an owner whose batches lie within 64 KiB
+of the first keeps one start, one mask of the kinds it declares and a 2-byte offset per batch: 14 B
+for the owner and 2 B per batch, in one allocation (`declaration_starts.rs`). An owner with one
+batch, or with batches further apart, keeps a start and a mask per batch as before. Cost: a lookup
+of a kind walks the frame headers of every batch of an owner that declares it, where the per-batch
+mask skipped the batches without it (instruction gate: at most +2 %). 40 owners, 269 batches on the
+emulator: about -2.2 KiB.
 
 **D6 (parked lever, not built).** A running plugin's host context (280 B on the 64-bit emulator)
 holds four scopes only a call uses (registrations 16, commands 16, environment 56, canvas 32 B).
