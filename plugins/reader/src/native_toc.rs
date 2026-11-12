@@ -149,7 +149,7 @@ fn push(out: &mut String, args: core::fmt::Arguments<'_>) -> Result<(), Error> {
 
 /// Entries are added this many at a time: a list grows by a little, never
 /// by double its length (#248).
-pub const GROWTH: usize = 32;
+pub const GROWTH: usize = 8;
 
 /// Adds `entry` to `list`, growing it by [`GROWTH`] where it is full.
 ///

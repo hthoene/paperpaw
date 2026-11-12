@@ -291,6 +291,10 @@ impl NativeReader {
         let shared = self.screens.top(SCREEN).and_then(|v| v.document());
         let view = TocView::open(host, ui, docs, (handover, shared))?;
         let scanning = view.scanning();
+        if scanning && let Some(reading) = self.screens.top(SCREEN) {
+            // The scan reads the book while the page is covered (#248).
+            reading.release_page();
+        }
         self.tocs.open(instance, view)?;
         if scanning {
             self.declare_work(host, (TOC_KEY, TOC_WORK), TOC_STEP_MS);
