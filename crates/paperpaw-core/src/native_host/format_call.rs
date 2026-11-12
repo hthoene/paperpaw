@@ -10,9 +10,11 @@
 //! payload and the tag translation belong to the generated `core.format`
 //! schema and are layered on these bytes.
 //!
-//! Peak memory of one call: the framed call (at most 4 KiB) and the reply
-//! buffer (at most 3,840 bytes), both allocated fallibly before the format is
-//! entered and freed on return. Nothing is retained.
+//! Peak memory of one call: the framed call (at most 4 KiB), allocated
+//! fallibly before the format is entered and freed on return. The format
+//! answers straight into the caller's `out` (at most 3,840 bytes of it), as
+//! through a plugin's frame (`fmt_call::FrameRoute`): no copy of the reply is
+//! held (#248). Nothing is retained.
 use super::{
     native_instances::{InstanceState, NativeInstances},
     native_screen::Dispatch,
@@ -94,7 +96,9 @@ pub(crate) fn accept_reply(bytes: &[u8]) -> Result<(), i32> {
 /// start is requested; the caller asks again) or is the calling plugin
 /// itself, `ERR_INVALID` for a reply that is longer than the buffer or not
 /// whole frames (the format is told with `dropped`), and the format's own
-/// negative status otherwise. `out` is written only on success.
+/// negative status otherwise. Before the format is asked, `out` is untouched;
+/// on an error after it, its reply room (the first 3,840 bytes at most) is
+/// zeros: nothing the format wrote there is passed on.
 pub(crate) fn call(
     registry: &NativeInstances,
     target: Target,
@@ -103,7 +107,7 @@ pub(crate) fn call(
     env: &Env<'_>,
 ) -> Result<usize, i32> {
     let framed = framed(payload)?;
-    let mut reply = scratch(out.len().min(PAYLOAD_MAX))?;
+    let room = out.len().min(PAYLOAD_MAX);
     // The retained epoch keeps start requests from flushing under this call.
     let _epoch = registry.callback()?;
     let lease = match registry.state(target.plugin)? {
@@ -114,11 +118,19 @@ pub(crate) fn call(
         }
         InstanceState::Stopped => return Err(ERR_CANCELLED),
     };
-    let result = lease.stage(target.token, &framed, &mut reply, env);
+    let reply = &mut out[..room];
+    let result = lease.stage(target.token, &framed, reply, env);
     // A negative result is the format's own status and passes through; it is
     // not a misbehaviour. Only a reply the host cannot take is dropped.
-    let length = result?;
+    let length = match result {
+        Ok(length) => length,
+        Err(status) => {
+            reply.fill(0);
+            return Err(status);
+        }
+    };
     let Ok(length) = usize::try_from(length) else {
+        reply.fill(0);
         return Err(length);
     };
     let valid = reply
@@ -126,11 +138,9 @@ pub(crate) fn call(
         .ok_or(ERR_INVALID)
         .and_then(|bytes| stage_wire::validate_reply(bytes, PAYLOAD_MAX, REPLY_ROWS));
     match valid {
-        Ok(()) => {
-            out[..length].copy_from_slice(&reply[..length]);
-            Ok(length)
-        }
+        Ok(()) => Ok(length),
         Err(status) => {
+            reply.fill(0);
             lease.dropped(target.token, status);
             Err(status)
         }
