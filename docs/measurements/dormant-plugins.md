@@ -1,9 +1,9 @@
 # Dormant native plugins (#248, item 5): design
 
-Status: draft for Senior, 2026-11-12. Kernel. Builds on parking (`parked-plugins.md`, #1337):
-same lease slot, one accessor (`NativeLease::live`), safe points, `ERR_BUSY` routes, back-off,
-`give_up`. No interface change: a plugin still cannot tell dormant from running. Each step below
-is its own draft pull request.
+Status: draft for Senior, 2026-11-12; the work comes after beta.1 (Decision 164). Kernel.
+Builds on parking (`parked-plugins.md`, #1337): same lease slot, one accessor
+(`NativeLease::live`), safe points, `ERR_BUSY` routes, back-off, `give_up`. No interface change:
+a plugin still cannot tell dormant from running. Each step below is its own draft pull request.
 
 ## Why
 
@@ -140,7 +140,10 @@ Total 7-8.5 days.
 
 ## Decisions
 
-Owner: (1) re-park (D3) before beta.1 or before 1.0 (Decision 164); (2) docs-only contract text:
+Settled: Beta 3 parity is due before 1.0, not beta.1 (Decision 164); item 5 resumes after
+beta.1.
+
+Owner: (1) whether D3 is part of the 1.0 parity; (2) docs-only contract text:
 "an idle plugin may be stopped and made again; keep what must survive in storage" (plugins lose
 cursor or scroll kept in memory); (3) a first-open latency budget on the X4; (4) rare-event
 subscribers before or after 1.0.
