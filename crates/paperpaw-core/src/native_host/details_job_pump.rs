@@ -253,6 +253,10 @@ impl crate::Kernel {
     }
 
     /// One pass's look: the book whose job begins, if any.
+    // Its own frame (as the refusal's): inlined, its early answers were
+    // threaded into the pump's `match` as jumps the firmware's frame scan
+    // cannot size (`frame-budget-ppn5.txt`).
+    #[inline(never)]
     fn native_details_pass(&self) -> Pass {
         let instances = &self.shared.native_instances;
         // Never inside a callback, nor while something staged waits.
@@ -349,6 +353,7 @@ impl crate::Kernel {
     /// was wrong with the book (after the preparing loop's wait for a step
     /// that could not be made, `doc_pump`), else passed by (and remembered as
     /// failed where the format failed it). When the next look is due.
+    #[inline(never)]
     fn native_details_refused(&self, status: i32, line: u64, next: u64, key: u64) -> u64 {
         let soon = self.now.millis().saturating_add(self.native_job_gap());
         let Some(run) = self.native_details_job().map(DetailsJob::run) else {
