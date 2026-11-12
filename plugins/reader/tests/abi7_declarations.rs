@@ -3,7 +3,9 @@
 //! units, steps), the six screens and the slots they fill, the 29 actions,
 //! the 34 menu entries, the 13 icons, the device needs, the key bindings
 //! (the two that hold while a switch is on decoded apart) and, native only,
-//! the two events. What has no native declaration yet is in `PORTING-7.md`.
+//! the two events; the first run (the reading screen's help hints, the setup
+//! step, the sample widget) is compared apart.
+//! What has no native declaration yet is in `PORTING-7.md`.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
 mod declarations;
@@ -14,7 +16,7 @@ use paperpaw_core::native_host::{
     registrations::{Record, records_decode},
 };
 use paperpaw_plugin_reader::Reader;
-use paperpaw_sdk::native::declare::Declarations;
+use paperpaw_sdk::native::declare::{Declarations, ScreenDecl};
 use paperpaw_sdk::{Contribution, Id, Plugin, Registrar};
 
 fn legacy() -> Vec<Contribution> {
@@ -308,4 +310,227 @@ fn the_reading_app_is_the_one_of_interface_6() {
             0
         )]
     );
+}
+
+/// The records of the first run, each admitted by the host's rules.
+fn first_run() -> Vec<Vec<u8>> {
+    let batches = batches(|d| declarations::first_run(d).unwrap());
+    for batch in &batches {
+        validate_batch("reader", &records_decode(batch).unwrap()).unwrap();
+    }
+    batches
+}
+
+/// The reading screen's help hints are interface 6's (`help::add`), in its
+/// order, with the same inputs and tap zones. Interface 6 also had them wait
+/// for the book (`help::wait`); the native counterpart, the screen's
+/// `waits_ready` bit, is refused by the host yet, so the reader cannot declare
+/// it (it says the book shows already: `native_ready`). When the host admits
+/// the bit, this test fails: declare it then (`PORTING-7.md`).
+#[test]
+fn the_help_hints_are_the_ones_of_interface_6() {
+    use paperpaw_sdk::help::{HelpHint, Input, POINT};
+    let mut old = Vec::new();
+    let mut waits = false;
+    for contribution in legacy() {
+        if let Contribution::ToPoint { point, text, .. } = contribution
+            && point.as_str() == POINT
+        {
+            for line in text.lines() {
+                if line == "reader.screen wait" {
+                    waits = true;
+                } else if let Some((
+                    screen,
+                    HelpHint {
+                        text, input, zone, ..
+                    },
+                )) = HelpHint::parse(line)
+                {
+                    let input = match input {
+                        Input::Touch => 1,
+                        Input::Buttons => 2,
+                        _ => 0,
+                    };
+                    let zone = zone.map_or((0, 0, 0, 0), |z| {
+                        (
+                            u32::from(z.x),
+                            u32::from(z.y),
+                            u32::from(z.w),
+                            u32::from(z.h),
+                        )
+                    });
+                    old.push(format!("{screen}|{input}|{zone:?}|{text}"));
+                }
+            }
+        }
+    }
+    assert!(waits);
+    let waiting = batches(|d| {
+        d.screen(ScreenDecl::new("screen", "reader.title", declarations::SCREEN).waits_ready())
+            .unwrap();
+        d.submit().unwrap();
+    });
+    let records = records_decode(&waiting[0]).unwrap();
+    assert_eq!(validate_batch("reader", &records), Err(-1), "unsupported");
+    let mut native = Vec::new();
+    for batch in first_run() {
+        for record in records_decode(&batch).unwrap().iter() {
+            if let Record::HelpHint(h) = record {
+                let zone = (h.x, h.y, h.width, h.height);
+                native.push(format!("{}|{}|{zone:?}|{}", h.screen, h.input, h.text));
+            }
+        }
+    }
+    assert_eq!(native.len(), 9);
+    assert_eq!(native, old);
+    // Three zones side by side across the page, between the top and the bottom
+    // bands (the quick panel's and the quick settings').
+    assert_eq!(
+        declarations::HINTS
+            .iter()
+            .filter_map(|(_, _, zone)| *zone)
+            .map(|(x, _, w, _)| x + w)
+            .collect::<Vec<_>>(),
+        [333, 667, 1000]
+    );
+    for text in [
+        include_str!("../i18n/en.ini"),
+        include_str!("../i18n/de.ini"),
+    ] {
+        for (key, ..) in declarations::HINTS {
+            assert!(
+                text.lines().any(|l| l.starts_with(&format!("{key} ="))),
+                "{key}"
+            );
+        }
+    }
+}
+
+/// The setup step asks for the kernel's text size, in interface 6's place
+/// (order 30), titled as that setting is (interface 6's empty title said so;
+/// a native step needs a title). It has no help and applies everywhere.
+#[test]
+fn the_setup_step_is_the_text_size_of_interface_6() {
+    let old: Vec<_> = legacy()
+        .into_iter()
+        .filter_map(|c| match c {
+            Contribution::SetupStep(step) => Some(step),
+            _ => None,
+        })
+        .collect();
+    let [old] = old.as_slice() else {
+        panic!("one step in interface 6");
+    };
+    assert_eq!(old.id.as_str(), "reader.setup.font-size");
+    assert_eq!((old.title.as_ref(), old.help.as_ref()), ("", ""));
+    let paperpaw_sdk::setup::SetupPage::Setting(setting) = &old.page else {
+        panic!("a setting's page");
+    };
+    let mut steps = Vec::new();
+    for batch in first_run() {
+        for record in records_decode(&batch).unwrap().iter() {
+            if let Record::SetupStep(step) = record {
+                steps.push((
+                    format!("reader.{}", step.name),
+                    step.title.to_string(),
+                    step.help.to_string(),
+                    step.order,
+                    step.page_kind,
+                    step.page.to_string(),
+                    step.applies_key.is_empty(),
+                    step.flags,
+                ));
+            }
+        }
+    }
+    assert_eq!(
+        steps,
+        [(
+            old.id.to_string(),
+            "core.setting.font-size".to_string(),
+            String::new(),
+            old.order,
+            0,
+            setting.to_string(),
+            true,
+            1
+        )]
+    );
+    assert_eq!(setting.as_str(), "core.font-size");
+}
+
+/// The sample widget: interface 6's id, title and kind (the default, other),
+/// previewing the reading group, with the token its draws and stage calls come
+/// with; not live (only settings change it) and of no fixed size.
+#[test]
+fn the_sample_widget_previews_the_reading_settings() {
+    let old: Vec<_> = legacy()
+        .into_iter()
+        .filter_map(|c| match c {
+            Contribution::Widget(widget) => Some(widget),
+            _ => None,
+        })
+        .collect();
+    let [old] = old.as_slice() else {
+        panic!("one widget in interface 6");
+    };
+    let mut widgets = Vec::new();
+    for batch in first_run() {
+        for record in records_decode(&batch).unwrap().iter() {
+            if let Record::WidgetSpec(w) = record {
+                widgets.push((
+                    format!("reader.{}", w.name),
+                    w.title.to_string(),
+                    w.category.to_string(),
+                    w.previews.to_string(),
+                    w.cells,
+                    w.token,
+                    w.flags,
+                ));
+            }
+        }
+    }
+    assert_eq!(
+        widgets,
+        [(
+            old.id.to_string(),
+            old.title.to_string(),
+            old.category.to_string(),
+            old.previews.as_ref().unwrap().to_string(),
+            0,
+            declarations::SAMPLE,
+            0
+        )]
+    );
+    assert_eq!(
+        old.previews.as_ref().unwrap().as_str(),
+        "core.group.reading"
+    );
+    assert!(old.cells.is_none());
+}
+
+/// Interface 6 showed the row of button hints of the reading screen only on a
+/// press (`HintVisibility::OnPress`). A native screen can declare its row
+/// hidden (bit 8) and no other visibility: the reader declares neither, so the
+/// row shows as on any screen until the SDK has the flag (`PORTING-7.md`).
+#[test]
+fn the_screen_hints_on_press_are_not_declared_yet() {
+    let on_press = legacy().into_iter().any(|c| {
+        matches!(
+            c,
+            Contribution::ScreenHints {
+                ref screen,
+                hints: paperpaw_sdk::HintVisibility::OnPress,
+                ..
+            } if screen.as_str() == "reader.screen"
+        )
+    });
+    assert!(on_press);
+    for batch in batches(|d| declarations::screens(d).unwrap()) {
+        for record in records_decode(&batch).unwrap().iter() {
+            if let Record::ScreenSpec(s) = record {
+                assert_eq!(s.flags & 256, 0, "{}", s.name);
+            }
+        }
+    }
 }

@@ -33,12 +33,10 @@ the kernel's settings (`core.*`); the reader declares none of them and adds no d
   host and formats, `DOC-open-layout`), positions and book data (`add_book_data` has no native
   declaration; `LIB-position`), the screens, input and dialogs (H1–H4), reading aloud (a speech
   facade) and the timers.
-- **No native declaration exists yet for** (the status lines are declared since R2b-2, see the end): the sample widget above the
-  reading settings (`previews(groups::READING)`), the screen
-  hints (*on press*) and the first-run help. The setup step *text size* is pending the host (op 22,
-  Host todo 99); at P6 time its title reuses an existing reader title string, with no new text. Each
-  is a gap in the declaration set; the declaration test counts the status settings so they cannot be
-  forgotten.
+- **No native declaration exists yet for** the screen hints *on press* and the first-run help's wait
+  for the book (both SDK/host gaps; the help hints, the setup step *text size* and the sample widget
+  are declared since #257, see *The first run* at the end). Each is a gap in the declaration set;
+  `tests/abi7_declarations.rs` fails when the host admits the wait, so it cannot be forgotten.
 - **Owner ask #241 (the reading plugin extensible through plugins).** The reader's stages
   (`stage.spec`: inserted blocks between lines, text style, an input filter, with the layout key
   and page numbers from the source text) wait for #224 (`paperpaw-reader-api`) and the stage host
@@ -118,9 +116,9 @@ relative to the data folder).
   screens it offers would be empty. The views come next: the annotations screen (model in
   `native_annotations.rs`), then TOC, skim, search, footnote and the reading screen with the
   document host.
-- Still undeclared: the slice-1 list (status places, the sample widget, screen hints,
-  first-run help, the setup step). `tests/hosted_construction.rs` runs `make` in the registered scope
-  of the kernel's native host.
+- Still undeclared: the screen hints *on press* and the help's wait (see *The first run*); the status
+  places, the help hints, the setup step and the sample widget are declared since.
+  `tests/hosted_construction.rs` runs `make` in the registered scope of the kernel's native host.
 - Metadata asks `core.ui` and no features yet; it grows with the views (storage for the last book,
   `core.library` for annotations, `core.files` for the export).
 
@@ -803,3 +801,43 @@ relative to the data folder).
   `handovers: None`; `with_handovers` is only used by tests), so the open with the book's hand-over is
   refused `ERR_INVALID` until it is wired, in event callbacks as in input callbacks.
 - Not covered by a test: the host path (no scripted host); `state.ini`'s reading is the tested `native_state`.
+
+## The first run (#257 item 16, todo 529)
+
+- **Help hints** (`declarations::first_run`, `HINTS`): Beta 3's nine for `reader.screen`, in its order: touch
+  *previous*, *menu* and *next* with their zones (thousandths: 0/333/667 across, 120 to 880 down), touch *quick*
+  and *night*, buttons *turn*, *select*, *back* and *panel*. The keys `reader.help.*` are in `en` and `de`.
+  `tests/abi7_declarations.rs` decodes them and compares them with the interface-6 `help.hints` lines.
+- **The wait for the book (`help::wait`): not declared.** Its native counterpart is `ScreenDecl::waits_ready`
+  (`screen.spec` bit 3), but the host's admission refuses the bit (`ERR_UNSUPPORTED`, `declarations.rs`
+  `screen_check`: "not connected to the host help policy yet"), and a refused screen would fail `make`. Until it
+  is admitted the host raises `event.screen_ready` after the reading screen's first draw, so the hints can come
+  over *Preparing* or an error message. The reader's half is done (`native_ready.rs`): it sends
+  `command.screen_ready` as Beta 3's `on_show` sent `help::ready` (the screen on top with its book open, and a
+  prepared book that opened; hooks in `native_plugin.rs` `reading_shown` and `document_changed`); the host takes
+  it as nothing for a screen that does not wait. A test fails once the host admits bit 3: then add
+  `.waits_ready()` to the reading screen in `declarations::screens` (one line).
+- **Screen hints *on press* (`HintVisibility::OnPress`): not declarable.** `ScreenDecl` has `hints_hidden`
+  (bit 8, Beta 3's `Hidden`) and nothing for *on press*; the reader declares neither, so the row of button
+  hints shows as on any screen (and takes its room). SDK/ABI/host gap: a `screen.spec` bit (9) `hints_on_press`
+  with `ScreenDecl::hints_on_press`, the host showing the row for a few seconds after a press (as
+  `command.show_hints`). A test records the gap.
+- **Setup step *text size*** (`setup.font-size`, order 30, the page `Setting("core.font-size")`): admitted
+  (`setup.step`, `registry.md` 6) and listed by `core.registry` op 15. Its title is the setting's own
+  (`core.setting.font-size`): Beta 3's empty title meant that, and a native step needs a title; no new text.
+  No help (as Beta 3); op 22 (`setup_step`, the help) is not needed for it.
+- **Sample widget** `reader.sample` (token `SAMPLE` 40, category `core.widgets.other`, previews
+  `core.group.reading`): `native_sample.rs`. Measured a fifth of the display high (`core.widget` stage call,
+  least height the same), placed, no targets (a tap does nothing). Drawn from scratch at each draw: the
+  reading settings read then (`core.font-size`, line and word spacing, side margins, justify; the values on
+  show while one is chosen), the two texts `reader.sample.1` and `.2` (two 1 KiB transient buffers), the four
+  reading fonts, the layout (`layout_page` over a two-paragraph `Document`) and the page's ink (`Look`,
+  `draw_lines`); nothing is kept across frames. Text box: a page's side margins and width (no wider than the
+  frame), 2 mm above and below.
+  - *Differences from Beta 3:* no hyphenation, no text filters and no page frames (columns), as the native
+    reading page has none yet; Beta 3 kept the laid-out lines between draws (the native one lays out at
+    each draw). The language of the layout is not set (Beta 3 passed the interface language for the script).
+  - *Not shown yet:* the settings plugin does not compose a group's preview widget above its settings
+    (`plugins/settings/PORTING-7.md`, ignored case `settings-group-preview`); the host lists it
+    (`reg_widget.previews`, op 19 flag). Untested on a host (no scripted widget call); the layout and the
+    draw are tested over a fixed-width measure.

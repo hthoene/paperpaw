@@ -7,7 +7,7 @@
 //! `native_*` models, tested without one.
 use crate::{
     declarations::{
-        ANNOTATIONS, BOOK_MOVED, DOCUMENT_CHANGED, FOOTNOTE, SCREEN, SEARCH, SEARCH_WORK,
+        ANNOTATIONS, BOOK_MOVED, DOCUMENT_CHANGED, FOOTNOTE, SAMPLE, SCREEN, SEARCH, SEARCH_WORK,
         SETTING_CHANGED, SKIM, SPOKEN, STACK_CHANGED, STARTED, STOPPING, SUSPEND, TOC, WORK_DUE,
     },
     native_annotations_view::{AnnotationsView, Outcome as NotesOutcome},
@@ -52,7 +52,7 @@ mod image {
 /// settings and screens before what refers to them. The events are heard for
 /// what saves the place (sleep, stop, the quiet time); the start and a moved
 /// book have no handler yet (`PORTING-7.md`).
-const BATCHES: [&[&[u8]]; 8] = [
+const BATCHES: [&[&[u8]]; 9] = [
     image::SETTINGS,
     image::SCREENS,
     image::STATUS,
@@ -61,6 +61,8 @@ const BATCHES: [&[&[u8]]; 8] = [
     image::HOLD_KEYS,
     image::EVENTS,
     image::STAGES,
+    // The first-run help, the setup step and the sample widget (`native_sample`).
+    image::FIRST_RUN,
 ];
 
 /// The key of the work that writes the place, and how long a page rests first
@@ -760,6 +762,7 @@ impl NativeReader {
         let (asked, reopened) = (self.aloud_asked.take(), self.reopening.take());
         if let (Some(view), Some(docs)) = (self.screens.get(instance), &self.docs) {
             view.shown(host, docs);
+            crate::native_ready::say(host, view);
             // Read aloud kept at the start for the book reopened, or kept while
             // the book was prepared and covered since it opened.
             if crate::native_start::reads_aloud(asked, reopened, now_ms, view.book_key())
@@ -839,6 +842,9 @@ impl NativeReader {
             redraw |= view.prepared(host, (docs, library)).unwrap_or(true);
         }
         if redraw {
+            if let Some(view) = self.screens.top(SCREEN) {
+                crate::native_ready::say(host, view);
+            }
             self.aloud_when_on_top(host);
             let mut scratch = [0; 64];
             CommandSender::new(host, &mut scratch)
@@ -907,7 +913,7 @@ impl Plugin for NativeReader {
         host: &Host<'_>,
         token: u32,
         incoming: Incoming<'_>,
-        _reply: &mut Reply<'_>,
+        reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         let Some(event) = read_event!(
             incoming;
@@ -924,7 +930,8 @@ impl Plugin for NativeReader {
             kinds::SettingChanged,
             kinds::Spoken,
             kinds::StackChanged,
-            kinds::DocumentChanged
+            kinds::DocumentChanged,
+            kinds::StageCall
         ) else {
             return Ok(());
         };
@@ -935,6 +942,12 @@ impl Plugin for NativeReader {
                 self.auto_turn_due(host, due.now_ms());
                 Ok(())
             }
+            // The sample widget is measured, placed and asked for its targets.
+            Event::StageCall {
+                stage: "core.widget",
+                payload,
+                ..
+            } if token == SAMPLE => crate::native_sample::stage(host, payload, reply),
             Event::ActionRun { now_ms, .. } if native_handsfree::is_reader_action(token) => {
                 self.action_run(host, token, now_ms);
                 Ok(())
@@ -1017,6 +1030,9 @@ impl Plugin for NativeReader {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        if token == SAMPLE {
+            return crate::native_sample::draw(host, &mut frame);
+        }
         if token == TOC {
             let view = self.tocs.top(token).ok_or(Error::State)?;
             return view.draw(host, &mut frame);
