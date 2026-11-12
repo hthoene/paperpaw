@@ -1228,6 +1228,9 @@ impl Kernel {
         self.bluetooth_suspend();
         self.firmware_suspend();
         let effects = self.finish();
+        // Standby: the plugins that may sleep and run idle are parked again
+        // (#248, D3, Decision 166); each is made again at its next use.
+        self.native_repark_idle(usize::MAX);
         // Asleep, no word is hyphenated: open tables give their heap back.
         self.shared.hyphenation.close_tables();
         self.keep_timing();

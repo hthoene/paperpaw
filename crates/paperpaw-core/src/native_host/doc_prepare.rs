@@ -23,13 +23,14 @@
 //! with it.
 use super::{BookKind, DocState, FOLDER, NoImages, SIBLINGS};
 use crate::native_host::{
-    doc_service::{self, FAILED, FormatCall, FormatRef, PrepareStep, READY, fmt},
+    doc_service::{self, FAILED, FormatCall, FormatRef, Options, PrepareStep, READY, fmt},
     fmt_call::{Opener, Route, Stage},
     format_call::Target,
     format_scope::{FormatBook, Guard},
     host_services::HostServices,
 };
 use alloc::vec::Vec;
+use core::cell::Cell;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_CANCELLED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_TIMEOUT,
 };
@@ -217,6 +218,33 @@ impl DocState {
         }
     }
 
+    /// `doc_service::pending`: the open's batch is kept with the book until
+    /// the open is sent.
+    pub(super) fn keep_open(&self, document: u32, batch: &[u8]) -> Result<(), i32> {
+        let mut books = self.books.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+        let book = books
+            .iter_mut()
+            .find(|book| book.document == document)
+            .ok_or(ERR_CANCELLED)?;
+        book.open.clear();
+        book.open
+            .try_reserve_exact(batch.len())
+            .map_err(|_| ERR_NO_MEMORY)?;
+        book.open.extend_from_slice(batch);
+        Ok(())
+    }
+
+    /// The pending open reached the format: the document is the format's
+    /// (it gets `close`), and the kept batch goes.
+    fn open_sent(&self, document: u32) {
+        self.table.open_sent(document);
+        if let Ok(mut books) = self.books.try_borrow_mut()
+            && let Some(book) = books.iter_mut().find(|book| book.document == document)
+        {
+            book.open = Vec::new();
+        }
+    }
+
     /// The document's preparation failed with `status`: it is `state` 2 and
     /// its opener hears of it.
     fn fail_prepared(&self, hosts: &HostServices, document: &doc_service::Document, status: i32) {
@@ -253,21 +281,33 @@ impl DocState {
         route: &dyn Route,
         document: &doc_service::Document,
         (target, kind): (Target, BookKind),
-        op: u32,
+        (op, called): (u32, &Cell<bool>),
         out: &mut [u8],
     ) -> Result<usize, i32> {
-        let css = {
+        let (css, open) = {
             let books = self.books.try_borrow().map_err(|_| ERR_BUSY)?;
             let book = books
                 .iter()
                 .find(|book| book.document == document.id)
                 .ok_or(ERR_NOT_FOUND)?;
-            super::copy(book.cache.as_ref().map_or("", |cache| &cache.css))?
+            // A pending open (`doc_service::pending`) is sent as it was asked.
+            let mut open = Vec::new();
+            if op == fmt::OPEN {
+                open.try_reserve_exact(book.open.len())
+                    .map_err(|_| ERR_NO_MEMORY)?;
+                open.extend_from_slice(&book.open);
+            }
+            let css = book.cache.as_ref().map_or("", |cache| &cache.css);
+            (super::copy(css)?, open)
         };
         let mut call = FormatCall::new(document.format, op, document.id);
         call.conversion = document.conversion;
         call.image_side = document.image_side;
         call.cover_side = document.cover_side;
+        if op == fmt::OPEN {
+            call.flags = document.flags;
+            call.options = Options::from_batch(&open);
+        }
         // The format's roots 3, 4 and 6 are this call's, as in an open.
         let _scope = self.enter_scope(hosts, target.plugin, document.id, kind, &css)?;
         let stage = Stage {
@@ -276,12 +316,15 @@ impl DocState {
         };
         let mut result = Err(ERR_NOT_FOUND);
         let mut run = |sibling: &str| {
-            result = stage.call(
+            // `called` is set once the call goes to the format: what failed
+            // before (the open, the CSS, the scope, the call's own buffers)
+            // was the host's own (Senior, R1 on #1368).
+            result = stage.call_noted(
                 Opener {
                     owner: document.owner,
                     sibling,
                 },
-                target,
+                (target, called),
                 &call,
                 out,
             );
@@ -315,15 +358,50 @@ impl DocState {
         out.try_reserve_exact(REPLY_BYTES)
             .map_err(|_| ERR_NO_MEMORY)?;
         out.resize(REPLY_BYTES, 0);
-        let length = self.call_in_scope(
-            hosts,
-            route,
-            document,
-            (target, kind),
-            fmt::PREPARE,
-            &mut out,
-        )?;
-        let (state, status, moved) = doc_service::prepared(&self.table, document, &out[..length])?;
+        let op = if document.open_pending {
+            fmt::OPEN
+        } else {
+            fmt::PREPARE
+        };
+        let called = Cell::new(false);
+        let call = (op, &called);
+        let length =
+            match self.call_in_scope(hosts, route, document, (target, kind), call, &mut out) {
+                Ok(length) => length,
+                // A pending open's format that is not made yet: later, until it
+                // gave up for want of memory, which fails the document (Senior,
+                // R2 on #1365). One that cannot be made fails it too; one that
+                // answered an error has it (the open reached it: it gets `close`
+                // from now on).
+                Err(ERR_BUSY) if document.open_pending && route.gave_up(target.plugin) => {
+                    self.fail_prepared(hosts, document, ERR_NO_MEMORY);
+                    return Ok(());
+                }
+                Err(ERR_BUSY) => return Err(ERR_BUSY),
+                // A preparation step without memory is tried again later; a
+                // pending open that reached its format and found no memory fails
+                // now, as the open does with the format awake (#248, Manager's
+                // decision 2), never tried again for ever.
+                Err(ERR_NO_MEMORY) if !document.open_pending => return Err(ERR_NO_MEMORY),
+                Err(status) if document.open_pending => {
+                    // Only an open the format was called with is closed later:
+                    // the host's own refusal (no room to copy the open or the
+                    // CSS, the scope) never reached it.
+                    if status != ERR_CANCELLED && called.get() {
+                        self.open_sent(document.id);
+                    }
+                    self.fail_prepared(hosts, document, status);
+                    return Ok(());
+                }
+                Err(status) => return Err(status),
+            };
+        let answered = if document.open_pending {
+            self.open_sent(document.id);
+            doc_service::pending::opened(&self.table, document, &out[..length])
+        } else {
+            doc_service::prepared(&self.table, document, &out[..length])
+        };
+        let (state, status, moved) = answered?;
         if moved {
             self.fresh.set(true);
         }

@@ -137,6 +137,23 @@ pub fn build_on_sleeping(
     build_full(builder, paperpaw_app::default_store(), card, true, sleep)
 }
 
+thread_local! {
+    /// The device's clock as the host families see it (work, network):
+    /// the test's time, which a test that runs work sets ([`set_clock`]).
+    static CLOCK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Sets the clock the host families read to `ms`, the time the test gives
+/// the kernel: declared work then comes due as on a device (#248).
+pub fn set_clock(ms: u64) {
+    CLOCK.with(|clock| clock.set(ms));
+}
+
+/// The clock the host families read ([`set_clock`]).
+pub fn clock() -> u64 {
+    CLOCK.with(std::cell::Cell::get)
+}
+
 /// The plugins the app lets sleep (`paperpaw_app::sleeps`).
 fn app_sleeps(id: &str) -> bool {
     #[cfg(feature = "native-linked")]
@@ -201,7 +218,7 @@ mod linked {
 
         impl WorkDevice for Offline {
             fn now_ms(&self) -> u64 {
-                0
+                super::super::clock()
             }
             fn network_up(&self) -> bool {
                 false
@@ -213,7 +230,7 @@ mod linked {
 
         impl ShellNetwork for Offline {
             fn now_ms(&self) -> u64 {
-                0
+                super::super::clock()
             }
             fn network_up(&self) -> bool {
                 false

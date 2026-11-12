@@ -444,7 +444,17 @@ fn only_no_room_or_a_busy_owner_waits_every_other_hosting_error_refuses() {
         shell::Error::Lifecycle(Lifecycle::Depth),
     ];
     for error in waits {
-        assert!(matches!(unparked(error), Unparked::NoMemory));
+        let why = unparked(error);
+        assert!(
+            matches!(why, Unparked::NoMemory | Unparked::Busy),
+            "{error:?}"
+        );
+        // Only no room is memory pressure (Senior, R3 on #1365).
+        assert_eq!(
+            why == Unparked::NoMemory,
+            super::super::native_dispatch::status(error) == ERR_NO_MEMORY,
+            "{error:?}"
+        );
     }
     for status in [ERR_INVALID, ERR_STATE, ERR_CANCELLED] {
         for error in [shell::Error::Status(status), shell::Error::Factory(status)] {
@@ -619,4 +629,80 @@ fn a_plugin_that_stays_without_room_gives_up_its_actions_and_a_later_one_reaches
     assert_eq!(makes(), tries + 1);
     assert!(!lease(&kernel, key).is_parked());
     assert_eq!(actions_waiting(&kernel), 0);
+}
+
+#[test]
+fn a_format_may_be_parked_a_stage_subscriber_may_not() {
+    // D2 (#248): formats left condition 4; stage subscribers, lookup
+    // providers and widgets stay awake.
+    let format = wire::Record::FormatSpec(wire::FormatSpec {
+        name: "books",
+        title: "format.title",
+        extensions: "epub",
+        flags: 0,
+        priority: 0,
+        token: 5,
+    });
+    assert!(!nested_role(&format));
+    let lookup = wire::Record::LookupSpec(wire::LookupSpec {
+        name: "words",
+        title: "lookup.title",
+        languages: "en",
+        flags: 0,
+        token: 6,
+    });
+    assert!(nested_role(&lookup));
+}
+
+#[test]
+fn a_format_that_stays_without_room_is_seen_to_give_up_once() {
+    // Senior, R2 on #1365: what the document loop asks of the registry
+    // (`fmt_call::Registry::gave_up`) for a pending open's parked format.
+    let mut kernel = kernel(Mode::Parkable);
+    let key = admit(&mut kernel);
+    MODE.with(|cell| cell.set(Mode::NoRoom));
+    let instances = &kernel.shared.native_instances;
+    assert!(!instances.format_gave_up(key), "never tried yet");
+    let mut now = kernel.now.millis();
+    let mut tries = 0;
+    while !instances.format_gave_up(key) {
+        tries += 1;
+        assert!(tries <= 10, "it never gave up");
+        instances.set_now(now);
+        assert!(lease(&kernel, key).live().is_err());
+        now += 64_000;
+    }
+    // 1, 2, 4, 8, 16, 32 and 64 s of waits: tried seven times, taken once.
+    assert_eq!(tries, 7);
+    assert!(!instances.format_gave_up(key), "taken once");
+    assert!(lease(&kernel, key).is_parked());
+}
+
+#[test]
+fn a_format_without_room_gives_up_at_once_when_nothing_can_be_parked_again() {
+    // Manager's decision 2 on #248: no memory to make a parked format, and
+    // no idle plugin to park again for room: the pending open fails at the
+    // next pass, as with the format awake, not after about two minutes of
+    // waits. What a queued action asks (`give_up`) keeps its wait.
+    let mut kernel = kernel(Mode::Parkable);
+    let key = admit(&mut kernel);
+    MODE.with(|cell| cell.set(Mode::NoRoom));
+    kernel.shared.native_instances.set_now(kernel.now.millis());
+    assert!(lease(&kernel, key).live().is_err());
+    assert!(
+        !kernel.shared.native_instances.format_gave_up(key),
+        "not before parking again was tried"
+    );
+    assert!(!kernel.native_unpark_pending(), "nothing made");
+    assert!(
+        !lease(&kernel, key).slot().give_up(),
+        "a queued action keeps its wait"
+    );
+    let instances = &kernel.shared.native_instances;
+    assert!(instances.format_gave_up(key), "the open fails at once");
+    assert!(!instances.format_gave_up(key), "taken once");
+    assert!(lease(&kernel, key).is_parked());
+    // Tried again at once by a later open (the wait started over).
+    MODE.with(|cell| cell.set(Mode::Parkable));
+    assert!(lease(&kernel, key).live().is_ok());
 }

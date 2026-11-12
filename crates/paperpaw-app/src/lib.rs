@@ -266,12 +266,21 @@ pub fn native_version(id: &str) -> Option<&'static str> {
 /// joins only with a case in `tests/sleep_parity.rs` that shows it behaves
 /// the same parked as awake. Not here: `help`, told of every screen change,
 /// would be made again at the first one; `transfer` installs plugins
-/// (`uses.install`), and the kernel parks no installer.
+/// (`uses.install`), and the kernel parks no installer. The formats sleep
+/// until a book of theirs opens; they are native plugins only where the build
+/// activates them (the flip, #243), and a name not registered changes nothing.
 #[cfg(feature = "native-linked")]
 pub const SLEEPS: &[&str] = &[
     "about",
     "file-manager",
     "files",
+    "format-cbz",
+    "format-epub",
+    "format-fb2",
+    "format-html",
+    "format-markdown",
+    "format-txt",
+    "format-xtc",
     "keyboard",
     "menu",
     "opds",

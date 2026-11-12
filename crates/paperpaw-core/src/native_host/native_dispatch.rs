@@ -388,6 +388,9 @@ impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
         visit(self.instance.host().image());
     }
+    fn holds_nothing(&self) -> bool {
+        self.instance.host().holds_nothing()
+    }
     fn service_event(&self, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
         self.service_call(bytes, env, None)
     }

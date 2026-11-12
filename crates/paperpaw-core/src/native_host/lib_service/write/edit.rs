@@ -239,6 +239,18 @@ impl Transactions {
         Ok(self.rows()?.iter().any(|t| t.book == book))
     }
 
+    /// Whether `owner` has a transaction open (#248, D3).
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the table is borrowed.
+    pub(crate) fn owner_holds(&self, owner: u64) -> Result<bool, i32> {
+        let rows = self
+            .rows
+            .try_borrow()
+            .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
+        Ok(rows.iter().any(|t| t.owner == owner))
+    }
+
     /// The plugin stopped: its transactions end; `ended` gets their ids, after
     /// the table is released (the host's callback may use the table).
     ///

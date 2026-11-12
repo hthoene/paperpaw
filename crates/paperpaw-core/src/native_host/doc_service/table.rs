@@ -157,6 +157,11 @@ pub(crate) struct Document {
     /// The format plugin is gone (it stopped): it is never called for this
     /// document again, not even by its opener's `close`.
     pub(crate) format_gone: bool,
+    /// Its `open` (op 2) waits for the format plugin to be made (it was
+    /// parked, #248 D2): the document is preparing, the preparing loop sends
+    /// the open once (`doc_open_pending`), and until then the format has
+    /// nothing of it (no `close` is sent for it).
+    pub(crate) open_pending: bool,
     /// The block whose fragments are being read: what the earlier ones said.
     pub(crate) block: Option<Pending>,
     /// The state or the progress moved since the opener last heard of it:
@@ -330,6 +335,7 @@ impl DocumentTable {
             job_kind: JobKind::Cover,
             reader_held: false,
             format_gone: false,
+            open_pending: false,
             block: None,
             changed: false,
             best_ppm: 0,
@@ -509,6 +515,7 @@ impl DocumentTable {
         document.status = status;
         document.flags = flags;
         document.conversion = conversion;
+        document.open_pending = false;
         // A preparation starts here.
         document.best_ppm = progress_ppm;
         document.stalls = 0;
@@ -530,8 +537,12 @@ impl DocumentTable {
         let rows = self.documents.try_borrow().ok()?;
         // The cover job waits while a book is open for reading.
         let held = self.list_hold.get() || Self::reading(&rows);
+        // A pending open is sent by the loop, a `details` document's too.
         let preparing = |d: &&Document| {
-            d.state == PREPARING && d.closed_by_host == 0 && !d.details && !(d.cover_job && held)
+            d.state == PREPARING
+                && d.closed_by_host == 0
+                && (d.open_pending || !d.details)
+                && !(d.cover_job && held)
         };
         let oldest = rows.iter().find(preparing);
         if self.limits.one_preparation() {
@@ -551,10 +562,65 @@ impl DocumentTable {
             rows.iter().any(|d| {
                 d.state == PREPARING
                     && d.closed_by_host == 0
-                    && !d.details
+                    && (d.open_pending || !d.details)
                     && !(d.cover_job && held)
             })
         })
+    }
+
+    /// The document's `open` waits for its format plugin to be made
+    /// (`doc_open_pending`): it stays preparing with the open's conversion.
+    pub(crate) fn set_open_pending(&self, id: u32, conversion: u64) -> Result<(), i32> {
+        let mut rows = self.rows()?;
+        let document = rows.iter_mut().find(|d| d.id == id).ok_or(ERR_NOT_FOUND)?;
+        document.open_pending = true;
+        document.conversion = conversion;
+        Ok(())
+    }
+
+    /// The opener's view of the document moved outside a preparing step (a
+    /// pending open answered): it hears `event.document_changed`.
+    pub(crate) fn note_changed(&self, id: u32) {
+        if let Ok(mut rows) = self.documents.try_borrow_mut()
+            && let Some(document) = rows.iter_mut().find(|d| d.id == id)
+        {
+            document.changed = true;
+        }
+    }
+
+    /// The pending open reached the format (it answered, if only with an
+    /// error): the format may hold state for the document from now on.
+    pub(crate) fn open_sent(&self, id: u32) {
+        if let Ok(mut rows) = self.documents.try_borrow_mut()
+            && let Some(document) = rows.iter_mut().find(|d| d.id == id)
+        {
+            document.open_pending = false;
+        }
+    }
+
+    /// Whether any document (in any state, a pending open too) names a
+    /// format of which `of` says yes: its plugin may not be parked again
+    /// (#248 D3). A held table counts as yes.
+    pub(crate) fn uses_format(&self, of: &dyn Fn(FormatRef) -> bool) -> bool {
+        self.documents
+            .try_borrow()
+            .map_or(true, |rows| rows.iter().any(|d| of(d.format)))
+    }
+
+    /// Whether `owner` opened a document still in the table (any state, a
+    /// pending open too) or has a `document_closed` event waiting (#248, D3).
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when the table is borrowed.
+    pub(crate) fn owner_holds(&self, owner: u64) -> Result<bool, i32> {
+        let waiting = self
+            .closed
+            .try_borrow()
+            .map_err(|_| ERR_BUSY)?
+            .iter()
+            .any(|event| event.owner == owner);
+        let rows = self.documents.try_borrow().map_err(|_| ERR_BUSY)?;
+        Ok(waiting || rows.iter().any(|d| d.owner == owner))
     }
 
     /// Whether the cover job is held back for a list screen.

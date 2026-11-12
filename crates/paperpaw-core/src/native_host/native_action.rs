@@ -88,6 +88,14 @@ impl ActionQueue {
         self.keep(pending)
     }
 
+    /// Whether an action of `owner` waits (or the queue is in use): a plugin
+    /// is not parked again then (#248, D3).
+    pub(crate) fn waits_for(&self, owner: u64) -> bool {
+        self.waiting.try_borrow().map_or(true, |queue| {
+            queue.iter().any(|pending| pending.owner == owner)
+        })
+    }
+
     /// Drops every action of `owner` waiting; how many.
     pub(crate) fn drop_owner(&self, owner: u64) -> usize {
         let Ok(mut queue) = self.waiting.try_borrow_mut() else {

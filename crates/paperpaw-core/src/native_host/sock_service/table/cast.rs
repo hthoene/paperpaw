@@ -306,6 +306,11 @@ impl Inner {
         }
     }
 
+    /// Whether `owner` has a cast (#248, D3).
+    pub(super) fn cast_owner_holds(&self, owner: u64) -> bool {
+        self.casts.iter().any(|c| c.owner == owner)
+    }
+
     /// The plugin stopped: its broadcasts go without events.
     pub(super) fn cast_owner_stopped(&mut self, host: &dyn SockHost, owner: u64) -> u32 {
         let mut freed = 0_u32;

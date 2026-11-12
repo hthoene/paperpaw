@@ -20,6 +20,9 @@ struct State {
     /// The kernel's time (ms), for the wait before a parked plugin is tried
     /// again after it found no memory.
     now_ms: Cell<u64>,
+    /// An unpark found no memory since the kernel last looked: memory
+    /// pressure, on which one idle plugin is parked again (#248, D3).
+    pressure: Cell<bool>,
 }
 impl State {
     fn enter(&self, fresh: bool) -> Result<u64, i32> {
@@ -85,6 +88,10 @@ impl CallbackClock {
     pub(crate) fn set_now(&self, now_ms: u64) {
         self.state().now_ms.set(now_ms);
     }
+    /// Whether an unpark found no memory since the last call; clears it.
+    pub(crate) fn take_pressure(&self) -> bool {
+        self.state().pressure.replace(false)
+    }
     /// Holds unparking off until the returned guard is dropped (an event
     /// batch being delivered, a registration transaction). `None` where the
     /// clock is not shared yet (no native plugin): nothing is parked then.
@@ -108,6 +115,7 @@ impl CallbackClock {
                 drew: Cell::new(state.drew.get()),
                 holds: Cell::new(state.holds.get()),
                 now_ms: Cell::new(state.now_ms.get()),
+                pressure: Cell::new(state.pressure.get()),
             };
             let shared = Shared::try_new(value).map_err(|_| ERR_NO_MEMORY)?;
             self.0 = Source::Shared(shared);
@@ -137,6 +145,10 @@ impl CallbackRuntime {
     /// As [`CallbackClock::safe_point`], read through a lease's clock.
     pub(crate) fn safe_point(&self) -> bool {
         self.0.depth.get() == 0 && self.0.holds.get() == 0
+    }
+    /// An unpark found no memory (see [`CallbackClock::take_pressure`]).
+    pub(crate) fn note_pressure(&self) {
+        self.0.pressure.set(true);
     }
     /// As [`CallbackClock::set_now`]'s time.
     pub(crate) fn now_ms(&self) -> u64 {

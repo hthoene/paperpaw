@@ -48,12 +48,13 @@ host, not taken from an audit (another plugin's later `make` only registers and 
    image or an owned copy; none borrows the registration batch buffer, which is freed at park.
 4. **No nested role.** None of its registrations can be called inside another plugin's callback:
    no stage subscription (`reader.filter`, `word-looked-up`, `core.widget`, `ui.compose`), no
-   `core.document` format, no published service or lookup provider, no widget maker, and not an
-   installer (`uses.install`, plugin requests). Formats can follow in phase 1b once `doc_service`
-   turns `ERR_BUSY` from `format_call` into "preparing" (Host).
+   published service or lookup provider, no widget maker, and not an installer (`uses.install`,
+   plugin requests). A `core.document` format may be parked since D2: `doc_service` keeps an open
+   whose format is parked preparing and opens it once the format is made (Host, #2717).
 
 Phase 1 never parks a plugin again after it ran; dropping idle plugins again is phase 2 (after
-beta.1). The `make` audit below says what to expect, but the checks decide.
+beta.1; `dormant-plugins.md`, D3). The `make` audit below says what to expect, but the checks
+decide.
 
 **The `sleeps` flag (D1).** The checks above are the kernel's; on top, a linked plugin is
 registered to park only if its shell says it may sleep (`paperpaw_app::SLEEPS`, default awake,

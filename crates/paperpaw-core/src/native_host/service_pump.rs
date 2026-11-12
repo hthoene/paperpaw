@@ -222,9 +222,30 @@ impl crate::Kernel {
     }
 
     /// Runs the services' clocks and delivers their events (see the module).
+    /// A parked plugin made at the end of a round (a format a document step
+    /// asked for) is used in the same pass, as it would have been running
+    /// awake: one more round runs what waited for it (the pending open), and
+    /// where the document loop took that step, one more its follow-up (the
+    /// job that asked ends). No pass of its own (#248); a make in a later
+    /// round asks for the next pass. Three rounds at most.
     // Its own frame: not inlined into `Kernel::finish` (#250).
     #[inline(never)]
     pub(crate) fn native_service_pump(&mut self) {
+        if !self.native_service_round().0 {
+            return;
+        }
+        let (made, doc_more) = self.native_service_round();
+        let made = made || (doc_more && self.native_service_round().0);
+        if made {
+            self.shared.native_instances.set_service_more(true);
+        }
+    }
+
+    /// One round of the pump: whether a parked plugin was made at its end,
+    /// and whether the document loop has another step.
+    // Its own frame: the pump's rounds share it (#250).
+    #[inline(never)]
+    fn native_service_round(&mut self) -> (bool, bool) {
         // What the user decided about the network, before the services'
         // clocks run: a plugin whose network was turned off loses what it
         // has open in this pass.
@@ -301,11 +322,9 @@ impl crate::Kernel {
         );
         // Saved passwords that did not open here: said once per start.
         self.secrets_notice();
-        // Parked plugins asked to start in this pass are made now, and what
-        // waited for them goes in the next pass (#248).
-        if self.native_unpark_pending() {
-            self.shared.native_instances.set_service_more(true);
-        }
+        // Parked plugins asked to start in this round are made now; what
+        // waited for them goes on in the pump's next round (#248).
+        (self.native_unpark_pending(), doc_more)
     }
 
     /// When the pump wants to run again: now while events remain, else at

@@ -453,36 +453,10 @@ enum Batches {
     Refs(Vec<DeclRef>),
     /// Where each batch starts in the owner's read-only image (an image-only
     /// owner: no slots either; its records of a kind are found by walking the
-    /// batches' frames, `declaration_scan.rs`). Beside each start, one bit
-    /// for each kind the batch declares (`1 << kind`): a batch without the
-    /// kind looked for is not walked (#248, R1). Twelve bytes a batch, what a
-    /// reference takes on the X4, where the index took a slot a record; all
-    /// of an owner's in one allocation (#248, D4).
-    Starts(Box<[BatchStart]>),
-}
-
-/// Where an image-only owner's batch starts in its image, and the kinds it
-/// declares (`1 << kind`), as two words: twelve bytes a batch.
-#[derive(Clone, Copy)]
-pub(super) struct BatchStart {
-    start: u32,
-    kinds: [u32; 2],
-}
-
-impl BatchStart {
-    pub(super) fn start(self) -> u32 {
-        self.start
-    }
-
-    pub(super) fn kinds(self) -> u64 {
-        u64::from(self.kinds[0]) | u64::from(self.kinds[1]) << 32
-    }
-
-    fn add_kind(&mut self, kind: u32) {
-        let mask = self.kinds() | 1_u64 << kind;
-        // The halves of the mask: the casts keep the low 32 bits of each.
-        self.kinds = [mask as u32, (mask >> 32) as u32];
-    }
+    /// batches' frames, `declaration_scan.rs`), with the kinds they declare:
+    /// a batch without the kind looked for is not walked (#248, R1). Packed
+    /// where the batches allow it (`declaration_starts.rs`, #248, D5).
+    Starts(Starts),
 }
 
 impl Batches {
@@ -516,7 +490,7 @@ impl Batches {
         match self {
             Self::Refs(refs) => batch_bytes(refs.get(batch).ok_or(ERR_INVALID)?, image),
             Self::Starts(starts) => {
-                let start = usize::try_from(starts.get(batch).ok_or(ERR_INVALID)?.start())
+                let start = usize::try_from(starts.start(batch).ok_or(ERR_INVALID)?)
                     .map_err(|_| ERR_INVALID)?;
                 scan::batch_at(image, start)
             }
@@ -635,10 +609,7 @@ impl StoredOwner {
         }
         for reference in refs {
             match reference {
-                DeclRef::Image { offset, .. } => starts.push(BatchStart {
-                    start: *offset,
-                    kinds: [0; 2],
-                }),
+                DeclRef::Image { offset, .. } => starts.push(BatchStart::new(*offset)),
                 DeclRef::Owned(_) => return,
             }
         }
@@ -650,7 +621,10 @@ impl StoredOwner {
             };
             batch.add_kind(u32::from(slot.hash >> KIND_SHIFT));
         }
-        self.batches = Batches::Starts(starts.into_boxed_slice());
+        let Some(starts) = Starts::try_new(&starts) else {
+            return;
+        };
+        self.batches = Batches::Starts(starts);
         self.slots = Vec::new();
     }
 }
@@ -1412,6 +1386,8 @@ mod books;
 mod formats;
 #[path = "declaration_scan.rs"]
 mod scan;
+#[path = "declaration_starts.rs"]
+mod starts;
 #[allow(
     unused_imports,
     reason = "read by the library catalog's production host"
@@ -1425,6 +1401,7 @@ pub(crate) use books::{
     reason = "read by the document service's production host"
 )]
 pub(crate) use formats::{FormatDecl, ReaderDecl};
+use starts::{BatchStart, Starts};
 #[path = "declaration_stages.rs"]
 mod stages;
 #[allow(
