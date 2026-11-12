@@ -79,6 +79,24 @@ idle about -14 KiB in phase 1 (15 plugins), about -20 KiB with the formats. Test
 gets its event, opens its screen, runs its action; a changed batch at unpark stops it; no memory at
 unpark keeps it parked and retries; depth > 0 answers `ERR_BUSY` and the event arrives next pass.
 
+## Decisions (Core's questions, 2026-11-12)
+
+- **The lease stays; its inside is a slot.** Screen factories, actions, the declaration store and
+  the pumps keep their `NativeLease` clones. Parking empties the slot inside the shared lease and
+  unparking fills it again, so every holder stays valid. Empty is `Parked`, a state of its own and
+  not `Stopped`: at depth 0 the caller unparks, at depth > 0 it uses `request_start` and `ERR_BUSY`.
+  The slot changes only at depth 0 with no `live()` borrow held (debug assertion).
+- **Declarations come from the row.** The store's current/stale check and `with_image` read the
+  instance row (enabled, not retiring; the linked image is `'static`), not the instance, so a
+  parked plugin's menus, settings, keys and hints stay.
+- **Hooks (all at depth 0):** a native action run (key bindings, menu rows, rules); a screen or
+  slot open (also another plugin's staged open, the dialog pump, settings editor screens); the
+  work pump and the event pumps. Drawing never unparks and never allocates: a parked plugin has no
+  screen on the stack (opening one unparks it) and no widget instance (widget makers are not
+  parked). If a draw meets one anyway, it draws nothing, logs and asks `request_start`.
+- **Frames:** unparking under `run_commands` puts `Hosted::new` and `make` under the command loop;
+  Core measures it on the X4. If it is too deep, unparking moves to `take_start` at the loop top.
+
 ## Split
 
 - Kernel: the `Unpark` row, park after start, unpark at depth 0, batch hash, event delivery to
