@@ -180,6 +180,9 @@ impl TxtDocument {
         read
     }
 
+    /// One header line's title, author or language. It must not read
+    /// `self.path`: [`Self::read_header`] has taken it out while the lines
+    /// are read.
     fn header_line(&mut self, line: &[u8]) -> Result<(), DocumentError> {
         let (text, _) = self.decode(line, 0)?;
         let text = text.trim();
