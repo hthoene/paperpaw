@@ -86,6 +86,9 @@ X4 peak is not measured.
   (`docs/abi/ui.md`, *Messages*); the plugin has nothing to show and the screen goes with the
   interface-6 code at activation. This is an accepted change from interface 6 (Kernel): a plugin can
   no longer replace how notices look; the host shows each for `core.notice-seconds`.
+  The host's screen is `core.notice-box` (`paperpaw-core` `native_host/notice.rs`, Beta 3's look),
+  bound to `core.notice` as a fallback (#257): with native plugins on, notices no longer vanish;
+  the interface-6 `menu.notice` wins while it is installed.
 
 ## Tests
 

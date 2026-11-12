@@ -327,8 +327,8 @@ mod linked {
         eprintln!("native plugin {id}: teardown step {step:?} failed: {why:?}");
     }
 
-    fn report(_: &Heap, tag: u32, status: i32) {
-        eprintln!("native plugin: call {tag} ended with {status}");
+    fn report(_: &Heap, plugin: &str, tag: u32, status: i32) {
+        eprintln!("native plugin {plugin}: call {tag} ended with {status}");
     }
 
     /// What the host offers: the data services, `core.device`, and the ones the

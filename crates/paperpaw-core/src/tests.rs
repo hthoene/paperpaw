@@ -3272,6 +3272,7 @@ mod font_packs;
 mod frames;
 mod free_count;
 mod guard;
+mod host_notice;
 mod hosting;
 mod hyphenation_feed;
 mod hyphenation_tables;
