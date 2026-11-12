@@ -14,7 +14,6 @@ use paperpaw_sdk::native::{
     commands::{CommandSender, PluginEnabled, RedrawMode},
     events::{Event, InstallDone},
     net::HttpDone,
-    storage::DataStorage,
     ui::Instance,
 };
 use paperpaw_ui_kit::mem::push;
@@ -218,7 +217,7 @@ impl NativeStore {
         // What the install needs of the page outlives it.
         let kept = lean(page)?;
         let name = crate::native_glue::own(&page.entry.name)?;
-        let storage = DataStorage::new(host);
+        let storage = crate::native_folders::StoreStorage::new(host);
         let started = {
             let mut wire = DownloadWire::new(host, &mut self.handles);
             self.download.start(&mut wire, page)
@@ -253,7 +252,7 @@ impl NativeStore {
 
     /// The name of the plugin that is being downloaded.
     fn busy_name(&self, host: &Host<'_>) -> Result<String, Error> {
-        let storage = DataStorage::new(host);
+        let storage = crate::native_folders::StoreStorage::new(host);
         match crate::native_download::Download::progress(&storage)? {
             Some(job) => Ok(job.name),
             None => Ok(String::new()),
@@ -283,7 +282,7 @@ impl NativeStore {
     /// All the files are here: the host installs them.
     #[inline(never)]
     fn finish(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        let storage = DataStorage::new(host);
+        let storage = crate::native_folders::StoreStorage::new(host);
         let Some(staged) = self.download.take_ready(&storage)? else {
             return Ok(());
         };
@@ -356,7 +355,7 @@ impl NativeStore {
     /// Lets go of an install that cannot go on: its staged files, its busy
     /// mark, what was kept for it.
     fn abandon(&mut self, host: &Host<'_>, staged: &crate::native_download::Staged) {
-        let storage = DataStorage::new(host);
+        let storage = crate::native_folders::StoreStorage::new(host);
         let _ = storage.remove_dir_all(&staged.folder);
         self.download.set_step(DownStep::Idle);
         self.installing = None;
@@ -460,7 +459,7 @@ impl NativeStore {
         key: &str,
         result: Result_,
     ) -> Result<(), Error> {
-        let storage = DataStorage::new(host);
+        let storage = crate::native_folders::StoreStorage::new(host);
         let queue = Queue::read(&storage)?;
         let done = result == Result_::Installed;
         if queue.requested() {
@@ -480,7 +479,7 @@ impl NativeStore {
 
     #[inline(never)]
     fn download_failed(&mut self, host: &Host<'_>, _why: Failure) -> Result<(), Error> {
-        let storage = DataStorage::new(host);
+        let storage = crate::native_folders::StoreStorage::new(host);
         let (id, name) = match crate::native_download::Download::progress(&storage)? {
             Some(job) => (job.plugin, job.name),
             None => (String::new(), String::new()),
@@ -506,7 +505,7 @@ impl NativeStore {
         if self.download_busy() || self.want.is_some() {
             return Ok(());
         }
-        let storage = DataStorage::new(host);
+        let storage = crate::native_folders::StoreStorage::new(host);
         let mut queue = Queue::read(&storage)?;
         match queue_next(&mut queue, &storage)? {
             Turn::FetchPage(id) => self.want_page(host, &id),
@@ -521,7 +520,7 @@ impl NativeStore {
     /// request's plugins became, is said.
     #[inline(never)]
     fn queue_ended(&mut self, host: &Host<'_>, queue: &Queue) -> Result<(), Error> {
-        let storage = DataStorage::new(host);
+        let storage = crate::native_folders::StoreStorage::new(host);
         if let Some(done) = crate::native_request::finished(&storage)? {
             self.requests_finished(host, &done)?;
         }
@@ -555,7 +554,7 @@ impl NativeStore {
     #[inline(never)]
     fn update_all(&mut self, host: &Host<'_>) -> Result<(), Error> {
         self.ensure_snapshot(host)?;
-        let storage = DataStorage::new(host);
+        let storage = crate::native_folders::StoreStorage::new(host);
         let ids = self.updates(&storage)?;
         let mut queue = Queue::read(&storage)?;
         queue.add(ids.iter().map(String::as_str), Mark::Said)?;
@@ -566,7 +565,7 @@ impl NativeStore {
     /// Fetch again the plugins `ids` that plugin `by` asked for.
     #[inline(never)]
     fn again(&mut self, host: &Host<'_>, by: &str, ids: &[String]) -> Result<(), Error> {
-        let storage = DataStorage::new(host);
+        let storage = crate::native_folders::StoreStorage::new(host);
         crate::native_request::Request::again(&storage, by, ids)?;
         let mut queue = Queue::read(&storage)?;
         queue.add(ids.iter().map(String::as_str), Mark::Requested)?;
@@ -576,7 +575,10 @@ impl NativeStore {
 
     /// The ids of the plugins that have a newer version in the library's list.
     #[inline(never)]
-    fn updates(&self, storage: &DataStorage<'_, '_>) -> Result<Vec<String>, Error> {
+    fn updates(
+        &self,
+        storage: &crate::native_folders::StoreStorage<'_, '_>,
+    ) -> Result<Vec<String>, Error> {
         let mut ids = Vec::new();
         let (Some(index), Some(snapshot)) = (self.loader.index(), self.snapshot.as_ref()) else {
             return Ok(ids);
@@ -646,7 +648,7 @@ impl NativeStore {
         match outcome(reason_of(done), self.activity.flash_hint) {
             Said::Done => {
                 let id = crate::native_glue::own(done.id())?;
-                let storage = DataStorage::new(host);
+                let storage = crate::native_folders::StoreStorage::new(host);
                 let _ = crate::native_install::Installs::forget(&storage, &id);
                 self.say_with(host, "store.removed", &name)
             }
@@ -702,7 +704,7 @@ impl NativeStore {
     /// says whether it applies.
     #[inline(never)]
     pub(crate) fn started(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        let storage = DataStorage::new(host);
+        let storage = crate::native_folders::StoreStorage::new(host);
         let mut queue = Queue::read(&storage)?;
         queue.interrupted();
         queue.keep(&storage)?;
@@ -726,7 +728,7 @@ impl NativeStore {
     pub(crate) fn setup_state(&mut self, host: &Host<'_>) -> Result<(), Error> {
         use crate::native_ask::{Badge, CHOSEN, OFFERED, badge, waiting_offered};
         use paperpaw_sdk::native::commands::ItemState;
-        let storage = DataStorage::new(host);
+        let storage = crate::native_folders::StoreStorage::new(host);
         // The start reads the rows of the plugins the offer names, not what the
         // device has, and none of it is kept.
         let present = crate::native_installs::Snapshot::read_some(host, &OFFERED)?;
@@ -772,7 +774,7 @@ impl NativeStore {
 
     /// Where the downloads and the installs stand, for the screens.
     pub(crate) fn refresh_activity(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        let storage = DataStorage::new(host);
+        let storage = crate::native_folders::StoreStorage::new(host);
         self.activity.queue = Queue::read(&storage)?;
         Ok(())
     }

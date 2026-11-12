@@ -20,7 +20,6 @@ use paperpaw_sdk::native::{
     image::ImageStatus,
     registrations,
     reply::Reply,
-    storage::DataStorage,
     ui::{Instance, RequestId as AskId, Ui},
 };
 use paperpaw_ui_kit::{read_event, screens::Screens};
@@ -200,7 +199,7 @@ impl NativeStore {
     /// What the device has installed, read when a screen needs it.
     pub(crate) fn ensure_snapshot(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.snapshot.is_none() {
-            let storage = DataStorage::new(host);
+            let storage = crate::native_folders::StoreStorage::new(host);
             let snapshot = Snapshot::read(host, &storage)?;
             self.refresh_activity(host)?;
             self.activity.read_facts(host, &storage, Some(&snapshot))?;
@@ -243,7 +242,7 @@ impl NativeStore {
     ) -> Result<R, Error> {
         self.ensure_snapshot(host)?;
         let small = self.small_memory(host);
-        let storage = DataStorage::new(host);
+        let storage = crate::native_folders::StoreStorage::new(host);
         let loader = LoaderView {
             loader: &self.loader,
             generation: self.generation,
@@ -282,7 +281,7 @@ impl NativeStore {
         }
         self.ensure_snapshot(host)?;
         let small = self.small_memory(host);
-        let storage = DataStorage::new(host);
+        let storage = crate::native_folders::StoreStorage::new(host);
         let view = {
             let loader = LoaderView {
                 loader: &self.loader,

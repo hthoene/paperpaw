@@ -12,7 +12,6 @@ use paperpaw_sdk::native::{
     Error, Host,
     commands::{CommandSender, PluginOutcome},
     events::{Answered, PluginRequestId, RequestedPlugins},
-    storage::DataStorage,
     ui::RequestId as AskId,
 };
 use paperpaw_ui_kit::mem::{copy_strings, push};
@@ -72,7 +71,7 @@ impl NativeStore {
         by: &str,
         plugins: RequestedPlugins<'_>,
     ) -> Result<(), Error> {
-        let storage = DataStorage::new(host);
+        let storage = crate::native_folders::StoreStorage::new(host);
         let Some(wanted) = self.take_wanted(host, request, plugins)? else {
             return Ok(());
         };
@@ -194,7 +193,7 @@ impl NativeStore {
                     PluginOutcome::NotFound,
                 )?;
                 if self.keep_waiting(request, &dialog.ids).is_err() {
-                    native_request::Request::close(&DataStorage::new(host));
+                    native_request::Request::close(&crate::native_folders::StoreStorage::new(host));
                     return answer_ids(
                         host,
                         request,
@@ -264,7 +263,7 @@ impl NativeStore {
     }
 
     fn decided(&mut self, host: &Host<'_>, now_ms: u64, decision: Decision) -> Result<(), Error> {
-        let storage = DataStorage::new(host);
+        let storage = crate::native_folders::StoreStorage::new(host);
         let reply = native_ask::answered(&storage, &mut self.asks.last, now_ms, true, decision)?;
         match reply {
             Reply::Answer { ids, outcome } => {
@@ -325,7 +324,7 @@ impl NativeStore {
     /// The download of what a request asked for could not start (no network):
     /// the request is closed and each id failed.
     pub(crate) fn requests_failed(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        let storage = DataStorage::new(host);
+        let storage = crate::native_folders::StoreStorage::new(host);
         let Some(request) = native_request::Request::open(&storage)? else {
             return Ok(());
         };
