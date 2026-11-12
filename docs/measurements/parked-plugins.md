@@ -53,7 +53,8 @@ host, not taken from an audit (another plugin's later `make` only registers and 
    turns `ERR_BUSY` from `format_call` into "preparing" (Host).
 
 Phase 1 never parks a plugin again after it ran; dropping idle plugins again is phase 2 (after
-beta.1). The `make` audit below says what to expect, but the checks decide.
+beta.1; `dormant-plugins.md`, D3). The `make` audit below says what to expect, but the checks
+decide.
 
 **The `sleeps` flag (D1).** The checks above are the kernel's; on top, a linked plugin is
 registered to park only if its shell says it may sleep (`paperpaw_app::SLEEPS`, default awake,
