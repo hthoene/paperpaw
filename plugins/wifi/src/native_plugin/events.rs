@@ -16,7 +16,6 @@ use paperpaw_sdk::native::{
     Error, Host,
     commands::CommandSender,
     events::WifiDone,
-    formatting::copy_message,
     reply::Reply,
     snapshot,
     storage::DataStorage,
@@ -33,6 +32,9 @@ use super::views::Info;
 use super::{NativeWifi, ON_DEMAND, WHILE_CHARGING, native_known, native_model};
 use crate::native_policy::{Failure, Goal, Known, Net, Password, Radio};
 use crate::native_radio::{Action, Facts, Notice, Timer};
+
+/// The input of a `core.ui` stack query (a cursor, no key).
+const STACK_INPUT: usize = 256;
 
 /// The work that switches the radio off, and the one that tries again.
 const IDLE_KEY: &str = "wifi.idle-off";
@@ -262,7 +264,8 @@ impl NativeWifi {
     /// nothing there uses the network.
     fn at_rest(&self, host: &Host<'_>) -> Result<bool, Error> {
         let ui = self.ui.as_ref().ok_or(Error::State)?;
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        // The query is a cursor and an empty key: 256 B hold it (#248).
+        let (mut input, mut out) = (buffer(STACK_INPUT)?, buffer(SERVICE_BUFFER)?);
         let page = ui.stack(host, UiCursor::start(), &mut input, &mut out)?;
         // The stack is read top first.
         Ok(match page.into_iter().next() {
@@ -553,13 +556,22 @@ impl NativeWifi {
     }
 }
 
+/// The answer for the status item: drawn (the sign, `status_icon`) while a
+/// network is joined; no text hides the item.
+fn status_answer(item: &str, online: bool) -> Result<StatusAnswer<'_>, Error> {
+    if online {
+        StatusAnswer::drawn(item)
+    } else {
+        StatusAnswer::text(item, "")
+    }
+}
+
 /// The status item's own id: the plugin's `wifi.status`.
 const STATUS_ITEM: &str = "wifi.status";
 
 impl NativeWifi {
-    /// The status item: its name while a network is joined, nothing else
-    /// (interface 6 drew the Wi-Fi icon there; a drawn value needs the host's
-    /// status draw, so the name stands for it). A call that is not the host's
+    /// The status item: drawn by the plugin (the Wi-Fi sign, `status_icon`)
+    /// while a network is joined, nothing else. A call that is not the host's
     /// `core.status` is not ours.
     pub(super) fn status(
         &mut self,
@@ -574,16 +586,10 @@ impl NativeWifi {
         let call = StatusCall::decode(payload)?;
         self.ensure(host)?;
         let online = self.read_info(host)?.radio == Radio::Online;
-        let mut label = [0; 64];
-        let text = if online {
-            copy_message(host, "wifi.status.item", &mut label)?
-        } else {
-            ""
-        };
         let mut answers = [None; 1];
         for item in call.items() {
             if item == STATUS_ITEM && answers[0].is_none() {
-                answers[0] = Some(StatusAnswer::text(item, text)?);
+                answers[0] = Some(status_answer(item, online)?);
             }
         }
         let [Some(answer)] = answers else {
@@ -592,5 +598,25 @@ impl NativeWifi {
         let mut out = [0; 512];
         let length = call.reply(&[answer], &mut out)?;
         reply.write(out.get(..length).ok_or(Error::NoSpace)?)
+    }
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::*;
+    use alloc::format;
+
+    #[test]
+    fn the_item_is_drawn_while_online_and_hidden_otherwise() {
+        let online = format!("{:?}", status_answer(STATUS_ITEM, true).unwrap());
+        assert!(
+            online.contains("flags: 1") && online.contains("text: \"\""),
+            "{online}"
+        );
+        let off = format!("{:?}", status_answer(STATUS_ITEM, false).unwrap());
+        assert!(
+            off.contains("flags: 0") && off.contains("text: \"\""),
+            "{off}"
+        );
     }
 }

@@ -58,7 +58,8 @@ fn checked<R>(
     caller: u64,
     then: impl FnOnce(&View<'_>, &RefCell<FirmwareInstall>) -> R,
 ) -> R {
-    let machine = Rc::new(RefCell::new(FirmwareInstall::new()));
+    let machine =
+        crate::native_host::firmware_cell::test_shared(RefCell::new(FirmwareInstall::new()));
     {
         let mut machine = machine.try_borrow_mut().unwrap();
         machine.reserve_check(OWNER).unwrap();
@@ -74,7 +75,9 @@ fn checked<R>(
     let env = kernel.shared.env(Instant(0));
     let hosts = crate::native_host::host_services::HostServices::new();
     hosts.wire_device(Rc::new(host(ids))).unwrap();
-    hosts.wire_firmware_install(Rc::clone(&machine)).unwrap();
+    hosts
+        .wire_firmware_install(machine.try_clone().unwrap())
+        .unwrap();
     then(
         &View {
             env: &env,
@@ -267,7 +270,9 @@ fn op_3_tells_the_caller_only_its_own_request_and_op_16_pages_past_a_zero_reques
     let hosts = crate::native_host::host_services::HostServices::new();
     hosts.wire_device(Rc::new(host(&ids))).unwrap();
     hosts
-        .wire_firmware_install(Rc::new(RefCell::new(machine)))
+        .wire_firmware_install(crate::native_host::firmware_cell::test_shared(
+            RefCell::new(machine),
+        ))
         .unwrap();
     let view = View {
         env: &env,
@@ -292,11 +297,12 @@ fn op_3_tells_the_caller_only_its_own_request_and_op_16_pages_past_a_zero_reques
 fn op_13_tells_a_request_waiting_running_and_ended_and_only_the_askers() {
     let ids = ["a"];
     let fake_host = host(&ids);
-    let machine = Rc::new(RefCell::new(FirmwareInstall::new()));
-    let driver = Rc::new(RefCell::new(
+    let machine =
+        crate::native_host::firmware_cell::test_shared(RefCell::new(FirmwareInstall::new()));
+    let driver = crate::native_host::firmware_cell::test_shared(RefCell::new(
         crate::native_host::firmware_driver::Driver::new(
             alloc::boxed::Box::new(image(&["a"])),
-            Rc::clone(&machine),
+            machine.try_clone().unwrap(),
         ),
     ));
     driver
@@ -310,8 +316,12 @@ fn op_13_tells_a_request_waiting_running_and_ended_and_only_the_askers() {
     let view = |owner| {
         let hosts = crate::native_host::host_services::HostServices::new();
         hosts.wire_device(Rc::new(host(&ids))).unwrap();
-        hosts.wire_firmware_install(Rc::clone(&machine)).unwrap();
-        hosts.wire_firmware_requests(Rc::clone(&driver)).unwrap();
+        hosts
+            .wire_firmware_install(machine.try_clone().unwrap())
+            .unwrap();
+        hosts
+            .wire_firmware_requests(driver.try_clone().unwrap())
+            .unwrap();
         View {
             env: &env,
             hosts,

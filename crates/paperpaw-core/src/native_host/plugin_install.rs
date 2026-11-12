@@ -356,7 +356,11 @@ impl PluginInstall {
     #[inline(never)]
     fn check(&mut self, env: &JobEnv<'_>) -> JobStep {
         if self.check.is_none() {
+            // The copy is done: its buffer, walk and list are let go before
+            // the check takes its own.
             self.buf = Vec::new();
+            self.walk = None;
+            self.pending = Vec::new();
             let Some(check) =
                 PluginCheck::staged_box(self.owner, self.request, &self.stage, self.id.as_str())
             else {
@@ -457,6 +461,9 @@ impl PluginInstall {
         let new_uses = code.is_some() && self.installed.is_some() && self.new_uses(env, &uses);
         self.manifest = Some(manifest);
         self.pins = Some(pins);
+        // Nothing after the rules reads through the buffer: it is not held
+        // while the question waits, nor through the marks and the swap.
+        self.buf = Vec::new();
         // The grant skips only the prompt.
         let skip = env.granted && !sideload && !new_uses && self.installed.is_some();
         if skip {

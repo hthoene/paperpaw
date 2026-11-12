@@ -41,6 +41,8 @@ pub(crate) mod work_sched;
 #[path = "native_host/work_service.rs"]
 mod work_service;
 
+#[path = "native_host/firmware_cell.rs"]
+pub(crate) mod firmware_cell;
 #[path = "native_host/firmware_confirm.rs"]
 #[allow(
     dead_code,
@@ -65,6 +67,8 @@ mod firmware_events;
     reason = "the command arms and the pump (slice B) drive the machine; tests do today"
 )]
 pub(crate) mod firmware_install;
+#[path = "native_host/notice.rs"]
+pub(crate) mod notice;
 
 #[path = "native_host/install_grants.rs"]
 pub(crate) mod install_grants;
@@ -223,6 +227,7 @@ mod admitted_features;
 pub(crate) mod secret_bytes;
 
 pub(crate) mod book_data_steps;
+pub(crate) mod book_scope;
 pub(crate) mod busy_adapters;
 #[path = "native_host/call_services.rs"]
 mod call_services;

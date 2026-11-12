@@ -96,6 +96,28 @@ impl Progress {
     }
 }
 
+impl Progress {
+    /// The place `ppm` millionths into the book: its section and the offset in
+    /// it (the reverse of [`Self::ppm`]; past the end, the last character).
+    #[must_use]
+    pub fn place_at(&self, ppm: u32) -> (u32, u32) {
+        let mut left = self.total * u64::from(ppm).min(WHOLE) / WHOLE;
+        let mut last = (0, 0);
+        for (section, length) in (0u32..).zip(&self.lengths) {
+            let length = u64::from(*length);
+            if left < length {
+                return (section, u32::try_from(left).unwrap_or(u32::MAX));
+            }
+            left -= length;
+            last = (
+                section,
+                u32::try_from(length.saturating_sub(1)).unwrap_or(u32::MAX),
+            );
+        }
+        last
+    }
+}
+
 /// What the library keeps of a book's place: where it was, if that fits the
 /// book, and the progress stored with it (kept when this screen cannot tell
 /// the progress itself).

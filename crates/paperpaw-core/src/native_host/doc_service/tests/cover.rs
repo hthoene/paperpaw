@@ -528,6 +528,53 @@ fn start_runs_no_cover_job() {
     });
 }
 
+/// Within the quiet time after the user's last input nothing is opened for a
+/// book's cover: its zip and XML would come beside the list's buffers (#248).
+#[test]
+fn the_users_quiet_time_opens_nothing_in_the_lists_frame() {
+    use crate::native_host::{
+        lib_cover::CoverCx,
+        lib_host::LibraryHost,
+        lib_reads::tests::card,
+        lib_service::{BookRef, Caller as Who, LibQuery},
+    };
+    let card = card();
+    let library = LibraryHost::new(card.storage.clone(), card.env.clone(), None);
+    let fake = Fake::new(Limits::X4);
+    fake.noisy.set(true);
+    with(&fake, |view| {
+        let who = Who {
+            owner: OWNER,
+            plugin: "home",
+            storage: Err(ERR_DENIED),
+        };
+        let host = caller(view);
+        let cx = CoverCx {
+            frame: view,
+            caller: &host,
+        };
+        fake.queue.borrow_mut().push(Ok(state_answer(1, 0)));
+        let asked = library.cover(&who, BookRef::Path(BOOK), 0, &cx, &mut |_| {});
+        assert_eq!(asked, Err(ERR_BUSY));
+        assert!(fake.held_back.get(), "held back");
+        assert!(fake.table().cover_job().is_none(), "no job began");
+        assert_eq!(fake.queue.borrow().len(), 1, "no book was opened for it");
+        assert!(
+            !library.take_changed(&mut |_, _, _| {}),
+            "no event while the user works"
+        );
+        library.cover_jobs_began();
+        assert!(library.take_changed(&mut |_, _, _| {}), "asked again after");
+        // Once it is quiet, the same book is the job.
+        fake.noisy.set(false);
+        fake.queue.borrow_mut().push(Ok(state_answer(1, 0)));
+        let asked = library.cover(&who, BookRef::Path(BOOK), 0, &cx, &mut |_| {});
+        assert_eq!(asked, Err(ERR_BUSY));
+        assert!(fake.table().cover_job().is_some(), "the job began");
+        assert_eq!(&*fake.guarded.borrow(), &[BOOK], "marked when it began");
+    });
+}
+
 /// A book open for reading holds the job back: the preparing book is closed
 /// again, busy with nothing raised, and begins its job when asked again once the
 /// reader has closed.

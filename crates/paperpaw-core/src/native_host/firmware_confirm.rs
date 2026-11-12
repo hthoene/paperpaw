@@ -349,7 +349,7 @@ impl Kernel {
     /// after a yes. `true` while another pass has something to do.
     pub(crate) fn firmware_confirm_pump(
         &mut self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
+        driver: &super::firmware_cell::DriverRef,
     ) -> bool {
         self.firmware_restart_pump(driver);
         if let Some(question) = driver
@@ -402,7 +402,7 @@ impl Kernel {
         let Some((nonce, answer)) = read_answer(&ANSWERED, params) else {
             return;
         };
-        if let Some(driver) = self.firmware.clone()
+        if let Some(driver) = self.firmware_driver()
             && let Ok(mut driver) = driver.try_borrow_mut()
         {
             let _ = driver.answer_shown(nonce, answer);
@@ -412,7 +412,7 @@ impl Kernel {
     /// The device goes to sleep: a confirmation that shows is dismissed, and
     /// the jobs that run or wait end with reason 20.
     pub(crate) fn firmware_suspend(&mut self) {
-        let Some(driver) = self.firmware.clone() else {
+        let Some(driver) = self.firmware_driver() else {
             return;
         };
         let nonce = driver
@@ -430,7 +430,11 @@ impl Kernel {
 
     /// The plugin `key` stopped: its requests and its confirmation go.
     pub(crate) fn firmware_sender_stopped(&mut self, key: u64) {
-        let Some(driver) = self.firmware.clone() else {
+        let Some(driver) = self.firmware_driver() else {
+            // At rest: only what was kept for it is left.
+            if let Some(cell) = self.firmware.as_ref() {
+                cell.forget_resting(key);
+            }
             return;
         };
         let nonce = driver
@@ -480,10 +484,7 @@ impl Kernel {
     /// A yes to the restart: the plugins hear that PaperPaw stops, and on the
     /// next pass what they saved is written and the device restarts. A
     /// restart that cannot start ends the request with its reason.
-    fn firmware_restart_pump(
-        &mut self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
-    ) {
+    fn firmware_restart_pump(&mut self, driver: &super::firmware_cell::DriverRef) {
         let wanted = driver
             .try_borrow()
             .is_ok_and(|driver| driver.restart_wanted());

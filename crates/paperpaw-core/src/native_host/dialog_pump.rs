@@ -94,6 +94,9 @@ impl crate::Kernel {
         let mut more = false;
         while let Some(start) = store.next_starting() {
             self.dialog_open(&store, &start);
+            // What the open led to runs here, not in `dialog_open`: its
+            // locals are not on the stack while those commands run (#250).
+            self.run_commands();
         }
         // Answers: one callback each; what a callback staged runs before the
         // next is called.
@@ -238,6 +241,9 @@ impl crate::Kernel {
     /// went: up (`open`) or `not_started`. The guard's own question opens above
     /// the guard and is marked as its dialog; any other plugin's under a guard
     /// opens below it and waits there (`ui.md` 4.3), as every screen it opens.
+    // Its own frame: its locals are not on the stack while the pump calls
+    // the plugins (#250).
+    #[inline(never)]
     fn dialog_open(&mut self, store: &super::ui_store::UiStore, start: &super::ui_requests::Start) {
         let (Some(slot), Some(request), Some(kind)) = (
             slot_of(start.kind, start.remote),
@@ -350,7 +356,6 @@ impl crate::Kernel {
                 let _ = store.dialog_failed(start.request);
             }
         }
-        self.run_commands();
     }
 }
 

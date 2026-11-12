@@ -525,9 +525,10 @@ fn a_move_lists_each_folder_once_for_a_thousand_books() {
         assert!(names_of(&card, book).is_empty());
     }
     // Two folders, each listed in its own place and in the key's part (4),
-    // and the new name of each entry looked at as a folder (2): not once more
-    // for a batch that was not full.
-    assert_eq!(counted.lists.get(), 1000 * 6);
+    // and the new name of each entry looked at as a folder (2), and the
+    // plugins' folders for a book's own settings (1, `book_scope.rs`): not
+    // once more for a batch that was not full.
+    assert_eq!(counted.lists.get(), 1000 * 7);
 }
 
 /// The `core` plugin's event handlers (interface 6): the same steps, by what

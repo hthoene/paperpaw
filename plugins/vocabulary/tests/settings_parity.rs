@@ -9,7 +9,10 @@ use paperpaw_core::native_host::registrations::{Record, records_decode};
 use paperpaw_sdk::{Contribution, Id, Plugin, Registrar};
 use paperpaw_sdk::{Editor, Level, SettingKind, SettingValue};
 
-const NAMES: [&str; 8] = [
+/// What keeps the values of a choice apart in the declaration.
+const CHOICE_SEPARATOR: char = '\n';
+
+const NAMES: [&str; 15] = [
     "collect",
     "mark",
     "new-per-day",
@@ -18,6 +21,14 @@ const NAMES: [&str; 8] = [
     "review-on-wake",
     "sd-auto",
     "sd-folder",
+    // The role of the words marked in books.
+    "learning.background",
+    "learning.ink",
+    "learning.line",
+    "learning.line-tone",
+    "learning.thickness",
+    "learning.frame",
+    "learning.struck",
 ];
 
 /// What is compared of one setting.
@@ -28,8 +39,10 @@ struct Row {
     help: String,
     group: String,
     advanced: bool,
-    /// `int:min:max` or `text`.
+    /// `int:min:max`, `text`, `bool` or `choice`.
     kind: String,
+    /// The values of a choice, in their order.
+    choices: Vec<String>,
     /// The default as text.
     default: String,
     unit: String,
@@ -50,8 +63,7 @@ fn interface6() -> Vec<Row> {
         let Contribution::FixedSettings(list) = c else {
             continue;
         };
-        // The eight of the plugin; the role of the marked words (seven more)
-        // comes with the marks.
+        // The eight of the plugin and the role of the marked words (seven more).
         for spec in list.iter().filter(|s| {
             NAMES
                 .map(|n| format!("vocabulary.{n}"))
@@ -76,7 +88,12 @@ fn interface6() -> Vec<Row> {
                     SettingKind::Bool => "bool".to_string(),
                     SettingKind::Int { min, max } => format!("int:{min}:{max}"),
                     SettingKind::Text => "text".to_string(),
+                    SettingKind::Choice(_) => "choice".to_string(),
                     other => panic!("{other:?}"),
+                },
+                choices: match &spec.kind {
+                    SettingKind::Choice(choices) => choices.iter().map(String::from).collect(),
+                    _ => Vec::new(),
                 },
                 default: match &spec.default {
                     SettingValue::Bool(b) => b.to_string(),
@@ -134,9 +151,17 @@ fn declared() -> Vec<Row> {
                     kind: match spec.kind {
                         0 => "bool".to_string(),
                         1 => format!("int:{}:{}", spec.min, spec.max),
+                        2 => "choice".to_string(),
                         3 => "text".to_string(),
                         other => panic!("kind {other}"),
                     },
+                    // The values of a choice are one text, apart by a separator.
+                    choices: spec
+                        .choices
+                        .split(CHOICE_SEPARATOR)
+                        .filter(|value| !value.is_empty())
+                        .map(String::from)
+                        .collect(),
                     default: default_text(spec.default),
                     ..Row::default()
                 }),
@@ -165,6 +190,6 @@ fn declared() -> Vec<Row> {
 #[test]
 fn every_setting_is_declared_as_interface_6_registered_it() {
     let (old, new) = (interface6(), declared());
-    assert_eq!(old.len(), 8);
+    assert_eq!(old.len(), 15);
     assert_eq!(new, old);
 }

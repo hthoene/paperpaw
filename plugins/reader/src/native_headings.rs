@@ -12,7 +12,8 @@ use crate::native_block::pieces;
 use crate::native_document::{Next, read_block};
 use crate::native_index::{KEPT, kept_with};
 use crate::native_toc::{
-    self, Entry, MAX_HEADINGS, MAX_KEPT, Place, STEP_BLOCKS, kept_headings, normalize, title_of,
+    self, Entry, KeptReader, MAX_HEADINGS, MAX_KEPT, Place, STEP_BLOCKS, normalize, push_entry,
+    title_of,
 };
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -23,7 +24,7 @@ use paperpaw_sdk::native::{
     Error, Host,
     document::{DocId, DocPosition, Documents},
 };
-use paperpaw_sdk::{Storage, StorageError, read_file};
+use paperpaw_sdk::{Storage, StorageError};
 
 /// The data file that lists the kept headings files, oldest first.
 pub const KEPT_FILE: &str = "headings.list";
@@ -110,7 +111,8 @@ pub enum Step {
 }
 
 /// The file of the kept headings of the book at `path` (the data folder is
-/// flat: the path's hash tells the books apart, the size the editions).
+/// flat: the path's hash tells the books apart, the edition inside it the
+/// editions).
 ///
 /// # Errors
 /// [`Error::NoMemory`].
@@ -128,21 +130,67 @@ fn storage_error(error: StorageError) -> Error {
     }
 }
 
-/// The headings kept for the book at `path` of `size` bytes: `None` where there
-/// are none, they were made for another file or cannot be read.
+/// The headings kept for the book at `path` in its `edition` (the document's
+/// conversion, which moves when the book or what reads it changes): `None`
+/// where there are none, they were made for another edition or cannot be read.
 ///
 /// # Errors
 /// [`Error::NoMemory`].
-pub fn load(storage: &dyn Storage, path: &str, size: u64) -> Result<Option<Vec<Entry>>, Error> {
+pub fn load(storage: &dyn Storage, path: &str, edition: u64) -> Result<Option<Vec<Entry>>, Error> {
     let name = file_name(path)?;
-    let data = match read_file(storage, &name, MAX_KEPT) {
-        Ok(data) => data,
-        Err(StorageError::OutOfMemory) => return Err(Error::NoMemory),
-        Err(_) => return Ok(None),
-    };
-    match core::str::from_utf8(&data) {
-        Ok(text) => kept_headings(text, size),
-        Err(_) => Ok(None),
+    // Read [`CHUNK`] bytes at a time and a line at a time: the copy is never
+    // held whole (#248).
+    let mut chunk = Vec::new();
+    chunk
+        .try_reserve_exact(CHUNK)
+        .map_err(|_| Error::NoMemory)?;
+    chunk.resize(CHUNK, 0);
+    let mut line = Vec::new();
+    line.try_reserve_exact(LINE_MAX)
+        .map_err(|_| Error::NoMemory)?;
+    let (mut reader, mut at, mut long) = (KeptReader::new(edition), 0_u64, false);
+    'file: loop {
+        let n = match storage.read_at(&name, at, &mut chunk) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(StorageError::OutOfMemory) => return Err(Error::NoMemory),
+            Err(_) => return Ok(None),
+        };
+        at = at.saturating_add(u64::try_from(n).unwrap_or(u64::MAX));
+        if at > u64::try_from(MAX_KEPT).unwrap_or(u64::MAX) {
+            return Ok(None);
+        }
+        for &byte in &chunk[..n] {
+            if byte != b'\n' {
+                // A line longer than any written is not an entry.
+                long |= line.len() == LINE_MAX;
+                if !long {
+                    line.push(byte);
+                }
+                continue;
+            }
+            if !long && !take_line(&mut reader, &line)? {
+                break 'file;
+            }
+            long = false;
+            line.clear();
+        }
+    }
+    if !long && !line.is_empty() {
+        take_line(&mut reader, &line)?;
+    }
+    Ok(reader.finish())
+}
+
+/// The longest line of a kept copy: a title of [`native_toc::MAX_TITLE`]
+/// characters and its numbers.
+const LINE_MAX: usize = native_toc::MAX_TITLE * 4 + 64;
+
+/// Gives `line` to `reader`; one that is no UTF-8 is left out.
+fn take_line(reader: &mut KeptReader, line: &[u8]) -> Result<bool, Error> {
+    match core::str::from_utf8(line) {
+        Ok(text) => reader.line(text),
+        Err(_) => Ok(true),
     }
 }
 
@@ -151,7 +199,7 @@ pub fn load(storage: &dyn Storage, path: &str, size: u64) -> Result<Option<Vec<E
 fn write_kept(
     storage: &dyn Storage,
     name: &str,
-    size: u64,
+    edition: u64,
     headings: &[Entry],
 ) -> Result<(), Error> {
     let mut temporary = String::new();
@@ -166,7 +214,7 @@ fn write_kept(
         .try_reserve_exact(CHUNK + 2 * native_toc::MAX_TITLE * 4 + 64)
         .map_err(|_| Error::NoMemory)?;
     let result = (|| {
-        writeln!(piece, "size {size}").map_err(|_| Error::NoMemory)?;
+        writeln!(piece, "size {edition}").map_err(|_| Error::NoMemory)?;
         storage.append(&temporary, b"").map_err(storage_error)?;
         for h in headings {
             writeln!(
@@ -220,27 +268,33 @@ fn keep(storage: &dyn Storage, name: &str) {
 #[derive(Debug)]
 pub struct Scan {
     name: String,
-    size: u64,
+    /// What tells the book's editions apart (see [`load`]).
+    edition: u64,
     sections: u32,
     next: Place,
     found: Vec<Entry>,
+    /// What the headings found cost the list ([`native_toc::row_cost`]): the
+    /// scan stops one heading past [`native_toc::TOC_BYTES`], so the list knows
+    /// it left some out.
+    bytes: usize,
     /// `Some` once the scan ended: `true` where it ran to the end.
     end: Option<bool>,
 }
 
 impl Scan {
-    /// A scan of the book at `path` of `size` bytes with `sections` sections,
-    /// from its start.
+    /// A scan of the book at `path` in its `edition` (see [`load`]) with
+    /// `sections` sections, from its start.
     ///
     /// # Errors
     /// [`Error::NoMemory`].
-    pub fn new(path: &str, size: u64, sections: u32) -> Result<Self, Error> {
+    pub fn new(path: &str, edition: u64, sections: u32) -> Result<Self, Error> {
         Ok(Self {
             name: file_name(path)?,
-            size,
+            edition,
             sections,
             next: Place::default(),
             found: Vec::new(),
+            bytes: 0,
             end: None,
         })
     }
@@ -282,7 +336,10 @@ impl Scan {
             None => {}
         }
         for _ in 0..STEP_BLOCKS {
-            if self.next.section >= self.sections || self.found.len() >= MAX_HEADINGS {
+            if self.next.section >= self.sections
+                || self.found.len() >= MAX_HEADINGS
+                || self.bytes > native_toc::TOC_BYTES
+            {
                 return self.finish(storage);
             }
             match read(self.next) {
@@ -315,19 +372,17 @@ impl Scan {
         let Some(title) = title_of(&block.text)? else {
             return Ok(());
         };
-        self.found.try_reserve(1).map_err(|_| Error::NoMemory)?;
-        self.found.push(Entry::new(
-            title,
-            level,
-            Place::new(self.next.section, block.start),
-        ));
-        Ok(())
+        self.bytes = self.bytes.saturating_add(native_toc::row_cost(&title));
+        push_entry(
+            &mut self.found,
+            Entry::new(title, level, Place::new(self.next.section, block.start)),
+        )
     }
 
     fn finish(&mut self, storage: &dyn Storage) -> Step {
         normalize(&mut self.found);
         self.end = Some(true);
-        if write_kept(storage, &self.name, self.size, &self.found).is_ok() {
+        if write_kept(storage, &self.name, self.edition, &self.found).is_ok() {
             keep(storage, &self.name);
         }
         Step::Done
