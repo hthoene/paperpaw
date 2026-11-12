@@ -61,7 +61,7 @@ impl NativeMade {
             // A parked plugin is made here at a safe point, so that one
             // without room fails the open as any plugin then does (no
             // screen it never heard of); elsewhere at its first callback.
-            self.instance.make_if_safe().map_err(|status| {
+            self.instance.slot().make_if_safe().map_err(|status| {
                 if status == ERR_BUSY {
                     ERR_NO_MEMORY
                 } else {

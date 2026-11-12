@@ -103,9 +103,9 @@ impl NativeLease {
     pub(crate) fn live(&self) -> Result<&dyn NativeInstance, i32> {
         self.0.live()
     }
-    /// As [`Slot::make_if_safe`](super::lease_slot::Slot::make_if_safe).
-    pub(crate) fn make_if_safe(&self) -> Result<(), i32> {
-        self.0.make_if_safe()
+    /// Its slot, for what only a parked plugin's lease does (`lease_slot`).
+    pub(crate) fn slot(&self) -> &Slot {
+        &self.0
     }
     /// Running, parked included: a parked plugin is running for everyone.
     pub(crate) fn running(&self) -> bool {
@@ -129,9 +129,6 @@ impl NativeLease {
     }
     pub(crate) fn take_start(&self) -> bool {
         self.0.take_start()
-    }
-    pub(crate) fn start_at(&self) -> Option<u64> {
-        self.0.start_at()
     }
     pub(crate) fn refused(&self) -> bool {
         self.0.refused()
@@ -1037,7 +1034,7 @@ impl NativeInstances {
             .entries
             .iter()
             .filter_map(|entry| entry.instance.as_ref());
-        leases.filter_map(NativeLease::start_at).min()
+        leases.filter_map(|lease| lease.slot().start_at()).min()
     }
     pub(crate) fn running_nth(&self, index: usize) -> Option<(u64, &NativeLease)> {
         self.entries

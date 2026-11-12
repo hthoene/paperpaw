@@ -583,13 +583,16 @@ fn a_parked_screen_opened_by_another_plugins_batch_is_made_there_and_the_batch_g
 }
 
 #[test]
-fn a_plugin_that_stays_without_room_stops_waking_the_device_and_keeps_its_action() {
+fn a_plugin_that_stays_without_room_gives_up_its_actions_and_a_later_one_reaches_it() {
     let mut kernel = kernel(Mode::Parkable);
     let key = admit(&mut kernel);
+    let _ = kernel.take_warnings();
     MODE.with(|cell| cell.set(Mode::NoRoom));
     run_action(&kernel, key);
+    run_action(&kernel, key);
     kernel.run_commands();
-    // Each wake tries again, the wait doubling, until the longest wait.
+    // Each wake tries again, the wait doubling, until the longest wait:
+    // then both its actions are dropped, each said once, and nothing wakes.
     let mut wakes = 0;
     while let Some(at) = kernel.service_due() {
         wakes += 1;
@@ -600,12 +603,22 @@ fn a_plugin_that_stays_without_room_stops_waking_the_device_and_keeps_its_action
     // 1, 2, 4, 8, 16 and 32 s; the next wait is the longest.
     assert_eq!(wakes, 6);
     assert!(lease(&kernel, key).is_parked());
-    assert_eq!(actions_waiting(&kernel), 1);
-    // The next pass anything brings tries again; with room it is made and
-    // the action delivered.
+    assert_eq!(actions_waiting(&kernel), 0);
+    let warnings = kernel.take_warnings();
+    assert_eq!(warnings.len(), 2);
+    assert!(
+        warnings
+            .iter()
+            .all(|w| w.message.ends_with("not run: no memory"))
+    );
+    // A later action tries at once (the wait starts again): with room it
+    // is made and the action delivered, unwoken.
+    let tries = makes();
     MODE.with(|cell| cell.set(Mode::Parkable));
-    kernel.now = paperpaw_platform::Instant(kernel.now.millis() + 60_000);
+    kernel.now = paperpaw_platform::Instant(kernel.now.millis() + 1);
+    run_action(&kernel, key);
     kernel.run_commands();
+    assert_eq!(makes(), tries + 1);
     assert!(!lease(&kernel, key).is_parked());
     assert_eq!(actions_waiting(&kernel), 0);
 }

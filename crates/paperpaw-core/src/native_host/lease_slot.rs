@@ -219,6 +219,21 @@ impl Slot {
         })
     }
 
+    /// Whether the plugin gave up: its wait after no memory reached its
+    /// longest (a real make failed each time). What waits for it is then
+    /// dropped (Senior and Manager on #1337), and the wait starts again from
+    /// the first, so a later use tries at once. `false` otherwise.
+    pub(crate) fn give_up(&self) -> bool {
+        let parked = self.parked.borrow();
+        let Some(parked) = parked.as_ref().filter(|p| p.wait.get() >= RETRY_LAST_MS) else {
+            return false;
+        };
+        parked.wait.set(0);
+        parked.retry_at.set(0);
+        parked.start.set(false);
+        true
+    }
+
     /// Whether the batch was refused at an unpark (the row withdraws it).
     pub(crate) fn refused(&self) -> bool {
         self.parked

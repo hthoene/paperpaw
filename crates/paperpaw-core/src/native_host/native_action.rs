@@ -88,6 +88,16 @@ impl ActionQueue {
         self.keep(pending)
     }
 
+    /// Drops every action of `owner` waiting; how many.
+    pub(crate) fn drop_owner(&self, owner: u64) -> usize {
+        let Ok(mut queue) = self.waiting.try_borrow_mut() else {
+            return 0;
+        };
+        let before = queue.len();
+        queue.retain(|pending| pending.owner != owner);
+        before - queue.len()
+    }
+
     /// The oldest action waiting.
     pub(crate) fn take(&self) -> Option<Pending> {
         let mut queue = self.waiting.try_borrow_mut().ok()?;
