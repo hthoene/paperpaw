@@ -349,7 +349,7 @@ impl Kernel {
     /// after a yes. `true` while another pass has something to do.
     pub(crate) fn firmware_confirm_pump(
         &mut self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
+        driver: &super::firmware_cell::DriverRef,
     ) -> bool {
         self.firmware_restart_pump(driver);
         if let Some(question) = driver
@@ -484,10 +484,7 @@ impl Kernel {
     /// A yes to the restart: the plugins hear that PaperPaw stops, and on the
     /// next pass what they saved is written and the device restarts. A
     /// restart that cannot start ends the request with its reason.
-    fn firmware_restart_pump(
-        &mut self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
-    ) {
+    fn firmware_restart_pump(&mut self, driver: &super::firmware_cell::DriverRef) {
         let wanted = driver
             .try_borrow()
             .is_ok_and(|driver| driver.restart_wanted());

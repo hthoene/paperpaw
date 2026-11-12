@@ -96,9 +96,7 @@ impl Kernel {
     }
 
     /// The firmware driver, where one is made now (none at rest).
-    pub(crate) fn firmware_driver(
-        &self,
-    ) -> Option<alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>> {
+    pub(crate) fn firmware_driver(&self) -> Option<super::firmware_cell::DriverRef> {
         self.firmware.as_ref().and_then(|cell| cell.driver())
     }
 
@@ -230,10 +228,7 @@ impl Kernel {
 
     /// A removal that waits for the host to forget its plugin's state: done,
     /// the job goes on. Never from a callback.
-    fn firmware_forget_pump(
-        &mut self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
-    ) {
+    fn firmware_forget_pump(&mut self, driver: &super::firmware_cell::DriverRef) {
         let Some(id) = driver.try_borrow().ok().and_then(|d| d.peek_forget()) else {
             return;
         };
@@ -281,10 +276,7 @@ impl Kernel {
     /// A removal's first step: the instances of the plugin it removes are
     /// closed and the plugin leaves the list (REG op 6; event 70 is raised),
     /// then the job goes on. Never from a callback.
-    fn firmware_unload_pump(
-        &mut self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
-    ) {
+    fn firmware_unload_pump(&mut self, driver: &super::firmware_cell::DriverRef) {
         let Some(id) = driver.try_borrow().ok().and_then(|d| d.peek_unload()) else {
             return;
         };
@@ -301,10 +293,7 @@ impl Kernel {
     /// After a stop or a sender's stop: a plugin job that must finish (or runs
     /// on without its sender) is stepped on, bounded
     /// ([`super::firmware_driver::Driver::finish_stopped`]).
-    pub(crate) fn firmware_finish_stopped(
-        &mut self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
-    ) {
+    pub(crate) fn firmware_finish_stopped(&mut self, driver: &super::firmware_cell::DriverRef) {
         self.feed_install_grants(driver);
         let Ok(mut driver) = driver.try_borrow_mut() else {
             return;
@@ -331,10 +320,7 @@ impl Kernel {
     /// (see [`super::firmware_driver::Driver::peek_changed`]): one event per
     /// request however many steps passed, encoded from the state now. A
     /// plugin that cannot be called keeps its mark for the next pass.
-    fn firmware_changes(
-        &self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
-    ) {
+    fn firmware_changes(&self, driver: &super::firmware_cell::DriverRef) {
         for _ in 0..PER_PASS {
             let Some((owner, request)) = driver
                 .try_borrow()
@@ -362,10 +348,7 @@ impl Kernel {
     }
 
     /// Tells the plugins whose requests ended, a few a pass.
-    fn firmware_told(
-        &mut self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
-    ) {
+    fn firmware_told(&mut self, driver: &super::firmware_cell::DriverRef) {
         for _ in 0..PER_PASS {
             self.native_outbox_run();
             if self.shared.native_instances.outbox.full() {
@@ -418,10 +401,7 @@ impl Kernel {
 
     /// A plugin could not be called: no new try for [`RETRY_MS`], so the
     /// device may idle meanwhile (`Kernel::firmware_due` is the deadline).
-    fn firmware_hold_back(
-        &self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
-    ) {
+    fn firmware_hold_back(&self, driver: &super::firmware_cell::DriverRef) {
         if let Ok(mut driver) = driver.try_borrow_mut() {
             driver.hold_back(self.now.millis().saturating_add(RETRY_MS));
         }

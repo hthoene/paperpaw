@@ -77,7 +77,7 @@ fn an_install_waits_for_its_confirmation_and_the_pump_goes_quiet() {
     }
     // The question waits for the user (shown, or waiting to be); nothing was
     // written and the pump has gone quiet.
-    let machine = driver.borrow().machine();
+    let machine = driver.borrow().machine().unwrap();
     assert_eq!(
         machine.borrow().state(),
         crate::native_host::firmware_install::State::WaitingForUser

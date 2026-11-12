@@ -22,8 +22,7 @@
 use super::{CommandStage, DevOp, WireCommand};
 use crate::native_host::{
     dual_boot_ini::Mode,
-    firmware_cell::FirmwareCell,
-    firmware_driver::Driver,
+    firmware_cell::{DriverRef, FirmwareCell},
     owner_paths,
     plugin_check::PluginCheck,
     plugin_install::{self, PluginInstall},
@@ -33,10 +32,7 @@ use crate::native_host::{
     shared::try_box,
 };
 use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
-use core::{
-    cell::{Cell, RefCell},
-    fmt,
-};
+use core::{cell::Cell, fmt};
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED,
 };
@@ -78,12 +74,12 @@ impl FirmwareContext {
 
     /// The firmware table, made now where none is: a command that submits.
     /// `ERR_NO_MEMORY` where there is no room for it.
-    pub(crate) fn driver(&self) -> Result<Rc<RefCell<Driver>>, i32> {
+    pub(crate) fn driver(&self) -> Result<DriverRef, i32> {
         self.firmware.make()
     }
 
     /// The firmware table, where one is made (none: no request is known).
-    pub(crate) fn existing(&self) -> Option<Rc<RefCell<Driver>>> {
+    pub(crate) fn existing(&self) -> Option<DriverRef> {
         self.firmware.driver()
     }
 

@@ -193,7 +193,7 @@ mod kernel_side {
 
     fn state(kernel: &Kernel) -> State {
         let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
-        let machine = driver.borrow().machine();
+        let machine = driver.borrow().machine().unwrap();
         machine.borrow().state()
     }
 

@@ -44,8 +44,8 @@ pub(crate) struct Caller<'a> {
 /// A machine and a table wired on their own (the device ops' tests).
 #[cfg(test)]
 type FirmwareParts = (
-    OnceCell<Rc<RefCell<super::firmware_install::FirmwareInstall>>>,
-    OnceCell<Rc<RefCell<super::firmware_driver::Driver>>>,
+    OnceCell<super::firmware_cell::MachineRef>,
+    OnceCell<super::firmware_cell::DriverRef>,
 );
 
 #[derive(Default)]
@@ -418,7 +418,7 @@ impl HostServices {
     #[cfg(test)]
     pub(crate) fn wire_firmware_requests(
         &self,
-        driver: Rc<RefCell<super::firmware_driver::Driver>>,
+        driver: super::firmware_cell::DriverRef,
     ) -> Result<(), i32> {
         self.firmware_parts.1.set(driver).map_err(|_| ERR_STATE)
     }
@@ -443,7 +443,7 @@ impl HostServices {
     #[cfg(test)]
     pub(crate) fn wire_firmware_install(
         &self,
-        machine: Rc<RefCell<super::firmware_install::FirmwareInstall>>,
+        machine: super::firmware_cell::MachineRef,
     ) -> Result<(), i32> {
         self.firmware_parts.0.set(machine).map_err(|_| ERR_STATE)
     }
@@ -753,12 +753,10 @@ impl HostServices {
         self.device.get()
     }
     /// The firmware install machine, where one is made now.
-    pub(crate) fn firmware_install(
-        &self,
-    ) -> Option<Rc<RefCell<super::firmware_install::FirmwareInstall>>> {
+    pub(crate) fn firmware_install(&self) -> Option<super::firmware_cell::MachineRef> {
         #[cfg(test)]
         if let Some(machine) = self.firmware_parts.0.get() {
-            return Some(Rc::clone(machine));
+            return machine.try_clone();
         }
         self.firmware.get().and_then(|cell| cell.machine())
     }

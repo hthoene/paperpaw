@@ -11,11 +11,18 @@
 use super::firmware_driver::{Driver, Kept, Lookup};
 use super::firmware_install::FirmwareInstall;
 use super::plugin_job::PluginHost;
+use super::shared::Shared;
 use alloc::{boxed::Box, rc::Rc, vec::Vec};
-use core::alloc::Layout;
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
-use paperpaw_platform::firmware::FirmwareHost;
+use paperpaw_platform::Storage;
+use paperpaw_platform::firmware::{CheckFacts, FirmwareHost, Reason, Running, Step};
+
+/// The driver, held by the cell and lent to the commands and the pump; made
+/// with a fallible allocation, in place ([`FirmwareCell::make`]).
+pub(crate) type DriverRef = Shared<RefCell<Driver>>;
+/// The install machine, the driver's or resting with the parts.
+pub(crate) type MachineRef = Shared<RefCell<FirmwareInstall>>;
 
 /// What a driver is made of and keeps while none is made
 /// ([`FirmwareCell`]): the device's host, what plugin jobs are told, the
@@ -27,7 +34,7 @@ pub(crate) struct DriverParts {
     pub(super) plugin_host: Option<PluginHost>,
     pub(super) grants: Option<Box<dyn super::plugin_job::InstallGrants>>,
     pub(super) kept: Vec<Kept>,
-    pub(super) machine: Option<Rc<RefCell<FirmwareInstall>>>,
+    pub(super) machine: Option<MachineRef>,
 }
 
 impl DriverParts {
@@ -72,7 +79,7 @@ impl DriverParts {
 /// The driver while it is made, or what it is made of while it is not.
 enum State {
     Resting(DriverParts),
-    Running(Rc<RefCell<Driver>>),
+    Running(DriverRef),
     /// Only while one is turned into the other.
     Moving,
 }
@@ -92,27 +99,31 @@ impl FirmwareCell {
     /// The cell of the device's firmware `host`: resting, unless the device
     /// can boot two firmwares.
     pub(crate) fn new(host: Box<dyn FirmwareHost>) -> Self {
-        let skipped = Rc::new(Cell::new(0));
-        let parts = DriverParts::new(host);
-        let state = if parts.dual_boot_capable() {
-            State::Running(Rc::new(RefCell::new(Driver::from_parts(
-                parts,
-                Rc::new(RefCell::new(FirmwareInstall::new())),
-                Rc::clone(&skipped),
-            ))))
-        } else {
-            State::Resting(parts)
-        };
-        Self {
-            state: RefCell::new(state),
-            skipped,
+        let cell = Self {
+            state: RefCell::new(State::Resting(DriverParts::new(host))),
+            skipped: Rc::new(Cell::new(0)),
             resume: Cell::new(false),
+        };
+        // Where there is no room now, the pump makes it later
+        // ([`Self::wants_driver`]).
+        if cell.wants_driver() {
+            let _ = cell.make();
         }
+        cell
+    }
+
+    /// Whether a driver should be made though no command asked: a device
+    /// that can boot two firmwares keeps one (its latch and `paperpaw.ini`
+    /// reading are the machine's).
+    pub(crate) fn wants_driver(&self) -> bool {
+        self.state.try_borrow().is_ok_and(
+            |state| matches!(&*state, State::Resting(parts) if parts.dual_boot_capable()),
+        )
     }
 
     /// A cell over a driver made already (tests of the commands).
     #[cfg(test)]
-    pub(crate) fn running(driver: Rc<RefCell<Driver>>) -> Self {
+    pub(crate) fn running(driver: DriverRef) -> Self {
         let skipped = driver
             .try_borrow()
             .map_or_else(|_| Rc::new(Cell::new(0)), |driver| driver.skip_counter());
@@ -124,19 +135,19 @@ impl FirmwareCell {
     }
 
     /// The driver, where one is made (nothing is made here).
-    pub(crate) fn driver(&self) -> Option<Rc<RefCell<Driver>>> {
+    pub(crate) fn driver(&self) -> Option<DriverRef> {
         match &*self.state.try_borrow().ok()? {
-            State::Running(driver) => Some(Rc::clone(driver)),
+            State::Running(driver) => driver.try_clone(),
             State::Resting(_) | State::Moving => None,
         }
     }
 
     /// The install machine: the driver's, or the one resting with what it
     /// keeps; `None` where none is (nothing to read) or in use.
-    pub(crate) fn machine(&self) -> Option<Rc<RefCell<FirmwareInstall>>> {
+    pub(crate) fn machine(&self) -> Option<MachineRef> {
         match &*self.state.try_borrow().ok()? {
-            State::Running(driver) => Some(driver.try_borrow().ok()?.machine()),
-            State::Resting(parts) => parts.machine.clone(),
+            State::Running(driver) => driver.try_borrow().ok()?.machine(),
+            State::Resting(parts) => parts.machine.as_ref().and_then(Shared::try_clone),
             State::Moving => None,
         }
     }
@@ -169,67 +180,68 @@ impl FirmwareCell {
     /// The driver, made now where there is none: for a command that submits,
     /// checks or answers. `ERR_NO_MEMORY` where there is no room for it,
     /// `ERR_BUSY` where the cell is in use.
-    pub(crate) fn make(&self) -> Result<Rc<RefCell<Driver>>, i32> {
+    pub(crate) fn make(&self) -> Result<DriverRef, i32> {
         let mut state = self.state.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         if let State::Running(driver) = &*state {
-            return Ok(Rc::clone(driver));
-        }
-        // Rc has no fallible constructor: both blocks are asked for first,
-        // held together and given back ([`room_for`]), in the order they are
-        // made below: the machine (where none rests with the parts), then
-        // the driver. Nothing allocates in between.
-        let resting_machine = matches!(&*state, State::Resting(parts) if parts.machine.is_some());
-        let driver = Layout::new::<RcBox<RefCell<Driver>>>();
-        let machine = Layout::new::<RcBox<RefCell<FirmwareInstall>>>();
-        if resting_machine {
-            room_for(&[driver])?;
-        } else {
-            room_for(&[machine, driver])?;
+            return driver.try_clone().ok_or(ERR_NO_MEMORY);
         }
         let State::Resting(mut parts) = core::mem::replace(&mut *state, State::Moving) else {
             return Err(ERR_BUSY);
         };
-        let machine = parts
-            .machine
-            .take()
-            .unwrap_or_else(|| Rc::new(RefCell::new(FirmwareInstall::new())));
-        let driver = Rc::new(RefCell::new(Driver::from_parts(
-            parts,
-            machine,
-            Rc::clone(&self.skipped),
-        )));
-        *state = State::Running(Rc::clone(&driver));
-        Ok(driver)
+        // Each block is had with a fallible allocation and its value written
+        // in place: the machine (where none rests with the parts), then the
+        // driver. A refusal leaves the parts as they were.
+        let (machine, rested) = match parts.machine.take() {
+            Some(machine) => (machine, true),
+            None => match MachineRef::try_new_from((), |()| RefCell::new(FirmwareInstall::new())) {
+                Ok(machine) => (machine, false),
+                Err(()) => {
+                    *state = State::Resting(parts);
+                    return Err(ERR_NO_MEMORY);
+                }
+            },
+        };
+        let made = DriverRef::try_new_from(
+            (parts, machine, Rc::clone(&self.skipped)),
+            |(parts, machine, skipped)| RefCell::new(Driver::from_parts(parts, machine, skipped)),
+        );
+        match made {
+            Ok(driver) => {
+                let lent = driver.try_clone().ok_or(ERR_NO_MEMORY);
+                *state = State::Running(driver);
+                lent
+            }
+            Err((mut parts, machine, _)) => {
+                if rested {
+                    parts.machine = Some(machine);
+                }
+                *state = State::Resting(parts);
+                Err(ERR_NO_MEMORY)
+            }
+        }
     }
 
     /// Lets the driver go where it is at rest ([`Driver::at_rest`]) and no one
-    /// else holds it: what it was made of rests in the cell again. Whether
-    /// none is made now.
+    /// else holds it: what it was made of rests in the cell again (taken out
+    /// in place, the driver is not moved). Whether none is made now.
     pub(crate) fn rest(&self) -> bool {
         let Ok(mut state) = self.state.try_borrow_mut() else {
             return false;
         };
-        let State::Running(driver) = &*state else {
-            return true;
-        };
-        if Rc::strong_count(driver) != 1
-            || !driver.try_borrow().is_ok_and(|driver| driver.at_rest())
-        {
-            return false;
-        }
-        let State::Running(driver) = core::mem::replace(&mut *state, State::Moving) else {
-            return false;
-        };
-        match Rc::try_unwrap(driver) {
-            Ok(driver) => {
-                *state = State::Resting(driver.into_inner().into_parts());
-                true
+        let parts = {
+            let State::Running(driver) = &*state else {
+                return true;
+            };
+            if !driver.is_unique() || !driver.try_borrow().is_ok_and(|driver| driver.at_rest()) {
+                return false;
             }
-            Err(driver) => {
-                *state = State::Running(driver);
-                false
-            }
-        }
+            let Ok(mut driver) = driver.try_borrow_mut() else {
+                return false;
+            };
+            driver.take_parts()
+        };
+        *state = State::Resting(parts);
+        true
     }
 
     /// Whether plugin jobs are taken (a plugin host is set).
@@ -298,44 +310,60 @@ pub(crate) fn kept_lookup(kept: &[Kept], owner: u64, request: u32) -> Option<Loo
         })
 }
 
-/// The block an `Rc` of `T` takes: its two counts and the value, as the
-/// standard library lays it out (`repr(C)`, the counts first).
-#[allow(dead_code, reason = "only its layout is used")]
-#[repr(C)]
-struct RcBox<T> {
-    strong: Cell<usize>,
-    weak: Cell<usize>,
-    value: T,
+/// A shared value for the tests' drivers and machines.
+#[cfg(test)]
+pub(crate) fn test_shared<T>(value: T) -> Shared<T> {
+    match Shared::try_new(value) {
+        Ok(shared) => shared,
+        Err(_) => panic!("no room for a test value"),
+    }
 }
 
-/// Whether the blocks of `layouts` can be had now, in this order, each with
-/// its own size and alignment: all are asked for and held at once, then
-/// given back in the reverse order. `Rc::new` has no fallible form, so the
-/// same requests in the same order follow at once, with nothing allocated
-/// in between (one thread): the allocator is where it was before the probe
-/// and finds the same room. Any refusal gives back what was had.
-fn room_for(layouts: &[Layout]) -> Result<(), i32> {
-    let mut held: [(*mut u8, Layout); 2] = [(core::ptr::null_mut(), Layout::new::<()>()); 2];
-    let mut ok = layouts.len() <= held.len();
-    for (slot, layout) in held.iter_mut().zip(layouts) {
-        if !ok || layout.size() == 0 {
-            continue;
-        }
-        // SAFETY: a nonzero size, checked above.
-        let block = unsafe { alloc::alloc::alloc(*layout) };
-        if block.is_null() {
-            ok = false;
-        } else {
-            *slot = (block, *layout);
-        }
+/// The host a driver keeps once its parts went back to the cell, until it
+/// is dropped: never asked (a driver at rest runs nothing), every job
+/// `NOT_HERE`. Zero-sized: its box allocates nothing.
+pub(super) struct Gone;
+
+impl FirmwareHost for Gone {
+    fn running(&self) -> Running<'_> {
+        Running::new("", "", 0, 0, false)
     }
-    for (block, layout) in held.iter().rev() {
-        if !block.is_null() {
-            // SAFETY: allocated above with this very layout, not freed yet.
-            unsafe { alloc::alloc::dealloc(*block, *layout) };
-        }
+
+    fn begin_check(&mut self, _: &str) -> Result<(), Reason> {
+        Err(Reason::NOT_HERE)
     }
-    if ok { Ok(()) } else { Err(ERR_NO_MEMORY) }
+
+    fn check_step(&mut self, _: &dyn Storage, _: &mut dyn FnMut(&str)) -> Step<CheckFacts> {
+        Step::Failed(Reason::NOT_HERE)
+    }
+
+    fn begin_write(
+        &mut self,
+        _: &str,
+        _: [u8; 32],
+        _: Option<[u8; 32]>,
+        _: bool,
+    ) -> Result<(), Reason> {
+        Err(Reason::NOT_HERE)
+    }
+
+    fn write_step(&mut self, _: &dyn Storage) -> Step<()> {
+        Step::Failed(Reason::NOT_HERE)
+    }
+
+    fn readback_step(&mut self) -> Step<()> {
+        Step::Failed(Reason::NOT_HERE)
+    }
+
+    fn commit(&mut self) -> Result<(), Reason> {
+        Err(Reason::NOT_HERE)
+    }
+
+    fn abandon(&mut self) {}
+
+    fn restart(&mut self) -> Result<(), Reason> {
+        Err(Reason::NOT_HERE)
+    }
 }
 
 #[cfg(test)]

@@ -35,7 +35,7 @@ fn nothing_is_made_until_a_command_needs_it_and_it_goes_when_nothing_is_left() {
     assert!(cell.set_plugin_host(plugin_host()));
     assert!(cell.plugins_accepted(), "told while at rest");
     let driver = cell.make().unwrap();
-    assert!(Rc::ptr_eq(&driver, &cell.make().unwrap()), "one driver");
+    assert!(Shared::ptr_eq(&driver, &cell.make().unwrap()), "one driver");
     assert!(
         driver.borrow().plugins_accepted(),
         "it keeps what it was told"
