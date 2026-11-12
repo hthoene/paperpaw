@@ -86,7 +86,7 @@ pub(crate) fn give_way(host: &dyn DocHost) {
         let _ = table.close(job.owner, job.id);
     } else if let Some(job) = table.take_cover_job() {
         host.end_images(&job);
-        if !job.format_gone {
+        if !job.format_gone && !job.open_pending {
             host.close_format(&job);
         }
         if job.reader_held {

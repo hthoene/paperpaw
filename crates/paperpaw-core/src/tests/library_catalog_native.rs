@@ -152,3 +152,59 @@ fn a_format_plugin_that_stopped_keeps_its_books_and_one_taken_out_takes_them_at_
     assert!(!kernel.shared.formats.supports("books/a.epub"));
     assert_eq!(paths(&kernel), ["books/notes.txt"]);
 }
+
+/// The library service's status notes (op 8 `set_status`, #248): past
+/// [`catalog::MAX_LOG`] lines the log beside the catalog is folded into it at
+/// a calm moment, as after the kernel's own notes, so that a catalog read
+/// reserves for at most that many lines (12 bytes each).
+#[test]
+fn status_notes_of_the_library_service_past_the_logs_cap_are_folded_in() {
+    use crate::native_host::lib_host::LibraryHost;
+    use crate::native_host::lib_reads::tests::Env;
+    use crate::native_host::lib_service::{BookRef, LibWrite};
+    let (mut kernel, _plugin, now) = started(false);
+    let now = want(&mut kernel, now, false);
+    assert_eq!(paths(&kernel).len(), 3, "walked");
+    let env = Rc::new(Env {
+        walking: Cell::new(None),
+        today: Cell::new(None),
+    });
+    let host = Rc::new(LibraryHost::new(kernel.shared.storage.clone(), env, None));
+    // The host services live with the native instances (one, not running).
+    kernel
+        .shared
+        .native_instances
+        .test_insert(paperpaw_sdk::Id::try_parse("viewer").unwrap(), None, false)
+        .unwrap();
+    kernel
+        .shared
+        .native_instances
+        .test_resources()
+        .unwrap()
+        .hosts()
+        .wire_library(host.clone())
+        .unwrap();
+    // Favourite, not, …: a line of the log each, until it is past its cap.
+    let mut notes = 0;
+    while !catalog::log_is_long(kernel.storage()) && notes < 4 * catalog::MAX_LOG {
+        let (set, clear) = if notes % 2 == 0 { (2, 0) } else { (0, 2) };
+        host.set_status(BookRef::Path("books/a.epub"), set, clear)
+            .unwrap();
+        notes += 1;
+    }
+    assert!(catalog::log_is_long(kernel.storage()), "past the cap");
+    let effects = kernel.tick(Instant(now + 1));
+    run(&mut kernel, now + 1, effects);
+    let lines = paperpaw_sdk::read_file(kernel.storage(), ".paperpaw/library/status.log", 1 << 16)
+        .map_or(0, |log| log.iter().filter(|b| **b == b'\n').count());
+    assert!(lines <= catalog::MAX_LOG, "folded in: {lines} lines left");
+    assert!(!catalog::log_is_long(kernel.storage()));
+    // What was noted last stands in the catalog (an even call set it).
+    let mut favourite = None;
+    catalog::each(kernel.storage(), &mut |r| {
+        if r.path == "books/a.epub" {
+            favourite = Some(r.status.favourite);
+        }
+    });
+    assert_eq!(favourite, Some((notes - 1) % 2 == 0));
+}

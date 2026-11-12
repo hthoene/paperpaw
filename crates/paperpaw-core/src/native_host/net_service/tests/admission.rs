@@ -370,3 +370,15 @@ fn a_failed_allocation_is_a_refusal_that_leaves_nothing_behind() {
     }
     assert!(refused >= 2, "the request has fallible allocations");
 }
+
+#[test]
+fn a_request_keeps_its_plugin_from_sleeping_again_until_it_stops() {
+    // #248, D3: `HostServices::owner_holds` asks the network table this.
+    let fake = Fake::x4();
+    request(&fake, OWNER, &get(1)).unwrap();
+    request(&fake, OTHER, &get(2)).unwrap();
+    assert_eq!(owner_holds(&fake, OWNER), Ok(true));
+    owner_stopped(&fake, OWNER).unwrap();
+    assert_eq!(owner_holds(&fake, OWNER), Ok(false));
+    assert_eq!(owner_holds(&fake, OTHER), Ok(true));
+}

@@ -115,8 +115,13 @@ pub(crate) struct HostServices {
     /// Owner ids are never 0. The vector's room is reserved when an owner is
     /// admitted ([`Self::admit_owner`]): its capacity is never below the owners
     /// alive plus the owners queued, so a drop never allocates and never finds
-    /// the queue full.
-    retiring: RefCell<Vec<u64>>,
+    /// the queue full. Each owner is queued with whether it was being parked
+    /// again: its retry keeps what that retirement keeps (Senior, R4).
+    retiring: RefCell<Vec<(u64, bool)>>,
+    /// The owner being parked again (#248, D3), 0 for none: its retirement
+    /// keeps its library receipts and its formats listed, since its owner
+    /// key lives on and the remade plugin may still use them.
+    parking: core::cell::Cell<u64>,
     /// Owners alive (admitted, not yet dropped).
     alive: Cell<usize>,
     /// Retirements that could not be queued: a broken invariant, reported by
@@ -175,6 +180,7 @@ impl HostServices {
             owners: OnceCell::new(),
             format_scope: super::format_scope::FormatScope::new(),
             retiring: RefCell::new(Vec::new()),
+            parking: core::cell::Cell::new(0),
             alive: Cell::new(0),
             lost: Cell::new(0),
         }
@@ -220,7 +226,7 @@ impl HostServices {
             return Err(ERR_STATE);
         }
         let queue = self.retiring.try_borrow().map_err(|_| ERR_BUSY)?;
-        Ok(queue.contains(&owner))
+        Ok(queue.iter().any(|(queued, _)| *queued == owner))
     }
 
     /// An owner is gone; `retired` says its retirement ran to the end. If not,
@@ -231,12 +237,16 @@ impl HostServices {
         if retired {
             return;
         }
+        // Parked again (D3): the retry keeps its receipts and formats too.
+        let parking = self.parking.get() == owner;
         let queued = self.retiring.try_borrow_mut().is_ok_and(|mut queue| {
-            if queue.contains(&owner) {
+            if let Some(entry) = queue.iter_mut().find(|(queued, _)| *queued == owner) {
+                // A stop for good among the drops ends everything.
+                entry.1 &= parking;
                 return true;
             }
             if queue.len() < queue.capacity() {
-                queue.push(owner);
+                queue.push((owner, parking));
                 true
             } else {
                 false
@@ -253,7 +263,7 @@ impl HostServices {
             || self
                 .retiring
                 .try_borrow()
-                .map_or(true, |queue| queue.iter().any(|owner| *owner != 0))
+                .map_or(true, |queue| queue.iter().any(|(owner, _)| *owner != 0))
     }
 
     /// The main loop's retry: finish the retirement of every queued owner. An
@@ -272,10 +282,10 @@ impl HostServices {
         let mut index = 0;
         loop {
             // No borrow is held across the retirement: it calls into hosts.
-            let owner = {
+            let (owner, parking) = {
                 let queue = self.retiring.try_borrow().map_err(|_| ERR_BUSY)?;
                 match queue.get(index) {
-                    Some(owner) => *owner,
+                    Some(entry) => *entry,
                     None => break,
                 }
             };
@@ -283,19 +293,24 @@ impl HostServices {
             if owner == 0 {
                 continue;
             }
-            match self.owner_retired(owner) {
+            let retired = if parking {
+                self.parking_again(owner, || self.owner_retired(owner))
+            } else {
+                self.owner_retired(owner)
+            };
+            match retired {
                 Ok(()) => {
                     if let Ok(mut queue) = self.retiring.try_borrow_mut()
                         && let Some(slot) = queue.get_mut(index - 1)
                     {
-                        *slot = 0;
+                        slot.0 = 0;
                     }
                 }
                 Err(error) => result = result.and(Err(error)),
             }
         }
         if let Ok(mut queue) = self.retiring.try_borrow_mut() {
-            queue.retain(|owner| *owner != 0);
+            queue.retain(|(owner, _)| *owner != 0);
         }
         result.map(|()| self.retirements_pending())
     }
@@ -799,12 +814,17 @@ impl HostServices {
     /// borrowed) means a retry finishes what is left.
     pub(crate) fn owner_retired(&self, owner: u64) -> Result<(), i32> {
         let mut result = Ok(());
+        // Parked again (#248, D3): its owner key lives on, so do its formats
+        // and its library receipts (it is idle: no document uses a format).
+        let parking = self.parking.get() == owner;
         if let Some(documents) = self.documents.get() {
             let host = &*documents.0;
-            host.formats_of_owner(owner, &mut |format| {
-                result =
-                    result.and(doc_service::format_retired(host, format, Some(owner)).map(|_| ()));
-            });
+            if !parking {
+                host.formats_of_owner(owner, &mut |format| {
+                    result = result
+                        .and(doc_service::format_retired(host, format, Some(owner)).map(|_| ()));
+                });
+            }
             result = result.and(doc_service::opener_stopped(host, owner).map(|_| ()));
             // A book of this plugin's folders (root 5) cannot stay open under
             // a reader once the folder may go (its update or removal): the
@@ -823,7 +843,7 @@ impl HostServices {
             // through `end_document_by_host`.)
         }
         if let Some(library) = self.library.get() {
-            result = result.and(lib_service::owner_stopped(&*library.0, owner));
+            result = result.and(lib_service::owner_stopped(&*library.0, owner, parking));
         }
         // The plugin's pictures end with it (its image ids are its own).
         result = result.and(self.images.owner_stopped(owner));
@@ -843,6 +863,68 @@ impl HostServices {
             result = result.and(work.sched.owner_stopped(owner));
         }
         result
+    }
+
+    /// Runs `park` (dropping `owner`'s instance to park it again, #248, D3)
+    /// with `owner`'s library receipts and formats kept through its
+    /// retirement.
+    pub(crate) fn parking_again<T>(&self, owner: u64, park: impl FnOnce() -> T) -> T {
+        let before = self.parking.replace(owner);
+        let parked = park();
+        self.parking.set(before);
+        parked
+    }
+
+    /// Whether any service holds something of `owner` that
+    /// [`Self::owner_retired`] would end (#248, D3: a plugin is parked again
+    /// only when this is `false`): a document it opened (a pending open too)
+    /// or one of its formats reads (any opener's), a book of its folders
+    /// open, an annotation transaction, an image id or prepare, a request it
+    /// asked or an entry it made for the screen stack, a widget, status
+    /// handle or tap, a network request or server, a socket or cast, declared
+    /// work or a run. Library receipts are files with their own time and do
+    /// not count.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` when a table is borrowed (the caller treats it as held).
+    pub(crate) fn owner_holds(&self, owner: u64) -> Result<bool, i32> {
+        if let Some(documents) = self.documents.get() {
+            let host = &*documents.0;
+            let mut used = false;
+            host.formats_owned(owner, &mut |format| {
+                used = used || host.table().uses_format(&|f| f == format);
+            });
+            if used || host.table().owner_holds(owner)? || host.document_of_maker(owner).is_some() {
+                return Ok(true);
+            }
+        }
+        if let Some(transactions) = self.library.get().and_then(|l| l.0.transactions())
+            && transactions.owner_holds(owner)?
+        {
+            return Ok(true);
+        }
+        if self.images.owner_holds(owner)? {
+            return Ok(true);
+        }
+        if let Some(ui) = self.ui.get()
+            && (ui.store.owner_holds(owner)? || ui.plugin_holds(owner)?)
+        {
+            return Ok(true);
+        }
+        if let Some(net) = self.net.get()
+            && net_service::owner_holds(&*net.0, owner)?
+        {
+            return Ok(true);
+        }
+        if let Some(sockets) = self.sockets.get()
+            && sock_service::owner_holds(&*sockets.0, owner)?
+        {
+            return Ok(true);
+        }
+        match self.work.get() {
+            Some(work) => work.sched.owner_holds(owner),
+            None => Ok(false),
+        }
     }
 }
 

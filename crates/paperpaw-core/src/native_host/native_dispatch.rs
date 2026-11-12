@@ -155,11 +155,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         // the callback would stage what could not wait, and a batch it
         // believes went through must not be dropped afterwards.
         let slot = queue.reserve()?;
-        let owner = paperpaw_sdk::Id::try_parse(self.instance.host().owner().context().plugin_id())
-            .map_err(|error| match error {
-                paperpaw_sdk::IdError::NoMemory => host_glue::ERR_NO_MEMORY,
-                _ => host_glue::ERR_INVALID,
-            })?;
+        let owner = self.instance.host().owner().context().plugin()?;
         let directory = self.host.upgrade_directory()?;
         let owner_key = self.identity.owner();
         let mut stage = super::screen_stage::build_stage(super::screen_stage::StageParts {
@@ -391,6 +387,9 @@ impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
     }
     fn with_image(&self, visit: &mut dyn FnMut(Option<&[u8]>)) {
         visit(self.instance.host().image());
+    }
+    fn holds_nothing(&self) -> bool {
+        self.instance.host().holds_nothing()
     }
     fn service_event(&self, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
         self.service_call(bytes, env, None)

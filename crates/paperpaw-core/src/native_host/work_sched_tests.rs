@@ -744,7 +744,11 @@ fn a_stopped_plugin_loses_its_work_and_runs_and_no_event_follows() {
         panic!("a")
     };
     s.resource_opened(a.run).unwrap();
+    // Declared work and a run keep a plugin from sleeping again (#248, D3).
+    assert_eq!(s.owner_holds(A), Ok(true));
     s.owner_stopped(A).unwrap();
+    assert_eq!(s.owner_holds(A), Ok(false));
+    assert_eq!(s.owner_holds(B), Ok(true));
     assert_eq!(s.counts(), (1, 0));
     assert!(s.next_event(&env, &|o| o == A).unwrap().is_none());
     assert!(s.next_event(&env, &|o| o == B).unwrap().is_some());

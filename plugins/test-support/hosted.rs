@@ -328,6 +328,8 @@ pub fn install_with(
         ),
         heap: heap.clone(),
     };
+    // The kernel keeps a linked plugin's id as the firmware does, for the run.
+    let name: &'static str = Box::leak(Box::from(name));
     // SAFETY: statically linked code and metadata live for the whole test.
     unsafe {
         installed.kernel().register_linked(

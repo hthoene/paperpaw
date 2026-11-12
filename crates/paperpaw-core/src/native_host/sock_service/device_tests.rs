@@ -149,7 +149,9 @@ fn fixture(tls: bool) -> Fixture {
         owners.try_clone().unwrap(),
         hosts.policy().clone(),
     );
-    owners.admit(OWNER, "mail").unwrap();
+    owners
+        .admit(OWNER, &paperpaw_sdk::Id::new_static("mail"))
+        .unwrap();
     owners.subscribe(OWNER, EventTags::collect(|_| true));
     Fixture {
         card,

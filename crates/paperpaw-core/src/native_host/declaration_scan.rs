@@ -132,21 +132,23 @@ pub(super) fn batch_at(image: &[u8], start: usize) -> Result<&[u8], i32> {
 }
 
 /// The places of the records of `kind` of an image-only `owner` whose
-/// batches start at `starts` and declare the kinds `kinds` (one mask a
-/// batch), for [`StoredOwner::places`](super::StoredOwner): a batch without
-/// the kind is not walked, and one with it is walked once.
+/// batches start at `starts` (with the kinds each may declare), for
+/// [`StoredOwner::places`](super::StoredOwner): a batch without the kind is
+/// not walked, and one that may have it is walked once.
 pub(super) fn image_places(
     owner: &super::StoredOwner,
-    starts: &[u32],
-    kinds: &[u64],
+    starts: &super::Starts,
     kind: Kind,
     visit: &mut dyn FnMut(u16, u16) -> ControlFlow<()>,
 ) -> ControlFlow<()> {
     let bit = 1_u64 << kind as u32;
-    for (at, (start, batch_kinds)) in starts.iter().zip(kinds.iter()).enumerate() {
-        if batch_kinds & bit == 0 {
+    for at in 0..starts.len() {
+        if starts.kinds(at) & bit == 0 {
             continue;
         }
+        let Some(start) = starts.start(at) else {
+            break;
+        };
         // Below `BATCHES_MAX`: checked when the batch was staged.
         let Ok(batch) = u16::try_from(at) else {
             break;
@@ -158,7 +160,7 @@ pub(super) fn image_places(
             found = image
                 .ok_or(ERR_STATE)
                 .and_then(|image| {
-                    let start = usize::try_from(*start).map_err(|_| ERR_INVALID)?;
+                    let start = usize::try_from(start).map_err(|_| ERR_INVALID)?;
                     image.get(start..).ok_or(ERR_INVALID)
                 })
                 .and_then(|bytes| places_of(bytes, kind));

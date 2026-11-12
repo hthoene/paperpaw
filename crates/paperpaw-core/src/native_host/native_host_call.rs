@@ -19,15 +19,27 @@ pub(crate) struct HostRoute<'a> {
 }
 
 impl Route for HostRoute<'_> {
-    #[inline(never)]
     fn call(&self, target: Target, payload: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+        self.call_noted(target, payload, out, &core::cell::Cell::new(false))
+    }
+    #[inline(never)]
+    fn call_noted(
+        &self,
+        target: Target,
+        payload: &[u8],
+        out: &mut [u8],
+        entered: &core::cell::Cell<bool>,
+    ) -> Result<usize, i32> {
         // Never inside a callback: the pump asks for another pass instead.
         if self.registry.depth() != 0 {
             return Err(ERR_BUSY);
         }
         let id = self.registry.id(target.plugin).ok_or(ERR_NOT_FOUND)?;
         let _running = self.meter.enter_scoped(id.as_str());
-        format_call::call(self.registry, target, payload, out, self.env)
+        format_call::call(self.registry, target, payload, out, (self.env, entered))
+    }
+    fn gave_up(&self, plugin: u64) -> bool {
+        self.registry.format_gave_up(plugin)
     }
 }
 

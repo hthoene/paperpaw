@@ -201,7 +201,7 @@ fn an_image_only_owner_keeps_no_slots_and_answers_as_an_indexed_one() {
         "the index is given back at commit"
     );
     // And the batch references: only where each batch starts is kept.
-    assert!(matches!(&owner.batches, Batches::Starts(starts, _) if starts.len() == 2));
+    assert!(matches!(&owner.batches, Batches::Starts(starts) if starts.len() == 2));
     let other = indexed.owners[0].as_ref().unwrap();
     assert!(!other.image_only());
     assert_eq!(other.slots.len(), 6);
@@ -382,11 +382,26 @@ fn each_batch_keeps_the_kinds_it_declares_and_only_those_are_walked() {
     let mut store = DeclarationStore::default();
     store.prepare(pending, &mut allocations).unwrap().commit();
     let owner = store.owners[0].as_ref().unwrap();
-    let Batches::Starts(_, kinds) = &owner.batches else {
+    let Batches::Starts(starts) = &owner.batches else {
         panic!("an image-only owner");
     };
+    // Two batches side by side: packed, one mask for the owner (D5).
     let bit = |kind: Kind| 1_u64 << kind as u32;
-    assert_eq!(kinds[..], [bit(Kind::Action), bit(Kind::Group)]);
+    assert!(starts.is_packed());
+    assert_eq!(starts.kinds(1), bit(Kind::Action) | bit(Kind::Group));
+    assert_eq!(places(&store, Kind::Action), [(0, 0), (0, 1)]);
+    assert_eq!(places(&store, Kind::Group), [(1, 0)]);
+    // With a mask a batch (an owner whose batches are far apart), a batch
+    // the mask leaves out is not walked.
+    let mut first = super::super::BatchStart::new(starts.start(0).unwrap());
+    first.add_kind(Kind::Action as u32);
+    let mut second = super::super::BatchStart::new(starts.start(1).unwrap());
+    second.add_kind(Kind::Group as u32);
+    let wide =
+        super::super::Starts::try_new(&[first, second, super::super::BatchStart::new(1 << 20)])
+            .unwrap();
+    assert!(!wide.is_packed());
+    store.owners[0].as_mut().unwrap().batches = Batches::Starts(wide);
     assert_eq!(places(&store, Kind::Action), [(0, 0), (0, 1)]);
     assert_eq!(places(&store, Kind::Group), [(1, 0)]);
     assert!(places(&store, Kind::Screen).is_empty());

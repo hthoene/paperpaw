@@ -223,7 +223,10 @@ fn an_owner_that_stopped_cannot_be_claimed_for() {
     let s = store();
     let id = s.handover_make(who(1, 1), &[]).unwrap();
     let claims = s.claim(who(1, 1), &[id]).unwrap();
+    // A made or claimed entry keeps its plugin from sleeping again (#248, D3).
+    assert_eq!(s.owner_holds(1), Ok(true));
     s.owner_stopped(1).unwrap();
+    assert_eq!(s.owner_holds(1), Ok(false));
     assert_eq!(s.attach(Some(id), 3), Err(ERR_STATE));
     drop(claims);
     assert_eq!(s.len(), 0);

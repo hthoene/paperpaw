@@ -35,6 +35,7 @@ use super::{
 };
 use crate::native_host::codec;
 use alloc::vec::Vec;
+use core::cell::Cell;
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED,
 };
@@ -71,6 +72,31 @@ pub(crate) trait Route {
     /// # Errors
     /// What [`format_call::call`] says.
     fn call(&self, target: Target, payload: &[u8], out: &mut [u8]) -> Result<usize, i32>;
+
+    /// [`Route::call`], setting `entered` once the payload goes to the
+    /// format: the host's own buffers were had (Senior, R1 on #1368). A
+    /// route that cannot tell sets it before the call.
+    ///
+    /// # Errors
+    /// As [`Route::call`].
+    fn call_noted(
+        &self,
+        target: Target,
+        payload: &[u8],
+        out: &mut [u8],
+        entered: &Cell<bool>,
+    ) -> Result<usize, i32> {
+        entered.set(true);
+        self.call(target, payload, out)
+    }
+
+    /// Whether the parked format plugin `plugin` gave up being made (its
+    /// longest wait without memory, #248): what waits for it fails then
+    /// rather than waiting on. Taken once (the wait starts over). `false`
+    /// where the route cannot tell.
+    fn gave_up(&self, _plugin: u64) -> bool {
+        false
+    }
 }
 
 /// Through the retained instance registry (the shell's own loop).
@@ -80,7 +106,19 @@ pub(crate) struct Registry<'a> {
 }
 impl Route for Registry<'_> {
     fn call(&self, target: Target, payload: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-        format_call::call(self.registry, target, payload, out, self.env)
+        self.call_noted(target, payload, out, &Cell::new(false))
+    }
+    fn call_noted(
+        &self,
+        target: Target,
+        payload: &[u8],
+        out: &mut [u8],
+        entered: &Cell<bool>,
+    ) -> Result<usize, i32> {
+        format_call::call(self.registry, target, payload, out, (self.env, entered))
+    }
+    fn gave_up(&self, plugin: u64) -> bool {
+        self.registry.format_gave_up(plugin)
     }
 }
 
@@ -90,8 +128,18 @@ impl Route for Registry<'_> {
 pub(crate) struct FrameRoute<'a>(pub(crate) &'a dyn crate::abi7::context::Frame);
 impl Route for FrameRoute<'_> {
     fn call(&self, target: Target, payload: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+        self.call_noted(target, payload, out, &Cell::new(false))
+    }
+    fn call_noted(
+        &self,
+        target: Target,
+        payload: &[u8],
+        out: &mut [u8],
+        entered: &Cell<bool>,
+    ) -> Result<usize, i32> {
         let framed = format_call::framed(payload)?;
         let room = out.len().min(PAYLOAD_MAX);
+        entered.set(true);
         self.0.call_native(
             target.plugin,
             target.token,
@@ -193,6 +241,21 @@ impl<'a> Stage<'a> {
         call: &FormatCall<'_>,
         out: &mut [u8],
     ) -> Result<usize, i32> {
+        self.call_noted(who, (target, &Cell::new(false)), call, out)
+    }
+
+    /// [`Stage::call`], setting `entered` once the call goes to the format
+    /// ([`Route::call_noted`]): an error before it is the host's own.
+    ///
+    /// # Errors
+    /// As [`Stage::call`].
+    pub(crate) fn call_noted(
+        &self,
+        who: Opener<'_>,
+        (target, entered): (Target, &Cell<bool>),
+        call: &FormatCall<'_>,
+        out: &mut [u8],
+    ) -> Result<usize, i32> {
         if !(fmt::OPEN..=fmt::PROGRESS).contains(&call.op) || call.op == CLOSE {
             return Err(ERR_UNSUPPORTED);
         }
@@ -222,7 +285,7 @@ impl<'a> Stage<'a> {
         } else {
             &super::doc_service::Options::NONE
         };
-        let length = self.run(target, &record, options, out)?;
+        let length = self.run((target, entered), &record, options, out)?;
         self.translate(who, call, out, length)
     }
 
@@ -248,7 +311,12 @@ impl<'a> Stage<'a> {
             "",
             first.unwrap_or(&[]),
         );
-        let length = self.run(target, &record, &super::doc_service::Options::NONE, out)?;
+        let length = self.run(
+            (target, &Cell::new(false)),
+            &record,
+            &super::doc_service::Options::NONE,
+            out,
+        )?;
         let reply = local::reply_decode(out.get(..length).ok_or(ERR_INVALID)?)?;
         let mut yes = false;
         for row in reply {
@@ -263,14 +331,19 @@ impl<'a> Stage<'a> {
     /// Op 4 `close`: best effort, nothing the format says can fail it.
     pub(crate) fn close(&self, target: Target, document: u32, out: &mut [u8]) {
         let record = local::FmtCall::new(CLOSE, document, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", &[]);
-        let _ = self.run(target, &record, &super::doc_service::Options::NONE, out);
+        let _ = self.run(
+            (target, &Cell::new(false)),
+            &record,
+            &super::doc_service::Options::NONE,
+            out,
+        );
     }
 
     /// Encode, call, and leave the format's counted batch at the front of
     /// `out`; returns its length.
     fn run(
         &self,
-        target: Target,
+        (target, entered): (Target, &Cell<bool>),
         record: &local::FmtCall<'_>,
         options: &super::doc_service::Options<'_>,
         out: &mut [u8],
@@ -305,7 +378,7 @@ impl<'a> Stage<'a> {
         // longest call goes first: the call's peak is the format's, #248).
         let encoded = exact(payload.get(..used).ok_or(ERR_INVALID)?)?;
         drop(payload);
-        self.route.call(target, &encoded, out)
+        self.route.call_noted(target, &encoded, out, entered)
     }
 
     /// The format's batch in `out[..length]` as a bare stream in service tags.

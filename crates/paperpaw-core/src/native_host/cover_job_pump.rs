@@ -103,10 +103,16 @@ impl crate::Kernel {
         }
     }
 
-    /// The end of the quiet time after the user's last input (or the start):
-    /// no cover is made, converted or started before it.
+    /// The end of the quiet time after the user's last input (or the start,
+    /// or the standby begun): no cover is made, converted or started before
+    /// it. No job begins on the way into standby; one asked for there waits
+    /// for the quiet time after waking, as it would with its format parked
+    /// (#248).
     fn cover_quiet_until(&self) -> u64 {
-        self.last_activity.millis().saturating_add(COVER_QUIET_MS)
+        let since = self
+            .suspended_at
+            .map_or(self.last_activity, |at| at.max(self.last_activity));
+        since.millis().saturating_add(COVER_QUIET_MS)
     }
 
     /// An input came (`Kernel::handle`): the quiet time begins anew before

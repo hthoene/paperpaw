@@ -204,7 +204,7 @@ fn core_work_is_wired_once_and_its_view_is_made_of_the_shell_the_kernel_and_the_
         .hosts()
         .owners()
         .unwrap()
-        .admit(1, "news")
+        .admit(1, &paperpaw_sdk::Id::new_static("news"))
         .unwrap();
     assert!(!env.network_allowed(1));
     let policy = resources.hosts().policy();

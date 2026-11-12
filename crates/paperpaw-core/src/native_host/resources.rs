@@ -327,6 +327,13 @@ impl OwnerResourceView {
         &self.table.hosts
     }
 
+    /// How many handles the pool holds, all owners together (tests of
+    /// parking again, #248, D3); `None` while the table is in use.
+    #[cfg(any(test, feature = "testing"))]
+    pub(crate) fn handle_count(&self) -> Option<usize> {
+        self.table.handles.try_borrow().ok().map(|h| h.live())
+    }
+
     /// Another view of the same pool, without allocation.
     pub(crate) fn try_clone(&self) -> Option<Self> {
         self.table.try_clone().map(|table| Self {
@@ -360,14 +367,11 @@ impl OwnerResourceView {
 impl OwnerResources {
     /// Bind the host-admitted identity once, before plugin construction.
     /// Preflight resource owners remain unbound and cannot call a service.
-    pub(crate) fn bind_caller(&mut self, id: &str) -> Result<(), i32> {
+    pub(crate) fn bind_caller(&mut self, id: Id) -> Result<(), i32> {
         if self.caller.is_some() {
             return Err(paperpaw_native::host_glue::ERR_STATE);
         }
-        self.caller = Some(Id::try_parse(id).map_err(|error| match error {
-            paperpaw_sdk::IdError::NoMemory => ERR_NO_MEMORY,
-            _ => paperpaw_native::host_glue::ERR_INVALID,
-        })?);
+        self.caller = Some(id);
         Ok(())
     }
 
@@ -398,6 +402,21 @@ impl OwnerResources {
             .handles
             .try_borrow()
             .map(|handles| handles.holds(self.owner))
+            .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)
+    }
+
+    /// Whether this owner holds a blob handle: host memory with the plugin's
+    /// data, lost when the plugin is parked again (#248, D3). Its font and
+    /// service handles keep nothing of their own: the remade plugin opens
+    /// them again (service state is `HostServices::owner_holds`).
+    ///
+    /// # Errors
+    /// `ERR_BUSY` while the handle table is in use.
+    pub(crate) fn holds_blobs(&self) -> Result<bool, i32> {
+        self.table
+            .handles
+            .try_borrow()
+            .map(|handles| handles.holds_kind(self.owner, Kind::Blob))
             .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)
     }
 

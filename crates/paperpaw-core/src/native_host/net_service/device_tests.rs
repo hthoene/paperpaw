@@ -114,7 +114,9 @@ fn fixture(limits: NetLimits) -> Fixture {
         hosts.policy().clone(),
     );
     // The plugin `mail` runs and subscribed to every event.
-    owners.admit(OWNER, "mail").unwrap();
+    owners
+        .admit(OWNER, &paperpaw_sdk::Id::new_static("mail"))
+        .unwrap();
     owners.subscribe(OWNER, EventTags::collect(|_| true));
     Fixture {
         card,
