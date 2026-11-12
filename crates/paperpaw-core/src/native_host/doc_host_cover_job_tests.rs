@@ -455,7 +455,7 @@ fn no_step_is_made_while_a_library_list_is_up_and_for_a_quiet_moment_after() {
         answer(w, PREPARING, 0);
         // The list is up: the job's row stays, nothing is stepped and the
         // pump is not asked to run.
-        w.state.cover_job_list(true);
+        w.state.cover_job_list(true, 0);
         assert_eq!(
             w.state.prepare_step(&w.hosts, &FrameRoute(w)),
             PrepareStep::Idle,
@@ -464,18 +464,18 @@ fn no_step_is_made_while_a_library_list_is_up_and_for_a_quiet_moment_after() {
         assert!(!w.state.preparing());
         // Ten minutes in the list are no awake time of the book.
         w.state.now.set(1_000 + 700_000);
-        w.state.cover_job_list(true);
+        w.state.cover_job_list(true, 0);
         assert!(!w.state.preparing());
         // The list is gone: still held for the quiet moment.
         w.state.now.set(1_000 + 700_100);
-        w.state.cover_job_list(false);
+        w.state.cover_job_list(false, 0);
         assert!(!w.state.preparing(), "quiet moment");
         // The list was last up at 701_000: the moment ends 2 s after it.
         w.state.now.set(1_000 + 700_000 + 1_999);
-        w.state.cover_job_list(false);
+        w.state.cover_job_list(false, 0);
         assert!(!w.state.preparing());
         w.state.now.set(1_000 + 700_000 + 2_000);
-        w.state.cover_job_list(false);
+        w.state.cover_job_list(false, 0);
         assert!(w.state.preparing(), "the job goes on");
         prepare(w);
         assert_eq!(look(w), JobStep::Wait, "not failed by the time held");
@@ -490,7 +490,7 @@ fn a_ready_job_is_ended_beside_a_list_for_only_conversion_is_held() {
         w.state.now.set(1_000);
         let document = job(w, "books/a.epub");
         w.state.cover_job_guard("books/a.epub").unwrap();
-        w.state.cover_job_list(true);
+        w.state.cover_job_list(true, 0);
         assert_eq!(look(w), JobStep::Wait, "converting: held, still open");
         let job_row = w.state.table.cover_job().unwrap();
         w.state
@@ -506,12 +506,60 @@ fn a_ready_job_is_ended_beside_a_list_for_only_conversion_is_held() {
 }
 
 #[test]
+fn no_step_is_made_within_the_quiet_time_after_an_input_and_the_wake_is_told() {
+    use crate::native_host::doc_service::PrepareStep;
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        w.state.now.set(1_000);
+        let document = job(w, "books/a.epub");
+        w.state.cover_job_guard("books/a.epub").unwrap();
+        answer(w, PREPARING, 0);
+        // An input at 1,000: quiet from 2,000. The wake is told, no step.
+        assert_eq!(w.state.cover_job_list(false, 2_000), Some(2_000));
+        assert_eq!(
+            w.state.prepare_step(&w.hosts, &FrameRoute(w)),
+            PrepareStep::Idle
+        );
+        assert!(!w.state.preparing());
+        assert!(!w.state.cover_quiet());
+        // A later input moves it on.
+        w.state.now.set(1_500);
+        w.state.cover_job_input(2_500);
+        assert_eq!(w.state.cover_job_list(false, 2_500), Some(2_500));
+        w.state.now.set(2_500);
+        assert_eq!(w.state.cover_job_list(false, 2_500), None);
+        assert!(w.state.cover_quiet());
+        assert!(w.state.preparing(), "the job goes on");
+        prepare(w);
+        assert_eq!(look(w), JobStep::Wait);
+        assert_eq!(w.state.table.cover_job().map(|job| job.id), Some(document));
+    });
+}
+
+#[test]
+fn a_start_held_back_for_the_users_quiet_time_is_released_when_it_is_over() {
+    world(|w| {
+        w.state.now.set(10_000);
+        w.state.allow_cover_jobs();
+        w.state.cover_job_held_back();
+        // Nothing to convert, but a start waits: the wake is told too.
+        assert_eq!(w.state.cover_job_list(false, 11_000), Some(11_000));
+        assert!(!w.state.cover_jobs_released(), "the user works");
+        w.state.now.set(11_000);
+        assert!(
+            w.state.cover_jobs_released(),
+            "quiet: the screens ask again"
+        );
+    });
+}
+
+#[test]
 fn a_held_back_start_is_released_beside_a_list_for_the_list_asks_again() {
     world(|w| {
         w.state.now.set(10_000);
         w.state.allow_cover_jobs();
         w.state.cover_job_held_back();
-        w.state.cover_job_list(true);
+        w.state.cover_job_list(true, 0);
         assert!(
             w.state.cover_jobs_released(),
             "a list is no reason not to ask"

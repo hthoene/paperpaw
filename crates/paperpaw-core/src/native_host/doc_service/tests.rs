@@ -100,6 +100,8 @@ pub(crate) struct Fake {
     pub(crate) left_out: RefCell<Vec<u32>>,
     /// The kernel's start has not returned: no cover job begins.
     pub(crate) jobs_blocked: Cell<bool>,
+    /// The user's quiet time is not over (`cover_quiet`).
+    pub(crate) noisy: Cell<bool>,
     /// A `cover` asked for a job while `jobs_blocked`.
     pub(crate) held_back: Cell<bool>,
     /// The cover job's marker cannot be written (`cover_job_guard`).
@@ -135,6 +137,7 @@ impl Fake {
             reader_refuses: Cell::new(None),
             left_out: RefCell::new(Vec::new()),
             jobs_blocked: Cell::new(false),
+            noisy: Cell::new(false),
             held_back: Cell::new(false),
             guard_fails: Cell::new(false),
             guarded: RefCell::new(Vec::new()),
@@ -247,6 +250,9 @@ impl DocHost for Fake {
     }
     fn cover_jobs_allowed(&self) -> bool {
         !self.jobs_blocked.get()
+    }
+    fn cover_quiet(&self) -> bool {
+        !self.noisy.get()
     }
     fn cover_job_guard(&self, path: &str) -> Result<(), i32> {
         if self.guard_fails.get() {

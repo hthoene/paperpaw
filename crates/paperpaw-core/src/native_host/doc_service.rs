@@ -292,12 +292,29 @@ pub(crate) trait DocHost {
     /// A library list screen is up (`up`) or is not: the cover job takes no
     /// *preparing* step (a conversion) while one is up and for a quiet moment
     /// after it closes, so that no conversion peaks beside the list's
-    /// buffers. A job whose book is ready is not held (its cover is made). The time held does not
-    /// count toward the job's awake time. Said by the pump before it steps.
-    /// Answers when the quiet moment of a waiting job ends (kernel clock, ms),
-    /// if that is what holds it: the pump wakes then.
-    fn cover_job_list(&self, _up: bool) -> Option<u64> {
+    /// buffers. The time held does not count toward the job's awake time.
+    /// Said by the pump before it steps, with the end of the quiet time after
+    /// the user's last input and the start (`quiet_until`, kernel clock, ms):
+    /// before it, no conversion step is made, no cover is made and none is
+    /// started (the heap's peaks never come beside what the user works in,
+    /// #248). Answers when the wait of a waiting job ends, if only time holds
+    /// it: the pump wakes then.
+    fn cover_job_list(&self, _up: bool, _quiet_until: u64) -> Option<u64> {
         None
+    }
+    /// An input came: the quiet time begins anew, at once (the pump's pass
+    /// that says it in [`DocHost::cover_job_list`] comes after the input's
+    /// callbacks, which may already ask for covers).
+    fn cover_job_input(&self, _quiet_until: u64) {}
+    /// Whether the user's quiet time is over (see [`DocHost::cover_job_list`]).
+    fn cover_quiet(&self) -> bool {
+        true
+    }
+    /// Whether a `cover` of a book not made yet waits: nothing is opened for
+    /// it in the list's frame (the open of a book reads its zip and XML),
+    /// and the library is told when it may ask again.
+    fn cover_must_wait(&self) -> bool {
+        !self.cover_jobs_allowed() || !self.cover_quiet() || self.table().reading_besides(0)
     }
     /// The key of a book whose job was displaced too often in a row (0: none):
     /// the library counts it as failed (no cover until the next start).

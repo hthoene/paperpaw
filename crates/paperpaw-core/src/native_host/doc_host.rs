@@ -162,6 +162,10 @@ pub(crate) struct DocState {
     /// at the latest: the job takes no step before the quiet moment after it
     /// is over (`cover_job_list`).
     list_quiet_until: Cell<u64>,
+    /// The user's last input, the start and the last wake, plus the quiet
+    /// time (the kernel's clock, ms): no cover work begins before it
+    /// (`cover_job_list`).
+    input_quiet_until: Cell<u64>,
     /// The key of the book of the job that runs (or ran last).
     job_key: Cell<u64>,
     /// The book the job was displaced for last, and how many times in a row;
@@ -306,6 +310,7 @@ impl DocState {
             details: super::doc_service::details::DetailsRun::default(),
             job_resume_at: Cell::new(0),
             list_quiet_until: Cell::new(0),
+            input_quiet_until: Cell::new(0),
             job_key: Cell::new(0),
             job_displaced: Cell::new((0, 0)),
             job_given_up: Cell::new(0),
@@ -628,8 +633,14 @@ macro_rules! frameless {
         fn details_job(&self) -> Option<&dyn super::doc_service::details::DetailsJob> {
             Some(self.state())
         }
-        fn cover_job_list(&self, up: bool) -> Option<u64> {
-            self.state().list_hold(up)
+        fn cover_job_list(&self, up: bool, quiet_until: u64) -> Option<u64> {
+            self.state().list_hold(up, quiet_until)
+        }
+        fn cover_job_input(&self, quiet_until: u64) {
+            self.state().input_quiet_until.set(quiet_until);
+        }
+        fn cover_quiet(&self) -> bool {
+            self.state().now.get() >= self.state().input_quiet_until.get()
         }
         fn cover_job_guard(&self, path: &str) -> Result<(), i32> {
             self.state().guard(path)

@@ -482,6 +482,8 @@ impl Kernel {
         self.now = now;
         self.last_activity = now;
         self.last_user_input = Some(now);
+        // No cover work begins beside what the user does now.
+        self.native_cover_input();
         // Not counted while a screen guards the device: it would tell a typed code's length.
         if self.guard().is_none() {
             self.shared.usage.inputs = self.shared.usage.inputs.saturating_add(1);
