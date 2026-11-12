@@ -311,13 +311,18 @@ impl Driver {
         if !has_slot && self.kept.len() >= KEPT_MAX && !self.evictable() {
             return Err(ERR_FULL);
         }
+        // Exact: an amortized reserve rounds the first one up to four rows.
         let wanted = self.entries.len() + 1;
-        self.entries.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-        self.queue.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        self.entries
+            .try_reserve_exact(1)
+            .map_err(|_| ERR_NO_MEMORY)?;
+        self.queue.try_reserve_exact(1).map_err(|_| ERR_NO_MEMORY)?;
         // An outcome for every waiting request, besides those not yet taken.
-        self.ready.try_reserve(wanted).map_err(|_| ERR_NO_MEMORY)?;
+        self.ready
+            .try_reserve_exact(wanted)
+            .map_err(|_| ERR_NO_MEMORY)?;
         if !has_slot && self.kept.len() < KEPT_MAX {
-            self.kept.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+            self.kept.try_reserve_exact(1).map_err(|_| ERR_NO_MEMORY)?;
         }
         Ok(())
     }

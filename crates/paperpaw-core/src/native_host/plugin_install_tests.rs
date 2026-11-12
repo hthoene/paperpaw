@@ -994,7 +994,7 @@ fn the_job_is_small_enough_to_pass_by_value_on_the_x4() {
 }
 
 #[test]
-fn the_buffer_is_let_go_before_the_question_and_the_swap() {
+fn the_copy_is_let_go_before_the_check_and_the_buffer_before_the_question() {
     let card = MemoryStorage::new();
     data_source(&card, "1.0.0");
     let mut job = job(0, Evidence::NONE);
@@ -1014,6 +1014,10 @@ fn the_buffer_is_let_go_before_the_question_and_the_swap() {
             }
             JobStep::Done(done) => panic!("ended before the swap: {done:?}"),
             _ => {}
+        }
+        if job.check.is_some() {
+            assert!(job.walk.is_none(), "the copy's walk goes before the check");
+            assert_eq!(job.pending.capacity(), 0, "and its list");
         }
         if matches!(job.phase, Phase::Marks | Phase::Journal | Phase::Swapping) {
             assert_eq!(job.buf.capacity(), 0, "not held through the swap");

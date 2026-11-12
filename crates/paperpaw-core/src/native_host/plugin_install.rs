@@ -356,7 +356,11 @@ impl PluginInstall {
     #[inline(never)]
     fn check(&mut self, env: &JobEnv<'_>) -> JobStep {
         if self.check.is_none() {
+            // The copy is done: its buffer, walk and list are let go before
+            // the check takes its own.
             self.buf = Vec::new();
+            self.walk = None;
+            self.pending = Vec::new();
             let Some(check) =
                 PluginCheck::staged_box(self.owner, self.request, &self.stage, self.id.as_str())
             else {
