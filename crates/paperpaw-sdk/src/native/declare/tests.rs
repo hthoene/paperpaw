@@ -730,6 +730,31 @@ fn a_screen_declared_with_its_hints_hidden_has_flag_bit_8() {
 }
 
 #[test]
+fn a_screen_declared_best_in_grays_has_flag_bit_9() {
+    let mut batches = Vec::new();
+    let mut d = collecting(&mut batches);
+    d.screen(ScreenDecl::new("page", "demo.page.title", 1).grays())
+        .unwrap();
+    d.screen(
+        ScreenDecl::new("sleep", "demo.sleep.title", 2)
+            .hints_hidden()
+            .grays(),
+    )
+    .unwrap();
+    d.submit().unwrap();
+    drop(d);
+    let batch = records_decode(&batches[0]).unwrap();
+    let flags: Vec<u32> = batch
+        .iter()
+        .filter_map(|record| match record {
+            Record::ScreenSpec(screen) => Some(screen.flags),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(flags, [0x200, 0x300]);
+}
+
+#[test]
 fn screen_and_action_generated_caps_are_inclusive() {
     let screen_name = "n".repeat(records_wire::SCREEN_SPEC_NAME_MAX_BYTES);
     let screen_title = "t".repeat(records_wire::SCREEN_SPEC_TITLE_MAX_BYTES);

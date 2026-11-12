@@ -465,9 +465,16 @@ fn a_screen_policy_is_the_submitters_own_and_staged_apart() {
             }]
         );
     }
-    // Bits other than 1, 4 and 5, among them 8 (`hints_hidden`: declared only),
-    // alone or beside the allowed ones.
-    for flags in [1, 4, 8, 0x40, 0x100, 0x112, 0x200] {
+    // Bit 9 (`grays`) is a policy as well, alone or beside the others.
+    for flags in [0x200, 0x212] {
+        let (status, _, policies) = submit_policy(&kernel, 3, &[policy(0, flags)]);
+        assert_eq!(status, OK, "{flags:#x}");
+        assert_eq!(policies.len(), 1);
+        assert_eq!(policies[0].flags, flags);
+    }
+    // Bits other than 1, 4, 5 and 9, among them 8 (`hints_hidden`: declared
+    // only), alone or beside the allowed ones.
+    for flags in [1, 4, 8, 0x40, 0x100, 0x112, 0x400, 0x600] {
         assert_eq!(
             submit_policy(&kernel, 3, &[policy(0, flags)]).0,
             ERR_INVALID
@@ -506,6 +513,37 @@ fn guards_turn_on_only_for_the_top_and_off_anywhere() {
     // Already guarding under another's screen: it may stay on.
     let guarding = kernel(&[("probe.screen", 3, OWN, GUARDS), ("base.home", 1, OTHER, 0)]);
     assert_eq!(submit_policy(&guarding, 1, &[policy(3, 0x02)]).0, OK);
+}
+
+/// `grays` (bit 9) set at run time is what the frame says about the screen on
+/// top: on and off page by page, and nothing of it under a screen that lies
+/// over the panel's content (the screen below shows through).
+#[test]
+fn a_run_time_grays_policy_is_what_the_frame_says_of_the_top_screen() {
+    let probe = Id::new_static("probe");
+    let mut kernel = guarded_kernel();
+    for screen in ["probe.base", "probe.old"] {
+        open(&mut kernel, screen);
+    }
+    let key = kernel.shared.stack.last().unwrap().key;
+    let change = |flags| PolicyChange {
+        instance: key.serial(),
+        flags,
+        ready: false,
+    };
+    kernel.render(&mut |_, _| {});
+    kernel.finish();
+    assert!(!kernel.stack.last().unwrap().grays());
+    // On: the next frame is the whole screen in grays.
+    kernel.native_screen_policies(&probe, OWN, vec![change(0x200)]);
+    assert!(kernel.stack.last().unwrap().grays());
+    kernel.render(&mut |_, _| {});
+    assert!(kernel.finish().grays());
+    // Off, with another bit of the policy kept apart from it.
+    kernel.native_screen_policies(&probe, OWN, vec![change(0x10)]);
+    assert!(!kernel.stack.last().unwrap().grays());
+    kernel.render(&mut |_, _| {});
+    assert!(!kernel.finish().grays());
 }
 
 /// The kernel applies the change on the real stack: the instance guards or is
