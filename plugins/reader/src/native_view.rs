@@ -16,7 +16,7 @@ use crate::{
     native_marking::{Ctx, Marking, Outcome},
     native_marks::{self, CanvasPen, Gauge, Marks, Painted},
     native_open::{self, Place, Start},
-    native_pages::{self, Reading, Trail, Turn},
+    native_pages::{self, Trail, Turn},
     native_place::{self, Progress},
     native_speech::Speaker,
     native_status,
@@ -30,7 +30,7 @@ use core::ops::Range;
 use paperpaw_sdk::{
     Color, Handled, NoStorage,
     document::{DocumentError, Locator},
-    layout::{BookStyles, LayoutContext, Page, Style, layout_page},
+    layout::{LayoutContext, Page, layout_page},
     native::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose, Input},
@@ -39,8 +39,7 @@ use paperpaw_sdk::{
         document::{DocId, DocPosition, Documents, OpenBook, Preparation, Report, Root},
         fonts::{Font, FontRole},
         library::Library,
-        settings::{self, SettingValue},
-        snapshot::{self, Snapshot},
+        snapshot,
         ui::{HandoverId, Notify, Open as NavOpen, Param, Ui},
     },
     reading::WordBox,
@@ -847,130 +846,6 @@ impl View {
     }
 }
 
-/// What a page is laid out with: the reading settings and the display's size
-/// and density (a turned screen is another size).
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct LayoutKey {
-    reading: Reading,
-    display: (u16, u16, u16),
-}
-
-/// The text the screen reads its page from: reading settings and the display.
-struct Setup {
-    reading: Reading,
-    display: Snapshot,
-    /// The room of the status lines (their size and places).
-    room: native_status::Room,
-}
-
-fn integer(host: &Host<'_>, key: &str) -> Result<i64, Error> {
-    let mut bytes = [0; 32];
-    Ok(match settings::read_setting(host, key, &mut bytes)? {
-        SettingValue::Int(value) => value,
-        _ => 0,
-    })
-}
-
-fn flag(host: &Host<'_>, key: &str) -> Result<bool, Error> {
-    let mut bytes = [0; 32];
-    Ok(matches!(
-        settings::read_setting(host, key, &mut bytes)?,
-        SettingValue::Bool(true)
-    ))
-}
-
-/// Whether paragraphs are broken over all their lines (`core.line-breaking`
-/// is not the fast choice), as in Beta 3.
-fn balanced(host: &Host<'_>) -> Result<bool, Error> {
-    let mut bytes = [0; 64];
-    Ok(!matches!(
-        settings::read_setting(host, "core.line-breaking", &mut bytes)?,
-        SettingValue::Text("core.line-breaking.fast")
-    ))
-}
-
-/// The book's own styles followed, by their switches (`core.book-…`), as the
-/// bits of `BookStyles`.
-fn book_styles(host: &Host<'_>) -> Result<u16, Error> {
-    let mut book = BookStyles::NONE;
-    for (key, style) in [
-        ("core.book-align", BookStyles::ALIGN),
-        ("core.book-indent", BookStyles::INDENT),
-        ("core.book-sizes", BookStyles::SIZE),
-        ("core.book-spacing", BookStyles::SPACING),
-        ("core.book-fonts", BookStyles::FONTS),
-        ("core.book-margins", BookStyles::MARGINS),
-        ("core.book-line-height", BookStyles::LINE_HEIGHT),
-    ] {
-        if flag(host, key)? {
-            book = book.with(style);
-        }
-    }
-    Ok(book.bits())
-}
-
-impl Setup {
-    fn read(host: &Host<'_>) -> Result<Self, Error> {
-        let display = snapshot::capture_snapshot(host)?;
-        let room = native_status::room(host, display.display_dpi())?;
-        let (top, bottom) = room.reserved();
-        Ok(Self {
-            reading: Reading::new(
-                integer(host, "core.font-size")?,
-                integer(host, "core.line-spacing")?,
-                integer(host, "core.word-spacing")?,
-                integer(host, "core.margin")?,
-                integer(host, "core.margin-ends")?,
-                flag(host, "core.justify")?,
-            )
-            .with_status(top, bottom)
-            .with_paragraphs(
-                (
-                    flag(host, "core.indent")?,
-                    integer(host, "core.indent-size")?,
-                ),
-                (
-                    flag(host, "core.paragraph-spacing")?,
-                    integer(host, "core.paragraph-space")?,
-                ),
-            )
-            .with_lines(
-                (
-                    integer(host, "core.widows")?,
-                    integer(host, "core.orphans")?,
-                ),
-                balanced(host)?,
-                book_styles(host)?,
-            ),
-            display,
-            room,
-        })
-    }
-
-    /// What a page laid out with this setup depends on.
-    fn key(&self) -> LayoutKey {
-        LayoutKey {
-            reading: self.reading,
-            display: (
-                self.display.display_width(),
-                self.display.display_height(),
-                self.display.display_dpi(),
-            ),
-        }
-    }
-
-    /// The size of body text in pixels.
-    fn base(&self) -> f32 {
-        self.reading.size_pt * f32::from(self.display.display_dpi()) / 72.0
-    }
-
-    /// How the text is set, with paragraphs spaced by parts of the body's
-    /// `line` height (`Reading::style`).
-    fn style(&self, line: f32) -> Style {
-        self.reading.style(self.base(), line)
-    }
-}
-
 impl Open {
     /// The start of the chapter after (`forward`) or before the page on show,
     /// gone to as a turn goes; nothing happens where there is none.
@@ -1495,7 +1370,9 @@ mod menu_bar;
 mod pictures;
 mod preparing;
 mod ribbon;
+mod setup;
 use preparing::Preparing;
+use setup::{LayoutKey, Setup, flag, integer};
 
 /// The language a book is read in: its own, or the UI language where the
 /// format names none (a text file), as in Beta 3, so the voice reading aloud
