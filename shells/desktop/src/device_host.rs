@@ -75,6 +75,10 @@ pub struct DesktopDevice {
     power: RefCell<Power>,
     /// `dev_wifi.state` (0 off, 1 on, ...) of the pretend radio.
     wifi_state: Cell<u32>,
+    /// The workshop's network is in reach (`--wifi online`): the pretend radio
+    /// finds it, known as joined before, as [`crate::wifi::pretend_networks`]
+    /// does for the interface-6 radio.
+    workshop: bool,
     clock: Instant,
     memory: ProbeCache<MemoryFacts>,
 }
@@ -87,6 +91,7 @@ impl DesktopDevice {
             profile,
             power: RefCell::new(Power::default()),
             wifi_state: Cell::new(0),
+            workshop: crate::device::wifi_online(),
             clock: Instant::now(),
             memory: ProbeCache::new(),
         }
@@ -179,6 +184,19 @@ impl DeviceHost for DesktopDevice {
         }
         // Borrowed from a static list: no allocation, so no allocator
         // refusal can reach a network query.
+        if self.workshop {
+            // Without it a radio switched off and on again would never find
+            // the network the device started in, and would not rejoin it.
+            let row = NetworkRow {
+                ssid: crate::wifi::WORKSHOP_NETWORK,
+                signal: -40,
+                secured: true,
+                known: true,
+            };
+            if visit(&row).is_break() {
+                return Ok(());
+            }
+        }
         for &(ssid, signal, secured) in crate::wifi::PRETEND_SCAN {
             let row = NetworkRow {
                 ssid,
@@ -245,6 +263,22 @@ mod tests {
             assert_eq!(device.firmware(&mut |_| {}), Err(ERR_NOT_FOUND));
             assert_eq!(caps_seen & caps::FIRMWARE, 0);
         }
+    }
+
+    #[test]
+    fn the_workshop_network_is_in_reach_and_known_where_the_device_started_online() {
+        let mut device = DesktopDevice::new(crate::profiles::find("xteink-x4").unwrap());
+        device.workshop = true;
+        let mut rows = Vec::new();
+        device
+            .networks(&mut |row| {
+                rows.push((row.ssid.to_string(), row.known));
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+        assert_eq!(rows[0], (crate::wifi::WORKSHOP_NETWORK.to_string(), true));
+        assert_eq!(rows.len(), crate::wifi::PRETEND_SCAN.len() + 1);
+        assert!(rows[1..].iter().all(|(_, known)| !known));
     }
 
     #[test]

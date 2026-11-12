@@ -77,6 +77,23 @@ list) is still in place beside the native one. It is removed in the PR that fini
   the panel (slice 2) and the reader's selection menu skip pages for which
   `native_model::is_no_entry` is true.
 
+## Slice 4 (#257): the panel reads the own dictionaries itself, whole
+
+- The lookup service skips the asker's own provider, so the panel used to show nothing of the plugin's own
+  dictionaries. `native_popup::read_own` now reads them for the panel through `Dictionaries` (the same source as
+  the provider): every definition, **whole** (the 2,048-byte entry limit is the service's, for what other plugins are
+  given), in dictionary order, within one shared budget of `paperpaw_stardict::LOOKUP_BUDGET` (32 KiB, what a
+  lookup reads; Beta 3 gave each dictionary its own 32 KiB). The providers of other plugins follow, one page each,
+  as before. The lines kept at most are 1,200 (8 bytes each on the device), the text is built in one allocation and
+  the entries are dropped once the panel holds the wrapped text.
+- A folder with no `.ifo` file, where no other provider answered either, shows *No dictionaries in "<folder>"…*
+  (Beta 3 showed it when no other provider fitted at all; the native panel cannot know the providers' languages
+  beforehand, so it says it only when nothing at all was found).
+- Dictionaries whose indexes are not made are counted (so the message is not shown) and read after the work made
+  them; the *Preparing* note comes in the next slice.
+- Tests: `tests/native_panel_own.rs` (a 5,000-byte definition whole, the budget, not ready, unlistable folder),
+  `native_model` and `native_panel` unit tests, allocation refusal of `all_within`.
+
 ## What the slice loses (each returns in a later slice or with its host piece)
 
 - **Every lookup** (done in slice 2 for the provider).

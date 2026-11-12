@@ -65,7 +65,11 @@ fn staged(policy: u32, commands: &[WireCommand<'_>], on_shown: bool, answer: i32
         .unwrap();
     install(&mut kernel, policy << 6).unwrap();
     kernel
-        .register_native(host_named("other", 0), &device_depth(&kernel), |_, _, _| {})
+        .register_native(
+            host_named("other", 0),
+            &device_depth(&kernel),
+            |_, _, _, _| {},
+        )
         .unwrap();
     super::super::MENUS.with(|menus| menus.set(0));
     super::super::ARMS.with(|arms| arms.set(0));

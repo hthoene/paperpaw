@@ -506,7 +506,7 @@ fn registry_dispatches_idle_retained_owner_and_releases_it_after_last_frozen_lea
             font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
             registry_generation: alloc::rc::Rc::clone(&kernel.shared.registry_generation),
         },
-        |_, _, _| {},
+        |_, _, _, _| {},
         crate::native_host::native_instances::test_identity("tokens"),
     ))
     .unwrap();
@@ -566,7 +566,7 @@ fn shared_native_dispatch_scopes_all_screen_callbacks_and_retains_owner() {
             font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
             registry_generation: alloc::rc::Rc::clone(&kernel.shared.registry_generation),
         },
-        |_, _, _| {},
+        |_, _, _, _| {},
         crate::native_host::native_instances::test_identity("tokens"),
     ))
     .unwrap();
@@ -707,7 +707,7 @@ fn a_screen_callback_is_a_showing_screen_only_while_it_runs_on_the_stack() {
             font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
             registry_generation: alloc::rc::Rc::clone(&kernel.shared.registry_generation),
         },
-        |_, _, _| {},
+        |_, _, _, _| {},
         identity,
     );
     PROBE.with(|probe| *probe.borrow_mut() = Some((alloc::rc::Rc::clone(&rows), owner)));
@@ -756,7 +756,7 @@ fn a_native_owner_is_subscribed_to_the_events_it_registered_only() {
                 font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
                 registry_generation: alloc::rc::Rc::clone(&kernel.shared.registry_generation),
             },
-            |_, _, _| {},
+            |_, _, _, _| {},
             crate::native_host::native_instances::test_identity("tokens"),
         )
     };
@@ -767,6 +767,48 @@ fn a_native_owner_is_subscribed_to_the_events_it_registered_only() {
     assert!(!started.subscribed(registrations::EVENT_PAGE_TURNED_TAG));
     assert!(!started.subscribed(registrations::EVENT_HTTP_DONE_TAG));
     assert!(!make(0).subscribed(registrations::EVENT_STARTED_TAG));
+}
+
+/// A call the host dropped is told to the shell with the plugin's id beside
+/// its token and status (the X4 logs all three), without allocating.
+#[test]
+fn a_dropped_call_names_its_plugin() {
+    use super::super::{
+        native_dispatch::NativeDispatch, native_screen::Dispatch, retained::Retained,
+    };
+    std::thread_local! {
+        static DROPPED: core::cell::RefCell<alloc::vec::Vec<(alloc::string::String, u32, i32)>> =
+            const { core::cell::RefCell::new(alloc::vec::Vec::new()) };
+    }
+    fn report(_: &Heap, plugin: &str, token: u32, status: i32) {
+        DROPPED.with(|dropped| dropped.borrow_mut().push((plugin.into(), token, status)));
+    }
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    let dispatch = NativeDispatch::new(
+        Retained::make(hosted(false)).unwrap(),
+        super::super::flat::FlatDepth::try_new().unwrap(),
+        super::super::FlatHost {
+            log: Default::default(),
+            meter: alloc::rc::Rc::clone(&kernel.shared.meter),
+            directory: None,
+            stack_rows: alloc::rc::Rc::clone(&kernel.shared.stack_rows),
+            font_removals: alloc::rc::Rc::clone(&kernel.shared.font_removals),
+            registry_generation: alloc::rc::Rc::clone(&kernel.shared.registry_generation),
+        },
+        report,
+        crate::native_host::native_instances::test_identity("tokens"),
+    );
+    dispatch.dropped(10, host_glue::ERR_INVALID);
+    assert_eq!(
+        DROPPED.with(|dropped| dropped.take()),
+        [(
+            alloc::string::String::from("tokens"),
+            10,
+            host_glue::ERR_INVALID
+        )]
+    );
 }
 
 /// A stage call reached from inside another plugin's callback runs the plugin

@@ -498,6 +498,9 @@ impl LibWrite for LibraryHost {
             if self.in_use(path) {
                 return Err(paperpaw_native::host_glue::ERR_BUSY);
             }
+            // Beta 3's reader's own annotations of the book first: the edit
+            // is made over them, not beside them.
+            self.reads.adopt_old_annotations(path);
             self.edits.book_id(path)
         })
     }
