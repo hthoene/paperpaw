@@ -179,6 +179,16 @@ const WIRED_WORK: u8 = 1;
 const WIRED_CARD: u8 = 2;
 const WIRED_SECRETS: u8 = 4;
 
+/// Whether this start gave the kernel the firmware host and plugin host its
+/// plugin jobs need (`uses.install`, #2654). Apart from [`WIRED`]: the loader's
+/// `prepare` resets that one, and this is set where the kernel is built.
+static INSTALLS: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+/// Records that the plugin jobs are wired (the kernel was given the hosts).
+pub fn wired_installs() {
+    INSTALLS.store(true, core::sync::atomic::Ordering::Relaxed);
+}
+
 /// Forgets what was wired, before a start wires again.
 pub fn reset_wired() {
     WIRED.store(0, core::sync::atomic::Ordering::Relaxed);
@@ -236,6 +246,7 @@ pub fn wired_families(wifi: bool) -> paperpaw_x4::native_offer::Wired {
         files: card,
         secrets: wired & WIRED_SECRETS != 0,
         wifi,
+        installs: INSTALLS.load(Relaxed),
     }
 }
 

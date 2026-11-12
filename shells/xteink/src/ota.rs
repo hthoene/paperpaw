@@ -467,3 +467,88 @@ fn partitions_of(flash: &mut FlashStorage<'static>) -> Option<Partitions> {
         })?;
     Some(Partitions { slots, running })
 }
+
+/// The firmware host the kernel's plugin jobs share (`KernelBuilder::firmware_host`,
+/// #2654): plugin installs and checks queue on the host's driver, which is
+/// built around one. The X4's firmware updates stay with [`Ota`], where
+/// interface 6's update plugin drives them; this one says what runs (`room` 0:
+/// no firmware is installed through it) and refuses every firmware job of
+/// interface 7 as `Reason::NOT_HERE`, as a device shared with another firmware
+/// does, until an interface-7 update is wired. It owns two short strings and
+/// holds no buffer, so it costs next to nothing at idle.
+#[cfg(feature = "ppn5")]
+pub struct PluginJobsHost {
+    version: alloc::string::String,
+    project: alloc::string::String,
+    chip: u16,
+    undone: bool,
+}
+
+#[cfg(feature = "ppn5")]
+impl PluginJobsHost {
+    /// The host for the firmware `firmware` describes.
+    pub fn new(firmware: &Firmware) -> Self {
+        Self {
+            version: firmware.version.clone(),
+            project: firmware.project.clone(),
+            chip: firmware.chip,
+            undone: firmware.undone,
+        }
+    }
+}
+
+#[cfg(feature = "ppn5")]
+impl paperpaw_platform::firmware::FirmwareHost for PluginJobsHost {
+    fn running(&self) -> paperpaw_platform::firmware::Running<'_> {
+        paperpaw_platform::firmware::Running::new(
+            &self.version,
+            &self.project,
+            self.chip,
+            0,
+            self.undone,
+        )
+    }
+
+    fn begin_check(&mut self, _: &str) -> Result<(), paperpaw_platform::firmware::Reason> {
+        Err(paperpaw_platform::firmware::Reason::NOT_HERE)
+    }
+
+    fn check_step(
+        &mut self,
+        _: &dyn Storage,
+        _: &mut dyn FnMut(&str),
+    ) -> paperpaw_platform::firmware::Step<paperpaw_platform::firmware::CheckFacts> {
+        paperpaw_platform::firmware::Step::Failed(paperpaw_platform::firmware::Reason::NOT_HERE)
+    }
+
+    fn begin_write(
+        &mut self,
+        _: &str,
+        _: [u8; 32],
+        _: Option<[u8; 32]>,
+        _: bool,
+    ) -> Result<(), paperpaw_platform::firmware::Reason> {
+        Err(paperpaw_platform::firmware::Reason::NOT_HERE)
+    }
+
+    fn write_step(
+        &mut self,
+        _: &dyn Storage,
+    ) -> paperpaw_platform::firmware::Step<()> {
+        paperpaw_platform::firmware::Step::Failed(paperpaw_platform::firmware::Reason::NOT_HERE)
+    }
+
+    fn readback_step(&mut self) -> paperpaw_platform::firmware::Step<()> {
+        paperpaw_platform::firmware::Step::Failed(paperpaw_platform::firmware::Reason::NOT_HERE)
+    }
+
+    fn commit(&mut self) -> Result<(), paperpaw_platform::firmware::Reason> {
+        Err(paperpaw_platform::firmware::Reason::NOT_HERE)
+    }
+
+    fn abandon(&mut self) {}
+
+    fn restart(&mut self) -> Result<(), paperpaw_platform::firmware::Reason> {
+        Err(paperpaw_platform::firmware::Reason::NOT_HERE)
+    }
+}

@@ -32,6 +32,9 @@ pub struct Wired {
     /// The radio's commands (`uses.wifi`): the kernel answers them from its
     /// Wi-Fi model, which a device with a radio has.
     pub wifi: bool,
+    /// Plugin installs (`uses.install`): the kernel's plugin jobs over the
+    /// card, with the firmware host their queue shares (#2654).
+    pub installs: bool,
 }
 
 impl Wired {
@@ -45,6 +48,7 @@ impl Wired {
         files: true,
         secrets: true,
         wifi: true,
+        installs: true,
     };
 }
 
@@ -87,9 +91,9 @@ pub fn services(wired: Wired) -> Vec<Service<'static>> {
 }
 
 /// The consent features a linked plugin may ask for (`uses.*`), with the
-/// families that back them. Not offered: `uses.bluetooth`, `uses.install` and
-/// `uses.firmware` (not backed yet: dual boot, todo 450): a plugin that needs
-/// one is refused at admission.
+/// families that back them. Not offered: `uses.bluetooth` and `uses.firmware`
+/// (not backed yet: dual boot, todo 450): a plugin that needs one is refused at
+/// admission. `uses.install` only where the plugin jobs are wired.
 #[must_use]
 pub fn features(wired: Wired) -> Vec<Feature<'static>> {
     let mut list = alloc::vec![feature("uses.registry"), feature("uses.power")];
@@ -110,6 +114,11 @@ pub fn features(wired: Wired) -> Vec<Feature<'static>> {
     // kernel's Wi-Fi model.
     if wired.wifi {
         list.push(feature("uses.wifi"));
+    }
+    // Installing plugins: the jobs over the card (`core.device` ops of the
+    // `uses.install` family), where the firmware wired them.
+    if wired.installs {
+        list.push(feature("uses.install"));
     }
     list
 }
@@ -138,6 +147,16 @@ mod tests {
             !features(Wired::default())
                 .iter()
                 .any(|f| f.key == "uses.secrets")
+        );
+    }
+
+    #[test]
+    fn installs_are_offered_only_where_the_plugin_jobs_are_wired() {
+        assert!(features(Wired::ALL).iter().any(|f| f.key == "uses.install"));
+        assert!(
+            !features(Wired::default())
+                .iter()
+                .any(|f| f.key == "uses.install")
         );
     }
 }
