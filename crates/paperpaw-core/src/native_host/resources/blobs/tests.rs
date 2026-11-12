@@ -164,3 +164,19 @@ fn cleanup_failure_reports_once_and_preserves_the_delivered_callback_result() {
     assert_eq!(log.get(), (1, ERR_BUSY));
     assert!(owner.insert_blob(blob(12, 99)).is_ok());
 }
+
+#[test]
+fn only_a_blob_keeps_a_plugin_from_sleeping_again() {
+    // #248, D3: fonts and service handles are released with the instance
+    // and opened again by the remade plugin; a blob is not.
+    let pool = HostResources::try_new().unwrap();
+    let owner = pool.try_owner().unwrap();
+    let other = pool.try_owner().unwrap();
+    owner.insert_font(FontKey::Role(FontRole::Ui)).unwrap();
+    assert_eq!(owner.holds_blobs(), Ok(false));
+    let handle = owner.insert_blob(blob(12, 1)).unwrap();
+    assert_eq!(owner.holds_blobs(), Ok(true));
+    assert_eq!(other.holds_blobs(), Ok(false));
+    owner.release_blob(handle, 1).unwrap();
+    assert_eq!(owner.holds_blobs(), Ok(false));
+}

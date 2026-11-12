@@ -636,6 +636,18 @@ impl ImageTable {
         Ok(())
     }
 
+    /// Whether `owner` has an image id, a prepare waiting or an
+    /// `event.image_ready` not told yet (#248, D3).
+    ///
+    /// # Errors
+    /// `ERR_BUSY` while the table is borrowed.
+    pub(crate) fn owner_holds(&self, owner: u64) -> Result<bool, i32> {
+        let inner = self.inner.try_borrow().map_err(|_| ERR_BUSY)?;
+        Ok(inner.entries.iter().any(|e| e.owner == owner)
+            || inner.waiting.iter().any(|w| w.owner == owner)
+            || inner.ready.iter().any(|r| r.owner == owner))
+    }
+
     /// The plugin stopped: all its images end.
     ///
     /// # Errors

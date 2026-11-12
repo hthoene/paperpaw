@@ -131,6 +131,12 @@ impl ScreenStage {
         Ok(())
     }
 
+    /// Whether a batch waits or a callback holds a slot (`true` while the
+    /// queue is borrowed): no plugin is parked again then (#248, D3).
+    pub(crate) fn waiting(&self) -> bool {
+        self.held.get() != 0 || self.queue.try_borrow().map_or(true, |q| !q.is_empty())
+    }
+
     /// The oldest batch.
     pub(crate) fn take(&self) -> Option<Staged> {
         let mut queue = self.queue.try_borrow_mut().ok()?;

@@ -410,6 +410,15 @@ pub(crate) fn owner_stopped(host: &dyn NetHost, owner: u64) -> Result<(), i32> {
     table::owner_stopped(host, owner)
 }
 
+/// Whether `owner` has a request, a server, a served request or an event
+/// not told yet (#248, D3).
+///
+/// # Errors
+/// `ERR_BUSY` when the table is borrowed.
+pub(crate) fn owner_holds(host: &dyn NetHost, owner: u64) -> Result<bool, i32> {
+    table::owner_holds(host, owner)
+}
+
 /// The plugin started: whatever a power cut left in its `.received/` goes.
 pub(crate) fn owner_started(host: &dyn NetHost, owner: u64) {
     host.clear_received(owner, None);

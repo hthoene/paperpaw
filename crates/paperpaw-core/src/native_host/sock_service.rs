@@ -453,6 +453,15 @@ pub(crate) fn connect_for_tests(
     table::connect(host, who, input)
 }
 
+/// Whether `owner` has a socket or a cast (#248, D3).
+///
+/// # Errors
+/// `ERR_BUSY` when the table is borrowed.
+pub(crate) fn owner_holds(host: &dyn SockHost, owner: u64) -> Result<bool, i32> {
+    let inner = table::lock(host)?;
+    Ok(inner.owner_holds(owner))
+}
+
 /// The plugin stopped (its callbacks are revoked): its sockets close without
 /// events and the pool gets everything back. Idempotent.
 ///
