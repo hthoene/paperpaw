@@ -50,13 +50,18 @@ impl Kernel {
         }
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than the limit from before it was set; split it when it is next changed"
-    )]
     pub(crate) fn finish(&mut self) -> Effects {
         // The events of the host services, between callbacks.
         self.native_service_pump();
+        self.finish_commands();
+        self.finish_frame()
+    }
+
+    /// The commands, the work and the network of [`Self::finish`], after the
+    /// services' pass. Its own frame: its locals are not on the stack while
+    /// the services' pumps call the plugins (#250).
+    #[inline(never)]
+    fn finish_commands(&mut self) {
         self.run_commands();
         // The time since, to the screen on top.
         let top = self.stack.last().map_or(meter::CORE, |s| s.id.namespace());
@@ -81,6 +86,18 @@ impl Kernel {
         self.firmware_finish_due();
         // Whatever this call decided is what the next callback goes by.
         self.sync_net_policy();
+    }
+
+    /// The rest of [`Self::finish`] once the commands ran: the hints, the
+    /// areas to draw, the refresh and the effects for the shell. Its own
+    /// frame: its locals are not on the stack while [`Self::finish`] runs
+    /// the plugins' callbacks (a nested callback's route on the X4, #250).
+    #[inline(never)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "longer than the limit from before it was set; split it when it is next changed"
+    )]
+    fn finish_frame(&mut self) -> Effects {
         if let Some(row) = self.hint_row() {
             // A screen that read much as it opened may have filled what is
             // read from a card catalog: the row's labels would fall back.
@@ -356,18 +373,7 @@ impl Kernel {
                 self.show_top();
                 continue;
             }
-            let trusted = mem::take(&mut self.trusted);
-            let own = mem::take(&mut self.own_trusted);
-            for (i, command) in mem::take(&mut self.output.commands).into_iter().enumerate() {
-                self.from_guard = trusted.contains(&i);
-                self.from_guard_own = own.contains(&i);
-                // One callback can fill the cache; the next command must still
-                // be able to translate notices and dialog labels.
-                self.forget_read_messages_if_full();
-                self.apply(command);
-            }
-            self.from_guard = false;
-            self.from_guard_own = false;
+            self.apply_round();
             self.works.runs.round_done();
         }
         if !self.output.commands.is_empty() {
@@ -393,6 +399,25 @@ impl Kernel {
             let shown = events::ScreenShown::new(top.id.clone()).slot(top.slot.clone());
             self.output.commands.push(events::SCREEN_SHOWN.emit(shown));
         }
+    }
+
+    /// One round of [`Self::run_commands`]: the commands staged, each
+    /// applied. Its own frame: the commands and their marks are not on the
+    /// stack while the native plugins' actions run (#250).
+    #[inline(never)]
+    fn apply_round(&mut self) {
+        let trusted = mem::take(&mut self.trusted);
+        let own = mem::take(&mut self.own_trusted);
+        for (i, command) in mem::take(&mut self.output.commands).into_iter().enumerate() {
+            self.from_guard = trusted.contains(&i);
+            self.from_guard_own = own.contains(&i);
+            // One callback can fill the cache; the next command must still
+            // be able to translate notices and dialog labels.
+            self.forget_read_messages_if_full();
+            self.apply(command);
+        }
+        self.from_guard = false;
+        self.from_guard_own = false;
     }
 
     /// Opens a book in the reading app that takes it (`Command::OpenBook`).
@@ -688,7 +713,6 @@ impl Kernel {
         // A setting of a plugin's network changed: the plugins that hear it
         // next are already answered by the new one.
         self.sync_net_policy();
-        let env = self.shared.env(self.now);
         // A password typed (an answer to a question asked as one) reaches
         // the plugin that asked alone, the one its reply event is named
         // in: no other plugin, nor another's screen, hears it, whichever
@@ -696,6 +720,59 @@ impl Kernel {
         let secret = params.get(paperpaw_sdk::builtin::params::MODE) == Some("password");
         let asker = event.namespace();
         let hears = |plugin: &str| (!secret || plugin == asker) && only.is_none_or(|o| plugin == o);
+        let refused_secret = self.emit_to_handlers(event, params, &hears);
+        // The native plugins that subscribed to a kernel event (tick, the
+        // lifecycle, the page turned), queued in their one order.
+        if natives {
+            self.native_core_event(event, params, &hears);
+        }
+        if refused_secret {
+            self.warn_runtime("a plugin asked what only the settings editor may; not done");
+        }
+        self.emit_to_screens(event, params, &hears);
+    }
+
+    /// The rest of [`Self::emit_from`], after the native plugins: the bars,
+    /// the rules and the screens that `hears` lets hear `event`. Not
+    /// inlined: a screen's context is not on the stack while the native
+    /// plugins hear the event (a nested callback's route on the X4, #250).
+    #[inline(never)]
+    fn emit_to_screens(&mut self, event: &Id, params: &Params, hears: &dyn Fn(&str) -> bool) {
+        // A setting may change which bars show and their size, and how
+        // input is recognized.
+        if *event == events::SETTING_CHANGED {
+            self.input.thresholds.set(None);
+            self.sync_chromes();
+        }
+        self.observe(event, params, false);
+        self.chromes_hear(event, params);
+        // Screens learn that they show from `on_show`.
+        if *event == events::SCREEN_SHOWN {
+            return;
+        }
+        for index in 0..self.stack.len() {
+            if !hears(self.stack[index].id.namespace()) {
+                continue;
+            }
+            self.with_screen(index, |screen, cx| {
+                screen.on_event(event, params, cx);
+                Handled::Yes
+            });
+        }
+    }
+
+    /// The handlers of [`Self::emit_from`] that `hears` lets hear `event`;
+    /// `true` where one asked what only the settings editor may. Not inlined:
+    /// the environment and the loop's locals are gone before the native
+    /// plugins hear the event, a nested callback's route on the X4 (#250).
+    #[inline(never)]
+    fn emit_to_handlers(
+        &mut self,
+        event: &Id,
+        params: &Params,
+        hears: &dyn Fn(&str) -> bool,
+    ) -> bool {
+        let env = self.shared.env(self.now);
         let mut refused_secret = false;
         for (_, plugin, handler) in self
             .subscriptions
@@ -722,35 +799,7 @@ impl Kernel {
                 &mut self.works,
             );
         }
-        // The native plugins that subscribed to a kernel event (tick, the
-        // lifecycle, the page turned), queued in their one order.
-        if natives {
-            self.native_core_event(event, params, &hears);
-        }
-        if refused_secret {
-            self.warn_runtime("a plugin asked what only the settings editor may; not done");
-        }
-        // A setting may change which bars show and their size, and how
-        // input is recognized.
-        if *event == events::SETTING_CHANGED {
-            self.input.thresholds.set(None);
-            self.sync_chromes();
-        }
-        self.observe(event, params, false);
-        self.chromes_hear(event, params);
-        // Screens learn that they show from `on_show`.
-        if *event == events::SCREEN_SHOWN {
-            return;
-        }
-        for index in 0..self.stack.len() {
-            if !hears(self.stack[index].id.namespace()) {
-                continue;
-            }
-            self.with_screen(index, |screen, cx| {
-                screen.on_event(event, params, cx);
-                Handled::Yes
-            });
-        }
+        refused_secret
     }
 
     /// Tells the plugin whose secret setting `id` is that it changed, and
@@ -780,11 +829,28 @@ impl Kernel {
     /// [`Self::emit`] for an event of a screen guarding the device: to the
     /// plugins of `screens` that subscribed to it, then to `screens`. No
     /// other plugin, screen, bar or rule hears it.
+    // Its own frame: not inlined into `emit_from` (#250).
+    #[inline(never)]
     fn emit_to_guard(&mut self, event: &Id, params: &Params, screens: &[usize], natives: bool) {
         let owners: Vec<String> = screens
             .iter()
             .map(|&i| self.stack[i].id.namespace().to_string())
             .collect();
+        self.guard_handlers(event, params, &owners);
+        if natives {
+            self.native_core_event(event, params, &|plugin| {
+                owners.iter().any(|owner| owner == plugin)
+            });
+        }
+        let keys: Vec<_> = screens.iter().map(|&i| self.stack[i].serial).collect();
+        self.guard_screens_hear(event, params, &keys);
+    }
+
+    /// The handlers of `owners` in [`Self::emit_to_guard`]. Its own frame:
+    /// the environment is gone before the native plugins hear the event
+    /// (#250).
+    #[inline(never)]
+    fn guard_handlers(&mut self, event: &Id, params: &Params, owners: &[String]) {
         let env = self.shared.env(self.now);
         for (_, plugin, handler) in self
             .subscriptions
@@ -799,13 +865,14 @@ impl Kernel {
             let reserved = Reserved::of(&self.shared.settings, &self.shared.registry);
             vet_reserved(&mut self.output.commands, from, plugin.as_str(), &reserved);
         }
-        if natives {
-            self.native_core_event(event, params, &|plugin| {
-                owners.iter().any(|owner| owner == plugin)
-            });
-        }
-        let keys: Vec<_> = screens.iter().map(|&i| self.stack[i].serial).collect();
-        for key in keys {
+    }
+
+    /// The guarded screens of [`Self::emit_to_guard`], by their `keys`,
+    /// hear `event` after the native plugins. Its own frame: a screen's
+    /// context is not on the stack while those hear it (#250).
+    #[inline(never)]
+    fn guard_screens_hear(&mut self, event: &Id, params: &Params, keys: &[u32]) {
+        for &key in keys {
             // Each where it is now: one may have closed meanwhile.
             if let Some(index) = self.stack.iter().position(|s| s.serial == key) {
                 self.with_screen(index, |screen, cx| {

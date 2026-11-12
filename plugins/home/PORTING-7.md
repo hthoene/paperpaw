@@ -47,8 +47,6 @@ interface-6 suites in `tests/` still pin the behaviour end to end.
 
 ## Not ported (by design)
 
-- The picker screen of the setting `home.status.line` (a whole line another plugin draws): the setting
-  is a text that holds an id, not chosen from a list. The three lists use home's items screen.
 - The battery percentage step of the status line (an owner draws its own value; the layout drops by
   priority and width only).
 - Ready-made layouts: interface 6 had none (a doc line spoke of `layouts`, a function that never existed).
@@ -430,8 +428,8 @@ Differences from interface 6 (each deliberate):
 
 - The step "drop the battery percentage first" is gone: an owner draws its own value (a symbol
   and its text) and says its least width; the layout drops by priority and width only.
-- The picker screen of the setting `home.status.line` is not ported: the setting is a text that
-  holds an id; it is not chosen from a list. (The three lists use home's items screen.)
+- The picker screen of the setting `home.status.line` is home's items screen in its lines mode
+  (#257, below), not a screen of the host's.
 - Items another plugin owns and says it draws itself (`is_own`) are left to it and not shown;
   hidden private values (`is_hidden`) are left out.
 - The status bar above the grid is the same widget in the dashboard's strip (slice 5, below).
@@ -586,3 +584,41 @@ another screen lets its page and widgets go (`Dashboard::cover`) and sets `stale
 options open, an item being moved or a finger's drag is kept. The stack is read only when a page is
 held; the request buffer is 256 bytes, the reply 4,096.
 `Screens::open` grows exactly since #1184 (a dashboard's state is 600 bytes).
+
+## The picker of the status line's line (#257)
+
+The gap "the picker screen of the setting `home.status.line`" is closed. Interface 6 named the
+core screen `core.status-lines` (`ItemsScreen` in mode `LINES`) as that setting's editor; natively
+the setting names home's screen `status-items` (`STATUS_PARTS`' flag is set for `line`), as the
+three lists and the footer do, and the screen opens in its lines mode for it
+(`native_plugin::editor_setting`, `src/native_lines.rs`):
+
+- It lists the status lines the registry offers (`registry.status`, scope *line*, read once when
+  the screen opens, at most 128, as the kit's `status_items::view::read_entries` reads items).
+- It chooses as Beta 3's LINES mode did (the same model, `paperpaw_ui_kit::status_items::Chooser`):
+  the setting is a list; a tap or *Confirm* shows or hides a line, shown lines come first with
+  their place and are moved as items are; each change is set at once (`set_setting`) and the
+  screen stays open. *Back* is the host's (the screen closes; `ScreenClosed` frees the editor).
+  The title is the setting's (`home.status.line`); the texts are the core keys the items mode
+  uses (`core.state.on`/`off`, `core.move`, `core.status-items.hint`/`.moving`). The screen's
+  declared title stays `home.setting.footer-items`, and not Beta 3's `core.status.choose`: the
+  declaration parity test pins it, and the view draws the setting's title.
+- A line named by an id it had before is that line: the kernel's line of items was
+  `reader.status-line.items` (`StatusLineSpec::also`). The registry's status rows carry no old
+  id, so home knows it (`native_lines::OLD_IDS`): the picker shows such a line as chosen and a
+  change writes its id now, keeping no duplicate.
+- The widget shows the first listed line that the registry has (by its id now), else its items,
+  as interface 6's `current_line` did (`native_lines::shown`, from `native_status::lists`; one
+  more registry read of the lines only while the setting lists one). A host without the registry
+  shows the first listed.
+- The three lists (`home.status.left`, `.center`, `.right`) were declared with the same screen but
+  the screen refused every id but `home.footer.items`; it now opens them too, titled as each,
+  also of one placement (`home.status@<placement>.<part>`, as a placed widget's settings are named).
+
+Tests: `tests/scripted_status_lines.rs` (the scripted registry and `core.ui`: lines listed, a choice
+set at once, the old id, *Back*, close, the parts in items mode), `tests/abi7_declarations.rs`
+(`the_status_line_widgets_pickers_are_those_of_interface_6`: the four pickers are interface 6's,
+the editor's name aside), unit tests in `native_lines` and `native_plugin`.
+
+Host/SDK gap: `ServiceRegStatus` has no field for the id a line had before (interface 6's
+`also`); home's table stands in for it and must grow if another line is renamed.

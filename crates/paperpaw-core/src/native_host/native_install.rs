@@ -581,6 +581,8 @@ impl crate::Kernel {
         }
     }
 
+    // Its own frame: not inlined into `run_commands` (#250).
+    #[inline(never)]
     pub(crate) fn retry_native_unloads(&mut self) {
         self.warn_directory_missed();
         // The same driver handles HostServices' orphan queue and the retained

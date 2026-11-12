@@ -223,10 +223,11 @@ impl AddScreen {
         if matches!(self.mode, Mode::Gallery(_)) && self.draw_gallery(host, ui, frame)? {
             return Ok(());
         }
+        // The renderer takes the key of the title and translates it itself.
         self.renderer.draw(
             host,
             frame,
-            &self.title,
+            self.kind.as_deref().unwrap_or("home.edit.add"),
             &self.labels,
             self.focus.focus(),
             true,

@@ -1,0 +1,3 @@
+### Added
+
+- **Menu: tiles on interface 7** (#257). With the menu style *Tiles*, a menu of its own whose every entry has an icon (the main menu) opens as in Beta 3: the reader's bar without its title and page lines, the entries as icons with short labels in even rows at the top of the screen. The buttons go round them (mirrored right to left), *Select* or a tap chooses, the menu button, *Back* or a tap outside close; actions close the tiles and run, switches and choices of two change in place, submenus open as a list over them. A submenu, a menu with an entry without an icon or the *List* style shows the list as before.

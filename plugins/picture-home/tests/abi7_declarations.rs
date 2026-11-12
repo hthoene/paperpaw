@@ -438,8 +438,18 @@ fn the_decoded_batches_say_what_the_registration_says() {
     assert_eq!(native.keys, old.keys);
     assert_eq!(native.menu_entries, old.menu_entries);
     assert_eq!(native.actions, old.actions);
-    // The minute tick (the status bar), and nothing else.
-    assert_eq!(native.events.len(), 1, "{:?}", native.events);
-    assert!(native.events[0].ends_with(&format!(":{}", declarations::TICK)));
+    // The minute tick (the status bar) and a widget that changed
+    // (`event.widget_changed`, its cell), in any order, and nothing else.
+    assert_eq!(native.events.len(), 2, "{:?}", native.events);
+    for token in [declarations::TICK, declarations::WIDGET_CHANGED] {
+        assert!(
+            native
+                .events
+                .iter()
+                .any(|e| e.ends_with(&format!(":{token}"))),
+            "{token} in {:?}",
+            native.events
+        );
+    }
     assert!(native.others.is_empty(), "{:?}", native.others);
 }

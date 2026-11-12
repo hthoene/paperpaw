@@ -199,7 +199,31 @@ fn drain(
 }
 
 impl crate::Kernel {
+    /// The services' events of [`Self::native_service_pump`], each to its
+    /// subscriber; `true` where more wait. Its own frame: the environment is
+    /// gone before the other pumps call plugins (#250).
+    #[inline(never)]
+    fn native_event_services(&mut self) -> bool {
+        let env = self.shared.env(self.now);
+        let instances = &self.shared.native_instances;
+        pump(
+            instances,
+            &instances.event_services(),
+            &env,
+            // The callback gets its command stage; its batch is run below.
+            &|owner, lease, bytes| {
+                let called = self.native_event_call(owner, lease, bytes);
+                debug_assert!(
+                    called != Err(ERR_BUSY),
+                    "the outbox is empty before each event is called"
+                );
+            },
+        )
+    }
+
     /// Runs the services' clocks and delivers their events (see the module).
+    // Its own frame: not inlined into `Kernel::finish` (#250).
+    #[inline(never)]
     pub(crate) fn native_service_pump(&mut self) {
         // What the user decided about the network, before the services'
         // clocks run: a plugin whose network was turned off loses what it
@@ -216,23 +240,7 @@ impl crate::Kernel {
         if self.shared.native_instances.depth() == 0 {
             self.native_outbox_run();
         }
-        let more = {
-            let env = self.shared.env(self.now);
-            let instances = &self.shared.native_instances;
-            pump(
-                instances,
-                &instances.event_services(),
-                &env,
-                // The callback gets its command stage; its batch is run below.
-                &|owner, lease, bytes| {
-                    let called = self.native_event_call(owner, lease, bytes);
-                    debug_assert!(
-                        called != Err(ERR_BUSY),
-                        "the outbox is empty before each event is called"
-                    );
-                },
-            )
-        };
+        let more = self.native_event_services();
         if self.shared.native_instances.depth() == 0 {
             self.native_outbox_run();
         }

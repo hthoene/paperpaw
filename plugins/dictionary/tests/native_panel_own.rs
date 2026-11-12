@@ -55,15 +55,17 @@ fn index(files: &MemoryStorage, data: &MemoryStorage) {
     let storage = Routed { files, data };
     let mut tree = Tree;
     let mut source = Dictionaries::new(&mut tree, &storage, "dicts").unwrap();
-    for builder in &mut source.builders().unwrap() {
-        while !builder.step(&storage, 64 * 1024).unwrap() {}
+    for pending in &mut source.pending().unwrap() {
+        while !pending.builder.step(&storage, 64 * 1024).unwrap() {}
     }
 }
 
 fn read(files: &MemoryStorage, data: &MemoryStorage, word: &str) -> (usize, Vec<(String, usize)>) {
     let storage = Routed { files, data };
     let mut found = Vec::new();
-    let count = read_own(&mut Tree, &storage, "dicts", word, &mut found).unwrap();
+    let count = read_own(&mut Tree, &storage, "dicts", word, &mut found)
+        .unwrap()
+        .count;
     (
         count,
         found
@@ -105,8 +107,6 @@ fn a_dictionary_without_indexes_is_counted_but_says_nothing_and_no_folder_holds_
         data: &data,
     };
     let mut found = Vec::new();
-    assert_eq!(
-        read_own(&mut Tree, &storage, "missing", "cat", &mut found).unwrap(),
-        0
-    );
+    let own = read_own(&mut Tree, &storage, "missing", "cat", &mut found).unwrap();
+    assert_eq!((own.count, own.listed), (0, false));
 }

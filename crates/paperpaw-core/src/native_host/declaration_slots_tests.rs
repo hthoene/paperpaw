@@ -80,11 +80,18 @@ fn a_batch_past_the_last_place_a_slot_holds_is_no_space() {
     let mut pending = PendingDeclarations::new(Id::new_static("fixture"), source);
     let [first, second] = two_kinds_in_two_batches();
     // Stand-ins for the batches before: only their count matters here.
-    pending.kept.batches.reserve_exact(BATCHES_MAX - 1);
+    pending
+        .kept
+        .batches
+        .refs_mut()
+        .unwrap()
+        .reserve_exact(BATCHES_MAX - 1);
     for _ in 1..BATCHES_MAX {
         pending
             .kept
             .batches
+            .refs_mut()
+            .unwrap()
             .push(DeclRef::Image { offset: 0, len: 0 });
     }
     // The last batch a slot can name is taken and indexed.
@@ -138,7 +145,9 @@ fn two_names_on_one_key_are_each_found() {
     store.prepare(pending, &mut allocations).unwrap().commit();
     let owner = store.owners[0].as_ref().unwrap();
     assert_eq!(
-        owner.run(Kind::Group, record_hash(group(a)).unwrap()).len(),
+        owner
+            .run(Kind::Group, record_hash(group(a)).unwrap())
+            .count(),
         2
     );
     for name in [a, b] {
@@ -151,4 +160,51 @@ fn two_names_on_one_key_are_each_found() {
         assert_eq!(found.as_deref(), Some(name));
     }
     assert!(!store.find("fixture", Kind::Group, "g-none", &mut |_| {}));
+}
+
+#[test]
+fn slot_keys_keep_kinds_apart_and_the_declaration_order_inside_a_kind() {
+    // A kind's keys come before the next kind's, whatever the hash.
+    assert!(Kind::Group.slot_key(u32::MAX) < Kind::Spec.slot_key(0));
+    // The top ten bits of the hash order a kind; the low bits share a key.
+    assert_eq!(
+        Kind::Spec.slot_key(0x8000_0000),
+        Kind::Spec.slot_key(0x803f_ffff)
+    );
+    assert!(Kind::Spec.slot_key(0x803f_ffff) < Kind::Spec.slot_key(0x8040_0000));
+    // The last kind and the largest hash still fit the 16-bit key.
+    assert_eq!(
+        Kind::BookBadge.slot_key(u32::MAX) >> KIND_SHIFT,
+        Kind::BookBadge as u16
+    );
+    let mut owner = PendingDeclarations::new(Id::new_static("fixture"), image()).kept;
+    owner.slots.reserve_exact(5);
+    for (kind, hash, record) in [
+        (Kind::Spec, 0x0040_0000, 0),
+        (Kind::Lookup, 0, 1),
+        (Kind::Group, u32::MAX, 2),
+        (Kind::Spec, 0x003f_ffff, 3),
+        (Kind::Spec, 0, 4),
+    ] {
+        owner.add_slot(Slot {
+            hash: kind.slot_key(hash),
+            place: record,
+        });
+    }
+    let records = |slots: &[Slot]| slots.iter().map(|slot| slot.record()).collect::<Vec<_>>();
+    assert_eq!(records(owner.of_kind(Kind::Group)), [2]);
+    // A kind's slots stay in the order they were added (declaration order).
+    assert_eq!(records(owner.of_kind(Kind::Spec)), [0, 3, 4]);
+    assert_eq!(records(owner.of_kind(Kind::Lookup)), [1]);
+    assert!(owner.of_kind(Kind::Extra).is_empty());
+    // A run holds every slot of the key: the lookup compares their names.
+    let run = |kind, hash| {
+        owner
+            .run(kind, hash)
+            .map(|slot| slot.record())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(run(Kind::Spec, 0x003f_ffff), [3, 4]);
+    assert_eq!(run(Kind::Spec, 0x0040_0000), [0]);
+    assert!(run(Kind::Group, 0x0040_0000).is_empty());
 }
