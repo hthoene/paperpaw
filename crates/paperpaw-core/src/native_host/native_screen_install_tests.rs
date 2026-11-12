@@ -486,7 +486,7 @@ pub(super) fn install(kernel: &mut crate::Kernel, flags: u32) -> Result<(), Erro
         REPORTS.with(|value| value.set(value.get() + 1));
     })
 }
-fn kernel(flags: u32) -> crate::Kernel {
+pub(super) fn kernel(flags: u32) -> crate::Kernel {
     reset(NORMAL);
     DESTROYED.with(|value| value.set(0));
     REPORTS.with(|value| value.set(0));

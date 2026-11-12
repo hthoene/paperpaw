@@ -329,3 +329,49 @@ fn a_word_documents_cover_not_found_is_made_and_not_asked_for_again() {
         assert!(w.state.table.cover_job().is_none());
     });
 }
+
+#[test]
+fn the_details_open_takes_a_doc_state_at_its_caps_in_its_small_room() {
+    use crate::native_host::{codec, doc_service::details::OPEN_REPLY};
+    let format = "f".repeat(128);
+    // The format's record at its caps (scalars are fixed width), and the room
+    // the host's translation needs beside it (a tag grows by one byte).
+    let mut bytes = vec![0_u8; 3840];
+    let n = local::reply_encode(
+        &[local::Record::FmtState(local::FmtState::new(
+            0, READY, 0, 0, 0, 5, &format,
+        ))],
+        &mut bytes,
+    )
+    .unwrap();
+    bytes.truncate(n);
+    assert!(n < OPEN_REPLY, "{n}");
+    // The service's answer to the opener at its caps.
+    let mut room = vec![0_u8; OPEN_REPLY];
+    codec::encode_batch(
+        &[Record::ServiceDocState(wire::ServiceDocState {
+            document: u32::MAX,
+            state: u32::MAX,
+            progress_ppm: u32::MAX,
+            status: i32::MIN,
+            flags: u32::MAX,
+            conversion: u64::MAX,
+            format: &format,
+        })],
+        &mut room,
+    )
+    .unwrap();
+    world(|w| {
+        install_docx(w);
+        *w.reply.borrow_mut() = Ok(bytes.clone());
+        let who = Caller {
+            owner: HOST_JOB,
+            plugin: "",
+            features: AdmittedFeatures::NONE,
+            hosts: &w.hosts,
+        };
+        DetailsJob::start(&*w.state, w, &who, &FrameRoute(w), "books/a.docx").unwrap();
+        assert_eq!(w.open_flags.borrow().last(), Some(&(BACKGROUND | DETAILS)));
+        assert!(matches!(look(w), JobStep::DetailsEnded { .. }));
+    });
+}

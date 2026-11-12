@@ -674,6 +674,7 @@ impl Kernel {
                 self.shared.device.display.height = height;
                 self.hint.height = self.wanted_hint_height();
                 self.remake_screens(shown);
+                self.renew_memory_notice();
                 self.display_changed();
             } else {
                 self.restore_frame(look, panel.width, panel.height, before, format);

@@ -58,13 +58,13 @@ impl<'a> Cx<'a> {
         &self.shape.style
     }
 
-    /// The seconds the chosen time zone is ahead of UTC at `unix`; 0 where
-    /// none is chosen (the system's zone is not known to a plugin).
+    /// The seconds the chosen time zone is ahead of UTC at `unix`; where
+    /// none is chosen, the system's offset from the callback's snapshot.
     ///
     /// # Errors
     /// The host's refusal.
     pub fn zone_offset(&self, unix: i64) -> Result<i32, Error> {
-        zone_offset(self.host, unix)
+        offset_or_system(self.host, unix, &self.snapshot)
     }
 
     /// The local date and time now, in the chosen zone, if the device
@@ -180,29 +180,21 @@ impl<'a> Cx<'a> {
     }
 }
 
-/// The seconds the chosen time zone is ahead of UTC at `unix`; 0 where none
-/// is chosen.
+/// The seconds the chosen time zone is ahead of UTC at `unix`; where none is
+/// chosen, the system's offset now (as the host's snapshot says; 0 while the
+/// device knows no time).
 ///
 /// # Errors
 /// The host's refusal.
 pub fn zone_offset(host: &Host<'_>, unix: i64) -> Result<i32, Error> {
-    let rule = text_of(host, ZONE_RULE, |rule| {
-        TimeZone::parse(rule.trim()).map(|zone| zone.offset_at(unix))
-    })?;
-    if let Some(offset) = rule {
-        return Ok(offset);
+    match chosen_offset(host, unix)? {
+        Some(offset) => Ok(offset),
+        None => Ok(system_offset(&snapshot::capture_snapshot(host)?)),
     }
-    text_of(host, ZONE, |id| {
-        TIME_ZONES
-            .iter()
-            .find(|(name, _)| *name == id)
-            .and_then(|(_, rule)| TimeZone::parse(rule))
-            .map_or(0, |zone| zone.offset_at(unix))
-    })
 }
 
-/// The local date and time of `snapshot`, in the chosen zone, if the device
-/// knows the time.
+/// The local date and time of `snapshot`, in the chosen zone (else the
+/// system's), if the device knows the time.
 ///
 /// # Errors
 /// The host's refusal.
@@ -210,8 +202,46 @@ pub fn local_time_in(host: &Host<'_>, snapshot: &Snapshot) -> Result<Option<Loca
     let Some(unix) = snapshot.unix_seconds() else {
         return Ok(None);
     };
-    let offset = zone_offset(host, unix)?;
+    let offset = offset_or_system(host, unix, snapshot)?;
     Ok(Some(UnixTime::from_secs(unix).local(offset)))
+}
+
+/// The chosen zone's offset at `unix`, else the system's from `snapshot`.
+fn offset_or_system(host: &Host<'_>, unix: i64, snapshot: &Snapshot) -> Result<i32, Error> {
+    Ok(chosen_or_system(
+        chosen_offset(host, unix)?,
+        snapshot.utc_offset_minutes(),
+    ))
+}
+
+/// The seconds the zone chosen in the settings (a POSIX rule, else one from
+/// the list) is ahead of UTC at `unix`; `None` where none is chosen
+/// ("automatic", empty or unknown), as Beta 3 then used the system's zone.
+fn chosen_offset(host: &Host<'_>, unix: i64) -> Result<Option<i32>, Error> {
+    let rule = text_of(host, ZONE_RULE, |rule| {
+        TimeZone::parse(rule.trim()).map(|zone| zone.offset_at(unix))
+    })?;
+    if rule.is_some() {
+        return Ok(rule);
+    }
+    text_of(host, ZONE, |id| {
+        TIME_ZONES
+            .iter()
+            .find(|(name, _)| *name == id)
+            .and_then(|(_, rule)| TimeZone::parse(rule))
+            .map(|zone| zone.offset_at(unix))
+    })
+}
+
+/// The system's offset in `snapshot`, in seconds; 0 where it gives none.
+fn system_offset(snapshot: &Snapshot) -> i32 {
+    chosen_or_system(None, snapshot.utc_offset_minutes())
+}
+
+/// The chosen zone's offset in seconds, else the system's (`system`, in
+/// minutes, from the snapshot), else 0 (the device knows no time).
+fn chosen_or_system(chosen: Option<i32>, system: Option<i16>) -> i32 {
+    chosen.unwrap_or_else(|| system.map_or(0, |minutes| i32::from(minutes) * 60))
 }
 
 /// The local date and time now, without a drawing context (to tell whether a
@@ -235,4 +265,24 @@ pub fn face_font<'a>(host: &'a Host<'a>, face: &str) -> Result<Font<'a>, Error> 
         _ => FontRole::Ui,
     };
     Font::acquire_role(host, role)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::chosen_or_system;
+
+    #[test]
+    fn with_no_zone_chosen_the_systems_offset_counts() {
+        // 08:41 UTC on a device two hours ahead shows 10:41 (#257), as in
+        // Beta 3; before, the offset was 0 here.
+        assert_eq!(chosen_or_system(None, Some(120)), 7_200);
+        assert_eq!(chosen_or_system(None, Some(-330)), -19_800);
+    }
+
+    #[test]
+    fn a_chosen_zone_wins_and_no_time_is_utc() {
+        assert_eq!(chosen_or_system(Some(3_600), Some(120)), 3_600);
+        assert_eq!(chosen_or_system(Some(0), Some(120)), 0);
+        assert_eq!(chosen_or_system(None, None), 0);
+    }
 }

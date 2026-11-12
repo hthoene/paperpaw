@@ -80,6 +80,24 @@ impl ActionQueue {
         self.waiting.try_borrow().map_or(0, |queue| queue.len())
     }
 
+    /// Puts `pending` back last, as it was taken: its parked plugin cannot
+    /// be made now (#248), so it waits for the pass after its start. Never
+    /// refused for room (it was taken from this queue); `Err` only where the
+    /// queue is borrowed or memory is out, and the action is then lost.
+    pub(crate) fn put_back(&self, pending: Pending) -> Result<(), i32> {
+        self.keep(pending)
+    }
+
+    /// Drops every action of `owner` waiting; how many.
+    pub(crate) fn drop_owner(&self, owner: u64) -> usize {
+        let Ok(mut queue) = self.waiting.try_borrow_mut() else {
+            return 0;
+        };
+        let before = queue.len();
+        queue.retain(|pending| pending.owner != owner);
+        before - queue.len()
+    }
+
     /// The oldest action waiting.
     pub(crate) fn take(&self) -> Option<Pending> {
         let mut queue = self.waiting.try_borrow_mut().ok()?;

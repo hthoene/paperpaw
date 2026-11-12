@@ -3,9 +3,11 @@
 //! instance; those that come meanwhile wait in the order they came, at most
 //! four (two on the X4), the oldest dropped when one more comes. Without a
 //! guard a new notice replaces the one on screen.
+use alloc::boxed::Box;
 use alloc::collections::VecDeque;
 use alloc::string::String;
 use paperpaw_platform::MemoryClass;
+use paperpaw_sdk::Screen;
 
 /// Notices that wait at most.
 const LARGE: usize = 4;
@@ -13,11 +15,29 @@ const LARGE: usize = 4;
 /// and a class to come until it is decided).
 const SMALL: usize = 2;
 
-/// The waiting notices, oldest first.
-#[derive(Debug)]
+/// The waiting notices, oldest first, and the notice made ahead for a lack
+/// of memory (`memory_notice`).
 pub(crate) struct Waiting {
     texts: VecDeque<String>,
     cap: usize,
+    /// "Not enough memory", made while there was room; `None` while it shows.
+    memory: Option<Box<dyn Screen>>,
+    /// The notice showing is the one above: it comes back when it ends.
+    memory_shown: bool,
+    /// How often one was made (tests tell a new one from the old).
+    #[cfg(test)]
+    made: u32,
+}
+
+impl core::fmt::Debug for Waiting {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Waiting")
+            .field("texts", &self.texts)
+            .field("cap", &self.cap)
+            .field("memory", &self.memory.is_some())
+            .field("memory_shown", &self.memory_shown)
+            .finish()
+    }
 }
 
 impl Waiting {
@@ -30,6 +50,61 @@ impl Waiting {
         Self {
             texts: VecDeque::new(),
             cap,
+            memory: None,
+            memory_shown: false,
+            #[cfg(test)]
+            made: 0,
+        }
+    }
+
+    /// Keeps `notice` as the one for a lack of memory, in place of the one
+    /// before; one showing now is not taken back when it ends.
+    pub(crate) fn keep_memory_notice(&mut self, notice: Option<Box<dyn Screen>>) {
+        #[cfg(test)]
+        {
+            self.made += u32::from(notice.is_some());
+        }
+        self.memory = notice;
+        self.memory_shown = false;
+    }
+
+    /// Whether one is made, or shows.
+    pub(crate) fn has_memory_notice(&self) -> bool {
+        self.memory.is_some() || self.memory_shown
+    }
+
+    /// The notice for a lack of memory, to show; it comes back through
+    /// [`Self::ended`].
+    pub(crate) fn show_memory_notice(&mut self) -> Option<Box<dyn Screen>> {
+        let notice = self.memory.take()?;
+        self.memory_shown = true;
+        Some(notice)
+    }
+
+    /// Whether one is made and does not show.
+    pub(crate) fn memory_notice_ready(&self) -> bool {
+        self.memory.is_some()
+    }
+
+    /// Where the one made ahead is, to tell it from another notice.
+    #[cfg(test)]
+    pub(crate) fn memory_notice_at(&self) -> Option<*const u8> {
+        self.memory
+            .as_deref()
+            .map(|n| core::ptr::from_ref(n).cast::<u8>())
+    }
+
+    /// How often one was made.
+    #[cfg(test)]
+    pub(crate) fn memory_notices_made(&self) -> u32 {
+        self.made
+    }
+
+    /// The notice that showed ended: the one for a lack of memory is kept for
+    /// the next time, any other dropped.
+    pub(crate) fn ended(&mut self, notice: Box<dyn Screen>) {
+        if core::mem::take(&mut self.memory_shown) {
+            self.memory = Some(notice);
         }
     }
 

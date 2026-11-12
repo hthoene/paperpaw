@@ -100,6 +100,8 @@ const FAILS: u8 = 1;
 const BAD_TABLE: u8 = 2;
 /// `make` submits garbage, ignores the refusal and returns OK.
 const IGNORES_REFUSAL: u8 = 3;
+/// `make` reads the clock before it registers (#248: never parked).
+pub(in crate::native_host) const READS_CLOCK: u8 = 4;
 const TOKEN: u32 = 9;
 
 fn report(_: &Heap, owner: &str, _: super::super::TeardownStep, _: super::super::Error) {
@@ -199,6 +201,11 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *cons
         unsafe { (table.heap_alloc)(ctx, size_of::<Fake>(), align_of::<Fake>(), &mut block) };
     if status != OK {
         return status;
+    }
+    if mode == READS_CLOCK {
+        let mut micros = 0;
+        // SAFETY: the table's own clock, a writable output.
+        let _ = unsafe { (table.clock_micros)(ctx, &mut micros) };
     }
     if mode == IGNORES_REFUSAL {
         // SAFETY: readable bytes for this synchronous call.
@@ -341,6 +348,14 @@ pub(in crate::native_host) fn fake() -> Hosted<Heap, Module> {
         )
     }
     .unwrap()
+}
+
+/// The fake's factory and report, and its module, to host it elsewhere.
+pub(in crate::native_host) fn parts() -> (Make, Report<Heap>) {
+    (make, report)
+}
+pub(in crate::native_host) fn module() -> Module {
+    Module::new()
 }
 
 pub(in crate::native_host) fn finish<S: Services, M>(hosted: &Hosted<S, M>) {
@@ -1466,6 +1481,8 @@ mod command_dispatch;
 #[path = "stage_broker_native_tests.rs"]
 mod stage_broker_native;
 
+#[path = "memory_notice_tests.rs"]
+mod memory_notice;
 #[path = "native_device_defaults_tests.rs"]
 mod native_device_defaults;
 #[path = "native_late_config_tests.rs"]

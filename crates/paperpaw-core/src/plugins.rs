@@ -1131,6 +1131,8 @@ impl Kernel {
         self.apply_reading_font();
         self.apply_status_font();
         self.apply_ui_text_curve();
+        // A plugin may have brought or taken the interface's font.
+        self.renew_memory_notice();
         self.rebuild_keymap();
         self.output.commands.push(events::PLUGINS_CHANGED.emit(()));
         self.native_hint(crate::native_host::registrations::EVENT_PLUGINS_CHANGED_TAG);

@@ -62,6 +62,7 @@ const KEYS: &[&str] = &[
     "core.host-safe-mode.power-escape",
     "core.notice-box",
     "core.screen.open-failed",
+    "core.screen.no-memory",
     "core.plugin.title",
     "core.plugin.title.remove",
     "core.plugin.what",

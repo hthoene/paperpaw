@@ -68,7 +68,8 @@ impl OwnerRef {
         match self {
             #[cfg(test)]
             Self::Existing(owner) => owner.generation(),
-            Self::Native { lease, .. } => u32::from(lease.live().is_ok()),
+            // Parked counts as running: its declarations stay (#248).
+            Self::Native { lease, .. } => u32::from(lease.running()),
         }
     }
     fn owner_id(&self) -> Result<u64, i32> {
@@ -83,7 +84,7 @@ impl OwnerRef {
             #[cfg(test)]
             Self::Existing(owner) => owner.native_lease(),
             Self::Native { lease, .. } => {
-                lease.live()?;
+                lease.check_running()?;
                 lease.try_clone()
             }
         }
@@ -92,10 +93,13 @@ impl OwnerRef {
         match self {
             #[cfg(test)]
             Self::Existing(owner) => owner.with_image(visit),
-            Self::Native { lease, .. } => match lease.live() {
-                Ok(instance) => instance.with_image(visit),
-                Err(_) => visit(None),
-            },
+            Self::Native { lease, .. } => {
+                if lease.running() {
+                    lease.with_image(visit);
+                } else {
+                    visit(None);
+                }
+            }
         }
     }
     /// A native plugin's image is the program's own (a linked plugin) or the

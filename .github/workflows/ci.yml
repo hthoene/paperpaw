@@ -117,6 +117,9 @@ jobs:
       # store that carry a copy of their card files for the apps read the card without it;
       # the kernel without panes is that of the Xteink devices.
       - run: cargo test -p paperpaw-text -p paperpaw-plugin-fonts-default -p paperpaw-core -p paperpaw-plugin-reading-goal -p paperpaw-plugin-widgets -p paperpaw-plugin-vocabulary --no-default-features
+      # The kernel of a build with the linked native reader (the app's
+      # `native-linked-reading`): its book menu has no *Open with…* (todo 544).
+      - run: cargo test -p paperpaw-core --lib --features native-reading open_with
 
   check:
     name: Format, lint, test

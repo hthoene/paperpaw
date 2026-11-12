@@ -7,9 +7,9 @@
 //! `native_*` models, tested without one.
 use crate::{
     declarations::{
-        ANNOTATIONS, BOOK_MOVED, DOCUMENT_CHANGED, FOOTNOTE, SAMPLE, SCREEN, SEARCH, SEARCH_WORK,
-        SETTING_CHANGED, SKIM, SPOKEN, STACK_CHANGED, STARTED, STOPPING, SUSPEND, TOC, TOC_WORK,
-        WORK_DUE,
+        ANNOTATIONS, BOOK_MOVED, DOCUMENT_CHANGED, FOOTNOTE, LIBRARY_CHANGED, SAMPLE, SCREEN,
+        SEARCH, SEARCH_WORK, SETTING_CHANGED, SKIM, SPOKEN, STACK_CHANGED, STARTED, STOPPING,
+        SUSPEND, TOC, TOC_WORK, WORK_DUE,
     },
     native_annotations_view::{AnnotationsView, Outcome as NotesOutcome},
     native_footnote::{Footnote, Pressed},
@@ -1046,6 +1046,23 @@ impl NativeReader {
         }
     }
 
+    /// The annotations of `path` changed in the library (`event.library_changed`;
+    /// the reader's own edits come back too): the open book's highlights are read
+    /// again, and the page is drawn again where they differ.
+    fn annotations_changed(&mut self, host: &Host<'_>, path: &str) {
+        let library = self.library.as_ref();
+        let mut redraw = false;
+        for view in self.screens.all() {
+            redraw |= view.annotations_changed(host, library, path);
+        }
+        if redraw {
+            let mut scratch = [0; 64];
+            CommandSender::new(host, &mut scratch)
+                .queue_redraw(RedrawMode::Partial)
+                .ok();
+        }
+    }
+
     /// The store's answer for a pack of letters asked for: a book whose letters
     /// came is laid out again and its pages counted anew (`native_script_hint`).
     fn pack_answered(
@@ -1191,6 +1208,12 @@ impl Plugin for NativeReader {
             Event::Started { .. } if token == STARTED => self.reopen_last(host),
             Event::DocumentChanged { .. } if token == DOCUMENT_CHANGED => {
                 self.document_changed(host);
+                Ok(())
+            }
+            Event::LibraryChanged { what, path, .. } if token == LIBRARY_CHANGED => {
+                if what.annotations() {
+                    self.annotations_changed(host, path);
+                }
                 Ok(())
             }
             Event::PluginAnswered {

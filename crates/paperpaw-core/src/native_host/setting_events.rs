@@ -493,6 +493,11 @@ impl crate::Kernel {
             let Some(owner) = events.waiting_nth((start + step) % count) else {
                 continue;
             };
+            // A parked plugin is made first; what waits for it stays where
+            // it cannot be made now (#248).
+            if !self.native_ready(owner) {
+                continue;
+            }
             for _ in 0..PER_OWNER {
                 // What a callback staged runs before the next one is called.
                 self.native_outbox_run();
@@ -502,7 +507,11 @@ impl crate::Kernel {
             }
         }
         self.native_outbox_run();
-        self.shared.native_instances.setting_events.any_waiting()
+        // A parked plugin waiting to be made asks for no pass of its own.
+        let events = &self.shared.native_instances.setting_events;
+        (0..events.waiting_count())
+            .filter_map(|n| events.waiting_nth(n))
+            .any(|owner| !self.native_parked(owner))
     }
 
     /// Tells `owner` its oldest event; `false` when it had none. A queue left

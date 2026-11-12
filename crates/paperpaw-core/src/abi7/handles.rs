@@ -158,6 +158,19 @@ impl<T> Handles<T> {
         Ok(())
     }
 
+    /// Whether `owner` holds any handle.
+    #[allow(
+        dead_code,
+        reason = "parked plugins (#2638); unused by tests/abi7_teardown.rs"
+    )]
+    pub(crate) fn holds(&self, owner: u64) -> bool {
+        self.slots.iter().any(|slot| {
+            slot.entry
+                .as_ref()
+                .is_some_and(|entry| entry.owner == owner)
+        })
+    }
+
     /// Host-only budget accounting; the visitor cannot reenter the registry.
     pub(crate) fn visit_kind(&self, kind: Kind, mut visit: impl FnMut(&T)) {
         for slot in &self.slots {

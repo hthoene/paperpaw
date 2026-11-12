@@ -257,9 +257,10 @@ impl HostSource {
             })?;
         }
         if !tools.iter().any(|(t, _)| t == SETTINGS) {
-            // Named as the core names it; the catalog key stands for the word.
+            // Named as the core names it, in the reader's language.
+            let title = Self::settings_title(host, registry, &mut input, &mut out)?;
             push(&mut looks, ToolLook::PLAIN)?;
-            push(&mut tools, (copy(SETTINGS)?, copy("core.action.settings")?))?;
+            push(&mut tools, (copy(SETTINGS)?, title))?;
         }
         Ok((widgets, tools, looks))
     }
@@ -274,6 +275,28 @@ impl HostSource {
             .position(|(id, _)| id == action)
             .and_then(|at| self.looks.get(at))
             .unwrap_or(PLAIN)
+    }
+
+    /// The core's name for Settings, translated as the core's actions are
+    /// (`actions` of `core`); its catalog key where the core lists no such
+    /// action, as before.
+    fn settings_title(
+        host: &Host<'_>,
+        registry: &Registry,
+        input: &mut [u8],
+        out: &mut [u8],
+    ) -> Result<String, Error> {
+        let mut title = None;
+        rows!(cursor => registry.actions(host, "core", cursor, input, out), |r| {
+            if title.is_none() && r.id() == SETTINGS {
+                title = Some(copy(r.title())?);
+            }
+            Ok(())
+        })?;
+        match title {
+            Some(title) => Ok(title),
+            None => copy("core.action.settings"),
+        }
     }
 
     /// The name of a tool, as the user reads it (the action's id where the

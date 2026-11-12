@@ -240,3 +240,18 @@ fn on_few_grays_a_background_is_rows_by_the_tones_darkness() {
     .unwrap();
     assert!(white.0.is_empty());
 }
+
+#[test]
+fn a_list_of_highlights_has_a_number_that_changes_with_a_place_a_note_and_the_count() {
+    let list = |spans: &[Span]| Marks::new(spans.to_vec()).fingerprint();
+    let one = [span(1, 5)];
+    assert_eq!(list(&one), list(&[span(1, 5)]));
+    assert_ne!(list(&one), list(&[span(1, 6)]));
+    assert_ne!(list(&one), list(&[]));
+    assert_ne!(list(&one), list(&[span(1, 5), span(1, 5)]));
+    let noted = Span {
+        noted: true,
+        ..span(1, 5)
+    };
+    assert_ne!(list(&one), list(&[noted]));
+}
