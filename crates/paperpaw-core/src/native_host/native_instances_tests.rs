@@ -380,3 +380,55 @@ fn lost_orphan_retirement_reports_queue_full_once_and_backs_off() {
         Some(paperpaw_platform::Instant(10_000))
     );
 }
+
+#[test]
+fn an_instance_row_is_eight_words() {
+    // #248 B: the replacement folder is a box of its bytes and the
+    // failure-said flag is a bit of the retry time (40 bytes on the X4, was 48).
+    assert!(
+        core::mem::size_of::<Entry>() <= 8 * core::mem::size_of::<usize>(),
+        "{} bytes",
+        core::mem::size_of::<Entry>()
+    );
+}
+
+#[test]
+fn a_replacement_waits_for_the_retirement_and_comes_back_whole() {
+    let mut registry = NativeInstances::default();
+    let error = Rc::new(Cell::new(Some(paperpaw_native::host_glue::ERR_IO)));
+    let lease = NativeLease::try_new(Fake {
+        active: Cell::new(true),
+        drops: Default::default(),
+        retired: Default::default(),
+        retire_error: error.clone(),
+        retire_calls: Default::default(),
+    })
+    .unwrap();
+    let id = Id::new_static("probe");
+    let key = registry.test_insert(id.clone(), Some(lease), true).unwrap();
+    assert_eq!(
+        registry.defer_replacement(key, String::from("plugins/probe-2")),
+        Err(paperpaw_native::host_glue::ERR_BUSY),
+        "not before its retirement began"
+    );
+    assert!(
+        registry.retire(key).is_err(),
+        "its cleanup failed: it stays"
+    );
+    assert!(!registry.replacement_pending(&id));
+    registry
+        .defer_replacement(key, String::from("plugins/probe-2"))
+        .unwrap();
+    assert!(registry.replacement_pending(&id));
+    assert_eq!(
+        registry.defer_replacement(key, String::from("plugins/probe-3")),
+        Err(paperpaw_native::host_glue::ERR_BUSY),
+        "one replacement at a time"
+    );
+    error.set(None);
+    assert_eq!(
+        registry.retire(key).unwrap().as_deref(),
+        Some("plugins/probe-2")
+    );
+    assert!(!registry.replacement_pending(&id));
+}

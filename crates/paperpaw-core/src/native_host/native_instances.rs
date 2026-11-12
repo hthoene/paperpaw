@@ -269,11 +269,26 @@ struct Entry {
     enabled: bool,
     start: Cell<bool>,
     retiring: bool,
-    replacement: Option<String>,
+    /// The folder of the version that replaces it once it is retired: a box
+    /// of its bytes, not a `String` (a word less in every row, #248 B).
+    replacement: Option<Box<str>>,
+    /// When a failed retirement is tried again (ms), with
+    /// [`FAILURE_REPORTED`]: one word for both (#248 B: the row is five
+    /// words on the X4, was six).
     retry_at: u64,
-    failure_reported: bool,
     /// It declared `uses.install` (it may answer plugin requests).
     installer: bool,
+}
+
+/// The bit of [`Entry::retry_at`] that says its failed retirement was said
+/// already (a time never reaches it).
+const FAILURE_REPORTED: u64 = 1 << 63;
+
+impl Entry {
+    /// When its failed retirement is tried again (ms; 0: at once).
+    fn retry_at(&self) -> u64 {
+        self.retry_at & !FAILURE_REPORTED
+    }
 }
 
 #[derive(Default)]
@@ -510,7 +525,6 @@ impl NativeInstances {
             retiring: false,
             replacement: None,
             retry_at: 0,
-            failure_reported: false,
             installer: false,
         });
         Ok(key)
@@ -722,7 +736,7 @@ impl NativeInstances {
             .iter()
             .position(|entry| entry.key == key)
             .ok_or(ERR_STATE)?;
-        Ok(self.entries.swap_remove(at).replacement)
+        Ok(self.entries.swap_remove(at).replacement.map(String::from))
     }
 
     /// Reclaim a failed admission without reusing its key or moving any identity.
@@ -742,7 +756,14 @@ impl NativeInstances {
         if !entry.retiring || entry.replacement.is_some() {
             return Err(paperpaw_native::host_glue::ERR_BUSY);
         }
-        entry.replacement = Some(folder);
+        // Exactly its bytes, asked for fallibly: the box then gives nothing
+        // back (no reallocation that could fail).
+        let mut exact = String::new();
+        exact
+            .try_reserve_exact(folder.len())
+            .map_err(|_| paperpaw_native::host_glue::ERR_NO_MEMORY)?;
+        exact.push_str(&folder);
+        entry.replacement = Some(exact.into_boxed_str());
         Ok(())
     }
 
@@ -787,15 +808,16 @@ impl NativeInstances {
             return false;
         };
         if status == paperpaw_native::host_glue::ERR_BUSY {
-            entry.retry_at = 0;
+            entry.retry_at &= FAILURE_REPORTED;
             return false;
         }
-        entry.retry_at = now.saturating_add(5_000);
-        !core::mem::replace(&mut entry.failure_reported, true)
+        let reported = entry.retry_at & FAILURE_REPORTED != 0;
+        entry.retry_at = now.saturating_add(5_000).min(!FAILURE_REPORTED) | FAILURE_REPORTED;
+        !reported
     }
 
     pub(crate) fn retirement_ready(&self, key: u64, now: u64) -> bool {
-        self.entry(key).is_some_and(|entry| entry.retry_at <= now)
+        self.entry(key).is_some_and(|entry| entry.retry_at() <= now)
     }
 
     pub(crate) fn retirement_due(&self, now: u64) -> Option<u64> {
@@ -804,7 +826,7 @@ impl NativeInstances {
             .entries
             .iter()
             .filter(|entry| Self::needs_retirement(entry))
-            .map(|entry| entry.retry_at.max(soon))
+            .map(|entry| entry.retry_at().max(soon))
             .min();
         let orphan = self
             .pool
