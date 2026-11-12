@@ -251,7 +251,7 @@ impl crate::Kernel {
     /// Tells the device's view what the kernel holds: the power level and
     /// stretch of the user's mode, and whether a real-time screen (one that
     /// takes raw keys or runs at a pace, not a native one) is on top.
-    pub(super) fn tell_work_env(&self, env: &dyn super::work_sched::WorkEnv) {
+    pub(crate) fn tell_work_env(&self, env: &dyn super::work_sched::WorkEnv) {
         use paperpaw_sdk::power::PowerLevel;
         let power = &self.shared.power;
         let level = match power.level {
