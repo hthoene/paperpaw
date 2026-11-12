@@ -94,6 +94,9 @@ impl crate::Kernel {
         let mut more = false;
         while let Some(start) = store.next_starting() {
             self.dialog_open(&store, &start);
+            // What the open led to runs here, not in `dialog_open`: its
+            // locals are not on the stack while those commands run (#250).
+            self.run_commands();
         }
         // Answers: one callback each; what a callback staged runs before the
         // next is called.
@@ -117,24 +120,11 @@ impl crate::Kernel {
                 let Some(delivery) = store.take_delivery(owner) else {
                     break;
                 };
-                let record = wire::EventAnswered {
-                    now_ms: self.now.millis(),
-                    request: delivery.request,
-                    kind: delivery.kind,
-                    outcome: delivery.outcome,
-                    choice: delivery.choice,
-                    length: delivery.length,
-                    flags: delivery.flags,
-                };
-                let mut bytes = [0u8; 64];
-                let Ok(len) =
-                    codec::encode_batch(&[wire::Record::EventAnswered(record)], &mut bytes)
-                else {
+                let Some(called) = self.answer_call(owner, &lease, &delivery) else {
                     // Never: the record is fixed size. Freed all the same.
                     let _ = store.delivered(delivery.request);
                     continue;
                 };
-                let called = self.native_event_call(owner, &lease, &bytes[..len]);
                 if called == Err(ERR_BUSY) {
                     // A batch waits: no callback ran, so the answer is kept for
                     // the next pass, not freed.
@@ -149,6 +139,30 @@ impl crate::Kernel {
             more |= store.has_delivery(owner);
         }
         more
+    }
+
+    /// One answer to the plugin that asked: `event.answered` encoded and its
+    /// callback called; `None` where the record could not be encoded. Its own
+    /// frame, gone before the batch the callback staged runs (#250).
+    #[inline(never)]
+    fn answer_call(
+        &self,
+        owner: u64,
+        lease: &super::native_instances::NativeLease,
+        delivery: &super::ui_requests::Delivery,
+    ) -> Option<Result<i32, i32>> {
+        let record = wire::EventAnswered {
+            now_ms: self.now.millis(),
+            request: delivery.request,
+            kind: delivery.kind,
+            outcome: delivery.outcome,
+            choice: delivery.choice,
+            length: delivery.length,
+            flags: delivery.flags,
+        };
+        let mut bytes = [0u8; 64];
+        let len = codec::encode_batch(&[wire::Record::EventAnswered(record)], &mut bytes).ok()?;
+        Some(self.native_event_call(owner, lease, &bytes[..len]))
     }
 
     /// Asks a text question as a plugin's `ui.ask` does, for the tools and
@@ -227,6 +241,9 @@ impl crate::Kernel {
     /// went: up (`open`) or `not_started`. The guard's own question opens above
     /// the guard and is marked as its dialog; any other plugin's under a guard
     /// opens below it and waits there (`ui.md` 4.3), as every screen it opens.
+    // Its own frame: its locals are not on the stack while the pump calls
+    // the plugins (#250).
+    #[inline(never)]
     fn dialog_open(&mut self, store: &super::ui_store::UiStore, start: &super::ui_requests::Start) {
         let (Some(slot), Some(request), Some(kind)) = (
             slot_of(start.kind, start.remote),
@@ -339,7 +356,6 @@ impl crate::Kernel {
                 let _ = store.dialog_failed(start.request);
             }
         }
-        self.run_commands();
     }
 }
 

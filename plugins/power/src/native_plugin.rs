@@ -71,19 +71,7 @@ impl Plugin for NativePower {
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         // Only the kinds this plugin handles are read, so only their decoders are linked.
-        let Some(event) = [
-            incoming.decode_as::<kinds::Started>()?,
-            incoming.decode_as::<kinds::Resume>()?,
-            incoming.decode_as::<kinds::BatteryMeasured>()?,
-            incoming.decode_as::<kinds::ChargeChanged>()?,
-            incoming.decode_as::<kinds::SettingChanged>()?,
-            incoming.decode_as::<kinds::Answered>()?,
-            incoming.decode_as::<kinds::ActionRun>()?,
-            incoming.decode_as::<kinds::StageCall>()?,
-        ]
-        .into_iter()
-        .flatten()
-        .next() else {
+        let Some(event) = decode(&incoming)? else {
             return Ok(());
         };
         match (token, event) {
@@ -120,6 +108,7 @@ impl NativePower {
     }
 
     /// The power button held: a small menu of what the device can do here.
+    #[inline(never)]
     fn ask(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let caps = device_caps(host)?;
         let locked = touch_locked(host);
@@ -152,6 +141,7 @@ impl NativePower {
 
     /// What the option chosen in the power menu does. Nothing for a cancelled
     /// menu, an answer to another request or a typing update.
+    #[inline(never)]
     fn answered(
         &mut self,
         host: &Host<'_>,
@@ -179,7 +169,35 @@ impl NativePower {
     }
 }
 
+/// The event of one of the kinds this plugin handles, if it is one. One kind
+/// is tried after the other: an array of the eight decoded would hold eight
+/// events on the stack at once (over 2 KiB, the X4's band).
+#[inline(never)]
+fn decode<'a>(incoming: &Incoming<'a>) -> Result<Option<Event<'a>>, Error> {
+    macro_rules! first {
+        ($($kind:ident),+) => {
+            $(
+                if let Some(event) = incoming.decode_as::<kinds::$kind>()? {
+                    return Ok(Some(event));
+                }
+            )+
+        };
+    }
+    first!(
+        Started,
+        Resume,
+        BatteryMeasured,
+        ChargeChanged,
+        SettingChanged,
+        Answered,
+        ActionRun,
+        StageCall
+    );
+    Ok(None)
+}
+
 /// Opens the power settings: what a tap on the mode's status item runs.
+#[inline(never)]
 fn open_settings(host: &Host<'_>) -> Result<(), Error> {
     let ui = Ui::open(host)?;
     let result = (|| {
@@ -199,6 +217,7 @@ fn open_settings(host: &Host<'_>) -> Result<(), Error> {
 }
 
 /// Does what a step of the power menu says.
+#[inline(never)]
 fn run(host: &Host<'_>, step: Step) -> Result<(), Error> {
     let mut scratch = [0; 512];
     match step {
@@ -215,6 +234,7 @@ fn run(host: &Host<'_>, step: Step) -> Result<(), Error> {
 /// draws the frame and acts when the panel is idle, so e-ink keeps a screen
 /// that shows what the device really is. Without the sleep screen (its plugin
 /// is off) the command acts alone.
+#[inline(never)]
 fn show_then(
     host: &Host<'_>,
     action: PowerAction,
@@ -253,6 +273,7 @@ fn show_then(
 }
 
 /// The mode to wear now: worn if another is worn.
+#[inline(never)]
 fn wear(host: &Host<'_>) -> Result<(), Error> {
     let mut scratch = [0; 64];
     let mode = match settings::read_setting(host, "power.mode", &mut scratch)? {
@@ -341,6 +362,7 @@ fn flag(host: &Host<'_>, key: &str, default: bool) -> bool {
 
 /// The status item: nothing in Normal, so the lines stay calm; the mode's
 /// name while saving or offline.
+#[inline(never)]
 fn status(
     host: &Host<'_>,
     stage: &str,

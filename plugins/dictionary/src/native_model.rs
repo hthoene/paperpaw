@@ -126,6 +126,48 @@ pub trait Source {
     /// # Errors
     /// The host's refusal (a damaged dictionary), or `NoMemory`.
     fn definitions(&mut self, which: usize, word: &str) -> Result<Vec<Found>, Error>;
+
+    /// The definitions of `word` in ready dictionary `which`, whole (not cut
+    /// to what an entry of the lookup service holds), as many as what is left
+    /// of `budget` bytes allows; the budget is reduced by what they took.
+    ///
+    /// # Errors
+    /// The host's refusal (a damaged dictionary), or `NoMemory`.
+    fn definitions_within(
+        &mut self,
+        which: usize,
+        word: &str,
+        budget: &mut usize,
+    ) -> Result<Vec<Found>, Error>;
+}
+
+/// Every definition of `word` in all ready dictionaries, in dictionary order,
+/// whole, together within `budget` bytes (the panel's reading: the lookup
+/// service's entry limit does not apply to what a dictionary shows itself). A
+/// dictionary that cannot be read is skipped.
+///
+/// # Errors
+/// `NoMemory` only.
+pub fn all_within(
+    source: &mut impl Source,
+    word: &str,
+    budget: &mut usize,
+) -> Result<Vec<Found>, Error> {
+    let ready = source.ready()?;
+    let mut all = Vec::new();
+    for which in 0..ready {
+        if *budget == 0 {
+            break;
+        }
+        let found = match source.definitions_within(which, word, budget) {
+            Ok(found) => found,
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => continue,
+        };
+        all.try_reserve(found.len()).map_err(|_| Error::NoMemory)?;
+        all.extend(found);
+    }
+    Ok(all)
 }
 
 /// The entry a lookup page asks for.
@@ -345,6 +387,21 @@ mod tests {
                 Err(error) => Err(*error),
             }
         }
+        fn definitions_within(
+            &mut self,
+            which: usize,
+            word: &str,
+            budget: &mut usize,
+        ) -> Result<Vec<Found>, Error> {
+            let mut found = self.definitions(which, word)?;
+            let mut kept = 0;
+            found.retain(|f| {
+                kept += f.text.len();
+                kept <= *budget
+            });
+            *budget -= found.iter().map(|f| f.text.len()).sum::<usize>();
+            Ok(found)
+        }
     }
 
     #[test]
@@ -372,6 +429,60 @@ mod tests {
         assert_eq!(page_at(&mut source, "w", 0).err(), Some(Error::NoMemory));
         let mut none = Fake(vec![]);
         assert_eq!(page_at(&mut none, "w", 0).unwrap(), None);
+    }
+
+    #[test]
+    fn the_panel_reads_every_definition_whole_within_one_shared_budget() {
+        let mut source = Fake(vec![Ok(vec!["a1", "a2"]), Ok(vec!["b1"])]);
+        let mut budget = 100;
+        let all = all_within(&mut source, "w", &mut budget).unwrap();
+        let texts: Vec<_> = all
+            .iter()
+            .map(|f| (f.title.as_str(), f.text.as_str()))
+            .collect();
+        assert_eq!(texts, [("D0", "a1"), ("D0", "a2"), ("D1", "b1")]);
+        assert_eq!(budget, 94);
+        // What does not fit the budget is left out, and nothing is read once it is used.
+        let mut source = Fake(vec![Ok(vec!["a1", "a2"]), Ok(vec!["b1"])]);
+        let mut budget = 4;
+        assert_eq!(all_within(&mut source, "w", &mut budget).unwrap().len(), 2);
+        assert_eq!(budget, 0);
+        // A text over the entry limit of the service stays whole.
+        let big = "y".repeat(MAX_ENTRY + 500);
+        struct One(String);
+        impl Source for One {
+            fn ready(&mut self) -> Result<usize, Error> {
+                Ok(1)
+            }
+            fn definitions(&mut self, _: usize, _: &str) -> Result<Vec<Found>, Error> {
+                Ok(vec![Found {
+                    title: "T".into(),
+                    text: self.0.clone(),
+                }])
+            }
+            fn definitions_within(
+                &mut self,
+                which: usize,
+                word: &str,
+                budget: &mut usize,
+            ) -> Result<Vec<Found>, Error> {
+                let found = self.definitions(which, word)?;
+                *budget -= found[0].text.len();
+                Ok(found)
+            }
+        }
+        let mut budget = 32 * 1024;
+        let all = all_within(&mut One(big.clone()), "w", &mut budget).unwrap();
+        assert_eq!(all[0].text, big);
+        // An unreadable dictionary is skipped, `NoMemory` is not.
+        let mut source = Fake(vec![Err(Error::Invalid), Ok(vec!["b1"])]);
+        let mut budget = 10;
+        assert_eq!(all_within(&mut source, "w", &mut budget).unwrap().len(), 1);
+        let mut source = Fake(vec![Err(Error::NoMemory)]);
+        assert_eq!(
+            all_within(&mut source, "w", &mut budget).err(),
+            Some(Error::NoMemory)
+        );
     }
 
     #[test]

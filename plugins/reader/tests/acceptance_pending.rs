@@ -52,7 +52,7 @@ const CASES: [Case; 11] = [
     Case {
         name: "reader-status-lines-and-sample",
         golden: None,
-        blocked_by: &["status-declarations", "widget-declarations"],
+        blocked_by: &["settings-group-preview", "status-line-editors"],
     },
     // The reader's own extension points (#241): inserted blocks between
     // lines, text style, an input filter; page numbers from the source text.
@@ -132,7 +132,7 @@ fn aloud_and_auto_turn() {
 }
 
 #[test]
-#[ignore = "BLOCKED status-declarations, widget-declarations: no native declaration for status places and lines, nor for a preview widget"]
+#[ignore = "BLOCKED settings-group-preview, status-line-editors: the reader declares the sample widget (#257), but the settings plugin shows no group's preview yet, and the status-line items editor is not ported (todo 529)"]
 fn status_lines_and_sample() {
     CASES[4].refuse().unwrap();
 }

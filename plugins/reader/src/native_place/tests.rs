@@ -74,3 +74,24 @@ fn a_finished_book_reports_the_whole_also_when_paged_back() {
     assert_eq!(report_ppm(true, 987_654), 1_000_000);
     assert_eq!(report_ppm(false, 987_654), 987_654);
 }
+
+#[test]
+fn a_share_of_the_book_is_the_place_its_progress_is() {
+    let book = progress(&[100, 0, 300]);
+    assert_eq!(book.place_at(0), (0, 0));
+    assert_eq!(book.place_at(125_000), (0, 50));
+    // An empty section is passed over.
+    assert_eq!(book.place_at(250_000), (2, 0));
+    assert_eq!(book.place_at(500_000), (2, 100));
+    assert_eq!(book.place_at(999_000), (2, 299));
+    // Past the end: the last character.
+    assert_eq!(book.place_at(u32::MAX), (2, 299));
+    // And back: the progress of the place is the share asked for.
+    for ppm in [0, 125_000, 250_000, 500_000, 750_000] {
+        let (section, offset) = book.place_at(ppm);
+        assert_eq!(book.ppm(section, offset), ppm);
+    }
+    // A book without text has its start.
+    assert_eq!(progress(&[]).place_at(500_000), (0, 0));
+    assert_eq!(progress(&[0, 0]).place_at(500_000), (1, 0));
+}
