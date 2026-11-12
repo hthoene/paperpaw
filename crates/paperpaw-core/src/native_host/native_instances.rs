@@ -134,6 +134,9 @@ impl NativeLease {
     pub(crate) fn take_start(&self) -> bool {
         self.0.take_start()
     }
+    pub(crate) fn start_at(&self) -> Option<u64> {
+        self.0.start_at()
+    }
     pub(crate) fn refused(&self) -> bool {
         self.0.refused()
     }
@@ -1032,6 +1035,14 @@ impl NativeInstances {
 
     /// The `index`th running instance, in order of installation: its key and
     /// its lease. `None` past the last.
+    /// The first time a parked plugin asked to start may be made.
+    pub(crate) fn parked_start_at(&self) -> Option<u64> {
+        let leases = self
+            .entries
+            .iter()
+            .filter_map(|entry| entry.instance.as_ref());
+        leases.filter_map(NativeLease::start_at).min()
+    }
     pub(crate) fn running_nth(&self, index: usize) -> Option<(u64, &NativeLease)> {
         self.entries
             .iter()

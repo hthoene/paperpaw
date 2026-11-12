@@ -201,6 +201,19 @@ impl Slot {
         })
     }
 
+    /// When a start asked for may be made (ms; now for a refused batch to
+    /// withdraw): a wake deadline, so what waits for it is not left to the
+    /// next key press (#248). `None` where none was asked.
+    pub(crate) fn start_at(&self) -> Option<u64> {
+        let parked = self.parked.borrow();
+        let parked = parked.as_ref().filter(|parked| parked.start.get())?;
+        Some(if parked.refused.get() {
+            0
+        } else {
+            parked.retry_at.get()
+        })
+    }
+
     /// Whether the batch was refused at an unpark (the row withdraws it).
     pub(crate) fn refused(&self) -> bool {
         self.parked

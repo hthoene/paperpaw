@@ -492,9 +492,14 @@ fn an_action_of_a_plugin_that_cannot_be_made_yet_waits_and_reaches_it_after() {
     assert!(lease(&kernel, key).is_parked());
     assert_eq!(actions_waiting(&kernel), 1);
     assert!(kernel.take_warnings().is_empty());
-    // Within its wait nothing is tried again, and the action stays.
+    // Within its wait nothing is tried again, and the action stays; the
+    // device wakes when the wait is over, not at the next key press.
     kernel.run_commands();
     assert_eq!((makes(), actions_waiting(&kernel)), (2, 1));
+    assert_eq!(
+        kernel.service_due(),
+        Some(paperpaw_platform::Instant(1_000))
+    );
     // The wait over and room again: made, and the action delivered.
     MODE.with(|cell| cell.set(Mode::Parkable));
     kernel.now = paperpaw_platform::Instant(60_000);
@@ -502,6 +507,7 @@ fn an_action_of_a_plugin_that_cannot_be_made_yet_waits_and_reaches_it_after() {
     assert_eq!(makes(), 3);
     assert!(!lease(&kernel, key).is_parked());
     assert_eq!(actions_waiting(&kernel), 0);
+    assert_eq!(kernel.shared.native_instances.parked_start_at(), None);
 }
 
 fn open_screen(kernel: &mut crate::Kernel) {

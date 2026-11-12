@@ -318,6 +318,7 @@ impl crate::Kernel {
             .flatten()
             .filter_map(|service| service.next_deadline())
             .chain(instances.service_retry())
+            .chain(instances.parked_start_at())
             .chain(instances.image_pump.retry_at())
             .chain(instances.moves_retry())
             .chain(instances.doc_retry())
