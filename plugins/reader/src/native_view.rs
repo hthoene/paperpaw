@@ -347,21 +347,15 @@ impl View {
         // The place the hand-over names, if the book has it; else the place
         // saved last time; else the start (a page number needs the page index:
         // `PORTING-7.md`).
-        let progress = match Progress::read(host, docs, id, sections, (&mut input, &mut out)) {
-            Ok(progress) => progress,
-            Err(error) => {
-                Self::forget(host, docs, id);
-                return Err(error);
-            }
+        let fail = |error| {
+            Self::forget(host, docs, id);
+            error
         };
+        let progress =
+            Progress::read(host, docs, id, sections, (&mut input, &mut out)).map_err(fail)?;
         let (at, stored_ppm) =
-            match Self::starting_place(host, library, &found, (sections, conversion), &mut out) {
-                Ok(start) => start,
-                Err(error) => {
-                    Self::forget(host, docs, id);
-                    return Err(error);
-                }
-            };
+            Self::starting_place(host, library, &found, (sections, conversion), &mut out)
+                .map_err(fail)?;
         // The highlights of the book; a book the library does not know has none.
         let marks = match library.map(|l| native_marks::load(host, l, &found.path, conversion)) {
             Some(Ok(spans)) => Marks::new(spans),

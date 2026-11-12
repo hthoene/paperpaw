@@ -938,6 +938,32 @@ impl NativeReader {
         Ok(())
     }
 
+    /// A screen of the reader closed: its view goes with it.
+    fn screen_closed(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        instance: paperpaw_sdk::native::ui::Instance,
+    ) {
+        match token {
+            SCREEN => {
+                self.hands.closed(host, instance, self.work.as_ref());
+                self.close(host, instance);
+            }
+            TOC => self.close_toc(host, instance),
+            SEARCH => {
+                if let Some(view) = self.searches.get(instance) {
+                    view.close();
+                }
+                self.searches.close(instance);
+            }
+            ANNOTATIONS => self.annotations.close(instance),
+            FOOTNOTE => self.notes.close(instance),
+            SKIM => self.skims.close(instance),
+            _ => {}
+        }
+    }
+
     /// The UI service, opened at the first need.
     fn open_ui(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.ui.is_none() {
@@ -1096,23 +1122,7 @@ impl Plugin for NativeReader {
                 ..
             } => self.screen_shown(host, token, instance, now_ms),
             Event::ScreenClosed { instance, .. } => {
-                match token {
-                    SCREEN => {
-                        self.hands.closed(host, instance, self.work.as_ref());
-                        self.close(host, instance);
-                    }
-                    TOC => self.close_toc(host, instance),
-                    SEARCH => {
-                        if let Some(view) = self.searches.get(instance) {
-                            view.close();
-                        }
-                        self.searches.close(instance);
-                    }
-                    ANNOTATIONS => self.annotations.close(instance),
-                    FOOTNOTE => self.notes.close(instance),
-                    SKIM => self.skims.close(instance),
-                    _ => {}
-                }
+                self.screen_closed(host, token, instance);
                 Ok(())
             }
             _ => Ok(()),
