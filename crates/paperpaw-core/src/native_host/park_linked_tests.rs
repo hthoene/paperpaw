@@ -51,6 +51,8 @@ enum Mode {
     Started,
     /// The screen under another title: another batch than the admission's.
     Retitled,
+    /// No room: `make` fails with `ERR_NO_MEMORY` before it submits.
+    NoRoom,
 }
 
 std::thread_local! {
@@ -134,6 +136,9 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *cons
     let image = image();
     let slice = |(at, len): (usize, usize)| &image.bytes[at..at + len];
     let mode = MODE.with(Cell::get);
+    if mode == Mode::NoRoom {
+        return host_glue::ERR_NO_MEMORY;
+    }
     let status = match mode {
         Mode::Parkable | Mode::Started => submit(host, ctx, slice(image.screen)),
         Mode::Retitled => submit(host, ctx, slice(image.retitled)),
@@ -147,6 +152,7 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *cons
             unsafe { ((*host).clock_micros)(ctx, &mut micros) };
             submit(host, ctx, slice(image.screen))
         }
+        Mode::NoRoom => host_glue::ERR_NO_MEMORY,
         Mode::Widget => match submit(host, ctx, slice(image.widget)) {
             host_glue::OK => {
                 submit_registrations(host, ctx, &[wire::Registration::Draw { token: 92 }])
@@ -449,4 +455,90 @@ fn only_no_room_or_a_busy_owner_waits_every_other_hosting_error_refuses() {
     ] {
         assert!(matches!(unparked(error), Unparked::Refused));
     }
+}
+
+/// Queues `event.action_run` for the parked fixture, as a menu row or a
+/// button would (`native_action::queue_run`).
+fn run_action(kernel: &crate::Kernel, key: u64) {
+    let env = kernel.shared.env(kernel.now);
+    assert!(super::super::native_action::queue_run(
+        &kernel.shared.native_instances,
+        key,
+        93,
+        "linked.act",
+        &env,
+    ));
+}
+
+fn actions_waiting(kernel: &crate::Kernel) -> usize {
+    kernel
+        .shared
+        .native_instances
+        .action_queue()
+        .unwrap()
+        .waiting()
+}
+
+#[test]
+fn an_action_of_a_plugin_that_cannot_be_made_yet_waits_and_reaches_it_after() {
+    let mut kernel = kernel(Mode::Parkable);
+    let key = admit(&mut kernel);
+    let _ = kernel.take_warnings();
+    // No room at the first use: the plugin stays parked, the action waits.
+    MODE.with(|cell| cell.set(Mode::NoRoom));
+    run_action(&kernel, key);
+    kernel.run_commands();
+    assert_eq!(makes(), 2);
+    assert!(lease(&kernel, key).is_parked());
+    assert_eq!(actions_waiting(&kernel), 1);
+    assert!(kernel.take_warnings().is_empty());
+    // Within its wait nothing is tried again, and the action stays.
+    kernel.run_commands();
+    assert_eq!((makes(), actions_waiting(&kernel)), (2, 1));
+    // The wait over and room again: made, and the action delivered.
+    MODE.with(|cell| cell.set(Mode::Parkable));
+    kernel.now = paperpaw_platform::Instant(60_000);
+    kernel.run_commands();
+    assert_eq!(makes(), 3);
+    assert!(!lease(&kernel, key).is_parked());
+    assert_eq!(actions_waiting(&kernel), 0);
+}
+
+fn open_screen(kernel: &mut crate::Kernel) {
+    kernel.open(
+        paperpaw_sdk::Id::parse("linked.screen").unwrap(),
+        None,
+        &paperpaw_sdk::Params::new(),
+    );
+    kernel.run_commands();
+}
+
+#[test]
+fn a_screen_of_a_plugin_without_room_does_not_open_and_opens_once_it_is_made() {
+    let mut kernel = kernel(Mode::Parkable);
+    let key = admit(&mut kernel);
+    let _ = kernel.take_warnings();
+    // No room: no screen its plugin never heard of, the log says so and
+    // the user is not told (as for any plugin without memory).
+    MODE.with(|cell| cell.set(Mode::NoRoom));
+    open_screen(&mut kernel);
+    assert_eq!(makes(), 2);
+    assert!(lease(&kernel, key).is_parked());
+    assert!(kernel.stack.is_empty());
+    let warnings = kernel.take_warnings();
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].message, "Could not open native screen");
+    assert!(kernel.notice.is_none());
+    // The wait over and room again (the plugins' clock is set each tick):
+    // made as the screen opens.
+    MODE.with(|cell| cell.set(Mode::Parkable));
+    kernel.now = paperpaw_platform::Instant(60_000);
+    kernel.shared.native_instances.set_now(60_000);
+    open_screen(&mut kernel);
+    assert_eq!(makes(), 3);
+    assert!(!lease(&kernel, key).is_parked());
+    assert_eq!(
+        kernel.stack.last().map(|entry| entry.id.as_str()),
+        Some("linked.screen")
+    );
 }
