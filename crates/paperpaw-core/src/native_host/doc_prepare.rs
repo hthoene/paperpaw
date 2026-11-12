@@ -30,6 +30,7 @@ use crate::native_host::{
     host_services::HostServices,
 };
 use alloc::vec::Vec;
+use core::cell::Cell;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_CANCELLED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_TIMEOUT,
 };
@@ -280,7 +281,7 @@ impl DocState {
         route: &dyn Route,
         document: &doc_service::Document,
         (target, kind): (Target, BookKind),
-        op: u32,
+        (op, called): (u32, &Cell<bool>),
         out: &mut [u8],
     ) -> Result<usize, i32> {
         let (css, open) = {
@@ -309,6 +310,9 @@ impl DocState {
         }
         // The format's roots 3, 4 and 6 are this call's, as in an open.
         let _scope = self.enter_scope(hosts, target.plugin, document.id, kind, &css)?;
+        // From here the call goes to the format: what failed before was the
+        // host's own (Senior, R1 on #1368).
+        called.set(true);
         let stage = Stage {
             route,
             images: &NoImages,
@@ -359,33 +363,38 @@ impl DocState {
         } else {
             fmt::PREPARE
         };
-        let length = match self.call_in_scope(hosts, route, document, (target, kind), op, &mut out)
-        {
-            Ok(length) => length,
-            // A pending open's format that is not made yet: later, until it
-            // gave up for want of memory, which fails the document (Senior,
-            // R2 on #1365). One that cannot be made fails it too; one that
-            // answered an error has it (the open reached it: it gets `close`
-            // from now on).
-            Err(ERR_BUSY) if document.open_pending && route.gave_up(target.plugin) => {
-                self.fail_prepared(hosts, document, ERR_NO_MEMORY);
-                return Ok(());
-            }
-            Err(ERR_BUSY) => return Err(ERR_BUSY),
-            // A preparation step without memory is tried again later; a
-            // pending open that reached its format and found no memory fails
-            // now, as the open does with the format awake (#248, Manager's
-            // decision 2), never tried again for ever.
-            Err(ERR_NO_MEMORY) if !document.open_pending => return Err(ERR_NO_MEMORY),
-            Err(status) if document.open_pending => {
-                if status != ERR_CANCELLED {
-                    self.open_sent(document.id);
+        let called = Cell::new(false);
+        let call = (op, &called);
+        let length =
+            match self.call_in_scope(hosts, route, document, (target, kind), call, &mut out) {
+                Ok(length) => length,
+                // A pending open's format that is not made yet: later, until it
+                // gave up for want of memory, which fails the document (Senior,
+                // R2 on #1365). One that cannot be made fails it too; one that
+                // answered an error has it (the open reached it: it gets `close`
+                // from now on).
+                Err(ERR_BUSY) if document.open_pending && route.gave_up(target.plugin) => {
+                    self.fail_prepared(hosts, document, ERR_NO_MEMORY);
+                    return Ok(());
                 }
-                self.fail_prepared(hosts, document, status);
-                return Ok(());
-            }
-            Err(status) => return Err(status),
-        };
+                Err(ERR_BUSY) => return Err(ERR_BUSY),
+                // A preparation step without memory is tried again later; a
+                // pending open that reached its format and found no memory fails
+                // now, as the open does with the format awake (#248, Manager's
+                // decision 2), never tried again for ever.
+                Err(ERR_NO_MEMORY) if !document.open_pending => return Err(ERR_NO_MEMORY),
+                Err(status) if document.open_pending => {
+                    // Only an open the format was called with is closed later:
+                    // the host's own refusal (no room to copy the open or the
+                    // CSS, the scope) never reached it.
+                    if status != ERR_CANCELLED && called.get() {
+                        self.open_sent(document.id);
+                    }
+                    self.fail_prepared(hosts, document, status);
+                    return Ok(());
+                }
+                Err(status) => return Err(status),
+            };
         let answered = if document.open_pending {
             self.open_sent(document.id);
             doc_service::pending::opened(&self.table, document, &out[..length])

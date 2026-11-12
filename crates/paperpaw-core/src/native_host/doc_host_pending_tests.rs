@@ -162,6 +162,37 @@ fn a_pending_open_its_format_answers_without_memory_fails_at_once() {
     });
 }
 
+#[test]
+fn a_pending_open_the_host_had_no_room_to_send_gets_no_close() {
+    // Senior, R1 on #1368: the host's own no-memory before the format is
+    // called (the open or the CSS copied, the scope) fails the open, and the
+    // format, which never saw it, gets no `close`. Each allocation of the
+    // step fails in turn; those before the call must not mark it sent.
+    let before_the_call = core::cell::Cell::new(0);
+    for nth in 1..64 {
+        world(|w| {
+            w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+            parked(w);
+            let id = w.open(1, "books/a.epub").unwrap();
+            made(w, READY);
+            let sent = ops(w).len();
+            let fail = &crate::native_host::shell::tests::FAIL_NTH;
+            fail.with(|n| n.set(nth));
+            let _ = step(w);
+            fail.with(|n| n.set(0));
+            let failed = document(w, id);
+            if ops(w).len() != sent || failed.state != FAILED {
+                return; // the format was called, or the step is tried later
+            }
+            before_the_call.set(before_the_call.get() + 1);
+            assert_eq!(failed.status, ERR_NO_MEMORY);
+            close(w, id);
+            assert_eq!(ops(w).len(), sent, "a close for an open never sent");
+        });
+    }
+    assert!(before_the_call.get() > 0, "no refusal before the call");
+}
+
 /// A route whose format plugin gave up being made (Senior, R2 on #1365).
 struct GaveUp<'a>(FrameRoute<'a>);
 impl crate::native_host::fmt_call::Route for GaveUp<'_> {
