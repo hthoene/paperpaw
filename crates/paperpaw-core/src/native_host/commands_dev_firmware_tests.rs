@@ -115,7 +115,8 @@ fn stage(
     let env = kernel.shared.env(Instant(0));
     let mut ctx = DevContext::new(AdmittedFeatures::test(bits, HOST), &kernel.radio_requests);
     if let Some(driver) = firmware {
-        ctx = ctx.with_firmware(FirmwareContext::new(Rc::clone(driver), OWNER));
+        let cell = crate::native_host::firmware_cell::FirmwareCell::running(Rc::clone(driver));
+        ctx = ctx.with_firmware(FirmwareContext::new(Rc::new(cell), OWNER));
     }
     let mut stage =
         crate::native_host::commands::CommandStage::new(&id, env.settings(), None, 16, 4096)

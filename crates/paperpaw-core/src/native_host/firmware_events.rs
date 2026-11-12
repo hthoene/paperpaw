@@ -86,18 +86,20 @@ impl Kernel {
         offered: paperpaw_native::metadata::Host<'static>,
         signers: &'static [(&'static str, [u8; 32])],
     ) -> bool {
-        let Some(driver) = self.firmware.as_ref() else {
-            return false;
-        };
-        let Ok(mut driver) = driver.try_borrow_mut() else {
-            return false;
-        };
-        driver.set_plugin_host(super::plugin_job::PluginHost {
-            loader,
-            offered,
-            signers,
-        });
-        true
+        self.firmware.as_ref().is_some_and(|cell| {
+            cell.set_plugin_host(super::plugin_job::PluginHost {
+                loader,
+                offered,
+                signers,
+            })
+        })
+    }
+
+    /// The firmware driver, where one is made now (none at rest).
+    pub(crate) fn firmware_driver(
+        &self,
+    ) -> Option<alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>> {
+        self.firmware.as_ref().and_then(|cell| cell.driver())
     }
 
     /// One step of the firmware table's job, then the outcomes that wait for
@@ -106,7 +108,11 @@ impl Kernel {
     // frame adds their locals (the firmware's frame limit for host code).
     #[inline(never)]
     pub(crate) fn native_firmware_pump(&mut self) -> bool {
-        let Some(driver) = self.firmware.clone() else {
+        let Some(cell) = self.firmware.clone() else {
+            return false;
+        };
+        self.firmware_wire(&cell);
+        let Some(driver) = cell.driver() else {
             return false;
         };
         let now = self.now.millis();
@@ -115,7 +121,6 @@ impl Kernel {
                 .try_borrow()
                 .map_or(true, |driver| driver.has_work(now));
         }
-        self.firmware_wire(&driver);
         self.firmware_resume(&driver);
         self.native_outbox_run();
         self.feed_install_grants(&driver);
@@ -136,10 +141,17 @@ impl Kernel {
         self.firmware_told(&driver);
         let asked = self.firmware_confirm_pump(&driver);
         self.native_outbox_run();
-        asked
+        let more = asked
             || driver
                 .try_borrow()
-                .map_or(true, |driver| driver.has_work(now))
+                .map_or(true, |driver| driver.has_work(now));
+        // Nothing left to run, tell or keep: the driver goes until the next
+        // command (`FirmwareCell::rest` keeps it while anything holds it).
+        drop(driver);
+        if !more {
+            cell.rest();
+        }
+        more
     }
 
     /// Forgets what the host holds of a plugin removed with its data: its
@@ -303,20 +315,14 @@ impl Kernel {
         }
     }
 
-    /// Lets the device ops read the machine, once the host views exist.
-    fn firmware_wire(
-        &self,
-        driver: &alloc::rc::Rc<core::cell::RefCell<super::firmware_driver::Driver>>,
-    ) {
+    /// Lets the device ops and the plugins' commands reach the firmware, once
+    /// the host views exist.
+    fn firmware_wire(&self, cell: &alloc::rc::Rc<super::firmware_cell::FirmwareCell>) {
         let Some(hosts) = self.shared.native_instances.hosts() else {
             return;
         };
-        if hosts.firmware_install().is_some() {
-            return;
-        }
-        if let Ok(table) = driver.try_borrow() {
-            let _ = hosts.wire_firmware_install(table.machine());
-            let _ = hosts.wire_firmware_requests(alloc::rc::Rc::clone(driver));
+        if hosts.firmware_cell().is_none() {
+            let _ = hosts.wire_firmware(alloc::rc::Rc::clone(cell));
         }
     }
 
@@ -422,8 +428,7 @@ impl Kernel {
 
     /// When the pump looks again for what could not be told.
     pub(crate) fn firmware_due(&self) -> Option<u64> {
-        self.firmware
-            .as_ref()
+        self.firmware_driver()
             .and_then(|driver| driver.try_borrow().ok().and_then(|driver| driver.due()))
     }
 

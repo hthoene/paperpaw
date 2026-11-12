@@ -32,6 +32,7 @@
 //! * **Not here.** Nothing of this runs inside a plugin's callback; the pump
 //!   is called from the main loop.
 use super::dual_boot_job::After;
+use super::firmware_cell::DriverParts;
 use super::firmware_install::{
     Answer, Ask, BuiltIns, Event, FirmwareInstall, Job, KIND_CHECK, KIND_FIRMWARE, Outcome,
     Question,
@@ -92,12 +93,18 @@ struct Entry {
 
 /// A kept outcome: `None` while the plugin's request of that kind waits.
 #[derive(Clone, Copy)]
-struct Kept {
+pub(crate) struct Kept {
     owner: u64,
     kind: u32,
     /// The request the slot waits for: only its own outcome fills it.
     request: u32,
     outcome: Option<Outcome>,
+}
+
+impl Kept {
+    pub(crate) fn owner(&self) -> u64 {
+        self.owner
+    }
 }
 
 /// One job in the queue: a firmware install or check, or a plugin job.
@@ -201,7 +208,25 @@ pub(crate) struct Driver {
 
 impl Driver {
     /// A driver over the device's firmware and the machine the ops read.
+    #[cfg(test)]
     pub(crate) fn new(host: Box<dyn FirmwareHost>, machine: Rc<RefCell<FirmwareInstall>>) -> Self {
+        Self::from_parts(DriverParts::new(host), machine, Rc::new(Cell::new(0)))
+    }
+
+    /// A driver made of `parts`, over `machine`, counting its skips in
+    /// `skipped`.
+    pub(crate) fn from_parts(
+        parts: DriverParts,
+        machine: Rc<RefCell<FirmwareInstall>>,
+        skipped: Rc<Cell<u32>>,
+    ) -> Self {
+        let DriverParts {
+            host,
+            plugin_host,
+            grants,
+            kept,
+            machine: _,
+        } = parts;
         if let Ok(mut machine) = machine.try_borrow_mut() {
             machine.set_dual_host(host.dual_boot_capable(), host.dual_boot_declared());
         }
@@ -213,8 +238,8 @@ impl Driver {
             plugin_jobs: Vec::new(),
             running: None,
             finishing: None,
-            plugin_host: None,
-            grants: None,
+            plugin_host,
+            grants,
             fed: super::install_grants::Granted::NONE,
             plugin_question: None,
             plugin_shown: None,
@@ -223,9 +248,9 @@ impl Driver {
             resume: false,
             revocations: Vec::new(),
             ready: Vec::new(),
-            kept: Vec::new(),
+            kept,
             lost: 0,
-            skipped: Rc::new(Cell::new(0)),
+            skipped,
             blocked_until: None,
             ask: None,
             shown: None,
@@ -236,6 +261,73 @@ impl Driver {
             dual_pending: None,
             ini_read: false,
         }
+    }
+
+    /// What the driver is made of, for it to rest
+    /// ([`super::firmware_cell::FirmwareCell::rest`]).
+    /// The outcomes kept for op 13 go with them (a slot that waits for no
+    /// request is dropped), and so does the machine while it keeps a check's
+    /// result or a failed install's outcome.
+    pub(crate) fn into_parts(self) -> DriverParts {
+        let mut kept = self.kept;
+        kept.retain(|kept| kept.outcome.is_some());
+        let machine = Some(self.machine)
+            .filter(|machine| machine.try_borrow().map_or(true, |machine| !machine.at_rest()));
+        DriverParts {
+            host: self.host,
+            plugin_host: self.plugin_host,
+            grants: self.grants,
+            kept,
+            machine,
+        }
+    }
+
+    /// What op 13 says of `owner`'s ended request `request` in `kept`.
+    pub(crate) fn kept_lookup(kept: &[Kept], owner: u64, request: u32) -> Option<Lookup> {
+        kept.iter()
+            .filter(|kept| kept.owner == owner)
+            .find_map(|kept| kept.outcome.filter(|outcome| outcome.request == request))
+            .map(|outcome| Lookup {
+                kind: outcome.kind,
+                state: 2,
+                outcome: Some(outcome),
+                done: 0,
+                total: 0,
+            })
+    }
+
+    /// Whether nothing is left to run, ask or tell, and the machine runs
+    /// nothing either ([`FirmwareInstall::quiet`]): made again from its parts
+    /// (which keep the outcomes and results plugins may still read), a driver
+    /// is the same. Never for a device that can boot two firmwares (its latch
+    /// and `paperpaw.ini` reading are kept).
+    pub(crate) fn at_rest(&self) -> bool {
+        self.entries.is_empty()
+            && self.queue.is_empty()
+            && self.plugin_jobs.is_empty()
+            && self.running.is_none()
+            && self.finishing.is_none()
+            && self.plugin_question.is_none()
+            && self.plugin_shown.is_none()
+            && self.plugin_unload.is_none()
+            && self.plugin_forget.is_none()
+            && !self.resume
+            && self.revocations.is_empty()
+            && self.ready.is_empty()
+            && self.blocked_until.is_none()
+            && self.ask.is_none()
+            && self.shown.is_none()
+            && !self.restart_wanted
+            && !self.stopping
+            && !self.dual_restart
+            && !self.dual_open
+            && self.dual_pending.is_none()
+            && !self.host.dual_boot_capable()
+            && Rc::strong_count(&self.machine) == 1
+            && self
+                .machine
+                .try_borrow()
+                .is_ok_and(|machine| machine.quiet())
     }
 
     /// Takes a revocation to keep at the next idle pump; `false`: no room (the
@@ -1063,12 +1155,6 @@ impl Driver {
             .iter()
             .copied()
             .find(|outcome| (outcome.owner, outcome.request) == (owner, request))
-            .or_else(|| {
-                self.kept
-                    .iter()
-                    .filter(|kept| kept.owner == owner)
-                    .find_map(|kept| kept.outcome.filter(|outcome| outcome.request == request))
-            })
             .map(|outcome| Lookup {
                 kind: outcome.kind,
                 state: 2,
@@ -1076,6 +1162,7 @@ impl Driver {
                 done: 0,
                 total: 0,
             })
+            .or_else(|| Self::kept_lookup(&self.kept, owner, request))
     }
 
     /// `dev_firmware.state` now (0 while the machine is in use).

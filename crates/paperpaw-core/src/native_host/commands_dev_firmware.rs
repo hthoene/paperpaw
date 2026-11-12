@@ -22,6 +22,7 @@
 use super::{CommandStage, DevOp, WireCommand};
 use crate::native_host::{
     dual_boot_ini::Mode,
+    firmware_cell::FirmwareCell,
     firmware_driver::Driver,
     owner_paths,
     plugin_check::PluginCheck,
@@ -37,7 +38,7 @@ use core::{
     fmt,
 };
 use paperpaw_native::host_glue::{
-    ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED,
+    ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED,
 };
 use paperpaw_sdk::native::keys::Revocation;
 
@@ -54,10 +55,10 @@ const FLAGS: u32 = 3;
 const KIND_PLUGIN: u32 = 0;
 const KIND_FIRMWARE: u32 = 1;
 
-/// The device's firmware table and the submitting plugin's owner key.
+/// The device's firmware and the submitting plugin's owner key.
 #[derive(Clone)]
 pub(crate) struct FirmwareContext {
-    pub(crate) driver: Rc<RefCell<Driver>>,
+    firmware: Rc<FirmwareCell>,
     pub(crate) owner: u64,
     /// The driver's count of what was skipped, kept here to be reachable
     /// when the driver itself is borrowed.
@@ -65,16 +66,30 @@ pub(crate) struct FirmwareContext {
 }
 
 impl FirmwareContext {
-    /// The context of `owner` over `driver`.
-    pub(crate) fn new(driver: Rc<RefCell<Driver>>, owner: u64) -> Self {
-        let skipped = driver
-            .try_borrow()
-            .map_or_else(|_| Rc::new(Cell::new(0)), |driver| driver.skip_counter());
+    /// The context of `owner` over the device's `firmware`.
+    pub(crate) fn new(firmware: Rc<FirmwareCell>, owner: u64) -> Self {
+        let skipped = firmware.skip_counter();
         Self {
-            driver,
+            firmware,
             owner,
             skipped,
         }
+    }
+
+    /// The firmware table, made now where none is: a command that submits.
+    /// `ERR_NO_MEMORY` where there is no room for it.
+    pub(crate) fn driver(&self) -> Result<Rc<RefCell<Driver>>, i32> {
+        self.firmware.make()
+    }
+
+    /// The firmware table, where one is made (none: no request is known).
+    pub(crate) fn existing(&self) -> Option<Rc<RefCell<Driver>>> {
+        self.firmware.driver()
+    }
+
+    /// Whether plugin jobs are taken, made or not.
+    fn plugins_accepted(&self) -> bool {
+        self.firmware.plugins_accepted()
     }
 
     fn skip(&self) {
@@ -149,7 +164,8 @@ impl Drop for FwRelease {
         if self.requests.is_empty() {
             return;
         }
-        if let Ok(mut driver) = self.ctx.driver.try_borrow_mut() {
+        let driver = self.ctx.existing();
+        if let Some(Ok(mut driver)) = driver.as_ref().map(|driver| driver.try_borrow_mut()) {
             for request in &self.requests {
                 driver.cancel(self.ctx.owner, *request);
             }
@@ -334,9 +350,7 @@ impl CommandStage<'_> {
                 match kind {
                     KIND_PLUGIN if request == 0 => Err(ERR_INVALID),
                     KIND_PLUGIN => {
-                        let ctx = self.firmware()?;
-                        let driver = ctx.driver.try_borrow().map_err(|_| ERR_BUSY)?;
-                        if !driver.plugins_accepted() {
+                        if !self.firmware()?.plugins_accepted() {
                             return Err(ERR_UNSUPPORTED);
                         }
                         self.firmware_path(root, path).map(|joined| joined.len())
@@ -356,8 +370,7 @@ impl CommandStage<'_> {
                 if request == 0 || flags & !plugin_install::FLAGS != 0 {
                     return Err(ERR_INVALID);
                 }
-                let driver = ctx.driver.try_borrow().map_err(|_| ERR_BUSY)?;
-                if !driver.plugins_accepted() {
+                if !ctx.plugins_accepted() {
                     return Err(ERR_UNSUPPORTED);
                 }
                 self.firmware_path(root, path).map(|joined| joined.len())
@@ -373,8 +386,7 @@ impl CommandStage<'_> {
                 if request == 0 || flags != 0 || plugin.is_empty() {
                     return Err(ERR_INVALID);
                 }
-                let driver = ctx.driver.try_borrow().map_err(|_| ERR_BUSY)?;
-                if !driver.plugins_accepted() {
+                if !ctx.plugins_accepted() {
                     return Err(ERR_UNSUPPORTED);
                 }
                 Ok(plugin.len())
@@ -389,14 +401,18 @@ impl CommandStage<'_> {
             } => self.validate_revocation(plugin, key, signature),
             WireCommand::FirmwareRestart {} => {
                 let ctx = self.firmware()?;
-                let mut driver = ctx.driver.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+                // None made: no image waits for its restart.
+                let driver = ctx.existing().ok_or(ERR_STATE)?;
+                let mut driver = driver.try_borrow_mut().map_err(|_| ERR_BUSY)?;
                 driver.restart_gate(ctx.owner).map(|()| 0)
             }
             // Answered as unsupported until the host opens it
             // ([`Driver::open_dual_boot`]); a mode beyond 1 is `ERR_INVALID`.
             WireCommand::FirmwareDualBoot { request, mode } => {
                 let ctx = self.firmware()?;
-                let driver = ctx.driver.try_borrow().map_err(|_| ERR_BUSY)?;
+                // A device that boots two firmwares keeps its driver made.
+                let driver = ctx.existing().ok_or(ERR_UNSUPPORTED)?;
+                let driver = driver.try_borrow().map_err(|_| ERR_BUSY)?;
                 if !driver.dual_boot_open() || !driver.plugins_accepted() {
                     return Err(ERR_UNSUPPORTED);
                 }
@@ -563,7 +579,8 @@ impl CommandStage<'_> {
         });
         fw.requests.try_reserve(wanted).map_err(|_| ERR_NO_MEMORY)?;
         let before = fw.requests.len();
-        let mut driver = ctx.driver.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+        let driver = ctx.driver()?;
+        let mut driver = driver.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         for item in new {
             let accepted = match &item.op {
                 DevOp::Firmware(FirmwareOp::Install {
@@ -638,10 +655,11 @@ impl crate::Kernel {
             FirmwareOp::Revoke { ctx, revocation } => {
                 // Nothing answers it: one that finds no room is counted, and
                 // the library lists it again.
-                let queued = ctx
-                    .driver
-                    .try_borrow_mut()
-                    .is_ok_and(|mut driver| driver.queue_revocation(revocation));
+                let queued = ctx.driver().is_ok_and(|driver| {
+                    driver
+                        .try_borrow_mut()
+                        .is_ok_and(|mut driver| driver.queue_revocation(revocation))
+                });
                 if !queued {
                     ctx.skip();
                 }
@@ -649,11 +667,12 @@ impl crate::Kernel {
             FirmwareOp::Restart(ctx) => {
                 // The state may have moved since submit: then nothing asks,
                 // and the skip is counted.
-                let asked = ctx
-                    .driver
-                    .try_borrow_mut()
-                    .map_err(|_| ERR_BUSY)
-                    .and_then(|mut driver| driver.request_restart(ctx.owner));
+                let asked = ctx.existing().ok_or(ERR_STATE).and_then(|driver| {
+                    driver
+                        .try_borrow_mut()
+                        .map_err(|_| ERR_BUSY)
+                        .and_then(|mut driver| driver.request_restart(ctx.owner))
+                });
                 if asked.is_err() {
                     ctx.skip();
                 }

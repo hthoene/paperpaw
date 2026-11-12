@@ -402,7 +402,7 @@ impl Kernel {
         let Some((nonce, answer)) = read_answer(&ANSWERED, params) else {
             return;
         };
-        if let Some(driver) = self.firmware.clone()
+        if let Some(driver) = self.firmware_driver()
             && let Ok(mut driver) = driver.try_borrow_mut()
         {
             let _ = driver.answer_shown(nonce, answer);
@@ -412,7 +412,7 @@ impl Kernel {
     /// The device goes to sleep: a confirmation that shows is dismissed, and
     /// the jobs that run or wait end with reason 20.
     pub(crate) fn firmware_suspend(&mut self) {
-        let Some(driver) = self.firmware.clone() else {
+        let Some(driver) = self.firmware_driver() else {
             return;
         };
         let nonce = driver
@@ -430,7 +430,11 @@ impl Kernel {
 
     /// The plugin `key` stopped: its requests and its confirmation go.
     pub(crate) fn firmware_sender_stopped(&mut self, key: u64) {
-        let Some(driver) = self.firmware.clone() else {
+        let Some(driver) = self.firmware_driver() else {
+            // At rest: only what was kept for it is left.
+            if let Some(cell) = self.firmware.as_ref() {
+                cell.forget_resting(key);
+            }
             return;
         };
         let nonce = driver

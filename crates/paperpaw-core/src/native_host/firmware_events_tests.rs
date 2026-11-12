@@ -48,7 +48,7 @@ fn a_kernel_without_a_firmware_host_has_nothing_to_pump() {
 #[test]
 fn a_check_ends_through_the_pump_and_its_outcome_is_kept_for_its_plugin() {
     let mut kernel = kernel();
-    let driver = kernel.firmware.clone().unwrap();
+    let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
     driver
         .borrow_mut()
         .submit_check(1, 7, "update.ppu")
@@ -67,7 +67,7 @@ fn a_check_ends_through_the_pump_and_its_outcome_is_kept_for_its_plugin() {
 #[test]
 fn an_install_waits_for_its_confirmation_and_the_pump_goes_quiet() {
     let mut kernel = kernel();
-    let driver = kernel.firmware.clone().unwrap();
+    let driver = kernel.firmware.as_ref().unwrap().make().unwrap();
     driver
         .borrow_mut()
         .submit_install(1, 5, "update.ppu", None, 0)

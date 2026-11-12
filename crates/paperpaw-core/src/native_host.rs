@@ -41,6 +41,8 @@ pub(crate) mod work_sched;
 #[path = "native_host/work_service.rs"]
 mod work_service;
 
+#[path = "native_host/firmware_cell.rs"]
+pub(crate) mod firmware_cell;
 #[path = "native_host/firmware_confirm.rs"]
 #[allow(
     dead_code,

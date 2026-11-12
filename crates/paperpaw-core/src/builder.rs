@@ -584,8 +584,12 @@ impl BuilderParts {
         );
         // A removal waits for the host to forget its plugin's secrets and
         // grants: the first pass of the kernel finishes it.
-        if to_finish && let Some(driver) = &kernel.firmware {
-            driver.borrow_mut().want_resume();
+        if to_finish
+            && let Some(cell) = &kernel.firmware
+            && let Ok(driver) = cell.make()
+            && let Ok(mut driver) = driver.try_borrow_mut()
+        {
+            driver.want_resume();
         }
         for line in said {
             kernel.warn_runtime(line);
@@ -855,16 +859,12 @@ impl BuilderParts {
             last_user_input: None,
             radio_requests: alloc::rc::Rc::default(),
             firmware: self.firmware_host.take().map(|host| {
-                let mut driver = crate::native_host::firmware_driver::Driver::new(
-                    host,
-                    alloc::rc::Rc::new(core::cell::RefCell::new(
-                        crate::native_host::firmware_install::FirmwareInstall::new(),
-                    )),
-                );
+                // The driver is made at the first firmware or plugin command.
+                let cell = crate::native_host::firmware_cell::FirmwareCell::new(host);
                 if let Some(plugins) = self.plugin_host.take() {
-                    driver.set_plugin_host(plugins);
+                    cell.set_plugin_host(plugins);
                 }
-                alloc::rc::Rc::new(core::cell::RefCell::new(driver))
+                alloc::rc::Rc::new(cell)
             }),
             shown_since: Instant(0),
             scope: None,

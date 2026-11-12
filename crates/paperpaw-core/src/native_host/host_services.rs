@@ -41,6 +41,13 @@ pub(crate) struct Caller<'a> {
     pub(crate) hosts: &'a HostServices,
 }
 
+/// A machine and a table wired on their own (the device ops' tests).
+#[cfg(test)]
+type FirmwareParts = (
+    OnceCell<Rc<RefCell<super::firmware_install::FirmwareInstall>>>,
+    OnceCell<Rc<RefCell<super::firmware_driver::Driver>>>,
+);
+
 #[derive(Default)]
 pub(crate) struct HostServices {
     /// What a native screen's callbacks stage, for the kernel (`screen_stage`).
@@ -57,12 +64,14 @@ pub(crate) struct HostServices {
     images: super::image_service::ImageTable,
     ui: OnceCell<alloc::boxed::Box<UiServices>>,
     device: OnceCell<super::device_service::DeviceServices>,
-    /// The firmware install machine, which `core.device` ops 3, 6 and 16 read
-    /// and the kernel's pump drives. One per device.
-    firmware: OnceCell<Rc<RefCell<super::firmware_install::FirmwareInstall>>>,
-    /// The firmware request table (op 13 reads the state of a request and the
-    /// outcome kept for it). One per device.
-    firmware_requests: OnceCell<Rc<RefCell<super::firmware_driver::Driver>>>,
+    /// The device's firmware: its request table (op 13 reads the state of a
+    /// request and the outcome kept for it) and install machine (ops 3, 6 and
+    /// 16), made while a job needs them, which the kernel's pump drives. One
+    /// per device.
+    firmware: OnceCell<Rc<super::firmware_cell::FirmwareCell>>,
+    /// A machine and a table wired on their own (the device ops' tests).
+    #[cfg(test)]
+    firmware_parts: FirmwareParts,
     /// The kernel's table of Wi-Fi requests, which a callback's stage
     /// reserves `join` and `host` in (`commands_dev.rs`). One per device.
     radio_requests: OnceCell<Rc<RefCell<super::radio_requests::RadioRequests>>>,
@@ -148,7 +157,8 @@ impl HostServices {
             ui: OnceCell::new(),
             device: OnceCell::new(),
             firmware: OnceCell::new(),
-            firmware_requests: OnceCell::new(),
+            #[cfg(test)]
+            firmware_parts: (OnceCell::new(), OnceCell::new()),
             radio_requests: OnceCell::new(),
             net: OnceCell::new(),
             sockets: OnceCell::new(),
@@ -361,17 +371,56 @@ impl HostServices {
             .map_err(|_| ERR_STATE)
     }
 
-    /// Wire the firmware request table once (op 13).
+    /// Wire the device's firmware once.
+    pub(crate) fn wire_firmware(
+        &self,
+        cell: Rc<super::firmware_cell::FirmwareCell>,
+    ) -> Result<(), i32> {
+        self.firmware.set(cell).map_err(|_| ERR_STATE)
+    }
+
+    /// The device's firmware, where wired.
+    pub(crate) fn firmware_cell(&self) -> Option<&Rc<super::firmware_cell::FirmwareCell>> {
+        self.firmware.get()
+    }
+
+    /// Whether the device has a firmware host (a table and a machine may be
+    /// made): without, the firmware ops are `ERR_UNSUPPORTED`.
+    pub(crate) fn firmware_wired(&self) -> bool {
+        #[cfg(test)]
+        if self.firmware_parts.0.get().is_some() || self.firmware_parts.1.get().is_some() {
+            return true;
+        }
+        self.firmware.get().is_some()
+    }
+
+    /// What op 13 says of `owner`'s request `request`: from the driver, or
+    /// from the outcomes resting with its parts; `None` for one not known.
+    ///
+    /// # Errors
+    /// `ERR_BUSY` where the table is in use.
+    pub(crate) fn firmware_lookup(
+        &self,
+        owner: u64,
+        request: u32,
+    ) -> Result<Option<super::firmware_driver::Lookup>, i32> {
+        #[cfg(test)]
+        if let Some(driver) = self.firmware_parts.1.get() {
+            let driver = driver.try_borrow().map_err(|_| ERR_BUSY)?;
+            return Ok(driver.lookup(owner, request));
+        }
+        self.firmware
+            .get()
+            .map_or(Ok(None), |cell| cell.lookup(owner, request))
+    }
+
+    /// Wire the firmware request table on its own (tests).
+    #[cfg(test)]
     pub(crate) fn wire_firmware_requests(
         &self,
         driver: Rc<RefCell<super::firmware_driver::Driver>>,
     ) -> Result<(), i32> {
-        self.firmware_requests.set(driver).map_err(|_| ERR_STATE)
-    }
-
-    /// The firmware request table, where wired.
-    pub(crate) fn firmware_requests(&self) -> Option<&Rc<RefCell<super::firmware_driver::Driver>>> {
-        self.firmware_requests.get()
+        self.firmware_parts.1.set(driver).map_err(|_| ERR_STATE)
     }
 
     /// Wire the kernel's Wi-Fi request table; the first wiring stays (the
@@ -390,16 +439,13 @@ impl HostServices {
         self.radio_requests.get()
     }
 
-    /// Wire the firmware install machine once.
-    #[allow(
-        dead_code,
-        reason = "the kernel's pump wires it (slice B2); tests do today"
-    )]
+    /// Wire the firmware install machine on its own (tests).
+    #[cfg(test)]
     pub(crate) fn wire_firmware_install(
         &self,
         machine: Rc<RefCell<super::firmware_install::FirmwareInstall>>,
     ) -> Result<(), i32> {
-        self.firmware.set(machine).map_err(|_| ERR_STATE)
+        self.firmware_parts.0.set(machine).map_err(|_| ERR_STATE)
     }
 
     #[allow(dead_code, reason = "a shell wires its host view; tests do today")]
@@ -706,10 +752,15 @@ impl HostServices {
     pub(crate) fn device(&self) -> Option<&super::device_service::DeviceServices> {
         self.device.get()
     }
+    /// The firmware install machine, where one is made now.
     pub(crate) fn firmware_install(
         &self,
-    ) -> Option<&Rc<RefCell<super::firmware_install::FirmwareInstall>>> {
-        self.firmware.get()
+    ) -> Option<Rc<RefCell<super::firmware_install::FirmwareInstall>>> {
+        #[cfg(test)]
+        if let Some(machine) = self.firmware_parts.0.get() {
+            return Some(Rc::clone(machine));
+        }
+        self.firmware.get().and_then(|cell| cell.machine())
     }
 
     /// The owner is retired (its callbacks are revoked and its handles
