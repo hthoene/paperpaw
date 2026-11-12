@@ -324,7 +324,10 @@ fn ids_and_texts_kept_nowhere_are_copied() {
 }
 
 /// The titles table of a linked plugin: one action of it.
-static TITLES: [(Id, &str); 1] = [(Id::new_static("battery.open"), "battery.open-title")];
+static TITLES: [paperpaw_sdk::TitleEntry; 1] = [paperpaw_sdk::TitleEntry::new(
+    Id::new_static("battery.open"),
+    "battery.open-title",
+)];
 
 fn action(title: &str) -> wire::ActionSpec<'_> {
     wire::ActionSpec {

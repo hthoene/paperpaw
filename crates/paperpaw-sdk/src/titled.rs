@@ -7,6 +7,27 @@ use core::fmt;
 
 use crate::id::Id;
 
+/// An entry of a linked plugin's titles table, kept in the program: the id of
+/// a screen or an action it declares and the translation key of its name
+/// ([`fixed_titles_source`](crate::native::declare::fixed_titles_source)).
+/// Made with [`TitleEntry::new`], so that it can grow later.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct TitleEntry {
+    /// The screen's or the action's id.
+    pub id: Id,
+    /// The translation key of its name.
+    pub title: &'static str,
+}
+
+impl TitleEntry {
+    /// The entry for `id`, called `title`; usable in `static` items.
+    #[must_use]
+    pub const fn new(id: Id, title: &'static str) -> Self {
+        Self { id, title }
+    }
+}
+
 /// An id and the translation key of its name (a screen's, an action's): an
 /// entry kept in the program, which a linked plugin's build makes of its own
 /// declarations ([`fixed_titles_source`](crate::native::declare::fixed_titles_source)),
@@ -16,14 +37,14 @@ pub struct Titled(Held);
 
 #[derive(Clone)]
 enum Held {
-    Kept(&'static (Id, &'static str)),
+    Kept(&'static TitleEntry),
     Owned(Box<(Id, Cow<'static, str>)>),
 }
 
 impl Titled {
     /// The entry `entry`, kept in the program: nothing is copied.
     #[must_use]
-    pub const fn kept(entry: &'static (Id, &'static str)) -> Self {
+    pub const fn kept(entry: &'static TitleEntry) -> Self {
         Self(Held::Kept(entry))
     }
 
@@ -38,7 +59,7 @@ impl Titled {
     #[must_use]
     pub fn id(&self) -> &Id {
         match &self.0 {
-            Held::Kept((id, _)) => id,
+            Held::Kept(entry) => &entry.id,
             Held::Owned(owned) => &owned.0,
         }
     }
@@ -47,7 +68,7 @@ impl Titled {
     #[must_use]
     pub fn title(&self) -> &str {
         match &self.0 {
-            Held::Kept((_, title)) => title,
+            Held::Kept(entry) => entry.title,
             Held::Owned(owned) => &owned.1,
         }
     }
@@ -57,7 +78,7 @@ impl Titled {
     #[must_use]
     pub fn title_key(&self) -> Cow<'static, str> {
         match &self.0 {
-            Held::Kept((_, title)) => Cow::Borrowed(title),
+            Held::Kept(entry) => Cow::Borrowed(entry.title),
             Held::Owned(owned) => owned.1.clone(),
         }
     }

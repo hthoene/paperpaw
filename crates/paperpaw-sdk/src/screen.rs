@@ -1179,9 +1179,9 @@ mod tests {
     #[cfg(feature = "kernel")]
     #[test]
     fn a_screen_list_reads_both_kinds_in_the_order_of_their_ids() {
-        static KEPT: [(Id, &str); 2] = [
-            (Id::new_static("b.screen"), "b.title"),
-            (Id::new_static("d.screen"), "d.title"),
+        static KEPT: [crate::TitleEntry; 2] = [
+            crate::TitleEntry::new(Id::new_static("b.screen"), "b.title"),
+            crate::TitleEntry::new(Id::new_static("d.screen"), "d.title"),
         ];
         let added = [
             (Id::new_static("a.screen"), Cow::Borrowed("a.title")),
@@ -1209,6 +1209,6 @@ mod tests {
             ]
         );
         assert_eq!(list.len(), 5);
-        assert!(core::ptr::eq(list.iter().nth(1).unwrap().0, &KEPT[0].0));
+        assert!(core::ptr::eq(list.iter().nth(1).unwrap().0, &KEPT[0].id));
     }
 }

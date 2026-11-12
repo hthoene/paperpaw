@@ -208,13 +208,13 @@ pub fn fixed_ids_source(plugin: &str, name: &str, batches: &[&[u8]]) -> Result<S
     ))
 }
 
-/// Rust source of `pub static <name>: [(paperpaw_sdk::Id, &str); N]`: the id
+/// Rust source of `pub static <name>: [paperpaw_sdk::TitleEntry; N]`: the id
 /// and title of every screen and action the `batches` of `plugin` declare,
 /// sorted by the id's text, each id once. The kernel keeps a native screen's
 /// or action's id and title as the entry it finds here, where both are the
 /// same, instead of in a row of its own ([`Titled::kept`](crate::Titled::kept),
 /// #248). Meant for a build script; the generated code names
-/// `paperpaw_sdk::Id` in full. An id that is not valid is left out (the kernel
+/// `paperpaw_sdk::TitleEntry` and `paperpaw_sdk::Id` in full. An id that is not valid is left out (the kernel
 /// refuses its record anyway).
 ///
 /// # Errors
@@ -242,11 +242,11 @@ pub fn fixed_titles_source(plugin: &str, name: &str, batches: &[&[u8]]) -> Resul
     for (id, title) in &titles {
         let _ = writeln!(
             rows,
-            "    (paperpaw_sdk::Id::new_static({id:?}), {title:?}),"
+            "    paperpaw_sdk::TitleEntry::new(paperpaw_sdk::Id::new_static({id:?}), {title:?}),"
         );
     }
     Ok(format!(
-        "pub static {name}: [(paperpaw_sdk::Id, &str); {}] = [\n{rows}];\n",
+        "pub static {name}: [paperpaw_sdk::TitleEntry; {}] = [\n{rows}];\n",
         titles.len()
     ))
 }

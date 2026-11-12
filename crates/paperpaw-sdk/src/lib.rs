@@ -210,7 +210,7 @@ pub use sockets::{
     CertificateHash, Distrust, KeyHash, MAX_PINS, MAX_TLS_IDLE_MS, MAX_TLS_TIMEOUT_MS, SocketError,
     Tls, Trust,
 };
-pub use titled::Titled;
+pub use titled::{TitleEntry, Titled};
 pub use version::{DATA_FORMATS, SDK_VERSION, Version};
 
 /// Round shapes' geometry: angles as on a clock face, points around a

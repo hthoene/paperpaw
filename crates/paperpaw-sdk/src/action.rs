@@ -778,7 +778,8 @@ mod tests {
     /// program, and it reads as a copy of the same would (#248, B).
     #[test]
     fn a_native_action_kept_in_the_program_reads_as_a_copy() {
-        static KEPT: (Id, &str) = (Id::new_static("p.open"), "p.open-title");
+        static KEPT: crate::TitleEntry =
+            crate::TitleEntry::new(Id::new_static("p.open"), "p.open-title");
         let mut actions = Actions::new();
         actions.try_reserve_native(2).unwrap();
         actions.insert_native(NativeAction::new(crate::Titled::kept(&KEPT), 7, 3));
@@ -787,7 +788,7 @@ mod tests {
         actions.insert_native(NativeAction::new(crate::Titled::owned(owned), 7, 4));
         let kept = actions.get("p.open").unwrap();
         let copy = actions.get("q.open").unwrap();
-        assert!(core::ptr::eq(kept.id(), &KEPT.0));
+        assert!(core::ptr::eq(kept.id(), &KEPT.id));
         assert_eq!(kept.title(), copy.title());
         assert!(matches!(kept.title_key(), Cow::Borrowed("p.open-title")));
         assert_eq!((kept.native(), copy.native()), (Some((7, 3)), Some((7, 4))));

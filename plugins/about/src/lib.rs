@@ -67,4 +67,4 @@ pub static NATIVE_IDS: &[paperpaw_sdk::Id] = &native_settings::IDS;
 /// The id and title of each screen and action the plugin declares, as a table
 /// kept in the program like [`NATIVE_SETTINGS`].
 #[cfg(feature = "linked")]
-pub static NATIVE_TITLES: &[(paperpaw_sdk::Id, &str)] = &native_settings::TITLES;
+pub static NATIVE_TITLES: &[paperpaw_sdk::TitleEntry] = &native_settings::TITLES;

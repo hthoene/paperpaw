@@ -146,7 +146,7 @@ fn every_linked_plugins_action_keeps_the_entry_of_its_titles_table() {
         assert!(
             titles
                 .iter()
-                .any(|(kept, title)| core::ptr::eq(kept, id) && *title == action.title()),
+                .any(|kept| core::ptr::eq(&kept.id, id) && kept.title == action.title()),
             "{} keeps a row of its own",
             id.as_str()
         );
@@ -165,9 +165,9 @@ fn every_linked_plugins_screen_keeps_the_entry_of_its_titles_table() {
     let mut kept = 0;
     for id in kernel.known_screens() {
         let titles = paperpaw_app::fixed_tables(id.namespace()).titles;
-        if titles.iter().any(|(entry, _)| entry == id) {
+        if titles.iter().any(|entry| entry.id == *id) {
             assert!(
-                titles.iter().any(|(entry, _)| core::ptr::eq(entry, id)),
+                titles.iter().any(|entry| core::ptr::eq(&entry.id, id)),
                 "{} keeps a row of its own",
                 id.as_str()
             );

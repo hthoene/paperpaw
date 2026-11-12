@@ -28,7 +28,7 @@ pub struct FixedTables {
     /// (`paperpaw_sdk::native::declare::fixed_titles_source`): a screen or an
     /// action whose id and title are an entry keeps that entry, no row of its
     /// own (#248). Any other is copied.
-    pub titles: &'static [(Id, &'static str)],
+    pub titles: &'static [paperpaw_sdk::TitleEntry],
     /// The program's read-only data (`Kernel::register_linked`'s `image`):
     /// the titles and texts its declarations hold there are read from there.
     pub(crate) image: &'static [u8],
@@ -74,7 +74,7 @@ impl FixedTables {
     /// The same tables with the plugin's titles table `titles` (sorted by
     /// id).
     #[must_use]
-    pub const fn with_titles(self, titles: &'static [(Id, &'static str)]) -> Self {
+    pub const fn with_titles(self, titles: &'static [paperpaw_sdk::TitleEntry]) -> Self {
         Self { titles, ..self }
     }
 

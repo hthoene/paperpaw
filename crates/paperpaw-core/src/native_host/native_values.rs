@@ -27,7 +27,7 @@ pub(crate) struct Callback {
     pub(crate) flags: u32,
     /// The entry of the plugin's titles table with the same id and title,
     /// where it has one: the kernel keeps that, not a row of its own (#248).
-    pub(crate) kept: Option<&'static (Id, &'static str)>,
+    pub(crate) kept: Option<&'static paperpaw_sdk::TitleEntry>,
 }
 
 #[derive(Debug)]
@@ -68,7 +68,7 @@ pub(crate) trait Source {
 
     /// The entry kept in the program with the id `id` and the title `title`
     /// (a screen's, an action's); by default none.
-    fn titled(&self, id: &str, title: &str) -> Option<&'static (Id, &'static str)> {
+    fn titled(&self, id: &str, title: &str) -> Option<&'static paperpaw_sdk::TitleEntry> {
         let _ = (id, title);
         None
     }
@@ -93,7 +93,7 @@ pub(crate) struct Kept {
     /// The program's read-only data; empty for none.
     pub(crate) image: &'static [u8],
     /// Sorted by id ([`super::FixedTables::titles`]).
-    pub(crate) titles: &'static [(Id, &'static str)],
+    pub(crate) titles: &'static [paperpaw_sdk::TitleEntry],
 }
 
 impl Kept {
@@ -116,14 +116,14 @@ impl Source for Kept {
         }
     }
 
-    fn titled(&self, id: &str, title: &str) -> Option<&'static (Id, &'static str)> {
+    fn titled(&self, id: &str, title: &str) -> Option<&'static paperpaw_sdk::TitleEntry> {
         let at = self
             .titles
-            .binary_search_by(|(kept, _)| kept.as_str().cmp(id))
+            .binary_search_by(|kept| kept.id.as_str().cmp(id))
             .ok()?;
         // Only the very same: a title that differs keeps a row of its own.
         let entry = &self.titles[at];
-        (entry.1 == title).then_some(entry)
+        (entry.title == title).then_some(entry)
     }
 
     fn text(&mut self, text: &str) -> Result<Cow<'static, str>, i32> {
@@ -180,7 +180,7 @@ pub(crate) fn normalize(
 /// entry of the plugin's titles table where the declaration has one (no heap,
 /// #248), else a copy of its own (`ERR_NO_MEMORY` where the heap refuses it).
 pub(crate) fn titled(
-    kept: Option<&'static (Id, &'static str)>,
+    kept: Option<&'static paperpaw_sdk::TitleEntry>,
     id: Id,
     title: Cow<'static, str>,
 ) -> Result<paperpaw_sdk::Titled, i32> {
