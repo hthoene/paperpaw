@@ -345,7 +345,7 @@ fn books_open_in_the_shipped_reader_until_another_is_chosen() {
 #[test]
 #[cfg_attr(
     feature = "native-linked-reading",
-    ignore = "interface-6 reading-app resolver not carried (document.md §1)"
+    ignore = "interface-6 reading-app resolver not carried (document.md §1, #257)"
 )]
 fn a_format_opens_with_its_reading_app() {
     let mut app = App::new(books(), "reading-app.format-txt.txt = plain.app\n");
@@ -357,7 +357,7 @@ fn a_format_opens_with_its_reading_app() {
 #[test]
 #[cfg_attr(
     feature = "native-linked-reading",
-    ignore = "interface-6 reading-app resolver not carried (document.md §1)"
+    ignore = "interface-6 reading-app resolver not carried (document.md §1, #257)"
 )]
 fn the_default_reading_app_opens_what_it_reads() {
     let mut app = App::new(books(), "reading-app = plain.app\n");
@@ -369,7 +369,7 @@ fn the_default_reading_app_opens_what_it_reads() {
 #[test]
 #[cfg_attr(
     feature = "native-linked-reading",
-    ignore = "interface-6 reading-app resolver not carried (document.md §1)"
+    ignore = "interface-6 reading-app resolver not carried (document.md §1, #257)"
 )]
 fn a_book_and_a_folder_keep_their_reading_app() {
     let storage = books();
@@ -393,7 +393,7 @@ fn a_book_and_a_folder_keep_their_reading_app() {
 #[test]
 #[cfg_attr(
     feature = "native-linked-reading",
-    ignore = "interface-6 reading-app resolver not carried (document.md §1)"
+    ignore = "interface-6 reading-app resolver not carried (document.md §1, #257)"
 )]
 fn the_settings_offer_the_readers_of_each_format() {
     let app = App::new(books(), "");
@@ -429,7 +429,7 @@ fn listed(app: &mut App) -> (Vec<String>, Option<String>) {
 #[test]
 #[cfg_attr(
     feature = "native-linked-reading",
-    ignore = "interface-6 reading-app resolver not carried (document.md §1)"
+    ignore = "interface-6 reading-app resolver not carried (document.md §1, #257)"
 )]
 fn open_with_lists_the_readers_of_the_book_and_keeps_the_one_chosen() {
     let mut app = App::new(books(), "");
@@ -490,7 +490,7 @@ fn by_touch_a_reading_app_is_tapped_in_the_list_and_in_the_settings() {
 #[test]
 #[cfg_attr(
     feature = "native-linked-reading",
-    ignore = "interface-6 reading-app resolver not carried (document.md §1)"
+    ignore = "interface-6 reading-app resolver not carried (document.md §1, #257)"
 )]
 fn a_folders_reading_app_is_chosen_from_every_reader() {
     let mut app = App::new(books(), "");
@@ -520,7 +520,7 @@ fn reading(app: &App) -> Vec<String> {
 #[test]
 #[cfg_attr(
     feature = "native-linked-reading",
-    ignore = "interface-6 reading-app resolver not carried (document.md §1)"
+    ignore = "interface-6 reading-app resolver not carried (document.md §1, #257)"
 )]
 fn one_reading_app_is_open_at_a_time() {
     let mut app = App::new(books(), "");
@@ -561,7 +561,7 @@ fn a_reading_app_that_is_gone_is_passed_over_silently() {
 #[test]
 #[cfg_attr(
     feature = "native-linked-reading",
-    ignore = "interface-6 reading-app resolver not carried (document.md §1)"
+    ignore = "interface-6 reading-app resolver not carried (document.md §1, #257)"
 )]
 fn a_book_is_the_same_with_slashes_at_its_ends() {
     let storage = books();
