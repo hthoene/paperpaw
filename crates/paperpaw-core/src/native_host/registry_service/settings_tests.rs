@@ -511,7 +511,13 @@ fn every_rows_governs_flag_is_what_settings_governs_says() {
     let kernel = kernel();
     let settings = &kernel.shared.settings;
     // Found once for a list: sorted, each id once, the same answer per id.
-    let ids = settings::governing(settings).unwrap();
+    let env = kernel.shared.env(Instant(0));
+    let sources = super::sources::Sources {
+        env: &env,
+        directory: None,
+        generation: &kernel.shared.registry_generation,
+    };
+    let ids = settings::governing(&sources, settings).unwrap();
     assert!(ids.windows(2).all(|pair| pair[0] < pair[1]));
     assert!(ids.contains(&"cfg.flag"));
     let rows = pages(&kernel, schema::OP_SETTINGS, "");

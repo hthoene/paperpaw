@@ -165,22 +165,32 @@ fn source(sources: &Sources<'_>, spec: &SettingSpec) -> u32 {
 }
 
 /// The ids of the settings whose value another setting's showing depends on
-/// ([`Settings::governs`]), sorted and each once: one pass over the specs
+/// ([`Settings::governs`], and a native plugin's declared `shown_if`), sorted
+/// and each once: one pass over the specs
 /// for a whole list instead of one per row (a list of every setting was
 /// quadratic, #248). Freed when the list ends; `None` where there is no room
 /// for it, and each row then asks `governs` itself.
-pub(super) fn governing(all: &Settings) -> Option<Vec<&str>> {
+pub(super) fn governing<'s>(sources: &Sources<'_>, all: &'s Settings) -> Option<Vec<&'s str>> {
+    let mut declared = 0_usize;
+    native_extra::each_governing(sources, all, &mut |_| declared += 1);
     let count = all
         .specs()
         .filter(|spec| spec.extra().shown_if.is_some())
         .count();
     let mut ids = Vec::new();
-    ids.try_reserve_exact(count).ok()?;
+    ids.try_reserve_exact(count.checked_add(declared)?).ok()?;
     ids.extend(
         all.specs()
             .filter_map(|spec| spec.extra().shown_if.as_ref())
             .map(|(of, _)| of.as_str()),
     );
+    // Within the room counted: the store is changed by the kernel alone,
+    // never during a call.
+    native_extra::each_governing(sources, all, &mut |of| {
+        if ids.len() < ids.capacity() {
+            ids.push(of);
+        }
+    });
     ids.sort_unstable();
     ids.dedup();
     Some(ids)
@@ -200,6 +210,12 @@ fn with_row<R>(
     let settings = env.settings();
     let id = spec.id.as_str();
     let extra = spec.extra();
+    // A native plugin's declared extra is read from the store, never busy
+    // here: the op checked it first ([`native_extra::ready`]).
+    let (slider, shown) = native_extra::with_extra(sources, spec, |shown| {
+        (shown.slider, native_extra::shows(settings, shown))
+    })
+    .unwrap_or_else(|_| (extra.slider, settings.shows(spec)));
     let mut flags = 0;
     for (on, bit) in [
         (spec.guarded, GUARDED),
@@ -207,19 +223,16 @@ fn with_row<R>(
         (spec.scoped, SCOPED),
         (spec.is_kept_on_reset(), KEPT_ON_RESET),
         (spec.level == Level::Advanced, ADVANCED),
-        (settings.shows(spec), SHOWN),
+        (shown, SHOWN),
         (
             governing.map_or_else(
-                || settings.governs(id),
+                || settings.governs(id) || native_extra::governs(sources, settings, id),
                 |ids| ids.binary_search(&id).is_ok(),
             ),
             GOVERNS,
         ),
         (
-            // A native plugin's declared extra is read from the store, never
-            // busy here: the op checked it first ([`native_extra::ready`]).
-            matches!(spec.kind, SettingKind::Int { .. })
-                && native_extra::with_extra(sources, spec, |shown| shown.slider).unwrap_or(false),
+            slider && matches!(spec.kind, SettingKind::Int { .. }),
             SLIDER,
         ),
     ] {
@@ -295,7 +308,7 @@ fn settings(
     native_extra::ready(sources)?;
     let all = sources.env.settings();
     let is_group = scope == OTHER.static_str() || all.groups().any(|g| g.id.as_str() == scope);
-    let governing = governing(all);
+    let governing = governing(sources, all);
     for spec in all.specs() {
         let hit = scope.is_empty()
             || if is_group {
