@@ -115,7 +115,9 @@ struct Transaction {
     pending: [Option<Pending>; EDITS_PER_CALL],
 }
 
-/// The open transactions: one per plugin and two device-wide. Allocated once.
+/// The open transactions: one per plugin and two device-wide. Their two rows
+/// are reserved at the first `edit_begin` and freed when the last transaction
+/// ends: nothing is held while no plugin edits (#248).
 #[derive(Debug)]
 pub(crate) struct Transactions {
     next_id: Cell<u32>,
@@ -128,13 +130,24 @@ impl Transactions {
     /// # Errors
     /// `ERR_NO_MEMORY`.
     pub(crate) fn try_new() -> Result<Self, i32> {
-        let mut rows = Vec::new();
-        rows.try_reserve_exact(DEVICE).map_err(|_| ERR_NO_MEMORY)?;
         Ok(Self {
             next_id: Cell::new(1),
             edits_cap: Cell::new(EDITS_CAP),
-            rows: RefCell::new(rows),
+            rows: RefCell::new(Vec::new()),
         })
+    }
+
+    /// The rows' room, freed once no transaction is open.
+    fn release(rows: &mut Vec<Transaction>) {
+        if rows.is_empty() {
+            *rows = Vec::new();
+        }
+    }
+
+    /// The bytes the rows hold (tests).
+    #[cfg(test)]
+    pub(crate) fn held(&self) -> usize {
+        self.rows.borrow().capacity() * core::mem::size_of::<Transaction>()
     }
 
     /// The X4's cap on the edits of one transaction.
@@ -152,7 +165,8 @@ impl Transactions {
     fn expire(&self, now_ms: u64, mut ended: impl FnMut(u32)) -> Result<(), i32> {
         let mut dropped = [0_u32; DEVICE];
         let mut count = 0;
-        self.rows()?.retain(|t| {
+        let mut rows = self.rows()?;
+        rows.retain(|t| {
             let stale = now_ms.saturating_sub(t.touched_ms) > IDLE_MS;
             if stale && let Some(slot) = dropped.get_mut(count) {
                 *slot = t.id;
@@ -160,6 +174,8 @@ impl Transactions {
             }
             !stale
         });
+        Self::release(&mut rows);
+        drop(rows);
         dropped.iter().take(count).for_each(|id| ended(*id));
         Ok(())
     }
@@ -171,6 +187,9 @@ impl Transactions {
         }
         let id = self.next_id.get();
         let next = id.checked_add(1).ok_or(ERR_NO_SPACE)?;
+        if rows.capacity() == 0 {
+            rows.try_reserve_exact(DEVICE).map_err(|_| ERR_NO_MEMORY)?;
+        }
         rows.push(Transaction {
             id,
             owner,
@@ -209,7 +228,9 @@ impl Transactions {
     /// End the transaction. A row that cannot be freed now (the table is in
     /// use) is not lost: every call expires rows idle for 10 minutes.
     fn finish(&self, id: u32) -> Result<(), i32> {
-        self.rows()?.retain(|t| t.id != id);
+        let mut rows = self.rows()?;
+        rows.retain(|t| t.id != id);
+        Self::release(&mut rows);
         Ok(())
     }
 
@@ -227,7 +248,8 @@ impl Transactions {
         let mut closed = [0_u32; DEVICE];
         let mut count = 0;
         // The row count is at most `DEVICE`, so `closed` holds every id.
-        self.rows()?.retain(|t| {
+        let mut rows = self.rows()?;
+        rows.retain(|t| {
             let mine = t.owner == owner;
             if let (true, Some(slot)) = (mine, closed.get_mut(count)) {
                 *slot = t.id;
@@ -235,6 +257,8 @@ impl Transactions {
             }
             !mine
         });
+        Self::release(&mut rows);
+        drop(rows);
         closed.iter().take(count).for_each(|id| ended(*id));
         Ok(())
     }

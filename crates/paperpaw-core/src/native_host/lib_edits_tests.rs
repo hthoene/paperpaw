@@ -641,3 +641,20 @@ fn a_committed_transaction_raises_the_annotations_change_for_its_book_and_a_refu
     assert_eq!(take(&t), Some((1 << 3, BOOK.into())));
     assert_eq!(take(&t), None);
 }
+
+/// The transactions' rows are reserved at the first begin and freed when the
+/// last one ends: nothing is held while no plugin edits (#248).
+#[test]
+fn no_transaction_room_is_held_before_the_first_begin_or_after_the_last_end() {
+    let t = fixture();
+    let held = || t.host.transactions().unwrap().held();
+    assert_eq!(held(), 0, "before any begin");
+    t.transact(1, &[edit(0)], &[]).unwrap();
+    assert_eq!(held(), 0, "after the commit");
+    // One open: its rows are held until its plugin's transactions end.
+    let transactions = t.host.transactions().unwrap();
+    transactions.begin_for_test(OWNER, 1_000);
+    assert!(held() > 0, "while one is open");
+    transactions.close_owner(OWNER, |_| {}).unwrap();
+    assert_eq!(held(), 0, "after the last ended");
+}
