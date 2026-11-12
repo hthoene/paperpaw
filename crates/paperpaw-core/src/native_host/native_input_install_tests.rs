@@ -299,7 +299,7 @@ fn nothing_reaches_a_screen_below_the_top() {
     assert!(first.is_empty());
     let other = host_named("other", 0);
     kernel
-        .register_native(other, &device_depth(&kernel), |_, _, _| {})
+        .register_native(other, &device_depth(&kernel), |_, _, _, _| {})
         .unwrap();
     kernel.open_screen(Instant(2), Id::new_static("other.screen"), Params::new());
     let top = kernel.stack.len() - 1;
@@ -322,7 +322,7 @@ fn nothing_reaches_a_screen_below_a_guard() {
     let mut kernel = opened(0, 0);
     let guard = host_named("guard", 1 << 1);
     kernel
-        .register_native(guard, &device_depth(&kernel), |_, _, _| {})
+        .register_native(guard, &device_depth(&kernel), |_, _, _, _| {})
         .unwrap();
     kernel.open_screen(Instant(2), Id::new_static("guard.screen"), Params::new());
     let top = kernel.stack.len() - 1;
