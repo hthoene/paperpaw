@@ -389,7 +389,8 @@ impl Style {
             Frame::None => (None, false),
             Frame::Line => (Some(self.paper), true),
             Frame::Card if self.mono => (Some(sparser(self.card)), true),
-            Frame::Card => (Some(self.card), false),
+            // A theme that coloured the outline wants the edge of its cards seen.
+            Frame::Card => (Some(self.card), self.roles.outline.is_some()),
             Frame::Dark if self.darker() == self.paper => (Some(self.card), false),
             Frame::Dark => (Some(self.darker()), false),
         };
@@ -870,6 +871,12 @@ mod tests {
         style.frame = Some(Frame::Card);
         let card = style.plate(Frame::Line);
         assert_eq!((card.fill, card.outline), (Some(style.card), false));
+        style.roles.outline = Some(Color::gray(40));
+        assert!(
+            style.plate(Frame::Line).outline,
+            "an outline role shows the card's edge"
+        );
+        style.roles.outline = None;
         style.mono = true;
         let sparse = style.plate(Frame::Line);
         assert_eq!(sparse.fill, Some(sparser(style.card)));
