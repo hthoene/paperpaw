@@ -21,7 +21,9 @@ fn a_code_plugins_pictures_read_and_its_code_is_never_shown() {
     let (_card, host) = cards();
     assert!(call(&host, 2, path(1, "plugins/sleepy/owl.png")).is_ok());
     assert!(call(&host, 2, path(1, "plugins/sleepy/art/moon.png")).is_ok());
-    let names = list_all(&host, 1, "plugins/sleepy").unwrap();
+    // In the storage's order (`list` does not sort).
+    let mut names = list_all(&host, 1, "plugins/sleepy").unwrap();
+    names.sort();
     assert_eq!(names, ["art", "owl.png"], "the code and the marks left out");
     for hidden in [
         "plugins/sleepy/code.ppn",
