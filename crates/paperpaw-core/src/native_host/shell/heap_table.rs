@@ -36,9 +36,19 @@ struct Leave<'a, S: 'static>(&'a Context<S>);
 
 impl<S: 'static> Drop for Leave<'_, S> {
     fn drop(&mut self) {
-        if let Some(entry) = self.0.entry {
+        if let Some(entry) = self.0.entry.get() {
             (entry.leave)(&self.0.services, self.0.plugin_id());
         }
+    }
+}
+
+impl<S: super::Services + 'static> Context<S> {
+    /// From here every entry of the plugin's code is announced to the shell
+    /// (`Services::enter`). Admission does it for a plugin from a file; a
+    /// caller that wraps each call itself (`Instance::load`'s `Hooks`) leaves it
+    /// alone, so that a call is announced once.
+    pub(crate) fn announce_entries(&self) {
+        self.entry.set(Some(&Entry::<S>::OF));
     }
 }
 
@@ -47,7 +57,7 @@ impl<S: 'static> Context<S> {
     /// plugin from a file only. `None`: refused, nothing may run and no
     /// `leave` follows.
     fn announce(&self) -> Option<Leave<'_, S>> {
-        match self.entry {
+        match self.entry.get() {
             Some(entry) if !(entry.enter)(&self.services, self.plugin_id()) => None,
             _ => Some(Leave(self)),
         }
@@ -82,10 +92,21 @@ impl<S: 'static> Context<S> {
         ))
     }
 
-    /// The destructor: announced but never refused, a skipped one would leak
-    /// what the plugin holds.
+    /// The destructor, under the same rule as every entry: where the shell
+    /// refuses plugin code now (the X4: its stack's band is lost) it does not
+    /// run, its blocks leak (the X4 never unloads) and the shell is told, as
+    /// for `Instance`'s teardown.
     pub(crate) fn run_destroy(&self, call: impl FnOnce()) {
-        let _leave = self.announce();
+        let Some(_leave) = self.announce() else {
+            let step = crate::native_host::TeardownStep::Release;
+            (self.report)(
+                &self.services,
+                self.plugin_id(),
+                step,
+                crate::native_host::Error::State,
+            );
+            return;
+        };
         frame_owner::within_recorded(
             self.resources.owner_id(),
             ptr::from_ref(self).cast(),

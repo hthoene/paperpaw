@@ -130,8 +130,8 @@ pub struct Context<S: 'static> {
     declared_services: DeclaredServices,
     /// The shell's heap and clock.
     pub services: S,
-    /// `Services::enter` and `leave`: a plugin from a file only, not a linked one.
-    entry: Option<&'static heap_table::Entry<S>>,
+    /// `Services::enter` and `leave`, once admission announces the plugin.
+    entry: Cell<Option<&'static heap_table::Entry<S>>>,
     instance: Cell<Option<PluginOutput>>,
     attempted: Cell<bool>,
     /// What the plugin's own code called the host for (#248, [`parked`]).
@@ -318,13 +318,11 @@ impl<S: Services + 'static, M> Hosted<S, M> {
                 report,
                 resources,
                 declared_services,
-                true,
             )
         }
     }
 
-    /// Hosts the plugin under `resources`, an owner of its own; `hooked`: a
-    /// plugin from a file, announced to the shell (`Services::enter`).
+    /// Hosts the plugin under `resources`, an owner of its own.
     ///
     /// # Safety
     /// As [`new`](Self::new).
@@ -341,7 +339,6 @@ impl<S: Services + 'static, M> Hosted<S, M> {
         report: Report<S>,
         mut resources: super::resources::OwnerResources,
         declared_services: DeclaredServices,
-        hooked: bool,
     ) -> Result<Self, Error> {
         resources.bind_caller(id).map_err(Error::Status)?;
         let context = Context {
@@ -349,7 +346,7 @@ impl<S: Services + 'static, M> Hosted<S, M> {
             resources,
             declared_services,
             services,
-            entry: hooked.then_some(&heap_table::Entry::<S>::OF),
+            entry: Cell::new(None),
             instance: Cell::new(None),
             attempted: Cell::new(false),
             calls: parked::HostCalls::default(),

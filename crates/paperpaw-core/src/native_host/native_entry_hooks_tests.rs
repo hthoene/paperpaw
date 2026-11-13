@@ -1,6 +1,6 @@
 //! The shell is told of every entry of a card plugin's code
 //! (`Services::enter` and `leave`): `make`, callbacks and the destructor, and
-//! may refuse all but the destructor.
+//! may refuse any of them (a refused destructor leaks).
 use super::native_screen_install::{DESTROYED, install, kernel, open};
 use super::*;
 use paperpaw_sdk::{Id, Params};
@@ -53,7 +53,7 @@ fn a_refused_make_admits_nothing_and_runs_no_plugin_code() {
 }
 
 #[test]
-fn a_refused_callback_does_not_run_and_the_destructor_still_does() {
+fn a_refused_callback_does_not_run_and_neither_does_the_destructor() {
     let mut kernel = kernel(0);
     let (entered, left) = counts();
     REFUSE_ENTRY.with(|refuse| refuse.set(true));
@@ -62,8 +62,10 @@ fn a_refused_callback_does_not_run_and_the_destructor_still_does() {
     // Announced and refused: the plugin's code did not run, so nothing left.
     assert!(now_entered > entered);
     assert_eq!(now_left, left, "a refused entry must not be ended");
-    // The destructor is announced but never refused.
+    // The destructor is refused like any entry: it does not run (the shell
+    // keeps plugin code from running without its guard), the blocks leak.
     kernel.unload_plugin(&Id::new_static("factory"));
-    assert_eq!(DESTROYED.with(Cell::get), 1);
+    assert_eq!(DESTROYED.with(Cell::get), 0);
+    assert_eq!(counts().1, now_left, "a refused destructor is not ended");
     REFUSE_ENTRY.with(|refuse| refuse.set(false));
 }

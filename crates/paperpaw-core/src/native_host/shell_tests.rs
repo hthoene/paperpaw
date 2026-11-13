@@ -714,6 +714,17 @@ mod instance_tests {
     }
 
     #[test]
+    fn an_instance_load_is_announced_by_its_hooks_alone() {
+        // `Instance` wraps each call in `Hooks`; the shell's `Services::enter`
+        // is for admission (`HostedAdmission`), so a call is not announced twice.
+        reset(NORMAL);
+        let instance = load().unwrap();
+        assert!(CALLS.with(Cell::get) >= 1, "the hooks announced make");
+        drop(instance);
+        assert_eq!(ENTERED.with(Cell::get), 0, "the services were not asked");
+    }
+
+    #[test]
     fn a_tick_goes_to_the_tick_registrations_only() {
         // Registered for `event.started` (and a draw) only: no tick record is
         // dispatched to it, whatever its other event registrations.

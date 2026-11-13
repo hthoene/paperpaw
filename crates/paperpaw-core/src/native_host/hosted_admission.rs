@@ -38,6 +38,8 @@ impl<S: Services + 'static, M: 'static> HostedAdmission<S, M> {
         report: fn(&S, &str, u32, i32),
         refused: fn(&str, &Error),
     ) -> Self {
+        // A plugin admitted from a file is announced to the shell at every entry.
+        hosted.owner().context().announce_entries();
         Self {
             hosted,
             depth,
