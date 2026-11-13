@@ -831,19 +831,16 @@ fn a_plugin_a_store_installed_says_so_with_its_release_as_the_store_named_it() {
     // Op 6 says the same.
     let reply = call(&kernel, schema::OP_PLUGIN, &key("cosy"), 4096).unwrap();
     assert!(read(&reply).0[0].contains(" 2.1 kind=1 state=0 flags=33 "));
-    // Without room for the record the list still answers, without bit 5
-    // (Senior R2 on #1388): the record never takes the plugin list down.
+    // Without room for the record the list still answers, every plugin in
+    // it (Senior R2 on #1388): the record never takes the plugin list down.
+    // (The read refused once is a pass of the rows without bit 5.)
     use crate::native_host::shell::tests::FAIL_SIZE;
     FAIL_SIZE.with(|size| size.set(record.len()));
     let answered = call(&kernel, schema::OP_PLUGINS, &query("", 0, 0), 4096);
     let unspent = FAIL_SIZE.with(|size| size.replace(0));
     assert_eq!(unspent, 0, "the record's read was refused");
     let rows = read(&answered.unwrap()).0;
-    let cosy = rows
-        .iter()
-        .find(|row| row.starts_with("plugin cosy "))
-        .unwrap();
-    assert!(cosy.contains(" kind=1 state=0 flags=1 "), "{rows:?}");
+    assert_eq!(rows.len(), 5, "{rows:?}");
 }
 
 #[test]

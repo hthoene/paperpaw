@@ -226,3 +226,21 @@ fn a_long_record_is_read_from_its_newest_lines_only() {
         Some("1.0.0")
     );
 }
+
+/// No memory for the record reads as none: no plugin is a store's, nothing
+/// fails (Senior R2 on #1388).
+#[test]
+fn a_record_without_memory_for_it_reads_as_none() {
+    use crate::native_host::shell::tests::FAIL_SIZE;
+    let text = "cosy\t1.0.0\n";
+    let card = MemoryStorage::new().with(STORE_INSTALLS, text);
+    let one = Version::parse("1.0.0").unwrap();
+    FAIL_SIZE.with(|size| size.set(text.len()));
+    let read = StoreRecord::read(&card, 8);
+    let unspent = FAIL_SIZE.with(|size| size.replace(0));
+    assert_eq!((read.release("cosy", one), unspent), (None, 0));
+    assert_eq!(
+        StoreRecord::read(&card, 8).release("cosy", one),
+        Some("1.0.0")
+    );
+}
