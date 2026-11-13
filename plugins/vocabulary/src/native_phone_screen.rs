@@ -7,7 +7,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_sdk::{
-    Handled, Instant,
+    Handled, Instant, Storage,
     native::{
         Error, Host,
         callbacks::{DrawFrame, Input},
@@ -94,6 +94,50 @@ fn redraw(host: &Host<'_>, mode: RedrawMode) -> Result<(), Error> {
     CommandSender::new(host, &mut scratch).queue_redraw(mode)
 }
 
+/// Whether `name` is a file an earlier time of serving made: the page, or a
+/// long answer (`phone-<request>.json`).
+fn is_left(name: &str) -> bool {
+    name == PAGE_FILE
+        || name
+            .strip_prefix("phone-")
+            .and_then(|rest| rest.strip_suffix(".json"))
+            .is_some_and(|number| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Removes what a time of serving left behind (a power cut stops it before
+/// the screen closes). Best effort: only a refused allocation is an error.
+pub(crate) fn sweep(storage: &dyn Storage) -> Result<(), Error> {
+    let mut left: Vec<String> = Vec::new();
+    let mut refused = false;
+    let listed = storage.list(FOLDER.trim_end_matches('/'), &mut |entry| {
+        if refused || entry.is_dir || !is_left(entry.name) {
+            return;
+        }
+        let mut path = String::new();
+        let room = FOLDER.len() + entry.name.len();
+        if path.try_reserve_exact(room).is_err() || left.try_reserve(1).is_err() {
+            refused = true;
+            return;
+        }
+        path.push_str(FOLDER);
+        path.push_str(entry.name);
+        left.push(path);
+    });
+    if refused {
+        return Err(Error::NoMemory);
+    }
+    // No folder yet, or none to read: nothing is left.
+    if listed.is_err() {
+        return Ok(());
+    }
+    for path in &left {
+        match storage.remove(path) {
+            Ok(()) | Err(_) => {}
+        }
+    }
+    Ok(())
+}
+
 /// The name of the file a long answer to request `number` is in.
 fn reply_file(number: u32) -> Result<String, Error> {
     format(format_args!("phone-{number}.json"))
@@ -106,6 +150,7 @@ impl Phone {
     pub(crate) fn opened(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
         let data = DataStorage::new(host);
         let storage = DataFolder(&data);
+        sweep(&storage)?;
         let _ = cards::fold(&storage);
         let deck = crate::native_plugin::lookup_deck(host)?;
         let _ = cards::take_lookups(&storage, &deck);
@@ -559,6 +604,35 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// What a cut left behind (the page, the long answers) goes when the screen
+    /// opens; the decks and what only looks alike stay.
+    #[test]
+    fn what_an_earlier_serving_left_is_swept() {
+        use paperpaw_sdk::MemoryStorage;
+        let storage = MemoryStorage::new();
+        let own = |name: &str| alloc::format!("{FOLDER}{name}");
+        let gone = ["phone.html", "phone-3.json", "phone-4096.json"];
+        let kept = [
+            "decks.txt",
+            "phone-.json",
+            "phone-x.json",
+            "phone-7.json.keep",
+        ];
+        for name in gone.iter().chain(&kept) {
+            storage.write(&own(name), b"x").unwrap();
+        }
+        sweep(&storage).unwrap();
+        for name in gone {
+            assert!(!storage.exists(&own(name)), "{name} is left");
+        }
+        for name in kept {
+            assert!(storage.exists(&own(name)), "{name} is gone");
+        }
+        // Nothing left is nothing to do, with or without the folder.
+        sweep(&storage).unwrap();
+        sweep(&MemoryStorage::new()).unwrap();
     }
 
     #[test]
