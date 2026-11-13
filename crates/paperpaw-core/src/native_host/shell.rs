@@ -125,9 +125,6 @@ pub type Report<S> = fn(&S, &str, super::TeardownStep, super::Error);
 /// owner; the plugin keeps only its address.
 #[allow(missing_debug_implementations, reason = "holds the generated table")]
 pub struct Context<S: 'static> {
-    /// The one table every plugin hosted with `S` shares ([`SharedTable`]):
-    /// a static, never a copy per plugin (152 bytes on the X4).
-    table: &'static PpHost,
     report: Report<S>,
     resources: super::resources::OwnerResources,
     declared_services: DeclaredServices,
@@ -346,7 +343,6 @@ impl<S: Services + 'static, M> Hosted<S, M> {
             .try_view()
             .ok_or(Error::Status(host_glue::ERR_NO_MEMORY))?;
         let context = Context {
-            table: SharedTable::<S>::TABLE,
             report,
             resources,
             declared_services,
@@ -467,7 +463,7 @@ impl<S: Services + 'static, M> Hosted<S, M> {
         let mut out = ptr::null();
         let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast();
         // SAFETY: the owner is pinned, owns services and module, and `out` is writable.
-        let status = context.run_make(|| unsafe { (self.make)(context.table, ctx, &mut out) });
+        let status = context.run_make(|| unsafe { (self.make)(context.table(), ctx, &mut out) });
         (status, out)
     }
 
@@ -1494,5 +1490,4 @@ mod parked;
 #[path = "shell/shared_table.rs"]
 mod shared_table;
 pub use heap_table::{handed_heap, heap_table};
-use shared_table::SharedTable;
 pub use shared_table::{handed_table, same_table};
