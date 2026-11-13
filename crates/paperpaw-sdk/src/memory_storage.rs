@@ -1,4 +1,4 @@
-use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
@@ -20,6 +20,18 @@ pub struct MemoryStorage {
     dirs: RefCell<BTreeMap<String, u64>>,
     /// The last identity given.
     last: Cell<u64>,
+}
+
+/// The part of `path` below the folder `dir` (`""`: the root), if it lies
+/// there.
+fn rest_in<'a>(path: &'a str, dir: &str) -> Option<&'a str> {
+    if dir.is_empty() {
+        Some(path)
+    } else if below(path, dir) {
+        Some(&path[dir.len() + 1..])
+    } else {
+        None
+    }
 }
 
 /// Whether `key` lies below the folder `dir`, without making `dir/`.
@@ -149,38 +161,46 @@ impl Storage for MemoryStorage {
         Ok(())
     }
 
+    /// Allocates only for the names of the subfolders, and fallibly: a
+    /// refused allocation is [`StorageError::OutOfMemory`] before
+    /// anything is visited (out-of-memory tests of the code under test
+    /// must not trip over the test storage).
     fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
         if !dir.is_empty() {
             Self::check(dir)?;
         }
-        let prefix = if dir.is_empty() {
-            String::new()
-        } else {
-            alloc::format!("{dir}/")
-        };
         let files = self.files.borrow();
-        let mut dirs = BTreeSet::new();
+        // Subfolder names borrow from the keys; the keys are sorted, so a
+        // subfolder's keys are next to each other and a repeat is the last.
+        let mut dirs: Vec<&str> = Vec::new();
         let mut found = dir.is_empty();
-        for (path, (_, data)) in files.iter() {
-            let Some(rest) = path.strip_prefix(prefix.as_str()) else {
+        for path in files.keys() {
+            let Some(rest) = rest_in(path, dir) else {
                 continue;
             };
             found = true;
-            match rest.split_once('/') {
-                Some((sub, _)) => {
-                    dirs.insert(String::from(sub));
-                }
-                None => visit(DirEntry::new(rest, false, data.len() as u64)),
+            if let Some((sub, _)) = rest.split_once('/')
+                && dirs.last() != Some(&sub)
+            {
+                dirs.try_reserve(1).map_err(|_| StorageError::OutOfMemory)?;
+                dirs.push(sub);
             }
         }
-        for name in &dirs {
+        if !found {
+            return Err(StorageError::NotFound);
+        }
+        for (path, (_, data)) in files.iter() {
+            if let Some(rest) = rest_in(path, dir).filter(|rest| !rest.contains('/')) {
+                visit(DirEntry::new(rest, false, data.len() as u64));
+            }
+        }
+        // In name order, as before (key order differs for names with a
+        // byte below `/`, such as `b.c` before `b`).
+        dirs.sort_unstable();
+        for name in dirs {
             visit(DirEntry::new(name, true, 0));
         }
-        if found {
-            Ok(())
-        } else {
-            Err(StorageError::NotFound)
-        }
+        Ok(())
     }
 
     fn remove(&self, path: &str) -> Result<(), StorageError> {

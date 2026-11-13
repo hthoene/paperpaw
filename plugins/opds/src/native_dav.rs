@@ -254,7 +254,8 @@ pub fn read(source: &mut impl Source, base: &str, limits: Limits) -> Result<Feed
         tokenizer.finish(&mut |token| reader.token(token));
     }
     let mut entries: Vec<Entry> = core::mem::take(&mut reader.feed.entries);
-    entries.sort_unstable_by(|a, b| {
+    // The shared sorter: the std sort keeps a 32-entry scratch on the stack, a frame the X4 refuses.
+    paperpaw_sdk::sort::sort_by(&mut entries, |a, b| {
         a.feed
             .is_none()
             .cmp(&b.feed.is_none())

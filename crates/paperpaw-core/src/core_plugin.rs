@@ -5,6 +5,7 @@
 mod catalog_job;
 mod clean_up;
 mod finishing;
+mod look_more;
 mod placeholder;
 mod reading;
 mod widget_settings;
@@ -1330,6 +1331,7 @@ static LOOK: [SettingSpec; 14] = [
 
 fn register_look_settings(r: &mut Registrar) -> Result<(), RegisterError> {
     r.add_settings(&LOOK)?;
+    r.add_settings(&look_more::LOOK_MORE)?;
     r.add_settings(&widget_settings::ALL_WIDGETS)
 }
 

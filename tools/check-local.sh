@@ -278,8 +278,9 @@ elif ! wanted test-linked; then
 else
     skipped+=("test-linked (no selected package has a linked feature)")
 fi
-# The app's flows and sleep tests with the linked native plugins (#248): the
-# workspace test run leaves `native-linked` off, and sleep_* need it.
+# The app's flows and sleep tests and linked_settings_tables with the linked
+# native plugins (#248): the workspace test run leaves `native-linked` off,
+# and sleep_* and linked_settings_tables need it.
 native_wanted="$all_linked"
 for crate in "${crates[@]}"; do
     case "$crate" in
@@ -287,8 +288,10 @@ for crate in "${crates[@]}"; do
     esac
 done
 if [[ "$native_wanted" == 1 ]]; then
-    step test-native cargo test -j"$jobs" -p paperpaw-app --features native-linked \
-        --test flows --test sleep_parity --test sleep_cycles
+    step test-native bash -c 'set -e
+        cargo test -j"$1" -p paperpaw-app --features native-linked --test flows --test sleep_parity --test sleep_cycles
+        cargo test -j"$1" -p paperpaw-app --features native-linked-reading --test linked_settings_tables
+        cargo test -j"$1" -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables' _ "$jobs"
 elif ! wanted test-native; then
     skipped+=("test-native (left out by --only/--skip)")
 else
