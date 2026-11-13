@@ -146,7 +146,7 @@ impl ListRenderer {
         )?;
         let mut body = Vec::new();
         body.try_reserve(1).map_err(|_| Error::NoMemory)?;
-        body.push(Paint::Fill(area, style.paper));
+        body.push(Paint::Fill(style.page(area), style.paper));
         for (slot, (label, value)) in rows
             .iter()
             .skip(index * per_page)

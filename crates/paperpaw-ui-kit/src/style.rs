@@ -315,6 +315,20 @@ impl Style {
         })
     }
 
+    /// What the page is painted over under a header: `area` (where the rows
+    /// go) and the gap above it, so the strip between the header and the rows
+    /// takes the theme's paper and not what the host cleared the screen to.
+    #[must_use]
+    pub fn page(&self, area: Rect) -> Rect {
+        let gap = self.gap.min(area.y);
+        Rect::new(
+            area.x,
+            area.y - gap,
+            area.width,
+            area.height.saturating_add(gap),
+        )
+    }
+
     /// The colour of the bar the chosen row is on (the theme's `focus`; else
     /// the text's ink, a card's colour for the light bar).
     #[must_use]
@@ -946,5 +960,16 @@ mod tests {
         assert_eq!(style.plate(Frame::Line).line, Color::gray(120));
         style.roles.focus = Some(Color::gray(30));
         assert_eq!(style.on_bar(), Color::WHITE, "light text on a dark bar");
+    }
+
+    #[test]
+    fn the_page_reaches_up_over_the_gap_under_the_header() {
+        let style = Style::themed(Color::BLACK, Color::WHITE);
+        let area = Rect::new(0, style.header + style.gap, 480, 700);
+        let page = style.page(area);
+        assert_eq!((page.y, page.height), (style.header, 700 + style.gap));
+        // Never above the top of the screen.
+        let high = style.page(Rect::new(0, 3, 480, 700));
+        assert_eq!((high.y, high.height), (0, 703));
     }
 }

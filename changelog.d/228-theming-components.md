@@ -6,3 +6,4 @@
 ### Changed
 
 - **A dark frame on a dark page is a card** (it was the page's own paper, so the card was not to be seen).
+- **Fixed (#114): the strip between a header and the list under it showed the screen's clear colour, not the theme's paper.** In a theme whose paper is not white (or a dark one) the strip was a white band; lists, windows and item lists now paint the page up to the header. With the default look nothing changes.
