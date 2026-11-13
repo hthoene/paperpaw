@@ -323,6 +323,9 @@ impl State {
                     return Ok(Handled::No);
                 };
                 let step = view.input(host, &input)?;
+                // The page the focus is on now is read before it is drawn.
+                let data = DataStorage::new(host);
+                view.prepare(host, &DataFolder(&data))?;
                 match step {
                     native_list::Step::Held(row) => self.held(host, row)?,
                     native_list::Step::Export => self.export(host)?,
@@ -355,8 +358,11 @@ impl State {
 
     fn opened_words(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
         let data = DataStorage::new(host);
-        let count = store::count(&DataFolder(&data)).map_err(native_review::storage_error)?;
-        self.words.open(instance, WordsView::new(count))
+        let folder = DataFolder(&data);
+        let count = store::count(&folder).map_err(native_review::storage_error)?;
+        let mut view = WordsView::new(count);
+        view.prepare(host, &folder)?;
+        self.words.open(instance, view)
     }
 
     /// A word held: asks whether to delete it (a word deleted cannot be had
@@ -488,6 +494,8 @@ impl State {
     fn recounted(&mut self, host: &Host<'_>, count: usize) -> Result<(), Error> {
         if let Some(view) = self.words.top(WORDS_TOKEN) {
             view.recount(count);
+            let data = DataStorage::new(host);
+            view.prepare(host, &DataFolder(&data))?;
             CommandSender::new(host, &mut [0; 64]).queue_redraw(RedrawMode::Partial)?;
         }
         Ok(())
