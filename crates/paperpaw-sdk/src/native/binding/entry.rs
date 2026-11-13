@@ -72,6 +72,41 @@ pub const fn linked(entry: Entry) -> Linked {
     Linked(entry)
 }
 
+/// The length of a linked plugin's metadata set to the profile of the
+/// target this program is built for ([`linked_metadata`]).
+///
+/// # Panics
+/// At compile time, where interface 7 declares no profile for the target or
+/// `metadata` is not a format-2 record.
+#[must_use]
+pub const fn linked_len(metadata: &[u8]) -> usize {
+    match paperpaw_native::profile::BUILD_PROFILE {
+        Some(profile) => paperpaw_native::profile::retargeted_len(metadata, &profile),
+        None => panic!("interface 7 declares no profile for this target: no plugin links here"),
+    }
+}
+
+/// A linked plugin's metadata, generated for any declared profile, set to
+/// the profile of the target this program is built for: a linked plugin is
+/// compiled into its host, so its entry has that target's layout, never
+/// another's (Decision 172). `N` is [`linked_len`].
+///
+/// # Panics
+/// As [`linked_len`].
+#[must_use]
+pub const fn linked_metadata<const N: usize>(metadata: &[u8]) -> [u8; N] {
+    match paperpaw_native::profile::BUILD_PROFILE {
+        Some(profile) => paperpaw_native::profile::retarget(metadata, &profile),
+        None => panic!("interface 7 declares no profile for this target: no plugin links here"),
+    }
+}
+
+// The build's profile describes this build's entry.
+const _: () = if let Some(profile) = paperpaw_native::profile::BUILD_PROFILE {
+    assert!(profile.entry_layout == 1);
+    assert!(profile.entry_bytes as usize == mem::size_of::<PpEntry>());
+};
+
 /// Validate the generated layout-2 prefix for the export macro. The metadata's
 /// declared minor, not the SDK's current minor, controls host admission.
 #[must_use]
@@ -427,8 +462,10 @@ unsafe fn free<T>(host: *const PpHost, ctx: *mut c_void, block: *mut c_void) {
 /// writes `linked = NAME`: the macro then defines only `pub static NAME:
 /// native::Linked`, with the same entry, `make` and metadata, and no exported
 /// symbol, heap word, allocator or panic handler, so several plugins link
-/// into one program and the program's allocator serves them. A plugin built
-/// both ways chooses the form with a `cfg`. Names beginning with
+/// into one program and the program's allocator serves them. Its metadata,
+/// generated for any declared profile, is set to the profile of the target
+/// the program is built for (`abi/abi.def`; a target with none refuses to
+/// compile it). A plugin built both ways chooses the form with a `cfg`. Names beginning with
 /// `__PAPERPAW_` are reserved for the macro's own items.
 ///
 /// ```compile_fail
@@ -457,8 +494,11 @@ macro_rules! native_plugin {
             // Items are not hygienic: these names would shadow a caller's
             // constant of the same name in `$metadata`, hence the reserved
             // `__PAPERPAW_` prefix.
-            static __PAPERPAW_LINKED_METADATA: [u8; ($metadata).len()] =
-                $crate::native_plugin!(@bytes $metadata);
+            // The metadata names the profile of the target the program is
+            // built for, whatever profile it was generated for.
+            static __PAPERPAW_LINKED_METADATA: [u8; $crate::native::__entry::linked_len(
+                $metadata,
+            )] = $crate::native::__entry::linked_metadata($metadata);
             const __PAPERPAW_MINOR: u16 = match $crate::native::__entry::metadata_minor($metadata) {
                 Some(minor) => minor,
                 None => panic!("invalid interface-7 metadata prefix"),
