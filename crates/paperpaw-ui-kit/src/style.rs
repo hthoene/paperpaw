@@ -28,8 +28,12 @@ fn integer(host: &Host<'_>, key: &str) -> Result<i64, Error> {
     })
 }
 
+/// The bytes a text setting is read into: the palette (`core.ui-palette`) must
+/// fit, or every screen fails (#114, I2).
+pub(crate) const TEXT_BYTES: usize = 512;
+
 pub fn setting_text(host: &Host<'_>, key: &str) -> Result<String, Error> {
-    let mut bytes = [0; 512];
+    let mut bytes = [0; TEXT_BYTES];
     Ok(match settings::read_setting(host, key, &mut bytes)? {
         SettingValue::Text(value) => crate::text::copy(value)?,
         _ => String::new(),
@@ -256,7 +260,8 @@ fn ui_language_is_rtl(host: &Host<'_>) -> bool {
 /// Whether the chosen row is shown as a frame (a ring) and not as a filled bar.
 /// The soft focus (a light bar) is a frame too until the kit draws it: it was
 /// refused, and with it every screen, on a device whose theme chose it
-/// (#114).
+/// (#114). The light bar itself is drawn from the focus settings of the
+/// build-out (#2848, step 2); until then it is a frame.
 fn focus_is_ring(focus: &str) -> bool {
     matches!(focus, "core.focus.ring" | "core.focus.soft")
 }
@@ -417,34 +422,14 @@ mod tests {
 
     #[test]
     fn a_full_palette_fits_the_buffer_it_is_read_into() {
-        // Style::read reads the palette into 512 bytes; the 19 names of the
-        // palette with a colour each are about 300. Names added past 512
-        // would fail every screen: they need a second setting (#114, I2).
-        let names = [
-            "text",
-            "paper",
-            "note",
-            "detail",
-            "muted",
-            "faint",
-            "disabled",
-            "rule",
-            "line",
-            "line-faint",
-            "on-focus-muted",
-            "on-dark-muted",
-            "card",
-            "section",
-            "accent",
-            "on-accent",
-            "link",
-            "selection",
-            "warning",
-        ];
-        let size: usize = names
-            .iter()
-            .map(|name| name.len() + "=#rrggbb ".len())
-            .sum();
-        assert!(size <= 400, "{size}");
+        // The SDK's own role names, each set to a colour of the longest
+        // form: names added past the buffer would fail every screen, and
+        // need a second setting (#114, I2).
+        let mut palette = String::new();
+        for ink in paperpaw_sdk::ui::Ink::ALL {
+            palette.push_str(ink.name());
+            palette.push_str("=#rrggbb ");
+        }
+        assert!(palette.len() <= TEXT_BYTES / 4 * 3, "{}", palette.len());
     }
 }
