@@ -922,12 +922,15 @@ fn screens_say_what_they_show() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    // The pages tapped by their names, the rows with their text and state.
+    // The pages tapped by their names, the rows with their title, value and text.
     assert!(text.contains("Heading \"Display\""), "{text}");
     assert!(
-        text.contains("Row \"Night mode, White text on black.\" (off)"),
+        text.contains("Row \"Night mode, Off, White text on black.\""),
         "{text}"
     );
+    // A number says its unit in words, not as the catalog's key.
+    assert!(text.contains("Row \"Full refresh, 6 pages, "), "{text}");
+    assert!(!text.contains("core.unit."), "{text}");
 }
 
 /// The titles of headers stand in their middle by their capitals: the

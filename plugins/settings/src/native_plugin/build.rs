@@ -107,9 +107,9 @@ pub(super) fn value_text(
 ) -> Result<String, Error> {
     let setting = &entry.setting;
     let text = match (&setting.value, editing) {
-        (_, Some(now)) => model::with_unit(now, &entry.detail.unit)?,
+        (_, Some(now)) => messages.with_unit(host, now, &entry.detail.unit)?,
         (Some(Val::Bool(on)), _) => on_off(messages, host, *on)?,
-        (Some(Val::Int(v)), _) => model::with_unit(*v, &entry.detail.unit)?,
+        (Some(Val::Int(v)), _) => messages.with_unit(host, *v, &entry.detail.unit)?,
         (Some(Val::Text(v)), _) => match entry.options.iter().find(|(value, _)| value == v) {
             Some((_, name)) => copy(name)?,
             None => copy(v)?,
