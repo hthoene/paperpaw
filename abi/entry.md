@@ -63,8 +63,28 @@ A native linked C/Rust call probe verifies metadata/context and make/drop exchan
 The X4 C probe uses Clang's freestanding rv32imc/ilp32 target; Rust uses the installed
 riscv32imc target, and the esp toolchain's `xtensa-esp32s3-none-elf` for the S3 profile
 (where installed). This is layout evidence, not device execution or complete
-calling-convention qualification. AArch64 and other profiles remain absent
-until their assertions and platform contracts are available.
+calling-convention qualification.
+
+### Linked-only profiles (owner decision 172)
+
+Every shell hosts the linked built-ins, so five more profiles are declared for
+them: `windows-x86_64-win64-le`, `macos-x86_64-sysv64-le`,
+`macos-aarch64-darwinpcs-le`, `android-aarch64-aapcs64-le` (64-bit, entry 32 bytes,
+8-aligned) and `web-wasm32-c-le` (32-bit, entry 20 bytes, 4-aligned). No card or store
+file loads on these targets: no container, packer or loader is defined for them, and
+a shell there admits linked plugins only. Their evidence is Rust compile assertions
+of the entry and plugin layouts for each target (`x86_64-pc-windows-msvc`,
+`x86_64-apple-darwin`, `aarch64-apple-darwin`, `aarch64-linux-android`,
+`wasm32-unknown-unknown`).
+
+A linked plugin's metadata names the profile of the target its program is built for,
+never one a shell chooses: `paperpaw_native::profile::BUILD_PROFILE` is picked by the
+compiler's `cfg` (`None` for a target with no declared profile), the SDK sets the
+plugin's generated metadata to it when it links the plugin (`native_plugin!(…, linked
+= NAME)`, refused at compile time where there is none), and the SDK asserts that the
+profile's entry size is the build's own `PpEntry`. The shell hosts with the same
+`BUILD_PROFILE`; admission still compares the two byte for byte. Other targets (AArch64
+Linux, 32-bit Arm …) have no profile until a shell needs one.
 
 ## The Xtensa profile (X4 Pro, X4 Classic; draft 29)
 

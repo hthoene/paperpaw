@@ -48,6 +48,9 @@ request sent while a body still comes cuts that body short: its request
 is answered *400*.
 
 When the first request comes, the device opens its USB transfer screen.
+A request without a body waits for the screen (up to five seconds); one
+with a body that comes before the screen is up is answered *503*, so a
+client begins with `GET /api/hello` and sends bodies once it was answered.
 It stays open while requests come, and closes after five minutes without
 one, or when the reader presses *Back*. After *Back* a computer that goes
 on asking gets *403* "ended on the device"; only a request after a pause

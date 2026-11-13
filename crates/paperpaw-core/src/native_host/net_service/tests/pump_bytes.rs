@@ -11,7 +11,7 @@ fn a_plugin_is_given_event_99_as_a_batch_of_one_it_decodes() {
     let fake = Rc::new(Fake::x4());
     let id = request(&fake, f.keys[0], &get(7)).unwrap();
     finish(&fake, id, 200, b"x");
-    let services = NetServices(fake.clone());
+    let services = NetServices(super::super::NetRef::Handed(fake.clone()));
     pump::run_services(&f, [Some(&services), None, None]);
     let seen = f.seen[0].borrow();
     assert_eq!(seen.len(), 1, "one event, once");
