@@ -89,7 +89,14 @@ fn the_ids_of_the_table_are_the_plugins_ids_and_there_are_no_two() {
     assert_eq!(sorted.len(), ids.len());
     // The store plugins whose ports are finished are in the table, behind
     // their feature.
-    for id in ["aids", "mail", "notes-vault", "picture-home", "widgets"] {
+    for id in [
+        "aids",
+        "fonts-browser",
+        "mail",
+        "notes-vault",
+        "picture-home",
+        "widgets",
+    ] {
         assert!(ids.contains(&id), "{id}");
         assert!(STORE_PLUGINS.contains(&id), "{id}");
     }

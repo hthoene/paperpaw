@@ -7,11 +7,11 @@
 //! The font a page shows is handed over as the screen's one parameter
 //! (`Font::to_param`), so that the page does not read the catalog again.
 use crate::{
-    declarations::{DOWNLOADED, FONT, INSTALLED, LIST, OPEN, OWN},
+    declarations::{DOWNLOADED, FONT, INSTALLED, LIST, OPEN, OWN, PLUGINS, SETTING},
     native_catalog::{Catalog, Font},
     native_job::Job,
     native_sample,
-    native_view::{Installed, Row, Trouble, rows, should_fetch},
+    native_view::{Installed, Row, Running, Trouble, rows, should_fetch, wants_to_go_on},
 };
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
@@ -20,7 +20,7 @@ use paperpaw_sdk::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input},
         commands::CommandSender,
-        device::{Device, DeviceCapability},
+        device::{Device, DeviceCapability, PowerLevel},
         events::{Event, Incoming, kinds},
         formatting::Arg,
         net::{FileRoot, Net, REPLY, REQUEST_INPUT, Reason, Request, RequestId},
@@ -28,6 +28,7 @@ use paperpaw_sdk::{
         registry::{PageCursor, Registry},
         reply::Reply,
         settings::{self, SettingValue},
+        snapshot,
         storage::DataStorage,
         ui::{HandoverId, Instance, Open, Param, Ui},
     },
@@ -61,6 +62,9 @@ const REMOVE_REQUEST: u32 = 2;
 /// The catalog kept from the last visit, and the one coming in.
 const KEPT: &str = "catalog.json";
 const PART: &str = "catalog.json.part";
+/// How long the network is asked for when the user goes online (the most is
+/// 600,000).
+const GO_ONLINE_MS: u32 = 300_000;
 /// The largest list of fonts taken from a library.
 const MAX_LIST_FILE: u64 = 512 * 1024;
 /// The screen's parameter that carries the font.
@@ -75,6 +79,8 @@ struct ListView {
     list: ItemList,
     trouble: Trouble,
     asked: bool,
+    /// The user went online for the list (the offer shows once).
+    decided: bool,
 }
 
 /// A font's page.
@@ -84,6 +90,13 @@ struct FontView {
     /// What each item of `list` does (`None` for the lines of text).
     rows: Vec<Option<Row>>,
     list: ItemList,
+    /// The offer to go online for a download (an update or not) shows in
+    /// place of the rows.
+    offer: Option<bool>,
+    /// The user went online for this page (the offer shows once).
+    decided: bool,
+    /// A download is going on: the footer says it can be left.
+    downloading: bool,
     /// The sample of the font in its own face: where it is kept, and whether it
     /// is there (item 0 of `list` is the sentence in the menus' face until it is).
     sample: Option<Sample>,
@@ -161,6 +174,8 @@ impl Plugin for NativeFontsBrowser {
             kinds::ActionRun,
             kinds::HttpDone,
             kinds::InstallDone,
+            kinds::SettingChanged,
+            kinds::PluginsChanged,
             kinds::ScreenOpened,
             kinds::ScreenShown,
             kinds::ScreenClosed
@@ -192,6 +207,14 @@ impl Plugin for NativeFontsBrowser {
                 Ok(())
             }
             Event::InstallDone(done) if token == INSTALLED => self.install_done(host, &done),
+            // A font chosen, installed or removed shows on the pages.
+            Event::SettingChanged { key, .. } if token == SETTING => {
+                if key == READING_FONT || key == STATUS_FONT {
+                    self.refresh(host)?;
+                }
+                Ok(())
+            }
+            Event::PluginsChanged { .. } if token == PLUGINS => self.refresh(host),
             Event::ScreenOpened { instance, .. } if token == LIST => self.open_list(host, instance),
             Event::ScreenOpened {
                 instance, handover, ..
@@ -225,6 +248,7 @@ impl Plugin for NativeFontsBrowser {
                 let title = messages.copy(host, "fonts-browser.title")?;
                 if view.fonts.is_empty() {
                     let (head, text) = match view.trouble {
+                        Trouble::Offer => ("core.offline.title", "fonts-browser.offline-offer"),
                         Trouble::Offline => ("fonts-browser.offline", "fonts-browser.offline.help"),
                         Trouble::Failed => (
                             "fonts-browser.unreachable",
@@ -234,7 +258,7 @@ impl Plugin for NativeFontsBrowser {
                     };
                     let (head, text) = (
                         messages.copy(host, head)?,
-                        messages_or_empty(&mut messages, host, text)?,
+                        input_text(host, &mut messages, text)?,
                     );
                     return view.list.draw_with(
                         host,
@@ -247,7 +271,7 @@ impl Plugin for NativeFontsBrowser {
                         },
                     );
                 }
-                let hint = messages.copy(host, "fonts-browser.hint")?;
+                let hint = input_text(host, &mut messages, "fonts-browser.hint")?;
                 view.list
                     .draw_with(host, &mut frame, &title, true, Footer::Note(&hint))
             }
@@ -256,6 +280,30 @@ impl Plugin for NativeFontsBrowser {
                     Some(font) => copy(&font.name)?,
                     None => messages.copy(host, "fonts-browser.title")?,
                 };
+                if view.offer.is_some() {
+                    let head = messages.copy(host, "core.offline.title")?;
+                    let text = input_text(host, &mut messages, "fonts-browser.offline-offer")?;
+                    return view.list.draw_with(
+                        host,
+                        &mut frame,
+                        &title,
+                        true,
+                        Footer::Empty {
+                            title: &head,
+                            text: &text,
+                        },
+                    );
+                }
+                if view.downloading {
+                    let note = messages.copy(host, "fonts-browser.downloading")?;
+                    return view.list.draw_with(
+                        host,
+                        &mut frame,
+                        &title,
+                        true,
+                        Footer::Note(&note),
+                    );
+                }
                 view.list
                     .draw_with(host, &mut frame, &title, true, Footer::None)?;
                 Self::draw_sample(host, &mut frame, view)
@@ -270,16 +318,48 @@ impl Plugin for NativeFontsBrowser {
         match view {
             View::List(view) => {
                 let step = view.list.input(host, &input)?;
-                if let ItemStep::Chosen(index) = step {
-                    return Self::choose_font(host, &mut self.ui, view, index);
+                match step {
+                    ItemStep::Chosen(index) => {
+                        return Self::choose_font(host, &mut self.ui, view, index);
+                    }
+                    // A list that says why it is empty: choosing it goes online
+                    // (where it offers that) or tries again.
+                    ItemStep::Ignored
+                        if view.fonts.is_empty()
+                            && matches!(
+                                view.trouble,
+                                Trouble::Offer | Trouble::Offline | Trouble::Failed
+                            )
+                            && wants_to_go_on(&input) => {}
+                    _ => return Ok(ItemList::handled(step)),
                 }
-                Ok(ItemList::handled(step))
+                let offer = view.trouble == Trouble::Offer;
+                view.asked = false;
+                view.decided |= offer;
+                if offer {
+                    Self::go_online(host)?;
+                }
+                self.fetch_once(host)?;
+                Ok(Handled::Yes)
             }
             View::Font(view) => {
                 let step = view.list.input(host, &input)?;
+                if let Some(update) = view.offer {
+                    if step != ItemStep::Ignored || !wants_to_go_on(&input) {
+                        return Ok(ItemList::handled(step));
+                    }
+                    view.offer = None;
+                    view.decided = true;
+                    let font = view.font.as_ref().map(Font::try_clone).transpose()?;
+                    Self::go_online(host)?;
+                    if let Some(font) = font {
+                        self.download(host, &font, update)?;
+                    }
+                    return Ok(Handled::Yes);
+                }
                 if let ItemStep::Chosen(index) = step {
                     let picked = match (&view.font, view.rows.get(index)) {
-                        (Some(font), Some(Some(row))) => Some((font.clone(), *row)),
+                        (Some(font), Some(Some(row))) => Some((font.try_clone()?, *row)),
                         _ => None,
                     };
                     return match picked {
@@ -302,13 +382,21 @@ fn catalog_url(host: &Host<'_>) -> Result<String, Error> {
     }
 }
 
-/// `key`'s text, or nothing for no key.
-fn messages_or_empty(messages: &mut Messages, host: &Host<'_>, key: &str) -> Result<String, Error> {
+/// `key`'s text for the way this device is used (`<key>.buttons` where there
+/// is no touch and the text has one), or nothing for no key.
+fn input_text(host: &Host<'_>, messages: &mut Messages, key: &str) -> Result<String, Error> {
     if key.is_empty() {
-        Ok(String::new())
-    } else {
-        messages.copy(host, key)
+        return Ok(String::new());
     }
+    if !snapshot::capture_snapshot(host)?.has_touch() {
+        let buttons = concat(&[key, ".buttons"])?;
+        match messages.copy(host, &buttons) {
+            Ok(text) => return Ok(text),
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => {}
+        }
+    }
+    messages.copy(host, key)
 }
 
 impl NativeFontsBrowser {
@@ -349,6 +437,29 @@ impl NativeFontsBrowser {
         Ok(identity.supports(DeviceCapability::Network))
     }
 
+    /// Whether the device is in Offline mode and the user has not gone online
+    /// (the host ends a request then, unless the user's input is just before).
+    fn in_offline_mode(&mut self, host: &Host<'_>) -> Result<bool, Error> {
+        if self.device.is_none() {
+            self.device = Some(Device::open(host)?);
+        }
+        let device = self.device.as_ref().ok_or(Error::State)?;
+        let (mut input, mut out) = (buffer(64)?, buffer(SERVICE_BUFFER)?);
+        let power = device.power(host, 0, &mut input, &mut out)?;
+        Ok(power.level() == PowerLevel::Offline && !power.online())
+    }
+
+    /// Asks for the network for a while: the user chose to go online (the host
+    /// honours it right after that input). Where it does not, the request that
+    /// follows says so.
+    fn go_online(host: &Host<'_>) -> Result<(), Error> {
+        let mut scratch = [0; 64];
+        match CommandSender::new(host, &mut scratch).go_online(GO_ONLINE_MS) {
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            _ => Ok(()),
+        }
+    }
+
     /// The fonts installed: every plugin whose id starts `font-`.
     fn installed(&mut self, host: &Host<'_>) -> Result<Installed, Error> {
         if self.registry.is_none() {
@@ -382,14 +493,16 @@ impl NativeFontsBrowser {
     fn open_list(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
         let fonts = self.kept(host)?;
         let installed = self.installed(host)?;
-        let list = Self::font_items(host, &fonts, &installed)?;
+        let running = self.running()?;
+        let items = Self::font_items(host, &fonts, &installed, running.as_ref())?;
         self.screens.open(
             instance,
             View::List(ListView {
                 fonts,
-                list,
+                list: ItemList::new(items),
                 trouble: Trouble::None,
                 asked: false,
+                decided: false,
             }),
         )
     }
@@ -399,15 +512,16 @@ impl NativeFontsBrowser {
         host: &Host<'_>,
         fonts: &[Font],
         installed: &Installed,
-    ) -> Result<ItemList, Error> {
+        running: Option<&Running>,
+    ) -> Result<Vec<Item>, Error> {
         let mut messages = Messages::new()?;
         let mut items = Vec::new();
         for font in fonts {
-            let state = Self::state(host, &mut messages, font, installed)?;
+            let state = Self::state(host, &mut messages, font, installed, running)?;
             let note = Self::describe(host, &mut messages, font)?;
             push(&mut items, Item::noted(&font.name, &state, &note)?)?;
         }
-        Ok(ItemList::new(items))
+        Ok(items)
     }
 
     /// What the row of `font` says at its end.
@@ -416,7 +530,14 @@ impl NativeFontsBrowser {
         messages: &mut Messages,
         font: &Font,
         installed: &Installed,
+        running: Option<&Running>,
     ) -> Result<String, Error> {
+        // The font being downloaded says how far it is.
+        if let (Some(run), Ok(own)) = (running, font.plugin())
+            && run.plugin == own
+        {
+            return messages.digits(host, &run.progress()?);
+        }
         let here = font.plugin().ok().and_then(|id| installed.version(&id));
         let key = if here.is_some() && Self::chosen(host, READING_FONT, font) {
             "fonts-browser.state.reading"
@@ -468,9 +589,13 @@ impl NativeFontsBrowser {
             return Ok(());
         }
         view.asked = true;
-        let empty = view.fonts.is_empty();
+        let (empty, decided) = (view.fonts.is_empty(), view.decided);
         if !self.has_network(host)? {
             return self.trouble(Trouble::Offline);
+        }
+        // Offline mode: with no list yet the user is asked first, once.
+        if empty && !decided && self.in_offline_mode(host)? {
+            return self.trouble(Trouble::Offer);
         }
         let url = catalog_url(host)?;
         let (mut input, mut reply) = (buffer(REQUEST_INPUT)?, buffer(REPLY)?);
@@ -525,17 +650,20 @@ impl NativeFontsBrowser {
             Some(fonts) => {
                 paperpaw_sdk::Storage::rename(&storage, PART, KEPT).map_err(|_| Error::Io)?;
                 let installed = self.installed(host)?;
-                let list = Self::font_items(host, &fonts, &installed)?;
+                let running = self.running()?;
+                let items = Self::font_items(host, &fonts, &installed, running.as_ref())?;
                 if let Some(View::List(view)) = self.screens.top(LIST) {
                     view.fonts = fonts;
-                    view.list = list;
+                    view.list = ItemList::new(items);
                     view.trouble = Trouble::None;
                 }
             }
             None => {
                 paperpaw_sdk::Storage::remove(&storage, PART).ok();
                 // The catalog kept still serves; no answer at all is no connection.
-                let trouble = if done.reason() == Reason::Ok && done.status() != 0 {
+                let trouble = if done.reason() == Reason::Offline {
+                    Trouble::Offer
+                } else if done.reason() == Reason::Ok && done.status() != 0 {
                     Trouble::Failed
                 } else {
                     Trouble::Offline
@@ -555,24 +683,20 @@ impl NativeFontsBrowser {
         view: &mut ListView,
         index: usize,
     ) -> Result<Handled, Error> {
-        match view.fonts.get(index) {
-            Some(font) => {
-                if ui.is_none() {
-                    *ui = Some(Ui::open(host)?);
-                }
-                let param = font.to_param()?;
-                let params = [Param::new(FONT_PARAM, &param)?];
-                let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-                let handover = ui
-                    .as_ref()
-                    .ok_or(Error::State)?
-                    .handover(host, &params, &mut input, &mut out)?;
-                let mut scratch = [0; 256];
-                CommandSender::new(host, &mut scratch)
-                    .open(Open::screen("fonts-browser.font")?.handover(handover))?;
+        if let Some(font) = view.fonts.get(index) {
+            if ui.is_none() {
+                *ui = Some(Ui::open(host)?);
             }
-            // An empty list that says why: tapping it tries again.
-            None => view.asked = false,
+            let param = font.to_param()?;
+            let params = [Param::new(FONT_PARAM, &param)?];
+            let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+            let handover = ui
+                .as_ref()
+                .ok_or(Error::State)?
+                .handover(host, &params, &mut input, &mut out)?;
+            let mut scratch = [0; 256];
+            CommandSender::new(host, &mut scratch)
+                .open(Open::screen("fonts-browser.font")?.handover(handover))?;
         }
         Ok(Handled::Yes)
     }
@@ -598,13 +722,8 @@ impl NativeFontsBrowser {
         }
         let font = Font::from_param(&text)?;
         let installed = self.installed(host)?;
-        let downloading = self
-            .job
-            .as_ref()
-            .map(|job| copy(&job.plan.plugin))
-            .transpose()?;
-        let installing = self.job.as_ref().is_some_and(|job| job.installing());
-        let mut view = Self::font_view(host, font, &installed, downloading.as_deref(), installing)?;
+        let running = self.running()?;
+        let mut view = Self::font_view(host, font, &installed, running.as_ref(), false)?;
         // The sample is asked for; the page shows the plain line until it is there.
         view.sample = self.want_sample(host, &view)?;
         self.screens.open(instance, View::Font(view))
@@ -684,8 +803,8 @@ impl NativeFontsBrowser {
         host: &Host<'_>,
         font: Option<Font>,
         installed: &Installed,
-        downloading: Option<&str>,
-        installing: bool,
+        running: Option<&Running>,
+        offer: bool,
     ) -> Result<FontView, Error> {
         let mut messages = Messages::new()?;
         let mut items = Vec::new();
@@ -705,6 +824,9 @@ impl NativeFontsBrowser {
                 font: None,
                 rows: kinds,
                 list: ItemList::new(items),
+                offer: None,
+                decided: false,
+                downloading: false,
                 sample: None,
             });
         };
@@ -730,21 +852,28 @@ impl NativeFontsBrowser {
         )?;
         push(&mut items, Item::heading(&licence)?)?;
         push(&mut kinds, None)?;
-        let here = font.plugin().ok().and_then(|id| installed.version(&id));
-        let busy = match (downloading, font.plugin()) {
-            (Some(plugin), Ok(own)) => plugin == own,
-            _ => false,
-        };
-        for row in rows(&font, here, busy, installing)? {
-            let (title, value) = Self::row_text(host, &mut messages, &font, row)?;
-            let item = Item::row(&title, &value)?;
-            push(&mut items, item)?;
-            push(&mut kinds, Some(row))?;
+        // The offer to go online takes the place of the rows.
+        if !offer {
+            let here = font.plugin().ok().and_then(|id| installed.version(&id));
+            let (busy, installing) = match (running, font.plugin()) {
+                (Some(run), Ok(own)) if run.plugin == own => (true, run.installing),
+                _ => (false, false),
+            };
+            for row in rows(&font, here, busy, installing)? {
+                let (title, value) = Self::row_text(host, &mut messages, &font, row, running)?;
+                let item = Item::row(&title, &value)?;
+                push(&mut items, item)?;
+                push(&mut kinds, Some(row))?;
+            }
         }
+        let downloading = kinds.contains(&Some(Row::Stop));
         Ok(FontView {
             font: Some(font),
             rows: kinds,
             list: ItemList::new(items),
+            offer: None,
+            decided: false,
+            downloading,
             sample: None,
         })
     }
@@ -754,6 +883,7 @@ impl NativeFontsBrowser {
         messages: &mut Messages,
         font: &Font,
         row: Row,
+        running: Option<&Running>,
     ) -> Result<(String, String), Error> {
         let chosen = |setting: &str| {
             if Self::chosen(host, setting, font) {
@@ -767,7 +897,13 @@ impl NativeFontsBrowser {
                 messages.copy(host, "fonts-browser.download")?,
                 size_text(font.size())?,
             ),
-            Row::Stop => (messages.copy(host, "fonts-browser.stop")?, String::new()),
+            Row::Stop => (
+                messages.copy(host, "fonts-browser.stop")?,
+                match running {
+                    Some(run) => messages.digits(host, &run.progress()?)?,
+                    None => String::new(),
+                },
+            ),
             Row::Read => (
                 messages.format(
                     host,
