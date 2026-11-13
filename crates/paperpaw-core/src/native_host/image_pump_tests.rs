@@ -289,9 +289,16 @@ fn what_cannot_be_kept_fails_to_its_plugin_and_nothing_grows() {
 #[test]
 fn a_plugin_that_did_not_subscribe_loses_the_answer_without_a_call() {
     let mut w = world(false);
-    w.apply(std::vec![prepare(0, "p.png", 1)]);
+    w.apply(std::vec![prepare(0, "p.png", 1), prepare(0, "p.png", 2)]);
     while w.kernel.native_image_pump() {}
     assert!(w.told().is_empty());
+    // Said once, for the plugin to be found (#2795).
+    let said: Vec<_> = w.kernel.take_warnings();
+    let lost = said
+        .iter()
+        .filter(|warning| warning.message.contains("did not subscribe to event.image_ready"))
+        .count();
+    assert_eq!(lost, 1, "{said:?}");
     // And nothing stays held for it.
     assert!(
         w.kernel

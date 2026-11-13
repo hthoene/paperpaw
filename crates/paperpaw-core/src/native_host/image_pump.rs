@@ -85,6 +85,8 @@ pub(crate) struct ImagePump {
     /// The boot sweep of the cache folder is over.
     swept: Cell<bool>,
     cursor: Cell<SweepCursor>,
+    /// The last plugin warned that it loses its answers (not subscribed).
+    warned: Cell<u64>,
 }
 
 impl ImagePump {
@@ -423,6 +425,7 @@ impl crate::Kernel {
             let Some(ready) = pump.held.borrow().clone() else {
                 return false;
             };
+            self.image_warn_unsubscribed(ready.owner);
             let outcome = self.image_deliver(&ready);
             // What the callback staged runs before the next one is called.
             self.native_outbox_run();
@@ -437,6 +440,26 @@ impl crate::Kernel {
                 .take();
         }
         true
+    }
+
+    /// A running plugin that asks for pictures without subscribing to
+    /// `event.image_ready` loses every answer (`document.md` 5): said as a
+    /// warning, once for a plugin while no other one is said.
+    fn image_warn_unsubscribed(&mut self, owner: u64) {
+        let instances = &self.shared.native_instances;
+        if instances.subscribed(owner, wire::EVENT_IMAGE_READY_TAG)
+            || instances.image_pump.warned.get() == owner
+        {
+            return;
+        }
+        let Some(id) = instances.id(owner).map(|id| String::from(id.as_str())) else {
+            return;
+        };
+        instances.image_pump.warned.set(owner);
+        self.try_warn_runtime(&[
+            &id,
+            ": its pictures are not told, it did not subscribe to event.image_ready",
+        ]);
     }
 
     /// `Some(status)` of the plugin's callback when it failed; `None` when it
