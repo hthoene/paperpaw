@@ -19,9 +19,9 @@ use super::net_service::{
     self, Decision, NetDevice,
     cable_link::{CableLink, HOLD_MS, Held, Open},
 };
+use super::shared::Shared;
 use super::shell_wiring::ServedDecision;
 use crate::Kernel;
-use super::shared::Shared;
 use crate::io::cable::Line;
 use paperpaw_sdk::{Params, builtin::slots};
 
@@ -58,7 +58,11 @@ impl Kernel {
     /// `core.net`'s device where it is made and serves the cable,
     /// interface-6 server or not (the lines it queued still go out).
     fn cable_device(&self) -> Option<Shared<NetDevice>> {
-        self.shared.native_instances.hosts()?.cable_net()?.try_clone()
+        self.shared
+            .native_instances
+            .hosts()?
+            .cable_net()?
+            .try_clone()
     }
 
     /// A line of the computer's for the native server. `paused`: the last

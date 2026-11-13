@@ -767,7 +767,9 @@ impl HostServices {
     /// `core.net`'s device for a line from the cable, made now where it is
     /// wired with the cable and not made yet (#248); `None` where it is not
     /// wired so or finds no room (the line is the interface-6 path's then).
-    pub(crate) fn cable_net_for_line(&self) -> Option<&super::shared::Shared<net_service::NetDevice>> {
+    pub(crate) fn cable_net_for_line(
+        &self,
+    ) -> Option<&super::shared::Shared<net_service::NetDevice>> {
         if !self.net_cable.get() {
             return self.cable_net();
         }
