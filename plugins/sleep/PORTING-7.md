@@ -39,7 +39,8 @@ time it shows (not for `page`).
 
 ## Not yet (ignored acceptance cases in `tests/acceptance_pending.rs`)
 
-- **Hidden hints:** no declaration of a screen's hint visibility.
+- **Hidden hints:** done (#2769): the sleep screen is declared `hints_hidden` (flag bit 8), as Beta 3 showed no
+  row of button hints; pinned by `tests/abi7_declarations.rs`.
 - **Another plugin's mode:** the declarations carry the plugin's own seven; another plugin's mode is a foreign
   `setting.choice` it declares itself, and sleep binds the slot for it (item 5 below).
 
@@ -113,7 +114,8 @@ back; at most 8 prepared and 4 waiting per plugin. With it the items below becom
    own; set: the library picture, trimmed; failed: own; too long: own) and `images`' unit tests (a failed card logo
    asks for the own one; fitted sizes).
    **Not ported with the images:** the image description for accessibility (`Canvas::describe`: the native canvas
-   has none) and the gray-levels hint of `Screen::grays`.
+   has none). The gray-levels hint of `Screen::grays` is ported (#2769): every picture of the screen is drawn with
+   `ImageStyle::grays()` (the panel's grays where it has them), as Beta 3 drew the sleep screen.
 4. **The picker (`pick-overlay`): done (slice 4, #257).** The screen `sleep.pick-overlay` (token `PICK`) is declared
    and is the editor (`EditorDecl::Screen`) of both `sleep.overlay-picture` and `sleep.overlay-widget`, as in
    interface 6. Its rows are Beta 3's, in its order (`overlay::Picker`; the model is `src/native_pick.rs`, the screen
@@ -186,14 +188,14 @@ back; at most 8 prepared and 4 waiting per plugin. With it the items below becom
    other plugins' tests still pin `DeclarationViewsUnavailable` (the commit refused, #944) because they do not
    subscribe to it. When Core adds the encoder, sleep's pin returns to `DeclarationViewsUnavailable` and then to the
    positive case with #944; the ignored positive test stays as it is.
-6. **Hidden hints:** no declaration of a screen's hint visibility (kernel's).
+6. **Hidden hints:** done (#2769, `ScreenDecl::hints_hidden`).
 
 The order that makes the plugin native-only: #692 → 1 and 2 (one decode at a time, four waiting at most) → 3 with the
 cover facade → 4 (5 is done); 1 to 3 are in slice 3, 4 in slice 4.
 
-**Remaining gaps** (after slice 5): the hidden hints of the sleep screen (item 6, no declaration); the clear parts of a
+**Remaining gaps** (after slice 5 and #2769): the clear parts of a
 PNG or GIF over the page (alpha, item 2); a picture (or a `core.logo`) under a code plugin's folder or a data plugin
-that is not running (items 2 and 3, a root for another plugin's files); the image description and the gray-levels hint
+that is not running (items 2 and 3, a root for another plugin's files); the image description
 (item 3); a pre-asked cat and logo or a command allowed in a
 draw for the fallbacks decided at draw time (item 3); the production loader and the qualification of screen commands,
 composition and input (the acceptance cases in `tests/acceptance_pending.rs`, H1, H3, H4).
@@ -203,4 +205,6 @@ composition and input (the acceptance cases in `tests/acceptance_pending.rs`, H1
 1. `Sleep` and its `Plugin` impl, `SleepScreen`, the `cat` module's interface-6 drawing, `overlay`'s `Canvas` code
    (`native_sleep` and the decisions stay), the `HOW` table kept for the manifest;
 2. the app's store-offer line and the other plugins' tests that register `Sleep`;
-3. list `NativeSleep` in `NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt` once the images are native.
+3. ~~list `NativeSleep` in `NATIVE_PLUGINS`~~ (done, #2769: under `native-linked` the app lists the native entry with
+   its settings tables kept in the program, `fixed_tables`, and no longer installs the interface-6 `Sleep`); list it in
+   `tools/plugin-files7/complete.txt` with step 1 (that list is for plugins with no interface-6 part left).

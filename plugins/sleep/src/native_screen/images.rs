@@ -333,7 +333,7 @@ impl Sleeping {
         let side = self.side_of(host, kind)?;
         *cookie = cookie.wrapping_add(1).max(1);
         let mut scratch = [0; 640];
-        let request = PrepareImage::new(root, &path, *cookie).side(side);
+        let request = prepare(kind, root, &path, *cookie, side);
         match CommandSender::new(host, &mut scratch).image_prepare(&request) {
             Ok(()) => {
                 self.pics.asked = Some((*cookie, kind));
@@ -602,10 +602,39 @@ fn read_folder(host: &Host<'_>, files: &Files, folder: &str) -> Result<Pictures,
     Ok(kept)
 }
 
+/// The request for the picture of `kind`: the picture over the page keeps the
+/// clear parts of a PNG or GIF, so the page shows through them, as Beta 3
+/// decoded it (`AlphaFile`); the others are opaque.
+fn prepare(kind: Kind, root: PrepareRoot, path: &str, cookie: u32, side: u32) -> PrepareImage<'_> {
+    let request = PrepareImage::new(root, path, cookie).side(side);
+    if kind == Kind::Over {
+        request.see_through()
+    } else {
+        request
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, reason = "fixture failures fail the test")]
 mod tests {
     use super::*;
+    use alloc::format;
+
+    #[test]
+    fn the_picture_over_the_page_keeps_the_clear_parts_of_a_gif_or_png_as_beta_3() {
+        for path in ["pictures/owl.gif", "pictures/ring.png"] {
+            let over = format!(
+                "{:?}",
+                prepare(Kind::Over, PrepareRoot::Library, path, 1, 0)
+            );
+            assert!(over.contains("see_through: true"), "{over}");
+        }
+        // The cat, the logo and a picture of the folder fill the screen: opaque.
+        for kind in [Kind::Cat, Kind::Logo, Kind::Picture] {
+            let opaque = format!("{:?}", prepare(kind, PrepareRoot::Data, "cat.png", 1, 0));
+            assert!(opaque.contains("see_through: false"), "{kind:?}: {opaque}");
+        }
+    }
 
     fn held(width: u32, height: u32) -> Held {
         Held {

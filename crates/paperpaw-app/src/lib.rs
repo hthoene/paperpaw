@@ -127,9 +127,11 @@ pub fn install(builder: KernelBuilder, fonts: Fonts) -> KernelBuilder {
 /// registers each through the kernel (`Kernel::register_native`); until a
 /// device activates them it only keeps them linked.
 #[cfg(feature = "native-linked")]
-pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 16] = [
+pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-reading")]
+    ("dictionary", &paperpaw_plugin_dictionary::NATIVE_ENTRY),
     ("file-manager", &paperpaw_plugin_file_manager::NATIVE_ENTRY),
     ("files", &paperpaw_plugin_files::NATIVE_ENTRY),
     ("help", &paperpaw_plugin_help::NATIVE_ENTRY),
@@ -144,6 +146,7 @@ pub static NATIVE_PLUGINS: [(&str, &paperpaw_core::sdk::native::Linked); 16] = [
     ("power", &paperpaw_plugin_power::NATIVE_ENTRY),
     ("settings", &paperpaw_plugin_settings::NATIVE_ENTRY),
     ("setup", &paperpaw_plugin_setup::NATIVE_ENTRY),
+    ("sleep", &paperpaw_plugin_sleep::NATIVE_ENTRY),
     ("transfer", &paperpaw_plugin_transfer::NATIVE_ENTRY),
     ("update", &paperpaw_plugin_update::NATIVE_ENTRY),
     ("wifi", &paperpaw_plugin_wifi::NATIVE_ENTRY),
@@ -203,6 +206,7 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
         "files" => tables!(paperpaw_plugin_files),
         "plugin-manager" => tables!(paperpaw_plugin_plugin_manager),
         "setup" => tables!(paperpaw_plugin_setup),
+        "sleep" => tables!(paperpaw_plugin_sleep),
         "transfer" => tables!(paperpaw_plugin_transfer),
         "update" => tables!(paperpaw_plugin_update),
         "wifi" => tables!(paperpaw_plugin_wifi),
@@ -211,6 +215,8 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
         #[cfg(feature = "native-linked-store")]
         "notes-vault" => tables!(paperpaw_plugin_notes_vault),
         "bluetooth" => tables!(paperpaw_plugin_bluetooth),
+        #[cfg(feature = "native-linked-reading")]
+        "dictionary" => tables!(paperpaw_plugin_dictionary),
         "file-manager" => tables!(paperpaw_plugin_file_manager),
         "help" => tables!(paperpaw_plugin_help),
         #[cfg(feature = "native-linked-reading")]
@@ -292,7 +298,7 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
             host, services, resources, depth, teardown, report, image,
         )
     };
-    for (id, linked) in &NATIVE_PLUGINS {
+    for (id, linked) in NATIVE_PLUGINS {
         if let Some(park_shell) = park_shell.as_ref().filter(|_| sleep(id)) {
             // SAFETY: as this function's contract says.
             let status = unsafe {
@@ -426,9 +432,15 @@ pub fn install_with(
         .plugin(paperpaw_epub_family::Fb2Format)
         .plugin(paperpaw_epub_family::MarkdownFormat)
         .plugin(paperpaw_epub_family::CbzFormat)
-        .plugin(paperpaw_plugin_format_xtc::XtcFormat)
-        .plugin(paperpaw_plugin_dictionary::DictionaryPlugin)
-        .plugin(paperpaw_plugin_reader::Reader);
+        .plugin(paperpaw_plugin_format_xtc::XtcFormat);
+    // Dictionary is a native plugin, linked (`NATIVE_PLUGINS`), where the
+    // native reader asks it (`native-linked-reading`): the interface-6
+    // reader looks words up through the interface-6 form.
+    #[cfg(not(feature = "native-linked-reading"))]
+    {
+        b = b.plugin(paperpaw_plugin_dictionary::DictionaryPlugin);
+    }
+    b = b.plugin(paperpaw_plugin_reader::Reader);
     // Home and Menu keep their order; Files and Menu are native plugins,
     // linked (`NATIVE_PLUGINS`), where the feature says.
     b = b.plugin(paperpaw_plugin_home::Home);
@@ -461,7 +473,12 @@ pub fn install_with(
         b = offered(b, store, paperpaw_plugin_aids::Aids);
         b = offered(b, store, paperpaw_plugin_vocabulary::Vocabulary);
     }
-    b = b.plugin(paperpaw_plugin_sleep::Sleep);
+    // Sleep is a native plugin, linked (`NATIVE_PLUGINS`), where the feature
+    // says.
+    #[cfg(not(feature = "native-linked"))]
+    {
+        b = b.plugin(paperpaw_plugin_sleep::Sleep);
+    }
     #[cfg(feature = "store-plugins")]
     {
         b = offered(b, store, paperpaw_plugin_news::News);

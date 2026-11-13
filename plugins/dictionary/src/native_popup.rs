@@ -2,6 +2,7 @@
 //! and its entries from the providers (`core.lookup` service, one page per
 //! provider) over the lower part of the screen, scrolled by button or tap.
 use crate::{
+    native_asking::Asking,
     native_disk::{HostRoot, Routed},
     native_folders::{self, Folders},
     native_model::{self, Listing},
@@ -68,6 +69,15 @@ pub struct View {
     /// How far (percent) the indexes the lookup waits for are made; `None`
     /// once they are, or where none is being made.
     preparing: Option<u32>,
+    /// The providers that answer later (todo 98): the note says *Looking up
+    /// …* while any is waited for.
+    asking: Asking,
+    /// The first line to show when the panel is built again (a later answer
+    /// keeps the page that was shown).
+    top_after: usize,
+    /// The panel was built of no entry: it says nothing was found only when no
+    /// provider is waited for any more.
+    built_empty: bool,
     /// Built at the first draw, when the font is there to measure with.
     panel: Option<Panel>,
     layout: Layout,
@@ -143,13 +153,63 @@ impl View {
         CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Fast)
     }
 
+    /// Whether the panel waits for providers that answer later.
+    #[must_use]
+    pub fn waits_for_answers(&self) -> bool {
+        self.asking.waiting()
+    }
+
+    /// `provider` kept its answer (`event.lookup_ready`): where the panel waits
+    /// for it, the word is looked up again (the provider now answers from what
+    /// it kept, the others as before) and the panel draws again on the page it
+    /// showed. Whether the panel waited for it.
+    ///
+    /// # Errors
+    /// The host's refusals; `NoMemory`.
+    pub fn ready(&mut self, host: &Host<'_>, provider: &str) -> Result<bool, Error> {
+        if self.preparing.is_some() || !self.asking.answered(provider) {
+            return Ok(false);
+        }
+        let top = self.panel.as_ref().map_or(0, Panel::top);
+        self.top_after = top;
+        self.entries = Vec::new();
+        self.panel = None;
+        let own = own_entries(host, &self.word, &mut self.entries)?;
+        self.look_up(host, own.count)?;
+        let mut scratch = [0; 64];
+        CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
+        Ok(true)
+    }
+
+    /// The providers waited for did not answer in time ([`crate::native_asking::ANSWER_MS`]):
+    /// the note goes, and a panel of no entry says nothing was found.
+    ///
+    /// # Errors
+    /// The host's refusal of the redraw.
+    pub fn stop_waiting(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if !self.asking.waiting() {
+            return Ok(());
+        }
+        self.asking.give_up();
+        if self.built_empty {
+            self.panel = None;
+        }
+        let mut scratch = [0; 64];
+        CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)
+    }
+
     /// Adds what the providers answer to the own entries read, and the message
     /// for a folder with no dictionary where nothing was found.
     fn look_up(&mut self, host: &Host<'_>, dictionaries: usize) -> Result<(), Error> {
         let own = core::mem::take(&mut self.entries);
-        self.entries = entries(host, &self.word, &self.language, own)?;
+        self.asking.give_up();
+        self.entries = entries(host, &self.word, &self.language, own, &mut self.asking)?;
         self.none = None;
-        if dictionaries == 0 && self.entries.is_empty() && !self.word.is_empty() {
+        if dictionaries == 0
+            && self.entries.is_empty()
+            && !self.word.is_empty()
+            && !self.asking.waiting()
+        {
             let mut scratch = [0u8; 300];
             self.none = Some(text::copy(
                 native_folders::folder_setting(host, &mut scratch)?.trim_matches('/'),
@@ -203,6 +263,8 @@ impl View {
             return Ok(());
         }
         let empty = match &self.none {
+            // Beta 3 said nothing while providers were still to answer.
+            _ if self.asking.waiting() => String::new(),
             Some(folder) => messages.format(
                 host,
                 "dictionary.none",
@@ -221,12 +283,16 @@ impl View {
             )?,
         };
         let wide = f32::from(width.saturating_sub(2 * style.margin)).max(1.0);
-        self.panel = Some(build_panel(
+        let built_empty = self.entries.is_empty();
+        let mut panel = build_panel(
             &mut self.entries,
             &empty,
             |t| font.measure_text(style.text, t),
             wide,
-        )?);
+        )?;
+        panel.set_top(core::mem::take(&mut self.top_after));
+        self.built_empty = built_empty;
+        self.panel = Some(panel);
         Ok(())
     }
 
@@ -251,6 +317,9 @@ impl View {
             );
         }
         self.ensure_panel(host, font, style, width, messages)?;
+        if self.asking.waiting() {
+            return messages.format(host, "dictionary.asking", &[]);
+        }
         let panel = self.panel.as_ref().ok_or(Error::State)?;
         let (page, pages) = panel.pages(rows);
         if pages <= 1 {
@@ -545,6 +614,7 @@ fn entries(
     word: &str,
     language: &str,
     mut found: Vec<Entry>,
+    asking: &mut Asking,
 ) -> Result<Vec<Entry>, Error> {
     if word.is_empty() {
         return Ok(found);
@@ -556,7 +626,7 @@ fn entries(
     };
     // Whatever a provider answers wrong or fails with is no entry: the panel
     // opens with what was found, and says so when that is nothing.
-    let _ = ask_all(host, &lookup, word, language, &mut found);
+    let _ = ask_all(host, &lookup, word, language, &mut found, asking);
     let _ = lookup.release(host);
     Ok(found)
 }
@@ -567,6 +637,7 @@ fn ask_all(
     word: &str,
     language: &str,
     found: &mut Vec<Entry>,
+    asking: &mut Asking,
 ) -> Result<(), Error> {
     let (mut input, mut out) = (buffer(lookup::BUFFER)?, buffer(lookup::BUFFER)?);
     for cursor in 0..MAX_ENTRIES as u32 {
@@ -574,6 +645,11 @@ fn ask_all(
         let Some(entry) = lookup.ask(host, &question, &mut input, &mut out)? else {
             break;
         };
+        // A provider that must fetch answers later (`event.lookup_ready`).
+        if entry.pending() {
+            asking.wait(entry.provider())?;
+            continue;
+        }
         if entry.text().trim().is_empty() {
             continue;
         }

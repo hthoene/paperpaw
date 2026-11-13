@@ -5,7 +5,8 @@
 //! background (`core.work`), a step at a time, and answers once it is ready.
 //! The panel is a later slice (`PORTING-7.md`).
 use crate::{
-    declarations::{POPUP_TOKEN, PROVIDER_TOKEN, WORK_KEY, WORK_TOKEN},
+    declarations::{ANSWERS_KEY, POPUP_TOKEN, PROVIDER_TOKEN, WORK_KEY, WORK_TOKEN},
+    native_asking::ANSWER_MS,
     native_disk::{HostRoot, Routed, failed_file},
     native_folders::{self, Folders},
     native_model::{self, Source},
@@ -84,6 +85,8 @@ pub struct NativeDictionary {
     /// until the next start. (A damaged dictionary is kept in a file by its
     /// cache, [`crate::native_disk::failed_file`].)
     gave_up: bool,
+    /// The timer that ends the panels' wait for later answers is declared.
+    answers_timer: bool,
     ui: Option<Ui>,
     screens: Screens<View>,
 }
@@ -150,12 +153,53 @@ impl NativeDictionary {
 
     /// Declares the work that does the next step of the indexing.
     fn schedule(host: &Host<'_>) -> Result<(), Error> {
+        Self::declare(host, WorkSpec::new(WORK_KEY, WORK_TOKEN)?)
+    }
+
+    fn declare(host: &Host<'_>, spec: &WorkSpec<'_>) -> Result<(), Error> {
         let work = Work::open(host)?;
         let mut input = [0u8; 256];
-        let declared = WorkSpec::new(WORK_KEY, WORK_TOKEN)
-            .and_then(|spec| work.declare(host, &spec, &mut input, &mut []));
+        let declared = work.declare(host, spec, &mut input, &mut []);
         let released = work.release(host);
         declared.and(released)
+    }
+
+    /// Starts the timer that ends the wait for later answers where a panel
+    /// waits for one and none runs (Beta 3 waited [`ANSWER_MS`] from the ask).
+    /// Without a timer the panels do not wait: a note that never goes would
+    /// say more than there is.
+    fn time_answers(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if self.answers_timer || !self.screens.all().any(|view| view.waits_for_answers()) {
+            return Ok(());
+        }
+        let spec = WorkSpec::new(ANSWERS_KEY, WORK_TOKEN)?.after_ms(ANSWER_MS);
+        match Self::declare(host, &spec) {
+            Ok(()) => {
+                self.answers_timer = true;
+                Ok(())
+            }
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            Err(_) => self.answers_due(host),
+        }
+    }
+
+    /// The time for later answers is up: the panels stop waiting.
+    fn answers_due(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.answers_timer = false;
+        let mut outcome = Ok(());
+        for view in self.screens.all() {
+            outcome = outcome.and(view.stop_waiting(host));
+        }
+        outcome
+    }
+
+    /// A provider kept its answer: the panels that wait for it look the word
+    /// up again.
+    fn answer_ready(&mut self, host: &Host<'_>, provider: &str) -> Result<(), Error> {
+        for view in self.screens.all() {
+            view.ready(host, provider)?;
+        }
+        self.time_answers(host)
     }
 
     /// One step of the indexing: the first index a while, then the rest. A
@@ -186,6 +230,7 @@ impl NativeDictionary {
             }
         }
         self.tell_panels(host);
+        self.time_answers(host)?;
         if self.index.pending.is_empty() {
             Ok(())
         } else {
@@ -285,7 +330,11 @@ impl Plugin for NativeDictionary {
                 let ask = Ask::decode(payload)?;
                 self.ask(host, &ask, reply)
             }
+            Event::WorkDue(due) if token == WORK_TOKEN && due.key() == ANSWERS_KEY => {
+                self.answers_due(host)
+            }
             Event::WorkDue(_) if token == WORK_TOKEN => self.index(host),
+            Event::LookupReady { provider, .. } => self.answer_ready(host, provider),
             Event::ScreenOpened {
                 instance, handover, ..
             } => {
@@ -302,7 +351,8 @@ impl Plugin for NativeDictionary {
                         view.indexed(host, None)?;
                     }
                 }
-                self.screens.open(instance, view)
+                self.screens.open(instance, view)?;
+                self.time_answers(host)
             }
             Event::ScreenShown {
                 instance: Some(instance),
