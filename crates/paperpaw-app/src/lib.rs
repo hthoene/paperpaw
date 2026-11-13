@@ -143,7 +143,7 @@ pub const fn default_store() -> StorePlugins<'static> {
 /// [`native_default_on`]. Not in the list yet, because their ports are not
 /// finished (each one's `PORTING-7.md` says what is open) or the interface-6
 /// reader still reads books through their interface-6 forms: sleep,
-/// dictionary, store, fonts-browser, picture-home. The formats (txt, xtc, epub,
+/// dictionary, store, fonts-browser. The formats (txt, xtc, epub,
 /// html, fb2, markdown, cbz) are linked with the reader
 /// (`native-linked-reading`), and docx, images and mobi with it where
 /// `native-linked-store` links the store's plugins: the native reader opens
@@ -198,6 +198,8 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     #[cfg(feature = "native-linked-store")]
     ("notes-vault", &paperpaw_plugin_notes_vault::NATIVE_ENTRY),
     ("opds", &paperpaw_plugin_opds::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("picture-home", &paperpaw_plugin_picture_home::NATIVE_ENTRY),
     (
         "plugin-manager",
         &paperpaw_plugin_plugin_manager::NATIVE_ENTRY,
@@ -321,6 +323,8 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
         "mail" => tables!(paperpaw_plugin_mail),
         #[cfg(feature = "native-linked-store")]
         "notes-vault" => tables!(paperpaw_plugin_notes_vault),
+        #[cfg(feature = "native-linked-store")]
+        "picture-home" => tables!(paperpaw_plugin_picture_home),
         "bluetooth" => tables!(paperpaw_plugin_bluetooth),
         "file-manager" => tables!(paperpaw_plugin_file_manager),
         "help" => tables!(paperpaw_plugin_help),
@@ -642,7 +646,9 @@ pub fn install_with(
     {
         b = offered(b, store, paperpaw_plugin_notes_vault::NotesVault);
     }
-    #[cfg(feature = "store-plugins")]
+    // Picture home is a native plugin, linked (`NATIVE_PLUGINS`), shipped off
+    // (`native_default_on`), where `native-linked-store` links the store's.
+    #[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
     {
         b = offered_replacing_home(b, store, paperpaw_plugin_picture_home::PictureHome);
     }
@@ -719,7 +725,7 @@ fn offer_shipped_off(mut b: KernelBuilder, store: StorePlugins<'_>) -> KernelBui
 /// a built-in screen (the home screen): as [`offered`], but switched off
 /// where `store` says on for all, so that the tests keep the screen they
 /// test unless one switches the plugin on.
-#[cfg(feature = "store-plugins")]
+#[cfg(all(feature = "store-plugins", not(feature = "native-linked-store")))]
 fn offered_replacing_home(
     builder: KernelBuilder,
     store: StorePlugins<'_>,

@@ -113,9 +113,11 @@ native-linked-store = [
     "dep:paperpaw-plugin-format-docx",
     "dep:paperpaw-plugin-format-images",
     "dep:paperpaw-plugin-format-mobi",
+    "dep:paperpaw-plugin-picture-home",
     "paperpaw-plugin-aids/linked",
     "paperpaw-plugin-mail/linked",
     "paperpaw-plugin-notes-vault/linked",
+    "paperpaw-plugin-picture-home/linked",
     "paperpaw-plugin-widgets/linked",
 ]
 
