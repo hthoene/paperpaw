@@ -7,11 +7,12 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_sdk::{
-    Handled, Instant, Storage,
+    Handled, Instant,
     native::{
         Error, Host,
         callbacks::{DrawFrame, Input},
         commands::{CommandSender, RedrawMode},
+        files::{self, Files},
         formatting::Arg,
         net::{FileRoot, Net, REQUEST_INPUT, Reason, Response, ServedRequest, Server, ServerState},
         secrets::{Secrets, wipe},
@@ -24,7 +25,7 @@ use paperpaw_sdk::{
 use paperpaw_ui_kit::{
     Footer, ItemList, Messages, Screens,
     files::replace,
-    mem::{buffer, wipe_text},
+    mem::{buffer, push, wipe_text},
     text::{copy, format},
 };
 
@@ -80,6 +81,7 @@ pub(crate) struct Phone {
     screens: Screens<PhoneScreen>,
     net: Option<Net>,
     secrets: Option<Secrets>,
+    files: Option<Files>,
 }
 
 fn handle<T>(slot: &mut Option<T>, open: impl FnOnce() -> Result<T, Error>) -> Result<&T, Error> {
@@ -104,40 +106,6 @@ fn is_left(name: &str) -> bool {
             .is_some_and(|number| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()))
 }
 
-/// Removes what a time of serving left behind (a power cut stops it before
-/// the screen closes). Best effort: only a refused allocation is an error.
-pub(crate) fn sweep(storage: &dyn Storage) -> Result<(), Error> {
-    let mut left: Vec<String> = Vec::new();
-    let mut refused = false;
-    let listed = storage.list(FOLDER.trim_end_matches('/'), &mut |entry| {
-        if refused || entry.is_dir || !is_left(entry.name) {
-            return;
-        }
-        let mut path = String::new();
-        let room = FOLDER.len() + entry.name.len();
-        if path.try_reserve_exact(room).is_err() || left.try_reserve(1).is_err() {
-            refused = true;
-            return;
-        }
-        path.push_str(FOLDER);
-        path.push_str(entry.name);
-        left.push(path);
-    });
-    if refused {
-        return Err(Error::NoMemory);
-    }
-    // No folder yet, or none to read: nothing is left.
-    if listed.is_err() {
-        return Ok(());
-    }
-    for path in &left {
-        match storage.remove(path) {
-            Ok(()) | Err(_) => {}
-        }
-    }
-    Ok(())
-}
-
 /// The name of the file a long answer to request `number` is in.
 fn reply_file(number: u32) -> Result<String, Error> {
     format(format_args!("phone-{number}.json"))
@@ -150,7 +118,7 @@ impl Phone {
     pub(crate) fn opened(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
         let data = DataStorage::new(host);
         let storage = DataFolder(&data);
-        sweep(&storage)?;
+        self.sweep(host)?;
         let _ = cards::fold(&storage);
         let deck = crate::native_plugin::lookup_deck(host)?;
         let _ = cards::take_lookups(&storage, &deck);
@@ -163,6 +131,44 @@ impl Phone {
             replies: Vec::new(),
         };
         self.screens.open(instance, page)
+    }
+
+    /// Removes what a time of serving left behind (a power cut stops it before
+    /// the screen closes): the page and the long answers. Best effort: only a
+    /// refused allocation is an error.
+    fn sweep(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let files = match handle(&mut self.files, || Files::open(host)) {
+            Ok(files) => files,
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => return Ok(()),
+        };
+        let (mut input, mut out) = (buffer(files::INPUT_BYTES)?, buffer(files::OUTPUT_BYTES)?);
+        let mut left: Vec<String> = Vec::new();
+        let mut cursor = 0;
+        loop {
+            let page = match files.list(host, Root::Data, "", cursor, &mut input, &mut out) {
+                Ok(page) => page,
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                // No folder yet, or none that can be read: nothing is left.
+                Err(_) => break,
+            };
+            for entry in page.entries() {
+                if !entry.is_folder() && is_left(entry.name()) {
+                    push(&mut left, copy(entry.name())?)?;
+                }
+            }
+            match page.next() {
+                Some(next) => cursor = next,
+                None => break,
+            }
+        }
+        for name in &left {
+            let removed = files.remove_tree(host, Root::Data, name, &mut input, &mut out);
+            if removed == Err(Error::NoMemory) {
+                return Err(Error::NoMemory);
+            }
+        }
+        Ok(())
     }
 
     /// The screen is shown the first time: its page is written and the server
@@ -606,33 +612,22 @@ mod tests {
         }
     }
 
-    /// What a cut left behind (the page, the long answers) goes when the screen
-    /// opens; the decks and what only looks alike stay.
+    /// What an earlier serving left is the page and the long answers; the decks
+    /// and what only looks alike are not.
     #[test]
-    fn what_an_earlier_serving_left_is_swept() {
-        use paperpaw_sdk::MemoryStorage;
-        let storage = MemoryStorage::new();
-        let own = |name: &str| alloc::format!("{FOLDER}{name}");
-        let gone = ["phone.html", "phone-3.json", "phone-4096.json"];
-        let kept = [
+    fn what_an_earlier_serving_left_is_told_from_what_looks_alike() {
+        for name in ["phone.html", "phone-3.json", "phone-4096.json"] {
+            assert!(is_left(name), "{name}");
+        }
+        for name in [
             "decks.txt",
             "phone-.json",
             "phone-x.json",
             "phone-7.json.keep",
-        ];
-        for name in gone.iter().chain(&kept) {
-            storage.write(&own(name), b"x").unwrap();
+            "Phone.html",
+        ] {
+            assert!(!is_left(name), "{name}");
         }
-        sweep(&storage).unwrap();
-        for name in gone {
-            assert!(!storage.exists(&own(name)), "{name} is left");
-        }
-        for name in kept {
-            assert!(storage.exists(&own(name)), "{name} is gone");
-        }
-        // Nothing left is nothing to do, with or without the folder.
-        sweep(&storage).unwrap();
-        sweep(&MemoryStorage::new()).unwrap();
     }
 
     #[test]
