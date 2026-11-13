@@ -6,7 +6,7 @@ use super::{
     sources::Sources,
 };
 use crate::native_host::registrations::{self as wire, Record};
-use crate::native_host::store_record::StoreRecord;
+use crate::native_host::store_record::{self, StoreRecord};
 use core::{fmt::Write, ops::ControlFlow};
 use paperpaw_native::host_glue::ERR_NOT_FOUND;
 use paperpaw_sdk::{PluginInfo, PluginKind, PluginProblem, PluginState, Version};
@@ -136,8 +136,9 @@ pub(super) fn rows(
     sources: &Sources<'_>,
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> Result<(), i32> {
-    let record = StoreRecord::read(sources.env.storage())?;
     let plugins = sources.env.plugins();
+    store_record::adopt(sources.env.storage(), plugins);
+    let record = StoreRecord::read(sources.env.storage())?;
     let core = plugins.kernel();
     if let Some(info) = core
         && with_row(sources, &record, info, &mut *visit).is_break()
@@ -162,6 +163,7 @@ pub(super) fn detail(
     visit: &mut dyn FnMut(&dyn Row) -> Result<(), i32>,
 ) -> Result<(), i32> {
     let info = sources.env.plugins().get(key).ok_or(ERR_NOT_FOUND)?;
+    store_record::adopt(sources.env.storage(), sources.env.plugins());
     let record = StoreRecord::read(sources.env.storage())?;
     let mut failure = None;
     with_row(sources, &record, info, |row| {

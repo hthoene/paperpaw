@@ -838,3 +838,26 @@ fn a_plugin_a_store_installed_says_so_with_its_release_as_the_store_named_it() {
     let unspent = FAIL_SIZE.with(|size| size.replace(0));
     assert_eq!((refused.err(), unspent), (Some(ERR_NO_MEMORY), 0));
 }
+
+#[test]
+fn the_first_plugin_rows_take_a_device_without_a_record_for_the_stores() {
+    use crate::native_host::store_record::tests::record;
+    // Installed before PaperPaw kept a record of the store's installs.
+    let ini = "[plugin]\nname = cosy\nversion = 2.1\nformats = 4\n";
+    let storage = paperpaw_sdk::MemoryStorage::new().with("plugins/cosy/plugin.ini", ini);
+    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .plugin(Demo { actions: 1 })
+        .storage(storage)
+        .build()
+        .unwrap();
+    let card = kernel.shared.storage.as_ref();
+    assert_eq!(record(card), None);
+    let (rows, _) = page(&kernel, schema::OP_PLUGINS, "");
+    let cosy = rows.iter().find(|row| row.starts_with("plugin cosy "));
+    assert!(
+        cosy.unwrap().contains(" kind=1 state=0 flags=33 "),
+        "{rows:?}"
+    );
+    // Built-in plugins are never the store's.
+    assert_eq!(record(card).as_deref(), Some("cosy\t2.1.0\n"));
+}

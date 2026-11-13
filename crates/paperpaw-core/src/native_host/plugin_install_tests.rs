@@ -109,9 +109,13 @@ fn drive_with(
         built_ins: &Names,
         granted,
     };
+    drive_env(&env, job, answer)
+}
+
+fn drive_env(env: &JobEnv<'_>, job: &mut PluginInstall, answer: Answer) -> Ran {
     let mut asked = Vec::new();
     for _ in 0..10_000 {
-        match job.step(&env) {
+        match job.step(env) {
             JobStep::More => {}
             JobStep::Wait => panic!("waited with no question"),
             JobStep::Unload(_) => panic!("an install closes no plugin"),
@@ -1046,4 +1050,22 @@ fn an_install_from_a_catalog_is_the_stores_and_any_other_is_not() {
         StoreRecord::read(&card).unwrap().release("dials", one),
         None
     );
+}
+
+#[test]
+fn a_device_without_a_record_takes_its_plugins_for_the_stores_before_an_install_commits() {
+    use super::super::store_record::tests::{Found, record};
+    let card = MemoryStorage::new();
+    data_source(&card, "1.0.0");
+    // A data plugin installed before PaperPaw kept a record (cosy), and a
+    // sideload of dials: cosy is taken for the store's first, dials is not.
+    let env = JobEnv {
+        storage: &card,
+        host: &host(),
+        built_ins: &Found::data(&[("cosy", "2.1")]),
+        granted: false,
+    };
+    let ran = drive_env(&env, &mut job(0, Evidence::NONE), Answer::Yes);
+    assert_eq!(ran.done.reason, reason::OK);
+    assert_eq!(record(&card).as_deref(), Some("cosy\t2.1.0\n"));
 }

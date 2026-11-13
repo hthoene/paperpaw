@@ -49,6 +49,20 @@ impl BuiltIns for NoBuiltIns {
     }
 }
 
+/// The built-ins, and every plugin the kernel found (for the store's record).
+struct Found<'a>(&'a dyn BuiltIns, &'a paperpaw_sdk::Plugins);
+impl BuiltIns for Found<'_> {
+    fn count(&self) -> usize {
+        self.0.count()
+    }
+    fn index_of(&self, plugin_id: &str) -> Option<usize> {
+        self.0.index_of(plugin_id)
+    }
+    fn found(&self) -> Option<&paperpaw_sdk::Plugins> {
+        Some(self.1)
+    }
+}
+
 /// `install_done.status` of a reason (`device.md` 5.5). A check that ran ends
 /// `OK` with its verdict as the reason; only a check that could not run (other,
 /// card error, not on this device, stopped) carries the error.
@@ -134,9 +148,13 @@ impl Kernel {
                 return true;
             };
             let hosts = self.shared.native_instances.hosts();
+            let plugins = &self.shared.plugins;
             match hosts.and_then(|hosts| hosts.device()) {
-                Some(device) => driver.pump(self.storage(), &DeviceBuiltIns(&*device.0), now),
-                None => driver.pump(self.storage(), &NoBuiltIns, now),
+                Some(device) => {
+                    let built_ins = Found(&DeviceBuiltIns(&*device.0), plugins);
+                    driver.pump(self.storage(), &built_ins, now)
+                }
+                None => driver.pump(self.storage(), &Found(&NoBuiltIns, plugins), now),
             };
         }
         self.firmware_unload_pump(&driver);

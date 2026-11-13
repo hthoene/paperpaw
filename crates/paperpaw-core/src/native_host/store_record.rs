@@ -3,8 +3,9 @@
 //! file of interface 6 (`<id>\t<release>` lines, the newest last;
 //! `paperpaw_sdk::install::Origins`), out of reach of plugins and of the card
 //! transfers. An install from a catalog adds its version when it is in place
-//! (`install::marks::settle`); a device that kept none takes the plugins
-//! installed for the store's once ([`adopt`]), as interface 6's store did.
+//! (`install::marks::settle`), any other forgets the id's; a device that kept
+//! none takes the plugins installed for the store's once ([`adopt`]), as
+//! interface 6's store did.
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::ERR_NO_MEMORY;
 use paperpaw_platform::Storage;
@@ -60,8 +61,11 @@ impl StoreRecord {
 /// Where no record was ever kept on this device, every plugin installed
 /// (data or code, not one built in) is taken for the store's at its version,
 /// once: before PaperPaw kept them the store's installs went unnamed, and
-/// they keep its updates (interface 6 `install::adopt`). Without room or
-/// card it is left for the next start.
+/// they keep its updates (interface 6 `install::adopt`). Not at start: the
+/// first that needs the record calls it, before a plugin install or removal
+/// commits and before `reg_plugin` rows say bit 5 ("installers and those who
+/// look at origins call it first"). Without room or card the next one does.
+#[inline(never)]
 pub(crate) fn adopt(storage: &dyn Storage, plugins: &Plugins) {
     if storage.exists(STORE_INSTALLS) {
         return;
@@ -113,4 +117,4 @@ impl core::fmt::Write for Line {
 
 #[cfg(test)]
 #[path = "store_record_tests.rs"]
-mod tests;
+pub(in crate::native_host) mod tests;

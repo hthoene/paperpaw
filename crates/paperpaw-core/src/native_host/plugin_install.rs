@@ -39,6 +39,7 @@ use paperpaw_sdk::{
 };
 
 use super::files_service::same_fold;
+use super::firmware_install::BuiltIns;
 use super::plugin_check::PluginCheck;
 use super::plugin_folder::{self, Manifest, Walk, Walked};
 use super::plugin_job::{
@@ -583,7 +584,12 @@ impl PluginInstall {
     }
 
     #[inline(never)]
-    fn journal(&mut self, storage: &dyn Storage) -> JobStep {
+    fn journal(&mut self, storage: &dyn Storage, built_ins: &dyn BuiltIns) -> JobStep {
+        // Before the install commits: a device that kept no record of the
+        // store's installs takes its plugins for the store's, once.
+        if let Some(found) = built_ins.found() {
+            super::store_record::adopt(storage, found);
+        }
         let Some(pins) = self.pins.as_deref() else {
             return self.end(storage, reason::OTHER);
         };
@@ -792,7 +798,7 @@ impl PluginJob for PluginInstall {
                 }
             },
             Phase::Marks => self.marks(storage),
-            Phase::Journal => self.journal(storage),
+            Phase::Journal => self.journal(storage, env.built_ins),
             Phase::Swapping => self.swapping(storage),
             Phase::Ended => JobStep::Done(Finished::refused(reason::OTHER)),
         }
