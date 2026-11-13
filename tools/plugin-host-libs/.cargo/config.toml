@@ -1,0 +1,9 @@
+# The emulator's interface-7 preflight refuses the C startup files' initializers
+# (docs/plugins.md, "code-host.so") and wants the metadata in read-only data.
+# Never set RUSTFLAGS: it would replace this.
+[target.x86_64-unknown-linux-gnu]
+rustflags = [
+    "-C", "link-arg=-nostartfiles",
+    "-C", "link-arg=-Wl,-Tpaperpaw-host.ld",
+    "-C", "jump-tables=no",
+]
