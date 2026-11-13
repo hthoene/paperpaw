@@ -473,10 +473,18 @@ fn read_given(host: &Host<'_>, ui: &Ui, handover: HandoverId) -> Result<String, 
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
     let mut given = String::new();
     let mut offset = 0;
+    // The total the first part says: every later part is held to it.
+    let mut total = None;
     loop {
         let part = ui.text_read(host, handover.text(), offset, &mut input, &mut out)?;
-        let total = usize::try_from(part.total()).map_err(|_| Error::NoSpace)?;
+        let said = usize::try_from(part.total()).map_err(|_| Error::NoSpace)?;
+        let total = *total.get_or_insert(said);
         if total > lookup::MAX_ENTRY {
+            return Ok(String::new());
+        }
+        // A part with another total, or past the first, is a text that
+        // changed under the read: left out like a longer one.
+        if said != total || given.len().saturating_add(part.data().len()) > total {
             return Ok(String::new());
         }
         if given.capacity() < total {

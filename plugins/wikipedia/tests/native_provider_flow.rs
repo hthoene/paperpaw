@@ -12,7 +12,7 @@ use paperpaw_plugin_wikipedia::{NATIVE_ENTRY, declarations::FETCHED_TOKEN};
 use paperpaw_scripted_host::ScriptedHost;
 use support::{
     EXTRACT, NOT_FOUND, PENDING, UNREACHABLE, ask, done, done_with, host_with, host_with_net,
-    open_screen, suspend, ui_handing_over,
+    open_screen, suspend, ui_handing_over, ui_handing_over_a_growing_text,
 };
 
 fn summary_url(word: &str) -> String {
@@ -149,6 +149,17 @@ fn the_screen_shows_the_text_handed_over() {
         assert_eq!(open_screen(&p), 0);
         assert_eq!(log.borrow().len(), fetched);
     }
+}
+
+/// A text whose parts run past the total it first said is left out: the
+/// screen fetches its summary.
+#[test]
+fn a_text_that_grows_under_the_read_is_left_out() {
+    let (host, log) = host_with_net(200);
+    ui_handing_over_a_growing_text(&host);
+    let p = host.load(NATIVE_ENTRY.entry()).unwrap();
+    assert_eq!(open_screen(&p), 0);
+    assert_eq!(log.borrow().len(), 1);
 }
 
 /// The end of the request tells the askers: `command.lookup_ready` with the

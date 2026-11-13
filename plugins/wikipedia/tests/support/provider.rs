@@ -211,3 +211,41 @@ pub fn suspend(p: &Plugin<'_>) {
         .unwrap();
     assert_eq!(callback.status, 0, "the suspend is taken");
 }
+
+/// A `core.ui` whose hand-over text says 5 bytes in its first part and 20
+/// in its second (a text changed under the read).
+pub fn ui_handing_over_a_growing_text(host: &ScriptedHost) {
+    host.service("core.ui", 1, 0, move |op, input| {
+        let batch = records_decode(input).map_err(|_| -1)?;
+        match (op, batch.iter().next()) {
+            (10, Some(Record::ServiceUiTextAt(at))) => {
+                let (total, data) = if at.offset == 0 {
+                    (5, "abc")
+                } else {
+                    (20, "defghijklmnopqrst")
+                };
+                Ok(stream(&[Record::ServiceUiText(ServiceUiText {
+                    text: at.text,
+                    offset: at.offset,
+                    total,
+                    flags: 0,
+                    data,
+                })]))
+            }
+            (17, _) => Ok(stream(&[
+                Record::ServiceUiParam(ServiceUiParam {
+                    key: "word",
+                    value: "Katze",
+                }),
+                Record::ServiceEnd(ServiceEnd {
+                    flags: 0,
+                    total: 1,
+                    generation: 0,
+                    next: 0,
+                    cursor: None,
+                }),
+            ])),
+            _ => Err(-1),
+        }
+    });
+}
