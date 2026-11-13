@@ -214,6 +214,65 @@ impl Style {
     }
 }
 
+/// A [`Style`] a screen keeps between its draws, read from the settings once
+/// and kept until the screen clears it. A read is a dozen host calls and a
+/// screen drawn in bands (the X4) reads once per band: a screen that holds one
+/// reads once per look. The screen must clear it when `setting_changed`
+/// arrives and when it is shown or opened, or it draws a look the reader
+/// has left. Nothing in the kit holds one for a screen: a plugin that does not
+/// ask reads as before.
+#[derive(Debug, Default)]
+pub struct StyleCache {
+    style: Option<Style>,
+}
+
+impl StyleCache {
+    /// An empty cache.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { style: None }
+    }
+
+    /// The kept look, read first if there is none.
+    ///
+    /// # Errors
+    /// What [`Style::read`] fails with; nothing is kept then.
+    pub fn get(
+        &mut self,
+        host: &Host<'_>,
+        display: &Snapshot,
+        font: &Font<'_>,
+    ) -> Result<&mut Style, Error> {
+        self.get_with(|| Style::read(host, display, font))
+    }
+
+    /// [`StyleCache::get`] with the reading given.
+    ///
+    /// # Errors
+    /// What `read` fails with; nothing is kept then.
+    pub fn get_with(
+        &mut self,
+        read: impl FnOnce() -> Result<Style, Error>,
+    ) -> Result<&mut Style, Error> {
+        let style = match self.style.take() {
+            Some(style) => style,
+            None => read()?,
+        };
+        Ok(self.style.insert(style))
+    }
+
+    /// Forgets the look: the next [`StyleCache::get`] reads it again.
+    pub fn clear(&mut self) {
+        self.style = None;
+    }
+
+    /// Whether a look is kept.
+    #[must_use]
+    pub const fn is_kept(&self) -> bool {
+        self.style.is_some()
+    }
+}
+
 /// [`Style::flip`] for a widget that keeps only whether the interface runs
 /// right to left.
 #[must_use]
@@ -431,5 +490,28 @@ mod tests {
             palette.push_str("=#rrggbb ");
         }
         assert!(palette.len() <= TEXT_BYTES / 4 * 3, "{}", palette.len());
+    }
+
+    #[test]
+    fn a_cache_reads_once_until_it_is_cleared_and_keeps_nothing_on_failure() {
+        let mut reads = 0;
+        let mut cache = StyleCache::new();
+        assert!(!cache.is_kept());
+        let mut read = |ink| {
+            reads += 1;
+            Ok(Style::themed(ink, Color::WHITE))
+        };
+        let first = cache.get_with(|| read(Color::gray(1))).map(|s| s.ink);
+        assert_eq!(first, Ok(Color::gray(1)));
+        let again = cache.get_with(|| read(Color::gray(2))).map(|s| s.ink);
+        assert_eq!(again, Ok(Color::gray(1)), "kept, not read again");
+        cache.clear();
+        assert!(!cache.is_kept());
+        let after = cache.get_with(|| read(Color::gray(3))).map(|s| s.ink);
+        assert_eq!(after, Ok(Color::gray(3)), "read again after clear");
+        assert_eq!(reads, 2);
+        cache.clear();
+        assert!(cache.get_with(|| Err(Error::NoMemory)).is_err());
+        assert!(!cache.is_kept());
     }
 }
