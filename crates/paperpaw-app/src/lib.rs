@@ -338,6 +338,12 @@ pub fn fixed_tables(id: &str) -> paperpaw_core::native_host::FixedTables {
         #[cfg(feature = "native-linked-store")]
         "notes-vault" => tables!(paperpaw_plugin_notes_vault),
         #[cfg(feature = "native-linked-store")]
+        "stats" => tables!(paperpaw_plugin_stats),
+        #[cfg(feature = "native-linked-store")]
+        "battery" => tables!(paperpaw_plugin_battery),
+        #[cfg(feature = "native-linked-store")]
+        "notes-overview" => tables!(paperpaw_plugin_notes_overview),
+        #[cfg(feature = "native-linked-store")]
         "picture-home" => tables!(paperpaw_plugin_picture_home),
         "bluetooth" => tables!(paperpaw_plugin_bluetooth),
         "file-manager" => tables!(paperpaw_plugin_file_manager),

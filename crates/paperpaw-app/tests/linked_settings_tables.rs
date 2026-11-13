@@ -69,7 +69,7 @@ fn every_linked_plugin_takes_its_settings_from_its_table() {
         "file-manager",
     ];
     #[cfg(feature = "native-linked-store")]
-    with_settings.extend(["aids", "fonts-browser", "picture-home"]);
+    with_settings.extend(["aids", "battery", "fonts-browser", "picture-home", "stats"]);
     #[cfg(feature = "native-linked-reading")]
     with_settings.extend(["home", "reader"]);
     #[cfg(all(feature = "native-linked-reading", feature = "native-linked-store"))]
