@@ -138,12 +138,7 @@ impl PanelView {
                 i.kind == SettingKind::Choice && (2..=MAX_SEGMENTS as u32).contains(&i.choices)
             }) {
                 values = reader.choice_values(&info.key)?;
-                labels
-                    .try_reserve_exact(values.len())
-                    .map_err(|_| Error::NoMemory)?;
-                for value in &values {
-                    labels.push(messages.copy(host, value)?);
-                }
+                labels = choice_labels(&values, &mut |value| messages.copy(host, value))?;
             }
             parts.push(Part {
                 row,
@@ -752,5 +747,45 @@ impl PanelView {
             },
             _ => Outcome::Handled(Handled::Yes),
         })
+    }
+}
+
+/// The labels of a choice's `values`, as `translate` says them; a value
+/// without a text of its own is said as it is and never takes the whole
+/// panel with it (#257: the reader's font panel did not open).
+///
+/// # Errors
+/// [`Error::NoMemory`] and the host's refusals other than "no such key".
+fn choice_labels(
+    values: &[String],
+    translate: &mut dyn FnMut(&str) -> Result<String, Error>,
+) -> Result<Vec<String>, Error> {
+    let mut labels = Vec::new();
+    labels
+        .try_reserve_exact(values.len())
+        .map_err(|_| Error::NoMemory)?;
+    for value in values {
+        labels.push(crate::native_plugin::or_as_it_is(translate(value), value)?);
+    }
+    Ok(labels)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "test assertions")]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_choice_value_without_a_text_is_said_as_it_is_and_the_panel_opens() {
+        let values = [String::from("core.spacing.normal"), String::from("wide")];
+        let mut translate = |value: &str| match value {
+            "wide" => copy("Wide"),
+            _ => Err(Error::NotFound),
+        };
+        let labels = choice_labels(&values, &mut translate).unwrap();
+        assert_eq!(labels, ["core.spacing.normal", "Wide"]);
+        // A real failure still fails.
+        let mut refused = |_: &str| Err(Error::NoMemory);
+        assert_eq!(choice_labels(&values, &mut refused), Err(Error::NoMemory));
     }
 }

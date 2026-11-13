@@ -755,14 +755,22 @@ pub(crate) fn value_text(
         Some(Value::Bool(false)) => copy(off),
         Some(Value::Int(v)) => with_unit(*v, &info.unit),
         Some(Value::Text(v)) if info.kind == SettingKind::Choice && !v.is_empty() => {
-            // A value that is no key of the catalogs is said as it is (as `tr` does).
-            match translate(v) {
-                Err(Error::NotFound | Error::Invalid) => copy(v),
-                said => said,
-            }
+            or_as_it_is(translate(v), v)
         }
         Some(Value::Text(v)) => copy(v),
         None => copy(""),
+    }
+}
+
+/// A choice's value as `said` translates it; a value that is no key of the
+/// catalogs is said as it is (as `tr` does), never a failure of its row.
+///
+/// # Errors
+/// [`Error::NoMemory`] and the host's refusals other than "no such key".
+pub(crate) fn or_as_it_is(said: Result<String, Error>, value: &str) -> Result<String, Error> {
+    match said {
+        Err(Error::NotFound | Error::Invalid) => copy(value),
+        said => said,
     }
 }
 
