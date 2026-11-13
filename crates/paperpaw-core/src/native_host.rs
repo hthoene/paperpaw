@@ -230,6 +230,7 @@ pub(crate) mod secret_bytes;
 pub(crate) mod book_data_steps;
 pub(crate) mod book_scope;
 pub(crate) mod busy_adapters;
+mod cable_pump;
 #[path = "native_host/call_services.rs"]
 mod call_services;
 mod cover_job_marker;

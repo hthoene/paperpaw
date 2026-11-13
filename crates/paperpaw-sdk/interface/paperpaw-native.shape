@@ -50,6 +50,8 @@ const paperpaw_native::interface::Api::SIZE: u32 = core::mem::size_of::<Api>() a
 const paperpaw_native::interface::ENTRY_SECTION: &str = ".rodata.paperpaw_entry"
 const paperpaw_native::interface::ENTRY_SYMBOL: &str = "PAPERPAW_ENTRY"
 const paperpaw_native::interface::TABLE_SYMBOLS: [&str; 8] = [ "PAPERPAW_TABLE_0", "PAPERPAW_TABLE_1", "PAPERPAW_TABLE_2", "PAPERPAW_TABLE_3", "PAPERPAW_TABLE_4", "PAPERPAW_TABLE_5", "PAPERPAW_TABLE_6", "PAPERPAW_TABLE_7", ]
+const paperpaw_native::profile::BUILD_ENTRY_ALIGN: core::option::Option<u16> = match BUILD { Some((_, align)) => Some(align), None => None, }
+const paperpaw_native::profile::BUILD_PROFILE: core::option::Option<paperpaw_native::profile::Profile<'static>> = match BUILD { Some((profile, _)) => Some(profile), None => None, }
 const paperpaw_native::reloc::PatchKind::SITES: u32 = 1 << 22
 const paperpaw_native::signature::DOMAIN: &[u8] = b"PaperPaw plugin file\0"
 const paperpaw_native::signature::SIGNATURE_FORMAT: u16 = 1u16
@@ -84,6 +86,7 @@ struct paperpaw_native::index::Region { start: u32, end: u32, base: u32 }
 struct paperpaw_native::interface::Api #{"repr": {"align": null, "int": null, "kind": "c", "packed": null}} { size: u32, alloc: unsafe extern "C" fn(usize, usize) -> *mut u8, dealloc: unsafe extern "C" fn(*mut u8, usize, usize), realloc: unsafe extern "C" fn(*mut u8, usize, usize, usize) -> *mut u8, panic: unsafe extern "C" fn(*const u8, usize) -> never, micros: extern "C" fn() -> u64, icon: unsafe extern "C" fn(*const u8, usize) -> u32, alloc_in: unsafe extern "C" fn(usize, usize, u32) -> *mut u8, family_revs: [u16; 8], family_min: [u16; 8], build: *const u8, build_len: u32 }
 struct paperpaw_native::interface::Entry #{"repr": {"align": null, "int": null, "kind": "c", "packed": null}} { fingerprint: u64, make: unsafe extern "C" fn() -> *mut core::ffi::c_void, needs_api: u16, interface: u16, families: [u16; 8] }
 struct paperpaw_native::preflight::elf::DataExport<'a> { bytes: &'a [u8], address: u64 }
+struct paperpaw_native::profile::Profile<'a> { target: &'a str, entry_layout: u16, entry_bytes: u16 }
 struct paperpaw_native::reloc::Relocator<'a> { header: &'a paperpaw_native::header::Header, words: &'a [u32], patches: &'a [[u32; 2]], hi20: usize, base: u32, delta: u32, hot: u32, api: u32 }
 struct paperpaw_native::signature::BadSignature
 struct paperpaw_native::signature::Signature { signed_len: u32, key: [u8; 32], signature: [u8; 64] }

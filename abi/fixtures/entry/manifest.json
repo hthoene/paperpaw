@@ -35,6 +35,66 @@
       "hex": "esp32s3-xtensa-lx7-ilp32-windowed-le.hex",
       "input": "esp32s3-xtensa-lx7-ilp32-windowed-le.json",
       "name": "esp32s3-xtensa-lx7-ilp32-windowed-le"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "metadata": "accept",
+        "signature": "not_run"
+      },
+      "hex": "windows-x86_64-win64-le.hex",
+      "input": "windows-x86_64-win64-le.json",
+      "name": "windows-x86_64-win64-le"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "metadata": "accept",
+        "signature": "not_run"
+      },
+      "hex": "macos-x86_64-sysv64-le.hex",
+      "input": "macos-x86_64-sysv64-le.json",
+      "name": "macos-x86_64-sysv64-le"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "metadata": "accept",
+        "signature": "not_run"
+      },
+      "hex": "macos-aarch64-darwinpcs-le.hex",
+      "input": "macos-aarch64-darwinpcs-le.json",
+      "name": "macos-aarch64-darwinpcs-le"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "metadata": "accept",
+        "signature": "not_run"
+      },
+      "hex": "android-aarch64-aapcs64-le.hex",
+      "input": "android-aarch64-aapcs64-le.json",
+      "name": "android-aarch64-aapcs64-le"
+    },
+    {
+      "expected": {
+        "compatibility": "not_run",
+        "container": "not_run",
+        "execution": "not_run",
+        "metadata": "accept",
+        "signature": "not_run"
+      },
+      "hex": "web-wasm32-c-le.hex",
+      "input": "web-wasm32-c-le.json",
+      "name": "web-wasm32-c-le"
     }
   ],
   "format": 1,
