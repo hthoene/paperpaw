@@ -88,11 +88,22 @@ impl Kernel {
     ) -> bool {
         self.firmware.as_ref().is_some_and(|cell| {
             cell.set_plugin_host(super::plugin_job::PluginHost {
-                loader,
+                loader: Some(loader),
                 offered,
                 signers,
             })
         })
+    }
+
+    /// [`Self::set_plugin_host`] for a device that loads no plugin code
+    /// (Boox/Android, desktop, web): plugin jobs take data plugins only, a
+    /// plugin with a code file ends with reason 19 (`ERR_UNSUPPORTED`), as
+    /// code of another kind of device does. The same queue, so it too needs
+    /// [`KernelBuilder::firmware_host`](crate::KernelBuilder::firmware_host).
+    pub fn set_data_plugin_host(&mut self) -> bool {
+        self.firmware
+            .as_ref()
+            .is_some_and(|cell| cell.set_plugin_host(super::plugin_job::PluginHost::DATA_ONLY))
     }
 
     /// The firmware driver, where one is made now (none at rest).

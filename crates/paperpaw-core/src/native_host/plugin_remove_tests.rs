@@ -26,7 +26,7 @@ impl BuiltIns for Names {
 
 fn host() -> PluginHost {
     PluginHost {
-        loader: Loader::x4(1),
+        loader: Some(Loader::x4(1)),
         offered: Offered {
             abi_major: 7,
             minor: 1,
