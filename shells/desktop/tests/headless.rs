@@ -600,6 +600,24 @@ fn the_card_files_screen_says_what_the_update_did() {
     assert!(shown.stdout.contains("1 line left out"), "{}", shown.stdout);
 }
 
+/// The Wi-Fi transfer screen of a device with no network says so, as Beta 3
+/// did, and does not say the transfer "could not start".
+#[test]
+#[ignore = "needs native activation (the native transfer, #243)"]
+fn the_transfer_screen_without_a_network_says_there_is_no_wifi() {
+    let library = library("transfer-no-wifi");
+    let shown = run_in(
+        &library,
+        "xteink-x4",
+        "run:transfer.open,wait:300,describe",
+        &["--set", "reader.open-last=false"],
+    );
+    let _ = fs::remove_dir_all(&library);
+    assert!(shown.ok, "{}", shown.stderr);
+    assert!(shown.stdout.contains("No Wi-Fi"), "{}", shown.stdout);
+    assert!(!shown.stdout.contains("could not start"), "{}", shown.stdout);
+}
+
 /// A configuration file (`--config`) is read, and `--set` wins over it.
 #[test]
 fn the_configuration_file_is_read_and_set_wins_over_it() {
