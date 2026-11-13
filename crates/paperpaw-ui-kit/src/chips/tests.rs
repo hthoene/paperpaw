@@ -11,6 +11,7 @@ fn style() -> Style {
         frame: None,
         button: crate::style::ButtonLook::Outlined,
         mono: false,
+        roles: crate::style::Roles::default(),
         separator_ink: Color::BLACK,
         text: 22.0,
         small: 17.0,
@@ -392,4 +393,24 @@ fn the_frame_the_theme_chose_sets_the_plate_of_a_chip_not_chosen() {
     let expect = [Paint::Focus(cell, 4, None, Color::BLACK)];
     assert_eq!(alloc::format!("{paint:?}"), alloc::format!("{expect:?}"));
     assert_eq!((chips.ink, chips.paper), (Color::WHITE, Color::BLACK));
+}
+
+#[test]
+fn the_chosen_chip_and_the_outlines_take_the_colours_a_theme_gave_them() {
+    let mut style = style();
+    style.roles.chip = Some(Color::gray(120));
+    style.roles.outline = Some(Color::gray(60));
+    let (chips, cell) = one_chip(&style);
+    let mut paint = Vec::new();
+    chips.frames(&mut paint, 0, None).unwrap();
+    let expect = [
+        Paint::Focus(cell, 4, None, Color::gray(120)),
+        Paint::Focus(cell, 4, Some(2), Color::gray(60)),
+    ];
+    assert_eq!(alloc::format!("{paint:?}"), alloc::format!("{expect:?}"));
+    assert_eq!(
+        chips.on_chosen,
+        Color::WHITE,
+        "light label on a mid-dark chip"
+    );
 }

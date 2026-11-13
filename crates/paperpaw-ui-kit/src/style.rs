@@ -25,6 +25,53 @@ const UI_FRAME: &str = "core.ui-frame";
 const UI_DENSITY: &str = "core.ui-density";
 const UI_BUTTON: &str = "core.ui-button";
 
+/// The roles a theme may colour beyond the sheet of palette names the SDK
+/// knows (they sit in the same setting, `core.ui-palette`, and an older reader
+/// of it skips them): `None` where the theme did not set one, so the look is
+/// what it was.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Roles {
+    /// The plate of sheets, dialogs and chips (`panel`).
+    pub panel: Option<Color>,
+    /// The bar the chosen row is on (`focus`).
+    pub focus: Option<Color>,
+    /// The fill of buttons that are filled (`control`).
+    pub control: Option<Color>,
+    /// The lines round plates and chips (`outline`).
+    pub outline: Option<Color>,
+    /// The chosen chip (`chip`).
+    pub chip: Option<Color>,
+    /// The dark bar of a header (`bar`).
+    pub bar: Option<Color>,
+}
+
+impl Roles {
+    /// The role names, in the order of the fields.
+    pub const NAMES: [&'static str; 6] = ["panel", "focus", "control", "outline", "chip", "bar"];
+
+    fn read(palette: &str) -> Self {
+        let get = |name| palette_find(palette, name);
+        Self {
+            panel: get("panel"),
+            focus: get("focus"),
+            control: get("control"),
+            outline: get("outline"),
+            chip: get("chip"),
+            bar: get("bar"),
+        }
+    }
+}
+
+/// Of `a` and `b` the ink that reads better on `plate`.
+#[must_use]
+pub fn readable(plate: Color, a: Color, b: Color) -> Color {
+    if plate.luma().abs_diff(a.luma()) >= plate.luma().abs_diff(b.luma()) {
+        a
+    } else {
+        b
+    }
+}
+
 /// What a sheet, a dialog or a chip stands on, by its frame: the colour of the
 /// plate, whether a line runs round it, and the inks its content is drawn in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +80,8 @@ pub struct Plate {
     pub fill: Option<Color>,
     /// A line round it, in the content's ink.
     pub outline: bool,
+    /// The colour of that line.
+    pub line: Color,
     /// The ink of the content.
     pub ink: Color,
     /// The paper of the content (what the chosen part's text is drawn in).
@@ -133,6 +182,8 @@ pub struct Style {
     pub button: ButtonLook,
     /// The panel shows black and white alone: a card is a sparser pattern.
     pub mono: bool,
+    /// The colours a theme gave the parts beyond the palette's grays.
+    pub roles: Roles,
     pub separator_ink: Color,
     pub text: f32,
     pub small: f32,
@@ -225,6 +276,7 @@ impl Style {
             frame: looks.frame,
             button: looks.button,
             mono: display.display_gray_levels() == Some(2),
+            roles: Roles::read(&palette),
             separator_ink: if setting_text(host, UI_SEPARATORS)? == "core.separators.inset" {
                 color("line-faint", Color::gray(210))
             } else {
@@ -263,18 +315,25 @@ impl Style {
         })
     }
 
-    /// The colour of the bar the chosen row is on (the text's ink; a card's
-    /// colour for the light bar).
+    /// The colour of the bar the chosen row is on (the theme's `focus`; else
+    /// the text's ink, a card's colour for the light bar).
     #[must_use]
     pub fn bar(&self) -> Color {
-        if self.soft { self.card } else { self.ink }
+        self.roles
+            .focus
+            .unwrap_or(if self.soft { self.card } else { self.ink })
     }
 
     /// The ink of text on the chosen row: the paper's on a dark bar, the
-    /// text's own on a light one or in a frame.
+    /// text's own on a light one or in a frame; on the theme's `focus` bar,
+    /// whichever of the two reads better.
     #[must_use]
     pub fn on_bar(&self) -> Color {
-        if self.ring || self.soft {
+        if self.ring {
+            self.ink
+        } else if let Some(bar) = self.roles.focus {
+            readable(bar, self.ink, self.paper)
+        } else if self.soft {
             self.ink
         } else {
             self.paper
@@ -283,24 +342,72 @@ impl Style {
 
     /// The plate of a part whose own frame is `own`: the frame the theme
     /// chose for all where it chose one (`core.ui-frame`). A dark plate is
-    /// the darker of the inks with the lighter one on it.
+    /// the darker of the inks with the lighter one on it; where that is the
+    /// page's own paper (a dark theme) it is a card, or the theme's panel. A
+    /// panel the theme coloured is every plate's colour, and the content takes
+    /// whichever ink reads better on it.
     #[must_use]
     pub fn plate(&self, own: Frame) -> Plate {
-        let paper = Some(self.paper);
-        let (fill, outline) = match self.frame.unwrap_or(own) {
+        let kind = self.frame.unwrap_or(own);
+        let (fill, outline) = match kind {
             Frame::None => (None, false),
-            Frame::Line => (paper, true),
+            Frame::Line => (Some(self.paper), true),
             Frame::Card if self.mono => (Some(sparser(self.card)), true),
             Frame::Card => (Some(self.card), false),
+            Frame::Dark if self.darker() == self.paper => (Some(self.card), false),
             Frame::Dark => (Some(self.darker()), false),
         };
-        let dark = matches!(self.frame.unwrap_or(own), Frame::Dark);
+        let fill = match (fill, self.roles.panel) {
+            (Some(_), Some(panel)) => Some(panel),
+            (fill, _) => fill,
+        };
+        let (ink, paper) = match (kind, self.roles.panel, fill) {
+            (_, Some(panel), Some(_)) => {
+                let ink = readable(panel, self.ink, self.paper);
+                (
+                    ink,
+                    if ink == self.ink {
+                        self.paper
+                    } else {
+                        self.ink
+                    },
+                )
+            }
+            (Frame::Dark, None, Some(_)) if self.darker() != self.paper => {
+                (self.lighter(), self.darker())
+            }
+            _ => (self.ink, self.paper),
+        };
         Plate {
             fill,
             outline,
-            ink: if dark { self.lighter() } else { self.ink },
-            paper: if dark { self.darker() } else { self.paper },
+            line: self.roles.outline.unwrap_or(ink),
+            ink,
+            paper,
         }
+    }
+
+    /// The ink of text on `fill`: `fallback` where the theme coloured no part
+    /// (`coloured` false), else whichever of the two inks reads better.
+    #[must_use]
+    pub fn on(&self, fill: Color, coloured: bool, fallback: Color) -> Color {
+        if coloured {
+            readable(fill, self.ink, self.paper)
+        } else {
+            fallback
+        }
+    }
+
+    /// The bar a header is drawn dark on (`bar`; the text's ink).
+    #[must_use]
+    pub fn header_bar(&self) -> Color {
+        self.roles.bar.unwrap_or(self.ink)
+    }
+
+    /// The fill of a button that is filled and not chosen (`control`; a card).
+    #[must_use]
+    pub fn control(&self) -> Color {
+        self.roles.control.unwrap_or(self.card)
     }
 
     /// The colour of a hard shadow: dark gray under a plate that is darker
@@ -535,13 +642,18 @@ fn narrow(value: u32) -> u16 {
 }
 
 fn palette_color(palette: &str, name: &str, default: Color) -> Color {
-    let mut color = default;
+    palette_find(palette, name).unwrap_or(default)
+}
+
+/// The colour the palette gives `name` (the last of a name given twice).
+fn palette_find(palette: &str, name: &str) -> Option<Color> {
+    let mut color = None;
     for pair in palette.split_ascii_whitespace() {
         if let Some((key, value)) = pair.split_once('=')
             && key == name
             && let Some(value) = parse_color(value)
         {
-            color = value;
+            color = Some(value);
         }
     }
     color
@@ -583,6 +695,7 @@ impl Style {
             frame: None,
             button: ButtonLook::Outlined,
             mono: false,
+            roles: Roles::default(),
             separator_ink: Color::rgb(3, 4, 5),
             text: 22.0,
             small: 17.0,
@@ -755,5 +868,83 @@ mod tests {
         assert_eq!(ButtonLook::of("core.button.flat"), ButtonLook::Flat);
         assert_eq!(ButtonLook::of("core.button.outlined"), ButtonLook::Outlined);
         assert_eq!(ButtonLook::of("anything else"), ButtonLook::Outlined);
+    }
+
+    #[test]
+    fn the_roles_a_theme_sets_are_read_from_the_palette_and_others_stay_none() {
+        let roles =
+            Roles::read("text=10 panel=#112233 chip=200 bar=#fff outline=nonsense muted=60");
+        assert_eq!(roles.panel, Some(Color::rgb(0x11, 0x22, 0x33)));
+        assert_eq!(roles.chip, Some(Color::gray(200)));
+        assert_eq!(roles.bar, None, "three hex digits are not a colour");
+        assert_eq!(roles.outline, None);
+        assert_eq!(roles.focus, None);
+        assert_eq!(Roles::read(""), Roles::default());
+        // The last of a name given twice wins, as for the grays.
+        assert_eq!(Roles::read("panel=1 panel=2").panel, Some(Color::gray(2)));
+    }
+
+    #[test]
+    fn a_palette_with_every_role_still_fits_the_buffer_it_is_read_into() {
+        let mut palette = String::new();
+        for ink in paperpaw_sdk::ui::Ink::ALL {
+            palette.push_str(ink.name());
+            palette.push_str("=#rrggbb ");
+        }
+        for name in Roles::NAMES {
+            palette.push_str(name);
+            palette.push_str("=#rrggbb ");
+        }
+        assert!(
+            palette.len() < TEXT_BYTES,
+            "{}: needs a second setting (I2)",
+            palette.len()
+        );
+    }
+
+    #[test]
+    fn a_dark_plate_in_a_dark_theme_is_a_card_the_page_shows_apart() {
+        // #1418 review: the plate was the page's own paper, so the dark card
+        // was not to be seen on a dark page.
+        let mut style = Style::themed(Color::rgb(235, 230, 220), Color::rgb(25, 30, 35));
+        style.frame = Some(Frame::Dark);
+        let plate = style.plate(Frame::Line);
+        assert_eq!(plate.fill, Some(style.card));
+        assert_ne!(plate.fill, Some(style.paper));
+        assert_eq!((plate.ink, plate.paper), (style.ink, style.paper));
+    }
+
+    #[test]
+    fn a_panel_the_theme_coloured_is_the_plate_and_its_content_reads_on_it() {
+        let mut style = Style::themed(Color::BLACK, Color::WHITE);
+        style.roles.panel = Some(Color::gray(20));
+        let plate = style.plate(Frame::Line);
+        assert_eq!(plate.fill, Some(Color::gray(20)));
+        assert_eq!((plate.ink, plate.paper), (Color::WHITE, Color::BLACK));
+        style.roles.panel = Some(Color::gray(235));
+        let plate = style.plate(Frame::Line);
+        assert_eq!((plate.ink, plate.paper), (Color::BLACK, Color::WHITE));
+        // No plate (frame none): the panel does not make one.
+        style.frame = Some(Frame::None);
+        assert_eq!(style.plate(Frame::Line).fill, None);
+    }
+
+    #[test]
+    fn the_focus_bar_and_the_outline_and_the_header_bar_follow_their_roles() {
+        let mut style = Style::themed(Color::BLACK, Color::WHITE);
+        assert_eq!(style.bar(), Color::BLACK);
+        assert_eq!(style.header_bar(), Color::BLACK);
+        assert_eq!(style.control(), style.card);
+        style.roles.focus = Some(Color::gray(200));
+        style.roles.bar = Some(Color::gray(40));
+        style.roles.control = Some(Color::gray(180));
+        style.roles.outline = Some(Color::gray(120));
+        assert_eq!(style.bar(), Color::gray(200));
+        assert_eq!(style.on_bar(), Color::BLACK, "dark text on a light bar");
+        assert_eq!(style.header_bar(), Color::gray(40));
+        assert_eq!(style.control(), Color::gray(180));
+        assert_eq!(style.plate(Frame::Line).line, Color::gray(120));
+        style.roles.focus = Some(Color::gray(30));
+        assert_eq!(style.on_bar(), Color::WHITE, "light text on a dark bar");
     }
 }

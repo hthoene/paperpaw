@@ -77,7 +77,11 @@ pub struct Dialog {
     shadow: u16,
     shade: Color,
     look: ButtonLook,
-    card: Color,
+    /// The fill of a button that is filled, and of the chosen one with its
+    /// label's ink.
+    control: Color,
+    focus: Color,
+    on_focus: Color,
 }
 
 fn wrap(font: &Font<'_>, size: f32, paragraph: &str, inner: f32) -> Result<Vec<String>, Error> {
@@ -181,7 +185,13 @@ impl Dialog {
             shadow: style.shadow,
             shade: style.shade(plate.fill),
             look: style.button,
-            card: style.card,
+            control: style.control(),
+            focus: style.roles.focus.unwrap_or(plate.ink),
+            on_focus: style.on(
+                style.roles.focus.unwrap_or(plate.ink),
+                style.roles.focus.is_some(),
+                plate.paper,
+            ),
         };
         if dialog.fitting_lines() < dialog.lines.len() {
             dialog.small_text = true;
@@ -474,7 +484,7 @@ impl Dialog {
         if self.plate.outline {
             paint::push(
                 paint,
-                Paint::Focus(body, self.radius, Some(thickness), self.ink),
+                Paint::Focus(body, self.radius, Some(thickness), self.plate.line),
             )?;
         }
         let shown = self.fitting_from(self.top);
@@ -538,9 +548,9 @@ impl Dialog {
                 false,
             )?;
             let (fill, ink) = if focused {
-                (Some(self.ink), self.paper)
+                (Some(self.focus), self.on_focus)
             } else if self.look == ButtonLook::Filled {
-                (Some(self.card), self.ink)
+                (Some(self.control), self.ink)
             } else {
                 (None, self.ink)
             };
@@ -621,7 +631,9 @@ mod tests {
             shadow: 0,
             shade: Color::BLACK,
             look: ButtonLook::Outlined,
-            card: Color::gray(230),
+            control: Color::gray(230),
+            focus: Color::BLACK,
+            on_focus: Color::WHITE,
         };
         dialog.lay_out(0).unwrap();
         dialog

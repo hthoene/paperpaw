@@ -152,7 +152,7 @@ impl ItemList {
         let fill = plate.fill.unwrap_or(plate.paper);
         paint::push(&mut body, Paint::Fill(sheet.region, fill))?;
         if plate.outline {
-            paint::push(&mut body, Paint::Fill(sheet.border, style.ink))?;
+            paint::push(&mut body, Paint::Fill(sheet.border, plate.line))?;
         }
         let mut hits = Vec::new();
         let mut steps = Vec::new();

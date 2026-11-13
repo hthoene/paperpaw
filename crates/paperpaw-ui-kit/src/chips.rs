@@ -52,6 +52,10 @@ pub struct Chips {
     /// What an unchosen chip stands on (its frame: an outline on paper
     /// unless the theme chose another).
     plate: Plate,
+    /// The chosen chip (the theme's `chip` colour, else the ink) and what its
+    /// label is drawn in.
+    chosen: Color,
+    on_chosen: Color,
     /// The pixels of the hard shadow, which lie inside the chip's cell.
     shadow: u16,
     shade: Color,
@@ -153,6 +157,12 @@ impl Chips {
             ink: plate.ink,
             paper: plate.paper,
             plate,
+            chosen: style.roles.chip.unwrap_or(plate.ink),
+            on_chosen: style.on(
+                style.roles.chip.unwrap_or(plate.ink),
+                style.roles.chip.is_some(),
+                plate.paper,
+            ),
             shadow: style.shadow,
             shade: style.shade(plate.fill),
         })
@@ -362,7 +372,7 @@ impl Chips {
                 cell.height.saturating_sub(self.shadow),
             );
             let back = if i == chosen {
-                Some(self.ink)
+                Some(self.chosen)
             } else {
                 self.plate.fill
             };
@@ -379,7 +389,10 @@ impl Chips {
                 paint::push(paint, Paint::Focus(body, radius, None, back))?;
             }
             if self.plate.outline {
-                paint::push(paint, Paint::Focus(body, radius, Some(border), self.ink))?;
+                paint::push(
+                    paint,
+                    Paint::Focus(body, radius, Some(border), self.plate.line),
+                )?;
             }
             if focus == Some(i) {
                 let out = self.border.saturating_mul(2);
@@ -438,7 +451,11 @@ impl Chips {
             let fitted = text::fit(font, size, label, room)?;
             let wide = font.measure_text(size, &fitted)?;
             let x = f32::from(cell.x) + (f32::from(cell.width) - wide).max(0.0) / 2.0;
-            let ink = if i == chosen { self.paper } else { self.ink };
+            let ink = if i == chosen {
+                self.on_chosen
+            } else {
+                self.ink
+            };
             text::label(paint, font, &fitted, size, x, *cell, ink, Some(*cell))?;
         }
         Ok(())
