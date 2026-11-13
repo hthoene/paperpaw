@@ -212,8 +212,9 @@ pub fn services(wired: Wired) -> &'static [Service<'static>] {
 /// The consent features a plugin file on the card (a card plugin) may ask
 /// for: the families it is allowed to reach, no more. `uses.network` (HTTP and
 /// sockets), `uses.storage` and `uses.library` where those are wired. Not
-/// offered, whatever is wired, so a card plugin that asks for one is refused at
-/// admission: `uses.secrets` (it reaches other plugins' secrets, their names and
+/// offered, whatever is wired, so a card plugin that asks for one does not get
+/// it (refused at admission only if it requires it, which no plugin does of
+/// these): `uses.secrets` (it reaches other plugins' secrets, their names and
 /// labels, never the values), `uses.registry`, `uses.power`, `uses.wifi`, and
 /// those `features` leaves out too (`uses.install`, `uses.firmware`,
 /// `uses.bluetooth`). The first-party plugins that are linked into the firmware

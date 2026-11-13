@@ -122,21 +122,37 @@ fn a_card_plugin_is_refused_the_service_of_a_family_that_is_not_wired() {
 }
 
 #[test]
-fn a_card_plugin_that_requires_a_first_party_feature_is_refused_whatever_is_wired() {
-    // `uses.power`, and `uses.firmware` with `uses.install`: required, so no
-    // admission; a linked plugin has them.
-    for id in ["power", "update"] {
-        assert!(kept(id, &card_host(Wired::ALL)).is_err(), "{id}");
+fn a_card_plugin_that_requires_a_family_feature_is_refused_where_it_is_not_wired() {
+    // `uses.storage` and `uses.library` are required by `reader`, `uses.network`
+    // and `uses.storage` by `transfer`: no admission without the family.
+    let bare = card_host(Wired::default());
+    for id in ["reader", "transfer", "files"] {
+        assert!(kept(id, &bare).is_err(), "{id}");
     }
-    for id in ["power", "update"] {
-        assert!(kept(id, &host(Wired::ALL)).is_ok(), "{id} linked");
+    assert!(kept("reader", &card_host(Wired::ALL)).is_ok());
+}
+
+#[test]
+fn a_card_plugin_asking_for_a_first_party_feature_does_not_get_it() {
+    // `power` (`uses.power`), `wifi` and `transfer` (`uses.wifi`) ask for
+    // features a linked plugin has; on the card list they are admitted without
+    // them (the host denies the calls the feature gates), never with them.
+    for (id, feature) in [
+        ("power", "uses.power"),
+        ("wifi", "uses.wifi"),
+        ("transfer", "uses.wifi"),
+    ] {
+        let linked = kept(id, &host(Wired::ALL)).unwrap();
+        assert!(linked.iter().any(|f| f == feature), "{id}: {linked:?}");
+        let card = kept(id, &card_host(Wired::ALL)).unwrap();
+        assert!(!card.iter().any(|f| f == feature), "{id}: {card:?}");
     }
 }
 
 #[test]
 fn a_card_plugin_never_gets_the_feature_that_reaches_other_plugins_secrets() {
-    // `settings` asks for `uses.secrets` and `uses.power` but does not require
-    // them: on the card list it is admitted without them, on the linked list it
+    // `settings` asks for `uses.secrets` and `uses.power` (it does not require
+    // them): on the card list it is admitted without them, on the linked list it
     // keeps both. Without the bit the host denies the calls it gates
     // (`secrets_service`: only the owner reads, and only `uses.secrets` lists
     // another plugin's names).
