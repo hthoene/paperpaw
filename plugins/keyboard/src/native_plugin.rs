@@ -78,6 +78,8 @@ struct Dialog {
     nested: Option<RequestId>,
     /// Typing updates are still taken by the host.
     live: bool,
+    /// Where the last frame's region began on the screen.
+    origin: (i32, i32),
 }
 
 impl Dialog {
@@ -177,6 +179,7 @@ impl Plugin for NativeKeyboard {
         let view = self.screens.top(token).ok_or(Error::State)?;
         match view {
             View::Dialog(d) => {
+                d.origin = (frame.rect.x, frame.rect.y);
                 // Nothing about the parts is queued where nobody asks.
                 d.style.describing = paint::asking(&mut frame);
                 let font = Font::acquire_role(host, FontRole::Ui)?;
@@ -364,6 +367,7 @@ impl NativeKeyboard {
             shape: copy(own.shape)?,
             nested: None,
             live: asked.live,
+            origin: (0, 0),
         })
     }
 
@@ -510,8 +514,15 @@ impl NativeKeyboard {
             return self.cancel(host).map(|()| Handled::Yes);
         }
         if let Some(go) = Move::of(action) {
-            d.board.move_focus(go);
-            Self::redraw(host)?;
+            // The key the focus leaves and the one it reaches, as on
+            // interface 6, not the screen.
+            match d.board.move_focus(go) {
+                Some((from, to)) => {
+                    let areas = [Some(d.board.focus_area(from)), Some(d.board.focus_area(to))];
+                    paperpaw_ui_kit::list::redraw_areas(host, d.origin, areas)?;
+                }
+                None => Self::redraw(host)?,
+            }
             return Ok(Handled::Yes);
         }
         // Typing a password, nothing else runs (see the module's top).
