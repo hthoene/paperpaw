@@ -446,8 +446,7 @@ impl PanelView {
                 )?;
             }
             let color = if on && !faint { style.paper } else { ink };
-            let room =
-                f32::from(rect.width.saturating_sub(style.margin.saturating_mul(2))).max(1.0);
+            let room = f32::from(button_room(rect.width, style.margin)).max(1.0);
             let fitted = text::fit(font, style.small, label, room)?;
             let wide = font.measure_text(style.small, &fitted)?;
             let x = f32::from(rect.x) + (f32::from(rect.width) - wide).max(0.0) / 2.0;
@@ -465,7 +464,8 @@ impl PanelView {
             Control::Step(_, step) => {
                 button(body, if step < 0 { "\u{2212}" } else { "+" }, false)?;
                 if step > 0 {
-                    self.draw_number(body, font, style, part, rect)?;
+                    let shown = self.number_text(host, messages, part)?;
+                    self.draw_number(body, font, style, &shown, rect)?;
                 }
                 Ok(())
             }
@@ -481,8 +481,8 @@ impl PanelView {
             Control::Open(_) => {
                 let value = match &part.info {
                     Some(info) => {
-                        crate::native_plugin::value_text(info, on_text, off_text, &mut |key| {
-                            messages.copy(host, key)
+                        crate::native_plugin::value_text(info, on_text, off_text, &mut |key, n| {
+                            crate::native_plugin::say(messages, host, key, n)
                         })?
                     }
                     None => String::new(),
@@ -522,26 +522,44 @@ impl PanelView {
         }
     }
 
+    /// The number of a stepped setting with its unit as the catalogs say
+    /// it (*9 pt*); empty where it has no number.
+    fn number_text(
+        &self,
+        host: &Host<'_>,
+        messages: &mut Messages,
+        part: &Part,
+    ) -> Result<String, Error> {
+        let Some(info) = part.info.as_ref() else {
+            return Ok(String::new());
+        };
+        let Some(Value::Int(now)) = info.value.as_ref() else {
+            return Ok(String::new());
+        };
+        model::said_with_unit(*now, &info.unit, &mut |key, n| {
+            crate::native_plugin::say(messages, host, key, Some(n))
+        })
+    }
+
     /// A number's value between its `−` and its `+`, drawn beside the `+`.
     fn draw_number(
         &self,
         body: &mut Vec<Paint>,
         font: &Font<'_>,
         style: &Style,
-        part: &Part,
+        shown: &str,
         plus: Rect,
     ) -> Result<(), Error> {
-        let Some(Value::Int(now)) = part.info.as_ref().and_then(|i| i.value.as_ref()) else {
+        if shown.is_empty() {
             return Ok(());
-        };
-        let shown = model::with_unit(*now, part.info.as_ref().map_or("", |i| i.unit.as_str()))?;
-        let wide = font.measure_text(style.small, &shown)?;
+        }
+        let wide = font.measure_text(style.small, shown)?;
         let x = f32::from(plus.x) - style.gap as f32 - wide;
         let area = Rect::new(0, plus.y, plus.x, plus.height);
         text::label(
             body,
             font,
-            &shown,
+            shown,
             style.small,
             x.max(0.0),
             area,
@@ -756,6 +774,13 @@ impl PanelView {
 ///
 /// # Errors
 /// [`Error::NoMemory`] and the host's refusals other than "no such key".
+/// The room for a button's label: its width less the margin on each side,
+/// but a small round button (`−`, `+`) keeps most of its width, so its sign
+/// is never cut to `…`.
+fn button_room(width: u16, margin: u16) -> u16 {
+    width.saturating_sub(margin.min(width / 8).saturating_mul(2))
+}
+
 fn choice_labels(
     values: &[String],
     translate: &mut dyn FnMut(&str) -> Result<String, Error>,
@@ -787,5 +812,15 @@ mod tests {
         // A real failure still fails.
         let mut refused = |_: &str| Err(Error::NoMemory);
         assert_eq!(choice_labels(&values, &mut refused), Err(Error::NoMemory));
+    }
+
+    #[test]
+    fn a_small_step_button_keeps_room_for_its_sign() {
+        // X4: a 44 px round button and a 20 px margin left 4 px, so `−`
+        // and `+` were drawn as `…`.
+        assert_eq!(button_room(44, 20), 34);
+        // A wide button keeps its margins.
+        assert_eq!(button_room(400, 20), 360);
+        assert_eq!(button_room(0, 20), 0);
     }
 }
